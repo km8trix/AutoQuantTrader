@@ -157,6 +157,36 @@ def vendor_record(
     )
 
 
+def daily_vendor_record(
+    session: ExchangeSession,
+    *,
+    captured_at: datetime,
+    source_sequence: int,
+) -> VendorBarRecord:
+    return VendorBarRecord(
+        source_id="fixture-feed",
+        source_record_id=f"SPY-{session.session_label.isoformat()}-daily-r1",
+        source_sequence=source_sequence,
+        symbol="SPY",
+        venue="XNYS",
+        interval=BarInterval.ONE_DAY,
+        interval_start=session.opens_at,
+        interval_end=session.closes_at,
+        vendor_published_at=captured_at,
+        received_at=captured_at,
+        available_at=captured_at,
+        ingested_at=captured_at + timedelta(seconds=1),
+        declared_session_label=session.session_label,
+        observation_key=f"SPY:{session.session_label.isoformat()}:1d",
+        open_price=Decimal("100"),
+        high_price=Decimal("102"),
+        low_price=Decimal("99"),
+        close_price=Decimal("101"),
+        volume=1_000_000,
+        revision=1,
+    )
+
+
 def normalized_bars(
     *records: VendorBarRecord,
     mode: CaptureMode = CaptureMode.HISTORICAL,
@@ -206,6 +236,110 @@ def test_exchange_calendar_explicitly_represents_dst_and_half_days() -> None:
     assert calendar.sessions[0].opens_at.hour == 14
     assert calendar.sessions[1].opens_at.hour == 13
     assert len(calendar.sessions[2].expected_starts(BarInterval.ONE_MINUTE)) == 210
+    assert calendar.sessions[0].expected_starts(BarInterval.ONE_DAY) == (
+        calendar.sessions[0].opens_at,
+    )
+    assert calendar.sessions[1].expected_starts(BarInterval.ONE_DAY) == (
+        calendar.sessions[1].opens_at,
+    )
+    captured_at = datetime(2026, 3, 10, 12, 0, tzinfo=UTC)
+    normalized = normalize_records(
+        (
+            daily_vendor_record(
+                calendar.sessions[0],
+                captured_at=captured_at,
+                source_sequence=1,
+            ),
+            daily_vendor_record(
+                calendar.sessions[1],
+                captured_at=captured_at,
+                source_sequence=2,
+            ),
+        ),
+        calendar=calendar,
+        security_master=security_master(),
+    )
+    assert normalized.publishable
+    assert tuple(bar.interval_start for bar in normalized.bars) == (
+        calendar.sessions[0].opens_at,
+        calendar.sessions[1].opens_at,
+    )
+
+
+def test_daily_bars_are_complete_exchange_sessions_including_half_days() -> None:
+    regular = ExchangeSession(
+        venue="XNYS",
+        session_label=date(2026, 7, 2),
+        opens_at=datetime(2026, 7, 2, 13, 30, tzinfo=UTC),
+        closes_at=datetime(2026, 7, 2, 20, 0, tzinfo=UTC),
+    )
+    half_day = ExchangeSession(
+        venue="XNYS",
+        session_label=date(2026, 7, 3),
+        opens_at=datetime(2026, 7, 3, 13, 30, tzinfo=UTC),
+        closes_at=datetime(2026, 7, 3, 17, 0, tzinfo=UTC),
+        kind=SessionKind.HALF_DAY,
+    )
+    calendar = ExchangeCalendar(
+        calendar_id="XNYS-daily-test",
+        version="v1",
+        venue="XNYS",
+        timezone="America/New_York",
+        sessions=(regular, half_day),
+    )
+    captured_at = datetime(2026, 7, 4, 12, 0, tzinfo=UTC)
+    records = (
+        daily_vendor_record(regular, captured_at=captured_at, source_sequence=1),
+        daily_vendor_record(half_day, captured_at=captured_at, source_sequence=2),
+    )
+
+    result = normalize_records(records, calendar=calendar, security_master=security_master())
+
+    assert result.publishable
+    assert tuple(bar.interval for bar in result.bars) == (
+        BarInterval.ONE_DAY,
+        BarInterval.ONE_DAY,
+    )
+    assert result.bars[0].interval_end - result.bars[0].interval_start == timedelta(
+        hours=6, minutes=30
+    )
+    assert result.bars[1].interval_end - result.bars[1].interval_start == timedelta(
+        hours=3, minutes=30
+    )
+    assert regular.expected_starts(BarInterval.ONE_DAY) == (regular.opens_at,)
+    assert half_day.expected_starts(BarInterval.ONE_DAY) == (half_day.opens_at,)
+    with pytest.raises(ValueError, match="exchange session"):
+        _ = BarInterval.ONE_DAY.duration
+
+
+def test_daily_normalization_rejects_a_partial_session() -> None:
+    session = ExchangeSession(
+        venue="XNYS",
+        session_label=SESSION_LABEL,
+        opens_at=SESSION_OPEN,
+        closes_at=SESSION_OPEN + timedelta(hours=6, minutes=30),
+    )
+    calendar = ExchangeCalendar(
+        calendar_id="XNYS-daily-test",
+        version="v1",
+        venue="XNYS",
+        timezone="America/New_York",
+        sessions=(session,),
+    )
+    record = daily_vendor_record(
+        session,
+        captured_at=datetime(2026, 7, 16, 12, 0, tzinfo=UTC),
+        source_sequence=1,
+    )
+
+    result = normalize_records(
+        (replace(record, interval_start=session.opens_at + timedelta(minutes=1)),),
+        calendar=calendar,
+        security_master=security_master(),
+    )
+
+    assert result.bars == ()
+    assert {issue.code for issue in result.issues} == {QualityCode.SESSION_MISMATCH}
 
 
 def test_calendar_rejects_wrong_local_session_label_and_overlaps() -> None:
@@ -664,6 +798,152 @@ def test_explicit_session_scope_detects_an_entire_missing_session() -> None:
     )
     assert gap.session_label == next_label
     assert dict(gap.details)["count"] == "4"
+
+    daily_result = normalize_records(
+        (
+            daily_vendor_record(
+                calendar.sessions[0],
+                captured_at=datetime(2026, 7, 17, 12, 0, tzinfo=UTC),
+                source_sequence=1,
+            ),
+        ),
+        calendar=calendar,
+        security_master=security_master(),
+    )
+    assert daily_result.publishable
+    daily_issues = check_quality(
+        daily_result.bars,
+        calendar=calendar,
+        as_of=daily_result.bars[0].available_at,
+        stale_after=timedelta(days=2),
+        expected_session_labels=(next_label,),
+    )
+    daily_gap = next(issue for issue in daily_issues if issue.code is QualityCode.GAP)
+    assert dict(daily_gap.details)["count"] == "1"
+
+
+def test_default_daily_quality_detects_an_intervening_missing_session() -> None:
+    sessions = tuple(
+        ExchangeSession(
+            venue="XNYS",
+            session_label=date(2026, 7, day),
+            opens_at=datetime(2026, 7, day, 13, 30, tzinfo=UTC),
+            closes_at=datetime(2026, 7, day, 20, 0, tzinfo=UTC),
+        )
+        for day in (13, 14, 15)
+    )
+    calendar = ExchangeCalendar(
+        calendar_id="XNYS-three-days",
+        version="v1",
+        venue="XNYS",
+        timezone="America/New_York",
+        sessions=sessions,
+    )
+    captured_at = datetime(2026, 7, 16, 12, 0, tzinfo=UTC)
+    normalized = normalize_records(
+        (
+            daily_vendor_record(sessions[0], captured_at=captured_at, source_sequence=1),
+            daily_vendor_record(sessions[2], captured_at=captured_at, source_sequence=2),
+        ),
+        calendar=calendar,
+        security_master=security_master(),
+    )
+    assert normalized.publishable
+
+    issues = check_quality(
+        normalized.bars,
+        calendar=calendar,
+        as_of=captured_at,
+        stale_after=timedelta(days=2),
+    )
+
+    gap = next(issue for issue in issues if issue.code is QualityCode.GAP)
+    assert gap.session_label == date(2026, 7, 14)
+    assert dict(gap.details)["count"] == "1"
+
+
+def test_default_intraday_quality_does_not_infer_unscoped_whole_sessions() -> None:
+    sessions = tuple(
+        ExchangeSession(
+            venue="XNYS",
+            session_label=date(2026, 7, day),
+            opens_at=datetime(2026, 7, day, 13, 30, tzinfo=UTC),
+            closes_at=datetime(2026, 7, day, 13, 34, tzinfo=UTC),
+        )
+        for day in (13, 14, 15)
+    )
+    calendar = ExchangeCalendar(
+        calendar_id="XNYS-sparse-minute-sample",
+        version="v1",
+        venue="XNYS",
+        timezone="America/New_York",
+        sessions=sessions,
+    )
+
+    def first_minute(session: ExchangeSession, sequence: int) -> VendorBarRecord:
+        end = session.opens_at + timedelta(minutes=1)
+        return replace(
+            vendor_record(
+                interval_start=session.opens_at,
+                declared_session_label=session.session_label,
+                source_record_id=f"SPY-{session.session_label.isoformat()}-minute",
+                vendor_published_at=end + timedelta(seconds=1),
+                received_at=end + timedelta(seconds=2),
+                ingested_at=end + timedelta(seconds=3),
+            ),
+            source_sequence=sequence,
+        )
+
+    normalized = normalize_records(
+        (first_minute(sessions[0], 1), first_minute(sessions[2], 2)),
+        calendar=calendar,
+        security_master=security_master(),
+    )
+    assert normalized.publishable
+
+    issues = check_quality(
+        normalized.bars,
+        calendar=calendar,
+        as_of=normalized.bars[-1].available_at,
+        stale_after=timedelta(days=3),
+    )
+
+    assert QualityCode.GAP not in {issue.code for issue in issues}
+
+
+def test_quality_keeps_daily_and_minute_freshness_and_returns_separate() -> None:
+    calendar = short_calendar()
+    daily = replace(
+        daily_vendor_record(
+            calendar.sessions[0],
+            captured_at=SESSION_OPEN + timedelta(minutes=10),
+            source_sequence=10,
+        ),
+        open_price=Decimal("200"),
+        high_price=Decimal("202"),
+        low_price=Decimal("199"),
+        close_price=Decimal("201"),
+    )
+    normalized = normalize_records(
+        (vendor_record(0), daily),
+        calendar=calendar,
+        security_master=security_master(),
+    )
+    assert normalized.publishable
+
+    issues = check_quality(
+        normalized.bars,
+        calendar=calendar,
+        as_of=daily.available_at + timedelta(days=1),
+        stale_after=timedelta(minutes=5),
+        stale_after_by_interval={BarInterval.ONE_DAY: timedelta(days=2)},
+        extreme_return_threshold=Decimal("0.25"),
+    )
+
+    stale = [issue for issue in issues if issue.code is QualityCode.STALE]
+    assert len(stale) == 1
+    assert dict(stale[0].details)["interval"] == BarInterval.ONE_MINUTE.value
+    assert QualityCode.EXTREME_RETURN not in {issue.code for issue in issues}
 
 
 def test_quality_detects_duplicates_staleness_extreme_returns_and_revision_errors() -> None:

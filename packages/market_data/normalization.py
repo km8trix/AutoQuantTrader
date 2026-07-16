@@ -197,11 +197,11 @@ def normalize_records(
             else:
                 available_at = vendor_published_at
 
-            if interval_end - interval_start != record.interval.duration:
+            if not record.interval.has_valid_span(interval_start, interval_end):
                 raise ValueError("vendor interval does not match its declared duration")
-            session = calendar.session_for_interval(interval_start, interval_end)
+            session = calendar.session_for_bar(interval_start, interval_end, record.interval)
             if session is None:
-                raise ValueError("vendor bar is outside an explicit exchange session")
+                raise ValueError("vendor bar does not match an explicit exchange session")
             if record.declared_session_label is not None and (
                 record.declared_session_label != session.session_label
             ):

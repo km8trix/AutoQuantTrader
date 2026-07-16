@@ -41,8 +41,21 @@ class ExchangeSession:
         require_utc(end, "end")
         return self.opens_at <= start < end <= self.closes_at
 
+    def contains_bar(self, start: datetime, end: datetime, interval: BarInterval) -> bool:
+        """Return whether a bar obeys both interval and session boundaries."""
+
+        if not self.contains_interval(start, end) or not interval.has_valid_span(start, end):
+            return False
+        if interval is BarInterval.ONE_DAY:
+            return start == self.opens_at and end == self.closes_at
+        return True
+
     def expected_starts(self, interval: BarInterval) -> tuple[datetime, ...]:
-        duration = interval.duration
+        duration = interval.fixed_duration
+        if duration is None:
+            if interval is BarInterval.ONE_DAY:
+                return (self.opens_at,)
+            raise AssertionError(f"unsupported bar interval: {interval}")
         session_duration = self.closes_at - self.opens_at
         if session_duration % duration:
             raise ValueError("session duration is not divisible by the requested interval")
@@ -110,6 +123,19 @@ class ExchangeCalendar:
         require_utc(end, "end")
         return next(
             (session for session in self.sessions if session.contains_interval(start, end)),
+            None,
+        )
+
+    def session_for_bar(
+        self,
+        start: datetime,
+        end: datetime,
+        interval: BarInterval,
+    ) -> ExchangeSession | None:
+        require_utc(start, "start")
+        require_utc(end, "end")
+        return next(
+            (session for session in self.sessions if session.contains_bar(start, end, interval)),
             None,
         )
 

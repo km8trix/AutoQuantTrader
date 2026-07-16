@@ -1,0 +1,13 @@
+{
+  "authorization_id": "replace-with-reviewed-authorization-id",
+  "effective_from": "2026-01-01",
+  "effective_through": null,
+  "permits_local_snapshot_storage": false,
+  "permits_research_use": false,
+  "provider": "nasdaq-data-link",
+  "reviewed_at": "2026-01-01T00:00:00Z",
+  "reviewer_id": "replace-with-reviewer-id",
+  "schema_version": "sharadar-sfp-capture-authorization-v1",
+  "table": "SHARADAR/SFP",
+  "terms_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+}

@@ -70,6 +70,7 @@ dev = [
     { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
+    { name = "python-dotenv" },
     { name = "ruff" },
 ]
 
@@ -89,6 +90,7 @@ dev = [
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "mypy", specifier = ">=1.14,<2" },
     { name = "pytest", specifier = ">=8.3,<9" },
+    { name = "python-dotenv", specifier = ">=1.0,<2" },
     { name = "ruff", specifier = ">=0.9,<1" },
 ]
 

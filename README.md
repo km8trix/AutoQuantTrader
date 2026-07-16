@@ -21,11 +21,13 @@ replay, paper trading, reconciliation, and operational-readiness checks.
 
 ## Current implementation status
 
-The checked-in application implements the Phase 0 walking thread and a **local
-Phase 1B point-in-time data-plane and fail-closed admission framework**. It remains simulation
-only: it does not connect to a licensed market-data vendor or broker, submit
-paper orders, or submit live orders. Paper and live startup fail closed. The
-trader entrypoint remains an explicit `not_ready` diagnostic.
+The local application implements the Phase 0 walking thread and a **local Phase
+1A/1B point-in-time data plane and fail-closed admission framework**. Its
+production worker/trading runtime does not ingest from an admitted market-data
+vendor or connect to a broker, submit paper orders, or submit live orders.
+Secret-safe access probes and separately authorized research-capture tools do
+not change that state. Paper and live startup fail closed. The trader entrypoint
+remains an explicit `not_ready` diagnostic.
 
 The walking thread uses trusted clocks, payload-bound risk decisions, atomic
 account cash reservations, single-use consumption, and a durable submission
@@ -45,6 +47,26 @@ including the persisted admission profile, deterministic gate report, and
 individual checks. The fixture is permanently blocked from admission. Selecting and admitting a real
 licensed point-in-time vendor remains required before Phase 1 can be declared
 complete or paper trading can begin.
+
+The market-data boundary also supports session-defined daily bars and a bounded,
+immutable Sharadar SFP research capture. SFP's adjusted OHLCV is preserved with
+its actual basis and is deliberately blocked from the canonical raw execution
+lane; it never enters canonical raw bars. Future exact-page capture is
+fail-closed until a reviewed authorization artifact permits local research
+storage for the requested dates and binds the digest of the applicable terms.
+The capture does not alter admission or trading readiness.
+
+ADR 0012's offline Tiingo EOD qualification slice is implemented against
+repository-owned synthetic fixtures. It hardens strict schema parsing,
+documented-raw-candidate versus adjusted field separation, corporate-action
+candidates, symbol/session coverage, receipt-time causal knowledge, and
+deterministic identity. Results are permanently marked `synthetic_contract_only`
+and cannot emit canonical bars or admission evidence. The slice performs no
+Tiingo capture and makes no claim about a live payload. Exact capture and a
+production `HistoricalBarSource` remain blocked until Tiingo-specific storage
+rights, the exact product and venue provenance, identity/calendar/action
+authorities, publication/revision lineage, and observed bytes are reviewed and
+qualified.
 
 ## Quickstart
 
@@ -101,3 +123,31 @@ uv run python scripts/evaluate_market_data_admission.py \
 
 See [Market-data admission](docs/admission/README.md) before preparing a vendor
 evidence bundle.
+
+Candidate connectivity can be checked without printing credentials, downloading
+bulk history, or changing admission state:
+
+    make market-data-probe DATE=2026-07-14 SYMBOL=SPY
+
+The probe parses the owner-only, gitignored .env without interpolation or shell
+evaluation, loads only the three market-data keys into its process, makes one
+bounded read per candidate, and reports sanitized access facts. A successful
+probe is not license, point-in-time, or admission evidence by itself.
+
+A completed Sharadar range can be archived for offline, research-only
+qualification only after storage rights are reviewed:
+
+```bash
+make sharadar-sfp-capture START_DATE=2026-07-14 \
+  AUTHORIZATION=path/to/reviewed-authorization.json
+```
+
+Start from the fail-closed
+[authorization template](docs/admission/sharadar-sfp-capture-authorization.template.json),
+replace its IDs and terms digest, and set its permission flags to `true` only
+when the review supports both local snapshot storage and research use. Exact
+pages and their secret-free manifest always stay under the fixed, gitignored
+`.local/vendor-snapshots/sharadar-sfp` tree. The manifest binds the reviewed
+authorization, terms, and observed response-column schema; offline loading also
+binds the exact capture to the pinned calendar semantics. Admission and trading
+effects remain `none`.
