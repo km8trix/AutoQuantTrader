@@ -1,0 +1,28 @@
+{
+  "adapter_version": "tiingo-eod-capture-v1",
+  "approved": false,
+  "calendar_authority": "replace-with-reviewed-calendar-authority",
+  "corporate_action_authority": "replace-with-reviewed-corporate-action-authority",
+  "correction_policy": "replace-with-reviewed-correction-policy",
+  "dataset": "end-of-day",
+  "endpoint_template": "https://api.tiingo.com/tiingo/daily/{symbol}/prices",
+  "identifier_authority": "replace-with-reviewed-identifier-authority",
+  "market_provenance": "replace-with-reviewed-market-provenance",
+  "provider": "tiingo",
+  "profile_id": "replace-with-reviewed-profile-id",
+  "reviewed_at": "2026-01-01T00:00:00Z",
+  "reviewer_id": "replace-with-profile-reviewer-id",
+  "schema_sha256": "d1154dece587151bdd71823b92239d111db4e1ec7d25dceb3eb381a9d551402f",
+  "schema_version": "tiingo-eod-acquisition-profile-v1",
+  "scope": {
+    "end_date": "2026-01-01",
+    "start_date": "2026-01-01",
+    "symbols": [
+      "DIA",
+      "IWM",
+      "QQQ",
+      "SPY"
+    ]
+  },
+  "source_id": "tiingo-eod-rest"
+}

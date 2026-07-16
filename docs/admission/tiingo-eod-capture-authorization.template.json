@@ -1,0 +1,14 @@
+{
+  "authorization_id": "replace-with-reviewed-authorization-id",
+  "dataset": "end-of-day",
+  "effective_from": "2026-01-01",
+  "effective_through": null,
+  "permits_local_snapshot_storage": false,
+  "permits_research_use": false,
+  "profile_contract_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "provider": "tiingo",
+  "reviewed_at": "2026-01-01T00:00:00Z",
+  "reviewer_id": "replace-with-reviewer-id",
+  "schema_version": "tiingo-eod-capture-authorization-v1",
+  "terms_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+}

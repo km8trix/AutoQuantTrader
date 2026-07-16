@@ -15,5 +15,6 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0010: market-data provider qualification routing](0010-market-data-provider-qualification-routing.md)
 - [ADR 0011: daily-first capture and raw-lane separation](0011-daily-first-capture-and-raw-lane-separation.md)
 - [ADR 0012: Tiingo EOD offline-first qualification](0012-tiingo-eod-offline-first-qualification.md)
+- [ADR 0013: Tiingo EOD authorization-gated capture](0013-tiingo-eod-authorization-gated-capture.md)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
