@@ -2,10 +2,13 @@
 
 ## Current implementation status
 
-The Phase 0 foundation and bounded Phase 1A/1B point-in-time ingestion and
-admission slices are
-implemented as a local, simulation-only browser application. In addition to the
-walking thread and safety controls, a worker-driven recorded JSONL adapter now
+The substantial local Phase 0 foundation/walking thread and bounded Phase 1A/1B
+point-in-time ingestion and admission slices are implemented as a local,
+simulation-only browser application. Production Auth0/OIDC server sessions and
+an enabled server SSE stream remain Phase 6 hardening work; their contracts and
+browser client seams exist, but this status does not claim those production
+controls are complete. In addition to the walking thread and safety controls, a
+worker-driven recorded JSONL adapter now
 publishes deterministic content-addressed raw/normalized Parquet, PostgreSQL
 catalog metadata, causal revision selection, security lifecycle, corporate
 actions, data quality, quarantine, and functional browser views.
@@ -13,11 +16,31 @@ actions, data quality, quarantine, and functional browser views.
 Phase 1B now provides the provider-neutral source seam, strict evidence evaluator,
 durable admission reports, and browser visibility. It is **implemented locally
 against synthetic contract fixtures; licensed vendor admission remains pending**.
-It is not evidence that a vendor's real
-history, entitlement, identifiers, calendars, corrections, or corporate actions
-have passed qualification. The trader remains `not_ready`; no paper or live
-broker/data adapter is enabled. The remaining Phase 1 vendor admission and
-Phases 2-8 below retain their exit gates.
+ADR 0011 now narrows the first external implementation to session-defined daily
+data because the 2026-07-16 probe found Sharadar SFP and Tiingo EOD sample rows
+for DIA, IWM, QQQ, and SPY while Massive raw trades and quotes returned HTTP 403.
+The canonical model now supports exchange-session `1d` bars, and the first
+strict SFP capture/parser archives provider bytes and preserves their explicit
+adjustment bases. Because SFP supplies adjusted OHLCV and only one unadjusted
+close, it deliberately cannot emit canonical raw execution bars. Future exact-
+page capture requires a reviewed, date-effective authorization artifact with a
+terms digest; output is fixed beneath the ignored `.local` tree. Capture
+manifests bind the observed response-column schema, and offline datasets bind
+the exact bytes to pinned calendar semantics. ADR 0012's safe Tiingo slice is
+now implemented as strict offline qualification against repository-owned
+synthetic EOD fixtures. It uses a Tiingo-specific raw-candidate basis, binds
+provider, dataset, scope, schema, calendar, receipt, and synthetic evidence kind
+into deterministic identity, and refuses canonical-bar or admission-evidence
+conversion. It deliberately precedes and does not authorize exact-page capture
+or a production `HistoricalBarSource`: publication/vintage timing, venue
+provenance, identity authorities, and licensed storage rights remain unresolved.
+Massive remains the deferred intraday candidate. No credential,
+authorization, synthetic fixture, or capture has been
+treated as admission or evidence that a vendor's real history, entitlement,
+identifiers, calendars, corrections, or corporate actions have passed
+qualification. The trader remains `not_ready`; no paper or live broker/data
+adapter is enabled. The remaining Phase 1 vendor admission and Phases 2-8 below
+retain their exit gates.
 
 ## Delivery strategy
 
@@ -95,11 +118,27 @@ Passing one layer cannot substitute for another.
   adjusted values cannot satisfy the raw execution bar; ticker change,
   delisting, DST, half-day, missing-session, split, and dividend fixtures are
   covered by tests.
-- Still required for the Phase 1 exit gate: select a licensed point-in-time
-  vendor, freeze the ETF allow-list and identifier authority, implement its real
-  historical adapter, record entitlement terms, and run the same admission
-  suite against licensed payloads. Synthetic fixture success cannot satisfy
-  this gate.
+- Newly complete: session-defined daily interval validation, immutable bounded
+  SFP page/manifest capture behind reviewed storage authorization, fixed local
+  output, cursor and digest verification, observed response-column schema
+  binding, pinned-calendar semantic binding, per-symbol/session coverage,
+  explicit adjusted field semantics, and a hard block against mapping mixed SFP
+  fields to raw execution bars.
+- Newly complete: an offline Tiingo EOD contract parser and synthetic
+  qualification corpus covering strict schema and numeric bounds, documented-
+  raw-candidate versus adjusted separation, split/dividend fields, exact
+  symbol/session coverage, receipt-time knowledge, and scope/calendar-bound
+  deterministic identity. Results are permanently `synthetic_contract_only`
+  and fail closed on canonical-bar and admission-evidence conversion. This
+  slice performs no network capture, makes no live-payload claim, and cannot
+  implement or satisfy the production `HistoricalBarSource` contract.
+- Still required for the Phase 1 exit gate: confirm licensed use, verify the
+  frozen DIA, IWM, QQQ, and SPY allow-list plus a non-tradable lifecycle corpus,
+  freeze identifier/calendar/action authorities, complete reviewed capture
+  authorization, qualify genuinely raw daily fields from exact retained bytes
+  or a validated reconstruction, implement the resulting
+  `HistoricalBarSource`, and run the admission suite against licensed payloads.
+  Synthetic tests and research captures cannot satisfy this gate.
 
 ### Current Phase 1B admission implementation
 
@@ -437,7 +476,7 @@ Every change includes:
 | Orders | DAY market orders, next-event simulation | Smallest causally defensible execution slice |
 | Active strategies | One per brokerage account | Defers netting, virtual sleeves, internal crosses, and fill allocation |
 | Broker | Alpaca paper | Paper-first API; capability contract preserves future portability |
-| Data | Licensed point-in-time provider; feed entitlement recorded | Historical revisions/universes and live quote scope drive validity |
+| Data | Daily-first: immutable Sharadar research capture and Tiingo offline synthetic EOD qualification implemented locally; Tiingo capture and `HistoricalBarSource` blocked; Massive intraday deferred; none admitted | Adjustment basis, publication/vintage timing, venue/identity authorities, historical revisions/universes, licensed storage/use, and live quote scope drive validity |
 | Account model | Explicit cash or margin policy | Determines settlement, buying power, ledger, and risk semantics |
 | Hosting | One region, managed PostgreSQL, object storage | Reliable non-HFT footprint with separable operational/research I/O |
 | UI | Desktop-browser React/Vite workspace, incremental from Phase 0 | Makes research and operations observable without adding native/mobile scope |

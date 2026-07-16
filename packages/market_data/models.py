@@ -75,11 +75,39 @@ class PriceBasis(StrEnum):
 
 class BarInterval(StrEnum):
     ONE_MINUTE = "1m"
+    ONE_DAY = "1d"
+
+    @property
+    def fixed_duration(self) -> timedelta | None:
+        """Return a wall-clock duration only for fixed-duration intervals.
+
+        Daily exchange bars are bounded by the pinned exchange session rather
+        than by 24 elapsed hours.  This keeps half-days and calendar changes
+        explicit at the normalization boundary.
+        """
+
+        if self is BarInterval.ONE_MINUTE:
+            return timedelta(minutes=1)
+        if self is BarInterval.ONE_DAY:
+            return None
+        raise AssertionError(f"unsupported bar interval: {self}")
 
     @property
     def duration(self) -> timedelta:
-        if self is BarInterval.ONE_MINUTE:
-            return timedelta(minutes=1)
+        duration = self.fixed_duration
+        if duration is None:
+            raise ValueError(f"{self.value} is bounded by an exchange session")
+        return duration
+
+    def has_valid_span(self, start: datetime, end: datetime) -> bool:
+        """Perform interval-local validation without calendar authority."""
+
+        span = end - start
+        duration = self.fixed_duration
+        if duration is not None:
+            return span == duration
+        if self is BarInterval.ONE_DAY:
+            return timedelta(0) < span <= timedelta(days=1)
         raise AssertionError(f"unsupported bar interval: {self}")
 
 
@@ -278,7 +306,12 @@ class VendorBarRecord:
 
 @dataclass(frozen=True, slots=True)
 class RawBar:
-    """Canonical unadjusted OHLCV bar used by execution-safe consumers."""
+    """Canonical unadjusted OHLCV fact used by execution-safe consumers.
+
+    Construction validates calendar-independent invariants. A daily bar becomes
+    canonical only after ``normalize_records`` or ``check_quality`` verifies its
+    exact bounds against the pinned exchange calendar.
+    """
 
     observation_id: str
     event_revision_id: str
@@ -336,7 +369,7 @@ class RawBar:
             require_utc(timestamp, field_name)
         if self.received_at is not None:
             require_utc(self.received_at, "received_at")
-        if self.interval_end - self.interval_start != self.interval.duration:
+        if not self.interval.has_valid_span(self.interval_start, self.interval_end):
             raise ValueError("bar interval does not match its declared duration")
         if self.event_time != self.interval_end:
             raise ValueError("a completed bar event_time must equal interval_end")

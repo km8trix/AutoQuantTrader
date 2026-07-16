@@ -7,7 +7,8 @@ COMPOSE ?= docker compose -f infra/compose/compose.yaml
 
 .PHONY: help bootstrap dev dev-detached db down logs ps api web worker trader migrate \
 	check backend-check frontend-check architecture-check test compose-check \
-	api-contracts api-contracts-check admission-evaluate
+	api-contracts api-contracts-check admission-evaluate market-data-probe \
+	sharadar-sfp-capture
 
 help: ## List developer commands.
 	@awk 'BEGIN {FS = ":.*## "; printf "AutoQuantTrader developer commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -45,6 +46,18 @@ worker: ## Ingest and evaluate the synthetic Phase 1B point-in-time fixture once
 
 admission-evaluate: ## Evaluate SPECIFICATION and EVIDENCE JSON; succeeds only if admitted.
 	$(UV) run python scripts/evaluate_market_data_admission.py --specification "$(SPECIFICATION)" --evidence "$(EVIDENCE)"
+
+market-data-probe: ## Read-only candidate access check; requires DATE=YYYY-MM-DD.
+	@test -n "$(DATE)" || (echo "DATE=YYYY-MM-DD is required" >&2; exit 2)
+	$(UV) run --no-env-file python scripts/probe_market_data_access.py \
+		--env-file .env --date "$(DATE)" --symbol "$(if $(SYMBOL),$(SYMBOL),SPY)"
+
+sharadar-sfp-capture: ## Archive SFP after reviewed storage authorization.
+	@test -n "$(START_DATE)" || (echo "START_DATE=YYYY-MM-DD is required" >&2; exit 2)
+	@test -n "$(AUTHORIZATION)" || (echo "AUTHORIZATION=path/to/reviewed.json is required" >&2; exit 2)
+	$(UV) run --no-env-file python scripts/capture_sharadar_sfp.py --env-file .env \
+		--authorization-file "$(AUTHORIZATION)" --start-date "$(START_DATE)" \
+		--end-date "$(if $(END_DATE),$(END_DATE),$(START_DATE))"
 
 trader: ## Run the local Phase 0 trader stub diagnostic once.
 	$(UV) run autoquant-trader --once

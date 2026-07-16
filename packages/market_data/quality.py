@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -223,7 +223,7 @@ def _session_issues(
         if (
             bar.venue != calendar.venue
             or session is None
-            or not session.contains_interval(bar.interval_start, bar.interval_end)
+            or not session.contains_bar(bar.interval_start, bar.interval_end, bar.interval)
         ):
             issues.append(
                 quality_issue(
@@ -257,6 +257,21 @@ def _gap_issues(
         for source_id, security_id, interval in observed_series:
             for session_label in expected_session_labels:
                 grouped.setdefault((source_id, security_id, interval, session_label), set())
+    else:
+        labels_by_series: dict[tuple[str, str, BarInterval], set[date]] = defaultdict(set)
+        for bar in selected:
+            labels_by_series[(bar.source_id, bar.security_id, bar.interval)].add(bar.session_label)
+        for (source_id, security_id, interval), labels in labels_by_series.items():
+            if interval is not BarInterval.ONE_DAY:
+                continue
+            first_label = min(labels)
+            last_label = max(labels)
+            for calendar_session in calendar.sessions:
+                if first_label <= calendar_session.session_label <= last_label:
+                    grouped.setdefault(
+                        (source_id, security_id, interval, calendar_session.session_label),
+                        set(),
+                    )
 
     for (source_id, security_id, interval, session_label), actual in sorted(
         grouped.items(),
@@ -307,29 +322,39 @@ def _stale_issues(
     selected: tuple[RawBar, ...],
     as_of: datetime,
     stale_after: timedelta,
+    stale_after_by_interval: Mapping[BarInterval, timedelta],
 ) -> list[QualityIssue]:
-    latest: dict[tuple[str, str], RawBar] = {}
+    latest: dict[tuple[str, str, BarInterval], RawBar] = {}
     for bar in selected:
-        key = (bar.source_id, bar.security_id)
+        key = (bar.source_id, bar.security_id, bar.interval)
         previous = latest.get(key)
         if previous is None or bar.available_at > previous.available_at:
             latest[key] = bar
-    return [
-        quality_issue(
-            QualityCode.STALE,
-            QualitySeverity.WARNING,
-            "latest market observation exceeds the configured age budget",
-            source_id=bar.source_id,
-            security_id=bar.security_id,
-            observation_id=bar.observation_id,
-            event_revision_id=bar.event_revision_id,
-            session_label=bar.session_label,
-            occurred_at=as_of,
-            details=(("age_seconds", str(int((as_of - bar.available_at).total_seconds()))),),
+    issues: list[QualityIssue] = []
+    for bar in latest.values():
+        age = as_of - bar.available_at
+        budget = stale_after_by_interval.get(bar.interval, stale_after)
+        if age <= budget:
+            continue
+        issues.append(
+            quality_issue(
+                QualityCode.STALE,
+                QualitySeverity.WARNING,
+                "latest market observation exceeds the configured age budget",
+                source_id=bar.source_id,
+                security_id=bar.security_id,
+                observation_id=bar.observation_id,
+                event_revision_id=bar.event_revision_id,
+                session_label=bar.session_label,
+                occurred_at=as_of,
+                details=(
+                    ("age_seconds", str(int(age.total_seconds()))),
+                    ("budget_seconds", str(int(budget.total_seconds()))),
+                    ("interval", bar.interval.value),
+                ),
+            )
         )
-        for bar in latest.values()
-        if as_of - bar.available_at > stale_after
-    ]
+    return issues
 
 
 def _extreme_return_issues(
@@ -337,9 +362,9 @@ def _extreme_return_issues(
     threshold: Decimal,
 ) -> list[QualityIssue]:
     issues: list[QualityIssue] = []
-    grouped: dict[tuple[str, str], list[RawBar]] = defaultdict(list)
+    grouped: dict[tuple[str, str, BarInterval], list[RawBar]] = defaultdict(list)
     for bar in selected:
-        grouped[(bar.source_id, bar.security_id)].append(bar)
+        grouped[(bar.source_id, bar.security_id, bar.interval)].append(bar)
     for series in grouped.values():
         ordered = sorted(series, key=lambda bar: (bar.interval_start, bar.event_revision_id))
         for previous, current in pairwise(ordered):
@@ -372,6 +397,7 @@ def check_quality(
     as_of: datetime,
     revision_policy: RevisionPolicy = RevisionPolicy.REVISED_AS_OF,
     stale_after: timedelta = timedelta(minutes=5),
+    stale_after_by_interval: Mapping[BarInterval, timedelta] | None = None,
     extreme_return_threshold: Decimal = Decimal("0.25"),
     expected_session_labels: tuple[date, ...] | None = None,
 ) -> tuple[QualityIssue, ...]:
@@ -380,6 +406,14 @@ def check_quality(
     require_utc(as_of, "as_of")
     if stale_after <= timedelta(0):
         raise ValueError("stale_after must be positive")
+    interval_budgets = {} if stale_after_by_interval is None else dict(stale_after_by_interval)
+    if any(
+        not isinstance(interval, BarInterval)
+        or not isinstance(budget, timedelta)
+        or budget <= timedelta(0)
+        for interval, budget in interval_budgets.items()
+    ):
+        raise ValueError("interval freshness budgets require known intervals and positive values")
     if not extreme_return_threshold.is_finite() or extreme_return_threshold <= 0:
         raise ValueError("extreme_return_threshold must be finite and positive")
     facts = tuple(bars)
@@ -393,7 +427,7 @@ def check_quality(
         *_duplicate_issues(facts),
         *_session_issues(selected, calendar),
         *_gap_issues(selected, calendar, expected_session_labels),
-        *_stale_issues(selected, as_of, stale_after),
+        *_stale_issues(selected, as_of, stale_after, interval_budgets),
         *_extreme_return_issues(selected, extreme_return_threshold),
     ]
     return tuple(

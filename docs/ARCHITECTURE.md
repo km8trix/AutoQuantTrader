@@ -497,6 +497,65 @@ and checks are inserted atomically and exposed read-only in the browser. Databas
 integrity checks independently reject an admitted row that violates those
 conditions.
 
+### Provider qualification routing
+
+The first external implementation is daily-first. Canonical `1d` bars span one
+exact pinned exchange session, including half-days; they are not 24-hour bins.
+Sharadar SFP is captured immutably as research evidence, but its supplied OHLCV
+is adjusted for splits and stock dividends. Only `closeunadj` is directly raw,
+so the adapter preserves all bases and refuses to emit canonical raw OHLCV.
+Adjusted SFP OHLCV never enters the canonical raw bar lane.
+
+Exact-page capture is a separate, fail-closed operation. It requires a reviewed,
+date-effective authorization artifact that permits local snapshot storage and
+research use and binds the digest of the applicable terms. Output is fixed under
+the ignored `.local/vendor-snapshots/sharadar-sfp` root. The capture manifest
+binds the authorization, terms, exact provider bytes, cursor lineage, and
+observed response-column schema digest. Offline loading additionally binds the
+capture digest to the pinned calendar ID, version, timezone, and exact session
+bounds; derived daily timestamps therefore participate in semantic dataset
+identity. None of these artifacts grants admission or trading authority.
+
+Tiingo EOD remains an independent validation and raw-daily qualification
+candidate. Its documented unprefixed OHLCV and separately adjusted fields are
+different semantic lanes, but field labels do not by themselves prove
+execution-safe raw prices. The public contract reviewed here does not establish
+a complete publication timestamp or retained vendor-vintage timeline, so a
+future acquisition can be known no earlier than its actual receipt time.
+
+The Tiingo lane now includes a strict offline parser and repository-owned
+synthetic qualification corpus. It validates schema and numeric bounds,
+documented-raw-candidate versus adjusted separation, explicit split/dividend
+candidates, complete symbol/session coverage, receipt-time causal rules, and
+deterministic scope/calendar-bound digests without requesting or retaining
+vendor bytes. Its exported dataset is permanently `synthetic_contract_only`,
+uses no canonical execution-safe `PriceBasis`, and refuses canonical-bar or
+admission-evidence conversion. Exact capture and a production
+`HistoricalBarSource` remain blocked until a Tiingo-specific storage
+authorization is reviewed and the exact product, venue or market provenance,
+provider identity mappings, calendar, lifecycle, corporate-action authority,
+and correction policy are frozen and validated against authorized bytes.
+
+Massive raw U.S. SIP trades and quotes remain the later intraday and
+execution-evidence lanes once the required entitlement exists; finalized vendor
+aggregates remain reconciliation-only. Neither daily product can silently
+satisfy a one-minute contract, Tiingo IEX cannot silently substitute for SIP,
+and no provider can silently substitute for another. Provider aliases such as
+Sharadar permaticker, Tiingo tickers, and Massive FIGIs map to immutable internal
+security IDs through effective-dated facts.
+
+The initial trade-enabled qualification universe is DIA, IWM, QQQ, and SPY; a
+separate lifecycle corpus covers a ticker change and delisted ETF. Each future
+authorized retained acquisition is archived with observed request/receipt time
+and a content digest. Non-retaining access probes and synthetic contract
+qualification create no vendor archive. Cross-vendor disagreement quarantines
+or flags data; it never triggers automatic fallback. Credential presence and
+successful probes remain secret-free candidate evidence, not entitlement,
+admission, or trading authority.
+[ADR 0010](adr/0010-market-data-provider-qualification-routing.md),
+[ADR 0011](adr/0011-daily-first-capture-and-raw-lane-separation.md), and
+[ADR 0012](adr/0012-tiingo-eod-offline-first-qualification.md)
+
 ## 11. Backtesting model
 
 The canonical event-driven backtester uses a simulated clock and the same
