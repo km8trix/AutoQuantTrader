@@ -68,6 +68,60 @@ rights, the exact product and venue provenance, identity/calendar/action
 authorities, publication/revision lineage, and observed bytes are reviewed and
 qualified.
 
+ADR 0013 adds the next acquisition seam, but its behavior has been exercised
+only with repository-owned synthetic responses and an injected test transport.
+It has not made a live Tiingo request or retained a Tiingo response. Actual
+operation remains fail-closed until a Tiingo-specific acquisition profile
+records human approval of the exact product and scope and a separate, matching
+authorization confirms the applicable terms, local-retention rights, and
+research-use rights. Reviewer identifiers are auditable attestations; reviewer
+authentication and separation of duties remain external governance controls.
+Credentials and a successful access probe cannot satisfy that gate. If those
+external prerequisites are later met, acquisition
+remains staged through allow-listed per-symbol request/receipt evidence,
+response-size and socket-I/O bounds, and atomic publication of immutable,
+secret-free capture metadata beneath `.local/vendor-snapshots/tiingo-eod`.
+Separate offline verification and provider admission review remain later gates.
+
+The acquisition seam makes no claim about Tiingo publication time, historical
+vintages, or corrections. Receipt time is not relabeled as
+`vendor_published_at`, and repeated-capture local revision lineage is deferred
+to a later Phase 1 slice. The seam cannot emit canonical bars, implement
+`HistoricalBarSource`, grant admission, or change paper/live trading readiness.
+
+If the external rights review is later completed, start from the fail-closed
+[acquisition-profile](docs/admission/tiingo-eod-acquisition-profile.template.json)
+and [capture-authorization](docs/admission/tiingo-eod-capture-authorization.template.json)
+templates. Copy both to a gitignored, owner-only location, replace every
+placeholder, and set `approved` only after review. Derive the normalized profile
+contract digest without reading a credential or making a request:
+
+```bash
+make tiingo-eod-profile-inspect PROFILE=path/to/reviewed-profile.json
+```
+
+Put the printed `profile_contract_sha256` in an authorization reviewed no
+earlier than the profile, then enable its two permission flags only when the
+terms review supports them. Only then may an operator run:
+
+```bash
+make tiingo-eod-capture START_DATE=2026-07-14 \
+  PROFILE=path/to/reviewed-profile.json \
+  AUTHORIZATION=path/to/reviewed-authorization.json
+```
+
+The command validates both artifacts and the exact requested scope before it
+reads `TIINGO_TOKEN`. The checked-in templates intentionally cannot authorize a
+capture, and this command has not been run against Tiingo during development.
+It rejects group- or other-accessible fixed-root ancestors. Validated responses
+are written to owner-only staging and become visible under their final name only
+through the atomic commit rename; pre-commit faults never publish a final
+capture. A process crash may leave a hidden inert staging or reservation entry,
+but never a partially published final capture.
+Its timeout is a finite per-request socket-I/O timeout, not a strict deadline for
+the entire multi-symbol capture; use an external supervisor when a hard
+whole-process deadline is required.
+
 ## Quickstart
 
 Prerequisites are Docker with the Compose plugin and available local ports 5173,

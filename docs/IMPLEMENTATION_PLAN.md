@@ -34,6 +34,17 @@ into deterministic identity, and refuses canonical-bar or admission-evidence
 conversion. It deliberately precedes and does not authorize exact-page capture
 or a production `HistoricalBarSource`: publication/vintage timing, venue
 provenance, identity authorities, and licensed storage rights remain unresolved.
+ADR 0013 now adds a Tiingo-specific authorization-gated acquisition seam. Its
+transport, preflight, bounded request count and response size, per-request
+socket-I/O timeout, and immutable-output mechanics are
+tested only with synthetic responses; no live Tiingo request or capture has
+occurred. Actual operation remains blocked until a profile records human
+approval of the exact product and scope and a separate, matching capture
+authorization binds its normalized profile-contract digest to applicable terms, local-retention
+rights, and research-use rights. The seam does not manufacture a publication
+timestamp or vendor revision. Repeated-capture local lineage remains deferred,
+as do exact-byte qualification, canonical conversion, source implementation,
+and admission.
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
 treated as admission or evidence that a vendor's real history, entitlement,
@@ -132,11 +143,22 @@ Passing one layer cannot substitute for another.
   and fail closed on canonical-bar and admission-evidence conversion. This
   slice performs no network capture, makes no live-payload claim, and cannot
   implement or satisfy the production `HistoricalBarSource` contract.
+- Newly complete: an authorization-gated Tiingo acquisition seam whose explicit
+  profile approval, matching rights authorization, bounded request count and
+  response size, finite per-request socket-I/O timeout, secret-safe metadata,
+  owner-only staging, exclusive final-name reservation, and atomic publication
+  are exercised with synthetic responses only. It performs no live request or
+  capture and cannot operate without an approved provider-specific profile and
+  a matching authorization that confirms local-retention and research-use
+  rights. It makes no license, admission, trading, publication-time,
+  historical-vintage, or correction-lineage claim.
 - Still required for the Phase 1 exit gate: confirm licensed use, verify the
   frozen DIA, IWM, QQQ, and SPY allow-list plus a non-tradable lifecycle corpus,
-  freeze identifier/calendar/action authorities, complete reviewed capture
-  authorization, qualify genuinely raw daily fields from exact retained bytes
-  or a validated reconstruction, implement the resulting
+  freeze identifier/calendar/action authorities, independently approve the
+  Tiingo acquisition profile and matching retention/research authorization,
+  perform and verify an authorized capture, implement receipt-time local
+  revision lineage, qualify genuinely raw daily fields from exact retained
+  bytes or a validated reconstruction, implement the resulting
   `HistoricalBarSource`, and run the admission suite against licensed payloads.
   Synthetic tests and research captures cannot satisfy this gate.
 

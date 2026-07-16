@@ -536,6 +536,54 @@ authorization is reviewed and the exact product, venue or market provenance,
 provider identity mappings, calendar, lifecycle, corporate-action authority,
 and correction policy are frozen and validated against authorized bytes.
 
+ADR 0013 adds an authorization-gated acquisition seam after that offline
+qualifier. The seam's preflight, bounded request count and response size,
+per-request socket-I/O timeout, secret-safe manifest, and
+immutable-output behavior are tested with synthetic responses and an injected
+transport only. No live Tiingo request was made and no Tiingo response was
+captured. Actual operation is structurally blocked until a human-approved Tiingo
+profile records its reviewer and review time and freezes the product, endpoint,
+adapter, symbols, and date scope. A separate matching authorization binds its
+normalized profile-contract digest to applicable terms, local-retention rights,
+and research-use rights. Credential
+presence, successful probing, or the Sharadar authorization cannot satisfy this
+provider-specific gate. The profile and authorization artifacts are parsed and
+validated before `TIINGO_TOKEN` is read; a failed preflight makes no transport
+call and writes no output.
+
+The frozen profile includes source and adapter identity, endpoint template,
+market provenance, identifier/calendar/corporate-action authorities, correction
+policy, and field-schema digest. The synthetic-tested manifest contract binds
+that complete profile and normalized contract digest, the matching authorization
+and terms digests, provider/dataset/schema identities, overall request/receipt
+bounds, and sorted complete per-symbol receipts. Receipts and manifest bytes are
+prebuilt before storage. Owner-only staging, an exclusive final-name reservation,
+pre-commit durability requests, and a descriptor-relative atomic rename ensure
+that a reported pre-commit failure never leaves a visible final capture. A
+process crash can leave only a hidden inert staging or reservation entry. This
+slice has no offline capture loader, source adapter, local revision builder, or
+canonical conversion.
+
+The staged Tiingo path is therefore contract qualification, approved profile,
+matching rights authorization, bounded immutable capture, separate offline
+verification, repeated-capture lineage, and only then admission evaluation.
+Later stages cannot grant authority backward to an earlier stage. The acquisition
+seam records request and receipt evidence but does not invent
+`vendor_published_at`, a vendor revision, or a historical vintage. Local
+receipt-time revision lineage is explicitly deferred; unchanged, changed, and
+missing rows in repeated captures have not yet been assigned correction
+semantics. The seam cannot emit canonical bars or implement
+`HistoricalBarSource`.
+
+The transport timeout applies to socket I/O for each symbol request. It is not a
+strict wall-clock deadline for the complete multi-symbol capture; operational
+supervision supplies that stronger deadline until a later transport contract
+implements one directly.
+
+Profile and authorization reviewer identifiers are auditable local attestations,
+not cryptographic signatures. Reviewer authentication and any required
+separation of duties remain external governance controls.
+
 Massive raw U.S. SIP trades and quotes remain the later intraday and
 execution-evidence lanes once the required entitlement exists; finalized vendor
 aggregates remain reconciliation-only. Neither daily product can silently
@@ -553,8 +601,9 @@ or flags data; it never triggers automatic fallback. Credential presence and
 successful probes remain secret-free candidate evidence, not entitlement,
 admission, or trading authority.
 [ADR 0010](adr/0010-market-data-provider-qualification-routing.md),
-[ADR 0011](adr/0011-daily-first-capture-and-raw-lane-separation.md), and
-[ADR 0012](adr/0012-tiingo-eod-offline-first-qualification.md)
+[ADR 0011](adr/0011-daily-first-capture-and-raw-lane-separation.md),
+[ADR 0012](adr/0012-tiingo-eod-offline-first-qualification.md), and
+[ADR 0013](adr/0013-tiingo-eod-authorization-gated-capture.md).
 
 ## 11. Backtesting model
 
