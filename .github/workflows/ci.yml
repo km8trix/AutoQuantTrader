@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend quality and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AQT_ENVIRONMENT: local
+      AQT_LOG_LEVEL: INFO
+      AQT_DATABASE_URL: postgresql+psycopg://autoquant:autoquant@localhost:5432/autoquant_test
+      AQT_TEST_POSTGRES_URL: postgresql+psycopg://autoquant:autoquant@localhost:5432/autoquant_test
+      AQT_LOCAL_AUTH_ENABLED: "true"
+      AQT_CORS_ORIGINS: http://localhost:5173
+      AQT_SESSION_SECRET: local-ci-only-session-secret-change-me
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: autoquant
+          POSTGRES_PASSWORD: autoquant
+          POSTGRES_DB: autoquant_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U autoquant -d autoquant_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.12"
+          version: "0.11.28"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install locked dependencies
+        run: uv sync --all-groups --locked
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Type check
+        run: uv run mypy apps packages
+
+      - name: Enforce architecture boundaries
+        run: uv run python scripts/check_architecture.py
+
+      - name: Check generated API contracts
+        run: uv run python scripts/generate_api_contracts.py --check
+
+      - name: Apply migrations to an empty database
+        run: uv run alembic upgrade head
+
+      - name: Check migration metadata drift
+        run: uv run alembic check
+
+      - name: Exercise Phase 1A ingestion and trader fail-closed diagnostic
+        run: |
+          uv run autoquant-worker --once
+          uv run autoquant-trader --once
+
+      - name: Test
+        run: uv run pytest
+
+  frontend:
+    name: Browser quality and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: apps/web/package.json
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Test components
+        run: pnpm test --run
+
+      - name: Build production browser bundle
+        run: pnpm build
+
+  containers:
+    name: Development container definitions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs:
+      - backend
+      - frontend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Validate Compose model
+        run: docker compose -f infra/compose/compose.yaml config --quiet
+
+      - name: Build development images
+        run: docker compose -f infra/compose/compose.yaml build migrate web

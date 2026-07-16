@@ -1,0 +1,354 @@
+"""Immutable domain facts used by the Phase 0 walking thread."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from decimal import Decimal
+from enum import StrEnum
+
+
+def require_aware(value: datetime, field_name: str) -> None:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{field_name} must be timezone-aware")
+
+
+def require_positive(value: Decimal, field_name: str) -> None:
+    if not value.is_finite() or value <= 0:
+        raise ValueError(f"{field_name} must be a finite positive decimal")
+
+
+class Side(StrEnum):
+    BUY = "buy"
+    SELL = "sell"
+
+
+class DecisionStatus(StrEnum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class OrderStatus(StrEnum):
+    WORKING = "working"
+    FILLED = "filled"
+
+
+PHASE0_RISK_POLICY_VERSION = "phase0-v1"
+PHASE0_REQUIRED_RISK_RULES = (
+    "instrument_allow_list",
+    "long_only",
+    "quantity",
+    "notional",
+    "cash_buffer",
+    "intent_freshness",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class MarketEvent:
+    event_id: str
+    instrument_id: str
+    symbol: str
+    event_time: datetime
+    available_at: datetime
+    close_price: Decimal
+    source: str = "fixed-tape"
+
+    def __post_init__(self) -> None:
+        require_aware(self.event_time, "event_time")
+        require_aware(self.available_at, "available_at")
+        require_positive(self.close_price, "close_price")
+        if self.available_at < self.event_time:
+            raise ValueError("available_at cannot precede event_time")
+
+
+@dataclass(frozen=True, slots=True)
+class PositionTarget:
+    instrument_id: str
+    symbol: str
+    quantity: Decimal
+
+    def __post_init__(self) -> None:
+        if not self.quantity.is_finite() or self.quantity < 0:
+            raise ValueError("target quantity must be finite and non-negative")
+        if self.quantity != self.quantity.to_integral_value():
+            raise ValueError("target quantity must be a whole number of shares")
+
+
+@dataclass(frozen=True, slots=True)
+class TargetPortfolio:
+    target_id: str
+    strategy_id: str
+    strategy_version: str
+    as_of: datetime
+    expires_at: datetime
+    targets: tuple[PositionTarget, ...]
+    full_snapshot: bool = True
+
+    def __post_init__(self) -> None:
+        require_aware(self.as_of, "as_of")
+        require_aware(self.expires_at, "expires_at")
+        if self.expires_at <= self.as_of:
+            raise ValueError("target must expire after its as_of time")
+        if not self.targets:
+            raise ValueError("target portfolio cannot be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class OrderIntent:
+    intent_id: str
+    target_id: str
+    instrument_id: str
+    symbol: str
+    side: Side
+    quantity: Decimal
+    reference_price: Decimal
+    decision_event_id: str
+    decision_event_time: datetime
+    created_at: datetime
+    expires_at: datetime
+
+    def __post_init__(self) -> None:
+        require_aware(self.created_at, "created_at")
+        require_aware(self.expires_at, "expires_at")
+        require_aware(self.decision_event_time, "decision_event_time")
+        require_positive(self.quantity, "quantity")
+        if self.quantity != self.quantity.to_integral_value():
+            raise ValueError("intent quantity must be a whole number of shares")
+        require_positive(self.reference_price, "reference_price")
+        if self.created_at < self.decision_event_time:
+            raise ValueError("intent cannot be created before its decision event")
+        if self.expires_at <= self.created_at:
+            raise ValueError("intent must expire after it is created")
+
+    @property
+    def notional(self) -> Decimal:
+        return self.quantity * self.reference_price
+
+
+@dataclass(frozen=True, slots=True)
+class RiskRuleResult:
+    rule: str
+    passed: bool
+    observed: str
+    limit: str
+
+    def __post_init__(self) -> None:
+        if not all(type(value) is str for value in (self.rule, self.observed, self.limit)):
+            raise ValueError("risk rule fields must be strings")
+        if not self.rule:
+            raise ValueError("risk rule name cannot be empty")
+        if type(self.passed) is not bool:
+            raise ValueError("risk rule passed must be a boolean")
+
+
+@dataclass(frozen=True, slots=True)
+class RiskDecision:
+    decision_id: str
+    intent_id: str
+    intent_payload_hash: str
+    policy_version: str
+    status: DecisionStatus
+    evaluated_at: datetime
+    expires_at: datetime
+    rules: tuple[RiskRuleResult, ...]
+    reserved_cash: Decimal
+
+    def __post_init__(self) -> None:
+        require_aware(self.evaluated_at, "evaluated_at")
+        require_aware(self.expires_at, "expires_at")
+        if self.expires_at <= self.evaluated_at:
+            raise ValueError("risk decision must have a positive TTL")
+        if not self.reserved_cash.is_finite() or self.reserved_cash < 0:
+            raise ValueError("reserved cash must be finite and non-negative")
+        if len(self.intent_payload_hash) != 64 or any(
+            character not in "0123456789abcdef" for character in self.intent_payload_hash
+        ):
+            raise ValueError("intent payload hash must be a lowercase SHA-256 digest")
+        if self.policy_version != PHASE0_RISK_POLICY_VERSION:
+            raise ValueError("unsupported risk policy version")
+        rule_names = tuple(rule.rule for rule in self.rules)
+        if rule_names != PHASE0_REQUIRED_RISK_RULES:
+            raise ValueError("risk decision must contain the complete versioned rule set")
+        expected = (
+            DecisionStatus.APPROVED
+            if all(rule.passed for rule in self.rules)
+            else DecisionStatus.REJECTED
+        )
+        if self.status is not expected:
+            raise ValueError("risk decision status must agree with its rule results")
+        if self.status is DecisionStatus.APPROVED and self.reserved_cash <= 0:
+            raise ValueError("approved risk decisions require a positive reservation")
+        if self.status is DecisionStatus.REJECTED and self.reserved_cash != 0:
+            raise ValueError("rejected risk decisions cannot reserve cash")
+
+
+@dataclass(frozen=True, slots=True)
+class Order:
+    order_id: str
+    client_order_id: str
+    intent_id: str
+    risk_decision_id: str
+    instrument_id: str
+    symbol: str
+    side: Side
+    quantity: Decimal
+    activation_after_event_time: datetime
+    submitted_at: datetime
+    status: OrderStatus
+    filled_quantity: Decimal = Decimal("0")
+
+    def __post_init__(self) -> None:
+        require_aware(self.submitted_at, "submitted_at")
+        require_aware(self.activation_after_event_time, "activation_after_event_time")
+        require_positive(self.quantity, "quantity")
+        if self.quantity != self.quantity.to_integral_value():
+            raise ValueError("order quantity must be a whole number of shares")
+        if self.submitted_at < self.activation_after_event_time:
+            raise ValueError("order submission cannot precede its decision event")
+        if (
+            not self.filled_quantity.is_finite()
+            or self.filled_quantity < 0
+            or self.filled_quantity > self.quantity
+        ):
+            raise ValueError("filled quantity must be finite and between zero and order quantity")
+        if self.filled_quantity != self.filled_quantity.to_integral_value():
+            raise ValueError("filled quantity must be a whole number of shares")
+
+
+@dataclass(frozen=True, slots=True)
+class Fill:
+    fill_id: str
+    order_id: str
+    instrument_id: str
+    symbol: str
+    side: Side
+    quantity: Decimal
+    price: Decimal
+    fee: Decimal
+    executed_at: datetime
+
+    def __post_init__(self) -> None:
+        require_aware(self.executed_at, "executed_at")
+        require_positive(self.quantity, "quantity")
+        if self.quantity != self.quantity.to_integral_value():
+            raise ValueError("fill quantity must be a whole number of shares")
+        require_positive(self.price, "price")
+        if not self.fee.is_finite() or self.fee < 0:
+            raise ValueError("fill fee must be finite and non-negative")
+
+    @property
+    def notional(self) -> Decimal:
+        return self.quantity * self.price
+
+
+@dataclass(frozen=True, slots=True)
+class Posting:
+    account: str
+    currency: str
+    debit: Decimal = Decimal("0")
+    credit: Decimal = Decimal("0")
+    units_delta: Decimal = Decimal("0")
+    instrument_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if not all(value.is_finite() for value in (self.debit, self.credit, self.units_delta)):
+            raise ValueError("posting amounts and units must be finite")
+        if self.debit < 0 or self.credit < 0:
+            raise ValueError("posting amounts cannot be negative")
+        if (self.debit > 0) == (self.credit > 0):
+            raise ValueError("a posting must have exactly one positive debit or credit")
+        if self.units_delta and self.instrument_id is None:
+            raise ValueError("unit postings require an instrument ID")
+
+
+@dataclass(frozen=True, slots=True)
+class LedgerEntry:
+    entry_id: str
+    event_type: str
+    reference_id: str
+    posted_at: datetime
+    postings: tuple[Posting, ...]
+
+    def __post_init__(self) -> None:
+        require_aware(self.posted_at, "posted_at")
+        if len(self.postings) < 2:
+            raise ValueError("ledger entries require at least two postings")
+        currencies = {posting.currency for posting in self.postings}
+        if len(currencies) != 1:
+            raise ValueError("Phase 0 ledger entries must use one currency")
+        total_debits = sum((posting.debit for posting in self.postings), Decimal("0"))
+        total_credits = sum((posting.credit for posting in self.postings), Decimal("0"))
+        if total_debits != total_credits:
+            raise ValueError("ledger entry is not balanced")
+
+    @property
+    def currency(self) -> str:
+        return self.postings[0].currency
+
+    @property
+    def total(self) -> Decimal:
+        return sum((posting.debit for posting in self.postings), Decimal("0"))
+
+
+@dataclass(frozen=True, slots=True)
+class Position:
+    instrument_id: str
+    symbol: str
+    quantity: Decimal
+    average_cost: Decimal
+    market_price: Decimal
+
+    def __post_init__(self) -> None:
+        if not self.quantity.is_finite() or self.quantity < 0:
+            raise ValueError("position quantity must be finite and non-negative")
+        if self.quantity != self.quantity.to_integral_value():
+            raise ValueError("position quantity must be a whole number of shares")
+        if not self.average_cost.is_finite() or self.average_cost < 0:
+            raise ValueError("average cost must be finite and non-negative")
+        require_positive(self.market_price, "market_price")
+
+    @property
+    def market_value(self) -> Decimal:
+        return self.quantity * self.market_price
+
+
+@dataclass(frozen=True, slots=True)
+class AccountProjection:
+    currency: str
+    cash: Decimal
+    equity: Decimal
+    realized_pnl: Decimal
+    unrealized_pnl: Decimal
+    gross_exposure: Decimal
+    net_exposure: Decimal
+
+    def __post_init__(self) -> None:
+        values = (
+            self.cash,
+            self.equity,
+            self.realized_pnl,
+            self.unrealized_pnl,
+            self.gross_exposure,
+            self.net_exposure,
+        )
+        if not all(value.is_finite() for value in values):
+            raise ValueError("account projection values must be finite")
+        if self.gross_exposure < 0:
+            raise ValueError("gross exposure cannot be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class TraceStep:
+    trace_id: str
+    stage: str
+    status: str
+    occurred_at: datetime
+    title: str
+    detail: str
+
+    def __post_init__(self) -> None:
+        require_aware(self.occurred_at, "occurred_at")
+
+
+FIXED_NOW = datetime(2026, 7, 15, 13, 32, tzinfo=UTC)

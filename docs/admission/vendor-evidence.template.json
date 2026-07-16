@@ -1,0 +1,22 @@
+{
+  "approval": null,
+  "calendar_version": "REPLACE_ME",
+  "corporate_action_version": "REPLACE_ME",
+  "entitlement_status": "active",
+  "evaluated_at": "REPLACE_ME_UTC_TIMESTAMP",
+  "executor_id": "REPLACE_ME",
+  "identifier_authority": "REPLACE_ME",
+  "licensed": false,
+  "source_id": "REPLACE_ME",
+  "source_kind": "vendor",
+  "technical_checks": [
+    {
+      "check_id": "REPLACE_WITH_EACH_REQUIRED_CHECK",
+      "checked_at": "REPLACE_ME_UTC_TIMESTAMP",
+      "evidence_digest": "REPLACE_ME_LOWERCASE_SHA256",
+      "passed": false
+    }
+  ],
+  "terms_digest": null,
+  "universe_version": "REPLACE_ME"
+}

@@ -1,0 +1,21 @@
+{
+  "calendar_version": "REPLACE_ME",
+  "corporate_action_version": "REPLACE_ME",
+  "frozen_at": "REPLACE_ME_UTC_TIMESTAMP",
+  "identifier_authority": "REPLACE_ME",
+  "required_checks": [
+    "calendar_edges",
+    "causal_revisions",
+    "corporate_actions",
+    "deterministic_reingestion",
+    "manifest_reproduction",
+    "quality_quarantine",
+    "raw_price_separation",
+    "security_lifecycle",
+    "source_identity",
+    "symbol_coverage"
+  ],
+  "source_id": "REPLACE_ME",
+  "specification_id": "REPLACE_ME",
+  "universe_version": "REPLACE_ME"
+}

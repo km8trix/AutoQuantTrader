@@ -1,0 +1,146 @@
+name: autoquanttrader
+
+x-api-environment: &api-environment
+  AQT_ENVIRONMENT: ${AQT_ENVIRONMENT:-local}
+  AQT_LOG_LEVEL: ${AQT_LOG_LEVEL:-INFO}
+  AQT_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-autoquant}:${POSTGRES_PASSWORD:-autoquant_local_only}@postgres:5432/${POSTGRES_DB:-autoquant}
+  AQT_LOCAL_AUTH_ENABLED: ${AQT_LOCAL_AUTH_ENABLED:-true}
+  AQT_CORS_ORIGINS: http://localhost:${WEB_PORT:-5173}
+  AQT_SESSION_SECRET: ${AQT_SESSION_SECRET:-local-development-only-change-before-deployment}
+  AQT_API_HOST: 0.0.0.0
+  AQT_API_PORT: 8000
+  AQT_DATA_LAKE_PATH: /var/lib/autoquant/data-lake
+  AQT_MARKET_DATA_FIXTURE_PATH: /workspace/tests/fixtures/market_data/phase1_bars.jsonl
+
+x-api-build: &api-build
+  context: ../..
+  dockerfile: infra/docker/api.Dockerfile
+  target: development
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-autoquant}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-autoquant_local_only}
+      POSTGRES_DB: ${POSTGRES_DB:-autoquant}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    init: true
+    restart: unless-stopped
+
+  migrate:
+    image: autoquanttrader-runtime:development
+    build: *api-build
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    environment: *api-environment
+    volumes:
+      - ../..:/workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: autoquanttrader-runtime:development
+    command:
+      - uv
+      - run
+      - uvicorn
+      - apps.api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
+    environment: *api-environment
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      - ../..:/workspace
+      - market_data_lake:/var/lib/autoquant/data-lake
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=2)
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    init: true
+    stop_grace_period: 15s
+
+  worker:
+    image: autoquanttrader-runtime:development
+    command: ["uv", "run", "autoquant-worker", "--once"]
+    environment: *api-environment
+    volumes:
+      - ../..:/workspace
+      - market_data_lake:/var/lib/autoquant/data-lake
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    init: true
+    restart: "no"
+
+  trader:
+    image: autoquanttrader-runtime:development
+    command: ["uv", "run", "autoquant-trader", "--once"]
+    environment: *api-environment
+    volumes:
+      - ../..:/workspace
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    init: true
+    restart: "no"
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+      target: development
+    command: ["pnpm", "dev", "--host", "0.0.0.0"]
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8000
+      VITE_USE_DEV_FIXTURES: ${VITE_USE_DEV_FIXTURES:-false}
+    ports:
+      - "127.0.0.1:${WEB_PORT:-5173}:5173"
+    volumes:
+      - ../../apps/web:/workspace/apps/web
+      - web_node_modules:/workspace/apps/web/node_modules
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://localhost:5173').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    init: true
+    stop_grace_period: 10s
+
+volumes:
+  market_data_lake:
+  postgres_data:
+  web_node_modules:

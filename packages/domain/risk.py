@@ -1,0 +1,325 @@
+"""Mandatory, persisted, single-use Phase 0 risk approvals."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import threading
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from typing import Protocol
+
+from packages.domain.clock import Clock
+from packages.domain.identifiers import deterministic_id
+from packages.domain.models import (
+    PHASE0_RISK_POLICY_VERSION,
+    DecisionStatus,
+    OrderIntent,
+    RiskDecision,
+    RiskRuleResult,
+    Side,
+    require_aware,
+)
+
+
+class RiskAuthorizationError(RuntimeError):
+    """Raised when execution lacks a valid persisted approval."""
+
+
+@dataclass(frozen=True, slots=True)
+class RiskAccountSnapshot:
+    """Versioned account capacity supplied by the authoritative accounting projection."""
+
+    account_id: str
+    version: str
+    available_cash: Decimal
+
+    def __post_init__(self) -> None:
+        if not self.account_id or not self.version:
+            raise ValueError("risk account snapshot requires account and version IDs")
+        if not self.available_cash.is_finite() or self.available_cash < 0:
+            raise ValueError("available cash must be finite and non-negative")
+
+
+class RiskDecisionIssuer(Protocol):
+    """Narrow authority capability; callers can supply only an immutable intent."""
+
+    def authorize(self, intent: OrderIntent) -> RiskDecision: ...
+
+
+class RiskAuthorizationConsumer(Protocol):
+    """Narrow execution capability; it cannot create or persist approvals."""
+
+    def get(self, decision_id: str) -> RiskDecision | None: ...
+
+    def consume(self, decision_id: str, intent: OrderIntent) -> datetime: ...
+
+
+class RiskDecisionRepository(RiskDecisionIssuer, RiskAuthorizationConsumer, Protocol):
+    """Combined application port; execution receives only its consumer capability."""
+
+
+def intent_payload_hash(intent: OrderIntent) -> str:
+    """Hash every execution-relevant intent field using a canonical representation."""
+
+    payload = {
+        "created_at": intent.created_at.astimezone(UTC).isoformat(),
+        "decision_event_id": intent.decision_event_id,
+        "decision_event_time": intent.decision_event_time.astimezone(UTC).isoformat(),
+        "expires_at": intent.expires_at.astimezone(UTC).isoformat(),
+        "instrument_id": intent.instrument_id,
+        "intent_id": intent.intent_id,
+        "quantity": format(intent.quantity, "f"),
+        "reference_price": format(intent.reference_price, "f"),
+        "side": intent.side.value,
+        "symbol": intent.symbol,
+        "target_id": intent.target_id,
+    }
+    canonical = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class RiskLimits:
+    allowed_instruments: frozenset[str]
+    max_order_quantity: Decimal
+    max_order_notional: Decimal
+    minimum_cash_buffer: Decimal
+    estimated_fee: Decimal = Decimal("1.00")
+    approval_ttl: timedelta = timedelta(seconds=30)
+
+    def __post_init__(self) -> None:
+        if not self.allowed_instruments:
+            raise ValueError("risk allow-list cannot be empty")
+        for value, name in (
+            (self.max_order_quantity, "max order quantity"),
+            (self.max_order_notional, "max order notional"),
+        ):
+            if not value.is_finite() or value <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        if (
+            not self.minimum_cash_buffer.is_finite()
+            or not self.estimated_fee.is_finite()
+            or self.minimum_cash_buffer < 0
+            or self.estimated_fee < 0
+        ):
+            raise ValueError("cash buffer and estimated fee must be finite and non-negative")
+        if self.approval_ttl <= timedelta(0):
+            raise ValueError("approval TTL must be positive")
+
+
+class RiskAccountSnapshotProvider(Protocol):
+    """Trusted accounting projection used by the authorization service."""
+
+    def current(self) -> RiskAccountSnapshot: ...
+
+
+@dataclass(frozen=True, slots=True)
+class FixedRiskAccountSnapshotProvider:
+    snapshot: RiskAccountSnapshot
+
+    def current(self) -> RiskAccountSnapshot:
+        return self.snapshot
+
+
+@dataclass(frozen=True, slots=True)
+class RiskAuthority:
+    """Immutable dependencies that callers cannot override per authorization."""
+
+    limits: RiskLimits
+    account_snapshots: RiskAccountSnapshotProvider
+    evaluation_clock: Clock
+    consumption_clock: Clock
+
+
+def evaluate_risk_decision(
+    intent: OrderIntent,
+    limits: RiskLimits,
+    available_cash_after_existing_reservations: Decimal,
+    evaluated_at: datetime,
+) -> RiskDecision:
+    """Apply the one canonical Phase 0 policy to current unreserved capacity."""
+
+    require_aware(evaluated_at, "evaluated_at")
+    if evaluated_at < intent.created_at:
+        raise RiskAuthorizationError("risk evaluation cannot precede intent creation")
+    if (
+        not available_cash_after_existing_reservations.is_finite()
+        or available_cash_after_existing_reservations < 0
+    ):
+        raise ValueError("unreserved cash must be finite and non-negative")
+
+    required_cash = intent.notional + limits.estimated_fee
+    rules = (
+        RiskRuleResult(
+            rule="instrument_allow_list",
+            passed=intent.instrument_id in limits.allowed_instruments,
+            observed=intent.instrument_id,
+            limit=",".join(sorted(limits.allowed_instruments)),
+        ),
+        RiskRuleResult(
+            rule="long_only",
+            passed=intent.side is Side.BUY,
+            observed=intent.side.value,
+            limit=Side.BUY.value,
+        ),
+        RiskRuleResult(
+            rule="quantity",
+            passed=intent.quantity <= limits.max_order_quantity,
+            observed=str(intent.quantity),
+            limit=str(limits.max_order_quantity),
+        ),
+        RiskRuleResult(
+            rule="notional",
+            passed=intent.notional <= limits.max_order_notional,
+            observed=str(intent.notional),
+            limit=str(limits.max_order_notional),
+        ),
+        RiskRuleResult(
+            rule="cash_buffer",
+            passed=(
+                available_cash_after_existing_reservations - required_cash
+                >= limits.minimum_cash_buffer
+            ),
+            observed=str(available_cash_after_existing_reservations - required_cash),
+            limit=str(limits.minimum_cash_buffer),
+        ),
+        RiskRuleResult(
+            rule="intent_freshness",
+            passed=evaluated_at < intent.expires_at,
+            observed=evaluated_at.isoformat(),
+            limit=intent.expires_at.isoformat(),
+        ),
+    )
+    approved = all(rule.passed for rule in rules)
+    return RiskDecision(
+        decision_id=deterministic_id("risk-decision", intent.intent_id, evaluated_at.isoformat()),
+        intent_id=intent.intent_id,
+        intent_payload_hash=intent_payload_hash(intent),
+        policy_version=PHASE0_RISK_POLICY_VERSION,
+        status=DecisionStatus.APPROVED if approved else DecisionStatus.REJECTED,
+        evaluated_at=evaluated_at,
+        expires_at=(
+            min(intent.expires_at, evaluated_at + limits.approval_ttl)
+            if approved
+            else evaluated_at + limits.approval_ttl
+        ),
+        rules=rules,
+        reserved_cash=required_cash if approved else Decimal("0"),
+    )
+
+
+def validate_consumption(
+    decision: RiskDecision,
+    intent: OrderIntent,
+    consumed_at: datetime,
+) -> None:
+    """Validate payload, policy, and full causal time ordering before consumption."""
+
+    require_aware(consumed_at, "consumed_at")
+    if decision.intent_id != intent.intent_id:
+        raise RiskAuthorizationError("risk decision does not authorize this intent")
+    if decision.intent_payload_hash != intent_payload_hash(intent):
+        raise RiskAuthorizationError("risk decision payload does not match this intent")
+    if decision.status is not DecisionStatus.APPROVED:
+        raise RiskAuthorizationError("rejected risk decisions cannot authorize execution")
+    if consumed_at < intent.created_at or consumed_at < decision.evaluated_at:
+        raise RiskAuthorizationError("risk approval cannot be consumed before evaluation")
+    if consumed_at >= decision.expires_at or consumed_at >= intent.expires_at:
+        raise RiskAuthorizationError("risk approval has expired")
+
+
+class InMemoryRiskDecisionRepository:
+    """Thread-safe local adapter that mirrors durable issuance and consumption rules."""
+
+    def __init__(self, authority: RiskAuthority) -> None:
+        self._authority = authority
+        self._decisions: dict[str, RiskDecision] = {}
+        self._intent_decisions: dict[str, str] = {}
+        self._intent_snapshots: dict[str, tuple[str, str]] = {}
+        self._consumed: set[str] = set()
+        self._snapshots: dict[str, tuple[str, Decimal, Decimal]] = {}
+        self._lock = threading.Lock()
+
+    def authorize(self, intent: OrderIntent) -> RiskDecision:
+        snapshot = self._authority.account_snapshots.current()
+        evaluated_at = self._authority.evaluation_clock.now()
+        with self._lock:
+            state = self._snapshots.get(snapshot.account_id)
+            if state is None:
+                capacity, reserved = snapshot.available_cash, Decimal("0")
+            else:
+                version, capacity, reserved = state
+                if version != snapshot.version:
+                    raise RiskAuthorizationError("risk account snapshot version is stale")
+                if capacity != snapshot.available_cash:
+                    raise RiskAuthorizationError("risk snapshot version changed its cash capacity")
+            prior_decision_id = self._intent_decisions.get(intent.intent_id)
+            if prior_decision_id is not None:
+                prior = self._decisions[prior_decision_id]
+                if prior.intent_payload_hash != intent_payload_hash(intent):
+                    raise RiskAuthorizationError("intent IDs are immutable")
+                if self._intent_snapshots[intent.intent_id] != (
+                    snapshot.account_id,
+                    snapshot.version,
+                ):
+                    raise RiskAuthorizationError(
+                        "risk decision belongs to a different account snapshot"
+                    )
+                return prior
+            decision = evaluate_risk_decision(
+                intent,
+                self._authority.limits,
+                capacity - reserved,
+                evaluated_at,
+            )
+            existing = self._decisions.get(decision.decision_id)
+            if existing is not None:
+                if existing != decision:
+                    raise RiskAuthorizationError("risk decision IDs are immutable")
+                return existing
+            self._decisions[decision.decision_id] = decision
+            self._intent_decisions[intent.intent_id] = decision.decision_id
+            self._intent_snapshots[intent.intent_id] = (
+                snapshot.account_id,
+                snapshot.version,
+            )
+            if decision.status is DecisionStatus.APPROVED:
+                reserved += decision.reserved_cash
+            self._snapshots[snapshot.account_id] = (
+                snapshot.version,
+                capacity,
+                reserved,
+            )
+            return decision
+
+    def get(self, decision_id: str) -> RiskDecision | None:
+        with self._lock:
+            return self._decisions.get(decision_id)
+
+    def consume(self, decision_id: str, intent: OrderIntent) -> datetime:
+        consumed_at = self._authority.consumption_clock.now()
+        with self._lock:
+            decision = self._decisions.get(decision_id)
+            if decision is None:
+                raise RiskAuthorizationError("execution requires a persisted risk decision")
+            validate_consumption(decision, intent, consumed_at)
+            if decision_id in self._consumed:
+                raise RiskAuthorizationError("risk approval has already been consumed")
+            self._consumed.add(decision_id)
+            return consumed_at
+
+    def was_consumed(self, decision_id: str) -> bool:
+        with self._lock:
+            return decision_id in self._consumed
+
+    def reserved_cash(self, snapshot: RiskAccountSnapshot) -> Decimal:
+        with self._lock:
+            state = self._snapshots.get(snapshot.account_id)
+            if state is None:
+                return Decimal("0")
+            version, capacity, reserved = state
+            if version != snapshot.version or capacity != snapshot.available_cash:
+                raise RiskAuthorizationError("risk snapshot does not match reserved capacity")
+            return reserved

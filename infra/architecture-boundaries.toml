@@ -1,0 +1,38 @@
+[scan]
+source_roots = ["apps", "packages"]
+package_roots = ["packages"]
+
+# The primitives package must depend only on the standard library and itself.
+primitive_roots = ["packages/domain"]
+primitive_namespaces = ["autoquant.domain", "packages.domain", "domain"]
+
+# Python below packages/ must never reach upward into a composition root.
+composition_namespaces = ["apps"]
+
+# Domain code may expose Pydantic-free dataclasses and protocols, but framework,
+# persistence, transport, vendor, and network clients stay in adapters.
+domain_roots = [
+  "packages/domain",
+  "packages/market_data",
+  "packages/strategies",
+  "packages/portfolio",
+  "packages/accounting",
+  "packages/risk",
+  "packages/execution",
+  "packages/backtest",
+]
+forbidden_domain_imports = [
+  "alembic",
+  "asyncpg",
+  "boto3",
+  "botocore",
+  "fastapi",
+  "httpx",
+  "psycopg",
+  "pydantic",
+  "pyarrow",
+  "polars",
+  "duckdb",
+  "requests",
+  "sqlalchemy",
+]

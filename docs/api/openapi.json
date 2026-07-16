@@ -1,0 +1,2170 @@
+{
+  "components": {
+    "schemas": {
+      "AccountSummary": {
+        "properties": {
+          "cash": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cash",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "equity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Equity",
+            "type": "string"
+          },
+          "gross_exposure": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Gross Exposure",
+            "type": "string"
+          },
+          "net_exposure": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Net Exposure",
+            "type": "string"
+          },
+          "realized_pnl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Realized Pnl",
+            "type": "string"
+          },
+          "unrealized_pnl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unrealized Pnl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "equity",
+          "cash",
+          "currency",
+          "realized_pnl",
+          "unrealized_pnl",
+          "gross_exposure",
+          "net_exposure"
+        ],
+        "title": "AccountSummary",
+        "type": "object"
+      },
+      "AlertCounts": {
+        "properties": {
+          "critical": {
+            "title": "Critical",
+            "type": "integer"
+          },
+          "warning": {
+            "title": "Warning",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "critical",
+          "warning"
+        ],
+        "title": "AlertCounts",
+        "type": "object"
+      },
+      "CorporateActionView": {
+        "properties": {
+          "action_id": {
+            "title": "Action Id",
+            "type": "string"
+          },
+          "action_revision_id": {
+            "title": "Action Revision Id",
+            "type": "string"
+          },
+          "action_type": {
+            "title": "Action Type",
+            "type": "string"
+          },
+          "available_at": {
+            "format": "date-time",
+            "title": "Available At",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "effective_at": {
+            "format": "date-time",
+            "title": "Effective At",
+            "type": "string"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action_revision_id",
+          "action_id",
+          "instrument_id",
+          "symbol",
+          "action_type",
+          "revision",
+          "effective_at",
+          "available_at",
+          "detail"
+        ],
+        "title": "CorporateActionView",
+        "type": "object"
+      },
+      "DashboardSummary": {
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/AccountSummary"
+          },
+          "alerts": {
+            "$ref": "#/components/schemas/AlertCounts"
+          },
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "deployment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeploymentSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health": {
+            "items": {
+              "$ref": "#/components/schemas/HealthCheck"
+            },
+            "title": "Health",
+            "type": "array"
+          },
+          "pending_commands": {
+            "title": "Pending Commands",
+            "type": "integer"
+          },
+          "trace": {
+            "items": {
+              "$ref": "#/components/schemas/TraceStepView"
+            },
+            "title": "Trace",
+            "type": "array"
+          }
+        },
+        "required": [
+          "as_of",
+          "account",
+          "deployment",
+          "health",
+          "alerts",
+          "pending_commands",
+          "trace"
+        ],
+        "title": "DashboardSummary",
+        "type": "object"
+      },
+      "DataCatalogResponse": {
+        "properties": {
+          "admissions": {
+            "items": {
+              "$ref": "#/components/schemas/MarketDataAdmissionView"
+            },
+            "title": "Admissions",
+            "type": "array"
+          },
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "corporate_actions": {
+            "items": {
+              "$ref": "#/components/schemas/CorporateActionView"
+            },
+            "title": "Corporate Actions",
+            "type": "array"
+          },
+          "entitlements": {
+            "items": {
+              "$ref": "#/components/schemas/EntitlementView"
+            },
+            "title": "Entitlements",
+            "type": "array"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/InstrumentView"
+            },
+            "title": "Instruments",
+            "type": "array"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/IngestionJobView"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "manifests": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetManifestView"
+            },
+            "title": "Manifests",
+            "type": "array"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DataSourceView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "as_of",
+          "source",
+          "jobs",
+          "manifests",
+          "instruments",
+          "corporate_actions",
+          "entitlements",
+          "admissions"
+        ],
+        "title": "DataCatalogResponse",
+        "type": "object"
+      },
+      "DataQualityIssueView": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "detected_at": {
+            "format": "date-time",
+            "title": "Detected At",
+            "type": "string"
+          },
+          "issue_id": {
+            "title": "Issue Id",
+            "type": "string"
+          },
+          "partition_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Partition Id"
+          },
+          "quarantined": {
+            "title": "Quarantined",
+            "type": "boolean"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "issue_id",
+          "code",
+          "severity",
+          "status",
+          "summary",
+          "detail",
+          "detected_at",
+          "partition_id",
+          "quarantined"
+        ],
+        "title": "DataQualityIssueView",
+        "type": "object"
+      },
+      "DataQualityResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/DataQualityIssueView"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "quarantine": {
+            "items": {
+              "$ref": "#/components/schemas/QuarantineView"
+            },
+            "title": "Quarantine",
+            "type": "array"
+          }
+        },
+        "required": [
+          "as_of",
+          "issues",
+          "quarantine"
+        ],
+        "title": "DataQualityResponse",
+        "type": "object"
+      },
+      "DataSourceView": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "entitlement_status": {
+            "title": "Entitlement Status",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "licensed": {
+            "title": "Licensed",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "name",
+          "kind",
+          "licensed",
+          "entitlement_status",
+          "detail"
+        ],
+        "title": "DataSourceView",
+        "type": "object"
+      },
+      "DatasetManifestView": {
+        "properties": {
+          "calendar_version": {
+            "title": "Calendar Version",
+            "type": "string"
+          },
+          "corporate_action_version": {
+            "title": "Corporate Action Version",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "manifest_hash": {
+            "title": "Manifest Hash",
+            "type": "string"
+          },
+          "manifest_id": {
+            "title": "Manifest Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "partitions": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetPartitionView"
+            },
+            "title": "Partitions",
+            "type": "array"
+          },
+          "price_basis": {
+            "title": "Price Basis",
+            "type": "string"
+          },
+          "revision_policy": {
+            "title": "Revision Policy",
+            "type": "string"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "universe_version": {
+            "title": "Universe Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "manifest_id",
+          "name",
+          "manifest_hash",
+          "schema_version",
+          "calendar_version",
+          "universe_version",
+          "corporate_action_version",
+          "revision_policy",
+          "price_basis",
+          "created_at",
+          "row_count",
+          "partitions"
+        ],
+        "title": "DatasetManifestView",
+        "type": "object"
+      },
+      "DatasetPartitionView": {
+        "properties": {
+          "available_at_end": {
+            "format": "date-time",
+            "title": "Available At End",
+            "type": "string"
+          },
+          "available_at_start": {
+            "format": "date-time",
+            "title": "Available At Start",
+            "type": "string"
+          },
+          "checksum": {
+            "title": "Checksum",
+            "type": "string"
+          },
+          "event_time_end": {
+            "format": "date-time",
+            "title": "Event Time End",
+            "type": "string"
+          },
+          "event_time_start": {
+            "format": "date-time",
+            "title": "Event Time Start",
+            "type": "string"
+          },
+          "layer": {
+            "title": "Layer",
+            "type": "string"
+          },
+          "object_key": {
+            "title": "Object Key",
+            "type": "string"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "partition_id": {
+            "title": "Partition Id",
+            "type": "string"
+          },
+          "quality_status": {
+            "title": "Quality Status",
+            "type": "string"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "partition_id",
+          "ordinal",
+          "layer",
+          "object_key",
+          "checksum",
+          "row_count",
+          "event_time_start",
+          "event_time_end",
+          "available_at_start",
+          "available_at_end",
+          "quality_status"
+        ],
+        "title": "DatasetPartitionView",
+        "type": "object"
+      },
+      "DecisionStatus": {
+        "enum": [
+          "approved",
+          "rejected"
+        ],
+        "title": "DecisionStatus",
+        "type": "string"
+      },
+      "DeploymentState": {
+        "enum": [
+          "draft",
+          "approved",
+          "starting",
+          "reconciling",
+          "shadow",
+          "running",
+          "paused",
+          "draining",
+          "flattening",
+          "halted",
+          "stopped"
+        ],
+        "title": "DeploymentState",
+        "type": "string"
+      },
+      "DeploymentSummary": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/EnvironmentMode"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/DeploymentState"
+          },
+          "strategy_name": {
+            "title": "Strategy Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "strategy_name",
+          "state",
+          "mode"
+        ],
+        "title": "DeploymentSummary",
+        "type": "object"
+      },
+      "EntitlementView": {
+        "properties": {
+          "feed": {
+            "title": "Feed",
+            "type": "string"
+          },
+          "licensed": {
+            "title": "Licensed",
+            "type": "boolean"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          }
+        },
+        "required": [
+          "source_id",
+          "feed",
+          "licensed",
+          "status",
+          "scope",
+          "verified_at"
+        ],
+        "title": "EntitlementView",
+        "type": "object"
+      },
+      "EnvironmentIdentity": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/EnvironmentMode"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "mode",
+          "account_id"
+        ],
+        "title": "EnvironmentIdentity",
+        "type": "object"
+      },
+      "EnvironmentMode": {
+        "enum": [
+          "local",
+          "paper",
+          "live"
+        ],
+        "title": "EnvironmentMode",
+        "type": "string"
+      },
+      "FillView": {
+        "properties": {
+          "executed_at": {
+            "format": "date-time",
+            "title": "Executed At",
+            "type": "string"
+          },
+          "fee": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Fee",
+            "type": "string"
+          },
+          "fill_id": {
+            "title": "Fill Id",
+            "type": "string"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "notional": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Notional",
+            "type": "string"
+          },
+          "order_id": {
+            "title": "Order Id",
+            "type": "string"
+          },
+          "price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Price",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "side": {
+            "$ref": "#/components/schemas/Side"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fill_id",
+          "order_id",
+          "instrument_id",
+          "symbol",
+          "side",
+          "quantity",
+          "price",
+          "fee",
+          "notional",
+          "executed_at"
+        ],
+        "title": "FillView",
+        "type": "object"
+      },
+      "HealthCheck": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/HealthStatus"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "status",
+          "as_of",
+          "detail"
+        ],
+        "title": "HealthCheck",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ServiceStatus"
+          }
+        },
+        "required": [
+          "service",
+          "status"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "HealthStatus": {
+        "enum": [
+          "healthy",
+          "warning",
+          "critical",
+          "unknown"
+        ],
+        "title": "HealthStatus",
+        "type": "string"
+      },
+      "IngestionJobView": {
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "normalized_record_count": {
+            "title": "Normalized Record Count",
+            "type": "integer"
+          },
+          "published_partition_count": {
+            "title": "Published Partition Count",
+            "type": "integer"
+          },
+          "quarantined_record_count": {
+            "title": "Quarantined Record Count",
+            "type": "integer"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_record_count": {
+            "title": "Source Record Count",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "source_id",
+          "started_at",
+          "completed_at",
+          "source_record_count",
+          "normalized_record_count",
+          "published_partition_count",
+          "quarantined_record_count"
+        ],
+        "title": "IngestionJobView",
+        "type": "object"
+      },
+      "InstrumentIdentifierView": {
+        "properties": {
+          "available_at": {
+            "format": "date-time",
+            "title": "Available At",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "tradable": {
+            "title": "Tradable",
+            "type": "boolean"
+          },
+          "valid_from": {
+            "format": "date-time",
+            "title": "Valid From",
+            "type": "string"
+          },
+          "valid_to": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid To"
+          },
+          "venue": {
+            "title": "Venue",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "venue",
+          "valid_from",
+          "valid_to",
+          "available_at",
+          "tradable"
+        ],
+        "title": "InstrumentIdentifierView",
+        "type": "object"
+      },
+      "InstrumentView": {
+        "properties": {
+          "asset_class": {
+            "title": "Asset Class",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "delisted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delisted At"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "listed_at": {
+            "format": "date-time",
+            "title": "Listed At",
+            "type": "string"
+          },
+          "mappings": {
+            "items": {
+              "$ref": "#/components/schemas/InstrumentIdentifierView"
+            },
+            "title": "Mappings",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instrument_id",
+          "name",
+          "asset_class",
+          "currency",
+          "status",
+          "listed_at",
+          "delisted_at",
+          "mappings"
+        ],
+        "title": "InstrumentView",
+        "type": "object"
+      },
+      "LedgerEntryView": {
+        "properties": {
+          "balanced": {
+            "title": "Balanced",
+            "type": "boolean"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "entry_id": {
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "posted_at": {
+            "format": "date-time",
+            "title": "Posted At",
+            "type": "string"
+          },
+          "postings": {
+            "items": {
+              "$ref": "#/components/schemas/PostingView"
+            },
+            "title": "Postings",
+            "type": "array"
+          },
+          "reference_id": {
+            "title": "Reference Id",
+            "type": "string"
+          },
+          "total": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_id",
+          "event_type",
+          "reference_id",
+          "posted_at",
+          "currency",
+          "total",
+          "balanced",
+          "postings"
+        ],
+        "title": "LedgerEntryView",
+        "type": "object"
+      },
+      "MarketClock": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "next_transition_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Transition At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MarketStatus"
+          }
+        },
+        "required": [
+          "status",
+          "as_of",
+          "next_transition_at"
+        ],
+        "title": "MarketClock",
+        "type": "object"
+      },
+      "MarketDataAdmissionCheckView": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "evidence_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Digest"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "status",
+          "detail",
+          "evidence_digest",
+          "observed_at"
+        ],
+        "title": "MarketDataAdmissionCheckView",
+        "type": "object"
+      },
+      "MarketDataAdmissionView": {
+        "properties": {
+          "adapter_type": {
+            "title": "Adapter Type",
+            "type": "string"
+          },
+          "admission_run_id": {
+            "title": "Admission Run Id",
+            "type": "string"
+          },
+          "calendar_version": {
+            "title": "Calendar Version",
+            "type": "string"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/MarketDataAdmissionCheckView"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "corporate_action_version": {
+            "title": "Corporate Action Version",
+            "type": "string"
+          },
+          "coverage_end": {
+            "format": "date-time",
+            "title": "Coverage End",
+            "type": "string"
+          },
+          "coverage_start": {
+            "format": "date-time",
+            "title": "Coverage Start",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "evidence_digest": {
+            "title": "Evidence Digest",
+            "type": "string"
+          },
+          "executed_at": {
+            "format": "date-time",
+            "title": "Executed At",
+            "type": "string"
+          },
+          "executed_by": {
+            "title": "Executed By",
+            "type": "string"
+          },
+          "failed_check_count": {
+            "title": "Failed Check Count",
+            "type": "integer"
+          },
+          "identifier_authority": {
+            "title": "Identifier Authority",
+            "type": "string"
+          },
+          "manifest_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Id"
+          },
+          "passed_check_count": {
+            "title": "Passed Check Count",
+            "type": "integer"
+          },
+          "pending_check_count": {
+            "title": "Pending Check Count",
+            "type": "integer"
+          },
+          "profile_id": {
+            "title": "Profile Id",
+            "type": "string"
+          },
+          "profile_name": {
+            "title": "Profile Name",
+            "type": "string"
+          },
+          "report_digest": {
+            "title": "Report Digest",
+            "type": "string"
+          },
+          "required_symbols": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Symbols",
+            "type": "array"
+          },
+          "review_decision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Decision"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "reviewed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "specification_digest": {
+            "title": "Specification Digest",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "universe_version": {
+            "title": "Universe Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "admission_run_id",
+          "profile_id",
+          "source_id",
+          "manifest_id",
+          "status",
+          "profile_name",
+          "adapter_type",
+          "identifier_authority",
+          "universe_version",
+          "calendar_version",
+          "corporate_action_version",
+          "coverage_start",
+          "coverage_end",
+          "required_symbols",
+          "specification_digest",
+          "evidence_digest",
+          "report_digest",
+          "executed_at",
+          "executed_by",
+          "reviewed_at",
+          "reviewed_by",
+          "review_decision",
+          "passed_check_count",
+          "failed_check_count",
+          "pending_check_count",
+          "detail",
+          "checks"
+        ],
+        "title": "MarketDataAdmissionView",
+        "type": "object"
+      },
+      "MarketEventView": {
+        "properties": {
+          "available_at": {
+            "format": "date-time",
+            "title": "Available At",
+            "type": "string"
+          },
+          "close_price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Close Price",
+            "type": "string"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_time": {
+            "format": "date-time",
+            "title": "Event Time",
+            "type": "string"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "instrument_id",
+          "symbol",
+          "event_time",
+          "available_at",
+          "close_price",
+          "source"
+        ],
+        "title": "MarketEventView",
+        "type": "object"
+      },
+      "MarketStatus": {
+        "enum": [
+          "open",
+          "closed",
+          "pre_market",
+          "after_hours",
+          "unknown"
+        ],
+        "title": "MarketStatus",
+        "type": "string"
+      },
+      "OrderIntentView": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision_event_id": {
+            "title": "Decision Event Id",
+            "type": "string"
+          },
+          "decision_event_time": {
+            "format": "date-time",
+            "title": "Decision Event Time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "intent_id": {
+            "title": "Intent Id",
+            "type": "string"
+          },
+          "notional": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Notional",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "reference_price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Reference Price",
+            "type": "string"
+          },
+          "side": {
+            "$ref": "#/components/schemas/Side"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "intent_id",
+          "target_id",
+          "instrument_id",
+          "symbol",
+          "side",
+          "quantity",
+          "reference_price",
+          "decision_event_id",
+          "decision_event_time",
+          "created_at",
+          "expires_at",
+          "notional"
+        ],
+        "title": "OrderIntentView",
+        "type": "object"
+      },
+      "OrderStatus": {
+        "enum": [
+          "working",
+          "filled"
+        ],
+        "title": "OrderStatus",
+        "type": "string"
+      },
+      "OrderView": {
+        "properties": {
+          "activation_after_event_time": {
+            "format": "date-time",
+            "title": "Activation After Event Time",
+            "type": "string"
+          },
+          "client_order_id": {
+            "title": "Client Order Id",
+            "type": "string"
+          },
+          "filled_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Filled Quantity",
+            "type": "string"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "intent_id": {
+            "title": "Intent Id",
+            "type": "string"
+          },
+          "order_id": {
+            "title": "Order Id",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "risk_decision_id": {
+            "title": "Risk Decision Id",
+            "type": "string"
+          },
+          "side": {
+            "$ref": "#/components/schemas/Side"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OrderStatus"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id",
+          "client_order_id",
+          "intent_id",
+          "risk_decision_id",
+          "instrument_id",
+          "symbol",
+          "side",
+          "quantity",
+          "filled_quantity",
+          "activation_after_event_time",
+          "submitted_at",
+          "status"
+        ],
+        "title": "OrderView",
+        "type": "object"
+      },
+      "PersistenceMode": {
+        "enum": [
+          "ephemeral",
+          "durable",
+          "unavailable"
+        ],
+        "title": "PersistenceMode",
+        "type": "string"
+      },
+      "PositionTargetView": {
+        "properties": {
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instrument_id",
+          "symbol",
+          "quantity"
+        ],
+        "title": "PositionTargetView",
+        "type": "object"
+      },
+      "PositionView": {
+        "properties": {
+          "average_cost": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Average Cost",
+            "type": "string"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "market_price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Market Price",
+            "type": "string"
+          },
+          "market_value": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Market Value",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instrument_id",
+          "symbol",
+          "quantity",
+          "average_cost",
+          "market_price",
+          "market_value"
+        ],
+        "title": "PositionView",
+        "type": "object"
+      },
+      "PostingView": {
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "credit": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Credit",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "debit": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Debit",
+            "type": "string"
+          },
+          "instrument_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instrument Id"
+          },
+          "units_delta": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Units Delta",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account",
+          "currency",
+          "debit",
+          "credit",
+          "units_delta",
+          "instrument_id"
+        ],
+        "title": "PostingView",
+        "type": "object"
+      },
+      "QuarantineView": {
+        "properties": {
+          "partition_id": {
+            "title": "Partition Id",
+            "type": "string"
+          },
+          "quarantined_at": {
+            "format": "date-time",
+            "title": "Quarantined At",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "partition_id",
+          "reason",
+          "quarantined_at",
+          "row_count"
+        ],
+        "title": "QuarantineView",
+        "type": "object"
+      },
+      "Readiness": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReadinessStatus"
+          }
+        },
+        "required": [
+          "status",
+          "reasons",
+          "as_of"
+        ],
+        "title": "Readiness",
+        "type": "object"
+      },
+      "ReadinessStatus": {
+        "enum": [
+          "ready",
+          "not_ready",
+          "reconciling",
+          "halted",
+          "unknown"
+        ],
+        "title": "ReadinessStatus",
+        "type": "string"
+      },
+      "RiskDecisionView": {
+        "properties": {
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "evaluated_at": {
+            "format": "date-time",
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "intent_id": {
+            "title": "Intent Id",
+            "type": "string"
+          },
+          "intent_payload_hash": {
+            "title": "Intent Payload Hash",
+            "type": "string"
+          },
+          "persisted": {
+            "title": "Persisted",
+            "type": "boolean"
+          },
+          "persistence_mode": {
+            "$ref": "#/components/schemas/PersistenceMode"
+          },
+          "policy_version": {
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "reserved_cash": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Reserved Cash",
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/RiskRuleView"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DecisionStatus"
+          }
+        },
+        "required": [
+          "decision_id",
+          "intent_id",
+          "intent_payload_hash",
+          "policy_version",
+          "status",
+          "evaluated_at",
+          "expires_at",
+          "reserved_cash",
+          "persisted",
+          "persistence_mode",
+          "rules"
+        ],
+        "title": "RiskDecisionView",
+        "type": "object"
+      },
+      "RiskRuleView": {
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "string"
+          },
+          "observed": {
+            "title": "Observed",
+            "type": "string"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule",
+          "passed",
+          "observed",
+          "limit"
+        ],
+        "title": "RiskRuleView",
+        "type": "object"
+      },
+      "ServiceStatus": {
+        "enum": [
+          "ok",
+          "ready",
+          "not_ready"
+        ],
+        "title": "ServiceStatus",
+        "type": "string"
+      },
+      "Side": {
+        "enum": [
+          "buy",
+          "sell"
+        ],
+        "title": "Side",
+        "type": "string"
+      },
+      "TargetPortfolioView": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "full_snapshot": {
+            "title": "Full Snapshot",
+            "type": "boolean"
+          },
+          "strategy_id": {
+            "title": "Strategy Id",
+            "type": "string"
+          },
+          "strategy_version": {
+            "title": "Strategy Version",
+            "type": "string"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "string"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/PositionTargetView"
+            },
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "target_id",
+          "strategy_id",
+          "strategy_version",
+          "as_of",
+          "expires_at",
+          "full_snapshot",
+          "targets"
+        ],
+        "title": "TargetPortfolioView",
+        "type": "object"
+      },
+      "TraceStatus": {
+        "enum": [
+          "completed",
+          "pending",
+          "failed"
+        ],
+        "title": "TraceStatus",
+        "type": "string"
+      },
+      "TraceStepView": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TraceStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "stage",
+          "status",
+          "occurred_at",
+          "title",
+          "detail"
+        ],
+        "title": "TraceStepView",
+        "type": "object"
+      },
+      "UiBootstrap": {
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "environment": {
+            "$ref": "#/components/schemas/EnvironmentIdentity"
+          },
+          "feature_flags": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Feature Flags",
+            "type": "object"
+          },
+          "market_clock": {
+            "$ref": "#/components/schemas/MarketClock"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/Readiness"
+          },
+          "stream_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Cursor"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserIdentity"
+          }
+        },
+        "required": [
+          "user",
+          "environment",
+          "market_clock",
+          "readiness",
+          "capabilities",
+          "feature_flags",
+          "stream_cursor"
+        ],
+        "title": "UiBootstrap",
+        "type": "object"
+      },
+      "UserIdentity": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "display_name"
+        ],
+        "title": "UserIdentity",
+        "type": "object"
+      },
+      "WalkingThreadTrace": {
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/AccountSummary"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "title": "Completed At",
+            "type": "string"
+          },
+          "decision_event": {
+            "$ref": "#/components/schemas/MarketEventView"
+          },
+          "fill": {
+            "$ref": "#/components/schemas/FillView"
+          },
+          "fill_event": {
+            "$ref": "#/components/schemas/MarketEventView"
+          },
+          "intent": {
+            "$ref": "#/components/schemas/OrderIntentView"
+          },
+          "ledger_entries": {
+            "items": {
+              "$ref": "#/components/schemas/LedgerEntryView"
+            },
+            "title": "Ledger Entries",
+            "type": "array"
+          },
+          "order": {
+            "$ref": "#/components/schemas/OrderView"
+          },
+          "position": {
+            "$ref": "#/components/schemas/PositionView"
+          },
+          "risk_decision": {
+            "$ref": "#/components/schemas/RiskDecisionView"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/TargetPortfolioView"
+          },
+          "trace": {
+            "items": {
+              "$ref": "#/components/schemas/TraceStepView"
+            },
+            "title": "Trace",
+            "type": "array"
+          }
+        },
+        "required": [
+          "run_id",
+          "started_at",
+          "completed_at",
+          "decision_event",
+          "fill_event",
+          "target",
+          "intent",
+          "risk_decision",
+          "order",
+          "fill",
+          "ledger_entries",
+          "position",
+          "account",
+          "trace"
+        ],
+        "title": "WalkingThreadTrace",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Safety-first quantitative trading control and query API.",
+    "title": "AutoQuantTrader API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/dashboard/summary": {
+      "get": {
+        "operationId": "dashboard_summary_api_v1_dashboard_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Dashboard Summary",
+        "tags": [
+          "ui"
+        ]
+      }
+    },
+    "/api/v1/data/catalog": {
+      "get": {
+        "operationId": "data_catalog_api_v1_data_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Data Catalog",
+        "tags": [
+          "market-data"
+        ]
+      }
+    },
+    "/api/v1/data/quality": {
+      "get": {
+        "operationId": "data_quality_api_v1_data_quality_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataQualityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Data Quality",
+        "tags": [
+          "market-data"
+        ]
+      }
+    },
+    "/api/v1/ui/bootstrap": {
+      "get": {
+        "operationId": "ui_bootstrap_api_v1_ui_bootstrap_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UiBootstrap"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ui Bootstrap",
+        "tags": [
+          "ui"
+        ]
+      }
+    },
+    "/api/v1/walking-thread/trace": {
+      "get": {
+        "operationId": "walking_thread_trace_api_v1_walking_thread_trace_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalkingThreadTrace"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Walking Thread Trace",
+        "tags": [
+          "walking-thread"
+        ]
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "live_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Live",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "ready_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Operational persistence is not durably ready."
+          }
+        },
+        "summary": "Ready",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  }
+}
