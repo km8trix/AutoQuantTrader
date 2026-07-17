@@ -48,6 +48,17 @@ from packages.adapters.market_data.tiingo_eod_lineage import (
     TiingoEodReceiptTimeLineage,
     derive_tiingo_eod_receipt_lineage,
 )
+from packages.adapters.market_data.tiingo_eod_retained_fields import (
+    TIINGO_EOD_RETAINED_FIELD_BINDINGS,
+    TIINGO_EOD_RETAINED_FIELD_CHECK_IDS,
+    TIINGO_EOD_RETAINED_FIELD_ROLE_CONTRACT_SHA256,
+    TIINGO_EOD_RETAINED_FIELD_SCHEMA_VERSION,
+    TiingoEodRetainedFieldBinding,
+    TiingoEodRetainedFieldQualification,
+    TiingoEodRetainedFieldQualificationKind,
+    TiingoEodRetainedFieldRole,
+    qualify_tiingo_eod_retained_fields,
+)
 from packages.adapters.market_data.tiingo_eod_snapshot import (
     RecordedTiingoEodResearchSnapshot,
     TiingoEodCalendarBinding,
@@ -58,6 +69,10 @@ from packages.adapters.market_data.tiingo_eod_snapshot import (
 __all__ = [
     "TIINGO_EOD_RECEIPT_LINEAGE_POLICY",
     "TIINGO_EOD_RECEIPT_LINEAGE_SCHEMA_VERSION",
+    "TIINGO_EOD_RETAINED_FIELD_BINDINGS",
+    "TIINGO_EOD_RETAINED_FIELD_CHECK_IDS",
+    "TIINGO_EOD_RETAINED_FIELD_ROLE_CONTRACT_SHA256",
+    "TIINGO_EOD_RETAINED_FIELD_SCHEMA_VERSION",
     "RecordedHistoricalBarSource",
     "RecordedJsonlBarSource",
     "RecordedSharadarSfpSnapshot",
@@ -88,12 +103,17 @@ __all__ = [
     "TiingoEodReceiptTimeLineage",
     "TiingoEodResponseContract",
     "TiingoEodResponseObservation",
+    "TiingoEodRetainedFieldBinding",
+    "TiingoEodRetainedFieldQualification",
+    "TiingoEodRetainedFieldQualificationKind",
+    "TiingoEodRetainedFieldRole",
     "TiingoEodRow",
     "TiingoEodScope",
     "TiingoEodVerifiedResearchSnapshot",
     "capture_tiingo_eod",
     "derive_tiingo_eod_receipt_lineage",
     "qualify_tiingo_eod",
+    "qualify_tiingo_eod_retained_fields",
     "tiingo_eod_response_contract",
     "verify_tiingo_eod_capture",
 ]

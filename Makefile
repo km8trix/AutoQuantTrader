@@ -9,7 +9,7 @@ COMPOSE ?= docker compose -f infra/compose/compose.yaml
 	check backend-check frontend-check architecture-check test compose-check \
 	api-contracts api-contracts-check admission-evaluate market-data-probe \
 	sharadar-sfp-capture tiingo-eod-profile-inspect tiingo-eod-capture tiingo-eod-verify \
-	tiingo-eod-lineage
+	tiingo-eod-lineage tiingo-eod-fields-qualify
 
 help: ## List developer commands.
 	@awk 'BEGIN {FS = ":.*## "; printf "AutoQuantTrader developer commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -91,6 +91,16 @@ tiingo-eod-lineage: ## Derive research-only local lineage from two or more final
 		$(foreach capture,$(CAPTURES),--capture-name "$(capture)") \
 		--profile-file "$(PROFILE)" --authorization-file "$(AUTHORIZATION)" \
 		--calendar-file "$(CALENDAR)"
+
+tiingo-eod-fields-qualify: ## Prove value-free field routing for one verified Tiingo capture.
+	@test -n "$(CAPTURE)" || (echo "CAPTURE=final-capture-name is required" >&2; exit 2)
+	@test -n "$(PROFILE)" || (echo "PROFILE=path/to/reviewed.json is required" >&2; exit 2)
+	@test -n "$(AUTHORIZATION)" || (echo "AUTHORIZATION=path/to/reviewed.json is required" >&2; exit 2)
+	@test -n "$(CALENDAR)" || (echo "CALENDAR=path/to/reviewed.json is required" >&2; exit 2)
+	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+		scripts/qualify_tiingo_eod_retained_fields.py \
+		--capture-name "$(CAPTURE)" --profile-file "$(PROFILE)" \
+		--authorization-file "$(AUTHORIZATION)" --calendar-file "$(CALENDAR)"
 
 tiingo-eod-profile-inspect: ## Validate a Tiingo profile and print its normalized digest.
 	@test -n "$(PROFILE)" || (echo "PROFILE=path/to/reviewed.json is required" >&2; exit 2)

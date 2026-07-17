@@ -58,7 +58,7 @@ MAX_TIINGO_MANIFEST_BYTES = 1_048_576
 MAX_INT64 = 9_223_372_036_854_775_807
 
 _SYMBOL = re.compile(r"^[A-Z][A-Z0-9.-]{0,14}$")
-_FIELD_CONTRACT = (
+TIINGO_EOD_FIELD_CONTRACT = (
     ("date", "utc-midnight-or-iso-date"),
     ("open", "positive-decimal-raw"),
     ("high", "positive-decimal-raw"),
@@ -101,7 +101,7 @@ def _digest(value: object) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-TIINGO_EOD_SCHEMA_SHA256 = _digest(_FIELD_CONTRACT)
+TIINGO_EOD_SCHEMA_SHA256 = _digest(TIINGO_EOD_FIELD_CONTRACT)
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:

@@ -14,10 +14,14 @@ from typing import Any, cast
 import pytest
 
 import packages.adapters.market_data.tiingo_eod_lineage as lineage_module
+import packages.adapters.market_data.tiingo_eod_retained_fields as retained_fields_module
 import packages.adapters.market_data.tiingo_eod_snapshot as snapshot_module
 from packages.adapters.market_data.tiingo_eod import (
     MAX_TIINGO_MANIFEST_BYTES,
     MAX_TIINGO_RESPONSE_BYTES,
+    TIINGO_EOD_FIELD_CONTRACT,
+    TIINGO_EOD_FIELDS,
+    TIINGO_EOD_SCHEMA_SHA256,
     TiingoEodAcquisitionProfile,
     TiingoEodCaptureAuthorization,
     TiingoEodCaptureManifest,
@@ -42,6 +46,17 @@ from packages.adapters.market_data.tiingo_eod_lineage import (
     TiingoEodReceiptDisposition,
     TiingoEodReceiptTimeLineage,
     derive_tiingo_eod_receipt_lineage,
+)
+from packages.adapters.market_data.tiingo_eod_retained_fields import (
+    TIINGO_EOD_RETAINED_FIELD_BINDINGS,
+    TIINGO_EOD_RETAINED_FIELD_CHECK_IDS,
+    TIINGO_EOD_RETAINED_FIELD_ROLE_CONTRACT_SHA256,
+    TIINGO_EOD_RETAINED_FIELD_SCHEMA_VERSION,
+    TiingoEodRetainedFieldBinding,
+    TiingoEodRetainedFieldQualification,
+    TiingoEodRetainedFieldQualificationKind,
+    TiingoEodRetainedFieldRole,
+    qualify_tiingo_eod_retained_fields,
 )
 from packages.adapters.market_data.tiingo_eod_snapshot import (
     RecordedTiingoEodResearchSnapshot,
@@ -2106,6 +2121,316 @@ def test_receipt_lineage_is_proof_constructed_secret_safe_and_research_only(
         lineage.canonical_bar_records,
         lineage.admission_evidence,
         lineage.historical_bar_source,
+    ):
+        with pytest.raises(TiingoEodError):
+            operation()
+
+
+def test_retained_field_contract_has_exact_thirteen_source_to_row_bindings() -> None:
+    expected = (
+        (
+            "date",
+            "session_label",
+            "utc-midnight-or-iso-date",
+            TiingoEodRetainedFieldRole.SESSION_IDENTITY,
+        ),
+        (
+            "open",
+            "open_price",
+            "positive-decimal-raw",
+            TiingoEodRetainedFieldRole.DOCUMENTED_RAW_CANDIDATE,
+        ),
+        (
+            "high",
+            "high_price",
+            "positive-decimal-raw",
+            TiingoEodRetainedFieldRole.DOCUMENTED_RAW_CANDIDATE,
+        ),
+        (
+            "low",
+            "low_price",
+            "positive-decimal-raw",
+            TiingoEodRetainedFieldRole.DOCUMENTED_RAW_CANDIDATE,
+        ),
+        (
+            "close",
+            "close_price",
+            "positive-decimal-raw",
+            TiingoEodRetainedFieldRole.DOCUMENTED_RAW_CANDIDATE,
+        ),
+        (
+            "volume",
+            "volume",
+            "non-negative-int64-raw",
+            TiingoEodRetainedFieldRole.DOCUMENTED_RAW_CANDIDATE,
+        ),
+        (
+            "adjOpen",
+            "adjusted_open_price",
+            "positive-decimal-split-dividend-adjusted",
+            TiingoEodRetainedFieldRole.ADJUSTED_RESEARCH,
+        ),
+        (
+            "adjHigh",
+            "adjusted_high_price",
+            "positive-decimal-split-dividend-adjusted",
+            TiingoEodRetainedFieldRole.ADJUSTED_RESEARCH,
+        ),
+        (
+            "adjLow",
+            "adjusted_low_price",
+            "positive-decimal-split-dividend-adjusted",
+            TiingoEodRetainedFieldRole.ADJUSTED_RESEARCH,
+        ),
+        (
+            "adjClose",
+            "adjusted_close_price",
+            "positive-decimal-split-dividend-adjusted",
+            TiingoEodRetainedFieldRole.ADJUSTED_RESEARCH,
+        ),
+        (
+            "adjVolume",
+            "adjusted_volume",
+            "non-negative-int64-split-dividend-adjusted",
+            TiingoEodRetainedFieldRole.ADJUSTED_RESEARCH,
+        ),
+        (
+            "divCash",
+            "div_cash",
+            "non-negative-decimal-ex-date",
+            TiingoEodRetainedFieldRole.CORPORATE_ACTION_CANDIDATE,
+        ),
+        (
+            "splitFactor",
+            "split_factor",
+            "positive-decimal",
+            TiingoEodRetainedFieldRole.CORPORATE_ACTION_CANDIDATE,
+        ),
+    )
+
+    actual = tuple(
+        (
+            binding.field_name,
+            binding.row_attribute,
+            binding.source_schema_constraint_id,
+            binding.role,
+        )
+        for binding in TIINGO_EOD_RETAINED_FIELD_BINDINGS
+    )
+    assert actual == expected
+    assert tuple(binding.field_name for binding in TIINGO_EOD_RETAINED_FIELD_BINDINGS) == (
+        TIINGO_EOD_FIELDS
+    )
+    assert (
+        tuple(
+            (binding.field_name, binding.source_schema_constraint_id)
+            for binding in TIINGO_EOD_RETAINED_FIELD_BINDINGS
+        )
+        == TIINGO_EOD_FIELD_CONTRACT
+    )
+    assert len(TIINGO_EOD_RETAINED_FIELD_BINDINGS) == 13
+    assert {
+        role: sum(binding.role is role for binding in TIINGO_EOD_RETAINED_FIELD_BINDINGS)
+        for role in TiingoEodRetainedFieldRole
+    } == {
+        TiingoEodRetainedFieldRole.SESSION_IDENTITY: 1,
+        TiingoEodRetainedFieldRole.DOCUMENTED_RAW_CANDIDATE: 5,
+        TiingoEodRetainedFieldRole.ADJUSTED_RESEARCH: 5,
+        TiingoEodRetainedFieldRole.CORPORATE_ACTION_CANDIDATE: 2,
+    }
+    assert TIINGO_EOD_RETAINED_FIELD_CHECK_IDS == (
+        "exact-thirteen-field-contract-v1",
+        "duplicate-missing-unknown-field-rejection-v1",
+        "finite-numeric-domain-v1",
+        "documented-raw-candidate-lane-routing-v1",
+        "adjusted-research-lane-routing-v1",
+        "corporate-action-candidate-lane-routing-v1",
+        "independent-raw-and-adjusted-ohlc-ordering-v1",
+        "scope-calendar-session-coverage-v1",
+        "receipt-response-row-binding-v1",
+    )
+    assert len(TIINGO_EOD_RETAINED_FIELD_ROLE_CONTRACT_SHA256) == 64
+
+
+def test_retained_field_binding_rejects_constraint_role_and_target_drift() -> None:
+    binding = TIINGO_EOD_RETAINED_FIELD_BINDINGS[1]
+
+    with pytest.raises(ValueError, match="frozen Tiingo contract"):
+        TiingoEodRetainedFieldBinding(
+            field_name="open",
+            row_attribute="open_price",
+            source_schema_constraint_id="invented-raw-constraint",
+            role=TiingoEodRetainedFieldRole.DOCUMENTED_RAW_CANDIDATE,
+        )
+    with pytest.raises(ValueError, match="role"):
+        replace(binding, role=TiingoEodRetainedFieldRole.ADJUSTED_RESEARCH)
+    with pytest.raises(ValueError, match="target"):
+        replace(binding, row_attribute="adjusted_open_price")
+
+
+def test_retained_field_qualification_proves_actual_style_four_by_one_shape(
+    tmp_path: Path,
+) -> None:
+    capture = write_capture(tmp_path)
+    snapshot = verify(capture)
+
+    first = qualify_tiingo_eod_retained_fields(snapshot)
+    second = qualify_tiingo_eod_retained_fields(snapshot)
+
+    assert first == second
+    assert first.snapshot is snapshot
+    assert first.scope == capture.profile.scope
+    assert first.profile_contract_sha256 == capture.profile.contract_sha256
+    assert first.calendar_artifact_sha256 == snapshot.calendar_artifact_sha256
+    assert first.manifest_sha256 == snapshot.manifest_sha256
+    assert first.snapshot_semantic_sha256 == snapshot.semantic_sha256
+    assert first.requested_at == capture.manifest.requested_at
+    assert first.received_at == capture.manifest.received_at
+    assert first.field_contract_sha256 == TIINGO_EOD_SCHEMA_SHA256
+    assert first.role_contract_sha256 == TIINGO_EOD_RETAINED_FIELD_ROLE_CONTRACT_SHA256
+    assert first.field_bindings == TIINGO_EOD_RETAINED_FIELD_BINDINGS
+    assert first.check_ids == TIINGO_EOD_RETAINED_FIELD_CHECK_IDS
+    assert first.observation_count == 4
+    assert first.row_count == 4
+    assert first.session_count == 1
+    assert first.field_occurrence_count == 52
+    assert first.schema_version == TIINGO_EOD_RETAINED_FIELD_SCHEMA_VERSION
+    assert (
+        first.qualification_kind
+        is TiingoEodRetainedFieldQualificationKind.EXACT_RETAINED_FIELD_CONTRACT_ONLY
+    )
+    assert len(first.qualification_sha256) == 64
+    assert first.qualification_sha256 == second.qualification_sha256
+
+    later = qualify_tiingo_eod_retained_fields(
+        verify(
+            write_capture(
+                tmp_path,
+                capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=1),
+            )
+        )
+    )
+    assert later.qualification_sha256 != first.qualification_sha256
+
+
+def test_retained_field_qualification_allows_equal_raw_and_adjusted_values(
+    tmp_path: Path,
+) -> None:
+    selected_profile = profile(capture_scope=scope(symbols=("SPY",)))
+    row = economic_row(SESSION_DATE)
+    row.update(
+        {
+            "adjOpen": row["open"],
+            "adjHigh": row["high"],
+            "adjLow": row["low"],
+            "adjClose": row["close"],
+            "adjVolume": row["volume"],
+        }
+    )
+    payload = json.dumps([row], ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+    capture = write_capture(
+        tmp_path,
+        selected_profile=selected_profile,
+        payloads={"SPY": payload},
+    )
+
+    qualification = qualify_tiingo_eod_retained_fields(verify(capture))
+
+    assert qualification.observation_count == 1
+    assert qualification.row_count == 1
+    assert qualification.session_count == 1
+    assert qualification.field_occurrence_count == 13
+
+
+def test_retained_field_qualification_never_accepts_malformed_upstream_payloads(
+    tmp_path: Path,
+) -> None:
+    selected_profile = profile(capture_scope=scope(symbols=("SPY",)))
+    missing = economic_row(SESSION_DATE)
+    missing.pop("adjClose")
+    unknown = economic_row(SESSION_DATE)
+    unknown["unexpected"] = 1
+    invalid_action = economic_row(SESSION_DATE)
+    invalid_action["splitFactor"] = 0
+    duplicate = response_bytes().replace(
+        b'"open":101.125',
+        b'"open":101.125,"open":101.125',
+        1,
+    )
+    malformed_payloads = (
+        json.dumps([missing], ensure_ascii=True, separators=(",", ":")).encode("utf-8"),
+        json.dumps([unknown], ensure_ascii=True, separators=(",", ":")).encode("utf-8"),
+        json.dumps([invalid_action], ensure_ascii=True, separators=(",", ":")).encode("utf-8"),
+        duplicate,
+    )
+
+    for index, payload in enumerate(malformed_payloads):
+        capture = write_capture(
+            tmp_path / str(index),
+            selected_profile=selected_profile,
+            payloads={"SPY": payload},
+        )
+        with pytest.raises(TiingoEodError):
+            verify(capture)
+
+
+def test_retained_field_qualification_rejects_substitution_and_snapshot_tamper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshot = verify(write_capture(tmp_path / "substitution"))
+    source_value = retained_fields_module._source_value
+    adjusted_open = next(
+        binding for binding in TIINGO_EOD_RETAINED_FIELD_BINDINGS if binding.field_name == "adjOpen"
+    )
+
+    def substitute_open(
+        payload: dict[str, object],
+        binding: TiingoEodRetainedFieldBinding,
+        *,
+        row_label: str,
+    ) -> object:
+        selected_binding = adjusted_open if binding.field_name == "open" else binding
+        return source_value(payload, selected_binding, row_label=row_label)
+
+    monkeypatch.setattr(retained_fields_module, "_source_value", substitute_open)
+    with pytest.raises(TiingoEodError, match="not routed"):
+        qualify_tiingo_eod_retained_fields(snapshot)
+
+    monkeypatch.setattr(retained_fields_module, "_source_value", source_value)
+    tampered = verify(write_capture(tmp_path / "tamper"))
+    object.__setattr__(tampered.rows[0], "open_price", tampered.rows[0].adjusted_open_price)
+    with pytest.raises(TiingoEodError, match=r"verified snapshot proof|exactly derived"):
+        qualify_tiingo_eod_retained_fields(tampered)
+
+    invalid_payload = verify(write_capture(tmp_path / "invalid-payload"))
+    object.__setattr__(invalid_payload.observations[0], "payload", None)
+    with pytest.raises(TiingoEodError, match="verified snapshot proof"):
+        qualify_tiingo_eod_retained_fields(invalid_payload)
+
+
+def test_retained_field_qualification_is_exact_proof_constructed_and_non_authorizing(
+    tmp_path: Path,
+) -> None:
+    qualification = qualify_tiingo_eod_retained_fields(verify(write_capture(tmp_path)))
+
+    with pytest.raises(TiingoEodError, match="exact verified snapshot proof"):
+        qualify_tiingo_eod_retained_fields(cast(Any, object()))
+    with pytest.raises(TypeError, match="only be derived from verified proofs"):
+        TiingoEodRetainedFieldQualification()
+    with pytest.raises(TypeError, match="only be derived from verified proofs"):
+        replace(qualification, qualification_sha256="0" * 64)
+    assert not isinstance(qualification, HistoricalBarSource)
+    assert not hasattr(qualification, "load")
+    representation = repr(qualification)
+    for retained_value in ("102.375", "101.125", "51.1875", "1000001"):
+        assert retained_value not in representation
+    for operation in (
+        qualification.raw_bar_records,
+        qualification.canonical_bar_records,
+        qualification.corporate_action_records,
+        qualification.admission_evidence,
+        qualification.historical_bar_source,
     ):
         with pytest.raises(TiingoEodError):
             operation()

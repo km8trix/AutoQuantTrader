@@ -642,12 +642,37 @@ second capture under the same exact still-applicable profile, authorization,
 and calendar artifacts and that capture passes the same gates. V1 lineage does
 not support artifact rotation.
 
+ADR 0017 adds a separate in-memory exact-retained field-contract boundary for
+one proof-constructed verified snapshot. It independently reparses exact
+retained responses and replays each strict source field name against its frozen
+row target. Its role contract keeps `date` as session identity; unprefixed OHLCV
+as `documented_raw_candidate`; adjusted OHLCV as research-only; and
+dividend/split fields as corporate-action candidates. Those roles are
+application policy, not semantics proved by observed values. Legacy
+`raw`, `adjusted`, and `ex-date` constraint strings are exposed only as
+`source_schema_constraint_id`: frozen source-schema policy labels whose wording
+does not confer canonical `PriceBasis.RAW`, validated adjustment methodology,
+or authoritative corporate-action semantics.
+
+The operator command verifies one final tree before deriving a value-free proof
+with schema `tiingo-eod-retained-field-qualification-v1` and kind
+`exact_retained_field_contract_only`. It reads no `.env`, performs no network or
+writes, never prints retained values or response bytes, and refuses raw or
+canonical bars, corporate actions, admission evidence, and
+`HistoricalBarSource`. The existing actual baseline has completed this
+boundary for four responses, four rows, one session, thirteen fields, and
+fifty-two field occurrences with every effect `none`; ADR 0017 records its
+field-contract, role-contract, and qualification digests. Calendar venue
+bindings establish session interpretation only, not Tiingo price-source market
+provenance.
+
 The staged Tiingo path is therefore contract qualification, approved profile,
 matching rights authorization and pinned calendar, bounded immutable capture,
-credential-free offline verification, local receipt-time lineage, and only then
-the remaining raw-semantics, authority, source, and admission gates. Later stages
-cannot grant authority backward to an earlier stage. No stage invents
-`vendor_published_at`, a vendor revision, or a historical vintage.
+credential-free offline verification, exact-retained field-contract
+qualification, local receipt-time lineage when multiple captures exist, and
+only then the remaining genuine-raw, authority, source, and admission gates.
+Later stages cannot grant authority backward to an earlier stage. No stage
+invents `vendor_published_at`, a vendor revision, or a historical vintage.
 
 The transport timeout applies to socket I/O for each symbol request. It is not a
 strict wall-clock deadline for the complete multi-symbol capture; operational
@@ -680,8 +705,9 @@ admission, or trading authority. See
 [ADR 0012](adr/0012-tiingo-eod-offline-first-qualification.md),
 [ADR 0013](adr/0013-tiingo-eod-authorization-gated-capture.md),
 [ADR 0014](adr/0014-tiingo-eod-offline-capture-verification.md),
-[ADR 0015](adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md), and
-[ADR 0016](adr/0016-tiingo-eod-receipt-time-local-lineage.md).
+[ADR 0015](adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md),
+[ADR 0016](adr/0016-tiingo-eod-receipt-time-local-lineage.md), and
+[ADR 0017](adr/0017-tiingo-eod-exact-retained-field-contract-qualification.md).
 
 ## 11. Backtesting model
 
