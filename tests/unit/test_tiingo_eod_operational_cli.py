@@ -15,8 +15,10 @@ import pytest
 import scripts.capture_tiingo_eod as capture_cli
 import scripts.derive_tiingo_eod_lineage as lineage_cli
 import scripts.inspect_tiingo_eod_profile as inspect_cli
+import scripts.qualify_tiingo_eod_retained_fields as retained_fields_cli
 import scripts.verify_tiingo_eod_capture as verify_cli
 from packages.adapters.market_data.tiingo_eod import (
+    TIINGO_EOD_FIELD_CONTRACT,
     TiingoEodAcquisitionProfile,
     TiingoEodCaptureAuthorization,
     TiingoEodError,
@@ -143,6 +145,17 @@ def capture_argv(
 
 def forbidden(*args: object, **kwargs: object) -> NoReturn:
     raise AssertionError((args, kwargs))
+
+
+def tree_snapshot(root: Path) -> tuple[tuple[str, int, bytes | None], ...]:
+    return tuple(
+        (
+            str(path.relative_to(root)),
+            path.stat().st_mode,
+            path.read_bytes() if path.is_file() else None,
+        )
+        for path in sorted(root.rglob("*"))
+    )
 
 
 def response_bytes() -> bytes:
@@ -630,6 +643,279 @@ def test_lineage_cli_rejects_unsafe_capture_names(
 
     with pytest.raises(SystemExit, match="finalized Tiingo capture"):
         lineage_cli.main()
+
+
+def test_retained_field_cli_is_offline_no_write_and_value_free_for_four_by_one_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    symbols = ("DIA", "IWM", "QQQ", "SPY")
+    selected_profile = profile(symbols=symbols)
+    authorization_bytes = authorization(selected_profile)
+    calendar_bytes = calendar_artifact(selected_profile)
+    profile_path = write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes())
+    authorization_path = write_artifact(
+        tmp_path / "authorization.json",
+        authorization_bytes,
+    )
+    calendar_path = write_artifact(tmp_path / "calendar.json", calendar_bytes)
+    clock_values = iter(
+        REQUESTED_AT + timedelta(seconds=index) for index in range(len(symbols) * 2)
+    )
+    manifest_path = capture_tiingo_eod(
+        repository_root=tmp_path,
+        token="synthetic-capture-token",
+        profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        transport=lambda request, *, timeout_seconds: TiingoEodApiResponse(
+            status=200,
+            payload=response_bytes(),
+        ),
+        clock=lambda: next(clock_values),
+    )
+    before = tree_snapshot(manifest_path.parent)
+
+    monkeypatch.setattr(retained_fields_cli, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setenv("TIINGO_TOKEN", TOKEN)
+    monkeypatch.setattr(socket, "socket", forbidden)
+    monkeypatch.setattr(socket, "create_connection", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "qualify_tiingo_eod_retained_fields.py",
+            "--capture-name",
+            manifest_path.parent.name,
+            "--profile-file",
+            str(profile_path),
+            "--authorization-file",
+            str(authorization_path),
+            "--calendar-file",
+            str(calendar_path),
+        ],
+    )
+
+    assert retained_fields_cli.main() == 0
+
+    captured = capsys.readouterr()
+    output = captured.out
+    result = json.loads(output)
+    assert captured.err == ""
+    assert set(result) == {
+        "admission_effect",
+        "calendar_artifact_sha256",
+        "capture_name",
+        "check_ids",
+        "corporate_action_effect",
+        "field_bindings",
+        "field_contract_sha256",
+        "field_count",
+        "field_occurrence_count",
+        "field_occurrence_counts",
+        "manifest_sha256",
+        "note",
+        "observation_count",
+        "profile_contract_sha256",
+        "qualification_kind",
+        "qualification_sha256",
+        "raw_execution_effect",
+        "received_at",
+        "requested_at",
+        "role_contract_sha256",
+        "role_field_counts",
+        "row_count",
+        "schema_version",
+        "scope",
+        "session_count",
+        "snapshot_semantic_sha256",
+        "trading_effect",
+    }
+    assert result["capture_name"] == manifest_path.parent.name
+    assert result["profile_contract_sha256"] == selected_profile.contract_sha256
+    assert result["calendar_artifact_sha256"] == hashlib.sha256(calendar_bytes).hexdigest()
+    assert result["manifest_sha256"] == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    assert result["scope"] == selected_profile.scope.to_dict()
+    assert result["observation_count"] == 4
+    assert result["row_count"] == 4
+    assert result["session_count"] == 1
+    assert result["field_count"] == 13
+    assert result["field_occurrence_count"] == 52
+    assert result["field_occurrence_counts"] == [
+        {"count": 4, "field_name": field_name} for field_name, _ in TIINGO_EOD_FIELD_CONTRACT
+    ]
+    assert all(
+        set(binding) == {"field_name", "role", "row_attribute", "source_schema_constraint_id"}
+        for binding in result["field_bindings"]
+    )
+    assert [
+        (binding["field_name"], binding["source_schema_constraint_id"])
+        for binding in result["field_bindings"]
+    ] == list(TIINGO_EOD_FIELD_CONTRACT)
+    assert result["role_field_counts"] == {
+        "adjusted_research": 5,
+        "corporate_action_candidate": 2,
+        "documented_raw_candidate": 5,
+        "session_identity": 1,
+    }
+    assert result["schema_version"] == "tiingo-eod-retained-field-qualification-v1"
+    assert result["qualification_kind"] == "exact_retained_field_contract_only"
+    assert len(result["field_contract_sha256"]) == 64
+    assert len(result["role_contract_sha256"]) == 64
+    assert len(result["snapshot_semantic_sha256"]) == 64
+    assert len(result["qualification_sha256"]) == 64
+    for effect in (
+        "admission_effect",
+        "corporate_action_effect",
+        "raw_execution_effect",
+        "trading_effect",
+    ):
+        assert result[effect] == "none"
+    for prohibited in (
+        TOKEN,
+        "synthetic-capture-token",
+        TERMS_SHA256,
+        "102.375",
+        "101.125",
+        "51.1875",
+        "50.5625",
+        "2000002",
+        str(tmp_path),
+        "test-profile-reviewer",
+        "test-authorization-reviewer",
+    ):
+        assert prohibited not in output
+    assert tree_snapshot(manifest_path.parent) == before
+    assert not hasattr(retained_fields_cli, "load_owner_only_environment")
+    assert not hasattr(retained_fields_cli, "capture_tiingo_eod")
+
+
+@pytest.mark.parametrize("unsafe_artifact", ["profile", "authorization", "calendar"])
+def test_retained_field_cli_rejects_symlinked_review_artifacts_before_capture_access(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe_artifact: str,
+) -> None:
+    selected_profile = profile()
+    paths = {
+        "profile": write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes()),
+        "authorization": write_artifact(
+            tmp_path / "authorization.json",
+            authorization(selected_profile),
+        ),
+        "calendar": write_artifact(
+            tmp_path / "calendar.json",
+            calendar_artifact(selected_profile),
+        ),
+    }
+    unsafe_path = tmp_path / f"{unsafe_artifact}-link.json"
+    unsafe_path.symlink_to(paths[unsafe_artifact])
+    paths[unsafe_artifact] = unsafe_path
+    monkeypatch.setattr(retained_fields_cli, "verify_tiingo_eod_capture", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "qualify_tiingo_eod_retained_fields.py",
+            "--capture-name",
+            f"20260716T120000000000Z-{'a' * 64}",
+            "--profile-file",
+            str(paths["profile"]),
+            "--authorization-file",
+            str(paths["authorization"]),
+            "--calendar-file",
+            str(paths["calendar"]),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="non-symlinked"):
+        retained_fields_cli.main()
+
+
+@pytest.mark.parametrize("restricted_artifact", ["profile", "authorization", "calendar"])
+def test_retained_field_cli_requires_owner_only_review_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    restricted_artifact: str,
+) -> None:
+    selected_profile = profile()
+    paths = {
+        "profile": write_artifact(
+            tmp_path / "profile.json",
+            selected_profile.to_json_bytes(),
+            mode=0o644 if restricted_artifact == "profile" else 0o600,
+        ),
+        "authorization": write_artifact(
+            tmp_path / "authorization.json",
+            authorization(selected_profile),
+            mode=0o644 if restricted_artifact == "authorization" else 0o600,
+        ),
+        "calendar": write_artifact(
+            tmp_path / "calendar.json",
+            calendar_artifact(selected_profile),
+            mode=0o644 if restricted_artifact == "calendar" else 0o600,
+        ),
+    }
+    monkeypatch.setattr(retained_fields_cli, "verify_tiingo_eod_capture", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "qualify_tiingo_eod_retained_fields.py",
+            "--capture-name",
+            f"20260716T120000000000Z-{'a' * 64}",
+            "--profile-file",
+            str(paths["profile"]),
+            "--authorization-file",
+            str(paths["authorization"]),
+            "--calendar-file",
+            str(paths["calendar"]),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="permissions must be owner-only"):
+        retained_fields_cli.main()
+
+
+@pytest.mark.parametrize(
+    "capture_name",
+    ["../capture", "/tmp/capture", ".staging-capture", "capture/manifest.json"],
+)
+def test_retained_field_cli_rejects_unsafe_capture_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capture_name: str,
+) -> None:
+    selected_profile = profile()
+    profile_path = write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes())
+    authorization_path = write_artifact(
+        tmp_path / "authorization.json",
+        authorization(selected_profile),
+    )
+    calendar_path = write_artifact(
+        tmp_path / "calendar.json",
+        calendar_artifact(selected_profile),
+    )
+    monkeypatch.setattr(retained_fields_cli, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "qualify_tiingo_eod_retained_fields.py",
+            "--capture-name",
+            capture_name,
+            "--profile-file",
+            str(profile_path),
+            "--authorization-file",
+            str(authorization_path),
+            "--calendar-file",
+            str(calendar_path),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="finalized Tiingo capture"):
+        retained_fields_cli.main()
 
 
 @pytest.mark.parametrize("unsafe_artifact", ["profile", "authorization", "calendar"])

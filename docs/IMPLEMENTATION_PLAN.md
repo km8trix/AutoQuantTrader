@@ -59,6 +59,19 @@ operator decision permits a second capture under the same exact still-applicable
 profile, authorization, and calendar artifacts and that capture is performed
 and verified. V1 lineage does not support artifact rotation.
 
+ADR 0017 now implements a separate single-snapshot exact-retained field-contract
+qualification. It independently replays strict source field names against
+frozen row targets and roles, then returns only a value-free proof with kind
+`exact_retained_field_contract_only`. The existing actual baseline has
+completed that boundary for four rows across one session and fifty-two field
+occurrences; ADR 0017 records the value-free contract and qualification digests.
+Unprefixed OHLCV remains
+`documented_raw_candidate`; the result refuses genuine-raw, canonical,
+corporate-action, source, admission, and trading authority.
+Emitted `source_schema_constraint_id` values are frozen source-schema policy
+labels; their raw, adjusted, or ex-date wording is not semantics inferred from
+observed values.
+
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
 treated as admission or evidence that a vendor's real history, entitlement,
@@ -189,15 +202,23 @@ Passing one layer cannot substitute for another.
   economics change, and rejects missing/extra coverage without carry-forward or
   tombstones. The first actual capture is only a baseline; repeated behavior is
   currently proven with synthetic complete captures.
+- Newly complete: a separate in-memory, credential-free retained-field boundary
+  and operator command for one exact verified capture. It replays all thirteen
+  frozen source fields into their explicit session-identity, documented-raw-
+  candidate, adjusted-research, or corporate-action-candidate roles and emits a
+  value-free `exact_retained_field_contract_only` proof. The existing actual
+  baseline has completed the boundary for four observations and rows, one
+  session, and fifty-two field occurrences with all effects `none`; ADR 0017
+  records the exact public digests.
 - Still required for the Phase 1 exit gate: obtain a fresh external operator
   decision for any second provider capture needed for real repeat evidence,
   perform it under the same exact still-applicable profile, authorization, and
   calendar artifacts required by the v1 lineage command, and verify it. V1 does
   not support artifact rotation. Also verify the frozen DIA, IWM, QQQ, and SPY
   allow-list plus a non-tradable lifecycle corpus, finish production
-  identifier/calendar/action authority qualification, qualify genuinely raw
-  daily fields from exact retained bytes or a validated reconstruction, and
-  implement the resulting
+  identifier/calendar/action authority qualification, obtain independent
+  evidence that the documented raw candidates are genuinely unadjusted and
+  execution-safe or validate a reconstruction, and implement the resulting
   `HistoricalBarSource`, and run the admission suite against licensed payloads.
   Synthetic tests and research captures cannot satisfy this gate.
 
@@ -537,7 +558,7 @@ Every change includes:
 | Orders | DAY market orders, next-event simulation | Smallest causally defensible execution slice |
 | Active strategies | One per brokerage account | Defers netting, virtual sleeves, internal crosses, and fill allocation |
 | Broker | Alpaca paper | Paper-first API; capability contract preserves future portability |
-| Data | Daily-first: immutable Sharadar research capture plus Tiingo synthetic qualification, one bounded actual Tiingo capture verified, and offline local-lineage mechanics implemented; real repeat evidence, `HistoricalBarSource`, and admission remain blocked; Massive intraday deferred | Adjustment basis, publication/vintage timing, venue/identity authorities, historical revisions/universes, licensed storage/use, and live quote scope drive validity |
+| Data | Daily-first: immutable Sharadar research capture plus Tiingo synthetic qualification, one bounded actual Tiingo capture verified and passed through the exact-retained field-contract boundary, and offline local-lineage mechanics implemented; no real repeat evidence exists, and genuine raw semantics, `HistoricalBarSource`, and admission remain blocked; Massive intraday deferred | Adjustment basis, publication/vintage timing, venue/identity authorities, historical revisions/universes, licensed storage/use, and live quote scope drive validity |
 | Account model | Explicit cash or margin policy | Determines settlement, buying power, ledger, and risk semantics |
 | Hosting | One region, managed PostgreSQL, object storage | Reliable non-HFT footprint with separable operational/research I/O |
 | UI | Desktop-browser React/Vite workspace, incremental from Phase 0 | Makes research and operations observable without adding native/mobile scope |

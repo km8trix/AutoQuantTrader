@@ -19,5 +19,6 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0014: Tiingo EOD offline capture verification](0014-tiingo-eod-offline-capture-verification.md)
 - [ADR 0015: Tiingo EOD pinned calendar artifact and operator verification](0015-tiingo-eod-pinned-calendar-and-operator-verification.md)
 - [ADR 0016: Tiingo EOD receipt-time local delivery lineage](0016-tiingo-eod-receipt-time-local-lineage.md)
+- [ADR 0017: Tiingo EOD exact-retained raw-candidate field-contract qualification](0017-tiingo-eod-exact-retained-field-contract-qualification.md)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
