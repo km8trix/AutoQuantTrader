@@ -8,7 +8,6 @@ lineage, emit canonical bars, or grant admission or trading authority.
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 import os
 import secrets
@@ -31,6 +30,9 @@ from packages.adapters.market_data.tiingo_eod import (
     TiingoEodCaptureReceipt,
     TiingoEodError,
     tiingo_eod_response_contract,
+)
+from packages.adapters.market_data.tiingo_eod_capture_identity import (
+    tiingo_eod_capture_name,
 )
 from packages.market_data.models import require_text, require_utc
 
@@ -229,32 +231,6 @@ def _write_exclusive(directory_descriptor: int, name: str, payload: bytes) -> No
             os.fsync(stream.fileno())
     except OSError as error:
         raise TiingoEodCaptureError("cannot write an immutable capture object") from error
-
-
-def _capture_id(
-    started_at: datetime,
-    *,
-    profile_contract_sha256: str,
-    responses: tuple[_CapturedResponse, ...],
-) -> str:
-    material = json.dumps(
-        {
-            "profile_contract_sha256": profile_contract_sha256,
-            "responses": [
-                {
-                    "sha256": hashlib.sha256(response.payload).hexdigest(),
-                    "symbol": response.symbol,
-                }
-                for response in responses
-            ],
-            "started_at": started_at.isoformat(),
-        },
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
-    timestamp = started_at.strftime("%Y%m%dT%H%M%S%fZ")
-    return f"{timestamp}-{hashlib.sha256(material).hexdigest()[:16]}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -554,11 +530,7 @@ def capture_tiingo_eod(
         authorization_sha256=authorization_sha256,
         terms_sha256=authorization.terms_sha256,
     )
-    capture_name = _capture_id(
-        immutable_responses[0].requested_at,
-        profile_contract_sha256=profile.contract_sha256,
-        responses=immutable_responses,
-    )
+    capture_name = tiingo_eod_capture_name(prepared.manifest_bytes)
     capture_dir = repository / TIINGO_EOD_CAPTURE_RELATIVE_ROOT / capture_name
     _publish_capture(repository, capture_name=capture_name, prepared=prepared)
     return capture_dir / "manifest.json"

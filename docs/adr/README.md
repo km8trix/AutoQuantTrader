@@ -16,5 +16,6 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0011: daily-first capture and raw-lane separation](0011-daily-first-capture-and-raw-lane-separation.md)
 - [ADR 0012: Tiingo EOD offline-first qualification](0012-tiingo-eod-offline-first-qualification.md)
 - [ADR 0013: Tiingo EOD authorization-gated capture](0013-tiingo-eod-authorization-gated-capture.md)
+- [ADR 0014: Tiingo EOD offline capture verification](0014-tiingo-eod-offline-capture-verification.md)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

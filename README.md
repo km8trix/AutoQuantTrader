@@ -81,7 +81,22 @@ external prerequisites are later met, acquisition
 remains staged through allow-listed per-symbol request/receipt evidence,
 response-size and socket-I/O bounds, and atomic publication of immutable,
 secret-free capture metadata beneath `.local/vendor-snapshots/tiingo-eod`.
-Separate offline verification and provider admission review remain later gates.
+Provider admission review remains a later gate.
+
+ADR 0014 adds a separate network-free verifier for a published final capture.
+Its path, immutable-tree, authorization/profile, content digest, response
+contract, per-symbol pinned-calendar, and exact session-coverage checks are
+exercised only with synthetic captures. It accepts a strict final capture name
+under the fixed root rather than an arbitrary path; that name commits to the
+full canonical manifest SHA-256. The verifier retains and finally revalidates
+the selected name, inode identities, metadata, and exact tree, requires the
+exact reviewed authorization bytes, and proof-constructs a research-only
+snapshot whose canonical-bar, revision-lineage, admission, and
+production-source conversions fail closed. The reusable wrapper deliberately
+does not implement `HistoricalBarSource`. No actual Tiingo capture has been
+verified. The first boundary is library-only until a reviewed portable
+calendar-artifact contract exists; it does not substitute the small synthetic
+reference calendar for operator input.
 
 The acquisition seam makes no claim about Tiingo publication time, historical
 vintages, or corrections. Receipt time is not relabeled as

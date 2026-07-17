@@ -562,6 +562,9 @@ def test_capture_archives_one_exact_response_per_sorted_symbol_without_secret_le
     assert manifest.requested_at == REQUESTED_AT
     assert manifest.received_at == SECOND_RECEIVED_AT
     assert manifest_path.parent.parent == capture_root(tmp_path)
+    assert manifest_path.parent.name == (
+        f"{REQUESTED_AT.strftime('%Y%m%dT%H%M%S%fZ')}-{hashlib.sha256(manifest_bytes).hexdigest()}"
+    )
     assert TiingoEodCaptureManifest.from_json_bytes(manifest.to_json_bytes()) == manifest
 
     expected_times = (
