@@ -32,38 +32,32 @@ synthetic EOD fixtures. It uses a Tiingo-specific raw-candidate basis, binds
 provider, dataset, scope, schema, calendar, receipt, and synthetic evidence kind
 into deterministic identity, and refuses canonical-bar or admission-evidence
 conversion. It deliberately precedes and does not authorize exact-page capture
-or a production `HistoricalBarSource`: publication/vintage timing, venue
-provenance, identity authorities, and licensed storage rights remain unresolved.
-ADR 0013 now adds a Tiingo-specific authorization-gated acquisition seam. Its
-transport, preflight, bounded request count and response size, per-request
-socket-I/O timeout, and immutable-output mechanics are
-tested only with synthetic responses; no live Tiingo request or capture has
-occurred. Actual operation remains blocked until a profile records human
-approval of the exact product and scope and a separate, matching capture
-authorization binds its normalized profile-contract digest to applicable
-terms, local-retention rights, and research-use rights, and an exact approved
-pinned-calendar artifact binds the same profile and scope. The seam does not
-manufacture a publication timestamp or vendor revision. Repeated-capture local
-lineage remains deferred, as do canonical conversion, source implementation,
-and admission. ADR 0014 now
-adds a network-free verifier/loader for a future final capture. Its fixed-root
-descriptor traversal, exact immutable tree, authorization/profile binding,
-content hashes, response contract, per-symbol pinned calendars, and exact
-session coverage are synthetic-tested. The final name commits to the complete
-canonical manifest, and selected root/name/inode/tree identity is revalidated at
-the return boundary. Its proof-constructed result is permanently research-only,
-does not structurally implement the production source protocol, and refuses
-revision lineage, canonical bars, and admission evidence. No actual Tiingo
-capture has been verified. Before ADR 0015, the boundary remained library-only
-because production pinned calendars lacked a reviewed portable artifact
-contract.
+or supply a production `HistoricalBarSource`. The later exact scope-specific
+retention/research approval is recorded below; publication/vintage semantics
+and production market-provenance, identity, lifecycle, corporate-action, and
+admission qualification remain open.
+ADRs 0013-0015 add a Tiingo-specific authorization-gated acquisition seam,
+portable pinned-calendar approval, immutable publication, and descriptor-safe
+offline verification. Their mechanics remain extensively synthetic-tested. On
+2026-07-17, one bounded provider-backed operation passed the exact profile,
+retention/research authorization, and calendar gates and captured the completed
+2026-01-02 session for DIA, IWM, QQQ, and SPY. The credential-free verifier then
+validated the immutable tree, manifest and object hashes, strict schema, exact
+session coverage, and four research rows. The ignored owner-only capture is a
+research baseline only; no response bytes are checked into Git, and admission
+and trading effects remain `none`.
 
-ADR 0015 now implements that artifact contract and a credential-free operator
-verification command. Exact canonical calendar bytes are reviewed and
-profile-bound before token or transport access, committed to the v2 capture
-manifest, required again offline, and included in the v2 research proof. This
-remains synthetic-only: no production calendar artifact or actual Tiingo
-capture has been approved or verified.
+ADR 0016 now implements receipt-time local delivery lineage for two or more
+complete independently verified captures. Synthetic repeated-capture tests prove
+first observation, presentation-insensitive unchanged delivery, row-local
+economic change, A -> B -> A reversion, chronology, exact profile/calendar
+compatibility, and incomplete-capture rejection. The proof-constructed result
+does not invent vendor publication or revision time and refuses canonical bars,
+admission evidence, and `HistoricalBarSource`. Only one actual capture exists, so
+genuine provider repeat behavior remains unobserved until a fresh external
+operator decision permits a second capture under the same exact still-applicable
+profile, authorization, and calendar artifacts and that capture is performed
+and verified. V1 lineage does not support artifact rotation.
 
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
@@ -167,12 +161,10 @@ Passing one layer cannot substitute for another.
   profile approval, matching rights authorization, bounded request count and
   response size, finite per-request socket-I/O timeout, secret-safe metadata,
   owner-only staging, exclusive final-name reservation, and atomic publication
-  are exercised with synthetic responses only. It performs no live request or
-  capture and cannot operate without an approved provider-specific profile and
-  a matching authorization that confirms local-retention and research-use
-  rights plus an exact approved pinned-calendar artifact for that profile. It
-  makes no license, admission, trading, publication-time, historical-vintage,
-  or correction-lineage claim.
+  are synthetic-tested and have been exercised by one bounded authorized
+  provider-backed capture. Every later request remains independently gated. The
+  operation makes no admission, trading, publication-time, historical-vintage,
+  or vendor-correction claim.
 - Newly complete: a separate offline Tiingo final-capture verifier that accepts
   only a strict final name beneath the fixed repository root, uses no-follow
   descriptor traversal, binds the name to the full canonical manifest, requires
@@ -180,25 +172,32 @@ Passing one layer cannot substitute for another.
   finally revalidates the exact immutable root/name/inode/tree and content digests,
   revalidates schema and coverage against the exact reviewed portable
   pinned-calendar artifact, and proof-constructs a deterministic research-only
-  snapshot. It is
-  exercised only with synthetic captures and structurally refuses local
-  revision lineage, canonical conversion, admission evidence, and source
-  integration.
+  snapshot. It is synthetic-tested and has verified the one actual retained
+  capture. A single-snapshot result still refuses lineage, canonical conversion,
+  admission evidence, and source integration.
 - Newly complete: a strict portable pinned-calendar artifact whose reviewed
   scope, profile digest, authority, attested tzdata-version label, per-symbol calendar
   identity, and explicit UTC sessions are causally validated before capture.
   Its exact digest is committed to the v2 manifest and required by the v2
   research proof. A credential-free operator verifier reads owner-only local
   artifacts, emits only secret-free proof metadata, and has no write, admission,
-  or trading effect. The checked-in template remains non-authorizing.
-- Still required for the Phase 1 exit gate: confirm licensed use, verify the
-  frozen DIA, IWM, QQQ, and SPY allow-list plus a non-tradable lifecycle corpus,
-  freeze identifier/calendar/action authorities, independently approve the
-  Tiingo acquisition profile, matching retention/research authorization, and
-  exact portable pinned-calendar artifact, perform and verify an authorized
-  capture, implement receipt-time local
-  revision lineage, qualify genuinely raw daily fields from exact retained
-  bytes or a validated reconstruction, implement the resulting
+  or trading effect. The checked-in template remains non-authorizing; the actual
+  approved artifact is bounded to the one captured scope and remains ignored.
+- Newly complete: an in-memory, credential-free receipt-lineage boundary and
+  operator command for two or more exact final captures. It preserves every
+  occurrence, creates a new linked local version only when one row's normalized
+  economics change, and rejects missing/extra coverage without carry-forward or
+  tombstones. The first actual capture is only a baseline; repeated behavior is
+  currently proven with synthetic complete captures.
+- Still required for the Phase 1 exit gate: obtain a fresh external operator
+  decision for any second provider capture needed for real repeat evidence,
+  perform it under the same exact still-applicable profile, authorization, and
+  calendar artifacts required by the v1 lineage command, and verify it. V1 does
+  not support artifact rotation. Also verify the frozen DIA, IWM, QQQ, and SPY
+  allow-list plus a non-tradable lifecycle corpus, finish production
+  identifier/calendar/action authority qualification, qualify genuinely raw
+  daily fields from exact retained bytes or a validated reconstruction, and
+  implement the resulting
   `HistoricalBarSource`, and run the admission suite against licensed payloads.
   Synthetic tests and research captures cannot satisfy this gate.
 
@@ -538,7 +537,7 @@ Every change includes:
 | Orders | DAY market orders, next-event simulation | Smallest causally defensible execution slice |
 | Active strategies | One per brokerage account | Defers netting, virtual sleeves, internal crosses, and fill allocation |
 | Broker | Alpaca paper | Paper-first API; capability contract preserves future portability |
-| Data | Daily-first: immutable Sharadar research capture plus Tiingo synthetic qualification, authorization-gated capture mechanics, and offline final-capture verification implemented locally; actual Tiingo capture and `HistoricalBarSource` blocked; Massive intraday deferred; none admitted | Adjustment basis, publication/vintage timing, venue/identity authorities, historical revisions/universes, licensed storage/use, and live quote scope drive validity |
+| Data | Daily-first: immutable Sharadar research capture plus Tiingo synthetic qualification, one bounded actual Tiingo capture verified, and offline local-lineage mechanics implemented; real repeat evidence, `HistoricalBarSource`, and admission remain blocked; Massive intraday deferred | Adjustment basis, publication/vintage timing, venue/identity authorities, historical revisions/universes, licensed storage/use, and live quote scope drive validity |
 | Account model | Explicit cash or margin policy | Determines settlement, buying power, ledger, and risk semantics |
 | Hosting | One region, managed PostgreSQL, object storage | Reliable non-HFT footprint with separable operational/research I/O |
 | UI | Desktop-browser React/Vite workspace, incremental from Phase 0 | Makes research and operations observable without adding native/mobile scope |

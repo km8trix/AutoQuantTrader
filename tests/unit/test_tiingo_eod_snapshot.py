@@ -7,11 +7,13 @@ import shutil
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
+import packages.adapters.market_data.tiingo_eod_lineage as lineage_module
 import packages.adapters.market_data.tiingo_eod_snapshot as snapshot_module
 from packages.adapters.market_data.tiingo_eod import (
     MAX_TIINGO_MANIFEST_BYTES,
@@ -33,6 +35,13 @@ from packages.adapters.market_data.tiingo_eod_capture import (
 )
 from packages.adapters.market_data.tiingo_eod_capture_identity import (
     tiingo_eod_capture_name,
+)
+from packages.adapters.market_data.tiingo_eod_lineage import (
+    TiingoEodLocalRevision,
+    TiingoEodReceiptComparison,
+    TiingoEodReceiptDisposition,
+    TiingoEodReceiptTimeLineage,
+    derive_tiingo_eod_receipt_lineage,
 )
 from packages.adapters.market_data.tiingo_eod_snapshot import (
     RecordedTiingoEodResearchSnapshot,
@@ -267,6 +276,7 @@ def write_capture(
     calendar_artifact_bytes: bytes | None = None,
     payloads: Mapping[str, bytes] | None = None,
     selected_calendars: dict[str, ExchangeCalendar] | None = None,
+    capture_requested_at: datetime = CAPTURE_REQUESTED_AT,
 ) -> SyntheticCapture:
     selected_profile = selected_profile or profile()
     authorization_bytes = authorization_bytes or authorization(selected_profile)
@@ -285,7 +295,7 @@ def write_capture(
         payload = payloads[symbol]
         digest = hashlib.sha256(payload).hexdigest()
         objects.setdefault(digest, payload)
-        requested_at = CAPTURE_REQUESTED_AT + timedelta(seconds=index * 2)
+        requested_at = capture_requested_at + timedelta(seconds=index * 2)
         received_at = requested_at + timedelta(seconds=1)
         receipts.append(
             TiingoEodCaptureReceipt(
@@ -1469,3 +1479,633 @@ def test_manifest_authorization_digest_must_match_caller_supplied_bytes(
         match=r"authorization.*(?:bytes|digest)|artifact",
     ):
         verify(capture)
+
+
+def test_receipt_lineage_preserves_occurrences_and_collapses_unchanged_economics(
+    tmp_path: Path,
+) -> None:
+    selected_profile = profile()
+    authorization_bytes = authorization(selected_profile)
+    selected_calendars = calendars()
+    calendar_bytes = pinned_calendar_artifact(
+        selected_profile,
+        selected_calendars=selected_calendars,
+    )
+    baseline_payloads = {
+        symbol: response_bytes(volume=1_000_000 + index) for index, symbol in enumerate(SYMBOLS)
+    }
+    presentation_changed_payloads = {
+        symbol: (
+            json.dumps(
+                json.loads(payload),
+                ensure_ascii=True,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+        for symbol, payload in baseline_payloads.items()
+    }
+    first_capture = write_capture(
+        tmp_path,
+        selected_profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        selected_calendars=selected_calendars,
+        payloads=baseline_payloads,
+    )
+    second_capture = write_capture(
+        tmp_path,
+        selected_profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        selected_calendars=selected_calendars,
+        payloads=presentation_changed_payloads,
+        capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=1),
+    )
+    snapshots = (verify(first_capture), verify(second_capture))
+
+    first = derive_tiingo_eod_receipt_lineage(snapshots)
+    second = derive_tiingo_eod_receipt_lineage(snapshots)
+
+    assert first == second
+    assert len(first.revisions) == len(SYMBOLS)
+    assert len(first.comparisons) == len(SYMBOLS) * 2
+    assert tuple(comparison.disposition for comparison in first.comparisons) == (
+        *(TiingoEodReceiptDisposition.INITIAL for _ in SYMBOLS),
+        *(TiingoEodReceiptDisposition.UNCHANGED for _ in SYMBOLS),
+    )
+    for initial, unchanged in zip(
+        first.comparisons[: len(SYMBOLS)],
+        first.comparisons[len(SYMBOLS) :],
+        strict=True,
+    ):
+        assert initial.response_sha256 != unchanged.response_sha256
+        assert initial.economics_sha256 == unchanged.economics_sha256
+        assert initial.effective_revision_sha256 == unchanged.effective_revision_sha256
+        assert unchanged.effective_local_revision == 1
+        revision = next(
+            value
+            for value in first.revisions
+            if value.local_observation_id == initial.local_observation_id
+        )
+        assert revision.observed_at == initial.observed_at
+
+
+def test_receipt_lineage_decimal_identity_is_compact_and_value_canonical(
+    tmp_path: Path,
+) -> None:
+    assert lineage_module._decimal_text(Decimal("102.3750")) == (
+        lineage_module._decimal_text(Decimal("1.02375e2"))
+    )
+    assert len(lineage_module._decimal_text(Decimal("1e100000"))) < 32
+
+    selected_profile = profile(capture_scope=scope(symbols=("SPY",)))
+    authorization_bytes = authorization(selected_profile)
+    selected_calendars = calendars(symbols=("SPY",))
+    calendar_bytes = pinned_calendar_artifact(
+        selected_profile,
+        selected_calendars=selected_calendars,
+    )
+    baseline_payload = response_bytes()
+    equivalent_payload = baseline_payload.replace(
+        b'"close":102.375',
+        b'"close":1.023750e2',
+    ).replace(
+        b'"divCash":0.25',
+        b'"divCash":2.500e-1',
+    )
+    assert equivalent_payload != baseline_payload
+    first_capture = write_capture(
+        tmp_path,
+        selected_profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        selected_calendars=selected_calendars,
+        payloads={"SPY": baseline_payload},
+    )
+    second_capture = write_capture(
+        tmp_path,
+        selected_profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        selected_calendars=selected_calendars,
+        payloads={"SPY": equivalent_payload},
+        capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=1),
+    )
+
+    lineage = derive_tiingo_eod_receipt_lineage((verify(first_capture), verify(second_capture)))
+
+    assert len(lineage.revisions) == 1
+    assert lineage.comparisons[-1].disposition is TiingoEodReceiptDisposition.UNCHANGED
+    assert lineage.comparisons[0].response_sha256 != lineage.comparisons[1].response_sha256
+    assert lineage.comparisons[0].economics_sha256 == lineage.comparisons[1].economics_sha256
+
+
+def test_receipt_lineage_ignores_response_wide_row_order(tmp_path: Path) -> None:
+    selected_scope = scope(
+        symbols=("SPY",),
+        start_date=SESSION_DATE,
+        end_date=SECOND_SESSION_DATE,
+    )
+    selected_profile = profile(capture_scope=selected_scope)
+    authorization_bytes = authorization(selected_profile)
+    selected_calendars = calendars(
+        symbols=("SPY",),
+        session_dates=(SESSION_DATE, SECOND_SESSION_DATE),
+    )
+    calendar_bytes = pinned_calendar_artifact(
+        selected_profile,
+        selected_calendars=selected_calendars,
+    )
+    ordered_payload = response_bytes(SESSION_DATE, SECOND_SESSION_DATE)
+    reversed_payload = json.dumps(
+        list(reversed(cast(list[dict[str, object]], json.loads(ordered_payload)))),
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    first_capture = write_capture(
+        tmp_path,
+        selected_profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        selected_calendars=selected_calendars,
+        payloads={"SPY": ordered_payload},
+    )
+    second_capture = write_capture(
+        tmp_path,
+        selected_profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        selected_calendars=selected_calendars,
+        payloads={"SPY": reversed_payload},
+        capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=1),
+    )
+
+    lineage = derive_tiingo_eod_receipt_lineage((verify(first_capture), verify(second_capture)))
+
+    assert len(lineage.revisions) == 2
+    assert [comparison.disposition for comparison in lineage.comparisons] == [
+        TiingoEodReceiptDisposition.INITIAL,
+        TiingoEodReceiptDisposition.INITIAL,
+        TiingoEodReceiptDisposition.UNCHANGED,
+        TiingoEodReceiptDisposition.UNCHANGED,
+    ]
+
+
+def test_changed_then_unchanged_creates_only_two_local_revisions(tmp_path: Path) -> None:
+    selected_profile = profile(capture_scope=scope(symbols=("SPY",)))
+    authorization_bytes = authorization(selected_profile)
+    selected_calendars = calendars(symbols=("SPY",))
+    calendar_bytes = pinned_calendar_artifact(
+        selected_profile,
+        selected_calendars=selected_calendars,
+    )
+    payload_a = {"SPY": response_bytes(volume=1_000_001)}
+    payload_b = {"SPY": response_bytes(volume=1_000_111)}
+    captures = tuple(
+        write_capture(
+            tmp_path,
+            selected_profile=selected_profile,
+            authorization_bytes=authorization_bytes,
+            calendar_artifact_bytes=calendar_bytes,
+            selected_calendars=selected_calendars,
+            payloads=payloads,
+            capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=index),
+        )
+        for index, payloads in enumerate((payload_a, payload_b, payload_b))
+    )
+
+    lineage = derive_tiingo_eod_receipt_lineage(tuple(verify(capture) for capture in captures))
+
+    assert [revision.local_revision for revision in lineage.revisions] == [1, 2]
+    assert [comparison.disposition for comparison in lineage.comparisons] == [
+        TiingoEodReceiptDisposition.INITIAL,
+        TiingoEodReceiptDisposition.CHANGED,
+        TiingoEodReceiptDisposition.UNCHANGED,
+    ]
+    assert (
+        lineage.comparisons[-1].effective_revision_sha256 == lineage.revisions[-1].revision_sha256
+    )
+    assert lineage.revisions[-1].supersedes_revision_sha256 == lineage.revisions[0].revision_sha256
+
+
+def test_changed_then_reverted_creates_a_third_local_revision(tmp_path: Path) -> None:
+    selected_profile = profile(capture_scope=scope(symbols=("SPY",)))
+    authorization_bytes = authorization(selected_profile)
+    selected_calendars = calendars(symbols=("SPY",))
+    calendar_bytes = pinned_calendar_artifact(
+        selected_profile,
+        selected_calendars=selected_calendars,
+    )
+    payload_a = {"SPY": response_bytes(volume=1_000_001)}
+    payload_b = {"SPY": response_bytes(volume=1_000_111)}
+    captures = tuple(
+        write_capture(
+            tmp_path,
+            selected_profile=selected_profile,
+            authorization_bytes=authorization_bytes,
+            calendar_artifact_bytes=calendar_bytes,
+            selected_calendars=selected_calendars,
+            payloads=payloads,
+            capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=index),
+        )
+        for index, payloads in enumerate((payload_a, payload_b, payload_a))
+    )
+
+    lineage = derive_tiingo_eod_receipt_lineage(tuple(verify(capture) for capture in captures))
+
+    assert [revision.local_revision for revision in lineage.revisions] == [1, 2, 3]
+    assert [comparison.disposition for comparison in lineage.comparisons] == [
+        TiingoEodReceiptDisposition.INITIAL,
+        TiingoEodReceiptDisposition.CHANGED,
+        TiingoEodReceiptDisposition.CHANGED,
+    ]
+    assert lineage.revisions[0].economics_sha256 == lineage.revisions[2].economics_sha256
+    assert lineage.revisions[0].revision_sha256 != lineage.revisions[2].revision_sha256
+    assert lineage.revisions[2].supersedes_revision_sha256 == lineage.revisions[1].revision_sha256
+
+
+@pytest.mark.parametrize(
+    ("field_name", "changed_value"),
+    [
+        ("open", 101.25),
+        ("high", 103.75),
+        ("low", 99.75),
+        ("close", 102.5),
+        ("volume", 1_000_002),
+        ("adjOpen", 50.625),
+        ("adjHigh", 51.875),
+        ("adjLow", 49.875),
+        ("adjClose", 51.25),
+        ("adjVolume", 2_000_003),
+        ("divCash", 0.375),
+        ("splitFactor", 1.5),
+    ],
+)
+def test_every_economic_field_participates_in_local_revision_identity(
+    tmp_path: Path,
+    field_name: str,
+    changed_value: object,
+) -> None:
+    selected_profile = profile(capture_scope=scope(symbols=("SPY",)))
+    authorization_bytes = authorization(selected_profile)
+    selected_calendars = calendars(symbols=("SPY",))
+    calendar_bytes = pinned_calendar_artifact(
+        selected_profile,
+        selected_calendars=selected_calendars,
+    )
+    baseline_row = economic_row(SESSION_DATE)
+    changed_row = dict(baseline_row)
+    changed_row[field_name] = changed_value
+    payloads = tuple(
+        {"SPY": json.dumps([row], ensure_ascii=True, separators=(",", ":")).encode("utf-8")}
+        for row in (baseline_row, changed_row)
+    )
+    captures = tuple(
+        write_capture(
+            tmp_path,
+            selected_profile=selected_profile,
+            authorization_bytes=authorization_bytes,
+            calendar_artifact_bytes=calendar_bytes,
+            selected_calendars=selected_calendars,
+            payloads=payload,
+            capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=index),
+        )
+        for index, payload in enumerate(payloads)
+    )
+
+    lineage = derive_tiingo_eod_receipt_lineage(tuple(verify(capture) for capture in captures))
+
+    assert len(lineage.revisions) == 2
+    assert lineage.comparisons[-1].disposition is TiingoEodReceiptDisposition.CHANGED
+    assert lineage.revisions[0].economics_sha256 != lineage.revisions[1].economics_sha256
+
+
+def test_multi_session_lineage_revises_only_the_changed_row(tmp_path: Path) -> None:
+    selected_scope = scope(
+        symbols=("SPY",),
+        start_date=SESSION_DATE,
+        end_date=SECOND_SESSION_DATE,
+    )
+    selected_profile = profile(capture_scope=selected_scope)
+    authorization_bytes = authorization(selected_profile)
+    selected_calendars = calendars(
+        symbols=("SPY",),
+        session_dates=(SESSION_DATE, SECOND_SESSION_DATE),
+    )
+    calendar_bytes = pinned_calendar_artifact(
+        selected_profile,
+        selected_calendars=selected_calendars,
+    )
+    first_payload = json.dumps(
+        [
+            economic_row(SESSION_DATE, volume=1_000_001),
+            economic_row(SECOND_SESSION_DATE, volume=1_000_002),
+        ],
+        separators=(",", ":"),
+    ).encode("utf-8")
+    second_payload = json.dumps(
+        [
+            economic_row(SESSION_DATE, volume=1_000_001),
+            economic_row(SECOND_SESSION_DATE, volume=1_000_222),
+        ],
+        separators=(",", ":"),
+    ).encode("utf-8")
+    first_capture = write_capture(
+        tmp_path,
+        selected_profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        selected_calendars=selected_calendars,
+        payloads={"SPY": first_payload},
+    )
+    second_capture = write_capture(
+        tmp_path,
+        selected_profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        selected_calendars=selected_calendars,
+        payloads={"SPY": second_payload},
+        capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=1),
+    )
+
+    lineage = derive_tiingo_eod_receipt_lineage((verify(first_capture), verify(second_capture)))
+
+    assert len(lineage.revisions) == 3
+    revisions_by_date = {
+        session_label: [
+            revision.local_revision
+            for revision in lineage.revisions
+            if revision.session_label == session_label
+        ]
+        for session_label in (SESSION_DATE, SECOND_SESSION_DATE)
+    }
+    assert revisions_by_date == {SESSION_DATE: [1], SECOND_SESSION_DATE: [1, 2]}
+    assert [comparison.disposition for comparison in lineage.comparisons[2:]] == [
+        TiingoEodReceiptDisposition.UNCHANGED,
+        TiingoEodReceiptDisposition.CHANGED,
+    ]
+
+
+def test_incomplete_later_capture_is_rejected_without_tombstone_or_carry_forward(
+    tmp_path: Path,
+) -> None:
+    selected_scope = scope(
+        symbols=("SPY",),
+        start_date=SESSION_DATE,
+        end_date=SECOND_SESSION_DATE,
+    )
+    selected_profile = profile(capture_scope=selected_scope)
+    authorization_bytes = authorization(selected_profile)
+    selected_calendars = calendars(
+        symbols=("SPY",),
+        session_dates=(SESSION_DATE, SECOND_SESSION_DATE),
+    )
+    calendar_bytes = pinned_calendar_artifact(
+        selected_profile,
+        selected_calendars=selected_calendars,
+    )
+    complete = write_capture(
+        tmp_path,
+        selected_profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        selected_calendars=selected_calendars,
+        payloads={"SPY": response_bytes(SESSION_DATE, SECOND_SESSION_DATE)},
+    )
+    incomplete = write_capture(
+        tmp_path,
+        selected_profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        selected_calendars=selected_calendars,
+        payloads={"SPY": response_bytes(SESSION_DATE)},
+        capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=1),
+    )
+
+    assert verify(complete).rows
+    with pytest.raises(TiingoEodError, match=r"missing|required session|coverage|response dates"):
+        verify(incomplete)
+    assert not hasattr(TiingoEodReceiptDisposition, "MISSING")
+
+
+@pytest.mark.parametrize("narrower_dimension", ["symbols", "dates"])
+def test_receipt_lineage_rejects_individually_valid_narrower_scopes(
+    tmp_path: Path,
+    narrower_dimension: str,
+) -> None:
+    def verified_scope_capture(
+        root: Path,
+        selected_scope: TiingoEodScope,
+        *,
+        requested_at: datetime,
+    ) -> TiingoEodVerifiedResearchSnapshot:
+        selected_profile = profile(capture_scope=selected_scope)
+        authorization_bytes = authorization(selected_profile)
+        session_dates = tuple(
+            session_date
+            for session_date in (SESSION_DATE, SECOND_SESSION_DATE)
+            if selected_scope.start_date <= session_date <= selected_scope.end_date
+        )
+        selected_calendars = calendars(
+            symbols=selected_scope.symbols,
+            session_dates=session_dates,
+        )
+        calendar_bytes = pinned_calendar_artifact(
+            selected_profile,
+            selected_calendars=selected_calendars,
+        )
+        payloads = {
+            symbol: response_bytes(*session_dates, volume=1_000_000 + index)
+            for index, symbol in enumerate(selected_scope.symbols)
+        }
+        return verify(
+            write_capture(
+                root,
+                selected_profile=selected_profile,
+                authorization_bytes=authorization_bytes,
+                calendar_artifact_bytes=calendar_bytes,
+                selected_calendars=selected_calendars,
+                payloads=payloads,
+                capture_requested_at=requested_at,
+            )
+        )
+
+    broad_scope = scope(
+        symbols=("DIA", "SPY"),
+        start_date=SESSION_DATE,
+        end_date=SECOND_SESSION_DATE,
+    )
+    narrow_scope = (
+        scope(
+            symbols=("SPY",),
+            start_date=SESSION_DATE,
+            end_date=SECOND_SESSION_DATE,
+        )
+        if narrower_dimension == "symbols"
+        else scope(
+            symbols=("DIA", "SPY"),
+            start_date=SESSION_DATE,
+            end_date=SESSION_DATE,
+        )
+    )
+    broad = verified_scope_capture(
+        tmp_path / "broad",
+        broad_scope,
+        requested_at=CAPTURE_REQUESTED_AT,
+    )
+    narrow = verified_scope_capture(
+        tmp_path / "narrow",
+        narrow_scope,
+        requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=1),
+    )
+
+    with pytest.raises(TiingoEodError, match="exact profile"):
+        derive_tiingo_eod_receipt_lineage((broad, narrow))
+
+
+def test_receipt_lineage_rejects_duplicate_reversed_and_overlapping_captures(
+    tmp_path: Path,
+) -> None:
+    selected_profile = profile(capture_scope=scope(symbols=("SPY",)))
+    authorization_bytes = authorization(selected_profile)
+    selected_calendars = calendars(symbols=("SPY",))
+    calendar_bytes = pinned_calendar_artifact(
+        selected_profile,
+        selected_calendars=selected_calendars,
+    )
+
+    def snapshot_at(offset: timedelta) -> TiingoEodVerifiedResearchSnapshot:
+        return verify(
+            write_capture(
+                tmp_path,
+                selected_profile=selected_profile,
+                authorization_bytes=authorization_bytes,
+                calendar_artifact_bytes=calendar_bytes,
+                selected_calendars=selected_calendars,
+                capture_requested_at=CAPTURE_REQUESTED_AT + offset,
+            )
+        )
+
+    first = snapshot_at(timedelta())
+    second = snapshot_at(timedelta(minutes=1))
+    overlapping = snapshot_at(timedelta(seconds=1))
+
+    with pytest.raises(TiingoEodError, match="duplicate capture"):
+        derive_tiingo_eod_receipt_lineage((first, first))
+    with pytest.raises(TiingoEodError, match="chronological"):
+        derive_tiingo_eod_receipt_lineage((second, first))
+    with pytest.raises(TiingoEodError, match="non-overlapping"):
+        derive_tiingo_eod_receipt_lineage((first, overlapping))
+
+
+def test_receipt_lineage_rejects_profile_calendar_and_policy_mismatches(tmp_path: Path) -> None:
+    first_capture = write_capture(tmp_path / "first")
+    first = verify(first_capture)
+
+    other_profile = profile(market_provenance="different-market-provenance")
+    other_profile_capture = write_capture(
+        tmp_path / "profile",
+        selected_profile=other_profile,
+        capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=1),
+    )
+    with pytest.raises(TiingoEodError, match="exact profile"):
+        derive_tiingo_eod_receipt_lineage((first, verify(other_profile_capture)))
+
+    changed_calendars = calendars()
+    changed_calendars["SPY"] = calendar("SPY", version="spy-2026b", close_hour=22)
+    changed_calendar_capture = write_capture(
+        tmp_path / "calendar",
+        selected_profile=first_capture.profile,
+        authorization_bytes=first_capture.authorization_bytes,
+        selected_calendars=changed_calendars,
+        capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=1),
+    )
+    with pytest.raises(TiingoEodError, match="exact calendar"):
+        derive_tiingo_eod_receipt_lineage((first, verify(changed_calendar_capture)))
+
+    unsupported_profile = replace(
+        profile(),
+        correction_policy="vendor-latest-is-not-a-local-lineage-policy",
+    )
+    unsupported_authorization = authorization(unsupported_profile)
+    unsupported_calendars = calendars()
+    unsupported_calendar_bytes = pinned_calendar_artifact(
+        unsupported_profile,
+        selected_calendars=unsupported_calendars,
+    )
+    unsupported_captures = tuple(
+        write_capture(
+            tmp_path / "unsupported",
+            selected_profile=unsupported_profile,
+            authorization_bytes=unsupported_authorization,
+            calendar_artifact_bytes=unsupported_calendar_bytes,
+            selected_calendars=unsupported_calendars,
+            capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=index),
+        )
+        for index in range(2)
+    )
+    with pytest.raises(TiingoEodError, match="unsupported local lineage policy"):
+        derive_tiingo_eod_receipt_lineage(
+            tuple(verify(capture) for capture in unsupported_captures)
+        )
+
+
+def test_receipt_lineage_revalidates_proofs_and_requires_multiple_exact_snapshots(
+    tmp_path: Path,
+) -> None:
+    first = verify(write_capture(tmp_path / "first"))
+    second = verify(
+        write_capture(
+            tmp_path / "second",
+            capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=1),
+        )
+    )
+
+    with pytest.raises(TiingoEodError, match="at least two"):
+        derive_tiingo_eod_receipt_lineage((first,))
+    with pytest.raises(TiingoEodError, match="exact tuple"):
+        derive_tiingo_eod_receipt_lineage(cast(Any, [first, second]))
+
+    object.__setattr__(second, "rows", second.rows[:-1])
+    with pytest.raises(TiingoEodError, match=r"verified snapshot proof|rows"):
+        derive_tiingo_eod_receipt_lineage((first, second))
+
+
+def test_receipt_lineage_is_proof_constructed_secret_safe_and_research_only(
+    tmp_path: Path,
+) -> None:
+    first = verify(write_capture(tmp_path))
+    second = verify(
+        write_capture(
+            tmp_path,
+            capture_requested_at=CAPTURE_REQUESTED_AT + timedelta(minutes=1),
+        )
+    )
+    lineage = derive_tiingo_eod_receipt_lineage((first, second))
+
+    with pytest.raises(TypeError, match="only be created from verified proofs"):
+        TiingoEodReceiptTimeLineage()
+    with pytest.raises(TypeError, match="only be created from verified proofs"):
+        replace(lineage, lineage_sha256="0" * 64)
+    with pytest.raises(TypeError, match="only be derived from verified proofs"):
+        TiingoEodLocalRevision()
+    with pytest.raises(TypeError, match="only be derived from verified proofs"):
+        replace(lineage.revisions[0], revision_sha256="f" * 64)
+    with pytest.raises(TypeError, match="only be derived from verified proofs"):
+        TiingoEodReceiptComparison()
+    with pytest.raises(TypeError, match="only be derived from verified proofs"):
+        replace(lineage.comparisons[0], effective_revision_sha256="f" * 64)
+    assert not isinstance(lineage, HistoricalBarSource)
+    assert not hasattr(lineage, "load")
+    assert "102.375" not in repr(lineage)
+    assert "adjClose" not in repr(lineage)
+    for operation in (
+        lineage.raw_bar_records,
+        lineage.canonical_bar_records,
+        lineage.admission_evidence,
+        lineage.historical_bar_source,
+    ):
+        with pytest.raises(TiingoEodError):
+            operation()

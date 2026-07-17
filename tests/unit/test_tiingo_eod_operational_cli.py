@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import socket
 import sys
 from collections.abc import Mapping
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import NoReturn
 
 import pytest
 
 import scripts.capture_tiingo_eod as capture_cli
+import scripts.derive_tiingo_eod_lineage as lineage_cli
 import scripts.inspect_tiingo_eod_profile as inspect_cli
 import scripts.verify_tiingo_eod_capture as verify_cli
 from packages.adapters.market_data.tiingo_eod import (
@@ -438,6 +440,196 @@ def test_verify_cli_is_credential_free_and_emits_only_research_proofs(
     assert "synthetic-capture-token" not in output
     assert "102.375" not in output
     assert "adjClose" not in output
+
+
+def test_lineage_cli_is_offline_and_emits_only_local_version_proofs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    selected_profile = profile()
+    authorization_bytes = authorization(selected_profile)
+    calendar_bytes = calendar_artifact(selected_profile)
+    profile_path = write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes())
+    authorization_path = write_artifact(tmp_path / "authorization.json", authorization_bytes)
+    calendar_path = write_artifact(tmp_path / "calendar.json", calendar_bytes)
+
+    def capture_at(requested_at: datetime) -> Path:
+        clock_values = iter((requested_at, requested_at + timedelta(seconds=1)))
+        return capture_tiingo_eod(
+            repository_root=tmp_path,
+            token="synthetic-capture-token",
+            profile=selected_profile,
+            authorization_bytes=authorization_bytes,
+            calendar_artifact_bytes=calendar_bytes,
+            transport=lambda request, *, timeout_seconds: TiingoEodApiResponse(
+                status=200,
+                payload=response_bytes(),
+            ),
+            clock=lambda: next(clock_values),
+        )
+
+    first_manifest = capture_at(REQUESTED_AT)
+    second_manifest = capture_at(REQUESTED_AT + timedelta(minutes=1))
+    monkeypatch.setattr(lineage_cli, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setenv("TIINGO_TOKEN", TOKEN)
+    monkeypatch.setattr(socket, "socket", forbidden)
+    monkeypatch.setattr(socket, "create_connection", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "derive_tiingo_eod_lineage.py",
+            "--capture-name",
+            first_manifest.parent.name,
+            "--capture-name",
+            second_manifest.parent.name,
+            "--profile-file",
+            str(profile_path),
+            "--authorization-file",
+            str(authorization_path),
+            "--calendar-file",
+            str(calendar_path),
+        ],
+    )
+
+    assert lineage_cli.main() == 0
+
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result["capture_count"] == 2
+    assert result["comparison_count"] == 2
+    assert result["local_observation_count"] == 1
+    assert result["local_revision_count"] == 1
+    assert result["disposition_counts"] == {
+        "changed": 0,
+        "initial": 1,
+        "unchanged": 1,
+    }
+    assert result["schema_version"] == "tiingo-eod-receipt-lineage-v1"
+    assert len(result["lineage_sha256"]) == 64
+    assert result["admission_effect"] == "none"
+    assert result["trading_effect"] == "none"
+    assert TOKEN not in output
+    assert "synthetic-capture-token" not in output
+    assert "102.375" not in output
+    assert "101.125" not in output
+    assert "adjClose" not in output
+    assert "divCash" not in output
+    assert not hasattr(lineage_cli, "load_owner_only_environment")
+    assert not hasattr(lineage_cli, "capture_tiingo_eod")
+
+
+def test_lineage_cli_requires_two_capture_names_before_reading_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(lineage_cli, "read_owner_only_artifact", forbidden)
+    monkeypatch.setattr(lineage_cli, "verify_tiingo_eod_capture", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "derive_tiingo_eod_lineage.py",
+            "--capture-name",
+            f"20260716T120000000000Z-{'a' * 64}",
+            "--profile-file",
+            str(tmp_path / "profile.json"),
+            "--authorization-file",
+            str(tmp_path / "authorization.json"),
+            "--calendar-file",
+            str(tmp_path / "calendar.json"),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="at least two capture names"):
+        lineage_cli.main()
+
+
+@pytest.mark.parametrize("unsafe_artifact", ["profile", "authorization", "calendar"])
+def test_lineage_cli_rejects_symlinked_review_artifacts_before_capture_access(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe_artifact: str,
+) -> None:
+    selected_profile = profile()
+    paths = {
+        "profile": write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes()),
+        "authorization": write_artifact(
+            tmp_path / "authorization.json",
+            authorization(selected_profile),
+        ),
+        "calendar": write_artifact(
+            tmp_path / "calendar.json",
+            calendar_artifact(selected_profile),
+        ),
+    }
+    unsafe_path = tmp_path / f"{unsafe_artifact}-link.json"
+    unsafe_path.symlink_to(paths[unsafe_artifact])
+    paths[unsafe_artifact] = unsafe_path
+    monkeypatch.setattr(lineage_cli, "verify_tiingo_eod_capture", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "derive_tiingo_eod_lineage.py",
+            "--capture-name",
+            f"20260716T120000000000Z-{'a' * 64}",
+            "--capture-name",
+            f"20260716T120100000000Z-{'b' * 64}",
+            "--profile-file",
+            str(paths["profile"]),
+            "--authorization-file",
+            str(paths["authorization"]),
+            "--calendar-file",
+            str(paths["calendar"]),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="non-symlinked"):
+        lineage_cli.main()
+
+
+@pytest.mark.parametrize(
+    "capture_name",
+    ["../capture", "/tmp/capture", ".staging-capture", "capture/manifest.json"],
+)
+def test_lineage_cli_rejects_unsafe_capture_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capture_name: str,
+) -> None:
+    selected_profile = profile()
+    profile_path = write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes())
+    authorization_path = write_artifact(
+        tmp_path / "authorization.json",
+        authorization(selected_profile),
+    )
+    calendar_path = write_artifact(
+        tmp_path / "calendar.json",
+        calendar_artifact(selected_profile),
+    )
+    monkeypatch.setattr(lineage_cli, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "derive_tiingo_eod_lineage.py",
+            "--capture-name",
+            capture_name,
+            "--capture-name",
+            f"20260716T120100000000Z-{'b' * 64}",
+            "--profile-file",
+            str(profile_path),
+            "--authorization-file",
+            str(authorization_path),
+            "--calendar-file",
+            str(calendar_path),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="finalized Tiingo capture"):
+        lineage_cli.main()
 
 
 @pytest.mark.parametrize("unsafe_artifact", ["profile", "authorization", "calendar"])
