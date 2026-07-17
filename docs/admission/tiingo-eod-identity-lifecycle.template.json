@@ -1,0 +1,44 @@
+{
+  "approved": false,
+  "artifact_id": "replace-with-artifact-id",
+  "artifact_kind": "synthetic_contract",
+  "dataset": "end-of-day",
+  "delisting_case": {
+    "case_id": "replace-with-delisting-case-id",
+    "effective_at": "2026-01-01T00:00:00Z",
+    "security_id": "replace-with-delisted-security-id",
+    "symbol": "DELISTED",
+    "venue": "XXXX"
+  },
+  "executor_id": "replace-with-evidence-executor-id",
+  "identifier_authority": "replace-with-profile-identifier-authority",
+  "identifier_evidence_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "identifiers": [],
+  "identity_source_id": "replace-with-identity-evidence-source-id",
+  "lifecycle_evidence_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "memberships": [],
+  "observed_at": "2026-01-01T00:00:00Z",
+  "profile_contract_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "provider": "tiingo",
+  "reviewed_at": null,
+  "reviewer_id": null,
+  "schema_version": "tiingo-eod-identity-lifecycle-artifact-v1",
+  "securities": [],
+  "symbol_change_case": {
+    "case_id": "replace-with-symbol-change-case-id",
+    "effective_at": "2026-01-01T00:00:00Z",
+    "new_symbol": "NEW",
+    "new_venue": "XXXX",
+    "old_symbol": "OLD",
+    "old_venue": "XXXX",
+    "security_id": "replace-with-renamed-security-id"
+  },
+  "trade_symbols": [
+    "DIA",
+    "IWM",
+    "QQQ",
+    "SPY"
+  ],
+  "universe_id": "phase1-trade-enabled-etfs",
+  "universe_version": "replace-with-frozen-universe-version"
+}

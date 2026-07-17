@@ -666,11 +666,42 @@ field-contract, role-contract, and qualification digests. Calendar venue
 bindings establish session interpretation only, not Tiingo price-source market
 provenance.
 
+ADR 0018 adds a separate offline security-identity and lifecycle contract-only
+boundary. It accepts one exact proof-constructed verified snapshot, its exact
+ADR 0017 retained-field qualification, and one strict canonical
+identity/lifecycle artifact. Every proof and artifact binding is revalidated;
+the acquisition profile's `identifier_authority` string remains only a frozen
+policy label and cannot substitute for authoritative mapping evidence.
+
+The trade-enabled artifact scope is exactly DIA, IWM, QQQ, and SPY. A separate
+repository-owned synthetic corpus exercises one effective-dated ticker change
+and one delisted, non-tradable security without expanding that allow-list. The
+contract keeps valid time separate from knowledge time and rejects missing,
+extra, overlapping, ambiguous, gapped, cross-corpus, or backdated mappings.
+Exactly four trade-security IDs and two isolated lifecycle IDs are permitted.
+Each trade identifier and included-universe fact must continuously cover its
+exact pinned session from open through close; the close instant matches daily
+bar normalization. Pinned-calendar venues may constrain scoped resolution, but
+a lifecycle instant or venue label does not establish calendar authority;
+lifecycle dates outside the exact pinned scope need separate authority before
+any production claim.
+
+The contract-only result binds its exact inputs, checks, and counts with
+production-identity, raw-execution, canonical-bar, corporate-action,
+historical-source, admission, and trading effects of `none`. A fail-closed
+non-authorizing artifact template and credential-free operator command are the
+implemented operator surface; they perform no provider request or write and
+collapse qualification failures to a generic value-free message. No production
+identity/lifecycle artifact has passed, and the provider-backed
+baseline has not been identity-qualified by this boundary.
+
 The staged Tiingo path is therefore contract qualification, approved profile,
 matching rights authorization and pinned calendar, bounded immutable capture,
 credential-free offline verification, exact-retained field-contract
-qualification, local receipt-time lineage when multiple captures exist, and
-only then the remaining genuine-raw, authority, source, and admission gates.
+qualification, security-identity/lifecycle contract qualification, local
+receipt-time lineage when multiple captures exist, and only then the real
+identity/lifecycle, genuine-raw, corporate-action, source, and licensed
+admission gates.
 Later stages cannot grant authority backward to an earlier stage. No stage
 invents `vendor_published_at`, a vendor revision, or a historical vintage.
 
@@ -706,8 +737,9 @@ admission, or trading authority. See
 [ADR 0013](adr/0013-tiingo-eod-authorization-gated-capture.md),
 [ADR 0014](adr/0014-tiingo-eod-offline-capture-verification.md),
 [ADR 0015](adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md),
-[ADR 0016](adr/0016-tiingo-eod-receipt-time-local-lineage.md), and
-[ADR 0017](adr/0017-tiingo-eod-exact-retained-field-contract-qualification.md).
+[ADR 0016](adr/0016-tiingo-eod-receipt-time-local-lineage.md),
+[ADR 0017](adr/0017-tiingo-eod-exact-retained-field-contract-qualification.md), and
+[ADR 0018](adr/0018-tiingo-eod-security-identity-lifecycle-contract.md).
 
 ## 11. Backtesting model
 

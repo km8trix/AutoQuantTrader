@@ -13,12 +13,14 @@ gate by itself.
   is structurally blocked from the canonical raw execution lane.
 - Tiingo EOD is independent validation and the next raw-daily qualification
   candidate. Its parser, authorization-gated acquisition, final-capture
-  verifier, local-lineage mechanics, and exact-retained field-contract boundary
-  are implemented. One bounded provider-backed capture has also been retained
-  and verified as a research-only baseline, then passed through the exact-
+  verifier, local-lineage mechanics, exact-retained field-contract boundary,
+  and offline security-identity/lifecycle contract boundary are implemented.
+  One bounded provider-backed capture has also been retained and verified as a
+  research-only baseline, then passed through the exact-
   retained field-contract boundary with a value-free proof. Genuine-raw
-  semantics, a production source, and admission remain blocked. Its IEX history
-  is single-venue and is never substituted for SIP.
+  semantics, real identity/lifecycle authority, a production source, and
+  admission remain blocked. No production identity/lifecycle artifact has
+  passed. Its IEX history is single-venue and is never substituted for SIP.
 - Massive raw SIP trades and quotes remain the deferred intraday and execution-
   evidence candidates; vendor minute aggregates are reconciliation input only.
 
@@ -30,8 +32,9 @@ non-trade-enabled ticker-change/delisting corpus. See
 [ADR 0013](../adr/0013-tiingo-eod-authorization-gated-capture.md),
 [ADR 0014](../adr/0014-tiingo-eod-offline-capture-verification.md),
 [ADR 0015](../adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md),
-[ADR 0016](../adr/0016-tiingo-eod-receipt-time-local-lineage.md), and
-[ADR 0017](../adr/0017-tiingo-eod-exact-retained-field-contract-qualification.md).
+[ADR 0016](../adr/0016-tiingo-eod-receipt-time-local-lineage.md),
+[ADR 0017](../adr/0017-tiingo-eod-exact-retained-field-contract-qualification.md), and
+[ADR 0018](../adr/0018-tiingo-eod-security-identity-lifecycle-contract.md).
 
 ## Secret-safe access probe
 
@@ -183,17 +186,23 @@ The staged flow is:
    request.
 5. Derive the value-free exact-retained field-contract proof from one verified
    capture while keeping every unprefixed field a documented raw candidate.
-6. Compare multiple complete authorized captures through the implemented
+6. Qualify the offline identity/lifecycle contract against one exact snapshot,
+   its exact ADR 0017 proof, and canonical artifact bytes. This software step
+   does not qualify a production authority.
+7. Compare multiple complete authorized captures through the implemented
    receipt-time local delivery-lineage boundary.
-7. Only after independent genuine-raw, provenance, identity, lifecycle, and
+8. Only after independent genuine-raw, provenance, real identity/lifecycle, and
    corporate-action authority gates may a production `HistoricalBarSource` be
    implemented.
-8. Only after source integration and the licensed admission gates may data
+9. Only after source integration and the licensed admission gates may data
    enter canonical or trading use.
 
 Steps 1-4 have completed once for the exact approved 2026-01-02 scope covering
 DIA, IWM, QQQ, and SPY. Step 5 has completed for its four rows and fifty-two
 field occurrences with a value-free proof and all effects `none`. Step 6 is
+implemented only as a contract boundary with a separate synthetic
+ticker-change/delisting corpus; no production identity/lifecycle artifact has
+passed and the actual baseline has not been identity-qualified. Step 7 is
 implemented and synthetic-tested, but only one actual capture exists, so no real
 repeated-delivery comparison can yet be made.
 Receipt time is never written into `vendor_published_at`, changed rows are not
@@ -204,8 +213,9 @@ explicitly say otherwise. See
 [ADR 0013](../adr/0013-tiingo-eod-authorization-gated-capture.md),
 [ADR 0014](../adr/0014-tiingo-eod-offline-capture-verification.md),
 [ADR 0015](../adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md),
-[ADR 0016](../adr/0016-tiingo-eod-receipt-time-local-lineage.md), and
-[ADR 0017](../adr/0017-tiingo-eod-exact-retained-field-contract-qualification.md).
+[ADR 0016](../adr/0016-tiingo-eod-receipt-time-local-lineage.md),
+[ADR 0017](../adr/0017-tiingo-eod-exact-retained-field-contract-qualification.md), and
+[ADR 0018](../adr/0018-tiingo-eod-security-identity-lifecycle-contract.md).
 
 Start from the fail-closed
 [acquisition-profile template](tiingo-eod-acquisition-profile.template.json),
@@ -393,6 +403,61 @@ corporate-action, raw-execution, and trading effects are all `none`. This
 result cannot establish genuine raw prices, validated adjustment or action
 semantics, wider schema stability, identity/lifecycle authority, publication or
 correction history, `HistoricalBarSource`, admission, or trading readiness.
+
+## Tiingo security-identity and lifecycle contract qualification
+
+ADR 0018 adds a strict offline contract boundary after the ADR 0017
+retained-field proof. Qualification accepts one exact verified research
+snapshot, its exact proof-constructed ADR 0017 qualification, and one canonical
+identity/lifecycle artifact. It revalidates every binding rather than accepting
+caller-supplied rows or digest summaries. The acquisition profile's
+`identifier_authority` string is only a frozen label and cannot serve as the
+artifact or as evidence that a real mapping is correct.
+
+The trade-enabled artifact scope is exactly DIA, IWM, QQQ, and SPY. A separate
+repository-owned synthetic corpus contains a ticker-change case and a delisted,
+non-tradable security. Those facts exercise stable internal identity,
+effective-dated aliases, causal knowledge, and tradability while remaining
+structurally unable to expand the four-symbol allow-list. Exactly four
+trade-security IDs and two pairwise-isolated lifecycle IDs are permitted; no
+cross-symbol or cross-venue alias can bridge the corpora. Every trade identifier
+and included-universe fact must continuously cover the exact pinned session
+from open through the downstream daily-bar close-time resolution instant. A
+lifecycle effective instant or venue string is not calendar authority. Dates
+outside the exact pinned-calendar scope require separate reviewed calendar
+evidence before any production lifecycle claim.
+
+Start from the fail-closed
+[identity/lifecycle artifact template](tiingo-eod-identity-lifecycle.template.json),
+copy it to an owner-only gitignored path, and replace every placeholder only
+from selected exact reference evidence. The template is deliberately invalid:
+zero evidence digests and empty fact arrays cannot pass qualification.
+
+Run the credential-free operator boundary with:
+
+```bash
+make tiingo-eod-identity-qualify \
+  CAPTURE=final-capture-name \
+  PROFILE=path/to/reviewed-profile.json \
+  AUTHORIZATION=path/to/reviewed-authorization.json \
+  CALENDAR=path/to/reviewed-calendar.json \
+  IDENTITY_LIFECYCLE=path/to/identity-lifecycle.json
+```
+
+The command verifies the exact capture and ADR 0017 proof, reads owner-only
+canonical artifact bytes, and prints only secret-safe contract metadata,
+checks, and counts. It will not read
+`.env`, make a new provider request, write to the capture or catalog, or perform
+an admission or trading transition. Qualification failures emit one generic,
+value-free message rather than malformed private artifact content.
+
+No production identity/lifecycle artifact has passed, and the existing actual
+baseline has not completed identity/lifecycle qualification. Contract results
+retain production-identity, raw-execution, canonical-bar, corporate-action,
+historical-source, admission, and trading effects of `none`. Real identity and
+lifecycle authority, genuine-raw semantics, market provenance,
+corporate-action authority, production source integration, licensed admission,
+independent approval, and every paper or live trading gate remain open.
 
 ## Tiingo receipt-time local lineage
 
