@@ -189,12 +189,15 @@ The staged flow is:
 6. Qualify the offline identity/lifecycle contract against one exact snapshot,
    its exact ADR 0017 proof, and canonical artifact bytes. This software step
    does not qualify a production authority.
-7. Compare multiple complete authorized captures through the implemented
+7. Qualify the offline market-semantics/action-candidate contract against that
+   exact proof chain and canonical semantics artifact bytes. This software step
+   proves no production provenance, raw prices, or action events.
+8. Compare multiple complete authorized captures through the implemented
    receipt-time local delivery-lineage boundary.
-8. Only after independent genuine-raw, provenance, real identity/lifecycle, and
+9. Only after independent genuine-raw, provenance, real identity/lifecycle, and
    corporate-action authority gates may a production `HistoricalBarSource` be
    implemented.
-9. Only after source integration and the licensed admission gates may data
+10. Only after source integration and the licensed admission gates may data
    enter canonical or trading use.
 
 Steps 1-4 have completed once for the exact approved 2026-01-02 scope covering
@@ -202,7 +205,10 @@ DIA, IWM, QQQ, and SPY. Step 5 has completed for its four rows and fifty-two
 field occurrences with a value-free proof and all effects `none`. Step 6 is
 implemented only as a contract boundary with a separate synthetic
 ticker-change/delisting corpus; no production identity/lifecycle artifact has
-passed and the actual baseline has not been identity-qualified. Step 7 is
+passed and the actual baseline has not been identity-qualified. Step 7 is also
+implemented only as a contract boundary; no production market-semantics or
+action artifact has passed and the actual baseline has not been
+market-semantics/action-qualified. Step 8 is
 implemented and synthetic-tested, but only one actual capture exists, so no real
 repeated-delivery comparison can yet be made.
 Receipt time is never written into `vendor_published_at`, changed rows are not
@@ -214,8 +220,9 @@ explicitly say otherwise. See
 [ADR 0014](../adr/0014-tiingo-eod-offline-capture-verification.md),
 [ADR 0015](../adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md),
 [ADR 0016](../adr/0016-tiingo-eod-receipt-time-local-lineage.md),
-[ADR 0017](../adr/0017-tiingo-eod-exact-retained-field-contract-qualification.md), and
-[ADR 0018](../adr/0018-tiingo-eod-security-identity-lifecycle-contract.md).
+[ADR 0017](../adr/0017-tiingo-eod-exact-retained-field-contract-qualification.md),
+[ADR 0018](../adr/0018-tiingo-eod-security-identity-lifecycle-contract.md), and
+[ADR 0019](../adr/0019-tiingo-eod-market-semantics-and-action-candidates.md).
 
 Start from the fail-closed
 [acquisition-profile template](tiingo-eod-acquisition-profile.template.json),
@@ -459,6 +466,70 @@ lifecycle authority, genuine-raw semantics, market provenance,
 corporate-action authority, production source integration, licensed admission,
 independent approval, and every paper or live trading gate remain open.
 
+## Tiingo market-semantics and action-candidate qualification
+
+ADR 0019 adds the next offline contract boundary. It revalidates one exact
+verified snapshot, its exact ADR 0017 retained-field qualification, and its exact
+ADR 0018 identity/lifecycle qualification before accepting one canonical
+market-semantics artifact. The acquisition profile's `market_provenance` and
+`corporate_action_authority` strings remain labels; they cannot substitute for
+structured evidence or make the artifact authoritative.
+
+The artifact freezes structured price-source provenance and the complete source
+field partition:
+
+- `date`: `session_identity`;
+- `open`, `high`, `low`, `close`, `volume`:
+  `documented_raw_candidate`;
+- `adjOpen`, `adjHigh`, `adjLow`, `adjClose`, `adjVolume`:
+  `adjusted_research`; and
+- `divCash`, `splitFactor`: `corporate_action_candidate`.
+
+The action-candidate convention keeps zero as neutral for `divCash`, one as
+neutral for `splitFactor`, cash amounts as per-share USD candidates, and split
+factors as new shares per old share. Exactly five repository-owned synthetic
+cases exercise neutral, cash-dividend, forward-split, reverse-split, and combined
+candidates. These cases test software rules only. A candidate does not establish
+an event or event absence and supplies no announcement, vendor-publication,
+availability, payable, correction, or historical-vintage timestamp.
+
+Start from the fail-closed
+[market-semantics artifact template](tiingo-eod-market-semantics.template.json),
+copy it to an owner-only gitignored path, and replace every placeholder only from
+selected exact evidence, including a stable identifier for that evidence source
+that is not a repeated profile label or capture transport source.
+The template is deliberately non-authorizing and
+invalid: its approval is false and its profile, identity, and evidence digests
+are all zero.
+
+Run the credential-free operator boundary with:
+
+```bash
+make tiingo-eod-semantics-qualify \
+  CAPTURE=final-capture-name \
+  PROFILE=path/to/reviewed-profile.json \
+  AUTHORIZATION=path/to/reviewed-authorization.json \
+  CALENDAR=path/to/reviewed-calendar.json \
+  IDENTITY_LIFECYCLE=path/to/identity-lifecycle.json \
+  MARKET_SEMANTICS=path/to/market-semantics.json
+```
+
+The command verifies the capture and preceding proof chain, reads owner-only
+canonical artifact bytes, and prints only secret-safe contract metadata, checks,
+counts, and digests. It does not read `.env`, make a provider request, write to
+the capture or catalog, or perform an admission or trading transition. One
+generic, value-free failure message prevents private artifact content from
+entering operator output.
+
+No production market-semantics/action-candidate artifact has passed, and the
+existing actual baseline has not completed market-semantics/action
+qualification. Adjustment-methodology, admission, canonical-bar,
+corporate-action, correction, genuine-raw, historical-source,
+market-provenance, trading, and vendor-publication effects all remain `none`.
+Genuine raw prices, actual provenance and actions, production
+identity/lifecycle, source integration, licensed admission, independent
+approval, and every paper or live trading gate remain open.
+
 ## Tiingo receipt-time local lineage
 
 ADR 0016 implements a proof-constructed, in-memory comparison of two or more
@@ -506,8 +577,9 @@ authorization, and calendar artifacts for v1 lineage.
    same exact still-applicable profile, authorization, and calendar artifacts
    because v1 does not support artifact rotation. When at least two such
    complete verified captures exist, derive local receipt-time lineage. Only
-   after independent genuine-raw, provenance, identity, lifecycle,
-   corporate-action, source, and admission gates may a
+   after the contract-only identity/lifecycle and market-semantics/action
+   boundaries—and independent genuine-raw, provenance, production identity,
+   lifecycle, corporate-action, source, and admission gates—may a
    `HistoricalBarSource` be implemented. Keep API credentials in the
    configured secret provider; never put them in an admission document, browser
    response, log, or catalog row.

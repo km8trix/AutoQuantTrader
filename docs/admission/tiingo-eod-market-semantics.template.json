@@ -1,0 +1,102 @@
+{
+  "action_candidate_convention": {
+    "absence_inference": "forbidden",
+    "announcement_time": "not_provided",
+    "div_cash_currency": "USD",
+    "div_cash_neutral": "0",
+    "div_cash_orientation": "positive_cash_per_share_candidate",
+    "effective_date_basis": "row_date_candidate_only",
+    "payable_time": "not_provided",
+    "publication_time": "not_provided",
+    "revision": "not_provided",
+    "split_factor_neutral": "1",
+    "split_factor_orientation": "new_shares_per_old_share_candidate"
+  },
+  "adjusted_methodology_evidence_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "approved": false,
+  "artifact_id": "replace-with-market-semantics-artifact-id",
+  "artifact_kind": "synthetic_contract",
+  "corporate_action_authority": "replace-with-profile-corporate-action-authority",
+  "corporate_action_candidate_evidence_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "dataset": "end-of-day",
+  "executor_id": "replace-with-evidence-executor-id",
+  "field_partition": {
+    "adjusted_research_fields": [
+      "adjOpen",
+      "adjHigh",
+      "adjLow",
+      "adjClose",
+      "adjVolume"
+    ],
+    "corporate_action_candidate_fields": [
+      "divCash",
+      "splitFactor"
+    ],
+    "documented_raw_candidate_fields": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "volume"
+    ],
+    "session_identity_fields": [
+      "date"
+    ]
+  },
+  "identity_lifecycle_qualification_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "market_provenance_evidence_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "market_provenance_label": "replace-with-profile-market-provenance",
+  "market_semantics_source_id": "replace-with-exact-market-semantics-evidence-source-id",
+  "observed_at": "2026-01-01T00:00:00Z",
+  "profile_contract_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "provenance": {
+    "aggregation": "replace-with-reviewed-aggregation-basis",
+    "condition_scope": "replace-with-reviewed-condition-scope",
+    "currency": "USD",
+    "effective_from": "2026-01-01T00:00:00Z",
+    "effective_to": null,
+    "endpoint": "replace-with-reviewed-endpoint-identity",
+    "feed": "replace-with-reviewed-feed-identity",
+    "product": "replace-with-reviewed-product-identity",
+    "session_scope": "replace-with-reviewed-session-scope",
+    "venue_scope": "replace-with-reviewed-venue-scope"
+  },
+  "provider": "tiingo",
+  "raw_semantics_evidence_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "reviewed_at": null,
+  "reviewer_id": null,
+  "schema_version": "tiingo-eod-market-semantics-artifact-v1",
+  "synthetic_cases": [
+    {
+      "case_id": "neutral",
+      "div_cash": "0",
+      "split_factor": "1"
+    },
+    {
+      "case_id": "cash_dividend",
+      "div_cash": "0.25",
+      "split_factor": "1"
+    },
+    {
+      "case_id": "forward_split",
+      "div_cash": "0",
+      "split_factor": "2"
+    },
+    {
+      "case_id": "reverse_split",
+      "div_cash": "0",
+      "split_factor": "0.25"
+    },
+    {
+      "case_id": "simultaneous_dividend_forward_split",
+      "div_cash": "0.25",
+      "split_factor": "2"
+    }
+  ],
+  "trade_symbols": [
+    "DIA",
+    "IWM",
+    "QQQ",
+    "SPY"
+  ]
+}
