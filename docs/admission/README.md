@@ -11,10 +11,11 @@ neither can satisfy the Phase 1 vendor gate.
   is split/stock-dividend adjusted and only `closeunadj` is directly raw, so it
   is structurally blocked from the canonical raw execution lane.
 - Tiingo EOD is independent validation and the next raw-daily qualification
-  candidate. Its parser and authorization-gated acquisition mechanics are
-  synthetic-tested only; no live request or capture has occurred, and a
-  production source remains blocked. Its IEX history is single-venue and is
-  never substituted for SIP.
+  candidate. Its parser, authorization-gated acquisition mechanics, and offline
+  final-capture verifier are synthetic-tested only; no live request or capture
+  has occurred, no actual payload has been verified, and a production source
+  remains blocked. Its IEX history is single-venue and is never substituted for
+  SIP.
 - Massive raw SIP trades and quotes remain the deferred intraday and execution-
   evidence candidates; vendor minute aggregates are reconciliation input only.
 
@@ -22,8 +23,9 @@ The qualification allow-list is DIA, IWM, QQQ, and SPY, plus a separate
 non-trade-enabled ticker-change/delisting corpus. See
 [ADR 0010](../adr/0010-market-data-provider-qualification-routing.md),
 [ADR 0011](../adr/0011-daily-first-capture-and-raw-lane-separation.md),
-[ADR 0012](../adr/0012-tiingo-eod-offline-first-qualification.md), and
-[ADR 0013](../adr/0013-tiingo-eod-authorization-gated-capture.md).
+[ADR 0012](../adr/0012-tiingo-eod-offline-first-qualification.md),
+[ADR 0013](../adr/0013-tiingo-eod-authorization-gated-capture.md), and
+[ADR 0014](../adr/0014-tiingo-eod-offline-capture-verification.md).
 
 ## Secret-safe access probe
 
@@ -152,9 +154,9 @@ The secret-free manifest contract binds the full acquisition profile and
 normalized contract digest, matching authorization and terms digests,
 provider/dataset/schema identities, overall request and receipt bounds, and
 sorted complete receipts for every requested symbol. That manifest shape is
-synthetic-tested; no actual Tiingo manifest exists in the repository. An offline
-capture loader, repeated-capture lineage, canonical conversion, and source
-integration remain later stages.
+synthetic-tested; no actual Tiingo manifest exists in the repository. A separate
+offline verifier is now implemented against synthetic captures. Repeated-capture
+lineage, canonical conversion, and source integration remain later stages.
 
 The staged flow is:
 
@@ -170,14 +172,17 @@ The staged flow is:
 6. Only after those stages may a separate admission evaluation consider the
    evidence and a future `HistoricalBarSource`.
 
-The current capture seam stops before step 3 because no approved profile and
-matching authorization have been supplied. It also stops before local lineage:
+Actual operation stops before step 3 because no approved profile and matching
+authorization have been supplied. The software for step 4 is separately
+synthetic-tested, but no legally obtained retained bytes have passed it. The
+system also stops before local lineage:
 receipt time is not written into `vendor_published_at`, unchanged responses are
 not yet collapsed, changed rows are not called vendor corrections, and missing
 rows are not treated as deletions or tombstones. Every stage listed here has
 admission and trading effects of `none` until the independent admission and
 deployment gates explicitly say otherwise. See
-[ADR 0013](../adr/0013-tiingo-eod-authorization-gated-capture.md).
+[ADR 0013](../adr/0013-tiingo-eod-authorization-gated-capture.md) and
+[ADR 0014](../adr/0014-tiingo-eod-offline-capture-verification.md).
 
 Start from the fail-closed
 [acquisition-profile template](tiingo-eod-acquisition-profile.template.json) and
@@ -225,6 +230,43 @@ cryptographic signatures. Reviewer authentication and any required separation
 of duties remain part of the external review process; the capture code enforces
 the recorded approval, causal review order, exact contract digest, effective
 dates, and rights flags.
+
+## Tiingo offline final-capture verification
+
+ADR 0014 implements the network-free verification mechanics for step 4. The
+loader accepts a repository root and one strict final capture name, derives the
+fixed `.local/vendor-snapshots/tiingo-eod` path internally, and rejects arbitrary
+paths, symlinks, staging or publication-lock targets, renamed captures, wrong
+ownership or immutable modes, and missing or extra tree entries. The final name
+contains the first request timestamp plus the full SHA-256 of the canonical
+manifest. The loader retains its fixed-root descriptor and finally revalidates
+the fixed path, selected name-to-inode binding, directory metadata, file
+identities, and exact entry sets. Unrelated hidden crash residue beside the
+selected final capture is inert and ignored.
+
+The caller must supply the exact reviewed authorization bytes, the exact
+expected acquisition profile, the expected calendar authority, and an exact
+pinned calendar for every symbol and no other symbol. The loader re-authorizes
+the artifact at the recorded first request time, verifies its exact and terms
+digests, checks every unique content-addressed object, reparses each response,
+and requires exact per-symbol session coverage. A shared object is valid only
+when multiple receipts genuinely reference the same exact bytes.
+
+The result is a deterministic verified research snapshot. Receipt time is
+preserved as local `observed_at`; it is never called vendor publication time.
+Requests for revision lineage, canonical raw bars, admission evidence, or a
+production source fail closed. The result cannot be constructed through its
+public API or altered with `dataclasses.replace`; the verifier recomputes its
+manifest, calendar/session, observation/row, and semantic proof. The reusable
+wrapper exposes `verify()` rather than the production source protocol's
+`load()`. The implementation has been exercised only with synthetic captures
+and has not verified an actual Tiingo response.
+
+There is intentionally no operator command yet. The application has no reviewed
+portable serialization contract for production pinned calendars, and the
+synthetic reference calendar must not be substituted implicitly. The library
+boundary will gain an operator entry point only after that calendar artifact is
+frozen and reviewed.
 
 ## Required workflow
 

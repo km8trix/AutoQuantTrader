@@ -43,8 +43,18 @@ approval of the exact product and scope and a separate, matching capture
 authorization binds its normalized profile-contract digest to applicable terms, local-retention
 rights, and research-use rights. The seam does not manufacture a publication
 timestamp or vendor revision. Repeated-capture local lineage remains deferred,
-as do exact-byte qualification, canonical conversion, source implementation,
-and admission.
+as do canonical conversion, source implementation, and admission. ADR 0014 now
+adds a network-free verifier/loader for a future final capture. Its fixed-root
+descriptor traversal, exact immutable tree, authorization/profile binding,
+content hashes, response contract, per-symbol pinned calendars, and exact
+session coverage are synthetic-tested. The final name commits to the complete
+canonical manifest, and selected root/name/inode/tree identity is revalidated at
+the return boundary. Its proof-constructed result is permanently research-only,
+does not structurally implement the production source protocol, and refuses
+revision lineage, canonical bars, and admission evidence. No actual Tiingo
+capture has been verified, and the first boundary remains library-only until
+production pinned calendars have a reviewed portable artifact contract.
+
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
 treated as admission or evidence that a vendor's real history, entitlement,
@@ -152,6 +162,16 @@ Passing one layer cannot substitute for another.
   a matching authorization that confirms local-retention and research-use
   rights. It makes no license, admission, trading, publication-time,
   historical-vintage, or correction-lineage claim.
+- Newly complete: a separate offline Tiingo final-capture verifier that accepts
+  only a strict final name beneath the fixed repository root, uses no-follow
+  descriptor traversal, binds the name to the full canonical manifest, requires
+  the exact reviewed authorization and expected acquisition profile, checks and
+  finally revalidates the exact immutable root/name/inode/tree and content digests,
+  revalidates schema and coverage against an exact per-symbol pinned-calendar
+  mapping, and proof-constructs a deterministic research-only snapshot. It is
+  exercised only with synthetic captures and structurally refuses local
+  revision lineage, canonical conversion, admission evidence, and source
+  integration.
 - Still required for the Phase 1 exit gate: confirm licensed use, verify the
   frozen DIA, IWM, QQQ, and SPY allow-list plus a non-tradable lifecycle corpus,
   freeze identifier/calendar/action authorities, independently approve the
@@ -498,7 +518,7 @@ Every change includes:
 | Orders | DAY market orders, next-event simulation | Smallest causally defensible execution slice |
 | Active strategies | One per brokerage account | Defers netting, virtual sleeves, internal crosses, and fill allocation |
 | Broker | Alpaca paper | Paper-first API; capability contract preserves future portability |
-| Data | Daily-first: immutable Sharadar research capture and Tiingo offline synthetic EOD qualification implemented locally; Tiingo capture and `HistoricalBarSource` blocked; Massive intraday deferred; none admitted | Adjustment basis, publication/vintage timing, venue/identity authorities, historical revisions/universes, licensed storage/use, and live quote scope drive validity |
+| Data | Daily-first: immutable Sharadar research capture plus Tiingo synthetic qualification, authorization-gated capture mechanics, and offline final-capture verification implemented locally; actual Tiingo capture and `HistoricalBarSource` blocked; Massive intraday deferred; none admitted | Adjustment basis, publication/vintage timing, venue/identity authorities, historical revisions/universes, licensed storage/use, and live quote scope drive validity |
 | Account model | Explicit cash or margin policy | Determines settlement, buying power, ledger, and risk semantics |
 | Hosting | One region, managed PostgreSQL, object storage | Reliable non-HFT footprint with separable operational/research I/O |
 | UI | Desktop-browser React/Vite workspace, incremental from Phase 0 | Makes research and operations observable without adding native/mobile scope |

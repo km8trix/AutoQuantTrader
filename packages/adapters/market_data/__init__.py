@@ -35,11 +35,18 @@ from packages.adapters.market_data.tiingo_eod_capture import (
     TiingoEodCaptureError,
     capture_tiingo_eod,
 )
+from packages.adapters.market_data.tiingo_eod_snapshot import (
+    RecordedTiingoEodResearchSnapshot,
+    TiingoEodCalendarBinding,
+    TiingoEodVerifiedResearchSnapshot,
+    verify_tiingo_eod_capture,
+)
 
 __all__ = [
     "RecordedHistoricalBarSource",
     "RecordedJsonlBarSource",
     "RecordedSharadarSfpSnapshot",
+    "RecordedTiingoEodResearchSnapshot",
     "SfpCaptureAuthorization",
     "SfpCaptureScope",
     "SharadarSfpDataset",
@@ -49,6 +56,7 @@ __all__ = [
     "TiingoEodApiRequest",
     "TiingoEodApiResponse",
     "TiingoEodApiTransport",
+    "TiingoEodCalendarBinding",
     "TiingoEodCaptureAuthorization",
     "TiingoEodCaptureError",
     "TiingoEodCaptureManifest",
@@ -61,7 +69,9 @@ __all__ = [
     "TiingoEodResponseObservation",
     "TiingoEodRow",
     "TiingoEodScope",
+    "TiingoEodVerifiedResearchSnapshot",
     "capture_tiingo_eod",
     "qualify_tiingo_eod",
     "tiingo_eod_response_contract",
+    "verify_tiingo_eod_capture",
 ]

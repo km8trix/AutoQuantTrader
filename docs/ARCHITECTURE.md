@@ -560,9 +560,38 @@ bounds, and sorted complete per-symbol receipts. Receipts and manifest bytes are
 prebuilt before storage. Owner-only staging, an exclusive final-name reservation,
 pre-commit durability requests, and a descriptor-relative atomic rename ensure
 that a reported pre-commit failure never leaves a visible final capture. A
-process crash can leave only a hidden inert staging or reservation entry. This
-slice has no offline capture loader, source adapter, local revision builder, or
-canonical conversion.
+final name combines the first request timestamp with the full SHA-256 of those
+canonical manifest bytes, so every manifest field participates in the immutable
+identity. A process crash can leave only a hidden inert staging or reservation entry. This
+acquisition slice does not itself qualify retained bytes or provide a source
+adapter, local revision builder, or canonical conversion.
+
+ADR 0014 adds the separate offline final-capture verification boundary. It
+accepts only a strict final capture name beneath the fixed repository root and
+opens every path component, directory, manifest, and object with descriptor-
+relative no-follow operations. It requires current-user ownership, the exact
+immutable final tree and modes, a recomputed full-manifest final name, the
+caller's expected profile, and the exact reviewed authorization bytes. Before
+returning, it revalidates the fixed root and selected name to the opened inodes,
+the final and object directory metadata and exact entries, and every file
+identity observed during the read. It verifies unique
+content-addressed objects, sizes, hashes, strict response contracts, and exact
+session coverage using an exact calendar mapping for each symbol; no implicit
+single venue calendar is allowed. Unrelated hidden crash residue beside a final
+capture is ignored and never traversed.
+
+The resulting semantic digest binds the manifest, authorization, expected
+calendar authority, and each symbol's calendar ID, version, venue, timezone,
+and scoped sessions. Receipt time remains only local observation time. The
+verified research snapshot refuses revision lineage, canonical bars, admission
+evidence, and `HistoricalBarSource` integration. Its constructor is not public;
+the verifier recomputes its manifest, calendar/session, observation/row, and
+semantic proof before creation. The reusable verifier wrapper exposes
+`verify()`, not the `load()` method that would structurally satisfy the
+production source protocol. The implementation is tested with synthetic
+captures only, performs no network or credential access, and has not verified
+an actual Tiingo payload. It remains a library boundary until a reviewed
+portable pinned-calendar artifact contract exists for an operator CLI.
 
 The staged Tiingo path is therefore contract qualification, approved profile,
 matching rights authorization, bounded immutable capture, separate offline
@@ -602,8 +631,9 @@ successful probes remain secret-free candidate evidence, not entitlement,
 admission, or trading authority.
 [ADR 0010](adr/0010-market-data-provider-qualification-routing.md),
 [ADR 0011](adr/0011-daily-first-capture-and-raw-lane-separation.md),
-[ADR 0012](adr/0012-tiingo-eod-offline-first-qualification.md), and
-[ADR 0013](adr/0013-tiingo-eod-authorization-gated-capture.md).
+[ADR 0012](adr/0012-tiingo-eod-offline-first-qualification.md),
+[ADR 0013](adr/0013-tiingo-eod-authorization-gated-capture.md), and
+[ADR 0014](adr/0014-tiingo-eod-offline-capture-verification.md).
 
 ## 11. Backtesting model
 
