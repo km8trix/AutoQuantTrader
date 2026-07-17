@@ -31,9 +31,9 @@ TIINGO_DATASET = "end-of-day"
 TIINGO_QUALIFICATION_SCHEMA_VERSION = "tiingo-eod-qualification-v1"
 TIINGO_ACQUISITION_PROFILE_SCHEMA_VERSION = "tiingo-eod-acquisition-profile-v1"
 TIINGO_CAPTURE_AUTHORIZATION_SCHEMA_VERSION = "tiingo-eod-capture-authorization-v1"
-TIINGO_CAPTURE_SCHEMA_VERSION = "tiingo-eod-capture-v1"
+TIINGO_CAPTURE_SCHEMA_VERSION = "tiingo-eod-capture-v2"
 TIINGO_EOD_SOURCE_ID = "tiingo-eod-rest"
-TIINGO_EOD_ADAPTER_VERSION = "tiingo-eod-capture-v1"
+TIINGO_EOD_ADAPTER_VERSION = "tiingo-eod-capture-v2"
 TIINGO_EOD_ENDPOINT_TEMPLATE = "https://api.tiingo.com/tiingo/daily/{symbol}/prices"
 TIINGO_EOD_FIELDS = (
     "date",
@@ -632,6 +632,7 @@ class TiingoEodCaptureManifest:
     requested_at: datetime
     received_at: datetime
     authorization_sha256: str
+    calendar_artifact_sha256: str
     terms_sha256: str
     schema_version: str = TIINGO_CAPTURE_SCHEMA_VERSION
     provider: str = TIINGO_PROVIDER
@@ -640,9 +641,12 @@ class TiingoEodCaptureManifest:
     def __post_init__(self) -> None:
         require_digest(self.profile_contract_sha256, "profile_contract_sha256")
         require_digest(self.authorization_sha256, "authorization_sha256")
+        require_digest(self.calendar_artifact_sha256, "calendar_artifact_sha256")
         require_digest(self.terms_sha256, "terms_sha256")
         if self.authorization_sha256 == "0" * 64:
             raise ValueError("authorization_sha256 must identify the reviewed artifact")
+        if self.calendar_artifact_sha256 == "0" * 64:
+            raise ValueError("calendar_artifact_sha256 must identify the reviewed artifact")
         if self.terms_sha256 == "0" * 64:
             raise ValueError("terms_sha256 must identify the reviewed terms artifact")
         if self.profile_contract_sha256 != self.profile.contract_sha256:
@@ -671,6 +675,7 @@ class TiingoEodCaptureManifest:
     def to_dict(self) -> dict[str, object]:
         return {
             "authorization_sha256": self.authorization_sha256,
+            "calendar_artifact_sha256": self.calendar_artifact_sha256,
             "dataset": self.dataset,
             "profile": self.profile.to_dict(),
             "profile_contract_sha256": self.profile_contract_sha256,
@@ -696,6 +701,7 @@ class TiingoEodCaptureManifest:
         payload = _object(_json(payload_bytes), "manifest")
         expected = {
             "authorization_sha256",
+            "calendar_artifact_sha256",
             "dataset",
             "profile",
             "profile_contract_sha256",
@@ -724,6 +730,10 @@ class TiingoEodCaptureManifest:
                 requested_at=_datetime(payload["requested_at"], "requested_at"),
                 received_at=_datetime(payload["received_at"], "received_at"),
                 authorization_sha256=_text(payload["authorization_sha256"], "authorization_sha256"),
+                calendar_artifact_sha256=_text(
+                    payload["calendar_artifact_sha256"],
+                    "calendar_artifact_sha256",
+                ),
                 terms_sha256=_text(payload["terms_sha256"], "terms_sha256"),
                 schema_version=_text(payload["schema_version"], "schema_version"),
                 provider=_text(payload["provider"], "provider"),

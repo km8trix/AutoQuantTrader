@@ -28,6 +28,10 @@ from packages.adapters.market_data.tiingo_eod import (
     qualify_tiingo_eod,
     tiingo_eod_response_contract,
 )
+from packages.adapters.market_data.tiingo_eod_calendar import (
+    TiingoEodPinnedCalendar,
+    TiingoEodPinnedCalendarArtifact,
+)
 from packages.adapters.market_data.tiingo_eod_capture import (
     TiingoEodApiRequest,
     TiingoEodApiResponse,
@@ -63,6 +67,8 @@ __all__ = [
     "TiingoEodCaptureReceipt",
     "TiingoEodDataset",
     "TiingoEodError",
+    "TiingoEodPinnedCalendar",
+    "TiingoEodPinnedCalendarArtifact",
     "TiingoEodQualificationKind",
     "TiingoEodRawBasis",
     "TiingoEodResponseContract",

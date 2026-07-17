@@ -21,12 +21,18 @@ from packages.adapters.market_data.tiingo_eod import (
     TiingoEodError,
     TiingoEodScope,
 )
+from packages.adapters.market_data.tiingo_eod_calendar import (
+    MAX_TIINGO_CALENDAR_ARTIFACT_BYTES,
+    TiingoEodPinnedCalendar,
+    TiingoEodPinnedCalendarArtifact,
+)
 from packages.adapters.market_data.tiingo_eod_capture import (
     TiingoEodApiRequest,
     TiingoEodApiResponse,
     TiingoEodCaptureError,
     capture_tiingo_eod,
 )
+from packages.market_data import ExchangeCalendar, ExchangeSession
 
 SESSION_DATE = date(2026, 7, 14)
 REQUESTED_AT = datetime(2026, 7, 16, 12, 0, tzinfo=UTC)
@@ -59,7 +65,7 @@ def profile(
         reviewer_id="test-profile-reviewer",
         reviewed_at=reviewed_at,
         source_id="tiingo-eod-rest",
-        adapter_version="tiingo-eod-capture-v1",
+        adapter_version="tiingo-eod-capture-v2",
         market_provenance=market_provenance,
         identifier_authority="tiingo-ticker-mapping-v1",
         calendar_authority="us-equities-calendar-v1",
@@ -107,6 +113,68 @@ def authorization_bytes(
         reviewed_at=reviewed_at,
         effective_from=effective_from,
         effective_through=effective_through,
+    ).to_json_bytes()
+
+
+def calendar_artifact(
+    acquisition_profile: TiingoEodAcquisitionProfile | None = None,
+    *,
+    approved: bool = True,
+    reviewed_at: datetime = datetime(2026, 7, 2, tzinfo=UTC),
+    profile_contract_sha256: str | None = None,
+    calendar_authority: str | None = None,
+    artifact_scope: TiingoEodScope | None = None,
+) -> TiingoEodPinnedCalendarArtifact:
+    selected_profile = acquisition_profile or profile()
+    selected_scope = artifact_scope or selected_profile.scope
+    return TiingoEodPinnedCalendarArtifact(
+        artifact_id="test-reviewed-tiingo-calendar-artifact",
+        approved=approved,
+        reviewer_id="test-calendar-reviewer",
+        reviewed_at=reviewed_at,
+        profile_contract_sha256=(profile_contract_sha256 or selected_profile.contract_sha256),
+        calendar_authority=calendar_authority or selected_profile.calendar_authority,
+        tzdata_version="2026a",
+        scope=selected_scope,
+        calendars=tuple(
+            TiingoEodPinnedCalendar(
+                symbol=symbol,
+                calendar=ExchangeCalendar(
+                    calendar_id=f"{symbol}-CALENDAR",
+                    version="2026a",
+                    venue="XNYS",
+                    timezone="America/New_York",
+                    sessions=(
+                        ExchangeSession(
+                            venue="XNYS",
+                            session_label=SESSION_DATE,
+                            opens_at=datetime(2026, 7, 14, 13, 30, tzinfo=UTC),
+                            closes_at=datetime(2026, 7, 14, 20, 0, tzinfo=UTC),
+                        ),
+                    ),
+                ),
+            )
+            for symbol in selected_scope.symbols
+        ),
+    )
+
+
+def calendar_artifact_bytes(
+    acquisition_profile: TiingoEodAcquisitionProfile | None = None,
+    *,
+    approved: bool = True,
+    reviewed_at: datetime = datetime(2026, 7, 2, tzinfo=UTC),
+    profile_contract_sha256: str | None = None,
+    calendar_authority: str | None = None,
+    artifact_scope: TiingoEodScope | None = None,
+) -> bytes:
+    return calendar_artifact(
+        acquisition_profile,
+        approved=approved,
+        reviewed_at=reviewed_at,
+        profile_contract_sha256=profile_contract_sha256,
+        calendar_authority=calendar_authority,
+        artifact_scope=artifact_scope,
     ).to_json_bytes()
 
 
@@ -353,6 +421,7 @@ def test_authorization_and_profile_gates_run_before_transport_or_writes(
             token=TOKEN,
             profile=profile(),
             authorization_bytes=artifact,
+            calendar_artifact_bytes=calendar_artifact_bytes(),
             transport=transport,
             clock=clock_values(REQUESTED_AT),
         )
@@ -400,6 +469,7 @@ def test_reviewed_profile_gates_run_before_transport_or_writes(
                 selected_profile,
                 reviewed_at=authorization_reviewed_at,
             ),
+            calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
             transport=transport,
             clock=clock_values(REQUESTED_AT),
         )
@@ -430,11 +500,97 @@ def test_malformed_authorization_fails_before_transport_or_writes(
             token=TOKEN,
             profile=profile(),
             authorization_bytes=artifact,
+            calendar_artifact_bytes=calendar_artifact_bytes(),
             transport=transport,
             clock=clock_values(REQUESTED_AT),
         )
 
     assert called is False
+    assert not capture_root(tmp_path).exists()
+
+
+@pytest.mark.parametrize(
+    "artifact",
+    [
+        b"{",
+        b"{}",
+        b"[]",
+        b" " * (MAX_TIINGO_CALENDAR_ARTIFACT_BYTES + 1),
+    ],
+)
+def test_malformed_calendar_artifact_fails_before_token_transport_or_writes(
+    tmp_path: Path,
+    artifact: bytes,
+) -> None:
+    called = False
+
+    def transport(
+        request: TiingoEodApiRequest,
+        *,
+        timeout_seconds: float,
+    ) -> TiingoEodApiResponse:
+        nonlocal called
+        called = True
+        raise AssertionError((request, timeout_seconds))
+
+    with pytest.raises(TiingoEodCaptureError, match="calendar artifact is invalid") as error:
+        capture_tiingo_eod(
+            repository_root=tmp_path,
+            token="",
+            profile=profile(),
+            authorization_bytes=authorization_bytes(),
+            calendar_artifact_bytes=artifact,
+            transport=transport,
+            clock=clock_values(REQUESTED_AT),
+        )
+
+    assert called is False
+    assert TOKEN not in str(error.value)
+    assert not capture_root(tmp_path).exists()
+
+
+@pytest.mark.parametrize(
+    "artifact",
+    [
+        calendar_artifact_bytes(approved=False),
+        calendar_artifact_bytes(profile_contract_sha256="1" * 64),
+        calendar_artifact_bytes(calendar_authority="different-calendar-authority"),
+        calendar_artifact_bytes(artifact_scope=scope(symbols=("SPY",))),
+        calendar_artifact_bytes(reviewed_at=datetime(2026, 6, 29, tzinfo=UTC)),
+        calendar_artifact_bytes(reviewed_at=datetime(2026, 7, 17, tzinfo=UTC)),
+    ],
+)
+def test_calendar_authority_gates_run_before_token_transport_or_writes(
+    tmp_path: Path,
+    artifact: bytes,
+) -> None:
+    called = False
+
+    def transport(
+        request: TiingoEodApiRequest,
+        *,
+        timeout_seconds: float,
+    ) -> TiingoEodApiResponse:
+        nonlocal called
+        called = True
+        raise AssertionError((request, timeout_seconds))
+
+    with pytest.raises(
+        TiingoEodCaptureError,
+        match="calendar artifact is not authorized",
+    ) as error:
+        capture_tiingo_eod(
+            repository_root=tmp_path,
+            token="",
+            profile=profile(),
+            authorization_bytes=authorization_bytes(),
+            calendar_artifact_bytes=artifact,
+            transport=transport,
+            clock=clock_values(REQUESTED_AT),
+        )
+
+    assert called is False
+    assert TOKEN not in str(error.value)
     assert not capture_root(tmp_path).exists()
 
 
@@ -456,6 +612,7 @@ def test_invalid_profile_type_fails_before_transport_or_writes(tmp_path: Path) -
             token=TOKEN,
             profile=cast(TiingoEodAcquisitionProfile, object()),
             authorization_bytes=authorization_bytes(),
+            calendar_artifact_bytes=calendar_artifact_bytes(),
             transport=transport,
             clock=clock_values(REQUESTED_AT),
         )
@@ -498,6 +655,7 @@ def test_capture_preflight_rejects_configuration_before_transport(
             token=token,
             profile=selected_profile,
             authorization_bytes=authorization_bytes(selected_profile),
+            calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
             timeout_seconds=timeout_seconds,
             transport=transport,
             clock=clock_values(REQUESTED_AT),
@@ -517,6 +675,7 @@ def test_capture_archives_one_exact_response_per_sorted_symbol_without_secret_le
 ) -> None:
     selected_profile = profile()
     artifact = authorization_bytes(selected_profile)
+    pinned_calendar_bytes = calendar_artifact_bytes(selected_profile)
     payloads = {
         "DIA": response_bytes(volume=1_000_001),
         "SPY": response_bytes(volume=1_000_002),
@@ -542,6 +701,7 @@ def test_capture_archives_one_exact_response_per_sorted_symbol_without_secret_le
         token=TOKEN,
         profile=selected_profile,
         authorization_bytes=artifact,
+        calendar_artifact_bytes=pinned_calendar_bytes,
         transport=transport,
         clock=clock_values(
             REQUESTED_AT,
@@ -558,6 +718,8 @@ def test_capture_archives_one_exact_response_per_sorted_symbol_without_secret_le
     assert manifest.profile == selected_profile
     assert manifest.profile_contract_sha256 == selected_profile.contract_sha256
     assert manifest.authorization_sha256 == hashlib.sha256(artifact).hexdigest()
+    assert manifest.calendar_artifact_sha256 == hashlib.sha256(pinned_calendar_bytes).hexdigest()
+    assert manifest.schema_version == "tiingo-eod-capture-v2"
     assert manifest.terms_sha256 == TERMS_SHA256
     assert manifest.requested_at == REQUESTED_AT
     assert manifest.received_at == SECOND_RECEIVED_AT
@@ -590,7 +752,9 @@ def test_capture_archives_one_exact_response_per_sorted_symbol_without_secret_le
             assert TOKEN.encode() not in path.read_bytes()
 
 
-def test_request_and_response_repr_hide_sensitive_transport_material(tmp_path: Path) -> None:
+def test_request_and_response_repr_hide_sensitive_transport_material(
+    tmp_path: Path,
+) -> None:
     selected_profile = profile(capture_scope=scope(symbols=("SPY",)))
     seen: list[TiingoEodApiRequest] = []
 
@@ -609,6 +773,7 @@ def test_request_and_response_repr_hide_sensitive_transport_material(tmp_path: P
         token=TOKEN,
         profile=selected_profile,
         authorization_bytes=authorization_bytes(selected_profile),
+        calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
         transport=transport,
         clock=clock_values(REQUESTED_AT, FIRST_RECEIVED_AT),
     )
@@ -657,6 +822,7 @@ def test_all_responses_are_validated_before_any_capture_output_is_written(
             token=TOKEN,
             profile=profile(),
             authorization_bytes=authorization_bytes(),
+            calendar_artifact_bytes=calendar_artifact_bytes(),
             transport=transport,
             clock=clock_values(
                 REQUESTED_AT,
@@ -704,6 +870,7 @@ def test_partial_capture_failure_is_sanitized_and_writes_nothing(
             token=TOKEN,
             profile=profile(),
             authorization_bytes=authorization_bytes(),
+            calendar_artifact_bytes=calendar_artifact_bytes(),
             transport=transport,
             clock=clock_values(*times),
         )
@@ -739,6 +906,7 @@ def test_atomic_publication_cleans_storage_faults_preserves_existing_capture_and
         token=TOKEN,
         profile=selected_profile,
         authorization_bytes=artifact,
+        calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
         transport=transport,
         clock=clock_values(REQUESTED_AT, FIRST_RECEIVED_AT),
     )
@@ -754,6 +922,7 @@ def test_atomic_publication_cleans_storage_faults_preserves_existing_capture_and
                 token=TOKEN,
                 profile=selected_profile,
                 authorization_bytes=artifact,
+                calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
                 transport=transport,
                 clock=clock_values(SECOND_REQUESTED_AT, SECOND_RECEIVED_AT),
             )
@@ -767,6 +936,7 @@ def test_atomic_publication_cleans_storage_faults_preserves_existing_capture_and
         token=TOKEN,
         profile=selected_profile,
         authorization_bytes=artifact,
+        calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
         transport=transport,
         clock=clock_values(SECOND_REQUESTED_AT, SECOND_RECEIVED_AT),
     )
@@ -808,6 +978,7 @@ def test_publish_lock_rejects_overlapping_same_name_capture_without_residue(
                     token=TOKEN,
                     profile=selected_profile,
                     authorization_bytes=artifact,
+                    calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
                     transport=transport,
                     clock=clock_values(REQUESTED_AT, FIRST_RECEIVED_AT),
                 )
@@ -821,6 +992,7 @@ def test_publish_lock_rejects_overlapping_same_name_capture_without_residue(
             token=TOKEN,
             profile=selected_profile,
             authorization_bytes=artifact,
+            calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
             transport=transport,
             clock=clock_values(REQUESTED_AT, FIRST_RECEIVED_AT),
         )
@@ -838,6 +1010,7 @@ def test_publish_lock_rejects_overlapping_same_name_capture_without_residue(
             token=TOKEN,
             profile=selected_profile,
             authorization_bytes=artifact,
+            calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
             transport=transport,
             clock=clock_values(REQUESTED_AT, FIRST_RECEIVED_AT),
         )
@@ -897,6 +1070,7 @@ def test_post_commit_root_fsync_failure_returns_the_published_capture(
             token=TOKEN,
             profile=selected_profile,
             authorization_bytes=artifact,
+            calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
             transport=transport,
             clock=clock_values(REQUESTED_AT, FIRST_RECEIVED_AT),
         )
@@ -960,6 +1134,7 @@ def test_publication_interrupt_cleans_owned_staging_and_reservation_then_retries
                 token=TOKEN,
                 profile=selected_profile,
                 authorization_bytes=artifact,
+                calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
                 transport=transport,
                 clock=clock_values(REQUESTED_AT, FIRST_RECEIVED_AT),
             )
@@ -973,6 +1148,7 @@ def test_publication_interrupt_cleans_owned_staging_and_reservation_then_retries
         token=TOKEN,
         profile=selected_profile,
         authorization_bytes=artifact,
+        calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
         transport=transport,
         clock=clock_values(REQUESTED_AT, FIRST_RECEIVED_AT),
     )
@@ -981,7 +1157,9 @@ def test_publication_interrupt_cleans_owned_staging_and_reservation_then_retries
     assert tuple(root.iterdir()) == (manifest_path.parent,)
 
 
-def test_capture_rejects_non_utc_clock_before_transport_or_writes(tmp_path: Path) -> None:
+def test_capture_rejects_non_utc_clock_before_transport_or_writes(
+    tmp_path: Path,
+) -> None:
     called = False
 
     def transport(
@@ -999,6 +1177,9 @@ def test_capture_rejects_non_utc_clock_before_transport_or_writes(tmp_path: Path
             token=TOKEN,
             profile=profile(capture_scope=scope(symbols=("SPY",))),
             authorization_bytes=authorization_bytes(profile(capture_scope=scope(symbols=("SPY",)))),
+            calendar_artifact_bytes=calendar_artifact_bytes(
+                profile(capture_scope=scope(symbols=("SPY",)))
+            ),
             transport=transport,
             clock=clock_values(REQUESTED_AT.replace(tzinfo=None)),
         )
@@ -1043,6 +1224,7 @@ def test_capture_rejects_non_monotonic_clock_without_writes(
             token=TOKEN,
             profile=selected_profile,
             authorization_bytes=authorization_bytes(selected_profile),
+            calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
             transport=transport,
             clock=clock_values(*times),
         )
@@ -1086,6 +1268,9 @@ def test_manifest_roundtrip_rejects_duplicate_keys_and_profile_digest_mismatch()
         requested_at=REQUESTED_AT,
         received_at=FIRST_RECEIVED_AT,
         authorization_sha256=hashlib.sha256(authorization_bytes(selected_profile)).hexdigest(),
+        calendar_artifact_sha256=hashlib.sha256(
+            calendar_artifact_bytes(selected_profile)
+        ).hexdigest(),
         terms_sha256=TERMS_SHA256,
     )
     encoded = manifest.to_json_bytes()
@@ -1095,6 +1280,18 @@ def test_manifest_roundtrip_rejects_duplicate_keys_and_profile_digest_mismatch()
     assert field in encoded
     with pytest.raises(TiingoEodError, match="duplicate JSON key"):
         TiingoEodCaptureManifest.from_json_bytes(encoded.replace(field, field + field, 1))
+    missing_calendar_digest = json.loads(encoded)
+    del missing_calendar_digest["calendar_artifact_sha256"]
+    with pytest.raises(TiingoEodError, match="missing fields"):
+        TiingoEodCaptureManifest.from_json_bytes(
+            json.dumps(missing_calendar_digest, separators=(",", ":")).encode()
+        )
+    v1_manifest = json.loads(encoded)
+    v1_manifest["schema_version"] = "tiingo-eod-capture-v1"
+    with pytest.raises(TiingoEodError, match="unsupported Tiingo EOD capture schema"):
+        TiingoEodCaptureManifest.from_json_bytes(
+            (json.dumps(v1_manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n").encode()
+        )
     with pytest.raises(ValueError, match="profile"):
         TiingoEodCaptureManifest(
             profile=selected_profile,
@@ -1103,6 +1300,20 @@ def test_manifest_roundtrip_rejects_duplicate_keys_and_profile_digest_mismatch()
             requested_at=REQUESTED_AT,
             received_at=FIRST_RECEIVED_AT,
             authorization_sha256=hashlib.sha256(authorization_bytes(selected_profile)).hexdigest(),
+            calendar_artifact_sha256=hashlib.sha256(
+                calendar_artifact_bytes(selected_profile)
+            ).hexdigest(),
+            terms_sha256=TERMS_SHA256,
+        )
+    with pytest.raises(ValueError, match="calendar_artifact_sha256"):
+        TiingoEodCaptureManifest(
+            profile=selected_profile,
+            profile_contract_sha256=selected_profile.contract_sha256,
+            responses=(receipt,),
+            requested_at=REQUESTED_AT,
+            received_at=FIRST_RECEIVED_AT,
+            authorization_sha256=hashlib.sha256(authorization_bytes(selected_profile)).hexdigest(),
+            calendar_artifact_sha256="0" * 64,
             terms_sha256=TERMS_SHA256,
         )
 
@@ -1128,6 +1339,7 @@ def test_capture_rejects_symlinked_fixed_root_without_writing_outside(
             token=TOKEN,
             profile=selected_profile,
             authorization_bytes=authorization_bytes(selected_profile),
+            calendar_artifact_bytes=calendar_artifact_bytes(selected_profile),
             transport=transport,
             clock=clock_values(REQUESTED_AT, FIRST_RECEIVED_AT),
         )

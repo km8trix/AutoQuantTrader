@@ -24,8 +24,9 @@ non-trade-enabled ticker-change/delisting corpus. See
 [ADR 0010](../adr/0010-market-data-provider-qualification-routing.md),
 [ADR 0011](../adr/0011-daily-first-capture-and-raw-lane-separation.md),
 [ADR 0012](../adr/0012-tiingo-eod-offline-first-qualification.md),
-[ADR 0013](../adr/0013-tiingo-eod-authorization-gated-capture.md), and
-[ADR 0014](../adr/0014-tiingo-eod-offline-capture-verification.md).
+[ADR 0013](../adr/0013-tiingo-eod-authorization-gated-capture.md),
+[ADR 0014](../adr/0014-tiingo-eod-offline-capture-verification.md), and
+[ADR 0015](../adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md).
 
 ## Secret-safe access probe
 
@@ -115,7 +116,9 @@ capture nor lineage may invent pre-capture vintages.
 
 No Tiingo payload may be retained until an approved provider-specific
 acquisition profile freezes the exact scope and a matching authorization
-confirms local storage and research rights and binds the reviewed terms digest.
+confirms local storage and research rights and binds the reviewed terms digest,
+and an exact canonical pinned-calendar artifact is approved against that
+profile.
 Before a production `HistoricalBarSource` is implemented, the exact
 endpoint/product, venue or market provenance, identifier mapping, calendar,
 lifecycle, corporate-action authority, and correction policy must be frozen and
@@ -145,15 +148,18 @@ provenance, authority bindings, and correction-policy identity. A separate
 matching authorization must bind that normalized profile-contract digest to the
 reviewed terms digest, effective dates, reviewer, and
 explicit local-retention and research-use permission flags. Neither artifact
-contains credentials or terms text. An API token, a successful probe, an offline
+contains credentials or terms text. A separate approved calendar artifact must
+bind the same profile digest, authority, and exact scope before capture. An API
+token, a successful probe, an offline
 fixture, or the Sharadar capture authorization is not a substitute. A failed
-preflight must occur before `TIINGO_TOKEN` is read, before transport, and before
-any output.
+profile, rights, or calendar preflight must occur before `TIINGO_TOKEN` is read,
+before transport, and before any output.
 
 The secret-free manifest contract binds the full acquisition profile and
 normalized contract digest, matching authorization and terms digests,
-provider/dataset/schema identities, overall request and receipt bounds, and
-sorted complete receipts for every requested symbol. That manifest shape is
+the exact pinned-calendar artifact digest, provider/dataset/schema identities,
+overall request and receipt bounds, and sorted complete receipts for every
+requested symbol. That manifest shape is
 synthetic-tested; no actual Tiingo manifest exists in the repository. A separate
 offline verifier is now implemented against synthetic captures. Repeated-capture
 lineage, canonical conversion, and source integration remain later stages.
@@ -161,65 +167,81 @@ lineage, canonical conversion, and source integration remain later stages.
 The staged flow is:
 
 1. Qualify the documented response contract using repository-owned fixtures.
-2. Obtain approval of the exact Tiingo acquisition profile and a separate,
-   matching authorization for the intended storage and research rights.
+2. Obtain approval of the exact Tiingo acquisition profile, a separate matching
+   authorization for the intended storage and research rights, and an exact
+   canonical pinned-calendar artifact reviewed against that profile.
 3. Only then perform one bounded request scope and immutably retain exact bytes
    plus secret-free request, receipt, size, identity, and digest evidence.
 4. Verify the capture offline against its manifest, schema, coverage, pinned
-   authorities, and calendar without making another request.
+   authorities, and the same exact calendar artifact without making another
+   request.
 5. In a later slice, compare multiple complete authorized captures and build
    receipt-time local correction lineage.
 6. Only after those stages may a separate admission evaluation consider the
    evidence and a future `HistoricalBarSource`.
 
-Actual operation stops before step 3 because no approved profile and matching
-authorization have been supplied. The software for step 4 is separately
-synthetic-tested, but no legally obtained retained bytes have passed it. The
+Actual operation stops before step 3 because no approved profile, matching
+authorization, and exact reviewed calendar artifact have been supplied. The
+software for step 4 is separately synthetic-tested, but no legally obtained
+retained bytes have passed it. The
 system also stops before local lineage:
 receipt time is not written into `vendor_published_at`, unchanged responses are
 not yet collapsed, changed rows are not called vendor corrections, and missing
 rows are not treated as deletions or tombstones. Every stage listed here has
 admission and trading effects of `none` until the independent admission and
 deployment gates explicitly say otherwise. See
-[ADR 0013](../adr/0013-tiingo-eod-authorization-gated-capture.md) and
-[ADR 0014](../adr/0014-tiingo-eod-offline-capture-verification.md).
+[ADR 0013](../adr/0013-tiingo-eod-authorization-gated-capture.md),
+[ADR 0014](../adr/0014-tiingo-eod-offline-capture-verification.md), and
+[ADR 0015](../adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md).
 
 Start from the fail-closed
-[acquisition-profile template](tiingo-eod-acquisition-profile.template.json) and
-[capture-authorization template](tiingo-eod-capture-authorization.template.json).
+[acquisition-profile template](tiingo-eod-acquisition-profile.template.json),
+[capture-authorization template](tiingo-eod-capture-authorization.template.json),
+and [pinned-calendar template](tiingo-eod-pinned-calendar.template.json).
 Copy them to a gitignored location, make each file owner-only (`chmod 600`),
-replace every placeholder, and set `approved` only after the profile review.
-Produce its normalized contract digest deterministically with:
+replace every placeholder, and enable approval or permission fields only after
+the applicable review. Produce the profile's normalized contract digest
+deterministically with:
 
 ```bash
 make tiingo-eod-profile-inspect PROFILE=path/to/reviewed-profile.json
 ```
 
 The inspection command reads no credential and makes no request. Put the printed
-`profile_contract_sha256` in an authorization reviewed no earlier than the
-profile. This digest covers the normalized strict contract, not JSON indentation
-or other presentation bytes. The checked-in
-authorization has both permissions disabled and zero placeholder digests, so it
-cannot be used accidentally. After the external review is complete, the bounded
-operator entry point is:
+`profile_contract_sha256` in an authorization and calendar artifact reviewed
+no earlier than the profile. The profile digest covers the normalized strict
+contract, not JSON indentation or other presentation bytes. Calendar bytes,
+by contrast, must use their canonical frozen encoding because the manifest
+binds their exact SHA-256. The checked-in authorization has both permissions
+disabled and zero placeholder digests, while the checked-in calendar is
+unapproved and digest-mismatched. Neither can be used accidentally.
+Every venue, timezone, session label, open, close, and kind in the calendar
+template is illustrative and must be reviewed and replaced where applicable,
+even when it is not prefixed with `replace-`.
+After the external review is complete, the bounded operator entry point is:
 
 ```bash
 make tiingo-eod-capture START_DATE=2026-07-14 \
   PROFILE=path/to/reviewed-profile.json \
-  AUTHORIZATION=path/to/reviewed-authorization.json
+  AUTHORIZATION=path/to/reviewed-authorization.json \
+  CALENDAR=path/to/reviewed-calendar.json
 ```
 
 `END_DATE` is optional and defaults to `START_DATE`; the profile scope must
-match the command exactly. The command does not qualify, admit, normalize, or
-trade the captured data.
+match the command exactly. The target defaults to all four Phase 1 symbols;
+optional `SYMBOLS="DIA SPY"`-style subsets must exactly match the reviewed
+profile and calendar. The command does not qualify, admit, normalize, or trade
+the captured data.
 
-Every existing fixed-root ancestor must be owner-only. After every response is
-validated, receipts and manifest bytes are prebuilt, written beneath an
-owner-only hidden staging directory, durably finalized, and atomically renamed
-under an exclusive final-name reservation. Pre-commit faults and interrupts do
-not publish a final capture or alter an existing one. A process crash can leave
-a hidden inert staging or reservation entry for manual inspection, but never a
-partially published final capture.
+Every existing fixed capture-root component beneath the repository must be
+owner-only; higher repository and OS ancestors are traversed without following
+symlinks but need not be owner-only. After every response is validated, receipts
+and manifest bytes are prebuilt, written beneath an owner-only hidden staging
+directory, durably finalized, and atomically renamed under an exclusive
+final-name reservation. Pre-commit faults and interrupts do not publish a final
+capture or alter an existing one. A process crash can leave a hidden inert
+staging or reservation entry for manual inspection, but never a partially
+published final capture.
 
 The timeout applies to socket I/O for each symbol request and is not a strict
 deadline for the complete capture. Run the command under an external supervisor
@@ -228,8 +250,8 @@ when policy requires a hard whole-process deadline.
 Reviewer IDs and timestamps are auditable local attestations rather than
 cryptographic signatures. Reviewer authentication and any required separation
 of duties remain part of the external review process; the capture code enforces
-the recorded approval, causal review order, exact contract digest, effective
-dates, and rights flags.
+the profile and calendar approval flags, causal review order and profile
+bindings, plus the authorization effective dates and rights flags.
 
 ## Tiingo offline final-capture verification
 
@@ -244,11 +266,11 @@ the fixed path, selected name-to-inode binding, directory metadata, file
 identities, and exact entry sets. Unrelated hidden crash residue beside the
 selected final capture is inert and ignored.
 
-The caller must supply the exact reviewed authorization bytes, the exact
-expected acquisition profile, the expected calendar authority, and an exact
-pinned calendar for every symbol and no other symbol. The loader re-authorizes
-the artifact at the recorded first request time, verifies its exact and terms
-digests, checks every unique content-addressed object, reparses each response,
+The caller must supply the exact reviewed authorization bytes, expected
+acquisition profile, and exact canonical pinned-calendar bytes. The loader
+re-authorizes both reviewed artifacts at the recorded first request time,
+verifies their exact digests, derives every calendar from the portable
+artifact, checks every unique content-addressed object, reparses each response,
 and requires exact per-symbol session coverage. A shared object is valid only
 when multiple receipts genuinely reference the same exact bytes.
 
@@ -262,11 +284,20 @@ wrapper exposes `verify()` rather than the production source protocol's
 `load()`. The implementation has been exercised only with synthetic captures
 and has not verified an actual Tiingo response.
 
-There is intentionally no operator command yet. The application has no reviewed
-portable serialization contract for production pinned calendars, and the
-synthetic reference calendar must not be substituted implicitly. The library
-boundary will gain an operator entry point only after that calendar artifact is
-frozen and reviewed.
+The credential-free operator entry point is:
+
+```bash
+make tiingo-eod-verify \
+  CAPTURE=final-capture-basename \
+  PROFILE=path/to/reviewed-profile.json \
+  AUTHORIZATION=path/to/reviewed-authorization.json \
+  CALENDAR=path/to/reviewed-calendar.json
+```
+
+It reads no `.env`, credential, or network resource; performs no writes,
+catalog changes, or admission; and prints only secret-free proof digests,
+calendar identities, and counts. The synthetic reference calendar is never
+substituted implicitly.
 
 ## Required workflow
 
@@ -277,9 +308,10 @@ frozen and reviewed.
 3. Qualify the provider contract and capture mechanics offline with synthetic
    fixtures before any exact response is requested or retained. This proves
    software behavior only.
-4. After provider-specific profile and rights approval, perform the bounded
-   capture and validate the legally obtained exact bytes offline. Then implement
-   repeated-capture local lineage and, only after its own gates,
+4. After provider-specific profile, rights, and exact pinned-calendar approval,
+   perform the bounded capture and validate the legally obtained exact bytes
+   offline. Then implement repeated-capture local lineage and, only after its
+   own gates,
    `HistoricalBarSource`. Keep API credentials in the
    configured secret provider; never put them in an admission document, browser
    response, log, or catalog row.
@@ -311,10 +343,12 @@ mutate the catalog or grant trading authority.
   and [the evidence template](vendor-evidence.template.json). For SFP exact-page
   retention, separately start from the
   [capture-authorization template](sharadar-sfp-capture-authorization.template.json).
-  For Tiingo EOD, use both its
-  [acquisition-profile template](tiingo-eod-acquisition-profile.template.json)
-  and matching
-  [capture-authorization template](tiingo-eod-capture-authorization.template.json).
+  For Tiingo EOD, use its
+  [acquisition-profile template](tiingo-eod-acquisition-profile.template.json),
+  matching
+  [capture-authorization template](tiingo-eod-capture-authorization.template.json),
+  and exact
+  [pinned-calendar template](tiingo-eod-pinned-calendar.template.json).
 - JSON keys are strict and duplicate keys are rejected.
 - All timestamps must be UTC and causally ordered.
 - Digests are lowercase SHA-256 values. Store only the digest of entitlement

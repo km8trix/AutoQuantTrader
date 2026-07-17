@@ -31,6 +31,9 @@ from packages.adapters.market_data.tiingo_eod import (
     TiingoEodError,
     tiingo_eod_response_contract,
 )
+from packages.adapters.market_data.tiingo_eod_calendar import (
+    TiingoEodPinnedCalendarArtifact,
+)
 from packages.adapters.market_data.tiingo_eod_capture_identity import (
     tiingo_eod_capture_name,
 )
@@ -252,6 +255,7 @@ def _prepare_capture(
     *,
     profile: TiingoEodAcquisitionProfile,
     authorization_sha256: str,
+    calendar_artifact_sha256: str,
     terms_sha256: str,
 ) -> _PreparedCapture:
     receipts: list[TiingoEodCaptureReceipt] = []
@@ -281,6 +285,7 @@ def _prepare_capture(
         requested_at=receipts[0].requested_at,
         received_at=receipts[-1].received_at,
         authorization_sha256=authorization_sha256,
+        calendar_artifact_sha256=calendar_artifact_sha256,
         terms_sha256=terms_sha256,
     )
     manifest_bytes = manifest.to_json_bytes()
@@ -457,6 +462,7 @@ def capture_tiingo_eod(
     token: str,
     profile: TiingoEodAcquisitionProfile,
     authorization_bytes: bytes,
+    calendar_artifact_bytes: bytes,
     timeout_seconds: float = 15.0,
     transport: TiingoEodApiTransport = _https_get,
     clock: Callable[[], datetime] = _utc_now,
@@ -470,6 +476,13 @@ def capture_tiingo_eod(
     except (TypeError, TiingoEodError, ValueError):
         raise TiingoEodCaptureError("capture authorization artifact is invalid") from None
     authorization_sha256 = hashlib.sha256(authorization_bytes).hexdigest()
+    try:
+        calendar_artifact = TiingoEodPinnedCalendarArtifact.from_json_bytes(calendar_artifact_bytes)
+    except (TypeError, ValueError):
+        raise TiingoEodCaptureError("pinned calendar artifact is invalid") from None
+    calendar_artifact_sha256 = hashlib.sha256(calendar_artifact_bytes).hexdigest()
+    if calendar_artifact_sha256 != calendar_artifact.artifact_sha256:
+        raise TiingoEodCaptureError("pinned calendar artifact is invalid")
     repository = _repository_path(repository_root)
     if not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 30:
         raise TiingoEodCaptureError(
@@ -481,6 +494,12 @@ def capture_tiingo_eod(
         authorization.authorize(profile, requested_at=first_requested_at)
     except ValueError as error:
         raise TiingoEodCaptureError(str(error)) from error
+    try:
+        calendar_artifact.authorize(profile, requested_at=first_requested_at)
+    except ValueError:
+        raise TiingoEodCaptureError(
+            "pinned calendar artifact is not authorized for capture"
+        ) from None
     try:
         require_text(token, "token")
     except ValueError:
@@ -528,6 +547,7 @@ def capture_tiingo_eod(
         immutable_responses,
         profile=profile,
         authorization_sha256=authorization_sha256,
+        calendar_artifact_sha256=calendar_artifact_sha256,
         terms_sha256=authorization.terms_sha256,
     )
     capture_name = tiingo_eod_capture_name(prepared.manifest_bytes)

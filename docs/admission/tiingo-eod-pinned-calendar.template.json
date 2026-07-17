@@ -1,0 +1,96 @@
+{
+  "approved": false,
+  "artifact_id": "replace-with-reviewed-calendar-artifact-id",
+  "calendar_authority": "replace-with-reviewed-calendar-authority",
+  "calendars": [
+    {
+      "calendar": {
+        "calendar_id": "replace-with-reviewed-dia-calendar-id",
+        "sessions": [
+          {
+            "closes_at": "2026-01-02T21:00:00Z",
+            "kind": "regular",
+            "opens_at": "2026-01-02T14:30:00Z",
+            "session_label": "2026-01-02",
+            "venue": "REVIEW"
+          }
+        ],
+        "timezone": "America/New_York",
+        "venue": "REVIEW",
+        "version": "replace-with-reviewed-calendar-version"
+      },
+      "symbol": "DIA"
+    },
+    {
+      "calendar": {
+        "calendar_id": "replace-with-reviewed-iwm-calendar-id",
+        "sessions": [
+          {
+            "closes_at": "2026-01-02T21:00:00Z",
+            "kind": "regular",
+            "opens_at": "2026-01-02T14:30:00Z",
+            "session_label": "2026-01-02",
+            "venue": "REVIEW"
+          }
+        ],
+        "timezone": "America/New_York",
+        "venue": "REVIEW",
+        "version": "replace-with-reviewed-calendar-version"
+      },
+      "symbol": "IWM"
+    },
+    {
+      "calendar": {
+        "calendar_id": "replace-with-reviewed-qqq-calendar-id",
+        "sessions": [
+          {
+            "closes_at": "2026-01-02T21:00:00Z",
+            "kind": "regular",
+            "opens_at": "2026-01-02T14:30:00Z",
+            "session_label": "2026-01-02",
+            "venue": "REVIEW"
+          }
+        ],
+        "timezone": "America/New_York",
+        "venue": "REVIEW",
+        "version": "replace-with-reviewed-calendar-version"
+      },
+      "symbol": "QQQ"
+    },
+    {
+      "calendar": {
+        "calendar_id": "replace-with-reviewed-spy-calendar-id",
+        "sessions": [
+          {
+            "closes_at": "2026-01-02T21:00:00Z",
+            "kind": "regular",
+            "opens_at": "2026-01-02T14:30:00Z",
+            "session_label": "2026-01-02",
+            "venue": "REVIEW"
+          }
+        ],
+        "timezone": "America/New_York",
+        "venue": "REVIEW",
+        "version": "replace-with-reviewed-calendar-version"
+      },
+      "symbol": "SPY"
+    }
+  ],
+  "dataset": "end-of-day",
+  "profile_contract_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "provider": "tiingo",
+  "reviewed_at": "2026-01-01T00:00:00Z",
+  "reviewer_id": "replace-with-calendar-reviewer-id",
+  "schema_version": "tiingo-eod-pinned-calendar-v1",
+  "scope": {
+    "end_date": "2026-01-02",
+    "start_date": "2026-01-02",
+    "symbols": [
+      "DIA",
+      "IWM",
+      "QQQ",
+      "SPY"
+    ]
+  },
+  "tzdata_version": "replace-with-reviewed-tzdata-version"
+}
