@@ -129,7 +129,7 @@ def _json(payload_bytes: bytes) -> object:
                 parse_constant=_reject_constant,
             ),
         )
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
         raise TiingoEodError("response is not valid unambiguous UTF-8 JSON") from error
 
 

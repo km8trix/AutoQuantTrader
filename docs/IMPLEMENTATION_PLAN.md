@@ -88,6 +88,20 @@ message. No production identity/lifecycle artifact has passed, so every
 production-identity, raw, corporate-action, source, admission, and trading
 effect remains `none`.
 
+ADR 0019 now defines and implements the next offline market-semantics and
+action-candidate contract-only boundary. It revalidates the exact verified
+snapshot, ADR 0017 retained-field proof, ADR 0018 identity/lifecycle proof, and
+canonical semantics artifact. The contract freezes structured provenance, the
+exact one-plus-five-plus-five-plus-two partition of all thirteen fields, and
+fixed `divCash` and `splitFactor` candidate conventions. Five isolated synthetic
+cases cover neutral, dividend, forward split, reverse split, and simultaneous
+candidates without inferring an event, event absence, or unavailable timestamps.
+The template and operator path make no provider request or write. Its
+adjustment-methodology, admission, canonical-bar, corporate-action, correction,
+genuine-raw, historical-source, market-provenance, trading, and
+vendor-publication effects all remain `none`, and the actual baseline has not
+passed this boundary.
+
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
 treated as admission or evidence that a vendor's real history, entitlement,
@@ -235,6 +249,19 @@ Passing one layer cannot substitute for another.
   profile authority label or lifecycle instants as evidence. No production
   identity/lifecycle artifact has passed, and the boundary cannot produce a
   production security master, source, admission evidence, or trading effect.
+- Newly complete: a strict offline market-semantics and action-candidate
+  contract-only boundary that revalidates the exact snapshot, retained-field
+  proof, and identity/lifecycle proof against canonical artifact bytes. It
+  freezes structured provenance, the exact thirteen-field role partition, and
+  fixed cash-dividend and split-candidate conventions. Five repository-owned
+  cases exercise neutral, dividend, forward-split, reverse-split, and combined
+  candidates without inferring action existence, absence, announcement,
+  publication, availability, payable, or revision timestamps. No production
+  semantics/action artifact has passed, and the boundary cannot produce raw or
+  canonical bars, corporate-action records, a source, admission evidence, or a
+  trading effect. Adjustment-methodology, admission, canonical-bar,
+  corporate-action, correction, genuine-raw, historical-source,
+  market-provenance, trading, and vendor-publication effects all remain `none`.
 - Still required for the Phase 1 exit gate: obtain a fresh external operator
   decision for any second provider capture needed for real repeat evidence,
   perform it under the same exact still-applicable profile, authorization, and
@@ -584,7 +611,7 @@ Every change includes:
 | Orders | DAY market orders, next-event simulation | Smallest causally defensible execution slice |
 | Active strategies | One per brokerage account | Defers netting, virtual sleeves, internal crosses, and fill allocation |
 | Broker | Alpaca paper | Paper-first API; capability contract preserves future portability |
-| Data | Daily-first: immutable Sharadar research capture plus Tiingo synthetic qualification, one bounded actual Tiingo capture verified and passed through the exact-retained field-contract boundary, and offline local-lineage and identity/lifecycle contract mechanics implemented; no production identity/lifecycle artifact or real repeat evidence exists, and genuine raw semantics, `HistoricalBarSource`, and admission remain blocked; Massive intraday deferred | Adjustment basis, publication/vintage timing, venue/identity authorities, historical revisions/universes, licensed storage/use, and live quote scope drive validity |
+| Data | Daily-first: immutable Sharadar research capture plus Tiingo synthetic qualification, one bounded actual Tiingo capture verified and passed through the exact-retained field-contract boundary, and offline local-lineage, identity/lifecycle, and market-semantics/action-candidate contract mechanics implemented; no production identity/lifecycle or semantics/action artifact or real repeat evidence exists, and genuine raw semantics, `HistoricalBarSource`, and admission remain blocked; Massive intraday deferred | Adjustment basis, publication/vintage timing, venue/identity authorities, historical revisions/universes, licensed storage/use, and live quote scope drive validity |
 | Account model | Explicit cash or margin policy | Determines settlement, buying power, ledger, and risk semantics |
 | Hosting | One region, managed PostgreSQL, object storage | Reliable non-HFT footprint with separable operational/research I/O |
 | UI | Desktop-browser React/Vite workspace, incremental from Phase 0 | Makes research and operations observable without adding native/mobile scope |

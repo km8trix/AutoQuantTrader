@@ -695,13 +695,39 @@ collapse qualification failures to a generic value-free message. No production
 identity/lifecycle artifact has passed, and the provider-backed
 baseline has not been identity-qualified by this boundary.
 
+ADR 0019 adds the next offline market-semantics and action-candidate
+contract-only boundary. It revalidates the exact snapshot, ADR 0017
+retained-field proof, and ADR 0018 identity/lifecycle proof before accepting a
+strict canonical semantics artifact. The artifact supplements and binds the
+profile's free-text market-provenance and corporate-action-authority labels with
+a structured contract shape; those fields still require independently selected
+evidence before any production claim.
+
+The contract freezes the exact thirteen-field partition: `date` is session
+identity; unprefixed OHLCV is documented-raw-candidate; adjusted OHLCV is
+adjusted research; and `divCash` plus `splitFactor` are action candidates. It
+also freezes zero as the neutral cash-dividend candidate, one as the neutral
+split candidate, and new-shares-per-old-share as split orientation. Exactly
+five isolated repository-owned cases exercise neutral, cash-dividend, forward-
+split, reverse-split, and combined candidates. No candidate establishes an
+event or absence, and no session or receipt time becomes an announcement,
+publication, payable, availability, revision, or historical-vintage time.
+
+The proof-constructed result keeps adjustment-methodology, admission,
+canonical-bar, corporate-action, correction, genuine-raw, historical-source,
+market-provenance, trading, and vendor-publication effects at `none`. Its
+fail-closed template and credential-free operator command perform no request or
+write and emit no provider values or
+private evidence. No production semantics or action artifact has passed, and
+the provider-backed baseline has not been market-semantics/action-qualified.
+
 The staged Tiingo path is therefore contract qualification, approved profile,
 matching rights authorization and pinned calendar, bounded immutable capture,
 credential-free offline verification, exact-retained field-contract
-qualification, security-identity/lifecycle contract qualification, local
-receipt-time lineage when multiple captures exist, and only then the real
-identity/lifecycle, genuine-raw, corporate-action, source, and licensed
-admission gates.
+qualification, security-identity/lifecycle contract qualification,
+market-semantics/action-candidate contract qualification, local receipt-time
+lineage when multiple captures exist, and only then the real identity/lifecycle,
+genuine-raw, provenance, corporate-action, source, and licensed admission gates.
 Later stages cannot grant authority backward to an earlier stage. No stage
 invents `vendor_published_at`, a vendor revision, or a historical vintage.
 
@@ -738,8 +764,9 @@ admission, or trading authority. See
 [ADR 0014](adr/0014-tiingo-eod-offline-capture-verification.md),
 [ADR 0015](adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md),
 [ADR 0016](adr/0016-tiingo-eod-receipt-time-local-lineage.md),
-[ADR 0017](adr/0017-tiingo-eod-exact-retained-field-contract-qualification.md), and
-[ADR 0018](adr/0018-tiingo-eod-security-identity-lifecycle-contract.md).
+[ADR 0017](adr/0017-tiingo-eod-exact-retained-field-contract-qualification.md),
+[ADR 0018](adr/0018-tiingo-eod-security-identity-lifecycle-contract.md), and
+[ADR 0019](adr/0019-tiingo-eod-market-semantics-and-action-candidates.md).
 
 ## 11. Backtesting model
 
