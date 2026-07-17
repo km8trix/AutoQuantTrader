@@ -40,10 +40,12 @@ socket-I/O timeout, and immutable-output mechanics are
 tested only with synthetic responses; no live Tiingo request or capture has
 occurred. Actual operation remains blocked until a profile records human
 approval of the exact product and scope and a separate, matching capture
-authorization binds its normalized profile-contract digest to applicable terms, local-retention
-rights, and research-use rights. The seam does not manufacture a publication
-timestamp or vendor revision. Repeated-capture local lineage remains deferred,
-as do canonical conversion, source implementation, and admission. ADR 0014 now
+authorization binds its normalized profile-contract digest to applicable
+terms, local-retention rights, and research-use rights, and an exact approved
+pinned-calendar artifact binds the same profile and scope. The seam does not
+manufacture a publication timestamp or vendor revision. Repeated-capture local
+lineage remains deferred, as do canonical conversion, source implementation,
+and admission. ADR 0014 now
 adds a network-free verifier/loader for a future final capture. Its fixed-root
 descriptor traversal, exact immutable tree, authorization/profile binding,
 content hashes, response contract, per-symbol pinned calendars, and exact
@@ -52,8 +54,16 @@ canonical manifest, and selected root/name/inode/tree identity is revalidated at
 the return boundary. Its proof-constructed result is permanently research-only,
 does not structurally implement the production source protocol, and refuses
 revision lineage, canonical bars, and admission evidence. No actual Tiingo
-capture has been verified, and the first boundary remains library-only until
-production pinned calendars have a reviewed portable artifact contract.
+capture has been verified. Before ADR 0015, the boundary remained library-only
+because production pinned calendars lacked a reviewed portable artifact
+contract.
+
+ADR 0015 now implements that artifact contract and a credential-free operator
+verification command. Exact canonical calendar bytes are reviewed and
+profile-bound before token or transport access, committed to the v2 capture
+manifest, required again offline, and included in the v2 research proof. This
+remains synthetic-only: no production calendar artifact or actual Tiingo
+capture has been approved or verified.
 
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
@@ -160,23 +170,33 @@ Passing one layer cannot substitute for another.
   are exercised with synthetic responses only. It performs no live request or
   capture and cannot operate without an approved provider-specific profile and
   a matching authorization that confirms local-retention and research-use
-  rights. It makes no license, admission, trading, publication-time,
-  historical-vintage, or correction-lineage claim.
+  rights plus an exact approved pinned-calendar artifact for that profile. It
+  makes no license, admission, trading, publication-time, historical-vintage,
+  or correction-lineage claim.
 - Newly complete: a separate offline Tiingo final-capture verifier that accepts
   only a strict final name beneath the fixed repository root, uses no-follow
   descriptor traversal, binds the name to the full canonical manifest, requires
   the exact reviewed authorization and expected acquisition profile, checks and
   finally revalidates the exact immutable root/name/inode/tree and content digests,
-  revalidates schema and coverage against an exact per-symbol pinned-calendar
-  mapping, and proof-constructs a deterministic research-only snapshot. It is
+  revalidates schema and coverage against the exact reviewed portable
+  pinned-calendar artifact, and proof-constructs a deterministic research-only
+  snapshot. It is
   exercised only with synthetic captures and structurally refuses local
   revision lineage, canonical conversion, admission evidence, and source
   integration.
+- Newly complete: a strict portable pinned-calendar artifact whose reviewed
+  scope, profile digest, authority, attested tzdata-version label, per-symbol calendar
+  identity, and explicit UTC sessions are causally validated before capture.
+  Its exact digest is committed to the v2 manifest and required by the v2
+  research proof. A credential-free operator verifier reads owner-only local
+  artifacts, emits only secret-free proof metadata, and has no write, admission,
+  or trading effect. The checked-in template remains non-authorizing.
 - Still required for the Phase 1 exit gate: confirm licensed use, verify the
   frozen DIA, IWM, QQQ, and SPY allow-list plus a non-tradable lifecycle corpus,
   freeze identifier/calendar/action authorities, independently approve the
-  Tiingo acquisition profile and matching retention/research authorization,
-  perform and verify an authorized capture, implement receipt-time local
+  Tiingo acquisition profile, matching retention/research authorization, and
+  exact portable pinned-calendar artifact, perform and verify an authorized
+  capture, implement receipt-time local
   revision lineage, qualify genuinely raw daily fields from exact retained
   bytes or a validated reconstruction, implement the resulting
   `HistoricalBarSource`, and run the admission suite against licensed payloads.

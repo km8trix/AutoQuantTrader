@@ -74,11 +74,12 @@ It has not made a live Tiingo request or retained a Tiingo response. Actual
 operation remains fail-closed until a Tiingo-specific acquisition profile
 records human approval of the exact product and scope and a separate, matching
 authorization confirms the applicable terms, local-retention rights, and
-research-use rights. Reviewer identifiers are auditable attestations; reviewer
-authentication and separation of duties remain external governance controls.
-Credentials and a successful access probe cannot satisfy that gate. If those
-external prerequisites are later met, acquisition
-remains staged through allow-listed per-symbol request/receipt evidence,
+research-use rights, and an exact canonical pinned-calendar artifact records
+approval against that profile. Reviewer identifiers are auditable attestations;
+reviewer authentication and separation of duties remain external governance
+controls. Credentials and a successful access probe cannot satisfy that gate.
+If those external prerequisites are later met, acquisition remains staged
+through allow-listed per-symbol request/receipt evidence,
 response-size and socket-I/O bounds, and atomic publication of immutable,
 secret-free capture metadata beneath `.local/vendor-snapshots/tiingo-eod`.
 Provider admission review remains a later gate.
@@ -94,9 +95,20 @@ exact reviewed authorization bytes, and proof-constructs a research-only
 snapshot whose canonical-bar, revision-lineage, admission, and
 production-source conversions fail closed. The reusable wrapper deliberately
 does not implement `HistoricalBarSource`. No actual Tiingo capture has been
-verified. The first boundary is library-only until a reviewed portable
-calendar-artifact contract exists; it does not substitute the small synthetic
-reference calendar for operator input.
+verified. Before ADR 0015, this boundary remained library-only because no
+reviewed portable calendar-artifact contract existed; it did not substitute the
+small synthetic reference calendar for operator input.
+
+ADR 0015 adds that portable boundary without assigning a production calendar.
+A strict canonical pinned-calendar artifact freezes the reviewed profile
+digest, authority, attested tzdata-version label, exact scope, per-symbol
+calendar identity, and explicit UTC sessions. Capture requires those exact
+bytes before credential or transport access and commits their SHA-256 to the v2 manifest. Offline
+verification requires the same bytes and derives calendars only from them. A
+credential-free operator command exposes secret-free proof digests and counts
+while retaining admission and trading effects of `none`. All behavior remains
+synthetic-tested; no production artifact or actual Tiingo capture has been
+approved or verified.
 
 The acquisition seam makes no claim about Tiingo publication time, historical
 vintages, or corrections. Receipt time is not relabeled as
@@ -104,38 +116,67 @@ vintages, or corrections. Receipt time is not relabeled as
 to a later Phase 1 slice. The seam cannot emit canonical bars, implement
 `HistoricalBarSource`, grant admission, or change paper/live trading readiness.
 
-If the external rights review is later completed, start from the fail-closed
-[acquisition-profile](docs/admission/tiingo-eod-acquisition-profile.template.json)
-and [capture-authorization](docs/admission/tiingo-eod-capture-authorization.template.json)
-templates. Copy both to a gitignored, owner-only location, replace every
-placeholder, and set `approved` only after review. Derive the normalized profile
-contract digest without reading a credential or making a request:
+If the external profile, rights, and calendar reviews are later completed, start
+from the fail-closed
+[acquisition-profile](docs/admission/tiingo-eod-acquisition-profile.template.json),
+[capture-authorization](docs/admission/tiingo-eod-capture-authorization.template.json),
+and [pinned-calendar](docs/admission/tiingo-eod-pinned-calendar.template.json)
+templates. Copy all three to a gitignored, owner-only location, replace every
+placeholder, and enable approval or permission fields only after the applicable
+review. Explicitly run `chmod 600` on each copied file. Every venue, timezone,
+session label, open, close, and kind in the calendar template is illustrative
+and must also be reviewed and replaced where applicable, even when it is not
+prefixed with `replace-`. Derive the normalized profile contract digest without
+reading a credential or making a request:
 
 ```bash
 make tiingo-eod-profile-inspect PROFILE=path/to/reviewed-profile.json
 ```
 
 Put the printed `profile_contract_sha256` in an authorization reviewed no
-earlier than the profile, then enable its two permission flags only when the
+earlier than the profile and in a calendar artifact reviewed no earlier than
+the profile. Enable the authorization's two permission flags only when the
 terms review supports them. Only then may an operator run:
 
 ```bash
 make tiingo-eod-capture START_DATE=2026-07-14 \
   PROFILE=path/to/reviewed-profile.json \
-  AUTHORIZATION=path/to/reviewed-authorization.json
+  AUTHORIZATION=path/to/reviewed-authorization.json \
+  CALENDAR=path/to/reviewed-calendar.json
 ```
 
-The command validates both artifacts and the exact requested scope before it
-reads `TIINGO_TOKEN`. The checked-in templates intentionally cannot authorize a
-capture, and this command has not been run against Tiingo during development.
-It rejects group- or other-accessible fixed-root ancestors. Validated responses
-are written to owner-only staging and become visible under their final name only
-through the atomic commit rename; pre-commit faults never publish a final
-capture. A process crash may leave a hidden inert staging or reservation entry,
-but never a partially published final capture.
+The target defaults to all four Phase 1 symbols. Set, for example,
+`SYMBOLS="DIA SPY"` only when the reviewed profile and calendar have that exact
+sorted subset.
+
+The command validates all three artifacts and the exact requested scope before
+it reads `TIINGO_TOKEN`. The checked-in templates intentionally cannot authorize
+a capture, and this command has not been run against Tiingo during development.
+It rejects group- or other-accessible existing capture-root components beneath
+the repository; higher repository and OS ancestors are traversed without
+following symlinks but need not be owner-only. Validated responses are written
+to owner-only staging and become visible under their final name only through
+the atomic commit rename; pre-commit faults never publish a final capture. A
+process crash may leave a hidden inert staging or reservation entry, but never
+a partially published final capture.
+
 Its timeout is a finite per-request socket-I/O timeout, not a strict deadline for
 the entire multi-symbol capture; use an external supervisor when a hard
 whole-process deadline is required.
+
+After a capture exists, verify it without loading credentials or making a
+request:
+
+```bash
+make tiingo-eod-verify \
+  CAPTURE=final-capture-basename \
+  PROFILE=path/to/reviewed-profile.json \
+  AUTHORIZATION=path/to/reviewed-authorization.json \
+  CALENDAR=path/to/reviewed-calendar.json
+```
+
+The verifier uses the fixed ignored capture root, writes no state, and emits no
+payloads or prices.
 
 ## Quickstart
 

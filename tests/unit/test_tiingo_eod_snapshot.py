@@ -23,6 +23,10 @@ from packages.adapters.market_data.tiingo_eod import (
     TiingoEodError,
     TiingoEodScope,
 )
+from packages.adapters.market_data.tiingo_eod_calendar import (
+    TiingoEodPinnedCalendar,
+    TiingoEodPinnedCalendarArtifact,
+)
 from packages.adapters.market_data.tiingo_eod_capture import (
     TiingoEodApiResponse,
     capture_tiingo_eod,
@@ -41,6 +45,7 @@ SESSION_DATE = date(2026, 7, 14)
 SECOND_SESSION_DATE = date(2026, 7, 15)
 PROFILE_REVIEWED_AT = datetime(2026, 6, 30, 16, 0, tzinfo=UTC)
 AUTHORIZATION_REVIEWED_AT = datetime(2026, 7, 1, 16, 0, tzinfo=UTC)
+CALENDAR_REVIEWED_AT = datetime(2026, 7, 2, 16, 0, tzinfo=UTC)
 CAPTURE_REQUESTED_AT = datetime(2026, 7, 16, 12, 0, tzinfo=UTC)
 CALENDAR_AUTHORITY = "test-per-symbol-calendar-authority-v1"
 TERMS_SHA256 = hashlib.sha256(b"reviewed Tiingo terms fixture").hexdigest()
@@ -80,7 +85,7 @@ def profile(
         reviewer_id="test-profile-reviewer",
         reviewed_at=reviewed_at,
         source_id="tiingo-eod-rest",
-        adapter_version="tiingo-eod-capture-v1",
+        adapter_version="tiingo-eod-capture-v2",
         market_provenance=market_provenance,
         identifier_authority="tiingo-ticker-mapping-v1",
         calendar_authority=calendar_authority,
@@ -201,6 +206,32 @@ def calendars(
     }
 
 
+def pinned_calendar_artifact(
+    selected_profile: TiingoEodAcquisitionProfile,
+    *,
+    selected_calendars: Mapping[str, ExchangeCalendar] | None = None,
+    approved: bool = True,
+    reviewed_at: datetime = CALENDAR_REVIEWED_AT,
+    calendar_authority: str | None = None,
+    profile_contract_sha256: str | None = None,
+) -> bytes:
+    calendar_values = selected_calendars or calendars(symbols=selected_profile.scope.symbols)
+    return TiingoEodPinnedCalendarArtifact(
+        artifact_id="test-reviewed-tiingo-calendar",
+        approved=approved,
+        reviewer_id="test-calendar-reviewer",
+        reviewed_at=reviewed_at,
+        profile_contract_sha256=(profile_contract_sha256 or selected_profile.contract_sha256),
+        calendar_authority=(calendar_authority or selected_profile.calendar_authority),
+        tzdata_version="2026a",
+        scope=selected_profile.scope,
+        calendars=tuple(
+            TiingoEodPinnedCalendar(symbol=symbol, calendar=calendar_values[symbol])
+            for symbol in selected_profile.scope.symbols
+        ),
+    ).to_json_bytes()
+
+
 @dataclass(frozen=True, slots=True)
 class SyntheticCapture:
     repository_root: Path
@@ -210,6 +241,7 @@ class SyntheticCapture:
     manifest: TiingoEodCaptureManifest
     profile: TiingoEodAcquisitionProfile
     authorization_bytes: bytes
+    calendar_artifact_bytes: bytes
     calendars_by_symbol: dict[str, ExchangeCalendar]
 
     @property
@@ -232,11 +264,17 @@ def write_capture(
     *,
     selected_profile: TiingoEodAcquisitionProfile | None = None,
     authorization_bytes: bytes | None = None,
+    calendar_artifact_bytes: bytes | None = None,
     payloads: Mapping[str, bytes] | None = None,
     selected_calendars: dict[str, ExchangeCalendar] | None = None,
 ) -> SyntheticCapture:
     selected_profile = selected_profile or profile()
     authorization_bytes = authorization_bytes or authorization(selected_profile)
+    selected_calendars = selected_calendars or calendars(symbols=selected_profile.scope.symbols)
+    calendar_artifact_bytes = calendar_artifact_bytes or pinned_calendar_artifact(
+        selected_profile,
+        selected_calendars=selected_calendars,
+    )
     payloads = payloads or {
         symbol: response_bytes(volume=1_000_000 + index)
         for index, symbol in enumerate(selected_profile.scope.symbols)
@@ -268,6 +306,7 @@ def write_capture(
         requested_at=receipts[0].requested_at,
         received_at=receipts[-1].received_at,
         authorization_sha256=hashlib.sha256(authorization_bytes).hexdigest(),
+        calendar_artifact_sha256=hashlib.sha256(calendar_artifact_bytes).hexdigest(),
         terms_sha256=parsed_authorization.terms_sha256,
     )
     manifest_bytes = manifest.to_json_bytes()
@@ -297,7 +336,8 @@ def write_capture(
         manifest=manifest,
         profile=selected_profile,
         authorization_bytes=authorization_bytes,
-        calendars_by_symbol=selected_calendars or calendars(symbols=selected_profile.scope.symbols),
+        calendar_artifact_bytes=calendar_artifact_bytes,
+        calendars_by_symbol=selected_calendars,
     )
 
 
@@ -346,22 +386,22 @@ def verify(
     *,
     repository_root: Path | None = None,
     capture_name: str | None = None,
-    calendars_by_symbol: Mapping[str, ExchangeCalendar] | None = None,
     expected_profile: TiingoEodAcquisitionProfile | None = None,
     authorization_bytes: bytes | None = None,
-    expected_calendar_authority: str = CALENDAR_AUTHORITY,
+    calendar_artifact_bytes: bytes | None = None,
 ) -> TiingoEodVerifiedResearchSnapshot:
     return verify_tiingo_eod_capture(
         repository_root=repository_root or capture.repository_root,
         capture_name=(capture.capture_name if capture_name is None else capture_name),
-        calendars_by_symbol=(
-            capture.calendars_by_symbol if calendars_by_symbol is None else calendars_by_symbol
-        ),
         expected_profile=expected_profile or capture.profile,
         authorization_bytes=(
             capture.authorization_bytes if authorization_bytes is None else authorization_bytes
         ),
-        expected_calendar_authority=expected_calendar_authority,
+        calendar_artifact_bytes=(
+            capture.calendar_artifact_bytes
+            if calendar_artifact_bytes is None
+            else calendar_artifact_bytes
+        ),
     )
 
 
@@ -378,6 +418,11 @@ def test_verified_capture_is_deterministic_heterogeneous_and_research_only(
     assert first.manifest_sha256 == hashlib.sha256(capture.manifest_path.read_bytes()).hexdigest()
     assert capture.capture_name.endswith(first.manifest_sha256)
     assert len(first.capture_sha256) == 64
+    assert first.schema_version == "tiingo-eod-verified-research-v2"
+    assert (
+        first.calendar_artifact_sha256
+        == hashlib.sha256(capture.calendar_artifact_bytes).hexdigest()
+    )
     assert len(first.semantic_sha256) == 64
     assert tuple(observation.symbol for observation in first.observations) == SYMBOLS
     assert tuple(row.symbol for row in first.rows) == SYMBOLS
@@ -419,10 +464,9 @@ def test_recorded_snapshot_wrapper_has_the_same_strict_result(tmp_path: Path) ->
     recorded = RecordedTiingoEodResearchSnapshot(
         capture.repository_root,
         capture.capture_name,
-        calendars_by_symbol=capture.calendars_by_symbol,
         expected_profile=capture.profile,
         authorization_bytes=capture.authorization_bytes,
-        expected_calendar_authority=CALENDAR_AUTHORITY,
+        calendar_artifact_bytes=capture.calendar_artifact_bytes,
     )
     wrapped = recorded.verify()
 
@@ -440,6 +484,8 @@ def test_verified_snapshot_cannot_be_directly_constructed_or_replaced(
         TiingoEodVerifiedResearchSnapshot(
             manifest=snapshot.manifest,
             capture_sha256=snapshot.capture_sha256,
+            calendar_artifact_sha256=snapshot.calendar_artifact_sha256,
+            calendar_artifact=snapshot.calendar_artifact,
             calendar_bindings=snapshot.calendar_bindings,
             semantic_sha256=snapshot.semantic_sha256,
             observations=snapshot.observations,
@@ -458,6 +504,21 @@ def test_verified_snapshot_factory_recomputes_capture_and_semantic_digests(
         TiingoEodVerifiedResearchSnapshot._from_verified_components(
             manifest=snapshot.manifest,
             capture_sha256="0" * 64,
+            calendar_artifact=snapshot.calendar_artifact,
+            calendar_bindings=snapshot.calendar_bindings,
+            semantic_sha256=snapshot.semantic_sha256,
+            observations=snapshot.observations,
+            rows=snapshot.rows,
+        )
+    mismatched_artifact = replace(
+        snapshot.calendar_artifact,
+        reviewed_at=snapshot.calendar_artifact.reviewed_at + timedelta(seconds=1),
+    )
+    with pytest.raises(ValueError, match="calendar artifact digest"):
+        TiingoEodVerifiedResearchSnapshot._from_verified_components(
+            manifest=snapshot.manifest,
+            capture_sha256=snapshot.capture_sha256,
+            calendar_artifact=mismatched_artifact,
             calendar_bindings=snapshot.calendar_bindings,
             semantic_sha256=snapshot.semantic_sha256,
             observations=snapshot.observations,
@@ -467,10 +528,22 @@ def test_verified_snapshot_factory_recomputes_capture_and_semantic_digests(
         TiingoEodVerifiedResearchSnapshot._from_verified_components(
             manifest=snapshot.manifest,
             capture_sha256=snapshot.capture_sha256,
+            calendar_artifact=snapshot.calendar_artifact,
             calendar_bindings=snapshot.calendar_bindings,
             semantic_sha256="0" * 64,
             observations=snapshot.observations,
             rows=snapshot.rows,
+        )
+    with pytest.raises(ValueError, match="unsupported verified Tiingo EOD research schema"):
+        TiingoEodVerifiedResearchSnapshot._from_verified_components(
+            manifest=snapshot.manifest,
+            capture_sha256=snapshot.capture_sha256,
+            calendar_artifact=snapshot.calendar_artifact,
+            calendar_bindings=snapshot.calendar_bindings,
+            semantic_sha256=snapshot.semantic_sha256,
+            observations=snapshot.observations,
+            rows=snapshot.rows,
+            schema_version="tiingo-eod-verified-research-v1",
         )
 
 
@@ -485,6 +558,7 @@ def test_verified_snapshot_rows_are_bound_to_the_exact_observation_payloads(
         TiingoEodVerifiedResearchSnapshot._from_verified_components(
             manifest=snapshot.manifest,
             capture_sha256=snapshot.capture_sha256,
+            calendar_artifact=snapshot.calendar_artifact,
             calendar_bindings=snapshot.calendar_bindings,
             semantic_sha256=snapshot.semantic_sha256,
             observations=snapshot.observations,
@@ -500,9 +574,47 @@ def test_verified_snapshot_rows_are_bound_to_the_exact_observation_payloads(
         TiingoEodVerifiedResearchSnapshot._from_verified_components(
             manifest=snapshot.manifest,
             capture_sha256=snapshot.capture_sha256,
+            calendar_artifact=snapshot.calendar_artifact,
             calendar_bindings=snapshot.calendar_bindings,
             semantic_sha256=snapshot.semantic_sha256,
             observations=forged_observations,
+            rows=snapshot.rows,
+        )
+
+
+def test_verified_snapshot_bindings_are_derived_from_the_exact_calendar_artifact(
+    tmp_path: Path,
+) -> None:
+    snapshot = verify(write_capture(tmp_path))
+    original = snapshot.calendar_bindings[0]
+    forged_calendar = ExchangeCalendar(
+        calendar_id=f"{original.calendar_id}-FORGED",
+        version=original.calendar_version,
+        venue=original.venue,
+        timezone=original.timezone,
+        sessions=original.sessions,
+    )
+    forged_binding = snapshot_module._calendar_binding(
+        symbol=original.symbol,
+        authority=original.authority,
+        calendar=forged_calendar,
+    )[0]
+    forged_bindings = (forged_binding, *snapshot.calendar_bindings[1:])
+    forged_semantic_sha256 = snapshot_module._verified_research_semantic_sha256(
+        manifest=snapshot.manifest,
+        capture_sha256=snapshot.capture_sha256,
+        calendar_artifact_sha256=snapshot.calendar_artifact_sha256,
+        calendar_bindings=forged_bindings,
+    )
+
+    with pytest.raises(ValueError, match="not exactly derived from the pinned artifact"):
+        TiingoEodVerifiedResearchSnapshot._from_verified_components(
+            manifest=snapshot.manifest,
+            capture_sha256=snapshot.capture_sha256,
+            calendar_artifact=snapshot.calendar_artifact,
+            calendar_bindings=forged_bindings,
+            semantic_sha256=forged_semantic_sha256,
+            observations=snapshot.observations,
             rows=snapshot.rows,
         )
 
@@ -523,14 +635,22 @@ def test_verified_snapshot_rows_are_bound_to_exact_calendar_session_metadata(
 
     changed_calendars = dict(capture.calendars_by_symbol)
     changed_calendars[binding.symbol] = calendar(binding.symbol, close_hour=18)
-    changed_snapshot = verify(capture, calendars_by_symbol=changed_calendars)
+    changed_snapshot = verify(
+        write_capture(
+            tmp_path / "changed-calendar",
+            selected_profile=capture.profile,
+            authorization_bytes=capture.authorization_bytes,
+            selected_calendars=changed_calendars,
+        )
+    )
     with pytest.raises(ValueError, match="exactly derived"):
         TiingoEodVerifiedResearchSnapshot._from_verified_components(
-            manifest=snapshot.manifest,
-            capture_sha256=snapshot.capture_sha256,
+            manifest=changed_snapshot.manifest,
+            capture_sha256=changed_snapshot.capture_sha256,
+            calendar_artifact=changed_snapshot.calendar_artifact,
             calendar_bindings=changed_snapshot.calendar_bindings,
             semantic_sha256=changed_snapshot.semantic_sha256,
-            observations=snapshot.observations,
+            observations=changed_snapshot.observations,
             rows=snapshot.rows,
         )
 
@@ -553,33 +673,62 @@ def test_content_addressed_object_may_be_shared_by_multiple_symbol_receipts(
     assert {observation.payload for observation in snapshot.observations} == {shared_payload}
 
 
-def test_calendar_mapping_requires_exact_symbol_key_set(tmp_path: Path) -> None:
+def test_calendar_artifact_requires_exact_manifest_bound_canonical_bytes(
+    tmp_path: Path,
+) -> None:
     capture = write_capture(tmp_path)
-    missing = dict(capture.calendars_by_symbol)
-    del missing["IWM"]
-    extra = dict(capture.calendars_by_symbol)
-    extra["AAPL"] = calendar("SPY", calendar_id="AAPL-CALENDAR")
+    presentation_change = json.dumps(
+        json.loads(capture.calendar_artifact_bytes),
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    assert presentation_change != capture.calendar_artifact_bytes
+    substituted = pinned_calendar_artifact(
+        capture.profile,
+        selected_calendars=capture.calendars_by_symbol,
+        reviewed_at=CALENDAR_REVIEWED_AT + timedelta(seconds=1),
+    )
 
-    for mapping in (missing, extra):
-        with pytest.raises(TiingoEodError, match=r"calendar|symbol"):
-            verify(capture, calendars_by_symbol=mapping)
+    for artifact_bytes in (presentation_change, substituted):
+        with pytest.raises(TiingoEodError, match=r"calendar|canonical|digest"):
+            verify(capture, calendar_artifact_bytes=artifact_bytes)
 
 
-def test_calendar_authority_is_bound_to_expected_value_and_profile(tmp_path: Path) -> None:
-    capture = write_capture(tmp_path)
+@pytest.mark.parametrize("mismatch", ["authority", "profile", "review_order", "approval"])
+def test_calendar_artifact_is_reauthorized_against_the_manifest_profile(
+    tmp_path: Path,
+    mismatch: str,
+) -> None:
+    selected_profile = profile()
+    selected_calendars = calendars()
+    kwargs: dict[str, object] = {"selected_calendars": selected_calendars}
+    if mismatch == "authority":
+        kwargs["calendar_authority"] = "another-calendar-authority"
+    elif mismatch == "profile":
+        kwargs["profile_contract_sha256"] = profile(
+            market_provenance="different-market-provenance"
+        ).contract_sha256
+    elif mismatch == "review_order":
+        kwargs["reviewed_at"] = PROFILE_REVIEWED_AT - timedelta(seconds=1)
+    else:
+        kwargs["approved"] = False
+    artifact_bytes = pinned_calendar_artifact(selected_profile, **kwargs)
+    capture = write_capture(
+        tmp_path,
+        selected_profile=selected_profile,
+        calendar_artifact_bytes=artifact_bytes,
+        selected_calendars=selected_calendars,
+    )
 
-    with pytest.raises(TiingoEodError, match="calendar authority"):
-        verify(capture, expected_calendar_authority="another-calendar-authority")
-
-    differently_bound = profile(calendar_authority="another-calendar-authority")
-    with pytest.raises(TiingoEodError, match=r"profile|calendar authority"):
-        verify(capture, expected_profile=differently_bound)
+    with pytest.raises(TiingoEodError, match=r"calendar|profile|approved|predates"):
+        verify(capture)
 
 
 def test_semantic_identity_binds_each_calendar_identity_and_session_bounds(
     tmp_path: Path,
 ) -> None:
-    capture = write_capture(tmp_path)
+    capture = write_capture(tmp_path / "baseline")
     baseline = verify(capture)
 
     changed_version = dict(capture.calendars_by_symbol)
@@ -587,18 +736,37 @@ def test_semantic_identity_binds_each_calendar_identity_and_session_bounds(
     changed_bounds = dict(capture.calendars_by_symbol)
     changed_bounds["DIA"] = calendar("DIA", close_hour=18)
 
-    version_snapshot = verify(capture, calendars_by_symbol=changed_version)
-    bounds_snapshot = verify(capture, calendars_by_symbol=changed_bounds)
+    version_snapshot = verify(
+        write_capture(
+            tmp_path / "version",
+            selected_profile=capture.profile,
+            authorization_bytes=capture.authorization_bytes,
+            selected_calendars=changed_version,
+        )
+    )
+    bounds_snapshot = verify(
+        write_capture(
+            tmp_path / "bounds",
+            selected_profile=capture.profile,
+            authorization_bytes=capture.authorization_bytes,
+            selected_calendars=changed_bounds,
+        )
+    )
 
-    assert baseline.capture_sha256 == version_snapshot.capture_sha256
-    assert baseline.capture_sha256 == bounds_snapshot.capture_sha256
+    assert baseline.capture_sha256 != version_snapshot.capture_sha256
+    assert baseline.capture_sha256 != bounds_snapshot.capture_sha256
+    assert baseline.calendar_artifact_sha256 != version_snapshot.calendar_artifact_sha256
+    assert baseline.calendar_artifact_sha256 != bounds_snapshot.calendar_artifact_sha256
     assert baseline.semantic_sha256 != version_snapshot.semantic_sha256
     assert baseline.semantic_sha256 != bounds_snapshot.semantic_sha256
     assert bounds_snapshot.rows[0].interval_end != baseline.rows[0].interval_end
 
 
-def test_calendar_must_cover_complete_scope(tmp_path: Path) -> None:
-    selected_scope = scope(start_date=SESSION_DATE, end_date=SECOND_SESSION_DATE)
+def test_reviewed_calendar_may_mark_scope_boundaries_as_non_sessions(tmp_path: Path) -> None:
+    selected_scope = scope(
+        start_date=SESSION_DATE - timedelta(days=2),
+        end_date=SECOND_SESSION_DATE + timedelta(days=3),
+    )
     selected_profile = profile(capture_scope=selected_scope)
     payloads = {
         symbol: response_bytes(SESSION_DATE, SECOND_SESSION_DATE, volume=1_000_000 + index)
@@ -613,11 +781,7 @@ def test_calendar_must_cover_complete_scope(tmp_path: Path) -> None:
             session_dates=(SESSION_DATE, SECOND_SESSION_DATE),
         ),
     )
-    incomplete = dict(capture.calendars_by_symbol)
-    incomplete["SPY"] = calendar("SPY", session_dates=(SESSION_DATE,))
-
-    with pytest.raises(TiingoEodError, match=r"calendar|complete capture scope"):
-        verify(capture, calendars_by_symbol=incomplete)
+    assert len(verify(capture).rows) == len(SYMBOLS) * 2
 
 
 def test_every_symbol_requires_every_calendar_session(tmp_path: Path) -> None:
@@ -709,6 +873,10 @@ def test_capture_producer_and_offline_verifier_share_full_manifest_identity(
 ) -> None:
     selected_profile = profile(capture_scope=scope(symbols=("SPY",)))
     artifact = authorization(selected_profile)
+    calendar_bytes = pinned_calendar_artifact(
+        selected_profile,
+        selected_calendars={"SPY": calendar("SPY")},
+    )
     payload = response_bytes()
     clock_values = iter(
         (
@@ -722,6 +890,7 @@ def test_capture_producer_and_offline_verifier_share_full_manifest_identity(
         token="synthetic-test-token",
         profile=selected_profile,
         authorization_bytes=artifact,
+        calendar_artifact_bytes=calendar_bytes,
         transport=lambda request, *, timeout_seconds: TiingoEodApiResponse(
             status=200,
             payload=payload,
@@ -733,15 +902,15 @@ def test_capture_producer_and_offline_verifier_share_full_manifest_identity(
     verified = verify_tiingo_eod_capture(
         repository_root=tmp_path,
         capture_name=manifest_path.parent.name,
-        calendars_by_symbol={"SPY": calendar("SPY")},
         expected_profile=selected_profile,
         authorization_bytes=artifact,
-        expected_calendar_authority=CALENDAR_AUTHORITY,
+        calendar_artifact_bytes=calendar_bytes,
     )
 
     assert manifest_path.parent.name == tiingo_eod_capture_name(manifest_bytes)
     assert manifest_path.parent.name.endswith(hashlib.sha256(manifest_bytes).hexdigest())
     assert verified.manifest_sha256 == hashlib.sha256(manifest_bytes).hexdigest()
+    assert verified.calendar_artifact_sha256 == hashlib.sha256(calendar_bytes).hexdigest()
 
 
 @pytest.mark.parametrize(
@@ -969,6 +1138,22 @@ def test_manifest_and_objects_must_be_single_link_files(
     os.link(source, tmp_path / f"{target}-hard-link")
 
     with pytest.raises(TiingoEodError, match=r"link|regular file"):
+        verify(capture)
+
+
+@pytest.mark.parametrize("target", ["manifest", "object"])
+def test_loader_rejects_fifo_without_blocking(tmp_path: Path, target: str) -> None:
+    nonblocking = getattr(os, "O_NONBLOCK", 0)
+    file_flags = vars(snapshot_module)["_FILE_FLAGS"]
+    assert nonblocking and isinstance(file_flags, int) and file_flags & nonblocking
+    capture = write_capture(tmp_path)
+    path = capture.manifest_path if target == "manifest" else capture.object_paths[0]
+    path.parent.chmod(0o700)
+    path.unlink()
+    os.mkfifo(path, mode=0o400)
+    path.parent.chmod(0o500)
+
+    with pytest.raises(TiingoEodError, match="regular file"):
         verify(capture)
 
 

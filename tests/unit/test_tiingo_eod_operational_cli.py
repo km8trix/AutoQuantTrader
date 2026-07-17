@@ -13,12 +13,22 @@ import pytest
 
 import scripts.capture_tiingo_eod as capture_cli
 import scripts.inspect_tiingo_eod_profile as inspect_cli
+import scripts.verify_tiingo_eod_capture as verify_cli
 from packages.adapters.market_data.tiingo_eod import (
     TiingoEodAcquisitionProfile,
     TiingoEodCaptureAuthorization,
     TiingoEodError,
     TiingoEodScope,
 )
+from packages.adapters.market_data.tiingo_eod_calendar import (
+    TiingoEodPinnedCalendar,
+    TiingoEodPinnedCalendarArtifact,
+)
+from packages.adapters.market_data.tiingo_eod_capture import (
+    TiingoEodApiResponse,
+    capture_tiingo_eod,
+)
+from packages.market_data import ExchangeCalendar, ExchangeSession
 
 SESSION_DATE = date(2026, 7, 14)
 REQUESTED_AT = datetime(2026, 7, 16, 12, tzinfo=UTC)
@@ -44,7 +54,7 @@ def profile(
         reviewer_id="test-profile-reviewer",
         reviewed_at=datetime(2026, 6, 30, tzinfo=UTC),
         source_id="tiingo-eod-rest",
-        adapter_version="tiingo-eod-capture-v1",
+        adapter_version="tiingo-eod-capture-v2",
         market_provenance=market_provenance,
         identifier_authority="tiingo-ticker-mapping-v1",
         calendar_authority="us-equities-calendar-v1",
@@ -67,6 +77,40 @@ def authorization(acquisition_profile: TiingoEodAcquisitionProfile) -> bytes:
     ).to_json_bytes()
 
 
+def pinned_calendar(symbol: str = "SPY") -> ExchangeCalendar:
+    return ExchangeCalendar(
+        calendar_id=f"{symbol}-CALENDAR",
+        version="test-2026a",
+        venue="XNYS",
+        timezone="America/New_York",
+        sessions=(
+            ExchangeSession(
+                venue="XNYS",
+                session_label=SESSION_DATE,
+                opens_at=datetime(2026, 7, 14, 13, 30, tzinfo=UTC),
+                closes_at=datetime(2026, 7, 14, 20, 0, tzinfo=UTC),
+            ),
+        ),
+    )
+
+
+def calendar_artifact(acquisition_profile: TiingoEodAcquisitionProfile) -> bytes:
+    return TiingoEodPinnedCalendarArtifact(
+        artifact_id="test-reviewed-tiingo-calendar",
+        approved=True,
+        reviewer_id="test-calendar-reviewer",
+        reviewed_at=datetime(2026, 7, 2, tzinfo=UTC),
+        profile_contract_sha256=acquisition_profile.contract_sha256,
+        calendar_authority=acquisition_profile.calendar_authority,
+        tzdata_version="2026a",
+        scope=acquisition_profile.scope,
+        calendars=tuple(
+            TiingoEodPinnedCalendar(symbol=symbol, calendar=pinned_calendar(symbol))
+            for symbol in acquisition_profile.scope.symbols
+        ),
+    ).to_json_bytes()
+
+
 def write_artifact(path: Path, payload: bytes, *, mode: int = 0o600) -> Path:
     path.write_bytes(payload)
     path.chmod(mode)
@@ -76,6 +120,7 @@ def write_artifact(path: Path, payload: bytes, *, mode: int = 0o600) -> Path:
 def capture_argv(
     profile_path: Path,
     authorization_path: Path,
+    calendar_path: Path,
     *,
     symbol: str = "SPY",
 ) -> list[str]:
@@ -89,11 +134,37 @@ def capture_argv(
         str(profile_path),
         "--authorization-file",
         str(authorization_path),
+        "--calendar-file",
+        str(calendar_path),
     ]
 
 
 def forbidden(*args: object, **kwargs: object) -> NoReturn:
     raise AssertionError((args, kwargs))
+
+
+def response_bytes() -> bytes:
+    return json.dumps(
+        [
+            {
+                "adjClose": 51.1875,
+                "adjHigh": 51.75,
+                "adjLow": 49.9375,
+                "adjOpen": 50.5625,
+                "adjVolume": 2_000_002,
+                "close": 102.375,
+                "date": f"{SESSION_DATE.isoformat()}T00:00:00.000Z",
+                "divCash": 0.25,
+                "high": 103.5,
+                "low": 99.875,
+                "open": 101.125,
+                "splitFactor": 2.0,
+                "volume": 1_000_001,
+            }
+        ],
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
 
 
 @pytest.mark.parametrize(
@@ -102,8 +173,10 @@ def forbidden(*args: object, **kwargs: object) -> NoReturn:
         ("malformed-profile", "missing fields"),
         ("scope-mismatch", "requested scope"),
         ("malformed-authorization", "missing fields"),
+        ("malformed-calendar", "missing fields"),
         ("unapproved-profile", "has not been approved"),
         ("authorization-profile-mismatch", "does not bind"),
+        ("calendar-profile-mismatch", "does not bind"),
     ],
 )
 def test_capture_cli_validates_profile_authorization_and_scope_before_credentials(
@@ -115,6 +188,7 @@ def test_capture_cli_validates_profile_authorization_and_scope_before_credential
     selected_profile = profile(approved=case != "unapproved-profile")
     profile_bytes = selected_profile.to_json_bytes()
     authorization_bytes = authorization(selected_profile)
+    calendar_bytes = calendar_artifact(selected_profile)
     symbol = "SPY"
 
     if case == "malformed-profile":
@@ -123,15 +197,24 @@ def test_capture_cli_validates_profile_authorization_and_scope_before_credential
         symbol = "QQQ"
     elif case == "malformed-authorization":
         authorization_bytes = b"{}"
+    elif case == "malformed-calendar":
+        calendar_bytes = b"{}"
     elif case == "authorization-profile-mismatch":
         authorization_bytes = authorization(profile(market_provenance="tiingo-eod-us-market-v2"))
+    elif case == "calendar-profile-mismatch":
+        calendar_bytes = calendar_artifact(profile(market_provenance="tiingo-eod-us-market-v2"))
 
     profile_path = write_artifact(tmp_path / "profile.json", profile_bytes)
     authorization_path = write_artifact(
         tmp_path / "authorization.json",
         authorization_bytes,
     )
-    monkeypatch.setattr(sys, "argv", capture_argv(profile_path, authorization_path, symbol=symbol))
+    calendar_path = write_artifact(tmp_path / "calendar.json", calendar_bytes)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        capture_argv(profile_path, authorization_path, calendar_path, symbol=symbol),
+    )
     monkeypatch.setattr(capture_cli, "load_owner_only_environment", forbidden)
     monkeypatch.setattr(capture_cli, "capture_tiingo_eod", forbidden)
 
@@ -148,6 +231,8 @@ def test_capture_cli_uses_contract_digest_and_keeps_secret_out_of_output(
     profile_path = write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes())
     authorization_bytes = authorization(selected_profile)
     authorization_path = write_artifact(tmp_path / "authorization.json", authorization_bytes)
+    calendar_bytes = calendar_artifact(selected_profile)
+    calendar_path = write_artifact(tmp_path / "calendar.json", calendar_bytes)
     manifest_path = (
         capture_cli.REPOSITORY_ROOT / ".local/vendor-snapshots/tiingo-eod/test/manifest.json"
     )
@@ -166,9 +251,14 @@ def test_capture_cli_uses_contract_digest_and_keeps_secret_out_of_output(
         assert kwargs["token"] == TOKEN
         assert kwargs["profile"] == selected_profile
         assert kwargs["authorization_bytes"] == authorization_bytes
+        assert kwargs["calendar_artifact_bytes"] == calendar_bytes
         return manifest_path
 
-    monkeypatch.setattr(sys, "argv", capture_argv(profile_path, authorization_path))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        capture_argv(profile_path, authorization_path, calendar_path),
+    )
     monkeypatch.setattr(capture_cli, "load_owner_only_environment", load_environment)
     monkeypatch.setattr(capture_cli, "capture_tiingo_eod", capture)
 
@@ -178,12 +268,13 @@ def test_capture_cli_uses_contract_digest_and_keeps_secret_out_of_output(
     result = json.loads(output)
     assert result["profile_contract_sha256"] == selected_profile.contract_sha256
     assert result["authorization_sha256"] == hashlib.sha256(authorization_bytes).hexdigest()
+    assert result["calendar_artifact_sha256"] == hashlib.sha256(calendar_bytes).hexdigest()
     assert result["admission_effect"] == "none"
     assert result["trading_effect"] == "none"
     assert TOKEN not in output
 
 
-@pytest.mark.parametrize("restricted_artifact", ["profile", "authorization"])
+@pytest.mark.parametrize("restricted_artifact", ["profile", "authorization", "calendar"])
 def test_capture_cli_requires_owner_only_artifacts_before_credentials(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -200,7 +291,16 @@ def test_capture_cli_requires_owner_only_artifacts_before_credentials(
         authorization(selected_profile),
         mode=0o644 if restricted_artifact == "authorization" else 0o600,
     )
-    monkeypatch.setattr(sys, "argv", capture_argv(profile_path, authorization_path))
+    calendar_path = write_artifact(
+        tmp_path / "calendar.json",
+        calendar_artifact(selected_profile),
+        mode=0o644 if restricted_artifact == "calendar" else 0o600,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        capture_argv(profile_path, authorization_path, calendar_path),
+    )
     monkeypatch.setattr(capture_cli, "load_owner_only_environment", forbidden)
     monkeypatch.setattr(capture_cli, "capture_tiingo_eod", forbidden)
 
@@ -266,6 +366,162 @@ def test_profile_inspector_prints_normalized_digest_without_credentials_or_netwo
     assert TOKEN not in output
 
 
+def test_verify_cli_is_credential_free_and_emits_only_research_proofs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    selected_profile = profile()
+    authorization_bytes = authorization(selected_profile)
+    calendar_bytes = calendar_artifact(selected_profile)
+    profile_path = write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes())
+    authorization_path = write_artifact(tmp_path / "authorization.json", authorization_bytes)
+    calendar_path = write_artifact(tmp_path / "calendar.json", calendar_bytes)
+    clock_values = iter((REQUESTED_AT, REQUESTED_AT.replace(second=1)))
+    manifest_path = capture_tiingo_eod(
+        repository_root=tmp_path,
+        token="synthetic-capture-token",
+        profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        transport=lambda request, *, timeout_seconds: TiingoEodApiResponse(
+            status=200,
+            payload=response_bytes(),
+        ),
+        clock=lambda: next(clock_values),
+    )
+    monkeypatch.setattr(verify_cli, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setenv("TIINGO_TOKEN", TOKEN)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify_tiingo_eod_capture.py",
+            "--capture-name",
+            manifest_path.parent.name,
+            "--profile-file",
+            str(profile_path),
+            "--authorization-file",
+            str(authorization_path),
+            "--calendar-file",
+            str(calendar_path),
+        ],
+    )
+
+    assert verify_cli.main() == 0
+
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result["capture_name"] == manifest_path.parent.name
+    assert result["manifest_sha256"] == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    assert result["calendar_artifact_sha256"] == hashlib.sha256(calendar_bytes).hexdigest()
+    assert result["profile_contract_sha256"] == selected_profile.contract_sha256
+    assert result["observation_count"] == 1
+    assert result["row_count"] == 1
+    assert len(result["calendar_bindings"]) == 1
+    binding = dict(result["calendar_bindings"][0])
+    calendar_sha256 = binding.pop("calendar_sha256")
+    assert len(calendar_sha256) == 64
+    assert binding == {
+        "authority": selected_profile.calendar_authority,
+        "calendar_id": "SPY-CALENDAR",
+        "calendar_version": "test-2026a",
+        "session_count": 1,
+        "symbol": "SPY",
+        "timezone": "America/New_York",
+        "venue": "XNYS",
+    }
+    assert len(result["semantic_sha256"]) == 64
+    assert result["admission_effect"] == "none"
+    assert result["trading_effect"] == "none"
+    assert TOKEN not in output
+    assert "synthetic-capture-token" not in output
+    assert "102.375" not in output
+    assert "adjClose" not in output
+
+
+@pytest.mark.parametrize("unsafe_artifact", ["profile", "authorization", "calendar"])
+def test_verify_cli_rejects_symlinked_review_artifacts_before_capture_access(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe_artifact: str,
+) -> None:
+    selected_profile = profile()
+    paths = {
+        "profile": write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes()),
+        "authorization": write_artifact(
+            tmp_path / "authorization.json",
+            authorization(selected_profile),
+        ),
+        "calendar": write_artifact(
+            tmp_path / "calendar.json",
+            calendar_artifact(selected_profile),
+        ),
+    }
+    unsafe_path = tmp_path / f"{unsafe_artifact}-link.json"
+    unsafe_path.symlink_to(paths[unsafe_artifact])
+    paths[unsafe_artifact] = unsafe_path
+    monkeypatch.setattr(verify_cli, "verify_tiingo_eod_capture", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify_tiingo_eod_capture.py",
+            "--capture-name",
+            f"20260716T120000000000Z-{'a' * 64}",
+            "--profile-file",
+            str(paths["profile"]),
+            "--authorization-file",
+            str(paths["authorization"]),
+            "--calendar-file",
+            str(paths["calendar"]),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="non-symlinked"):
+        verify_cli.main()
+
+
+@pytest.mark.parametrize(
+    "capture_name",
+    ["../capture", "/tmp/capture", ".staging-capture", "capture/manifest.json"],
+)
+def test_verify_cli_rejects_unsafe_capture_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capture_name: str,
+) -> None:
+    selected_profile = profile()
+    profile_path = write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes())
+    authorization_path = write_artifact(
+        tmp_path / "authorization.json",
+        authorization(selected_profile),
+    )
+    calendar_path = write_artifact(
+        tmp_path / "calendar.json",
+        calendar_artifact(selected_profile),
+    )
+    monkeypatch.setattr(verify_cli, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify_tiingo_eod_capture.py",
+            "--capture-name",
+            capture_name,
+            "--profile-file",
+            str(profile_path),
+            "--authorization-file",
+            str(authorization_path),
+            "--calendar-file",
+            str(calendar_path),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="finalized Tiingo capture"):
+        verify_cli.main()
+
+
 def test_checked_in_templates_remain_non_authorizing() -> None:
     profile_bytes = (
         REPOSITORY_ROOT / "docs/admission/tiingo-eod-acquisition-profile.template.json"
@@ -273,9 +529,15 @@ def test_checked_in_templates_remain_non_authorizing() -> None:
     authorization_bytes = (
         REPOSITORY_ROOT / "docs/admission/tiingo-eod-capture-authorization.template.json"
     ).read_bytes()
+    calendar_bytes = (
+        REPOSITORY_ROOT / "docs/admission/tiingo-eod-pinned-calendar.template.json"
+    ).read_bytes()
     selected_profile = TiingoEodAcquisitionProfile.from_json_bytes(profile_bytes)
+    selected_calendar = TiingoEodPinnedCalendarArtifact.from_json_bytes(calendar_bytes)
 
     assert selected_profile.approved is False
+    assert selected_calendar.approved is False
+    assert selected_calendar.profile_contract_sha256 != selected_profile.contract_sha256
     with pytest.raises(TiingoEodError, match="terms_sha256"):
         TiingoEodCaptureAuthorization.from_json_bytes(authorization_bytes)
 
@@ -291,3 +553,5 @@ def test_checked_in_templates_remain_non_authorizing() -> None:
             approved_profile,
             requested_at=REQUESTED_AT,
         )
+    with pytest.raises(ValueError, match="has not been approved"):
+        selected_calendar.authorize(approved_profile, requested_at=REQUESTED_AT)

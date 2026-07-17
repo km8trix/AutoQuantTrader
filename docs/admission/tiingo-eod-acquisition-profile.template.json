@@ -1,5 +1,5 @@
 {
-  "adapter_version": "tiingo-eod-capture-v1",
+  "adapter_version": "tiingo-eod-capture-v2",
   "approved": false,
   "calendar_authority": "replace-with-reviewed-calendar-authority",
   "corporate_action_authority": "replace-with-reviewed-corporate-action-authority",
@@ -15,8 +15,8 @@
   "schema_sha256": "d1154dece587151bdd71823b92239d111db4e1ec7d25dceb3eb381a9d551402f",
   "schema_version": "tiingo-eod-acquisition-profile-v1",
   "scope": {
-    "end_date": "2026-01-01",
-    "start_date": "2026-01-01",
+    "end_date": "2026-01-02",
+    "start_date": "2026-01-02",
     "symbols": [
       "DIA",
       "IWM",

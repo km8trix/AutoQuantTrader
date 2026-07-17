@@ -545,19 +545,21 @@ captured. Actual operation is structurally blocked until a human-approved Tiingo
 profile records its reviewer and review time and freezes the product, endpoint,
 adapter, symbols, and date scope. A separate matching authorization binds its
 normalized profile-contract digest to applicable terms, local-retention rights,
-and research-use rights. Credential
+and research-use rights, and an exact approved pinned-calendar artifact binds
+the same profile digest, authority, and scope. Credential
 presence, successful probing, or the Sharadar authorization cannot satisfy this
-provider-specific gate. The profile and authorization artifacts are parsed and
-validated before `TIINGO_TOKEN` is read; a failed preflight makes no transport
-call and writes no output.
+provider-specific gate. The profile, authorization, and calendar artifacts are
+parsed and validated before `TIINGO_TOKEN` is read; a failed preflight makes no
+transport call and writes no output.
 
 The frozen profile includes source and adapter identity, endpoint template,
 market provenance, identifier/calendar/corporate-action authorities, correction
 policy, and field-schema digest. The synthetic-tested manifest contract binds
 that complete profile and normalized contract digest, the matching authorization
-and terms digests, provider/dataset/schema identities, overall request/receipt
-bounds, and sorted complete per-symbol receipts. Receipts and manifest bytes are
-prebuilt before storage. Owner-only staging, an exclusive final-name reservation,
+and terms digests, the reviewed pinned-calendar artifact digest,
+provider/dataset/schema identities, overall request/receipt bounds, and sorted
+complete per-symbol receipts. Receipts and manifest bytes are prebuilt before
+storage. Owner-only staging, an exclusive final-name reservation,
 pre-commit durability requests, and a descriptor-relative atomic rename ensure
 that a reported pre-commit failure never leaves a visible final capture. A
 final name combines the first request timestamp with the full SHA-256 of those
@@ -576,7 +578,7 @@ returning, it revalidates the fixed root and selected name to the opened inodes,
 the final and object directory metadata and exact entries, and every file
 identity observed during the read. It verifies unique
 content-addressed objects, sizes, hashes, strict response contracts, and exact
-session coverage using an exact calendar mapping for each symbol; no implicit
+session coverage using an exact pinned calendar for each symbol; no implicit
 single venue calendar is allowed. Unrelated hidden crash residue beside a final
 capture is ignored and never traversed.
 
@@ -590,12 +592,34 @@ semantic proof before creation. The reusable verifier wrapper exposes
 `verify()`, not the `load()` method that would structurally satisfy the
 production source protocol. The implementation is tested with synthetic
 captures only, performs no network or credential access, and has not verified
-an actual Tiingo payload. It remains a library boundary until a reviewed
-portable pinned-calendar artifact contract exists for an operator CLI.
+an actual Tiingo payload. Before ADR 0015, it remained a library boundary
+because no reviewed portable pinned-calendar artifact contract existed for an
+operator CLI.
+
+ADR 0015 supplies that portable contract and removes post-hoc calendar
+selection from the public verifier. The canonical reviewed artifact binds the
+normalized profile digest, authority, attested tzdata-version label, exact
+scope, and one explicit UTC-session calendar per symbol. Its scope is a
+human-reviewed
+completeness assertion: omitted dates inside the range are treated as
+non-sessions, not inferred by the software. Exact artifact bytes are validated
+before token or transport access and their SHA-256 is committed to the v2
+manifest and full-manifest capture name. Verification requires the same bytes,
+derives every `ExchangeCalendar` from them, and includes the artifact digest in
+the v2 research proof and semantic identity.
+
+The operator verifier reads owner-only, non-symlinked profile, authorization,
+and calendar artifacts plus one strict final basename. It has no environment or
+network dependency, performs no writes or catalog transitions, and returns
+only secret-free proof digests, calendar identities, and counts with explicit
+admission and trading effects of `none`. The checked-in calendar template is
+non-authorizing and deliberately mismatched; no production authority has been
+selected.
 
 The staged Tiingo path is therefore contract qualification, approved profile,
-matching rights authorization, bounded immutable capture, separate offline
-verification, repeated-capture lineage, and only then admission evaluation.
+matching rights authorization and pinned calendar, bounded immutable capture,
+separate credential-free offline verification, repeated-capture lineage, and
+only then admission evaluation.
 Later stages cannot grant authority backward to an earlier stage. The acquisition
 seam records request and receipt evidence but does not invent
 `vendor_published_at`, a vendor revision, or a historical vintage. Local
@@ -609,9 +633,9 @@ strict wall-clock deadline for the complete multi-symbol capture; operational
 supervision supplies that stronger deadline until a later transport contract
 implements one directly.
 
-Profile and authorization reviewer identifiers are auditable local attestations,
-not cryptographic signatures. Reviewer authentication and any required
-separation of duties remain external governance controls.
+Profile, authorization, and calendar reviewer identifiers are auditable local
+attestations, not cryptographic signatures. Reviewer authentication and any
+required separation of duties remain external governance controls.
 
 Massive raw U.S. SIP trades and quotes remain the later intraday and
 execution-evidence lanes once the required entitlement exists; finalized vendor
@@ -632,8 +656,9 @@ admission, or trading authority.
 [ADR 0010](adr/0010-market-data-provider-qualification-routing.md),
 [ADR 0011](adr/0011-daily-first-capture-and-raw-lane-separation.md),
 [ADR 0012](adr/0012-tiingo-eod-offline-first-qualification.md),
-[ADR 0013](adr/0013-tiingo-eod-authorization-gated-capture.md), and
-[ADR 0014](adr/0014-tiingo-eod-offline-capture-verification.md).
+[ADR 0013](adr/0013-tiingo-eod-authorization-gated-capture.md),
+[ADR 0014](adr/0014-tiingo-eod-offline-capture-verification.md), and
+[ADR 0015](adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md).
 
 ## 11. Backtesting model
 

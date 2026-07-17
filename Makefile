@@ -8,7 +8,7 @@ COMPOSE ?= docker compose -f infra/compose/compose.yaml
 .PHONY: help bootstrap dev dev-detached db down logs ps api web worker trader migrate \
 	check backend-check frontend-check architecture-check test compose-check \
 	api-contracts api-contracts-check admission-evaluate market-data-probe \
-	sharadar-sfp-capture tiingo-eod-profile-inspect tiingo-eod-capture
+	sharadar-sfp-capture tiingo-eod-profile-inspect tiingo-eod-capture tiingo-eod-verify
 
 help: ## List developer commands.
 	@awk 'BEGIN {FS = ":.*## "; printf "AutoQuantTrader developer commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -59,18 +59,31 @@ sharadar-sfp-capture: ## Archive SFP after reviewed storage authorization.
 		--authorization-file "$(AUTHORIZATION)" --start-date "$(START_DATE)" \
 		--end-date "$(if $(END_DATE),$(END_DATE),$(START_DATE))"
 
-tiingo-eod-capture: ## Archive Tiingo EOD after reviewed profile and storage authorization.
+tiingo-eod-capture: ## Archive Tiingo EOD after reviewed profile, rights, and calendar approval.
 	@test -n "$(START_DATE)" || (echo "START_DATE=YYYY-MM-DD is required" >&2; exit 2)
 	@test -n "$(PROFILE)" || (echo "PROFILE=path/to/reviewed.json is required" >&2; exit 2)
 	@test -n "$(AUTHORIZATION)" || (echo "AUTHORIZATION=path/to/reviewed.json is required" >&2; exit 2)
+	@test -n "$(CALENDAR)" || (echo "CALENDAR=path/to/reviewed.json is required" >&2; exit 2)
 	$(UV) run --no-env-file python scripts/capture_tiingo_eod.py --env-file .env \
 		--profile-file "$(PROFILE)" --authorization-file "$(AUTHORIZATION)" \
+		--calendar-file "$(CALENDAR)" $(foreach symbol,$(SYMBOLS),--symbol "$(symbol)") \
 		--start-date "$(START_DATE)" \
 		--end-date "$(if $(END_DATE),$(END_DATE),$(START_DATE))"
 
+tiingo-eod-verify: ## Verify one final Tiingo EOD capture entirely offline.
+	@test -n "$(CAPTURE)" || (echo "CAPTURE=final-capture-name is required" >&2; exit 2)
+	@test -n "$(PROFILE)" || (echo "PROFILE=path/to/reviewed.json is required" >&2; exit 2)
+	@test -n "$(AUTHORIZATION)" || (echo "AUTHORIZATION=path/to/reviewed.json is required" >&2; exit 2)
+	@test -n "$(CALENDAR)" || (echo "CALENDAR=path/to/reviewed.json is required" >&2; exit 2)
+	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+		scripts/verify_tiingo_eod_capture.py \
+		--capture-name "$(CAPTURE)" --profile-file "$(PROFILE)" \
+		--authorization-file "$(AUTHORIZATION)" --calendar-file "$(CALENDAR)"
+
 tiingo-eod-profile-inspect: ## Validate a Tiingo profile and print its normalized digest.
 	@test -n "$(PROFILE)" || (echo "PROFILE=path/to/reviewed.json is required" >&2; exit 2)
-	$(UV) run --no-env-file python scripts/inspect_tiingo_eod_profile.py \
+	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+		scripts/inspect_tiingo_eod_profile.py \
 		--profile-file "$(PROFILE)"
 
 trader: ## Run the local Phase 0 trader stub diagnostic once.

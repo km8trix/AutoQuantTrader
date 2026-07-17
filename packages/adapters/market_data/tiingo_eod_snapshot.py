@@ -29,6 +29,9 @@ from packages.adapters.market_data.tiingo_eod import (
     _parse_response,
     tiingo_eod_response_contract,
 )
+from packages.adapters.market_data.tiingo_eod_calendar import (
+    TiingoEodPinnedCalendarArtifact,
+)
 from packages.adapters.market_data.tiingo_eod_capture_identity import (
     TIINGO_EOD_FINAL_CAPTURE_NAME_PATTERN,
     tiingo_eod_capture_name,
@@ -36,11 +39,11 @@ from packages.adapters.market_data.tiingo_eod_capture_identity import (
 from packages.market_data import ExchangeCalendar, ExchangeSession
 from packages.market_data.models import require_digest, require_text
 
-TIINGO_EOD_VERIFIED_RESEARCH_SCHEMA_VERSION = "tiingo-eod-verified-research-v1"
+TIINGO_EOD_VERIFIED_RESEARCH_SCHEMA_VERSION = "tiingo-eod-verified-research-v2"
 TIINGO_EOD_CAPTURE_RELATIVE_PARTS = (".local", "vendor-snapshots", "tiingo-eod")
 
 _DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-_FILE_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+_FILE_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
 _CAPTURE_DIRECTORY_MODE = 0o500
 _CAPTURE_FILE_MODE = 0o400
 
@@ -87,7 +90,7 @@ def _calendar_binding_material(
 
 @dataclass(frozen=True, slots=True)
 class TiingoEodCalendarBinding:
-    """One symbol's explicit, caller-pinned exchange calendar identity."""
+    """One symbol's explicit, reviewed-artifact calendar identity."""
 
     symbol: str
     authority: str
@@ -144,6 +147,7 @@ def _verified_research_semantic_sha256(
     *,
     manifest: TiingoEodCaptureManifest,
     capture_sha256: str,
+    calendar_artifact_sha256: str,
     calendar_bindings: tuple[TiingoEodCalendarBinding, ...],
 ) -> str:
     return _digest(
@@ -160,6 +164,7 @@ def _verified_research_semantic_sha256(
                 }
                 for binding in calendar_bindings
             ],
+            "calendar_artifact_sha256": calendar_artifact_sha256,
             "capture_sha256": capture_sha256,
             "profile_contract_sha256": manifest.profile_contract_sha256,
             "schema_version": TIINGO_EOD_VERIFIED_RESEARCH_SCHEMA_VERSION,
@@ -173,6 +178,8 @@ class TiingoEodVerifiedResearchSnapshot:
 
     manifest: TiingoEodCaptureManifest
     capture_sha256: str
+    calendar_artifact_sha256: str
+    calendar_artifact: TiingoEodPinnedCalendarArtifact
     calendar_bindings: tuple[TiingoEodCalendarBinding, ...]
     semantic_sha256: str
     observations: tuple[TiingoEodResponseObservation, ...]
@@ -191,6 +198,7 @@ class TiingoEodVerifiedResearchSnapshot:
         *,
         manifest: TiingoEodCaptureManifest,
         capture_sha256: str,
+        calendar_artifact: TiingoEodPinnedCalendarArtifact,
         calendar_bindings: tuple[TiingoEodCalendarBinding, ...],
         semantic_sha256: str,
         observations: tuple[TiingoEodResponseObservation, ...],
@@ -199,10 +207,14 @@ class TiingoEodVerifiedResearchSnapshot:
     ) -> TiingoEodVerifiedResearchSnapshot:
         if cls is not TiingoEodVerifiedResearchSnapshot:
             raise TypeError("verified snapshot subclasses are not supported")
+        if type(calendar_artifact) is not TiingoEodPinnedCalendarArtifact:
+            raise ValueError("verified snapshot requires the exact pinned calendar artifact")
         snapshot = object.__new__(cls)
         for field_name, value in (
             ("manifest", manifest),
             ("capture_sha256", capture_sha256),
+            ("calendar_artifact_sha256", calendar_artifact.artifact_sha256),
+            ("calendar_artifact", calendar_artifact),
             ("calendar_bindings", calendar_bindings),
             ("semantic_sha256", semantic_sha256),
             ("observations", observations),
@@ -217,12 +229,28 @@ class TiingoEodVerifiedResearchSnapshot:
         if type(self.manifest) is not TiingoEodCaptureManifest:
             raise ValueError("verified snapshot requires an exact Tiingo capture manifest")
         require_digest(self.capture_sha256, "capture_sha256")
+        require_digest(self.calendar_artifact_sha256, "calendar_artifact_sha256")
         require_digest(self.semantic_sha256, "semantic_sha256")
+        if type(self.calendar_artifact) is not TiingoEodPinnedCalendarArtifact:
+            raise ValueError("verified snapshot requires the exact pinned calendar artifact")
         if self.schema_version != TIINGO_EOD_VERIFIED_RESEARCH_SCHEMA_VERSION:
             raise ValueError("unsupported verified Tiingo EOD research schema")
         expected_capture_sha256 = hashlib.sha256(self.manifest.to_json_bytes()).hexdigest()
         if self.capture_sha256 != expected_capture_sha256:
             raise ValueError("capture digest does not match the canonical manifest")
+        if self.calendar_artifact_sha256 != self.manifest.calendar_artifact_sha256:
+            raise ValueError("calendar artifact digest does not match the capture manifest")
+        if self.calendar_artifact.artifact_sha256 != self.calendar_artifact_sha256:
+            raise ValueError("calendar artifact digest does not match its exact canonical bytes")
+        try:
+            self.calendar_artifact.authorize(
+                self.manifest.profile,
+                requested_at=self.manifest.requested_at,
+            )
+        except ValueError as error:
+            raise ValueError(
+                f"calendar artifact is not authorized for the snapshot: {error}"
+            ) from error
         expected_symbols = self.manifest.profile.scope.symbols
         if (
             type(self.calendar_bindings) is not tuple
@@ -237,6 +265,16 @@ class TiingoEodVerifiedResearchSnapshot:
             for binding in self.calendar_bindings
         ):
             raise ValueError("calendar binding authority does not match the capture profile")
+        expected_bindings = tuple(
+            _calendar_binding(
+                symbol=symbol,
+                authority=self.manifest.profile.calendar_authority,
+                calendar=self.calendar_artifact.calendars_by_symbol[symbol],
+            )[0]
+            for symbol in expected_symbols
+        )
+        if self.calendar_bindings != expected_bindings:
+            raise ValueError("calendar bindings are not exactly derived from the pinned artifact")
         if (
             type(self.observations) is not tuple
             or any(
@@ -292,6 +330,7 @@ class TiingoEodVerifiedResearchSnapshot:
         expected_semantic_sha256 = _verified_research_semantic_sha256(
             manifest=self.manifest,
             capture_sha256=self.capture_sha256,
+            calendar_artifact_sha256=self.calendar_artifact_sha256,
             calendar_bindings=self.calendar_bindings,
         )
         if self.semantic_sha256 != expected_semantic_sha256:
@@ -613,21 +652,8 @@ def _calendar_binding(
     symbol: str,
     authority: str,
     calendar: ExchangeCalendar,
-    profile: TiingoEodAcquisitionProfile,
 ) -> tuple[TiingoEodCalendarBinding, tuple[ExchangeSession, ...]]:
-    scope = profile.scope
-    if (
-        calendar.sessions[0].session_label > scope.start_date
-        or calendar.sessions[-1].session_label < scope.end_date
-    ):
-        raise TiingoEodError(
-            f"pinned calendar for {symbol} does not cover the complete profile scope"
-        )
-    sessions = tuple(
-        session
-        for session in calendar.sessions
-        if scope.start_date <= session.session_label <= scope.end_date
-    )
+    sessions = calendar.sessions
     if not sessions:
         raise TiingoEodError(f"profile scope contains no pinned sessions for {symbol}")
     binding = TiingoEodCalendarBinding(
@@ -658,17 +684,10 @@ def _verify_expectations(
     manifest: TiingoEodCaptureManifest,
     expected_profile: TiingoEodAcquisitionProfile,
     authorization_bytes: bytes,
-    expected_calendar_authority: str,
-    calendars_by_symbol: Mapping[str, ExchangeCalendar],
-) -> dict[str, ExchangeCalendar]:
+    calendar_artifact_bytes: bytes,
+) -> tuple[TiingoEodPinnedCalendarArtifact, dict[str, ExchangeCalendar]]:
     if not isinstance(expected_profile, TiingoEodAcquisitionProfile):
         raise TiingoEodError("expected_profile must be a Tiingo acquisition profile")
-    try:
-        require_text(expected_calendar_authority, "expected_calendar_authority")
-    except ValueError as error:
-        raise TiingoEodError(str(error)) from error
-    if expected_calendar_authority != expected_profile.calendar_authority:
-        raise TiingoEodError("calendar authority expectation does not match the pinned profile")
     if manifest.profile != expected_profile:
         raise TiingoEodError("capture profile does not exactly match the caller-pinned profile")
     if manifest.profile_contract_sha256 != expected_profile.contract_sha256:
@@ -687,16 +706,24 @@ def _verify_expectations(
         raise TiingoEodError(str(error)) from error
 
     try:
-        calendars = dict(calendars_by_symbol)
-    except (TypeError, ValueError) as error:
-        raise TiingoEodError("calendars_by_symbol must be a symbol/calendar mapping") from error
-    if not all(isinstance(symbol, str) for symbol in calendars):
-        raise TiingoEodError("calendar mapping keys must be symbol strings")
+        calendar_artifact = TiingoEodPinnedCalendarArtifact.from_json_bytes(calendar_artifact_bytes)
+    except (TypeError, TiingoEodError, ValueError) as error:
+        raise TiingoEodError("expected pinned calendar artifact is invalid") from error
+    exact_calendar_sha256 = hashlib.sha256(calendar_artifact_bytes).hexdigest()
+    if exact_calendar_sha256 != calendar_artifact.artifact_sha256:
+        raise TiingoEodError("pinned calendar artifact must use its exact canonical bytes")
+    if exact_calendar_sha256 != manifest.calendar_artifact_sha256:
+        raise TiingoEodError("calendar artifact digest does not match the capture manifest")
+    try:
+        calendar_artifact.authorize(expected_profile, requested_at=manifest.requested_at)
+    except ValueError as error:
+        raise TiingoEodError(str(error)) from error
+    calendars = dict(calendar_artifact.calendars_by_symbol)
     if tuple(sorted(calendars)) != expected_profile.scope.symbols:
-        raise TiingoEodError("calendar mapping must exactly cover the pinned profile symbols")
+        raise TiingoEodError("calendar artifact must exactly cover the pinned profile symbols")
     if any(not isinstance(calendar, ExchangeCalendar) for calendar in calendars.values()):
-        raise TiingoEodError("calendar mapping values must be pinned exchange calendars")
-    return calendars
+        raise TiingoEodError("calendar artifact contains an invalid pinned exchange calendar")
+    return calendar_artifact, calendars
 
 
 def _revalidate_capture_tree(
@@ -763,10 +790,9 @@ def verify_tiingo_eod_capture(
     *,
     repository_root: Path,
     capture_name: str,
-    calendars_by_symbol: Mapping[str, ExchangeCalendar],
     expected_profile: TiingoEodAcquisitionProfile,
     authorization_bytes: bytes,
-    expected_calendar_authority: str,
+    calendar_artifact_bytes: bytes,
 ) -> TiingoEodVerifiedResearchSnapshot:
     """Verify one final exact-byte capture entirely offline and fail closed."""
 
@@ -794,12 +820,11 @@ def verify_tiingo_eod_capture(
             raise TiingoEodError("capture manifest is not in the canonical frozen encoding")
         if tiingo_eod_capture_name(manifest_bytes) != capture_name:
             raise TiingoEodError("final capture name does not match its immutable manifest")
-        calendars = _verify_expectations(
+        calendar_artifact, calendars = _verify_expectations(
             manifest=manifest,
             expected_profile=expected_profile,
             authorization_bytes=authorization_bytes,
-            expected_calendar_authority=expected_calendar_authority,
-            calendars_by_symbol=calendars_by_symbol,
+            calendar_artifact_bytes=calendar_artifact_bytes,
         )
 
         objects_descriptor = os.open("objects", _DIRECTORY_FLAGS, dir_fd=capture_descriptor)
@@ -858,9 +883,8 @@ def verify_tiingo_eod_capture(
             calendar = calendars[receipt.symbol]
             binding, sessions = _calendar_binding(
                 symbol=receipt.symbol,
-                authority=expected_calendar_authority,
+                authority=expected_profile.calendar_authority,
                 calendar=calendar,
-                profile=expected_profile,
             )
             expected_dates = tuple(session.session_label for session in sessions)
             if contract.session_dates != expected_dates:
@@ -895,11 +919,13 @@ def verify_tiingo_eod_capture(
         semantic_sha256 = _verified_research_semantic_sha256(
             manifest=manifest,
             capture_sha256=capture_sha256,
+            calendar_artifact_sha256=calendar_artifact.artifact_sha256,
             calendar_bindings=calendar_bindings,
         )
         verified_snapshot = TiingoEodVerifiedResearchSnapshot._from_verified_components(
             manifest=manifest,
             capture_sha256=capture_sha256,
+            calendar_artifact=calendar_artifact,
             calendar_bindings=calendar_bindings,
             semantic_sha256=semantic_sha256,
             observations=tuple(response_observations),
@@ -936,24 +962,21 @@ class RecordedTiingoEodResearchSnapshot:
         repository_root: Path,
         capture_name: str,
         *,
-        calendars_by_symbol: Mapping[str, ExchangeCalendar],
         expected_profile: TiingoEodAcquisitionProfile,
         authorization_bytes: bytes,
-        expected_calendar_authority: str,
+        calendar_artifact_bytes: bytes,
     ) -> None:
         self._repository_root = repository_root
         self._capture_name = capture_name
-        self._calendars_by_symbol = dict(calendars_by_symbol)
         self._expected_profile = expected_profile
         self._authorization_bytes = authorization_bytes
-        self._expected_calendar_authority = expected_calendar_authority
+        self._calendar_artifact_bytes = calendar_artifact_bytes
 
     def verify(self) -> TiingoEodVerifiedResearchSnapshot:
         return verify_tiingo_eod_capture(
             repository_root=self._repository_root,
             capture_name=self._capture_name,
-            calendars_by_symbol=self._calendars_by_symbol,
             expected_profile=self._expected_profile,
             authorization_bytes=self._authorization_bytes,
-            expected_calendar_authority=self._expected_calendar_authority,
+            calendar_artifact_bytes=self._calendar_artifact_bytes,
         )

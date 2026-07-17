@@ -2,11 +2,12 @@
 
 ## Status
 
-Accepted for this bounded Phase 1 slice. The verifier is exercised only with
-repository-owned synthetic captures. No live Tiingo request is made, no actual
-Tiingo payload is included, and this decision does not establish license,
-vendor publication time, historical vintage, correction lineage, admission, or
-trading authority.
+Accepted for this bounded Phase 1 slice; Decision 5's caller-supplied calendar
+mapping is superseded by ADR 0015's exact portable artifact. The verifier is
+exercised only with repository-owned synthetic captures. No live Tiingo request
+is made, no actual Tiingo payload is included, and this decision does not
+establish license, vendor publication time, historical vintage, correction
+lineage, admission, or trading authority.
 
 ## Context
 
@@ -108,11 +109,11 @@ lifecycle, corporate-action, and correction authorities remain required.
 Repeated-capture local lineage is the next separate concern after at least two
 complete authorized captures exist.
 
-The first implementation is a library boundary because the repository does not
-yet have a reviewed, portable serialization contract for production pinned
-calendars. An operator CLI must not silently substitute the small synthetic
-reference calendar; it can be added with that artifact contract in a later
-slice.
+At the time of this decision, the first implementation remained a library
+boundary because the repository did not yet have a reviewed, portable
+serialization contract for production pinned calendars. ADR 0015 adds that
+strict artifact and a credential-free operator command without silently
+substituting the small synthetic reference calendar.
 
 ## References
 
@@ -120,3 +121,4 @@ slice.
 - [ADR 0009](0009-fail-closed-market-data-admission.md)
 - [ADR 0012](0012-tiingo-eod-offline-first-qualification.md)
 - [ADR 0013](0013-tiingo-eod-authorization-gated-capture.md)
+- [ADR 0015](0015-tiingo-eod-pinned-calendar-and-operator-verification.md)

@@ -12,7 +12,7 @@ from packages.adapters.market_data.tiingo_eod import (
     TiingoEodAcquisitionProfile,
     TiingoEodError,
 )
-from scripts.capture_tiingo_eod import _read_owner_only_artifact
+from scripts.local_artifact import read_owner_only_artifact
 
 
 def _parse_args() -> argparse.Namespace:
@@ -28,7 +28,7 @@ def _die(message: str) -> NoReturn:
 def main() -> int:
     args = _parse_args()
     try:
-        profile_bytes = _read_owner_only_artifact(
+        profile_bytes = read_owner_only_artifact(
             args.profile_file,
             limit=MAX_TIINGO_PROFILE_BYTES,
             label="acquisition profile",
