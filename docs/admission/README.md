@@ -1,9 +1,10 @@
 # Market-data admission
 
 The admission framework and provider qualification order are implemented, but
-no external market-data product is licensed or admitted. A synthetic report or
-successful access probe may prove reusable software and connectivity contracts;
-neither can satisfy the Phase 1 vendor gate.
+no external market-data product is admitted. A synthetic report, successful
+access probe, or bounded research capture may prove reusable software,
+connectivity, and local-integrity contracts; none can satisfy the Phase 1 vendor
+gate by itself.
 
 ## Current candidate routing
 
@@ -11,11 +12,11 @@ neither can satisfy the Phase 1 vendor gate.
   is split/stock-dividend adjusted and only `closeunadj` is directly raw, so it
   is structurally blocked from the canonical raw execution lane.
 - Tiingo EOD is independent validation and the next raw-daily qualification
-  candidate. Its parser, authorization-gated acquisition mechanics, and offline
-  final-capture verifier are synthetic-tested only; no live request or capture
-  has occurred, no actual payload has been verified, and a production source
-  remains blocked. Its IEX history is single-venue and is never substituted for
-  SIP.
+  candidate. Its parser, authorization-gated acquisition, final-capture
+  verifier, and local-lineage mechanics are synthetic-tested. One bounded
+  provider-backed capture has also been retained and verified as a research-only
+  baseline; a production source and admission remain blocked. Its IEX history is
+  single-venue and is never substituted for SIP.
 - Massive raw SIP trades and quotes remain the deferred intraday and execution-
   evidence candidates; vendor minute aggregates are reconciliation input only.
 
@@ -25,8 +26,9 @@ non-trade-enabled ticker-change/delisting corpus. See
 [ADR 0011](../adr/0011-daily-first-capture-and-raw-lane-separation.md),
 [ADR 0012](../adr/0012-tiingo-eod-offline-first-qualification.md),
 [ADR 0013](../adr/0013-tiingo-eod-authorization-gated-capture.md),
-[ADR 0014](../adr/0014-tiingo-eod-offline-capture-verification.md), and
-[ADR 0015](../adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md).
+[ADR 0014](../adr/0014-tiingo-eod-offline-capture-verification.md),
+[ADR 0015](../adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md), and
+[ADR 0016](../adr/0016-tiingo-eod-receipt-time-local-lineage.md).
 
 ## Secret-safe access probe
 
@@ -109,10 +111,10 @@ provenance, historical revision behavior, or licensed use.
 
 The reviewed public documentation does not supply the full publication and
 historical-vintage timeline needed to treat a historical row as known on its
-session date. A future authorized capture therefore uses its actual receipt time
-as the earliest knowledge evidence. A later, separate lineage slice must create
-explicit local revisions when authorized repeated captures differ. Neither
-capture nor lineage may invent pre-capture vintages.
+session date. Any authorized capture therefore uses its actual receipt time as
+the earliest knowledge evidence. ADR 0016 creates explicit local versions only
+when complete independently verified repeated captures differ. Neither capture
+nor lineage may invent pre-capture vintages.
 
 No Tiingo payload may be retained until an approved provider-specific
 acquisition profile freezes the exact scope and a matching authorization
@@ -128,20 +130,20 @@ template does not authorize Tiingo capture.
 See the official
 [Tiingo end-of-day API](https://www.tiingo.com/documentation/end-of-day) and
 [ADR 0012](../adr/0012-tiingo-eod-offline-first-qualification.md). Offline
-synthetic qualification, future capture authorization, and future capture each
-have admission and trading effects of `none`.
+synthetic qualification and every authorized capture have admission and trading
+effects of `none`.
 
 ## Tiingo authorization-gated capture seam
 
 ADR 0013 adds acquisition mechanics only. Preflight, bounded request count and
 response size, finite per-request socket-I/O timeout,
 request/receipt timing, secret-safe metadata, and immutable-output behavior are
-tested with repository-owned synthetic responses and an injected transport. The
-implementation has not made a live Tiingo request, retained an actual Tiingo
-payload, verified a live schema, or established any license, admission, trading,
-publication-time, historical-vintage, or correction-revision claim.
+tested with repository-owned synthetic responses and an injected transport. One
+bounded provider-backed operation has also retained and verified actual response
+bytes. That operation does not establish admission, trading, publication-time,
+historical-vintage, vendor-correction, or broader-scope authority.
 
-Actual operation remains blocked until a human-approved, Tiingo-specific profile
+Every actual operation remains blocked until a human-approved, Tiingo-specific profile
 records its profile ID, reviewer, review time, and approval flag and freezes the
 exact product, endpoint, source and adapter, allow-list, requested dates, market
 provenance, authority bindings, and correction-policy identity. A separate
@@ -159,10 +161,11 @@ The secret-free manifest contract binds the full acquisition profile and
 normalized contract digest, matching authorization and terms digests,
 the exact pinned-calendar artifact digest, provider/dataset/schema identities,
 overall request and receipt bounds, and sorted complete receipts for every
-requested symbol. That manifest shape is
-synthetic-tested; no actual Tiingo manifest exists in the repository. A separate
-offline verifier is now implemented against synthetic captures. Repeated-capture
-lineage, canonical conversion, and source integration remain later stages.
+requested symbol. That manifest shape is synthetic-tested and the first actual
+manifest remains beneath the ignored owner-only local capture root; no provider
+payload or manifest is checked into Git. The offline verifier is exercised
+against both synthetic captures and that actual retained baseline. Canonical
+conversion and source integration remain later stages.
 
 The staged flow is:
 
@@ -175,24 +178,23 @@ The staged flow is:
 4. Verify the capture offline against its manifest, schema, coverage, pinned
    authorities, and the same exact calendar artifact without making another
    request.
-5. In a later slice, compare multiple complete authorized captures and build
-   receipt-time local correction lineage.
+5. Compare multiple complete authorized captures through the implemented
+   receipt-time local delivery-lineage boundary.
 6. Only after those stages may a separate admission evaluation consider the
    evidence and a future `HistoricalBarSource`.
 
-Actual operation stops before step 3 because no approved profile, matching
-authorization, and exact reviewed calendar artifact have been supplied. The
-software for step 4 is separately synthetic-tested, but no legally obtained
-retained bytes have passed it. The
-system also stops before local lineage:
-receipt time is not written into `vendor_published_at`, unchanged responses are
-not yet collapsed, changed rows are not called vendor corrections, and missing
-rows are not treated as deletions or tombstones. Every stage listed here has
-admission and trading effects of `none` until the independent admission and
-deployment gates explicitly say otherwise. See
+Steps 1-4 have completed once for the exact approved 2026-01-02 scope covering
+DIA, IWM, QQQ, and SPY. Step 5 is implemented and synthetic-tested, but only one
+actual capture exists, so no real repeated-delivery comparison can yet be made.
+Receipt time is never written into `vendor_published_at`, changed rows are not
+called vendor corrections, and missing rows reject the lineage instead of
+becoming deletions or tombstones. Every stage listed here has admission and
+trading effects of `none` until the independent admission and deployment gates
+explicitly say otherwise. See
 [ADR 0013](../adr/0013-tiingo-eod-authorization-gated-capture.md),
-[ADR 0014](../adr/0014-tiingo-eod-offline-capture-verification.md), and
-[ADR 0015](../adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md).
+[ADR 0014](../adr/0014-tiingo-eod-offline-capture-verification.md),
+[ADR 0015](../adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md), and
+[ADR 0016](../adr/0016-tiingo-eod-receipt-time-local-lineage.md).
 
 Start from the fail-closed
 [acquisition-profile template](tiingo-eod-acquisition-profile.template.json),
@@ -281,8 +283,8 @@ production source fail closed. The result cannot be constructed through its
 public API or altered with `dataclasses.replace`; the verifier recomputes its
 manifest, calendar/session, observation/row, and semantic proof. The reusable
 wrapper exposes `verify()` rather than the production source protocol's
-`load()`. The implementation has been exercised only with synthetic captures
-and has not verified an actual Tiingo response.
+`load()`. The implementation is synthetic-tested and has verified the one
+bounded actual Tiingo response set described below.
 
 The credential-free operator entry point is:
 
@@ -299,6 +301,60 @@ catalog changes, or admission; and prints only secret-free proof digests,
 calendar identities, and counts. The synthetic reference calendar is never
 substituted implicitly.
 
+## First authorized Tiingo EOD capture proof (2026-07-17)
+
+One exact reviewed scope was captured and verified offline. The retained
+manifest and response objects remain owner-only beneath the ignored local tree;
+none is checked into Git. The publishable proof is:
+
+- capture: `20260717T040624825351Z-de7314ae32ced92081c2907e5cc892329e03528f810738921c0b0ad924abe846`;
+- scope: 2026-01-02, DIA/IWM/QQQ/SPY;
+- profile contract: `0979d1a3edf77a46ac41f9702e32cca10a02fb9501ad8ff53d219a892db087ae`;
+- authorization artifact: `bac0779c5212ed7f6009e3a2c7803e51bcd3b371c5b63db6ffff2a7f6eb1a7fe`;
+- calendar artifact: `bad76aac6867f1e47ad8dd3ce7ea4cc9a0c1a2a6b55eb910bb9b4b8818771af1`;
+- manifest: `de7314ae32ced92081c2907e5cc892329e03528f810738921c0b0ad924abe846`;
+- verified semantic proof:
+  `e7174d68f87f45e70aeaf0ce9f8822ae2d9a3fb68ac9aac457bf9c39acbc8664`;
+- schema `tiingo-eod-verified-research-v2`, four observations, four rows, and
+  four one-session calendar bindings;
+- admission effect `none`; trading effect `none`.
+
+This record deliberately excludes response values and bytes, credentials,
+credential-bearing URLs, terms text and digest, reviewer identity, and private
+artifact contents or paths. Approval was specific to the recorded scope and
+does not authorize arbitrary reruns, broader dates, or another product.
+
+## Tiingo receipt-time local lineage
+
+ADR 0016 implements a proof-constructed, in-memory comparison of two or more
+complete verified captures. Supply final basenames in strict chronological order:
+
+```bash
+make tiingo-eod-lineage \
+  CAPTURES="older-final-capture newer-final-capture" \
+  PROFILE=path/to/reviewed-profile.json \
+  AUTHORIZATION=path/to/reviewed-authorization.json \
+  CALENDAR=path/to/reviewed-calendar.json
+```
+
+The operator boundary verifies every named immutable tree before deriving local
+versions. It requires one exact profile, policy, scope, and calendar artifact;
+the command form also requires the same exact authorization artifact for every
+named capture. V1 does not support profile, authorization, or calendar artifact
+rotation. It records `initial`, `unchanged`, and `changed` occurrences. Changed
+row economics create the next linked local receipt-time version; presentation-
+only response changes do not. A missing or extra key rejects the derivation and
+never becomes carry-forward data, a deletion, or a tombstone.
+
+The command runs offline/frozen without `.env`, network, bytecode writes,
+catalog changes, admission, or trading effects. Output contains only secret-safe
+capture, scope, and timing metadata, policy and schema identifiers, proof
+digests, counts, a research-only note, and explicit effects of `none`; it never
+contains row values or response bytes. The current actual capture is a baseline,
+not repeated-capture evidence. A second actual capture requires a fresh external
+operator decision and must use the same exact still-applicable profile,
+authorization, and calendar artifacts for v1 lineage.
+
 ## Required workflow
 
 1. Select the exact historical product and confirm that its contract permits the
@@ -310,9 +366,13 @@ substituted implicitly.
    software behavior only.
 4. After provider-specific profile, rights, and exact pinned-calendar approval,
    perform the bounded capture and validate the legally obtained exact bytes
-   offline. Then implement repeated-capture local lineage and, only after its
-   own gates,
-   `HistoricalBarSource`. Keep API credentials in the
+   offline. A second actual capture requires a fresh external operator decision
+   and the same exact still-applicable profile, authorization, and calendar
+   artifacts because v1 does not support artifact rotation. When at least two
+   such complete verified captures exist, derive local receipt-time lineage.
+   Only after the raw-semantics, authority, lifecycle, corporate-action, and
+   admission gates may a
+   `HistoricalBarSource` be implemented. Keep API credentials in the
    configured secret provider; never put them in an admission document, browser
    response, log, or catalog row.
 5. Run the adapter contract suite against the licensed payloads and record one

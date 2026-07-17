@@ -520,8 +520,8 @@ Tiingo EOD remains an independent validation and raw-daily qualification
 candidate. Its documented unprefixed OHLCV and separately adjusted fields are
 different semantic lanes, but field labels do not by themselves prove
 execution-safe raw prices. The public contract reviewed here does not establish
-a complete publication timestamp or retained vendor-vintage timeline, so a
-future acquisition can be known no earlier than its actual receipt time.
+a complete publication timestamp or retained vendor-vintage timeline, so an
+authorized acquisition can be known no earlier than its actual receipt time.
 
 The Tiingo lane now includes a strict offline parser and repository-owned
 synthetic qualification corpus. It validates schema and numeric bounds,
@@ -530,20 +530,22 @@ candidates, complete symbol/session coverage, receipt-time causal rules, and
 deterministic scope/calendar-bound digests without requesting or retaining
 vendor bytes. Its exported dataset is permanently `synthetic_contract_only`,
 uses no canonical execution-safe `PriceBasis`, and refuses canonical-bar or
-admission-evidence conversion. Exact capture and a production
-`HistoricalBarSource` remain blocked until a Tiingo-specific storage
-authorization is reviewed and the exact product, venue or market provenance,
-provider identity mappings, calendar, lifecycle, corporate-action authority,
-and correction policy are frozen and validated against authorized bytes.
+admission-evidence conversion. Exact capture is a separately gated operation;
+one bounded scope has passed that gate. A production `HistoricalBarSource`
+remains blocked until exact raw-candidate semantics, venue or market provenance,
+provider identity mappings, lifecycle, corporate-action authority, and the
+remaining admission evidence are frozen and validated against authorized bytes.
 
 ADR 0013 adds an authorization-gated acquisition seam after that offline
 qualifier. The seam's preflight, bounded request count and response size,
 per-request socket-I/O timeout, secret-safe manifest, and
 immutable-output behavior are tested with synthetic responses and an injected
-transport only. No live Tiingo request was made and no Tiingo response was
-captured. Actual operation is structurally blocked until a human-approved Tiingo
-profile records its reviewer and review time and freezes the product, endpoint,
-adapter, symbols, and date scope. A separate matching authorization binds its
+transport. On 2026-07-17, one bounded provider-backed operation also passed the
+gate for the completed 2026-01-02 session and retained DIA, IWM, QQQ, and SPY as
+an owner-only ignored research capture. Each later operation is still
+structurally blocked until a human-approved Tiingo profile records its reviewer
+and review time and freezes the product, endpoint, adapter, symbols, and date
+scope. A separate matching authorization binds its
 normalized profile-contract digest to applicable terms, local-retention rights,
 and research-use rights, and an exact approved pinned-calendar artifact binds
 the same profile digest, authority, and scope. Credential
@@ -566,7 +568,7 @@ final name combines the first request timestamp with the full SHA-256 of those
 canonical manifest bytes, so every manifest field participates in the immutable
 identity. A process crash can leave only a hidden inert staging or reservation entry. This
 acquisition slice does not itself qualify retained bytes or provide a source
-adapter, local revision builder, or canonical conversion.
+adapter or canonical conversion.
 
 ADR 0014 adds the separate offline final-capture verification boundary. It
 accepts only a strict final capture name beneath the fixed repository root and
@@ -591,8 +593,8 @@ the verifier recomputes its manifest, calendar/session, observation/row, and
 semantic proof before creation. The reusable verifier wrapper exposes
 `verify()`, not the `load()` method that would structurally satisfy the
 production source protocol. The implementation is tested with synthetic
-captures only, performs no network or credential access, and has not verified
-an actual Tiingo payload. Before ADR 0015, it remained a library boundary
+captures, performs no network or credential access, and has also verified the
+one actual retained capture. Before ADR 0015, it remained a library boundary
 because no reviewed portable pinned-calendar artifact contract existed for an
 operator CLI.
 
@@ -613,20 +615,39 @@ and calendar artifacts plus one strict final basename. It has no environment or
 network dependency, performs no writes or catalog transitions, and returns
 only secret-free proof digests, calendar identities, and counts with explicit
 admission and trading effects of `none`. The checked-in calendar template is
-non-authorizing and deliberately mismatched; no production authority has been
-selected.
+non-authorizing and deliberately mismatched. The exact approved artifact used
+for the first capture remains local, ignored, and bounded to that one scope; it
+does not authorize arbitrary reruns or broader dates.
+
+ADR 0016 adds the next in-memory receipt-time local-lineage boundary. It accepts
+only two or more complete, proof-constructed snapshots with one exact profile,
+policy, scope, and calendar artifact. Every capture/key occurrence remains
+visible. Economically unchanged rows reuse their preceding local version;
+changed row economics create the next linked local version; A -> B -> A creates
+version 3. Missing or extra keys reject the complete derivation and never become
+deletions, carry-forward values, or tombstones. Whole-response bytes and receipt
+metadata remain occurrence evidence but do not by themselves create an economic
+revision.
+
+The operator lineage command reuses the descriptor-safe verifier for every
+caller-ordered final capture, reads no `.env`, performs no network or writes, and
+prints only secret-safe capture, scope, and timing metadata, policy and schema
+identifiers, proof digests, counts, a research-only note, and explicit effects
+of `none`; it never prints row values or response bytes. Lineage results have no
+public constructor and re-derive their components from retained verified proofs.
+They refuse raw or canonical bars, admission evidence, and
+`HistoricalBarSource`. Only one actual capture exists, so real provider repeat
+behavior remains unobserved until a fresh external operator decision permits a
+second capture under the same exact still-applicable profile, authorization,
+and calendar artifacts and that capture passes the same gates. V1 lineage does
+not support artifact rotation.
 
 The staged Tiingo path is therefore contract qualification, approved profile,
 matching rights authorization and pinned calendar, bounded immutable capture,
-separate credential-free offline verification, repeated-capture lineage, and
-only then admission evaluation.
-Later stages cannot grant authority backward to an earlier stage. The acquisition
-seam records request and receipt evidence but does not invent
-`vendor_published_at`, a vendor revision, or a historical vintage. Local
-receipt-time revision lineage is explicitly deferred; unchanged, changed, and
-missing rows in repeated captures have not yet been assigned correction
-semantics. The seam cannot emit canonical bars or implement
-`HistoricalBarSource`.
+credential-free offline verification, local receipt-time lineage, and only then
+the remaining raw-semantics, authority, source, and admission gates. Later stages
+cannot grant authority backward to an earlier stage. No stage invents
+`vendor_published_at`, a vendor revision, or a historical vintage.
 
 The transport timeout applies to socket I/O for each symbol request. It is not a
 strict wall-clock deadline for the complete multi-symbol capture; operational
@@ -646,19 +667,21 @@ Sharadar permaticker, Tiingo tickers, and Massive FIGIs map to immutable interna
 security IDs through effective-dated facts.
 
 The initial trade-enabled qualification universe is DIA, IWM, QQQ, and SPY; a
-separate lifecycle corpus covers a ticker change and delisted ETF. Each future
+separate lifecycle corpus covers a ticker change and delisted ETF. Each
 authorized retained acquisition is archived with observed request/receipt time
 and a content digest. Non-retaining access probes and synthetic contract
 qualification create no vendor archive. Cross-vendor disagreement quarantines
 or flags data; it never triggers automatic fallback. Credential presence and
 successful probes remain secret-free candidate evidence, not entitlement,
-admission, or trading authority.
+admission, or trading authority. See
+
 [ADR 0010](adr/0010-market-data-provider-qualification-routing.md),
 [ADR 0011](adr/0011-daily-first-capture-and-raw-lane-separation.md),
 [ADR 0012](adr/0012-tiingo-eod-offline-first-qualification.md),
 [ADR 0013](adr/0013-tiingo-eod-authorization-gated-capture.md),
-[ADR 0014](adr/0014-tiingo-eod-offline-capture-verification.md), and
-[ADR 0015](adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md).
+[ADR 0014](adr/0014-tiingo-eod-offline-capture-verification.md),
+[ADR 0015](adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md), and
+[ADR 0016](adr/0016-tiingo-eod-receipt-time-local-lineage.md).
 
 ## 11. Backtesting model
 
