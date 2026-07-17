@@ -9,7 +9,7 @@ COMPOSE ?= docker compose -f infra/compose/compose.yaml
 	check backend-check frontend-check architecture-check test compose-check \
 	api-contracts api-contracts-check admission-evaluate market-data-probe \
 	sharadar-sfp-capture tiingo-eod-profile-inspect tiingo-eod-capture tiingo-eod-verify \
-	tiingo-eod-lineage tiingo-eod-fields-qualify
+	tiingo-eod-lineage tiingo-eod-fields-qualify tiingo-eod-identity-qualify
 
 help: ## List developer commands.
 	@awk 'BEGIN {FS = ":.*## "; printf "AutoQuantTrader developer commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -80,6 +80,18 @@ tiingo-eod-verify: ## Verify one final Tiingo EOD capture entirely offline.
 		scripts/verify_tiingo_eod_capture.py \
 		--capture-name "$(CAPTURE)" --profile-file "$(PROFILE)" \
 		--authorization-file "$(AUTHORIZATION)" --calendar-file "$(CALENDAR)"
+
+tiingo-eod-identity-qualify: ## Prove identity/lifecycle contract consistency offline.
+	@test -n "$(CAPTURE)" || (echo "CAPTURE=final-capture-name is required" >&2; exit 2)
+	@test -n "$(PROFILE)" || (echo "PROFILE=path/to/reviewed.json is required" >&2; exit 2)
+	@test -n "$(AUTHORIZATION)" || (echo "AUTHORIZATION=path/to/reviewed.json is required" >&2; exit 2)
+	@test -n "$(CALENDAR)" || (echo "CALENDAR=path/to/reviewed.json is required" >&2; exit 2)
+	@test -n "$(IDENTITY_LIFECYCLE)" || (echo "IDENTITY_LIFECYCLE=path/to/artifact.json is required" >&2; exit 2)
+	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+		scripts/qualify_tiingo_eod_identity_lifecycle.py \
+		--capture-name "$(CAPTURE)" --profile-file "$(PROFILE)" \
+		--authorization-file "$(AUTHORIZATION)" --calendar-file "$(CALENDAR)" \
+		--identity-lifecycle-file "$(IDENTITY_LIFECYCLE)"
 
 tiingo-eod-lineage: ## Derive research-only local lineage from two or more final captures.
 	@test -n "$(CAPTURES)" || (echo "CAPTURES='capture-name ...' is required" >&2; exit 2)

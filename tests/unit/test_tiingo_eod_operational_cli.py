@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import socket
+import subprocess
 import sys
 from collections.abc import Mapping
 from dataclasses import replace
@@ -15,6 +16,7 @@ import pytest
 import scripts.capture_tiingo_eod as capture_cli
 import scripts.derive_tiingo_eod_lineage as lineage_cli
 import scripts.inspect_tiingo_eod_profile as inspect_cli
+import scripts.qualify_tiingo_eod_identity_lifecycle as identity_lifecycle_cli
 import scripts.qualify_tiingo_eod_retained_fields as retained_fields_cli
 import scripts.verify_tiingo_eod_capture as verify_cli
 from packages.adapters.market_data.tiingo_eod import (
@@ -32,7 +34,13 @@ from packages.adapters.market_data.tiingo_eod_capture import (
     TiingoEodApiResponse,
     capture_tiingo_eod,
 )
+from packages.adapters.market_data.tiingo_eod_identity_lifecycle import (
+    TIINGO_EOD_IDENTITY_LIFECYCLE_CHECK_IDS,
+    TiingoEodIdentityLifecycleArtifactKind,
+)
 from packages.market_data import ExchangeCalendar, ExchangeSession
+from tests.unit.test_tiingo_eod_identity_lifecycle import _artifact
+from tests.unit.test_tiingo_eod_snapshot import VENUE_BY_SYMBOL
 
 SESSION_DATE = date(2026, 7, 14)
 REQUESTED_AT = datetime(2026, 7, 16, 12, tzinfo=UTC)
@@ -81,15 +89,15 @@ def authorization(acquisition_profile: TiingoEodAcquisitionProfile) -> bytes:
     ).to_json_bytes()
 
 
-def pinned_calendar(symbol: str = "SPY") -> ExchangeCalendar:
+def pinned_calendar(symbol: str = "SPY", *, venue: str = "XNYS") -> ExchangeCalendar:
     return ExchangeCalendar(
         calendar_id=f"{symbol}-CALENDAR",
         version="test-2026a",
-        venue="XNYS",
+        venue=venue,
         timezone="America/New_York",
         sessions=(
             ExchangeSession(
-                venue="XNYS",
+                venue=venue,
                 session_label=SESSION_DATE,
                 opens_at=datetime(2026, 7, 14, 13, 30, tzinfo=UTC),
                 closes_at=datetime(2026, 7, 14, 20, 0, tzinfo=UTC),
@@ -98,7 +106,11 @@ def pinned_calendar(symbol: str = "SPY") -> ExchangeCalendar:
     )
 
 
-def calendar_artifact(acquisition_profile: TiingoEodAcquisitionProfile) -> bytes:
+def calendar_artifact(
+    acquisition_profile: TiingoEodAcquisitionProfile,
+    *,
+    venues: Mapping[str, str] | None = None,
+) -> bytes:
     return TiingoEodPinnedCalendarArtifact(
         artifact_id="test-reviewed-tiingo-calendar",
         approved=True,
@@ -109,7 +121,13 @@ def calendar_artifact(acquisition_profile: TiingoEodAcquisitionProfile) -> bytes
         tzdata_version="2026a",
         scope=acquisition_profile.scope,
         calendars=tuple(
-            TiingoEodPinnedCalendar(symbol=symbol, calendar=pinned_calendar(symbol))
+            TiingoEodPinnedCalendar(
+                symbol=symbol,
+                calendar=pinned_calendar(
+                    symbol,
+                    venue=venues[symbol] if venues is not None else "XNYS",
+                ),
+            )
             for symbol in acquisition_profile.scope.symbols
         ),
     ).to_json_bytes()
@@ -140,6 +158,29 @@ def capture_argv(
         str(authorization_path),
         "--calendar-file",
         str(calendar_path),
+    ]
+
+
+def identity_lifecycle_argv(
+    *,
+    capture_name: str,
+    profile_path: Path,
+    authorization_path: Path,
+    calendar_path: Path,
+    identity_lifecycle_path: Path,
+) -> list[str]:
+    return [
+        "qualify_tiingo_eod_identity_lifecycle.py",
+        "--capture-name",
+        capture_name,
+        "--profile-file",
+        str(profile_path),
+        "--authorization-file",
+        str(authorization_path),
+        "--calendar-file",
+        str(calendar_path),
+        "--identity-lifecycle-file",
+        str(identity_lifecycle_path),
     ]
 
 
@@ -916,6 +957,426 @@ def test_retained_field_cli_rejects_unsafe_capture_names(
 
     with pytest.raises(SystemExit, match="finalized Tiingo capture"):
         retained_fields_cli.main()
+
+
+def test_identity_lifecycle_cli_is_offline_no_write_and_value_free_for_exact_scope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    symbols = ("DIA", "IWM", "QQQ", "SPY")
+    selected_profile = profile(symbols=symbols)
+    authorization_bytes = authorization(selected_profile)
+    calendar_bytes = calendar_artifact(selected_profile, venues=VENUE_BY_SYMBOL)
+    identity_lifecycle = _artifact(
+        selected_profile.contract_sha256,
+        kind=TiingoEodIdentityLifecycleArtifactKind.REVIEWED_REFERENCE,
+    )
+    identity_lifecycle_bytes = identity_lifecycle.to_json_bytes()
+    profile_path = write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes())
+    authorization_path = write_artifact(
+        tmp_path / "authorization.json",
+        authorization_bytes,
+    )
+    calendar_path = write_artifact(tmp_path / "calendar.json", calendar_bytes)
+    identity_lifecycle_path = write_artifact(
+        tmp_path / "identity-lifecycle.json",
+        identity_lifecycle_bytes,
+    )
+    payload = response_bytes()
+    clock_values = iter(
+        REQUESTED_AT + timedelta(seconds=index) for index in range(len(symbols) * 2)
+    )
+    manifest_path = capture_tiingo_eod(
+        repository_root=tmp_path,
+        token="synthetic-capture-token",
+        profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        transport=lambda request, *, timeout_seconds: TiingoEodApiResponse(
+            status=200,
+            payload=payload,
+        ),
+        clock=lambda: next(clock_values),
+    )
+    before = tree_snapshot(manifest_path.parent)
+
+    monkeypatch.setattr(identity_lifecycle_cli, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setenv("TIINGO_TOKEN", TOKEN)
+    monkeypatch.setattr(socket, "socket", forbidden)
+    monkeypatch.setattr(socket, "create_connection", forbidden)
+    monkeypatch.setattr(capture_cli, "load_owner_only_environment", forbidden)
+    monkeypatch.setattr(capture_cli, "capture_tiingo_eod", forbidden)
+    for operation in ("chmod", "mkdir", "rename", "replace", "touch", "unlink", "write_bytes"):
+        monkeypatch.setattr(Path, operation, forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        identity_lifecycle_argv(
+            capture_name=manifest_path.parent.name,
+            profile_path=profile_path,
+            authorization_path=authorization_path,
+            calendar_path=calendar_path,
+            identity_lifecycle_path=identity_lifecycle_path,
+        ),
+    )
+
+    assert identity_lifecycle_cli.main() == 0
+
+    captured = capsys.readouterr()
+    output = captured.out
+    result = json.loads(output)
+    assert captured.err == ""
+    assert set(result) == {
+        "admission_effect",
+        "artifact_kind",
+        "artifact_sha256",
+        "calendar_artifact_sha256",
+        "canonical_bar_effect",
+        "capture_name",
+        "check_ids",
+        "corporate_action_effect",
+        "delisting_case_count",
+        "historical_source_effect",
+        "identifier_count",
+        "lifecycle_calendar_effect",
+        "mapping_count",
+        "membership_count",
+        "note",
+        "production_identity_effect",
+        "profile_contract_sha256",
+        "qualification_kind",
+        "qualification_sha256",
+        "raw_execution_effect",
+        "retained_field_qualification_sha256",
+        "schema_version",
+        "scope",
+        "security_count",
+        "session_mapping_count",
+        "snapshot_semantic_sha256",
+        "symbol_change_case_count",
+        "trade_symbol_count",
+        "trading_effect",
+    }
+    assert result["capture_name"] == manifest_path.parent.name
+    assert result["artifact_kind"] == "reviewed_reference"
+    assert result["artifact_sha256"] == hashlib.sha256(identity_lifecycle_bytes).hexdigest()
+    assert result["profile_contract_sha256"] == selected_profile.contract_sha256
+    assert result["calendar_artifact_sha256"] == hashlib.sha256(calendar_bytes).hexdigest()
+    assert result["scope"] == selected_profile.scope.to_dict()
+    assert result["check_ids"] == list(TIINGO_EOD_IDENTITY_LIFECYCLE_CHECK_IDS)
+    assert result["qualification_kind"] == "identity_lifecycle_contract_only"
+    assert result["schema_version"] == "tiingo-eod-identity-lifecycle-qualification-v1"
+    assert result["security_count"] == 6
+    assert result["identifier_count"] == 8
+    assert result["membership_count"] == 4
+    assert result["mapping_count"] == 4
+    assert result["session_mapping_count"] == 4
+    assert result["trade_symbol_count"] == 4
+    assert result["symbol_change_case_count"] == 1
+    assert result["delisting_case_count"] == 1
+    for digest_name in (
+        "artifact_sha256",
+        "calendar_artifact_sha256",
+        "profile_contract_sha256",
+        "qualification_sha256",
+        "retained_field_qualification_sha256",
+        "snapshot_semantic_sha256",
+    ):
+        assert len(result[digest_name]) == 64
+    for effect in (
+        "admission_effect",
+        "canonical_bar_effect",
+        "corporate_action_effect",
+        "historical_source_effect",
+        "lifecycle_calendar_effect",
+        "production_identity_effect",
+        "raw_execution_effect",
+        "trading_effect",
+    ):
+        assert result[effect] == "none"
+
+    assert identity_lifecycle.reviewer_id is not None
+    for prohibited in (
+        TOKEN,
+        "synthetic-capture-token",
+        TERMS_SHA256,
+        payload.decode("utf-8"),
+        hashlib.sha256(payload).hexdigest(),
+        "102.375",
+        "101.125",
+        "51.1875",
+        "50.5625",
+        "2000002",
+        str(tmp_path),
+        str(profile_path),
+        str(authorization_path),
+        str(calendar_path),
+        str(identity_lifecycle_path),
+        "test-profile-reviewer",
+        "test-authorization-reviewer",
+        "test-calendar-reviewer",
+        identity_lifecycle.reviewer_id,
+        identity_lifecycle.executor_id,
+        identity_lifecycle.identifier_evidence_sha256,
+        identity_lifecycle.lifecycle_evidence_sha256,
+        identity_lifecycle.identity_source_id,
+    ):
+        assert prohibited not in output
+    for security in identity_lifecycle.securities:
+        assert security.security_id not in output
+        assert security.name not in output
+    assert tree_snapshot(manifest_path.parent) == before
+    assert not hasattr(identity_lifecycle_cli, "load_owner_only_environment")
+    assert not hasattr(identity_lifecycle_cli, "capture_tiingo_eod")
+
+
+def test_identity_lifecycle_cli_session_gap_fails_without_private_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    symbols = ("DIA", "IWM", "QQQ", "SPY")
+    selected_profile = profile(symbols=symbols)
+    authorization_bytes = authorization(selected_profile)
+    calendar_bytes = calendar_artifact(selected_profile, venues=VENUE_BY_SYMBOL)
+    artifact = _artifact(selected_profile.contract_sha256)
+    gap_end = datetime(2026, 7, 14, 13, 30, tzinfo=UTC) + timedelta(microseconds=1)
+    gapped_artifact = replace(
+        artifact,
+        identifiers=tuple(
+            replace(value, effective_to=gap_end) if value.symbol == "DIA" else value
+            for value in artifact.identifiers
+        ),
+    )
+    profile_path = write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes())
+    authorization_path = write_artifact(
+        tmp_path / "authorization.json",
+        authorization_bytes,
+    )
+    calendar_path = write_artifact(tmp_path / "calendar.json", calendar_bytes)
+    identity_lifecycle_path = write_artifact(
+        tmp_path / "identity-lifecycle-private.json",
+        gapped_artifact.to_json_bytes(),
+    )
+    clock_values = iter(
+        REQUESTED_AT + timedelta(seconds=index) for index in range(len(symbols) * 2)
+    )
+    manifest_path = capture_tiingo_eod(
+        repository_root=tmp_path,
+        token="session-gap-private-token",
+        profile=selected_profile,
+        authorization_bytes=authorization_bytes,
+        calendar_artifact_bytes=calendar_bytes,
+        transport=lambda request, *, timeout_seconds: TiingoEodApiResponse(
+            status=200,
+            payload=response_bytes(),
+        ),
+        clock=lambda: next(clock_values),
+    )
+    monkeypatch.setattr(identity_lifecycle_cli, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        identity_lifecycle_argv(
+            capture_name=manifest_path.parent.name,
+            profile_path=profile_path,
+            authorization_path=authorization_path,
+            calendar_path=calendar_path,
+            identity_lifecycle_path=identity_lifecycle_path,
+        ),
+    )
+
+    with pytest.raises(SystemExit) as failure:
+        identity_lifecycle_cli.main()
+
+    message = str(failure.value)
+    captured = capsys.readouterr()
+    assert message == identity_lifecycle_cli.QUALIFICATION_FAILURE_MESSAGE
+    assert captured.out == captured.err == ""
+    for prohibited in (
+        "Traceback",
+        str(tmp_path),
+        str(identity_lifecycle_path),
+        "session-gap-private-token",
+        "security-dia",
+    ):
+        assert prohibited not in message
+
+
+@pytest.mark.parametrize(
+    "unsafe_artifact",
+    ["profile", "authorization", "calendar", "identity_lifecycle"],
+)
+def test_identity_lifecycle_cli_rejects_symlinked_artifacts_before_capture_access(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe_artifact: str,
+) -> None:
+    selected_profile = profile(symbols=("DIA", "IWM", "QQQ", "SPY"))
+    paths = {
+        "profile": write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes()),
+        "authorization": write_artifact(
+            tmp_path / "authorization.json",
+            authorization(selected_profile),
+        ),
+        "calendar": write_artifact(
+            tmp_path / "calendar.json",
+            calendar_artifact(selected_profile, venues=VENUE_BY_SYMBOL),
+        ),
+        "identity_lifecycle": write_artifact(
+            tmp_path / "identity-lifecycle.json",
+            _artifact(selected_profile.contract_sha256).to_json_bytes(),
+        ),
+    }
+    unsafe_path = tmp_path / f"{unsafe_artifact}-link.json"
+    unsafe_path.symlink_to(paths[unsafe_artifact])
+    paths[unsafe_artifact] = unsafe_path
+    monkeypatch.setattr(identity_lifecycle_cli, "verify_tiingo_eod_capture", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        identity_lifecycle_argv(
+            capture_name=f"20260716T120000000000Z-{'a' * 64}",
+            profile_path=paths["profile"],
+            authorization_path=paths["authorization"],
+            calendar_path=paths["calendar"],
+            identity_lifecycle_path=paths["identity_lifecycle"],
+        ),
+    )
+
+    with pytest.raises(SystemExit, match="non-symlinked"):
+        identity_lifecycle_cli.main()
+
+
+@pytest.mark.parametrize(
+    "restricted_artifact",
+    ["profile", "authorization", "calendar", "identity_lifecycle"],
+)
+def test_identity_lifecycle_cli_requires_owner_only_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    restricted_artifact: str,
+) -> None:
+    selected_profile = profile(symbols=("DIA", "IWM", "QQQ", "SPY"))
+    payloads = {
+        "profile": selected_profile.to_json_bytes(),
+        "authorization": authorization(selected_profile),
+        "calendar": calendar_artifact(selected_profile, venues=VENUE_BY_SYMBOL),
+        "identity_lifecycle": _artifact(selected_profile.contract_sha256).to_json_bytes(),
+    }
+    paths = {
+        name: write_artifact(
+            tmp_path / f"{name}.json",
+            payload,
+            mode=0o644 if name == restricted_artifact else 0o600,
+        )
+        for name, payload in payloads.items()
+    }
+    monkeypatch.setattr(identity_lifecycle_cli, "verify_tiingo_eod_capture", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        identity_lifecycle_argv(
+            capture_name=f"20260716T120000000000Z-{'a' * 64}",
+            profile_path=paths["profile"],
+            authorization_path=paths["authorization"],
+            calendar_path=paths["calendar"],
+            identity_lifecycle_path=paths["identity_lifecycle"],
+        ),
+    )
+
+    with pytest.raises(SystemExit, match="permissions must be owner-only"):
+        identity_lifecycle_cli.main()
+
+
+@pytest.mark.parametrize(
+    "artifact_case",
+    ["noncanonical", "template", "private_enum", "private_field"],
+)
+def test_identity_lifecycle_cli_rejects_invalid_artifact_before_capture_qualification(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    artifact_case: str,
+) -> None:
+    selected_profile = profile(symbols=("DIA", "IWM", "QQQ", "SPY"))
+    profile_path = write_artifact(tmp_path / "profile.json", selected_profile.to_json_bytes())
+    authorization_path = write_artifact(
+        tmp_path / "authorization.json",
+        authorization(selected_profile),
+    )
+    calendar_path = write_artifact(
+        tmp_path / "calendar.json",
+        calendar_artifact(selected_profile, venues=VENUE_BY_SYMBOL),
+    )
+    private_marker = "PRIVATE-IDENTITY-ARTIFACT-CONTENT"
+    if artifact_case == "noncanonical":
+        canonical = _artifact(selected_profile.contract_sha256).to_json_bytes()
+        identity_lifecycle_bytes = json.dumps(json.loads(canonical)).encode("utf-8")
+    elif artifact_case == "template":
+        identity_lifecycle_bytes = (
+            REPOSITORY_ROOT / "docs/admission/tiingo-eod-identity-lifecycle.template.json"
+        ).read_bytes()
+    else:
+        payload = json.loads(_artifact(selected_profile.contract_sha256).to_json_bytes())
+        if artifact_case == "private_enum":
+            payload["securities"][0]["asset_class"] = private_marker
+        else:
+            payload["securities"][0][private_marker] = True
+        identity_lifecycle_bytes = (
+            json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+        ).encode()
+    identity_lifecycle_path = write_artifact(
+        tmp_path / "identity-lifecycle.json",
+        identity_lifecycle_bytes,
+    )
+    monkeypatch.setattr(identity_lifecycle_cli, "verify_tiingo_eod_capture", forbidden)
+    monkeypatch.setattr(identity_lifecycle_cli, "qualify_tiingo_eod_retained_fields", forbidden)
+    monkeypatch.setattr(identity_lifecycle_cli, "qualify_tiingo_eod_identity_lifecycle", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        identity_lifecycle_argv(
+            capture_name=f"20260716T120000000000Z-{'a' * 64}",
+            profile_path=profile_path,
+            authorization_path=authorization_path,
+            calendar_path=calendar_path,
+            identity_lifecycle_path=identity_lifecycle_path,
+        ),
+    )
+
+    with pytest.raises(SystemExit) as failure:
+        identity_lifecycle_cli.main()
+
+    message = str(failure.value)
+    assert message == identity_lifecycle_cli.QUALIFICATION_FAILURE_MESSAGE
+    assert private_marker not in message
+    assert str(tmp_path) not in message
+
+
+def test_identity_lifecycle_make_target_expands_to_strict_offline_command() -> None:
+    result = subprocess.run(
+        [
+            "make",
+            "-n",
+            "tiingo-eod-identity-qualify",
+            "CAPTURE=final-capture",
+            "PROFILE=profile.json",
+            "AUTHORIZATION=authorization.json",
+            "CALENDAR=calendar.json",
+            "IDENTITY_LIFECYCLE=identity-lifecycle.json",
+        ],
+        cwd=REPOSITORY_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stderr == ""
+    assert "uv run --offline --frozen --no-sync --no-env-file python -B" in result.stdout
+    assert "scripts/qualify_tiingo_eod_identity_lifecycle.py" in result.stdout
+    assert '--capture-name "final-capture"' in result.stdout
+    assert '--identity-lifecycle-file "identity-lifecycle.json"' in result.stdout
 
 
 @pytest.mark.parametrize("unsafe_artifact", ["profile", "authorization", "calendar"])

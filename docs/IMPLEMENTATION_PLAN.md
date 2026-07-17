@@ -72,6 +72,22 @@ Emitted `source_schema_constraint_id` values are frozen source-schema policy
 labels; their raw, adjusted, or ex-date wording is not semantics inferred from
 observed values.
 
+ADR 0018 now defines and implements a separate offline security-identity and
+lifecycle contract-only boundary. It binds one exact verified snapshot, its
+exact ADR 0017 proof, and a strict canonical identity/lifecycle artifact. The
+trade-enabled scope is exactly DIA, IWM, QQQ, and SPY; a separate synthetic,
+non-trade-enabled corpus exercises a ticker change and delisting. The profile's
+identifier-authority string remains a label rather than evidence, and lifecycle
+instants do not confer calendar authority. The bounded contract permits exactly
+four trade IDs and two pairwise-isolated lifecycle IDs, rejects cross-aliasing,
+and requires identifier and included-universe continuity across each exact
+pinned session through the downstream close-time resolution instant. The
+implemented fail-closed artifact template and credential-free operator command
+make no provider request or write and emit one generic value-free failure
+message. No production identity/lifecycle artifact has passed, so every
+production-identity, raw, corporate-action, source, admission, and trading
+effect remains `none`.
+
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
 treated as admission or evidence that a vendor's real history, entitlement,
@@ -210,14 +226,24 @@ Passing one layer cannot substitute for another.
   baseline has completed the boundary for four observations and rows, one
   session, and fifty-two field occurrences with all effects `none`; ADR 0017
   records the exact public digests.
+- Newly complete: a strict offline identity/lifecycle contract-only boundary
+  that revalidates one exact snapshot and its ADR 0017 retained-field proof
+  against canonical artifact bytes. It requires the exact DIA, IWM, QQQ, and SPY
+  trade scope and keeps a synthetic ticker-change/delisting corpus separately
+  non-trade-enabled. It tests stable identity, effective-dated aliases, causal
+  knowledge, ambiguity rejection, and delisting behavior without treating the
+  profile authority label or lifecycle instants as evidence. No production
+  identity/lifecycle artifact has passed, and the boundary cannot produce a
+  production security master, source, admission evidence, or trading effect.
 - Still required for the Phase 1 exit gate: obtain a fresh external operator
   decision for any second provider capture needed for real repeat evidence,
   perform it under the same exact still-applicable profile, authorization, and
   calendar artifacts required by the v1 lineage command, and verify it. V1 does
   not support artifact rotation. Also verify the frozen DIA, IWM, QQQ, and SPY
-  allow-list plus a non-tradable lifecycle corpus, finish production
-  identifier/calendar/action authority qualification, obtain independent
-  evidence that the documented raw candidates are genuinely unadjusted and
+  allow-list plus an independently authorized non-tradable lifecycle corpus,
+  finish production identifier/lifecycle, calendar, and action authority
+  qualification, and obtain independent evidence that the documented raw
+  candidates are genuinely unadjusted and
   execution-safe or validate a reconstruction, and implement the resulting
   `HistoricalBarSource`, and run the admission suite against licensed payloads.
   Synthetic tests and research captures cannot satisfy this gate.
@@ -558,7 +584,7 @@ Every change includes:
 | Orders | DAY market orders, next-event simulation | Smallest causally defensible execution slice |
 | Active strategies | One per brokerage account | Defers netting, virtual sleeves, internal crosses, and fill allocation |
 | Broker | Alpaca paper | Paper-first API; capability contract preserves future portability |
-| Data | Daily-first: immutable Sharadar research capture plus Tiingo synthetic qualification, one bounded actual Tiingo capture verified and passed through the exact-retained field-contract boundary, and offline local-lineage mechanics implemented; no real repeat evidence exists, and genuine raw semantics, `HistoricalBarSource`, and admission remain blocked; Massive intraday deferred | Adjustment basis, publication/vintage timing, venue/identity authorities, historical revisions/universes, licensed storage/use, and live quote scope drive validity |
+| Data | Daily-first: immutable Sharadar research capture plus Tiingo synthetic qualification, one bounded actual Tiingo capture verified and passed through the exact-retained field-contract boundary, and offline local-lineage and identity/lifecycle contract mechanics implemented; no production identity/lifecycle artifact or real repeat evidence exists, and genuine raw semantics, `HistoricalBarSource`, and admission remain blocked; Massive intraday deferred | Adjustment basis, publication/vintage timing, venue/identity authorities, historical revisions/universes, licensed storage/use, and live quote scope drive validity |
 | Account model | Explicit cash or margin policy | Determines settlement, buying power, ledger, and risk semantics |
 | Hosting | One region, managed PostgreSQL, object storage | Reliable non-HFT footprint with separable operational/research I/O |
 | UI | Desktop-browser React/Vite workspace, incremental from Phase 0 | Makes research and operations observable without adding native/mobile scope |
