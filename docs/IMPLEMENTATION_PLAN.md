@@ -102,6 +102,21 @@ genuine-raw, historical-source, market-provenance, trading, and
 vendor-publication effects all remain `none`, and the actual baseline has not
 passed this boundary.
 
+ADR 0020 now begins Phase 2A without declaring the externally gated Phase 1
+admission work complete. The pure domain core has a UTC monotonic simulated
+clock, a documented availability-first total order, and explicit watermarks
+that cannot regress in event time when read in canonical closed order. Replay
+proof-constructs complete MarketBatch values, globally binds source/observation
+identities to revision chains, and uses compact context-independent decimal
+semantics and typed Phase 2 identifiers. Strategy contexts bind an exact batch
+identity and digest, target tuples are immutable/sorted/unique, and
+`ReplayResult.complete_batch_ids` names strategy-eligible proofs. The Phase 0
+walking thread now uses that canonical batch callback. This is exercised only
+with repository-owned synthetic events: there is no manifest-pinned
+all-revision tape adapter, durable backtest run, API command/read model, browser
+backtest workflow, or reference benchmark yet, and it changes no admission or
+trading readiness.
+
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
 treated as admission or evidence that a vendor's real history, entitlement,
@@ -322,10 +337,33 @@ Passing one layer cannot substitute for another.
 
 ## Phase 2 - canonical engine, ledger, order reducer, and minimum risk (weeks 4-6)
 
+### Sequencing and current status
+
+- **Phase 2A replay core (in progress):** the simulated clock,
+  availability-time ordering, non-regressing closed-order watermarks,
+  proof-constructed complete-batch strategy seam, exact batch-bound causal
+  context, global source/observation chain binding, correction selection,
+  compact canonical decimals, explicit exact `decimal64-e63-exact-v1`
+  portfolio/risk
+  arithmetic, typed Phase 2 identifiers, immutable target
+  tuples, and semantic replay digest are implemented for synthetic domain
+  events. `ReplayResult.complete_batch_ids` records complete strategy-eligible
+  proofs. Manifest-pinned RawBar tape input, clock callbacks, versioned strategy
+  state, and a durable run manifest remain. SQL-bound decimals are restricted
+  to exact `NUMERIC(28,10)` values and verified after each transactional write.
+- **Phase 2B execution state:** expand the ledger, portfolio conversion, order
+  and execution reducers, conservative simulated broker, atomic risk, and
+  coordinator lease/fencing contracts.
+- **Phase 2C durable research workflow:** execute fixture-only runs in the
+  worker, persist immutable results, add query-only API/read models and the
+  browser Backtests workspace, then add launch commands only after durable jobs,
+  idempotency, authentication/CSRF, audit, and request validation exist.
+
 ### Build
 
 - Simulated clock and deterministic ordering over availability-time events.
-- Watermark-complete `MarketBatch`, read-only causal strategy context, clock
+- Proof-constructed watermark-complete `MarketBatch`, exact batch-bound
+  read-only causal strategy context, immutable canonical target tuples, clock
   callbacks, versioned strategy state, target portfolio, and target expiry.
 - Append-only balanced ledger for fills, fees, cash flows, dividends, splits,
   settlement, marks, and realized P&L; cash/position/P&L are projections.

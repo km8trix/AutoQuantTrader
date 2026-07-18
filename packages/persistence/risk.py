@@ -12,6 +12,8 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Connection, RowMapping
 
+from packages.domain.canonical import canonical_decimal
+from packages.domain.decimal_math import exact_decimal_add, exact_decimal_subtract
 from packages.domain.identifiers import deterministic_id
 from packages.domain.models import (
     DecisionStatus,
@@ -28,7 +30,11 @@ from packages.domain.risk import (
     intent_payload_hash,
     validate_consumption,
 )
-from packages.persistence.immutable import as_aware_utc
+from packages.persistence.immutable import (
+    ImmutableFactConflict,
+    as_aware_utc,
+    assert_immutable,
+)
 from packages.persistence.schema import (
     risk_account_guards,
     risk_decisions,
@@ -216,6 +222,55 @@ def _verify_reservation(
         raise RiskAuthorizationError("durable reservation is not executable")
 
 
+def _verify_issued_decision(
+    connection: Connection,
+    decision: RiskDecision,
+    snapshot: RiskAccountSnapshot,
+    expected_reserved_cash: Decimal,
+) -> None:
+    """Fail the transaction if the SQL dialect changed any exact cash value."""
+
+    decision_row = (
+        connection.execute(
+            sa.select(risk_decisions).where(risk_decisions.c.decision_id == decision.decision_id)
+        )
+        .mappings()
+        .one()
+    )
+    guard_row = (
+        connection.execute(
+            sa.select(risk_account_guards).where(
+                risk_account_guards.c.account_id == snapshot.account_id
+            )
+        )
+        .mappings()
+        .one()
+    )
+    try:
+        assert_immutable(
+            risk_decisions,
+            decision.decision_id,
+            decision_row,
+            {**immutable_decision_values(decision), "consumed_at": None},
+        )
+        assert_immutable(
+            risk_account_guards,
+            snapshot.account_id,
+            guard_row,
+            {
+                "account_id": snapshot.account_id,
+                "snapshot_version": snapshot.version,
+                "available_cash": snapshot.available_cash,
+                "reserved_cash": expected_reserved_cash,
+            },
+        )
+        _verify_reservation(connection, decision, snapshot)
+    except ImmutableFactConflict as error:
+        raise RiskAuthorizationError(
+            "SQL storage cannot preserve the exact risk authorization values"
+        ) from error
+
+
 class SqlRiskDecisionRepository:
     """Issue decisions under an account lock and consume them exactly once."""
 
@@ -253,14 +308,11 @@ class SqlRiskDecisionRepository:
                 raise RiskAuthorizationError(
                     "risk evaluation clock moved backwards for the account snapshot"
                 )
-            reserved_cash = Decimal(str(guard["reserved_cash"]))
+            reserved_cash = canonical_decimal(Decimal(str(guard["reserved_cash"])))
             decision = evaluate_risk_decision(
                 intent,
                 self._authority.limits,
-                # Numeric columns restore their declared scale. Normalize only the
-                # persisted aggregate before policy evaluation so evidence strings
-                # remain identical to the original domain decimals.
-                snapshot.available_cash - reserved_cash.normalize(),
+                exact_decimal_subtract(snapshot.available_cash, reserved_cash),
                 evaluated_at,
             )
             connection.execute(
@@ -281,11 +333,20 @@ class SqlRiskDecisionRepository:
                         expires_at=decision.expires_at,
                     )
                 )
-                new_reserved_cash += decision.reserved_cash
+                new_reserved_cash = exact_decimal_add(
+                    new_reserved_cash,
+                    decision.reserved_cash,
+                )
             connection.execute(
                 sa.update(risk_account_guards)
                 .where(risk_account_guards.c.account_id == snapshot.account_id)
                 .values(reserved_cash=new_reserved_cash, updated_at=evaluated_at)
+            )
+            _verify_issued_decision(
+                connection,
+                decision,
+                snapshot,
+                new_reserved_cash,
             )
             return decision
 

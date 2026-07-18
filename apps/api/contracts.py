@@ -5,9 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, PlainSerializer, WithJsonSchema
 
+from packages.domain.canonical import canonical_decimal
+from packages.domain.decimal_math import exact_decimal_sum
 from packages.domain.models import (
     DecisionStatus,
     LedgerEntry,
@@ -79,6 +82,25 @@ class ServiceStatus(StrEnum):
     NOT_READY = "not_ready"
 
 
+def _fixed_decimal_json(value: Decimal) -> str:
+    """Serialize Decimal without consulting the process arithmetic context."""
+
+    return format(canonical_decimal(value), "f")
+
+
+ApiDecimal = Annotated[
+    Decimal,
+    PlainSerializer(_fixed_decimal_json, return_type=str, when_used="json"),
+    WithJsonSchema(
+        {
+            "type": "string",
+            "pattern": r"^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$",
+        },
+        mode="serialization",
+    ),
+]
+
+
 class ApiModel(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -117,13 +139,13 @@ class UiBootstrap(ApiModel):
 
 
 class AccountSummary(ApiModel):
-    equity: Decimal
-    cash: Decimal
+    equity: ApiDecimal
+    cash: ApiDecimal
     currency: str
-    realized_pnl: Decimal
-    unrealized_pnl: Decimal
-    gross_exposure: Decimal
-    net_exposure: Decimal
+    realized_pnl: ApiDecimal
+    unrealized_pnl: ApiDecimal
+    gross_exposure: ApiDecimal
+    net_exposure: ApiDecimal
 
 
 class DeploymentSummary(ApiModel):
@@ -172,14 +194,14 @@ class MarketEventView(ApiModel):
     symbol: str
     event_time: datetime
     available_at: datetime
-    close_price: Decimal
+    close_price: ApiDecimal
     source: str
 
 
 class PositionTargetView(ApiModel):
     instrument_id: str
     symbol: str
-    quantity: Decimal
+    quantity: ApiDecimal
 
 
 class TargetPortfolioView(ApiModel):
@@ -198,13 +220,13 @@ class OrderIntentView(ApiModel):
     instrument_id: str
     symbol: str
     side: Side
-    quantity: Decimal
-    reference_price: Decimal
+    quantity: ApiDecimal
+    reference_price: ApiDecimal
     decision_event_id: str
     decision_event_time: datetime
     created_at: datetime
     expires_at: datetime
-    notional: Decimal
+    notional: ApiDecimal
 
 
 class RiskRuleView(ApiModel):
@@ -222,7 +244,7 @@ class RiskDecisionView(ApiModel):
     status: DecisionStatus
     evaluated_at: datetime
     expires_at: datetime
-    reserved_cash: Decimal
+    reserved_cash: ApiDecimal
     persisted: bool
     persistence_mode: PersistenceMode
     rules: list[RiskRuleView]
@@ -236,8 +258,8 @@ class OrderView(ApiModel):
     instrument_id: str
     symbol: str
     side: Side
-    quantity: Decimal
-    filled_quantity: Decimal
+    quantity: ApiDecimal
+    filled_quantity: ApiDecimal
     activation_after_event_time: datetime
     submitted_at: datetime
     status: OrderStatus
@@ -249,19 +271,19 @@ class FillView(ApiModel):
     instrument_id: str
     symbol: str
     side: Side
-    quantity: Decimal
-    price: Decimal
-    fee: Decimal
-    notional: Decimal
+    quantity: ApiDecimal
+    price: ApiDecimal
+    fee: ApiDecimal
+    notional: ApiDecimal
     executed_at: datetime
 
 
 class PostingView(ApiModel):
     account: str
     currency: str
-    debit: Decimal
-    credit: Decimal
-    units_delta: Decimal
+    debit: ApiDecimal
+    credit: ApiDecimal
+    units_delta: ApiDecimal
     instrument_id: str | None
 
 
@@ -271,7 +293,7 @@ class LedgerEntryView(ApiModel):
     reference_id: str
     posted_at: datetime
     currency: str
-    total: Decimal
+    total: ApiDecimal
     balanced: bool
     postings: list[PostingView]
 
@@ -279,10 +301,10 @@ class LedgerEntryView(ApiModel):
 class PositionView(ApiModel):
     instrument_id: str
     symbol: str
-    quantity: Decimal
-    average_cost: Decimal
-    market_price: Decimal
-    market_value: Decimal
+    quantity: ApiDecimal
+    average_cost: ApiDecimal
+    market_price: ApiDecimal
+    market_value: ApiDecimal
 
 
 class WalkingThreadTrace(ApiModel):
@@ -484,8 +506,8 @@ def posting_view(posting: Posting) -> PostingView:
 
 
 def ledger_entry_view(entry: LedgerEntry) -> LedgerEntryView:
-    debits = sum((posting.debit for posting in entry.postings), Decimal("0"))
-    credits = sum((posting.credit for posting in entry.postings), Decimal("0"))
+    debits = entry.total
+    credits = exact_decimal_sum(posting.credit for posting in entry.postings)
     return LedgerEntryView(
         entry_id=entry.entry_id,
         event_type=entry.event_type,

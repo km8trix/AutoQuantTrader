@@ -10,6 +10,7 @@ from packages.domain.accounting import Ledger
 from packages.domain.clock import FixedClock
 from packages.domain.execution import SimulatedBroker
 from packages.domain.identifiers import deterministic_id
+from packages.domain.market_batch import MarketBatch, MarketWatermark
 from packages.domain.models import (
     AccountProjection,
     Fill,
@@ -23,6 +24,7 @@ from packages.domain.models import (
     TraceStep,
 )
 from packages.domain.portfolio import target_to_order_intent
+from packages.domain.replay import replay_market_events
 from packages.domain.risk import (
     FixedRiskAccountSnapshotProvider,
     InMemoryRiskDecisionRepository,
@@ -41,6 +43,7 @@ class WalkingThreadResult:
     completed_at: datetime
     decision_event: MarketEvent
     fill_event: MarketEvent
+    decision_batch: MarketBatch
     target: TargetPortfolio
     intent: OrderIntent
     risk_account_snapshot: RiskAccountSnapshot
@@ -112,17 +115,33 @@ class WalkingThread:
             available_at=datetime(2026, 7, 15, 13, 32, tzinfo=UTC),
             close_price=Decimal("101.00"),
         )
+        watermark = MarketWatermark(
+            watermark_id="fixed-tape-SPY-20260715T133100Z-close",
+            event_time_through=decision_event.event_time,
+            closed_at=decision_event.available_at,
+            expected_instrument_ids=(cls.instrument_id,),
+        )
+        replay = replay_market_events(
+            events=(decision_event,),
+            watermarks=(watermark,),
+        )
+        decision_batch = replay.batches[0]
 
         ledger = Ledger()
         ledger.open_account(cls.starting_cash, started_at)
 
-        context = ReadOnlyStrategyContext(current_positions={})
+        context = ReadOnlyStrategyContext(
+            decision_batch_id=decision_batch.batch_id,
+            decision_batch_sha256=decision_batch.semantic_sha256,
+            as_of=decision_batch.as_of,
+            current_positions={},
+        )
         strategy = FixedQuantityStrategy(target_quantity=cls.target_quantity)
         strategy.initialize(context)
-        target = strategy.on_market(context, decision_event)
+        target = strategy.on_market(context, decision_batch)
         if target is None:
             raise RuntimeError("walking-thread strategy unexpectedly emitted no target")
-        intent = target_to_order_intent(target, Decimal("0"), decision_event)
+        intent = target_to_order_intent(target, Decimal("0"), decision_batch)
         if intent is None:
             raise RuntimeError("walking-thread target unexpectedly emitted no order intent")
 
@@ -146,9 +165,9 @@ class WalkingThread:
                 trace_id=deterministic_id("trace", run_id, "market"),
                 stage="market",
                 status="completed",
-                occurred_at=decision_event.available_at,
-                title="Market event became available",
-                detail="SPY close 100.00 entered the causal strategy context.",
+                occurred_at=decision_batch.as_of,
+                title="Market batch became complete",
+                detail="The SPY fact was reduced before its equal-time watermark closed.",
             ),
             TraceStep(
                 trace_id=deterministic_id("trace", run_id, "target"),
@@ -205,6 +224,7 @@ class WalkingThread:
             completed_at=fill_event.available_at,
             decision_event=decision_event,
             fill_event=fill_event,
+            decision_batch=decision_batch,
             target=target,
             intent=intent,
             risk_account_snapshot=risk_snapshot,

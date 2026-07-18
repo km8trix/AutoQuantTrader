@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from decimal import Decimal, localcontext
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from apps.api.config import (
     PaperCredentialRefs,
     Settings,
 )
+from apps.api.contracts import AccountSummary
 from apps.api.main import create_app
 from packages.persistence.database import create_database_engine
 from packages.persistence.schema import fills, ledger_entries, risk_reservations
@@ -32,6 +34,33 @@ def durable_engine(tmp_path: Path) -> Engine:
     )
     command.upgrade(config, "head")
     return engine
+
+
+def test_decimal_api_serialization_is_independent_of_ambient_context() -> None:
+    summary = AccountSummary(
+        equity=Decimal("1E+5"),
+        cash=Decimal("98989.00"),
+        currency="USD",
+        realized_pnl=Decimal("-1.00"),
+        unrealized_pnl=Decimal("0.00"),
+        gross_exposure=Decimal("1010.00"),
+        net_exposure=Decimal("1010.00"),
+    )
+
+    with localcontext() as context:
+        context.capitals = 0
+        lowercase_context = summary.model_dump_json()
+    with localcontext() as context:
+        context.capitals = 1
+        uppercase_context = summary.model_dump_json()
+    rescaled = summary.model_copy(
+        update={"equity": Decimal("100000.00"), "cash": Decimal("98989")}
+    ).model_dump_json()
+
+    assert lowercase_context == uppercase_context
+    assert lowercase_context == rescaled
+    assert '"equity":"100000"' in lowercase_context
+    assert '"cash":"98989"' in lowercase_context
 
 
 def test_health_and_browser_contracts(tmp_path: Path) -> None:
@@ -53,12 +82,13 @@ def test_health_and_browser_contracts(tmp_path: Path) -> None:
     assert readiness["reasons"] == []
     assert datetime.fromisoformat(readiness["as_of"]) >= bootstrap_requested_at
     assert bootstrap.json()["market_clock"]["as_of"] == "2026-07-15T13:32:00Z"
+    assert "backtest" not in bootstrap.json()["capabilities"]
 
     summary = client.get("/api/v1/dashboard/summary")
     assert summary.status_code == 200
     payload = summary.json()
-    assert payload["account"]["cash"] == "98989.00"
-    assert payload["account"]["equity"] == "99999.00"
+    assert payload["account"]["cash"] == "98989"
+    assert payload["account"]["equity"] == "99999"
     assert payload["deployment"]["state"] == "shadow"
     assert payload["deployment"]["mode"] == "local"
     assert payload["alerts"] == {"critical": 0, "warning": 0}

@@ -58,6 +58,12 @@ def insert_or_verify(
     )
     if existing is None:
         connection.execute(sa.insert(table).values(**values))
+        persisted = (
+            connection.execute(sa.select(table).where(table.c[key_name] == values[key_name]))
+            .mappings()
+            .one()
+        )
+        assert_immutable(table, identifier, persisted, values)
         return True
     assert_immutable(table, identifier, existing, values)
     return False

@@ -1,6 +1,6 @@
 from dataclasses import replace
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
 import pytest
 import sqlalchemy as sa
@@ -22,7 +22,7 @@ from packages.domain.risk import (
 )
 from packages.domain.walking_thread import WalkingThread
 from packages.persistence.database import create_database_engine
-from packages.persistence.immutable import ImmutableFactConflict
+from packages.persistence.immutable import ImmutableFactConflict, insert_or_verify
 from packages.persistence.risk import SqlRiskDecisionRepository
 from packages.persistence.schema import (
     fills,
@@ -227,6 +227,129 @@ def test_sql_reservations_prevent_double_spending() -> None:
         )
     assert Decimal(str(reserved)) == Decimal("1001.00")
     assert row_count(engine, risk_reservations) == 1
+
+
+def test_sql_sequential_reservations_ignore_ambient_decimal_context() -> None:
+    result = WalkingThread.run()
+    first_intent = replace(
+        result.intent,
+        intent_id="sql-decimal-context-first",
+        target_id="sql-decimal-context-first-target",
+        quantity=Decimal("3"),
+        reference_price=Decimal("1.23456789"),
+    )
+    second_intent = replace(
+        first_intent,
+        intent_id="sql-decimal-context-second",
+        target_id="sql-decimal-context-second-target",
+    )
+    snapshot = RiskAccountSnapshot(
+        account_id="sql-decimal-context-account",
+        version="sql-decimal-context-v1",
+        available_cash=Decimal("7.40740734"),
+    )
+    limits = RiskLimits(
+        allowed_instruments=frozenset({result.intent.instrument_id}),
+        max_order_quantity=Decimal("100"),
+        max_order_notional=Decimal("10"),
+        minimum_cash_buffer=Decimal("0"),
+        estimated_fee=Decimal("0"),
+    )
+
+    def authorize(precision: int) -> tuple[DecisionStatus, DecisionStatus, Decimal]:
+        engine = create_database_engine("sqlite+pysqlite:///:memory:")
+        initialize_phase_zero_schema(engine)
+        authority = RiskAuthority(
+            limits=limits,
+            account_snapshots=FixedRiskAccountSnapshotProvider(snapshot),
+            evaluation_clock=FixedClock(result.risk_decision.evaluated_at),
+            consumption_clock=FixedClock(result.order.submitted_at),
+        )
+        repository = SqlRiskDecisionRepository(engine, authority)
+        with localcontext() as context:
+            context.prec = precision
+            first = repository.authorize(first_intent)
+            second = repository.authorize(second_intent)
+        with engine.connect() as connection:
+            reserved = connection.scalar(
+                sa.select(risk_account_guards.c.reserved_cash).where(
+                    risk_account_guards.c.account_id == snapshot.account_id
+                )
+            )
+        assert reserved is not None
+        return first.status, second.status, Decimal(str(reserved))
+
+    low_precision = authorize(4)
+    high_precision = authorize(40)
+
+    assert low_precision == high_precision
+    assert low_precision == (
+        DecisionStatus.APPROVED,
+        DecisionStatus.APPROVED,
+        Decimal("7.4074073400"),
+    )
+
+
+def test_sql_authorization_rolls_back_lossy_decimal_storage() -> None:
+    engine = create_database_engine("sqlite+pysqlite:///:memory:")
+    initialize_phase_zero_schema(engine)
+    result = WalkingThread.run()
+    intent = replace(
+        result.intent,
+        intent_id="sql-lossy-decimal-intent",
+        target_id="sql-lossy-decimal-target",
+        quantity=Decimal("1"),
+        reference_price=Decimal("123456789.1234567810"),
+    )
+    snapshot = RiskAccountSnapshot(
+        account_id="sql-lossy-decimal-account",
+        version="sql-lossy-decimal-v1",
+        available_cash=Decimal("500000000"),
+    )
+    authority = RiskAuthority(
+        limits=RiskLimits(
+            allowed_instruments=frozenset({intent.instrument_id}),
+            max_order_quantity=Decimal("100"),
+            max_order_notional=Decimal("200000000"),
+            minimum_cash_buffer=Decimal("0"),
+            estimated_fee=Decimal("0"),
+        ),
+        account_snapshots=FixedRiskAccountSnapshotProvider(snapshot),
+        evaluation_clock=FixedClock(result.risk_decision.evaluated_at),
+        consumption_clock=FixedClock(result.order.submitted_at),
+    )
+
+    with pytest.raises(RiskAuthorizationError, match="exact risk authorization"):
+        SqlRiskDecisionRepository(engine, authority).authorize(intent)
+
+    assert row_count(engine, risk_account_guards) == 0
+    assert row_count(engine, risk_decisions) == 0
+    assert row_count(engine, risk_reservations) == 0
+
+
+def test_first_immutable_insert_rolls_back_lossy_decimal_storage() -> None:
+    engine = create_database_engine("sqlite+pysqlite:///:memory:")
+    metadata = sa.MetaData()
+    facts = sa.Table(
+        "exact_numeric_facts",
+        metadata,
+        sa.Column("fact_id", sa.String(36), primary_key=True),
+        sa.Column("amount", sa.Numeric(28, 10), nullable=False),
+    )
+    metadata.create_all(engine)
+
+    with pytest.raises(ImmutableFactConflict, match="amount"), engine.begin() as connection:
+        insert_or_verify(
+            connection,
+            facts,
+            "fact_id",
+            {
+                "fact_id": "lossy-first-write",
+                "amount": Decimal("123456789.1234567810"),
+            },
+        )
+
+    assert row_count(engine, facts) == 0
 
 
 @pytest.mark.parametrize(

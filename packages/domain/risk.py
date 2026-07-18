@@ -10,7 +10,13 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Protocol
 
+from packages.domain.canonical import canonical_decimal_text, canonical_persisted_decimal
 from packages.domain.clock import Clock
+from packages.domain.decimal_math import (
+    DECIMAL_ARITHMETIC_VERSION,
+    exact_decimal_add,
+    exact_decimal_subtract,
+)
 from packages.domain.identifiers import deterministic_id
 from packages.domain.models import (
     PHASE0_RISK_POLICY_VERSION,
@@ -38,8 +44,17 @@ class RiskAccountSnapshot:
     def __post_init__(self) -> None:
         if not self.account_id or not self.version:
             raise ValueError("risk account snapshot requires account and version IDs")
-        if not self.available_cash.is_finite() or self.available_cash < 0:
+        if (
+            type(self.available_cash) is not Decimal
+            or not self.available_cash.is_finite()
+            or self.available_cash < 0
+        ):
             raise ValueError("available cash must be finite and non-negative")
+        object.__setattr__(
+            self,
+            "available_cash",
+            canonical_persisted_decimal(self.available_cash, "available cash"),
+        )
 
 
 class RiskDecisionIssuer(Protocol):
@@ -65,13 +80,14 @@ def intent_payload_hash(intent: OrderIntent) -> str:
 
     payload = {
         "created_at": intent.created_at.astimezone(UTC).isoformat(),
+        "decimal_arithmetic_version": DECIMAL_ARITHMETIC_VERSION,
         "decision_event_id": intent.decision_event_id,
         "decision_event_time": intent.decision_event_time.astimezone(UTC).isoformat(),
         "expires_at": intent.expires_at.astimezone(UTC).isoformat(),
         "instrument_id": intent.instrument_id,
         "intent_id": intent.intent_id,
-        "quantity": format(intent.quantity, "f"),
-        "reference_price": format(intent.reference_price, "f"),
+        "quantity": canonical_decimal_text(intent.quantity),
+        "reference_price": canonical_decimal_text(intent.reference_price),
         "side": intent.side.value,
         "symbol": intent.symbol,
         "target_id": intent.target_id,
@@ -90,16 +106,25 @@ class RiskLimits:
     approval_ttl: timedelta = timedelta(seconds=30)
 
     def __post_init__(self) -> None:
-        if not self.allowed_instruments:
-            raise ValueError("risk allow-list cannot be empty")
+        if type(self.allowed_instruments) is not frozenset or not self.allowed_instruments:
+            raise ValueError("risk allow-list must be a non-empty immutable frozenset")
+        if any(
+            type(instrument_id) is not str
+            or not instrument_id
+            or instrument_id != instrument_id.strip()
+            for instrument_id in self.allowed_instruments
+        ):
+            raise ValueError("risk allow-list IDs must be non-empty trimmed strings")
         for value, name in (
             (self.max_order_quantity, "max order quantity"),
             (self.max_order_notional, "max order notional"),
         ):
-            if not value.is_finite() or value <= 0:
+            if type(value) is not Decimal or not value.is_finite() or value <= 0:
                 raise ValueError(f"{name} must be finite and positive")
         if (
-            not self.minimum_cash_buffer.is_finite()
+            type(self.minimum_cash_buffer) is not Decimal
+            or type(self.estimated_fee) is not Decimal
+            or not self.minimum_cash_buffer.is_finite()
             or not self.estimated_fee.is_finite()
             or self.minimum_cash_buffer < 0
             or self.estimated_fee < 0
@@ -107,6 +132,17 @@ class RiskLimits:
             raise ValueError("cash buffer and estimated fee must be finite and non-negative")
         if self.approval_ttl <= timedelta(0):
             raise ValueError("approval TTL must be positive")
+        for field_name in (
+            "max_order_quantity",
+            "max_order_notional",
+            "minimum_cash_buffer",
+            "estimated_fee",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                canonical_persisted_decimal(getattr(self, field_name), field_name),
+            )
 
 
 class RiskAccountSnapshotProvider(Protocol):
@@ -145,12 +181,22 @@ def evaluate_risk_decision(
     if evaluated_at < intent.created_at:
         raise RiskAuthorizationError("risk evaluation cannot precede intent creation")
     if (
-        not available_cash_after_existing_reservations.is_finite()
+        type(available_cash_after_existing_reservations) is not Decimal
+        or not available_cash_after_existing_reservations.is_finite()
         or available_cash_after_existing_reservations < 0
     ):
         raise ValueError("unreserved cash must be finite and non-negative")
+    available_cash_after_existing_reservations = canonical_persisted_decimal(
+        available_cash_after_existing_reservations,
+        "unreserved cash",
+    )
 
-    required_cash = intent.notional + limits.estimated_fee
+    notional = intent.notional
+    required_cash = exact_decimal_add(notional, limits.estimated_fee)
+    remaining_cash = exact_decimal_subtract(
+        available_cash_after_existing_reservations,
+        required_cash,
+    )
     rules = (
         RiskRuleResult(
             rule="instrument_allow_list",
@@ -167,23 +213,20 @@ def evaluate_risk_decision(
         RiskRuleResult(
             rule="quantity",
             passed=intent.quantity <= limits.max_order_quantity,
-            observed=str(intent.quantity),
-            limit=str(limits.max_order_quantity),
+            observed=canonical_decimal_text(intent.quantity),
+            limit=canonical_decimal_text(limits.max_order_quantity),
         ),
         RiskRuleResult(
             rule="notional",
-            passed=intent.notional <= limits.max_order_notional,
-            observed=str(intent.notional),
-            limit=str(limits.max_order_notional),
+            passed=notional <= limits.max_order_notional,
+            observed=canonical_decimal_text(notional),
+            limit=canonical_decimal_text(limits.max_order_notional),
         ),
         RiskRuleResult(
             rule="cash_buffer",
-            passed=(
-                available_cash_after_existing_reservations - required_cash
-                >= limits.minimum_cash_buffer
-            ),
-            observed=str(available_cash_after_existing_reservations - required_cash),
-            limit=str(limits.minimum_cash_buffer),
+            passed=remaining_cash >= limits.minimum_cash_buffer,
+            observed=canonical_decimal_text(remaining_cash),
+            limit=canonical_decimal_text(limits.minimum_cash_buffer),
         ),
         RiskRuleResult(
             rule="intent_freshness",
@@ -271,7 +314,7 @@ class InMemoryRiskDecisionRepository:
             decision = evaluate_risk_decision(
                 intent,
                 self._authority.limits,
-                capacity - reserved,
+                exact_decimal_subtract(capacity, reserved),
                 evaluated_at,
             )
             existing = self._decisions.get(decision.decision_id)
@@ -286,7 +329,7 @@ class InMemoryRiskDecisionRepository:
                 snapshot.version,
             )
             if decision.status is DecisionStatus.APPROVED:
-                reserved += decision.reserved_cash
+                reserved = exact_decimal_add(reserved, decision.reserved_cash)
             self._snapshots[snapshot.account_id] = (
                 snapshot.version,
                 capacity,
