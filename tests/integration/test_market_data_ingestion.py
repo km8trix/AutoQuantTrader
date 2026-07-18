@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -19,20 +20,32 @@ from packages.adapters.market_data.recorded import (
     RecordedJsonlBarSource,
 )
 from packages.adapters.market_data.reference_fixture import admission_profile, reference_fixture
+from packages.application import market_data_ingestion
 from packages.application.market_data_ingestion import (
+    _LEGACY_INTEGRITY_CONTRACT,
     HistoricalSourceProfileMismatch,
     ingest_historical_source,
     ingest_recorded_fixture,
 )
-from packages.datasets import LocalParquetObjectStore, ManifestBarReader
+from packages.datasets import (
+    ARROW_SEMANTIC_CHECKSUM_VERSION,
+    INPUT_REFERENCE_HASH_VERSION,
+    INPUT_SEMANTIC_CHECKSUM_VERSION,
+    PERSISTED_REFERENCE_HASH_VERSION,
+    LocalParquetObjectStore,
+    ManifestBarReader,
+)
 from packages.market_data import RevisionPolicy, normalize_records, select_as_of
 from packages.persistence.database import (
     DatabaseSchemaNotReady,
     create_database_engine,
     verify_operational_schema,
 )
+from packages.persistence.immutable import ImmutableFactConflict
 from packages.persistence.market_data import SqlMarketDataCatalog
 from packages.persistence.schema import (
+    calendar_versions,
+    corporate_action_sets,
     data_objects,
     data_quality_issues,
     dataset_manifest_partitions,
@@ -43,6 +56,7 @@ from packages.persistence.schema import (
     market_data_admission_profiles,
     market_data_admission_runs,
     partition_quarantines,
+    universe_versions,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -135,6 +149,18 @@ def test_fixture_ingestion_is_content_addressed_idempotent_and_quarantines(
             .join(dataset_partitions, dataset_partitions.c.object_id == data_objects.c.object_id)
             .where(dataset_partitions.c.layer == "normalized")
         )
+        manifest_schema_version = connection.scalar(sa.select(dataset_manifests.c.schema_version))
+        object_checksum_versions = set(
+            connection.scalars(sa.select(data_objects.c.semantic_checksum_version))
+        )
+        partition_checksum_versions = set(
+            connection.scalars(sa.select(dataset_partitions.c.semantic_checksum_version))
+        )
+        reference_hash_versions = {
+            connection.scalar(sa.select(calendar_versions.c.content_hash_version)),
+            connection.scalar(sa.select(universe_versions.c.content_hash_version)),
+            connection.scalar(sa.select(corporate_action_sets.c.content_hash_version)),
+        }
     assert counts == {
         "jobs": 1,
         "objects": 3,
@@ -147,6 +173,10 @@ def test_fixture_ingestion_is_content_addressed_idempotent_and_quarantines(
         "admission_runs": 1,
         "admission_checks": 18,
     }
+    assert manifest_schema_version == "raw-bar-v2"
+    assert object_checksum_versions == {ARROW_SEMANTIC_CHECKSUM_VERSION}
+    assert partition_checksum_versions == {ARROW_SEMANTIC_CHECKSUM_VERSION}
+    assert reference_hash_versions == {PERSISTED_REFERENCE_HASH_VERSION}
     for row in object_rows:
         object_path = lake / str(row["object_key"])
         assert object_path.is_file()
@@ -174,6 +204,116 @@ def test_fixture_ingestion_is_content_addressed_idempotent_and_quarantines(
     assert after_correction[0].revision == 2
     assert after_correction[0].close_price == Decimal("100.90")
     verify_operational_schema(engine, require_phase_zero_facts=False)
+
+
+def test_migrated_legacy_fixture_rerun_reconstructs_the_complete_v1_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = migrated_engine(tmp_path)
+    lake = tmp_path / "legacy-lake"
+
+    with monkeypatch.context() as migration_seed:
+        migration_seed.setattr(
+            market_data_ingestion,
+            "_select_integrity_contract",
+            lambda catalog, bundle, *, policy: market_data_ingestion._SelectedIntegrityContract(
+                _LEGACY_INTEGRITY_CONTRACT
+            ),
+        )
+        legacy = ingest_recorded_fixture(
+            engine=engine,
+            data_lake_path=lake,
+            source_path=FIXTURE,
+        )
+    retry = ingest_recorded_fixture(
+        engine=engine,
+        data_lake_path=lake,
+        source_path=FIXTURE,
+    )
+
+    assert legacy.first_publication is True
+    assert retry.first_publication is False
+    assert legacy.job_id == retry.job_id
+    assert legacy.job_id == "f76fbbd8b03fff4ae9b8696f9884ab470ca91fb2dd3f6ac8e325e777669dfb0f"
+    assert legacy.manifest_id == retry.manifest_id
+    assert legacy.partition_checksums == retry.partition_checksums
+    assert legacy.admission_run_id == retry.admission_run_id
+    assert legacy.admission_status == retry.admission_status == "blocked"
+
+    with engine.connect() as connection:
+        assert connection.scalar(sa.select(sa.func.count()).select_from(ingestion_jobs)) == 1
+        assert connection.scalar(sa.select(sa.func.count()).select_from(dataset_manifests)) == 1
+        assert connection.scalar(sa.select(sa.func.count()).select_from(data_objects)) == 3
+        assert connection.scalar(sa.select(sa.func.count()).select_from(dataset_partitions)) == 3
+        assert set(connection.scalars(sa.select(dataset_manifests.c.schema_version))) == {
+            "raw-bar-v1"
+        }
+        assert set(connection.scalars(sa.select(data_objects.c.semantic_checksum_version))) == {
+            INPUT_SEMANTIC_CHECKSUM_VERSION
+        }
+        assert set(
+            connection.scalars(sa.select(dataset_partitions.c.semantic_checksum_version))
+        ) == {INPUT_SEMANTIC_CHECKSUM_VERSION}
+        assert {
+            connection.scalar(sa.select(calendar_versions.c.content_hash_version)),
+            connection.scalar(sa.select(universe_versions.c.content_hash_version)),
+            connection.scalar(sa.select(corporate_action_sets.c.content_hash_version)),
+        } == {INPUT_REFERENCE_HASH_VERSION}
+
+    assert legacy.manifest_id is not None
+    descriptor = SqlMarketDataCatalog(engine).manifest_objects(legacy.manifest_id)
+    assert descriptor.schema_version == "raw-bar-v1"
+    assert descriptor.row_count == legacy.normalized_record_count
+
+
+def test_legacy_retry_rejects_a_different_object_receipt_before_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = migrated_engine(tmp_path)
+    lake = tmp_path / "legacy-receipt-lake"
+    with monkeypatch.context() as migration_seed:
+        migration_seed.setattr(
+            market_data_ingestion,
+            "_select_integrity_contract",
+            lambda catalog, bundle, *, policy: market_data_ingestion._SelectedIntegrityContract(
+                _LEGACY_INTEGRITY_CONTRACT
+            ),
+        )
+        legacy = ingest_recorded_fixture(
+            engine=engine,
+            data_lake_path=lake,
+            source_path=FIXTURE,
+        )
+    assert legacy.manifest_id is not None
+    original_manifest_objects = SqlMarketDataCatalog.manifest_objects
+
+    def different_receipt(
+        catalog: SqlMarketDataCatalog,
+        manifest_id: str,
+    ) -> object:
+        descriptor = original_manifest_objects(catalog, manifest_id)
+        partition = replace(
+            descriptor.partitions[0],
+            size_bytes=descriptor.partitions[0].size_bytes + 1,
+        )
+        return replace(descriptor, partitions=(partition,))
+
+    def forbidden_publish(*_args: object, **_kwargs: object) -> bool:
+        pytest.fail("a mismatched legacy receipt must fail before catalog publication")
+
+    monkeypatch.setattr(SqlMarketDataCatalog, "manifest_objects", different_receipt)
+    monkeypatch.setattr(SqlMarketDataCatalog, "publish", forbidden_publish)
+    with pytest.raises(
+        ImmutableFactConflict,
+        match="differs from the reconstructed object receipt",
+    ):
+        ingest_recorded_fixture(
+            engine=engine,
+            data_lake_path=lake,
+            source_path=FIXTURE,
+        )
 
 
 def test_generic_historical_source_preserves_recorded_fixture_behavior(tmp_path: Path) -> None:

@@ -24,7 +24,11 @@ from packages.adapters.market_data.reference_fixture import (
     reference_fixture,
 )
 from packages.datasets import (
+    ARROW_SEMANTIC_CHECKSUM_VERSION,
+    INPUT_REFERENCE_HASH_VERSION,
+    INPUT_SEMANTIC_CHECKSUM_VERSION,
     NORMALIZED_BAR_SCHEMA,
+    PERSISTED_REFERENCE_HASH_VERSION,
     QUARANTINED_RAW_SCHEMA,
     RAW_BAR_SCHEMA,
     LocalParquetObjectStore,
@@ -46,16 +50,51 @@ from packages.market_data import (
     check_quality,
     normalize_records,
 )
-from packages.persistence.market_data import CatalogPublication, SqlMarketDataCatalog
+from packages.persistence.immutable import ImmutableFactConflict
+from packages.persistence.market_data import (
+    CatalogPublication,
+    ManifestObjects,
+    ManifestPartitionObject,
+    SqlMarketDataCatalog,
+)
 
 RAW_SCHEMA_VERSION = "vendor-bar-v1"
-NORMALIZED_SCHEMA_VERSION = "raw-bar-v1"
+LEGACY_NORMALIZED_SCHEMA_VERSION = "raw-bar-v1"
+NORMALIZED_SCHEMA_VERSION = "raw-bar-v2"
 QUALITY_RULESET_VERSION = "market-data-quality-v1"
 
 AdmissionInputFactory = Callable[
     [HistoricalSourceBundle],
     tuple[AdmissionSpecification, AdmissionEvidence],
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class _IngestionIntegrityContract:
+    normalized_schema_version: str
+    semantic_checksum_version: str
+    reference_hash_version: str
+    binds_integrity_versions: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _SelectedIntegrityContract:
+    contract: _IngestionIntegrityContract
+    legacy_manifest: ManifestObjects | None = None
+
+
+_LEGACY_INTEGRITY_CONTRACT = _IngestionIntegrityContract(
+    normalized_schema_version=LEGACY_NORMALIZED_SCHEMA_VERSION,
+    semantic_checksum_version=INPUT_SEMANTIC_CHECKSUM_VERSION,
+    reference_hash_version=INPUT_REFERENCE_HASH_VERSION,
+    binds_integrity_versions=False,
+)
+_CURRENT_INTEGRITY_CONTRACT = _IngestionIntegrityContract(
+    normalized_schema_version=NORMALIZED_SCHEMA_VERSION,
+    semantic_checksum_version=ARROW_SEMANTIC_CHECKSUM_VERSION,
+    reference_hash_version=PERSISTED_REFERENCE_HASH_VERSION,
+    binds_integrity_versions=True,
+)
 
 
 class HistoricalSourceProfileMismatch(ValueError):
@@ -104,6 +143,157 @@ def _json_bytes(value: Any) -> bytes:
 
 def _digest(value: Any) -> str:
     return hashlib.sha256(_json_bytes(value)).hexdigest()
+
+
+def _reference_digest(value: Any, version: str) -> str:
+    digest = hashlib.sha256()
+    if version == PERSISTED_REFERENCE_HASH_VERSION:
+        digest.update(b"autoquanttrader:reference-hash:persisted-v2\n")
+    elif version != INPUT_REFERENCE_HASH_VERSION:
+        raise ValueError("unsupported ingestion reference hash version")
+    digest.update(_json_bytes(value))
+    return digest.hexdigest()
+
+
+def _idempotency_key(
+    bundle: HistoricalSourceBundle,
+    *,
+    policy: RevisionPolicy,
+    contract: _IngestionIntegrityContract,
+) -> str:
+    profile = bundle.profile
+    material = {
+        "calendar_version": bundle.calendar.version,
+        "corporate_action_version": profile.corporate_action_version,
+        "normalization_schema": contract.normalized_schema_version,
+        "policy": policy.value,
+        "quality_ruleset": QUALITY_RULESET_VERSION,
+        "source_checksum": bundle.source_checksum,
+        "source_id": profile.source_id,
+        "universe_version": profile.universe_version,
+    }
+    if contract.binds_integrity_versions:
+        material.update(
+            {
+                "reference_hash_version": contract.reference_hash_version,
+                "semantic_checksum_version": contract.semantic_checksum_version,
+            }
+        )
+    return _digest(material)
+
+
+def _manifest_identity_material(
+    bundle: HistoricalSourceBundle,
+    *,
+    policy: RevisionPolicy,
+    contract: _IngestionIntegrityContract,
+    ordered_partition_ids: tuple[str, ...],
+    reference_hashes: dict[str, str],
+) -> dict[str, object]:
+    profile = bundle.profile
+    material: dict[str, object] = {
+        "calendar_version": bundle.calendar.version,
+        "corporate_action_version": profile.corporate_action_version,
+        "ordered_partitions": list(ordered_partition_ids),
+        "price_basis": "raw",
+        "revision_policy": policy.value,
+        "schema_version": contract.normalized_schema_version,
+        "source_id": profile.source_id,
+        "universe_version": profile.universe_version,
+    }
+    if contract.binds_integrity_versions:
+        material.update(
+            {
+                "calendar_hash": reference_hashes["calendar_hash"],
+                "calendar_hash_version": contract.reference_hash_version,
+                "corporate_action_hash": reference_hashes["action_hash"],
+                "corporate_action_hash_version": contract.reference_hash_version,
+                "universe_hash": reference_hashes["universe_hash"],
+                "universe_hash_version": contract.reference_hash_version,
+            }
+        )
+    return material
+
+
+def _select_integrity_contract(
+    catalog: SqlMarketDataCatalog,
+    bundle: HistoricalSourceBundle,
+    *,
+    policy: RevisionPolicy,
+) -> _SelectedIntegrityContract:
+    current_key = _idempotency_key(
+        bundle,
+        policy=policy,
+        contract=_CURRENT_INTEGRITY_CONTRACT,
+    )
+    if catalog.job_for_idempotency_key(current_key) is not None:
+        return _SelectedIntegrityContract(_CURRENT_INTEGRITY_CONTRACT)
+
+    legacy_key = _idempotency_key(
+        bundle,
+        policy=policy,
+        contract=_LEGACY_INTEGRITY_CONTRACT,
+    )
+    legacy_job = catalog.job_for_idempotency_key(legacy_key)
+    if legacy_job is None:
+        return _SelectedIntegrityContract(_CURRENT_INTEGRITY_CONTRACT)
+    if (
+        legacy_job["job_id"] != legacy_key
+        or legacy_job["source_id"] != bundle.profile.source_id
+        or legacy_job["source_checksum"] != bundle.source_checksum
+    ):
+        raise ImmutableFactConflict("legacy ingestion job failed its identity pins")
+
+    manifest_id = catalog.manifest_id_for_job(legacy_key)
+    if manifest_id is None:
+        raise ImmutableFactConflict("legacy ingestion job has no verifiable manifest")
+    descriptor = catalog.manifest_objects(manifest_id)
+    reference_hashes = _reference_values(bundle, contract=_LEGACY_INTEGRITY_CONTRACT)
+    expected_manifest_id = _digest(
+        _manifest_identity_material(
+            bundle,
+            policy=policy,
+            contract=_LEGACY_INTEGRITY_CONTRACT,
+            ordered_partition_ids=tuple(
+                partition.partition_id for partition in descriptor.partitions
+            ),
+            reference_hashes=reference_hashes,
+        )
+    )
+    profile = bundle.profile
+    if (
+        descriptor.manifest_id != expected_manifest_id
+        or descriptor.manifest_hash != expected_manifest_id
+        or descriptor.source_id != bundle.profile.source_id
+        or descriptor.source_kind != profile.kind.value
+        or descriptor.source_licensed != profile.licensed
+        or descriptor.entitlement_statuses != (profile.entitlement_status.value,)
+        or descriptor.schema_version != LEGACY_NORMALIZED_SCHEMA_VERSION
+        or descriptor.calendar_version != bundle.calendar.version
+        or descriptor.calendar_hash != reference_hashes["calendar_hash"]
+        or descriptor.calendar_name != bundle.calendar.calendar_id
+        or descriptor.calendar_timezone != bundle.calendar.timezone
+        or descriptor.calendar_tzdata_version != profile.tzdata_version
+        or descriptor.universe_version != profile.universe_version
+        or descriptor.universe_hash != reference_hashes["universe_hash"]
+        or descriptor.corporate_action_version != profile.corporate_action_version
+        or descriptor.corporate_action_hash != reference_hashes["action_hash"]
+        or descriptor.revision_policy != policy.value
+        or descriptor.price_basis != "raw"
+        or len(descriptor.partitions) != 1
+        or {
+            descriptor.calendar_hash_version,
+            descriptor.universe_hash_version,
+            descriptor.corporate_action_hash_version,
+        }
+        != {INPUT_REFERENCE_HASH_VERSION}
+        or any(
+            partition.semantic_checksum_version != INPUT_SEMANTIC_CHECKSUM_VERSION
+            for partition in descriptor.partitions
+        )
+    ):
+        raise ImmutableFactConflict("legacy ingestion manifest failed its contract pins")
+    return _SelectedIntegrityContract(_LEGACY_INTEGRITY_CONTRACT, descriptor)
 
 
 def _identifier_id(source_id: str, observation_id: str, revision: int) -> str:
@@ -206,16 +396,25 @@ def _quarantined_row(record: VendorBarRecord, codes: tuple[str, ...]) -> dict[st
     }
 
 
-def _partition_id(*, layer: str, status: str, object_: ParquetObject) -> str:
-    return _digest(
-        {
-            "layer": layer,
-            "object_id": object_.object_id,
-            "schema": NORMALIZED_SCHEMA_VERSION if layer == "normalized" else RAW_SCHEMA_VERSION,
-            "semantic_checksum": object_.semantic_checksum,
-            "status": status,
-        }
-    )
+def _partition_id(
+    *,
+    layer: str,
+    status: str,
+    object_: ParquetObject,
+    contract: _IngestionIntegrityContract,
+) -> str:
+    material = {
+        "layer": layer,
+        "object_id": object_.object_id,
+        "schema": (
+            contract.normalized_schema_version if layer == "normalized" else RAW_SCHEMA_VERSION
+        ),
+        "semantic_checksum": object_.semantic_checksum,
+        "status": status,
+    }
+    if contract.binds_integrity_versions:
+        material["semantic_checksum_version"] = object_.semantic_checksum_version
+    return _digest(material)
 
 
 def _object_values(object_: ParquetObject, created_at: datetime) -> dict[str, Any]:
@@ -224,6 +423,7 @@ def _object_values(object_: ParquetObject, created_at: datetime) -> dict[str, An
         "object_key": object_.object_key,
         "byte_checksum": object_.byte_checksum,
         "semantic_checksum": object_.semantic_checksum,
+        "semantic_checksum_version": object_.semantic_checksum_version,
         "format": "parquet",
         "size_bytes": object_.size_bytes,
         "created_at": created_at,
@@ -258,11 +458,90 @@ def _partition_values(
         "available_at_start": min(availability_times),
         "available_at_end": max(availability_times),
         "semantic_checksum": object_.semantic_checksum,
+        "semantic_checksum_version": object_.semantic_checksum_version,
         "created_at": created_at,
     }
 
 
-def _reference_values(bundle: HistoricalSourceBundle) -> dict[str, Any]:
+def _verify_legacy_retry_receipt(
+    descriptor: ManifestObjects,
+    *,
+    manifest_id: str | None,
+    normalized_partition_id: str | None,
+    normalized_object: ParquetObject | None,
+    partition_rows: list[dict[str, Any]],
+) -> None:
+    """Match the rebuilt v1 object receipt before the immutable retry transaction."""
+
+    partition_row = next(
+        (
+            row
+            for row in partition_rows
+            if row["partition_id"] == normalized_partition_id
+            and row["layer"] == "normalized"
+            and row["status"] == "published"
+        ),
+        None,
+    )
+    if (
+        manifest_id is None
+        or normalized_partition_id is None
+        or normalized_object is None
+        or partition_row is None
+    ):
+        raise ImmutableFactConflict("legacy ingestion retry did not rebuild a published manifest")
+    expected_partition = ManifestPartitionObject(
+        ordinal=0,
+        partition_id=normalized_partition_id,
+        object_id=normalized_object.object_id,
+        object_key=normalized_object.object_key,
+        byte_checksum=normalized_object.byte_checksum,
+        semantic_checksum=normalized_object.semantic_checksum,
+        semantic_checksum_version=normalized_object.semantic_checksum_version,
+        format="parquet",
+        size_bytes=normalized_object.size_bytes,
+        row_count=normalized_object.row_count,
+        event_time_start=partition_row["event_time_start"],
+        event_time_end=partition_row["event_time_end"],
+        available_at_start=partition_row["available_at_start"],
+        available_at_end=partition_row["available_at_end"],
+    )
+    if (
+        descriptor.manifest_id != manifest_id
+        or descriptor.manifest_hash != manifest_id
+        or descriptor.row_count != normalized_object.row_count
+        or descriptor.partitions != (expected_partition,)
+    ):
+        raise ImmutableFactConflict(
+            "legacy ingestion manifest differs from the reconstructed object receipt"
+        )
+
+
+def _reference_values(
+    bundle: HistoricalSourceBundle,
+    *,
+    contract: _IngestionIntegrityContract,
+) -> dict[str, Any]:
+    if contract.binds_integrity_versions:
+        sessions = sorted(
+            bundle.calendar.sessions,
+            key=lambda item: (item.session_label, item.opens_at, item.closes_at),
+        )
+        memberships = sorted(
+            (item for item in bundle.security_master.memberships if item.included),
+            key=lambda item: (
+                item.security_id,
+                item.effective_from,
+                item.effective_to is None,
+                item.effective_to or item.effective_from,
+                item.available_at,
+            ),
+        )
+    else:
+        # Reproduce the pre-0006 receipt exactly. It hashed source ordering and
+        # included excluded memberships even though only included rows persisted.
+        sessions = list(bundle.calendar.sessions)
+        memberships = list(bundle.security_master.memberships)
     calendar_payload = [
         {
             "label": session.session_label,
@@ -270,7 +549,7 @@ def _reference_values(bundle: HistoricalSourceBundle) -> dict[str, Any]:
             "closes_at": session.closes_at,
             "kind": session.kind,
         }
-        for session in bundle.calendar.sessions
+        for session in sessions
     ]
     universe_payload = [
         {
@@ -280,7 +559,7 @@ def _reference_values(bundle: HistoricalSourceBundle) -> dict[str, Any]:
             "available_at": membership.available_at,
             "included": membership.included,
         }
-        for membership in bundle.security_master.memberships
+        for membership in memberships
     ]
     action_payload = [
         {
@@ -293,9 +572,9 @@ def _reference_values(bundle: HistoricalSourceBundle) -> dict[str, Any]:
         for action in bundle.corporate_actions
     ]
     return {
-        "calendar_hash": _digest(calendar_payload),
-        "universe_hash": _digest(universe_payload),
-        "action_hash": _digest(action_payload),
+        "calendar_hash": _reference_digest(calendar_payload, contract.reference_hash_version),
+        "universe_hash": _reference_digest(universe_payload, contract.reference_hash_version),
+        "action_hash": _reference_digest(action_payload, contract.reference_hash_version),
     }
 
 
@@ -419,24 +698,24 @@ def ingest_historical_source(
         )
     source_checksum = bundle.source_checksum
     policy = RevisionPolicy.REVISED_AS_OF
-    idempotency_key = _digest(
-        {
-            "calendar_version": bundle.calendar.version,
-            "corporate_action_version": profile.corporate_action_version,
-            "normalization_schema": NORMALIZED_SCHEMA_VERSION,
-            "policy": policy.value,
-            "quality_ruleset": QUALITY_RULESET_VERSION,
-            "source_checksum": source_checksum,
-            "source_id": profile.source_id,
-            "universe_version": profile.universe_version,
-        }
+    catalog = SqlMarketDataCatalog(engine)
+    selection = _select_integrity_contract(
+        catalog,
+        bundle,
+        policy=policy,
+    )
+    contract = selection.contract
+    idempotency_key = _idempotency_key(
+        bundle,
+        policy=policy,
+        contract=contract,
     )
     job_id = idempotency_key
     normalized = normalize_records(
         records,
         calendar=bundle.calendar,
         security_master=bundle.security_master,
-        schema_version=NORMALIZED_SCHEMA_VERSION,
+        schema_version=contract.normalized_schema_version,
     )
     as_of = max(
         (bar.available_at for bar in normalized.bars),
@@ -478,6 +757,7 @@ def ingest_historical_source(
             layer="raw",
             rows=[_raw_row(record) for record in accepted_records],
             schema=RAW_BAR_SCHEMA,
+            semantic_checksum_version=contract.semantic_checksum_version,
         )
         object_store.verify(raw_object)
         object_entries.append(
@@ -497,6 +777,7 @@ def ingest_historical_source(
             layer="normalized",
             rows=[_normalized_row(bar) for bar in normalized.bars],
             schema=NORMALIZED_BAR_SCHEMA,
+            semantic_checksum_version=contract.semantic_checksum_version,
         )
         object_store.verify(normalized_object)
         object_entries.append(
@@ -520,6 +801,7 @@ def ingest_historical_source(
                 for record in rejected_records
             ],
             schema=QUARANTINED_RAW_SCHEMA,
+            semantic_checksum_version=contract.semantic_checksum_version,
         )
         object_store.verify(quarantine_object)
         object_entries.append(
@@ -537,7 +819,12 @@ def ingest_historical_source(
     partition_rows: list[dict[str, Any]] = []
     partition_ids: dict[tuple[str, str], str] = {}
     for layer, status, object_, event_times, availability_times in object_entries:
-        partition_id = _partition_id(layer=layer, status=status, object_=object_)
+        partition_id = _partition_id(
+            layer=layer,
+            status=status,
+            object_=object_,
+            contract=contract,
+        )
         partition_ids[(layer, status)] = partition_id
         partition_rows.append(
             _partition_values(
@@ -548,7 +835,9 @@ def ingest_historical_source(
                 layer=layer,
                 status=status,
                 schema_version=(
-                    NORMALIZED_SCHEMA_VERSION if layer == "normalized" else RAW_SCHEMA_VERSION
+                    contract.normalized_schema_version
+                    if layer == "normalized"
+                    else RAW_SCHEMA_VERSION
                 ),
                 event_times=event_times,
                 availability_times=availability_times,
@@ -563,24 +852,22 @@ def ingest_historical_source(
     manifest_id: str | None = None
     manifest: dict[str, Any] | None = None
     manifest_members: tuple[dict[str, Any], ...] = ()
+    hashes = _reference_values(bundle, contract=contract)
     if normalized_partition_id is not None and not normalized_blocked:
-        manifest_material = {
-            "calendar_version": bundle.calendar.version,
-            "corporate_action_version": profile.corporate_action_version,
-            "ordered_partitions": [normalized_partition_id],
-            "price_basis": "raw",
-            "revision_policy": policy.value,
-            "schema_version": NORMALIZED_SCHEMA_VERSION,
-            "source_id": profile.source_id,
-            "universe_version": profile.universe_version,
-        }
+        manifest_material = _manifest_identity_material(
+            bundle,
+            policy=policy,
+            contract=contract,
+            ordered_partition_ids=(normalized_partition_id,),
+            reference_hashes=hashes,
+        )
         manifest_id = _digest(manifest_material)
         manifest = {
             "manifest_id": manifest_id,
             "name": profile.manifest_name,
             "manifest_hash": manifest_id,
             "source_id": profile.source_id,
-            "schema_version": NORMALIZED_SCHEMA_VERSION,
+            "schema_version": contract.normalized_schema_version,
             "calendar_version": bundle.calendar.version,
             "universe_version": profile.universe_version,
             "corporate_action_version": profile.corporate_action_version,
@@ -606,7 +893,6 @@ def ingest_historical_source(
             "admitted market-data evidence requires a published immutable manifest"
         )
 
-    hashes = _reference_values(bundle)
     action_values = tuple(_corporate_action_values(action) for action in bundle.corporate_actions)
     quality_run_id = _digest((QUALITY_RULESET_VERSION, job_id))
     quality_values = tuple(
@@ -730,6 +1016,15 @@ def ingest_historical_source(
             }
             for check in admission_report.checks
         )
+    if selection.legacy_manifest is not None:
+        _verify_legacy_retry_receipt(
+            selection.legacy_manifest,
+            manifest_id=manifest_id,
+            normalized_partition_id=normalized_partition_id,
+            normalized_object=normalized_object,
+            partition_rows=partition_rows,
+        )
+
     publication = CatalogPublication(
         source={
             "source_id": profile.source_id,
@@ -789,6 +1084,7 @@ def ingest_historical_source(
             "effective_as_of": profile.captured_at,
             "created_at": profile.captured_at,
             "content_hash": hashes["universe_hash"],
+            "content_hash_version": contract.reference_hash_version,
         },
         memberships=tuple(
             {
@@ -807,6 +1103,7 @@ def ingest_historical_source(
             "timezone": bundle.calendar.timezone,
             "tzdata_version": profile.tzdata_version,
             "content_hash": hashes["calendar_hash"],
+            "content_hash_version": contract.reference_hash_version,
             "created_at": profile.captured_at,
         },
         sessions=tuple(
@@ -824,6 +1121,7 @@ def ingest_historical_source(
             "corporate_action_version": profile.corporate_action_version,
             "name": profile.corporate_action_set_name,
             "content_hash": hashes["action_hash"],
+            "content_hash_version": contract.reference_hash_version,
             "created_at": profile.captured_at,
         },
         corporate_action_members=tuple(
@@ -882,7 +1180,6 @@ def ingest_historical_source(
         admission_run=admission_run_values,
         admission_checks=admission_check_values,
     )
-    catalog = SqlMarketDataCatalog(engine)
     first_publication = catalog.publish(publication)
     return IngestionOutcome(
         job_id=job_id,

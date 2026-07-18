@@ -17,6 +17,16 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+INPUT_SEMANTIC_CHECKSUM_VERSION = "input-v1"
+ARROW_SEMANTIC_CHECKSUM_VERSION = "arrow-v2"
+INPUT_REFERENCE_HASH_VERSION = "input-v1"
+PERSISTED_REFERENCE_HASH_VERSION = "persisted-v2"
+SEMANTIC_CHECKSUM_METADATA_KEY = b"autoquanttrader.semantic_checksum_version"
+_SUPPORTED_SEMANTIC_CHECKSUM_VERSIONS = {
+    INPUT_SEMANTIC_CHECKSUM_VERSION,
+    ARROW_SEMANTIC_CHECKSUM_VERSION,
+}
+
 DECIMAL_TYPE = pa.decimal128(28, 10)
 UTC_TIMESTAMP = pa.timestamp("us", tz="UTC")
 
@@ -103,6 +113,7 @@ class ParquetObject:
     object_key: str
     byte_checksum: str
     semantic_checksum: str
+    semantic_checksum_version: str
     size_bytes: int
     row_count: int
 
@@ -136,15 +147,47 @@ def canonical_row_bytes(row: Mapping[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
-def canonicalize_rows(rows: Sequence[Mapping[str, Any]]) -> tuple[list[dict[str, Any]], str]:
+def canonicalize_rows(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    semantic_checksum_version: str = INPUT_SEMANTIC_CHECKSUM_VERSION,
+) -> tuple[list[dict[str, Any]], str]:
     if not rows:
         raise ValueError("a Parquet partition cannot be empty")
+    if semantic_checksum_version not in _SUPPORTED_SEMANTIC_CHECKSUM_VERSIONS:
+        raise ValueError("unsupported semantic checksum version")
     ordered = sorted((dict(row) for row in rows), key=canonical_row_bytes)
     digest = hashlib.sha256()
+    if semantic_checksum_version == ARROW_SEMANTIC_CHECKSUM_VERSION:
+        # Domain separation prevents a v2 checksum from being mistaken for a
+        # legacy input-v1 checksum even when Arrow performs no value coercion.
+        digest.update(b"autoquanttrader:semantic-checksum:arrow-v2\n")
     for row in ordered:
         digest.update(canonical_row_bytes(row))
         digest.update(b"\n")
     return ordered, digest.hexdigest()
+
+
+def parquet_semantic_checksum_version(table: pa.Table) -> str:
+    """Return the explicit checksum contract carried by a Parquet table.
+
+    Objects written before migration 0006 have no schema metadata and are
+    unambiguously interpreted as input-v1. New arrow-v2 objects carry the
+    marker in their content-addressed bytes.
+    """
+
+    encoded = (table.schema.metadata or {}).get(SEMANTIC_CHECKSUM_METADATA_KEY)
+    if encoded is None:
+        return INPUT_SEMANTIC_CHECKSUM_VERSION
+    if not isinstance(encoded, bytes):
+        raise ObjectIntegrityError("Parquet semantic checksum version is malformed")
+    try:
+        version = encoded.decode("ascii")
+    except UnicodeDecodeError as error:
+        raise ObjectIntegrityError("Parquet semantic checksum version is malformed") from error
+    if version not in _SUPPORTED_SEMANTIC_CHECKSUM_VERSIONS:
+        raise ObjectIntegrityError("Parquet semantic checksum version is unsupported")
+    return version
 
 
 class LocalParquetObjectStore:
@@ -163,11 +206,33 @@ class LocalParquetObjectStore:
         layer: str,
         rows: Sequence[Mapping[str, Any]],
         schema: pa.Schema,
+        semantic_checksum_version: str = ARROW_SEMANTIC_CHECKSUM_VERSION,
     ) -> ParquetObject:
         if layer not in {"raw", "normalized"}:
             raise ValueError("dataset layer must be raw or normalized")
-        ordered_rows, semantic_checksum = canonicalize_rows(rows)
+        if semantic_checksum_version not in _SUPPORTED_SEMANTIC_CHECKSUM_VERSIONS:
+            raise ValueError("unsupported semantic checksum version")
+        if semantic_checksum_version == INPUT_SEMANTIC_CHECKSUM_VERSION:
+            # Compatibility path for reproducing the pre-0006 publication
+            # algorithm. Its checksum describes caller inputs before Arrow
+            # coercion and therefore cannot generally be rederived on read.
+            ordered_rows, semantic_checksum = canonicalize_rows(
+                rows,
+                semantic_checksum_version=semantic_checksum_version,
+            )
+        else:
+            # Decimal scale, timestamp precision, integer widths, and nullability
+            # can coerce Python inputs. v2 hashes values after that coercion.
+            coerced = pa.Table.from_pylist([dict(row) for row in rows], schema=schema)
+            ordered_rows, semantic_checksum = canonicalize_rows(
+                coerced.to_pylist(),
+                semantic_checksum_version=semantic_checksum_version,
+            )
         table = pa.Table.from_pylist(ordered_rows, schema=schema)
+        if semantic_checksum_version == ARROW_SEMANTIC_CHECKSUM_VERSION:
+            metadata = dict(table.schema.metadata or {})
+            metadata[SEMANTIC_CHECKSUM_METADATA_KEY] = semantic_checksum_version.encode("ascii")
+            table = table.replace_schema_metadata(metadata)
         sink = pa.BufferOutputStream()
         pq.write_table(
             table,
@@ -210,6 +275,7 @@ class LocalParquetObjectStore:
             object_key=object_key,
             byte_checksum=byte_checksum,
             semantic_checksum=semantic_checksum,
+            semantic_checksum_version=semantic_checksum_version,
             size_bytes=len(payload),
             row_count=len(ordered_rows),
         )
@@ -222,12 +288,28 @@ class LocalParquetObjectStore:
         if actual != object_.byte_checksum or actual != object_.object_id:
             raise ObjectIntegrityError(f"object {object_.object_key!r} failed checksum")
 
-    def read_table(self, object_key: str) -> pa.Table:
+    def read_table(
+        self,
+        object_key: str,
+        *,
+        expected_byte_checksum: str | None = None,
+        expected_size_bytes: int | None = None,
+    ) -> pa.Table:
         path = (self._root / object_key).resolve()
         if not path.is_relative_to(self._root) or not path.is_file():
             raise ObjectIntegrityError(f"object {object_key!r} is unavailable")
+        declared_size = path.stat().st_size
+        if expected_size_bytes is not None and declared_size != expected_size_bytes:
+            raise ObjectIntegrityError(f"object {object_key!r} failed size verification")
+        payload = path.read_bytes()
+        if len(payload) != declared_size:
+            raise ObjectIntegrityError(f"object {object_key!r} changed during verification")
         expected_checksum = path.stem
-        actual_checksum = hashlib.sha256(path.read_bytes()).hexdigest()
-        if len(expected_checksum) != 64 or actual_checksum != expected_checksum:
+        actual_checksum = hashlib.sha256(payload).hexdigest()
+        if (
+            len(expected_checksum) != 64
+            or actual_checksum != expected_checksum
+            or (expected_byte_checksum is not None and actual_checksum != expected_byte_checksum)
+        ):
             raise ObjectIntegrityError(f"object {object_key!r} failed checksum")
-        return pq.read_table(path)
+        return pq.read_table(pa.BufferReader(payload))

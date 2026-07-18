@@ -98,10 +98,17 @@ Phase 2 identifiers, exact versioned portfolio/risk arithmetic, and semantic
 replay digests. Strategy contexts bind an
 exact batch identity and digest, target tuples are immutable/sorted/unique, and
 `ReplayResult.complete_batch_ids` names every strategy-eligible proof. The
-walking thread now invokes its strategy through this canonical batch seam. This
-does not create a manifest-backed backtester, durable run record, API command,
-or browser result view. The Backtests route remains reserved, the reference
-benchmark is not implemented, and paper/live readiness is unchanged.
+walking thread now invokes its strategy through this canonical batch seam.
+
+ADR 0021 connects repository-owned fixture manifests to that reducer through a
+content-verified, all-revision RawBar tape. Calendar/universe pins produce the
+inclusive decision schedule with an explicit lag, so quarantined or missing
+rows remain visible as skipped evidence. A successful fixture replay can be
+atomically sealed as a content-addressed run manifest with separate full-source
+and projected-replay digests plus explicit runtime pins. Failed or late-event
+runs write nothing. This is not a backtester, mutable job, API command, browser
+result, benchmark, or trading capability. The Backtests route remains reserved
+and paper/live readiness is unchanged.
 
 For a separately authorized future capture, start from the fail-closed
 [acquisition-profile](docs/admission/tiingo-eod-acquisition-profile.template.json),
