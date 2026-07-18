@@ -85,6 +85,21 @@ def _persist_ledger_entry(connection: Connection, entry: LedgerEntry) -> tuple[i
     )
     if inserted_entry:
         connection.execute(sa.insert(ledger_postings), expected_postings)
+        persisted_postings = (
+            connection.execute(
+                sa.select(ledger_postings)
+                .where(ledger_postings.c.entry_id == entry.entry_id)
+                .order_by(ledger_postings.c.line_number)
+            )
+            .mappings()
+            .all()
+        )
+        if len(persisted_postings) != len(expected_postings):
+            raise ImmutableFactConflict(
+                f"ledger entry {entry.entry_id!r} did not persist every posting"
+            )
+        for actual, expected in zip(persisted_postings, expected_postings, strict=True):
+            assert_immutable(ledger_postings, entry.entry_id, actual, expected)
         return 1 + len(expected_postings), 0
     if len(existing_postings) != len(expected_postings):
         raise ImmutableFactConflict(

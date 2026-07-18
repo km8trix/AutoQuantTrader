@@ -1,6 +1,6 @@
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from inspect import signature
 
 import pytest
@@ -37,6 +37,23 @@ def make_limits(
         max_order_notional=Decimal("25000"),
         minimum_cash_buffer=minimum_cash_buffer,
     )
+
+
+def test_risk_allow_list_is_deeply_immutable_and_canonical() -> None:
+    with pytest.raises(ValueError, match="immutable frozenset"):
+        RiskLimits(
+            allowed_instruments={WalkingThread.instrument_id},  # type: ignore[arg-type]
+            max_order_quantity=Decimal("100"),
+            max_order_notional=Decimal("25000"),
+            minimum_cash_buffer=Decimal("1000"),
+        )
+    with pytest.raises(ValueError, match="trimmed strings"):
+        RiskLimits(
+            allowed_instruments=frozenset({" US-ETF-SPY"}),
+            max_order_quantity=Decimal("100"),
+            max_order_notional=Decimal("25000"),
+            minimum_cash_buffer=Decimal("1000"),
+        )
 
 
 def repository_for(
@@ -220,6 +237,53 @@ def test_reservations_prevent_double_spending_and_retries_are_idempotent() -> No
     assert retry == first
     assert second.status is DecisionStatus.REJECTED
     assert repository.reserved_cash(snapshot) == Decimal("1001.00")
+
+
+def test_sequential_reservations_are_independent_of_ambient_decimal_context() -> None:
+    result = WalkingThread.run()
+    first_intent = replace(
+        result.intent,
+        intent_id="decimal-context-first",
+        target_id="decimal-context-first-target",
+        quantity=Decimal("3"),
+        reference_price=Decimal("1.23456789"),
+    )
+    second_intent = replace(
+        first_intent,
+        intent_id="decimal-context-second",
+        target_id="decimal-context-second-target",
+    )
+    limits = RiskLimits(
+        allowed_instruments=frozenset({result.intent.instrument_id}),
+        max_order_quantity=Decimal("100"),
+        max_order_notional=Decimal("10"),
+        minimum_cash_buffer=Decimal("0"),
+        estimated_fee=Decimal("0"),
+    )
+
+    def authorize(precision: int) -> tuple[DecisionStatus, DecisionStatus, Decimal]:
+        repository, snapshot, _ = repository_for(
+            result,
+            available_cash=Decimal("7.40740734"),
+            limits=limits,
+            version=f"decimal-context-{precision}",
+        )
+        with localcontext() as context:
+            context.prec = precision
+            first = repository.authorize(first_intent)
+            second = repository.authorize(second_intent)
+            reserved = repository.reserved_cash(snapshot)
+        return first.status, second.status, reserved
+
+    low_precision = authorize(4)
+    high_precision = authorize(40)
+
+    assert low_precision == high_precision
+    assert low_precision == (
+        DecisionStatus.APPROVED,
+        DecisionStatus.APPROVED,
+        Decimal("7.40740734"),
+    )
 
 
 def test_snapshot_provider_cannot_change_version_or_cash_capacity() -> None:

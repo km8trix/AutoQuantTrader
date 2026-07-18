@@ -32,7 +32,7 @@ export function makeBootstrapFixture(now = new Date()): UiBootstrap {
       reasons: [],
       as_of: isoBefore(now, 2_000),
     },
-    capabilities: ['research', 'backtest', 'simulation-only'],
+    capabilities: ['research', 'simulation-only'],
     feature_flags: {
       walking_thread: true,
       controls: false,

@@ -5,7 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from packages.domain.identifiers import deterministic_id
+from packages.domain.canonical import canonical_persisted_decimal
+from packages.domain.decimal_math import (
+    deterministic_decimal_divide,
+    exact_decimal_add,
+    exact_decimal_multiply,
+    exact_decimal_subtract,
+    exact_decimal_sum,
+)
+from packages.domain.identifiers import canonical_id, deterministic_id
 from packages.domain.models import (
     AccountProjection,
     Fill,
@@ -30,10 +38,11 @@ class Ledger:
         self._entries.append(entry)
 
     def open_account(self, amount: Decimal, posted_at: datetime) -> LedgerEntry:
-        if not amount.is_finite() or amount <= 0:
+        if type(amount) is not Decimal or not amount.is_finite() or amount <= 0:
             raise ValueError("opening balance must be finite and positive")
+        amount = canonical_persisted_decimal(amount, "opening balance")
         entry = LedgerEntry(
-            entry_id=deterministic_id("ledger", "opening", amount, posted_at.isoformat()),
+            entry_id=canonical_id("ledger", "opening", amount, posted_at),
             event_type="opening_balance",
             reference_id="account-opening",
             posted_at=posted_at,
@@ -48,7 +57,7 @@ class Ledger:
     def post_fill(self, fill: Fill) -> LedgerEntry:
         if fill.side is not Side.BUY:
             raise ValueError("Phase 0 accounting supports long-only buy fills")
-        cash_outflow = fill.notional + fill.fee
+        cash_outflow = exact_decimal_add(fill.notional, fill.fee)
         postings = [
             Posting(
                 account=f"assets:securities:{fill.instrument_id}",
@@ -75,14 +84,11 @@ class Ledger:
 
     def cash_balance(self, currency: str = "USD") -> Decimal:
         account = f"assets:cash:{currency}"
-        return sum(
-            (
-                posting.debit - posting.credit
-                for entry in self._entries
-                for posting in entry.postings
-                if posting.account == account
-            ),
-            Decimal("0"),
+        return exact_decimal_sum(
+            exact_decimal_subtract(posting.debit, posting.credit)
+            for entry in self._entries
+            for posting in entry.postings
+            if posting.account == account
         )
 
     def project_position(
@@ -97,9 +103,11 @@ class Ledger:
             for posting in entry.postings
             if posting.instrument_id == instrument_id
         ]
-        quantity = sum((posting.units_delta for posting in relevant), Decimal("0"))
-        cost = sum((posting.debit - posting.credit for posting in relevant), Decimal("0"))
-        average_cost = cost / quantity if quantity else Decimal("0")
+        quantity = exact_decimal_sum(posting.units_delta for posting in relevant)
+        cost = exact_decimal_sum(
+            exact_decimal_subtract(posting.debit, posting.credit) for posting in relevant
+        )
+        average_cost = deterministic_decimal_divide(cost, quantity) if quantity else Decimal("0")
         return Position(
             instrument_id=instrument_id,
             symbol=symbol,
@@ -110,25 +118,22 @@ class Ledger:
 
     def project_account(self, position: Position) -> AccountProjection:
         cash = self.cash_balance()
-        inventory_cost = position.quantity * position.average_cost
-        unrealized_pnl = position.market_value - inventory_cost
-        fee_expense = sum(
-            (
-                posting.debit - posting.credit
-                for entry in self._entries
-                for posting in entry.postings
-                if posting.account == "expenses:execution_fees"
-            ),
-            Decimal("0"),
+        inventory_cost = exact_decimal_multiply(position.quantity, position.average_cost)
+        unrealized_pnl = exact_decimal_subtract(position.market_value, inventory_cost)
+        fee_expense = exact_decimal_sum(
+            exact_decimal_subtract(posting.debit, posting.credit)
+            for entry in self._entries
+            for posting in entry.postings
+            if posting.account == "expenses:execution_fees"
         )
-        realized_pnl = -fee_expense
-        equity = cash + position.market_value
+        realized_pnl = fee_expense.copy_negate()
+        equity = exact_decimal_add(cash, position.market_value)
         return AccountProjection(
             currency="USD",
             cash=cash,
             equity=equity,
             realized_pnl=realized_pnl,
             unrealized_pnl=unrealized_pnl,
-            gross_exposure=abs(position.market_value),
+            gross_exposure=position.market_value.copy_abs(),
             net_exposure=position.market_value,
         )

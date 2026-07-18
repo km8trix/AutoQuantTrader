@@ -117,7 +117,6 @@ def _bootstrap(
         ),
         capabilities=[
             "research",
-            "backtest",
             "risk-gated-simulation",
             "point-in-time-data-catalog",
             "market-data-admission",

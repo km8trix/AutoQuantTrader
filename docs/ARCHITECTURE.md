@@ -272,12 +272,15 @@ class RiskRule(Protocol):
     ) -> RiskDecision: ...
 ```
 
-`MarketBatch` represents a complete decision slice for an `as_of` timestamp and
+`MarketBatch` is a replay-proof-constructed decision slice for an `as_of`
+timestamp; callers cannot manufacture a strategy-eligible complete batch. It
 includes its watermark, expected/received instruments, missing-data status, and
-late-event policy. This removes symbol-order dependence in cross-sectional
-strategies. `TargetPortfolio` declares whether it is a full snapshot or delta,
-and carries the strategy/version, target ID, `as_of`, expiry, and rebalance
-generation.
+late-event policy. The strategy context binds that batch's exact identity and
+semantic digest, not only its timestamp. This removes symbol-order and
+same-timestamp substitution from cross-sectional strategies. `TargetPortfolio`
+declares whether it is a full snapshot or delta, binds the exact decision batch,
+stores targets as an immutable, sorted, unique tuple, and carries the
+strategy/version, target ID, `as_of`, expiry, and rebalance generation.
 
 Strategies emit **targets** (desired quantity or portfolio weight), not broker
 orders. The portfolio layer converts the single active strategy's targets into
@@ -297,7 +300,12 @@ The backtester replays `available_at`, not just exchange time. A decision based
 on a completed bar cannot fill using that bar's high, low, close, or volume; the
 default market-order model activates at the next eligible market event after
 modeled decision and submission latency. Simultaneous events have a documented,
-stable sort key. Corrections are new facts and never rewrite an event tape.
+stable sort key, facts at a timestamp precede a watermark closed at that same
+timestamp, and watermarks cannot regress in event time when read in canonical
+closed order. Corrections are new facts and never rewrite an event tape. A
+source plus observation identity is globally bound to one instrument/event-time
+revision chain. Semantic material uses UTC, compact context-independent decimal
+text, and typed length-safe Phase 2 identifiers.
 
 Strategies receive a causal, read-only context and cannot query arbitrary
 databases. Deterministic random generators, calendars, and any fitted feature
@@ -765,8 +773,38 @@ admission, or trading authority. See
 [ADR 0015](adr/0015-tiingo-eod-pinned-calendar-and-operator-verification.md),
 [ADR 0016](adr/0016-tiingo-eod-receipt-time-local-lineage.md),
 [ADR 0017](adr/0017-tiingo-eod-exact-retained-field-contract-qualification.md),
-[ADR 0018](adr/0018-tiingo-eod-security-identity-lifecycle-contract.md), and
-[ADR 0019](adr/0019-tiingo-eod-market-semantics-and-action-candidates.md).
+[ADR 0018](adr/0018-tiingo-eod-security-identity-lifecycle-contract.md),
+[ADR 0019](adr/0019-tiingo-eod-market-semantics-and-action-candidates.md), and
+[ADR 0020](adr/0020-deterministic-availability-replay-and-market-batches.md).
+
+### Current Phase 2A replay core
+
+The first canonical-engine slice now provides a UTC-only monotonic simulated
+clock, availability-first total ordering, inclusive equal-time fact reduction,
+and explicit event-time watermarks whose frontiers cannot regress in canonical
+closed order. It proof-constructs complete market batches, globally binds each
+source/observation identity to one revision chain, selects contiguous
+corrections, and uses canonical semantic digests with compact
+context-independent decimals and typed Phase 2 identifiers. Portfolio deltas
+and risk notionals/cash use the versioned `decimal64-e63-exact-v1` policy, which
+traps rounding and binds its version into the intent payload hash. Strategy contexts
+bind the exact batch identity and digest; target portfolios use immutable,
+sorted, unique target tuples. `ReplayResult.complete_batch_ids` names every
+strategy-eligible proof, while incomplete batches are sealed and skipped. The
+existing walking thread crosses this batch seam, so it no longer invokes its
+strategy from an individual symbol arrival.
+Values that enter the operational SQL schema must also be exactly representable
+by `NUMERIC(28,10)`. Domain construction rejects values outside that contract,
+and transactional read-back verification fails closed when a SQL dialect cannot
+preserve an accepted value exactly.
+
+This implementation accepts repository-owned synthetic domain events only.
+Incomplete cross-sectional batches are sealed and skipped; late facts halt and
+never reopen prior output. It does not turn the as-of dataset snapshot reader
+into a replay tape, create a production HistoricalBarSource, persist a
+backtest run, expose replay through the API or browser, implement the reference
+benchmark, or change paper/live readiness. A manifest-pinned all-revision tape
+adapter and durable backtest read model are separate later Phase 2 slices.
 
 ## 11. Backtesting model
 

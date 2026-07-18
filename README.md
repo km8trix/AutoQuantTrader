@@ -89,6 +89,20 @@ market-semantics/action-qualified. None of these boundaries invents vendor
 publication time, historical vintages, corrections, raw-price authority,
 corporate-action events, `HistoricalBarSource`, admission, or trading readiness.
 
+ADR 0020 begins the first Phase 2 engine slice against repository-owned
+synthetic events. It adds a UTC monotonic simulated clock, deterministic
+availability-time ordering, non-regressing event-time watermarks in closed
+order, proof-constructed complete/missing market batches, global
+source/observation revision-chain binding, compact canonical decimals, typed
+Phase 2 identifiers, exact versioned portfolio/risk arithmetic, and semantic
+replay digests. Strategy contexts bind an
+exact batch identity and digest, target tuples are immutable/sorted/unique, and
+`ReplayResult.complete_batch_ids` names every strategy-eligible proof. The
+walking thread now invokes its strategy through this canonical batch seam. This
+does not create a manifest-backed backtester, durable run record, API command,
+or browser result view. The Backtests route remains reserved, the reference
+benchmark is not implemented, and paper/live readiness is unchanged.
+
 For a separately authorized future capture, start from the fail-closed
 [acquisition-profile](docs/admission/tiingo-eod-acquisition-profile.template.json),
 [capture-authorization](docs/admission/tiingo-eod-capture-authorization.template.json),
