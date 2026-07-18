@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 import sqlalchemy as sa
@@ -9,7 +10,12 @@ from sqlalchemy import Connection, Engine, create_engine, make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import StaticPool
 
+from packages.domain.replay_manifest import (
+    ReplayManifestDecodeError,
+    ReplayRunManifest,
+)
 from packages.domain.risk import RiskAuthorizationError
+from packages.persistence.immutable import ImmutableFactConflict, as_aware_utc
 from packages.persistence.schema import (
     calendar_sessions,
     calendar_versions,
@@ -35,6 +41,7 @@ from packages.persistence.schema import (
     market_data_sources,
     orders,
     partition_quarantines,
+    replay_run_manifests,
     risk_account_guards,
     risk_decisions,
     risk_reservations,
@@ -43,14 +50,65 @@ from packages.persistence.schema import (
     universe_versions,
 )
 
-EXPECTED_SCHEMA_REVISION = "0005_market_data_admission"
+EXPECTED_SCHEMA_REVISION = "0006_replay_run_manifests"
 
 
 class DatabaseSchemaNotReady(RuntimeError):
     """The durable store is reachable but not at the required operational schema."""
 
 
+def _verify_sealed_replay_integrity(connection: Connection) -> None:
+    """Decode each sealed row and reuse the repository's full catalog verifier."""
+
+    from packages.persistence.replay import verify_replay_dataset_catalog
+
+    replay_rows = connection.execute(sa.select(replay_run_manifests)).mappings()
+    for row in replay_rows:
+        try:
+            manifest = ReplayRunManifest.from_canonical_json(
+                str(row["manifest_payload"]),
+                expected_run_id=str(row["run_id"]),
+                expected_manifest_sha256=str(row["manifest_sha256"]),
+            )
+        except ReplayManifestDecodeError as error:
+            raise DatabaseSchemaNotReady(
+                "sealed replay manifest payload verification failed"
+            ) from error
+        duplicated_values = {
+            "idempotency_key": manifest.input_sha256,
+            "dataset_manifest_id": manifest.dataset.manifest_id,
+            "dataset_manifest_hash": manifest.dataset.manifest_sha256,
+            "tape_sha256": manifest.tape_sha256,
+            "replay_semantic_sha256": manifest.replay_semantic_sha256,
+            "started_at": manifest.started_at,
+            "completed_at": manifest.completed_at,
+            "processed_event_count": manifest.processed_event_count,
+            "batch_count": manifest.batch_count,
+            "complete_batch_count": manifest.complete_batch_count,
+            "skipped_batch_count": manifest.skipped_batch_count,
+        }
+        for field_name, expected in duplicated_values.items():
+            actual = row[field_name]
+            if isinstance(expected, datetime):
+                if not isinstance(actual, datetime):
+                    raise DatabaseSchemaNotReady(
+                        "sealed replay manifest duplicated fields are malformed"
+                    )
+                actual = as_aware_utc(actual)
+            if actual != expected:
+                raise DatabaseSchemaNotReady(
+                    "sealed replay manifest duplicated fields are inconsistent"
+                )
+        try:
+            verify_replay_dataset_catalog(connection, manifest.dataset, manifest.plan)
+        except ImmutableFactConflict as error:
+            raise DatabaseSchemaNotReady(
+                "sealed replay manifest catalog verification failed"
+            ) from error
+
+
 def _verify_data_plane_integrity(connection: Connection) -> None:
+    _verify_sealed_replay_integrity(connection)
     queries = (
         """
         SELECT 1
@@ -141,6 +199,41 @@ def _verify_data_plane_integrity(connection: Connection) -> None:
            )
         LIMIT 1
         """,
+        """
+        SELECT 1
+        FROM replay_run_manifests AS run
+        LEFT JOIN dataset_manifests AS manifest
+          ON manifest.manifest_id = run.dataset_manifest_id
+        LEFT JOIN market_data_sources AS source
+          ON source.source_id = manifest.source_id
+        WHERE manifest.manifest_id IS NULL
+           OR source.source_id IS NULL
+           OR run.dataset_manifest_hash <> manifest.manifest_hash
+           OR run.run_id <> run.manifest_sha256
+           OR length(run.run_id) <> 64
+           OR length(run.idempotency_key) <> 64
+           OR length(run.dataset_manifest_id) <> 64
+           OR length(run.dataset_manifest_hash) <> 64
+           OR length(run.manifest_sha256) <> 64
+           OR length(run.tape_sha256) <> 64
+           OR length(run.replay_semantic_sha256) <> 64
+           OR length(run.manifest_payload) > 65536
+           OR run.completed_at < run.started_at
+           OR run.processed_event_count < 0
+           OR run.batch_count <= 0
+           OR run.complete_batch_count < 0
+           OR run.skipped_batch_count < 0
+           OR run.complete_batch_count + run.skipped_batch_count <> run.batch_count
+           OR source.kind NOT IN ('synthetic_fixture', 'recorded_fixture')
+           OR source.licensed
+           OR NOT EXISTS (
+             SELECT 1
+             FROM market_data_entitlements AS entitlement
+             WHERE entitlement.source_id = source.source_id
+               AND entitlement.status = 'fixture_only'
+           )
+        LIMIT 1
+        """,
     )
     for query in queries:
         if connection.scalar(sa.text(query)) is not None:
@@ -210,6 +303,7 @@ def verify_operational_schema(
                 partition_quarantines,
                 dataset_manifests,
                 dataset_manifest_partitions,
+                replay_run_manifests,
             )
             for table in required_tables:
                 connection.execute(sa.select(table).limit(0))

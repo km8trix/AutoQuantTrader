@@ -468,6 +468,7 @@ universe_versions = sa.Table(
     sa.Column("effective_as_of", sa.DateTime(timezone=True), nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("content_hash", sa.String(64), nullable=False, unique=True),
+    sa.Column("content_hash_version", sa.String(32), nullable=False),
     sa.CheckConstraint("length(content_hash) = 64", name="universe_versions_hash_length"),
 )
 
@@ -503,6 +504,7 @@ calendar_versions = sa.Table(
     sa.Column("timezone", sa.String(64), nullable=False),
     sa.Column("tzdata_version", sa.String(32), nullable=False),
     sa.Column("content_hash", sa.String(64), nullable=False, unique=True),
+    sa.Column("content_hash_version", sa.String(32), nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.CheckConstraint("length(content_hash) = 64", name="calendar_versions_hash_length"),
 )
@@ -601,6 +603,7 @@ data_objects = sa.Table(
     sa.Column("object_key", sa.String(256), nullable=False, unique=True),
     sa.Column("byte_checksum", sa.String(64), nullable=False, unique=True),
     sa.Column("semantic_checksum", sa.String(64), nullable=False),
+    sa.Column("semantic_checksum_version", sa.String(32), nullable=False),
     sa.Column("format", sa.String(16), nullable=False),
     sa.Column("size_bytes", sa.BigInteger(), nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -645,6 +648,7 @@ dataset_partitions = sa.Table(
     sa.Column("available_at_start", sa.DateTime(timezone=True), nullable=False),
     sa.Column("available_at_end", sa.DateTime(timezone=True), nullable=False),
     sa.Column("semantic_checksum", sa.String(64), nullable=False),
+    sa.Column("semantic_checksum_version", sa.String(32), nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint(
         "layer",
@@ -738,6 +742,7 @@ corporate_action_sets = sa.Table(
     sa.Column("corporate_action_version", sa.String(64), primary_key=True),
     sa.Column("name", sa.String(128), nullable=False),
     sa.Column("content_hash", sa.String(64), nullable=False, unique=True),
+    sa.Column("content_hash_version", sa.String(32), nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.CheckConstraint("length(content_hash) = 64", name="corporate_action_sets_hash_length"),
 )
@@ -835,4 +840,62 @@ dataset_manifest_partitions = sa.Table(
         name="uq_dataset_manifest_partitions_partition",
     ),
     sa.CheckConstraint("ordinal >= 0", name="dataset_manifest_partitions_non_negative_ordinal"),
+)
+
+replay_run_manifests = sa.Table(
+    "replay_run_manifests",
+    metadata,
+    sa.Column("run_id", sa.String(64), primary_key=True),
+    sa.Column("idempotency_key", sa.String(64), nullable=False, unique=True),
+    sa.Column(
+        "dataset_manifest_id",
+        sa.String(64),
+        sa.ForeignKey("dataset_manifests.manifest_id"),
+        nullable=False,
+        index=True,
+    ),
+    sa.Column("dataset_manifest_hash", sa.String(64), nullable=False),
+    sa.Column("manifest_sha256", sa.String(64), nullable=False, unique=True),
+    sa.Column("manifest_payload", sa.Text(), nullable=False),
+    sa.Column("tape_sha256", sa.String(64), nullable=False),
+    sa.Column("replay_semantic_sha256", sa.String(64), nullable=False),
+    sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("completed_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("processed_event_count", sa.Integer(), nullable=False),
+    sa.Column("batch_count", sa.Integer(), nullable=False),
+    sa.Column("complete_batch_count", sa.Integer(), nullable=False),
+    sa.Column("skipped_batch_count", sa.Integer(), nullable=False),
+    sa.CheckConstraint(
+        "run_id = manifest_sha256",
+        name="replay_run_manifests_content_addressed",
+    ),
+    sa.CheckConstraint(
+        "length(run_id) = 64 "
+        "AND length(idempotency_key) = 64 "
+        "AND length(dataset_manifest_id) = 64 "
+        "AND length(dataset_manifest_hash) = 64 "
+        "AND length(manifest_sha256) = 64 "
+        "AND length(tape_sha256) = 64 "
+        "AND length(replay_semantic_sha256) = 64",
+        name="replay_run_manifests_hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(manifest_payload) <= 65536",
+        name="replay_run_manifests_payload_size",
+    ),
+    sa.CheckConstraint(
+        "completed_at >= started_at",
+        name="replay_run_manifests_valid_time_range",
+    ),
+    sa.CheckConstraint(
+        "processed_event_count >= 0 "
+        "AND batch_count > 0 "
+        "AND complete_batch_count >= 0 "
+        "AND skipped_batch_count >= 0",
+        name="replay_run_manifests_valid_counts",
+    ),
+    sa.CheckConstraint(
+        "complete_batch_count + skipped_batch_count = batch_count",
+        name="replay_run_manifests_reconciled_batch_counts",
+    ),
 )

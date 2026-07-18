@@ -798,13 +798,27 @@ by `NUMERIC(28,10)`. Domain construction rejects values outside that contract,
 and transactional read-back verification fails closed when a SQL dialect cannot
 preserve an accepted value exactly.
 
-This implementation accepts repository-owned synthetic domain events only.
-Incomplete cross-sectional batches are sealed and skipped; late facts halt and
-never reopen prior output. It does not turn the as-of dataset snapshot reader
-into a replay tape, create a production HistoricalBarSource, persist a
-backtest run, expose replay through the API or browser, implement the reference
-benchmark, or change paper/live readiness. A manifest-pinned all-revision tape
-adapter and durable backtest read model are separate later Phase 2 slices.
+The replay input boundary now also accepts verified repository-owned fixture
+manifests. A dedicated all-revision adapter keeps the as-of snapshot reader
+unchanged, reproduces manifest/partition identities, verifies exact object and
+reference pins, and derives inclusive decision slices from the pinned calendar
+and causal universe with an explicit decision lag. Missing slices are retained;
+late facts halt and never reopen prior output. Full RawBar/source-tape lineage
+and the projected replay digest remain separate.
+
+After successful in-memory replay, an evidence-only composition may atomically
+seal a content-addressed `replay_run_manifests` row. It pins the dataset,
+calendar, universe, corporate actions, tzdata, plan, engine contracts, source
+revision, dependency lock, schema, and runtime; strategy, cost, fill, benchmark,
+and RNG scope are explicitly not applicable. There is no mutable run lifecycle.
+The sealer locks and rederives catalog facts before authenticating an immutable
+object snapshot; durable deployments must enforce versioned, deletion-resistant
+object retention because SQL and external object availability are not one atomic
+transaction.
+This does not create a production HistoricalBarSource or a usable backtest,
+expose replay through the API or browser, implement the reference benchmark, or
+change paper/live readiness. See
+[ADR 0021](adr/0021-manifest-replay-tapes-and-sealed-run-evidence.md).
 
 ## 11. Backtesting model
 

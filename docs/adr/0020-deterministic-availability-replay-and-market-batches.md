@@ -101,7 +101,8 @@ broker, paper, live, API, or browser-launch effect.
 The first implementation accepts domain MarketEvent facts. A separate next
 slice must build a manifest-pinned all-revision tape adapter from canonical
 RawBar facts; the existing bars_as_of snapshot reader must not be repurposed as
-an availability-ordered tape.
+an availability-ordered tape. That later boundary is defined by
+[ADR 0021](0021-manifest-replay-tapes-and-sealed-run-evidence.md).
 
 ## Consequences
 
@@ -116,5 +117,7 @@ retains its next-event fill and mandatory risk boundaries.
 This is a core contract, not a usable backtest product. The Backtests browser
 route remains reserved, the API exposes no replay command or result, no
 benchmark claim is made, and no backtest capability is advertised. Durable run
-orchestration, strategy state and clock callbacks, ledger/reducer expansion, a
-manifest tape adapter, reports, and browser workflows remain Phase 2 work.
+orchestration, strategy state and clock callbacks, ledger/reducer expansion,
+reports, and browser workflows remain Phase 2 work. ADR 0021 subsequently adds
+the fixture-only manifest adapter and sealed replay evidence without widening
+those product capabilities.

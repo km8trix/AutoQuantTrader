@@ -56,6 +56,8 @@ def _integer(row: dict[str, Any], name: str) -> int:
 
 def _bar(row: dict[str, Any]) -> RawBar:
     try:
+        if _required(row, "currency", str) != "USD":
+            raise ValueError("normalized raw bars must use USD")
         return RawBar(
             observation_id=_required(row, "observation_id", str),
             event_revision_id=_required(row, "event_revision_id", str),

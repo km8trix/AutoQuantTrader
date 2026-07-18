@@ -111,11 +111,14 @@ identities to revision chains, and uses compact context-independent decimal
 semantics and typed Phase 2 identifiers. Strategy contexts bind an exact batch
 identity and digest, target tuples are immutable/sorted/unique, and
 `ReplayResult.complete_batch_ids` names strategy-eligible proofs. The Phase 0
-walking thread now uses that canonical batch callback. This is exercised only
-with repository-owned synthetic events: there is no manifest-pinned
-all-revision tape adapter, durable backtest run, API command/read model, browser
-backtest workflow, or reference benchmark yet, and it changes no admission or
-trading readiness.
+walking thread now uses that canonical batch callback. ADR 0021 connects
+repository-owned fixture manifests through a content-verified all-revision
+tape and can atomically seal successful reducer evidence with exact dataset,
+plan, engine, and runtime pins. This still does not create a production
+`HistoricalBarSource`, usable economic backtest, mutable job, API command/read
+model, browser workflow, or reference benchmark. Versioned strategy state and
+clock callbacks remain the next Phase 2A slice, and admission and trading
+readiness remain unchanged.
 
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
@@ -348,9 +351,15 @@ Passing one layer cannot substitute for another.
   arithmetic, typed Phase 2 identifiers, immutable target
   tuples, and semantic replay digest are implemented for synthetic domain
   events. `ReplayResult.complete_batch_ids` records complete strategy-eligible
-  proofs. Manifest-pinned RawBar tape input, clock callbacks, versioned strategy
-  state, and a durable run manifest remain. SQL-bound decimals are restricted
-  to exact `NUMERIC(28,10)` values and verified after each transactional write.
+  proofs. The manifest-pinned all-revision `RawBar` adapter now verifies ordered
+  partition/object/reference pins, derives inclusive watermarks from the pinned
+  calendar and causal universe with an explicit decision lag, and retains
+  missing slices. Completed fixture replays can be atomically sealed in a
+  content-addressed `replay_run_manifests` record with full-source and projected
+  replay digests plus explicit runtime pins. Failures create no run row. This is
+  replay evidence, not a backtest workflow; clock callbacks and versioned
+  strategy state remain. SQL-bound decimals are restricted to exact
+  `NUMERIC(28,10)` values and verified after each transactional write.
 - **Phase 2B execution state:** expand the ledger, portfolio conversion, order
   and execution reducers, conservative simulated broker, atomic risk, and
   coordinator lease/fencing contracts.
