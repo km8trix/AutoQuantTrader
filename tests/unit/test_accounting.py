@@ -5,10 +5,15 @@ from decimal import Decimal, localcontext
 import pytest
 
 from packages.domain.accounting import Ledger
+from packages.domain.decision import DecisionTrigger
 from packages.domain.models import OrderIntent, Posting
 from packages.domain.portfolio import target_to_order_intent
 from packages.domain.risk import RiskAccountSnapshot
-from packages.domain.strategy import FixedQuantityStrategy, ReadOnlyStrategyContext
+from packages.domain.strategy import (
+    FixedQuantityStrategy,
+    ReadOnlyStrategyContext,
+    StrategyInitializationContext,
+)
 from packages.domain.walking_thread import WalkingThread
 
 
@@ -108,14 +113,19 @@ def test_strategy_and_target_quantities_reject_mutable_numeric_duck_types() -> N
 
     result = WalkingThread.run()
     mutable_quantity = MutableQuantity()
+    strategy = FixedQuantityStrategy(target_quantity=Decimal("10"))
 
     with pytest.raises(ValueError, match="exact Decimal"):
         replace(result.target.targets[0], quantity=mutable_quantity)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="exact Decimal"):
         ReadOnlyStrategyContext(
-            decision_batch_id=result.decision_batch.batch_id,
-            decision_batch_sha256=result.decision_batch.semantic_sha256,
-            as_of=result.decision_batch.as_of,
+            decision_trigger=DecisionTrigger.from_market_batch(result.decision_batch),
+            state=strategy.initialize(
+                StrategyInitializationContext(
+                    started_at=result.decision_batch.as_of,
+                    current_positions={},
+                )
+            ),
             current_positions={"US-ETF-SPY": mutable_quantity},  # type: ignore[dict-item]
         )
     with pytest.raises(ValueError, match="exact Decimal"):

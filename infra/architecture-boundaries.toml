@@ -36,3 +36,32 @@ forbidden_domain_imports = [
   "requests",
   "sqlalchemy",
 ]
+
+# Strategy replay must remain a pure in-memory reducer. These modules cannot
+# acquire ambient time/randomness or filesystem, process, thread, or network
+# authority merely because those clients happen to live in the standard library.
+side_effect_free_roots = [
+  "packages/domain/decision.py",
+  "packages/domain/strategy.py",
+  "packages/domain/strategy_replay.py",
+  "packages/domain/strategy_state.py",
+]
+forbidden_side_effect_imports = [
+  "asyncio",
+  "concurrent",
+  "ctypes",
+  "http",
+  "importlib",
+  "multiprocessing",
+  "os",
+  "pathlib",
+  "random",
+  "secrets",
+  "shutil",
+  "socket",
+  "subprocess",
+  "tempfile",
+  "threading",
+  "time",
+  "urllib",
+]

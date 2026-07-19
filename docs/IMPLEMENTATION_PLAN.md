@@ -116,9 +116,14 @@ repository-owned fixture manifests through a content-verified all-revision
 tape and can atomically seal successful reducer evidence with exact dataset,
 plan, engine, and runtime pins. This still does not create a production
 `HistoricalBarSource`, usable economic backtest, mutable job, API command/read
-model, browser workflow, or reference benchmark. Versioned strategy state and
-clock callbacks remain the next Phase 2A slice, and admission and trading
-readiness remain unchanged.
+model, browser workflow, or reference benchmark. ADR 0022 completes the planned
+synthetic Phase 2A callback/state boundary with explicit UTC clock schedules,
+typed market/clock triggers, bounded immutable digest-chained strategy state,
+captured strategy configuration/runtime pins, fully hashed targets, and an
+in-memory deterministic strategy transcript. It
+does not reinterpret ADR 0021 evidence or add durable strategy jobs, and
+admission and trading readiness remain unchanged. Phase 2B execution reducers
+are next.
 
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
@@ -342,7 +347,7 @@ Passing one layer cannot substitute for another.
 
 ### Sequencing and current status
 
-- **Phase 2A replay core (in progress):** the simulated clock,
+- **Phase 2A replay core (synthetic domain boundary complete):** the simulated clock,
   availability-time ordering, non-regressing closed-order watermarks,
   proof-constructed complete-batch strategy seam, exact batch-bound causal
   context, global source/observation chain binding, correction selection,
@@ -357,10 +362,14 @@ Passing one layer cannot substitute for another.
   missing slices. Completed fixture replays can be atomically sealed in a
   content-addressed `replay_run_manifests` record with full-source and projected
   replay digests plus explicit runtime pins. Failures create no run row. This is
-  replay evidence, not a backtest workflow; clock callbacks and versioned
-  strategy state remain. SQL-bound decimals are restricted to exact
-  `NUMERIC(28,10)` values and verified after each transactional write.
-- **Phase 2B execution state:** expand the ledger, portfolio conversion, order
+  replay evidence, not a backtest workflow. A separate pure strategy layer now
+  canonically interleaves complete batches and explicit UTC clock events,
+  carries bounded versioned state as exact predecessor-linked transitions, and
+  hashes its initialization context, callback transcript, final state, and
+  complete target semantics. It remains in-memory and gives no durable job,
+  API/browser, broker, or trading authority. SQL-bound decimals are restricted
+  to exact `NUMERIC(28,10)` values and verified after each transactional write.
+- **Phase 2B execution state (next):** expand the ledger, portfolio conversion, order
   and execution reducers, conservative simulated broker, atomic risk, and
   coordinator lease/fencing contracts.
 - **Phase 2C durable research workflow:** execute fixture-only runs in the

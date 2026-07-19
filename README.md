@@ -110,6 +110,19 @@ runs write nothing. This is not a backtester, mutable job, API command, browser
 result, benchmark, or trading capability. The Backtests route remains reserved
 and paper/live readiness is unchanged.
 
+ADR 0022 completes the synthetic Phase 2A strategy callback/state boundary. A
+separate pure reducer canonically interleaves complete market batches with
+explicit UTC clock schedules, gives every callback a typed market/clock cause
+and immutable fixed-clock/context snapshot, and carries bounded versioned state
+through exact predecessor-linked transitions. One captured runtime pin prevents
+strategy identity, version, configuration, or state-schema drift during a run.
+Its in-memory transcript hashes
+the initial positions, schedule, every input/output state, and every complete
+target payload. The existing sealed replay manifest remains callback-free and
+unchanged. No durable backtest job, API or browser capability, clock-target
+execution conversion, broker effect, or paper/live authority has been added;
+Phase 2B execution reducers are next.
+
 For a separately authorized future capture, start from the fail-closed
 [acquisition-profile](docs/admission/tiingo-eod-acquisition-profile.template.json),
 [capture-authorization](docs/admission/tiingo-eod-capture-authorization.template.json),

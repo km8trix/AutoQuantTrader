@@ -242,13 +242,15 @@ The exact syntax may evolve, but these boundaries should be stable:
 
 ```python
 class Strategy(Protocol):
-    def initialize(self, context: StrategyContext) -> None: ...
+    def initialize(
+        self, context: StrategyInitializationContext
+    ) -> VersionedStrategyState: ...
     def on_market(
         self, context: ReadOnlyStrategyContext, batch: MarketBatch
-    ) -> TargetPortfolio | None: ...
+    ) -> StrategyTransition: ...
     def on_clock(
         self, context: ReadOnlyStrategyContext, event: ClockEvent
-    ) -> TargetPortfolio | None: ...
+    ) -> StrategyTransition: ...
     def on_order_update(
         self, context: StrategyContext, update: OrderUpdate
     ) -> None: ...
@@ -278,9 +280,12 @@ includes its watermark, expected/received instruments, missing-data status, and
 late-event policy. The strategy context binds that batch's exact identity and
 semantic digest, not only its timestamp. This removes symbol-order and
 same-timestamp substitution from cross-sectional strategies. `TargetPortfolio`
-declares whether it is a full snapshot or delta, binds the exact decision batch,
-stores targets as an immutable, sorted, unique tuple, and carries the
-strategy/version, target ID, `as_of`, expiry, and rebalance generation.
+declares whether it is a full snapshot or delta, binds a typed market-batch or
+clock-event decision trigger, stores targets as an immutable, sorted, unique
+tuple, and carries the strategy/version, target ID, `as_of`, expiry, and
+rebalance generation. The current intent converter still requires an exact
+complete market batch because Phase 2A does not yet supply clock callbacks with
+causal price and valuation state.
 
 Strategies emit **targets** (desired quantity or portfolio weight), not broker
 orders. The portfolio layer converts the single active strategy's targets into
@@ -309,7 +314,11 @@ text, and typed length-safe Phase 2 identifiers.
 
 Strategies receive a causal, read-only context and cannot query arbitrary
 databases. Deterministic random generators, calendars, and any fitted feature
-state are injected and versioned.
+state are injected and versioned. Strategy callback state is externally carried,
+bounded, immutable, and digest-chained: every callback advances one generation
+and binds its exact predecessor, strategy/configuration/schema versions,
+decision trigger contract, and UTC time. Initialization sees only replay start plus copied initial
+positions, never future tape or schedule contents.
 
 ## 8. Event and order lifecycle
 
@@ -819,6 +828,27 @@ This does not create a production HistoricalBarSource or a usable backtest,
 expose replay through the API or browser, implement the reference benchmark, or
 change paper/live readiness. See
 [ADR 0021](adr/0021-manifest-replay-tapes-and-sealed-run-evidence.md).
+
+A separate pure strategy-replay layer now merges complete batches with explicit
+UTC `ClockEvent` schedules. At the same instant it processes complete batches
+before clocks, and clocks use schedule/sequence/identity order; incomplete
+batches still skip `on_market` without suppressing an independently scheduled
+clock. Every callback receives a typed decision trigger, copied positions, the
+exact configuration-pinned versioned input state, and a read-only fixed-clock snapshot. It returns a
+successor state and optional fully hashed target. The transcript binds the
+market replay, clock schedule, initialization context, every input/output state,
+and target presence or digest. The walking thread now crosses this stateful
+reducer seam.
+
+This strategy transcript is in memory only. The ADR 0021 manifest remains
+callback-free evidence with strategy/RNG/cost/fill/benchmark pins explicitly
+not applicable. No persistence, restart checkpoint, worker command, API route,
+browser capability, portfolio pricing for clock targets, or trading authority
+is implied. The architecture check also denies these pure reducer modules
+ambient filesystem, process, network, thread, randomness, and wall-clock
+imports. This guard applies to repository reducer modules; strategies are
+trusted in-process code until a future isolation boundary exists. See
+[ADR 0022](adr/0022-deterministic-clock-callbacks-and-versioned-strategy-state.md).
 
 ## 11. Backtesting model
 

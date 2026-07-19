@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from packages.domain.canonical import canonical_decimal, canonical_persisted_decimal
+from packages.domain.canonical import (
+    canonical_decimal,
+    canonical_json_bytes,
+    canonical_persisted_decimal,
+)
 from packages.domain.decimal_math import exact_decimal_multiply, exact_decimal_sum
+from packages.domain.decision import DecisionTrigger, DecisionTriggerKind
 
 
 def require_aware(value: datetime, field_name: str) -> None:
@@ -145,7 +151,7 @@ class TargetPortfolio:
     target_id: str
     strategy_id: str
     strategy_version: str
-    decision_batch_id: str
+    decision_trigger: DecisionTrigger
     as_of: datetime
     expires_at: datetime
     targets: tuple[PositionTarget, ...]
@@ -157,10 +163,11 @@ class TargetPortfolio:
             (self.target_id, "target_id"),
             (self.strategy_id, "strategy_id"),
             (self.strategy_version, "strategy_version"),
-            (self.decision_batch_id, "decision_batch_id"),
         ):
             if not value or value != value.strip():
                 raise ValueError(f"{field_name} must be non-empty and trimmed")
+        if type(self.decision_trigger) is not DecisionTrigger:
+            raise ValueError("target decision_trigger must be an exact DecisionTrigger")
         require_utc(self.as_of, "as_of")
         require_utc(self.expires_at, "expires_at")
         if self.expires_at <= self.as_of:
@@ -178,6 +185,44 @@ class TargetPortfolio:
             raise ValueError("rebalance_generation must be a positive integer")
         if type(self.full_snapshot) is not bool:
             raise ValueError("full_snapshot must be a boolean")
+        if self.as_of != self.decision_trigger.as_of:
+            raise ValueError("target and decision trigger must share the same as_of")
+
+    @property
+    def decision_batch_id(self) -> str:
+        """Return the market-batch cause for legacy market-only consumers."""
+
+        if self.decision_trigger.kind is not DecisionTriggerKind.MARKET_BATCH:
+            raise ValueError("target was not caused by a market batch")
+        return self.decision_trigger.trigger_id
+
+    @property
+    def decision_clock_event_id(self) -> str:
+        if self.decision_trigger.kind is not DecisionTriggerKind.CLOCK:
+            raise ValueError("target was not caused by a clock event")
+        return self.decision_trigger.trigger_id
+
+    @property
+    def semantic_sha256(self) -> str:
+        return hashlib.sha256(
+            canonical_json_bytes(
+                (
+                    "phase2-target-portfolio-v1",
+                    self.target_id,
+                    self.strategy_id,
+                    self.strategy_version,
+                    self.decision_trigger.semantic_sha256,
+                    self.as_of,
+                    self.expires_at,
+                    tuple(
+                        (target.instrument_id, target.symbol, target.quantity)
+                        for target in self.targets
+                    ),
+                    self.rebalance_generation,
+                    self.full_snapshot,
+                )
+            )
+        ).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)

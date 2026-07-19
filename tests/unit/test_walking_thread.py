@@ -1,5 +1,6 @@
 from decimal import ROUND_DOWN, ROUND_UP, Decimal, localcontext
 
+from packages.domain.identifiers import canonical_id
 from packages.domain.models import DecisionStatus, OrderStatus
 from packages.domain.walking_thread import WalkingThread
 
@@ -11,7 +12,17 @@ def test_walking_thread_is_deterministic_and_complete() -> None:
     assert first == second
     assert first.decision_batch.complete
     assert first.decision_batch.events == (first.decision_event,)
+    assert first.strategy_replay.market_callback_count == 1
+    assert first.strategy_replay.clock_callback_count == 0
+    assert first.strategy_replay.final_state.generation == 1
     assert first.target.decision_batch_id == first.decision_batch.batch_id
+    assert first.target.target_id == canonical_id(
+        "target",
+        "fixed-quantity",
+        "1.0.0",
+        first.decision_batch.batch_id,
+        Decimal("10"),
+    )
     assert first.target.targets[0].quantity == Decimal("10")
     assert first.risk_decision.status is DecisionStatus.APPROVED
     assert all(rule.passed for rule in first.risk_decision.rules)

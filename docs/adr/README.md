@@ -23,5 +23,7 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0018: Tiingo EOD security-identity and lifecycle contract-only qualification](0018-tiingo-eod-security-identity-lifecycle-contract.md)
 - [ADR 0019: Tiingo EOD market semantics and action-candidate qualification](0019-tiingo-eod-market-semantics-and-action-candidates.md)
 - [ADR 0020: deterministic availability-time replay and watermark-complete market batches](0020-deterministic-availability-replay-and-market-batches.md)
+- [ADR 0021: manifest replay tapes and sealed run evidence](0021-manifest-replay-tapes-and-sealed-run-evidence.md)
+- [ADR 0022: deterministic clock callbacks and versioned strategy state](0022-deterministic-clock-callbacks-and-versioned-strategy-state.md)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
