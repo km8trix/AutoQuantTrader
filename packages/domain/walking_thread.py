@@ -33,7 +33,8 @@ from packages.domain.risk import (
     RiskDecisionRepository,
     RiskLimits,
 )
-from packages.domain.strategy import FixedQuantityStrategy, ReadOnlyStrategyContext
+from packages.domain.strategy import FixedQuantityStrategy
+from packages.domain.strategy_replay import StrategyReplayResult, replay_strategy_callbacks
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +45,7 @@ class WalkingThreadResult:
     decision_event: MarketEvent
     fill_event: MarketEvent
     decision_batch: MarketBatch
+    strategy_replay: StrategyReplayResult
     target: TargetPortfolio
     intent: OrderIntent
     risk_account_snapshot: RiskAccountSnapshot
@@ -130,17 +132,16 @@ class WalkingThread:
         ledger = Ledger()
         ledger.open_account(cls.starting_cash, started_at)
 
-        context = ReadOnlyStrategyContext(
-            decision_batch_id=decision_batch.batch_id,
-            decision_batch_sha256=decision_batch.semantic_sha256,
-            as_of=decision_batch.as_of,
+        strategy = FixedQuantityStrategy(target_quantity=cls.target_quantity)
+        strategy_replay = replay_strategy_callbacks(
+            market_replay=replay,
+            clock_events=(),
+            strategy=strategy,
             current_positions={},
         )
-        strategy = FixedQuantityStrategy(target_quantity=cls.target_quantity)
-        strategy.initialize(context)
-        target = strategy.on_market(context, decision_batch)
-        if target is None:
+        if len(strategy_replay.targets) != 1:
             raise RuntimeError("walking-thread strategy unexpectedly emitted no target")
+        target = strategy_replay.targets[0]
         intent = target_to_order_intent(target, Decimal("0"), decision_batch)
         if intent is None:
             raise RuntimeError("walking-thread target unexpectedly emitted no order intent")
@@ -225,6 +226,7 @@ class WalkingThread:
             decision_event=decision_event,
             fill_event=fill_event,
             decision_batch=decision_batch,
+            strategy_replay=strategy_replay,
             target=target,
             intent=intent,
             risk_account_snapshot=risk_snapshot,

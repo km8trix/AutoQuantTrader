@@ -8,6 +8,7 @@ from itertools import permutations
 import pytest
 
 from packages.domain.clock import Clock, SimulatedClock
+from packages.domain.decision import DecisionTrigger
 from packages.domain.market_batch import (
     MarketBatch,
     MarketBatchStatus,
@@ -26,7 +27,11 @@ from packages.domain.replay import (
     replay_market_events,
 )
 from packages.domain.risk import intent_payload_hash
-from packages.domain.strategy import FixedQuantityStrategy, ReadOnlyStrategyContext
+from packages.domain.strategy import (
+    FixedQuantityStrategy,
+    ReadOnlyStrategyContext,
+    StrategyInitializationContext,
+)
 
 SLICE = datetime(2026, 7, 15, 13, 31, tzinfo=UTC)
 CLOSED_AT = SLICE + timedelta(seconds=5)
@@ -72,6 +77,26 @@ def watermark(
         closed_at=closed_at,
         expected_instrument_ids=tuple(sorted(f"US-ETF-{symbol}" for symbol in symbols)),
         revision_policy=revision_policy,
+    )
+
+
+def fixed_strategy_context(
+    batch: MarketBatch,
+    *,
+    positions: dict[str, Decimal] | None = None,
+) -> tuple[FixedQuantityStrategy, ReadOnlyStrategyContext]:
+    current_positions = positions or {}
+    strategy = FixedQuantityStrategy(target_quantity=Decimal("10"))
+    state = strategy.initialize(
+        StrategyInitializationContext(
+            started_at=batch.as_of,
+            current_positions=current_positions,
+        )
+    )
+    return strategy, ReadOnlyStrategyContext(
+        decision_trigger=DecisionTrigger.from_market_batch(batch),
+        state=state,
+        current_positions=current_positions,
     )
 
 
@@ -227,16 +252,8 @@ def test_equivalent_decimal_scales_have_input_order_independent_digests() -> Non
 
     def downstream_risk_hash(result: ReplayResult) -> str:
         batch = result.batches[0]
-        context = ReadOnlyStrategyContext(
-            decision_batch_id=batch.batch_id,
-            decision_batch_sha256=batch.semantic_sha256,
-            as_of=batch.as_of,
-            current_positions={},
-        )
-        target = FixedQuantityStrategy(target_quantity=Decimal("10")).on_market(
-            context,
-            batch,
-        )
+        strategy, context = fixed_strategy_context(batch)
+        target = strategy.on_market(context, batch).target
         assert target is not None
         intent = target_to_order_intent(target, Decimal("0"), batch)
         assert intent is not None
@@ -468,16 +485,8 @@ def test_future_tape_extension_cannot_change_an_earlier_batch() -> None:
     assert extended.complete_batch_ids[0] == baseline.complete_batch_ids[0]
 
     def target_for(batch: MarketBatch) -> object:
-        context = ReadOnlyStrategyContext(
-            decision_batch_id=batch.batch_id,
-            decision_batch_sha256=batch.semantic_sha256,
-            as_of=batch.as_of,
-            current_positions={},
-        )
-        return FixedQuantityStrategy(target_quantity=Decimal("10")).on_market(
-            context,
-            batch,
-        )
+        strategy, context = fixed_strategy_context(batch)
+        return strategy.on_market(context, batch).target
 
     assert target_for(extended.batches[0]) == target_for(baseline.batches[0])
 
@@ -488,12 +497,7 @@ def test_strategy_context_copies_positions_and_rejects_noncausal_batch() -> None
         events=(market_event(),),
         watermarks=(watermark("SPY"),),
     ).batches[0]
-    context = ReadOnlyStrategyContext(
-        decision_batch_id=complete_batch.batch_id,
-        decision_batch_sha256=complete_batch.semantic_sha256,
-        as_of=CLOSED_AT,
-        current_positions=positions,
-    )
+    strategy, context = fixed_strategy_context(complete_batch, positions=positions)
     positions["US-ETF-SPY"] = Decimal("99")
 
     assert context.quantity_for("US-ETF-SPY") == Decimal("7")
@@ -501,10 +505,15 @@ def test_strategy_context_copies_positions_and_rejects_noncausal_batch() -> None
         context.current_positions["US-ETF-SPY"] = Decimal("8")  # type: ignore[index]
     context.require_batch(complete_batch)
 
-    future_context = ReadOnlyStrategyContext(
-        decision_batch_id=complete_batch.batch_id,
-        decision_batch_sha256=complete_batch.semantic_sha256,
+    future_trigger = replace(
+        DecisionTrigger.from_market_batch(complete_batch),
         as_of=CLOSED_AT + timedelta(seconds=1),
+    )
+    future_context = ReadOnlyStrategyContext(
+        decision_trigger=future_trigger,
+        state=strategy.initialize(
+            StrategyInitializationContext(started_at=CLOSED_AT, current_positions={})
+        ),
         current_positions={},
     )
     with pytest.raises(ValueError, match="same as_of"):

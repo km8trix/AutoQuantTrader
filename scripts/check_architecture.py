@@ -72,9 +72,11 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
     package_roots = _resolve_roots(repository, scan["package_roots"])
     primitive_roots = _resolve_roots(repository, scan["primitive_roots"])
     domain_roots = _resolve_roots(repository, scan["domain_roots"])
+    side_effect_free_roots = _resolve_roots(repository, scan["side_effect_free_roots"])
     primitive_namespaces = tuple(scan["primitive_namespaces"])
     composition_namespaces = tuple(scan["composition_namespaces"])
     forbidden_domain_imports = tuple(scan["forbidden_domain_imports"])
+    forbidden_side_effect_imports = tuple(scan["forbidden_side_effect_imports"])
 
     violations: list[Violation] = []
     python_files = sorted(
@@ -115,6 +117,18 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                         relative_path,
                         line,
                         f"domain code cannot import framework/adapter dependency '{module}'",
+                    )
+                )
+
+            if _is_below(resolved_path, side_effect_free_roots) and _matches_namespace(
+                module, forbidden_side_effect_imports
+            ):
+                violations.append(
+                    Violation(
+                        relative_path,
+                        line,
+                        "pure strategy replay cannot import ambient side-effect authority "
+                        f"'{module}'",
                     )
                 )
 

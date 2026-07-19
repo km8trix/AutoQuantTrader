@@ -27,8 +27,7 @@ def target_to_order_intent(
     current_quantity = canonical_persisted_decimal(current_quantity, "current quantity")
     if not decision_batch.complete:
         raise ValueError("an incomplete market batch cannot create an order intent")
-    if target.decision_batch_id != decision_batch.batch_id:
-        raise ValueError("target is not bound to the supplied market batch")
+    target.decision_trigger.require_market_batch(decision_batch)
     if target.as_of != decision_batch.as_of:
         raise ValueError("target and market batch must share the same as_of")
     if len(target.targets) != 1:
