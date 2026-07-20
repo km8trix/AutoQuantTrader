@@ -140,7 +140,6 @@ def test_same_event_fill_is_forbidden() -> None:
         {"symbol": "QQQ"},
         {"target_id": "forged-target"},
         {"reference_price": Decimal("99.00")},
-        {"created_at": WalkingThread.run().intent.created_at + timedelta(seconds=1)},
         {"expires_at": WalkingThread.run().intent.expires_at + timedelta(seconds=1)},
     ],
 )
@@ -156,6 +155,13 @@ def test_risk_approval_is_bound_to_the_complete_intent_payload(
             replace(result.intent, **changes),  # type: ignore[arg-type]
             decision.decision_id,
         )
+
+
+def test_intent_cannot_detach_creation_time_from_its_decision_trigger() -> None:
+    intent = WalkingThread.run().intent
+
+    with pytest.raises(ValueError, match="decision trigger"):
+        replace(intent, created_at=intent.created_at + timedelta(seconds=1))
 
 
 def test_approval_expiry_is_exclusive() -> None:

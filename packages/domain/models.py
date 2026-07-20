@@ -119,6 +119,27 @@ class MarketEvent:
     def observation_key(self) -> str:
         return self.observation_id or self.event_id
 
+    @property
+    def semantic_sha256(self) -> str:
+        return hashlib.sha256(
+            canonical_json_bytes(
+                (
+                    "phase2-market-event-v1",
+                    self.event_id,
+                    self.instrument_id,
+                    self.symbol,
+                    self.event_time,
+                    self.available_at,
+                    self.close_price,
+                    self.source,
+                    self.source_sequence,
+                    self.observation_key,
+                    self.revision,
+                    self.supersedes_event_revision_id,
+                )
+            )
+        ).hexdigest()
+
 
 @dataclass(frozen=True, slots=True)
 class PositionTarget:
@@ -151,6 +172,7 @@ class TargetPortfolio:
     target_id: str
     strategy_id: str
     strategy_version: str
+    strategy_configuration_sha256: str
     decision_trigger: DecisionTrigger
     as_of: datetime
     expires_at: datetime
@@ -166,6 +188,15 @@ class TargetPortfolio:
         ):
             if not value or value != value.strip():
                 raise ValueError(f"{field_name} must be non-empty and trimmed")
+        if (
+            type(self.strategy_configuration_sha256) is not str
+            or len(self.strategy_configuration_sha256) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in self.strategy_configuration_sha256
+            )
+        ):
+            raise ValueError("strategy_configuration_sha256 must be a lowercase SHA-256 digest")
         if type(self.decision_trigger) is not DecisionTrigger:
             raise ValueError("target decision_trigger must be an exact DecisionTrigger")
         require_utc(self.as_of, "as_of")
@@ -207,10 +238,11 @@ class TargetPortfolio:
         return hashlib.sha256(
             canonical_json_bytes(
                 (
-                    "phase2-target-portfolio-v1",
+                    "phase2-target-portfolio-v2",
                     self.target_id,
                     self.strategy_id,
                     self.strategy_version,
+                    self.strategy_configuration_sha256,
                     self.decision_trigger.semantic_sha256,
                     self.as_of,
                     self.expires_at,
@@ -228,21 +260,55 @@ class TargetPortfolio:
 @dataclass(frozen=True, slots=True)
 class OrderIntent:
     intent_id: str
+    intent_batch_id: str
     target_id: str
+    target_sha256: str
+    portfolio_snapshot_sha256: str
+    strategy_id: str
+    strategy_version: str
+    strategy_configuration_sha256: str
+    decision_trigger: DecisionTrigger
     instrument_id: str
     symbol: str
     side: Side
     quantity: Decimal
     reference_price: Decimal
     decision_event_id: str
+    reference_event_sha256: str
     decision_event_time: datetime
     created_at: datetime
     expires_at: datetime
 
     def __post_init__(self) -> None:
-        require_aware(self.created_at, "created_at")
-        require_aware(self.expires_at, "expires_at")
-        require_aware(self.decision_event_time, "decision_event_time")
+        for value, field_name in (
+            (self.intent_id, "intent_id"),
+            (self.intent_batch_id, "intent_batch_id"),
+            (self.target_id, "target_id"),
+            (self.strategy_id, "strategy_id"),
+            (self.strategy_version, "strategy_version"),
+            (self.instrument_id, "instrument_id"),
+            (self.symbol, "symbol"),
+            (self.decision_event_id, "decision_event_id"),
+        ):
+            if type(value) is not str or not value or value != value.strip():
+                raise ValueError(f"{field_name} must be a non-empty, trimmed string")
+        for value, field_name in (
+            (self.target_sha256, "target_sha256"),
+            (self.portfolio_snapshot_sha256, "portfolio_snapshot_sha256"),
+            (self.strategy_configuration_sha256, "strategy_configuration_sha256"),
+            (self.reference_event_sha256, "reference_event_sha256"),
+        ):
+            if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+                raise ValueError(f"{field_name} must be a lowercase SHA-256 digest")
+        if type(self.decision_trigger) is not DecisionTrigger:
+            raise ValueError("intent decision_trigger must be an exact DecisionTrigger")
+        require_utc(self.created_at, "created_at")
+        require_utc(self.expires_at, "expires_at")
+        require_utc(self.decision_event_time, "decision_event_time")
+        if self.symbol != self.symbol.upper():
+            raise ValueError("intent symbol must use its canonical uppercase form")
+        if not isinstance(self.side, Side):
+            raise ValueError("intent side is unsupported")
         require_positive(self.quantity, "quantity")
         if self.quantity != self.quantity.to_integral_value():
             raise ValueError("intent quantity must be a whole number of shares")
@@ -259,12 +325,206 @@ class OrderIntent:
         )
         if self.created_at < self.decision_event_time:
             raise ValueError("intent cannot be created before its decision event")
+        if self.created_at != self.decision_trigger.as_of:
+            raise ValueError("intent and decision trigger must share the same creation time")
         if self.expires_at <= self.created_at:
             raise ValueError("intent must expire after it is created")
 
     @property
     def notional(self) -> Decimal:
         return exact_decimal_multiply(self.quantity, self.reference_price)
+
+    @property
+    def semantic_sha256(self) -> str:
+        return hashlib.sha256(
+            canonical_json_bytes(
+                (
+                    "phase2-order-intent-v1",
+                    self.intent_id,
+                    self.intent_batch_id,
+                    self.target_id,
+                    self.target_sha256,
+                    self.portfolio_snapshot_sha256,
+                    self.strategy_id,
+                    self.strategy_version,
+                    self.strategy_configuration_sha256,
+                    self.decision_trigger.semantic_sha256,
+                    self.instrument_id,
+                    self.symbol,
+                    self.side,
+                    self.quantity,
+                    self.reference_price,
+                    self.decision_event_id,
+                    self.reference_event_sha256,
+                    self.decision_event_time,
+                    self.created_at,
+                    self.expires_at,
+                )
+            )
+        ).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioPosition:
+    instrument_id: str
+    symbol: str
+    quantity: Decimal
+
+    def __post_init__(self) -> None:
+        if not self.instrument_id or self.instrument_id != self.instrument_id.strip():
+            raise ValueError("portfolio instrument_id must be non-empty and trimmed")
+        if (
+            not self.symbol
+            or self.symbol != self.symbol.strip()
+            or self.symbol != self.symbol.upper()
+        ):
+            raise ValueError("portfolio symbol must use its canonical uppercase form")
+        if type(self.quantity) is not Decimal or not self.quantity.is_finite():
+            raise ValueError("portfolio quantity must be a finite exact Decimal")
+        if self.quantity < 0 or self.quantity != self.quantity.to_integral_value():
+            raise ValueError("portfolio quantity must be non-negative and whole")
+        object.__setattr__(
+            self,
+            "quantity",
+            canonical_persisted_decimal(self.quantity, "portfolio quantity"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CausalPrice:
+    event: MarketEvent
+
+    def __post_init__(self) -> None:
+        if type(self.event) is not MarketEvent:
+            raise ValueError("causal price requires an exact MarketEvent")
+
+    @property
+    def instrument_id(self) -> str:
+        return self.event.instrument_id
+
+    @property
+    def symbol(self) -> str:
+        return self.event.symbol
+
+    @property
+    def price(self) -> Decimal:
+        return self.event.close_price
+
+    @property
+    def event_id(self) -> str:
+        return self.event.event_id
+
+    @property
+    def event_time(self) -> datetime:
+        return self.event.event_time
+
+    @property
+    def available_at(self) -> datetime:
+        return self.event.available_at
+
+    @property
+    def source_event_sha256(self) -> str:
+        return self.event.semantic_sha256
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioSnapshot:
+    as_of: datetime
+    positions: tuple[PortfolioPosition, ...]
+    prices: tuple[CausalPrice, ...]
+
+    def __post_init__(self) -> None:
+        require_utc(self.as_of, "portfolio snapshot as_of")
+        if type(self.positions) is not tuple or any(
+            type(position) is not PortfolioPosition for position in self.positions
+        ):
+            raise ValueError("portfolio positions must be immutable PortfolioPosition values")
+        if type(self.prices) is not tuple or any(
+            type(price) is not CausalPrice for price in self.prices
+        ):
+            raise ValueError("portfolio prices must be immutable CausalPrice values")
+        position_ids = tuple(position.instrument_id for position in self.positions)
+        price_ids = tuple(price.instrument_id for price in self.prices)
+        if position_ids != tuple(sorted(set(position_ids))):
+            raise ValueError("portfolio positions must be unique and sorted by instrument_id")
+        if price_ids != tuple(sorted(set(price_ids))):
+            raise ValueError("portfolio prices must be unique and sorted by instrument_id")
+        if any(price.available_at > self.as_of for price in self.prices):
+            raise ValueError("portfolio snapshot cannot contain a future-available price")
+
+    @property
+    def semantic_sha256(self) -> str:
+        return hashlib.sha256(
+            canonical_json_bytes(
+                (
+                    "phase2-portfolio-snapshot-v1",
+                    self.as_of,
+                    tuple(
+                        (position.instrument_id, position.symbol, position.quantity)
+                        for position in self.positions
+                    ),
+                    tuple(price.source_event_sha256 for price in self.prices),
+                )
+            )
+        ).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class OrderIntentBatch:
+    intent_batch_id: str
+    target_id: str
+    target_sha256: str
+    portfolio_snapshot_sha256: str
+    decision_trigger: DecisionTrigger
+    intents: tuple[OrderIntent, ...]
+
+    def __post_init__(self) -> None:
+        for value, field_name in (
+            (self.intent_batch_id, "intent_batch_id"),
+            (self.target_id, "target_id"),
+        ):
+            if not value or value != value.strip():
+                raise ValueError(f"{field_name} must be non-empty and trimmed")
+        for value, field_name in (
+            (self.target_sha256, "target_sha256"),
+            (self.portfolio_snapshot_sha256, "portfolio_snapshot_sha256"),
+        ):
+            if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+                raise ValueError(f"{field_name} must be a lowercase SHA-256 digest")
+        if type(self.decision_trigger) is not DecisionTrigger:
+            raise ValueError("intent batch requires an exact DecisionTrigger")
+        if type(self.intents) is not tuple or any(
+            type(intent) is not OrderIntent for intent in self.intents
+        ):
+            raise ValueError("intent batch intents must be immutable OrderIntent values")
+        instrument_ids = tuple(intent.instrument_id for intent in self.intents)
+        if instrument_ids != tuple(sorted(set(instrument_ids))):
+            raise ValueError("intent batch instruments must be unique and sorted")
+        if any(
+            intent.intent_batch_id != self.intent_batch_id
+            or intent.target_id != self.target_id
+            or intent.target_sha256 != self.target_sha256
+            or intent.portfolio_snapshot_sha256 != self.portfolio_snapshot_sha256
+            or intent.decision_trigger != self.decision_trigger
+            for intent in self.intents
+        ):
+            raise ValueError("intent batch members must preserve enclosing target evidence")
+
+    @property
+    def semantic_sha256(self) -> str:
+        return hashlib.sha256(
+            canonical_json_bytes(
+                (
+                    "phase2-order-intent-batch-v1",
+                    self.intent_batch_id,
+                    self.target_id,
+                    self.target_sha256,
+                    self.portfolio_snapshot_sha256,
+                    self.decision_trigger.semantic_sha256,
+                    tuple(intent.semantic_sha256 for intent in self.intents),
+                )
+            )
+        ).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)

@@ -119,9 +119,17 @@ strategy identity, version, configuration, or state-schema drift during a run.
 Its in-memory transcript hashes
 the initial positions, schedule, every input/output state, and every complete
 target payload. The existing sealed replay manifest remains callback-free and
-unchanged. No durable backtest job, API or browser capability, clock-target
-execution conversion, broker effect, or paper/live authority has been added;
-Phase 2B execution reducers are next.
+unchanged.
+
+ADR 0023 begins Phase 2B with immutable causal portfolio/price snapshots and
+canonical multi-instrument intent batches. Both market- and clock-triggered
+targets can now be converted without inventing price causality; full snapshots
+liquidate omitted holdings, partial snapshots touch only named instruments, and
+every intent carries the complete target, decision-trigger, source-price, and
+strategy-configuration evidence into the risk payload hash. The Phase 0
+one-position adapter remains compatible. No durable intent batch, expanded
+ledger, broker lifecycle, API/browser capability, or paper/live authority has
+been added; the remaining Phase 2B execution reducers are next.
 
 For a separately authorized future capture, start from the fail-closed
 [acquisition-profile](docs/admission/tiingo-eod-acquisition-profile.template.json),
