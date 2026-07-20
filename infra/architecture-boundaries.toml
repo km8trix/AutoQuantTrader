@@ -43,6 +43,7 @@ forbidden_domain_imports = [
 side_effect_free_roots = [
   "packages/domain/decision.py",
   "packages/domain/models.py",
+  "packages/domain/order_reducer.py",
   "packages/domain/portfolio.py",
   "packages/domain/strategy.py",
   "packages/domain/strategy_replay.py",

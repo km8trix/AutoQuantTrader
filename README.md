@@ -128,8 +128,17 @@ liquidate omitted holdings, partial snapshots touch only named instruments, and
 every intent carries the complete target, decision-trigger, source-price, and
 strategy-configuration evidence into the risk payload hash. The Phase 0
 one-position adapter remains compatible. No durable intent batch, expanded
-ledger, broker lifecycle, API/browser capability, or paper/live authority has
-been added; the remaining Phase 2B execution reducers are next.
+ledger, API/browser capability, or paper/live authority has been added.
+
+ADR 0024 adds the first canonical order/execution lifecycle reducer. Immutable
+submission evidence feeds normalized per-order broker sequences for acceptance,
+rejection, cancellation, partial or late fills, and exact predecessor-linked
+execution corrections. Current execution heads deterministically project
+cumulative quantity, remaining quantity, fees, and status while the complete
+superseded transcript remains hashed. Cancel requests bind the exact observed
+non-terminal order state. This still creates no broker effect, durable order,
+ledger posting, or trading authority; the remaining Phase 2B boundaries are
+next.
 
 For a separately authorized future capture, start from the fail-closed
 [acquisition-profile](docs/admission/tiingo-eod-acquisition-profile.template.json),
