@@ -864,6 +864,20 @@ provide atomic batch risk, expanded ledger, order/execution lifecycle, or broker
 authority. See
 [ADR 0023](adr/0023-causal-portfolio-snapshots-and-intent-batches.md).
 
+The canonical order lifecycle is a separate pure reducer. Submission evidence
+binds one exact intent/risk payload, risk decision, submission attempt, and UTC
+time, but does not itself consume or prove approval authority. A normalized
+contiguous per-order broker sequence records acceptance, rejection,
+cancellation, executions, and corrections. Exact duplicate delivery collapses;
+identity reuse, gaps, time regression, broker-order drift, and overfills halt.
+Cancel requests bind the exact prior non-terminal projection. Execution
+corrections advance an exact predecessor chain, so current chain heads determine
+cumulative fills, remaining quantity, fees, and status while superseded reports
+stay in the semantic transcript. Late fills after cancellation remain conserved,
+and a correction can deterministically reopen a filled order. No broker effect,
+durable order table, ledger posting, or trading authority is implied. See
+[ADR 0024](adr/0024-canonical-order-and-execution-lifecycle-reducer.md).
+
 ## 11. Backtesting model
 
 The canonical event-driven backtester uses a simulated clock and the same

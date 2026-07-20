@@ -125,7 +125,9 @@ does not reinterpret ADR 0021 evidence or add durable strategy jobs, and
 admission and trading readiness remain unchanged. ADR 0023 begins Phase 2B with
 causal portfolio snapshots and canonical target-to-intent batches while
 preserving complete strategy configuration, trigger, target, and price evidence.
-The remaining execution reducers are next.
+ADR 0024 adds the canonical submission/cancel/broker-event/execution-correction
+lifecycle reducer without adding effects or authority. The remaining ledger,
+simulated broker, atomic batch risk, and fencing boundaries are next.
 
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
@@ -375,9 +377,12 @@ Passing one layer cannot substitute for another.
   snapshots and canonical multi-instrument target-to-intent batches are
   implemented, including clock-target conversion, full-versus-partial snapshot
   semantics, deterministic empty batches, and strategy configuration/target
-  evidence carried into the risk payload. Expand the ledger, order and execution
-  reducers, conservative simulated broker, atomic batch risk, and coordinator
-  lease/fencing contracts next.
+  evidence carried into the risk payload. A separate canonical order/execution
+  reducer now binds immutable submission evidence, exact prior-state cancel
+  requests, normalized broker sequences, partial and late fills, and contiguous
+  execution corrections into one deterministic projection. Expand the ledger,
+  conservative simulated broker, atomic batch risk, and coordinator lease/fencing
+  contracts next.
 - **Phase 2C durable research workflow:** execute fixture-only runs in the
   worker, persist immutable results, add query-only API/read models and the
   browser Backtests workspace, then add launch commands only after durable jobs,
