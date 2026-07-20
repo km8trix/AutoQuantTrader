@@ -878,6 +878,18 @@ and a correction can deterministically reopen a filled order. No broker effect,
 durable order table, ledger posting, or trading authority is implied. See
 [ADR 0024](adr/0024-canonical-order-and-execution-lifecycle-reducer.md).
 
+The first expanded-ledger boundary is also a pure reducer. It accepts only exact
+canonical order states plus explicit contribution/withdrawal facts and produces
+balanced append-only entries. Initial executions post cash, security units,
+fees, and execution trade value; every correction posts only the exact economic
+delta from its predecessor, so a bust reverses the original economics without
+deleting history. Cash, unit, fee, and trade-value balances are rebuilt from the
+entry stream, and conflicting fact identities halt. Execution notional uses an
+explicit clearing account rather than pretending to be securities cost basis or
+realized P&L. Lots, account policy, marks, settlement, dividends, splits, and
+realized/unrealized P&L remain gated on an explicit follow-on contract. See
+[ADR 0025](adr/0025-append-only-execution-ledger-reducer.md).
+
 ## 11. Backtesting model
 
 The canonical event-driven backtester uses a simulated clock and the same

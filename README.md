@@ -140,6 +140,14 @@ non-terminal order state. This still creates no broker effect, durable order,
 ledger posting, or trading authority; the remaining Phase 2B boundaries are
 next.
 
+ADR 0025 adds the first expanded-ledger reducer. Explicit contributions,
+withdrawals, executions, corrections, and busts become balanced append-only
+entries, and exact cash, security-unit, fee, and execution trade-value balances
+are rebuilt from those entries. Corrections post predecessor-relative deltas and
+never erase the original financial fact. The trade-value clearing account is
+not cost basis or realized P&L; lots, marks, settlement, corporate actions,
+durability, broker effects, and trading authority remain gated.
+
 For a separately authorized future capture, start from the fail-closed
 [acquisition-profile](docs/admission/tiingo-eod-acquisition-profile.template.json),
 [capture-authorization](docs/admission/tiingo-eod-capture-authorization.template.json),
