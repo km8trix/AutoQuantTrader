@@ -126,7 +126,9 @@ admission and trading readiness remain unchanged. ADR 0023 begins Phase 2B with
 causal portfolio snapshots and canonical target-to-intent batches while
 preserving complete strategy configuration, trigger, target, and price evidence.
 ADR 0024 adds the canonical submission/cancel/broker-event/execution-correction
-lifecycle reducer without adding effects or authority. The remaining ledger,
+lifecycle reducer without adding effects or authority. ADR 0025 adds balanced
+append-only cash-flow and execution/correction postings with exact cash,
+security-unit, trade-value, and fee projections. Cost-basis/P&L and the remaining
 simulated broker, atomic batch risk, and fencing boundaries are next.
 
 Massive remains the deferred intraday candidate. No credential,
@@ -380,9 +382,12 @@ Passing one layer cannot substitute for another.
   evidence carried into the risk payload. A separate canonical order/execution
   reducer now binds immutable submission evidence, exact prior-state cancel
   requests, normalized broker sequences, partial and late fills, and contiguous
-  execution corrections into one deterministic projection. Expand the ledger,
-  conservative simulated broker, atomic batch risk, and coordinator lease/fencing
-  contracts next.
+  execution corrections into one deterministic projection. A pure append-only
+  execution ledger now converts cash flows, executions, corrections, and busts
+  into balanced delta postings with rebuildable cash, unit, trade-value, and fee
+  balances. Expand the ledger with explicit account/cost-basis/P&L, marks,
+  settlement, and corporate-action policy, then add the conservative simulated
+  broker, atomic batch risk, and coordinator lease/fencing contracts.
 - **Phase 2C durable research workflow:** execute fixture-only runs in the
   worker, persist immutable results, add query-only API/read models and the
   browser Backtests workspace, then add launch commands only after durable jobs,
