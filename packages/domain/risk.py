@@ -83,14 +83,22 @@ def intent_payload_hash(intent: OrderIntent) -> str:
         "decimal_arithmetic_version": DECIMAL_ARITHMETIC_VERSION,
         "decision_event_id": intent.decision_event_id,
         "decision_event_time": intent.decision_event_time.astimezone(UTC).isoformat(),
+        "decision_trigger_sha256": intent.decision_trigger.semantic_sha256,
         "expires_at": intent.expires_at.astimezone(UTC).isoformat(),
         "instrument_id": intent.instrument_id,
         "intent_id": intent.intent_id,
+        "intent_batch_id": intent.intent_batch_id,
+        "portfolio_snapshot_sha256": intent.portfolio_snapshot_sha256,
         "quantity": canonical_decimal_text(intent.quantity),
         "reference_price": canonical_decimal_text(intent.reference_price),
+        "reference_event_sha256": intent.reference_event_sha256,
         "side": intent.side.value,
         "symbol": intent.symbol,
         "target_id": intent.target_id,
+        "target_sha256": intent.target_sha256,
+        "strategy_id": intent.strategy_id,
+        "strategy_version": intent.strategy_version,
+        "strategy_configuration_sha256": intent.strategy_configuration_sha256,
     }
     canonical = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
     return hashlib.sha256(canonical.encode()).hexdigest()

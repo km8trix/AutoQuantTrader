@@ -25,5 +25,6 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0020: deterministic availability-time replay and watermark-complete market batches](0020-deterministic-availability-replay-and-market-batches.md)
 - [ADR 0021: manifest replay tapes and sealed run evidence](0021-manifest-replay-tapes-and-sealed-run-evidence.md)
 - [ADR 0022: deterministic clock callbacks and versioned strategy state](0022-deterministic-clock-callbacks-and-versioned-strategy-state.md)
+- [ADR 0023: causal portfolio snapshots and canonical intent batches](0023-causal-portfolio-snapshots-and-intent-batches.md)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

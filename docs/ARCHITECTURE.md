@@ -843,12 +843,26 @@ reducer seam.
 This strategy transcript is in memory only. The ADR 0021 manifest remains
 callback-free evidence with strategy/RNG/cost/fill/benchmark pins explicitly
 not applicable. No persistence, restart checkpoint, worker command, API route,
-browser capability, portfolio pricing for clock targets, or trading authority
-is implied. The architecture check also denies these pure reducer modules
+browser capability, or trading authority is implied by the strategy reducer
+itself. The architecture check also denies these pure reducer modules
 ambient filesystem, process, network, thread, randomness, and wall-clock
 imports. This guard applies to repository reducer modules; strategies are
 trusted in-process code until a future isolation boundary exists. See
 [ADR 0022](adr/0022-deterministic-clock-callbacks-and-versioned-strategy-state.md).
+
+The first Phase 2B reducer consumes an explicit immutable portfolio snapshot at
+the target's exact decision time. Its positions and causally available prices
+are unique and canonically ordered, and each price binds its complete source
+market-event digest. A full target converts omitted current holdings to zero; a
+partial target changes only named instruments. The resulting intent batch is
+stable across caller ordering and may be empty when no rebalance is needed.
+Every intent retains the batch, complete target digest, strategy configuration,
+decision trigger, and causal price reference, all of which enter the mandatory
+risk payload hash. This permits honest clock-target conversion without
+relabeling a clock as a market batch. It does not yet persist intent batches or
+provide atomic batch risk, expanded ledger, order/execution lifecycle, or broker
+authority. See
+[ADR 0023](adr/0023-causal-portfolio-snapshots-and-intent-batches.md).
 
 ## 11. Backtesting model
 

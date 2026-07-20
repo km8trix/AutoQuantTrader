@@ -122,8 +122,10 @@ typed market/clock triggers, bounded immutable digest-chained strategy state,
 captured strategy configuration/runtime pins, fully hashed targets, and an
 in-memory deterministic strategy transcript. It
 does not reinterpret ADR 0021 evidence or add durable strategy jobs, and
-admission and trading readiness remain unchanged. Phase 2B execution reducers
-are next.
+admission and trading readiness remain unchanged. ADR 0023 begins Phase 2B with
+causal portfolio snapshots and canonical target-to-intent batches while
+preserving complete strategy configuration, trigger, target, and price evidence.
+The remaining execution reducers are next.
 
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
@@ -369,9 +371,13 @@ Passing one layer cannot substitute for another.
   complete target semantics. It remains in-memory and gives no durable job,
   API/browser, broker, or trading authority. SQL-bound decimals are restricted
   to exact `NUMERIC(28,10)` values and verified after each transactional write.
-- **Phase 2B execution state (next):** expand the ledger, portfolio conversion, order
-  and execution reducers, conservative simulated broker, atomic risk, and
-  coordinator lease/fencing contracts.
+- **Phase 2B execution state (in progress):** immutable causal position/price
+  snapshots and canonical multi-instrument target-to-intent batches are
+  implemented, including clock-target conversion, full-versus-partial snapshot
+  semantics, deterministic empty batches, and strategy configuration/target
+  evidence carried into the risk payload. Expand the ledger, order and execution
+  reducers, conservative simulated broker, atomic batch risk, and coordinator
+  lease/fencing contracts next.
 - **Phase 2C durable research workflow:** execute fixture-only runs in the
   worker, persist immutable results, add query-only API/read models and the
   browser Backtests workspace, then add launch commands only after durable jobs,

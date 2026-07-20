@@ -329,6 +329,7 @@ class FixedQuantityStrategy:
             ),
             strategy_id=self.strategy_id,
             strategy_version=self.version,
+            strategy_configuration_sha256=self.configuration_sha256,
             decision_trigger=context.decision_trigger,
             as_of=context.as_of,
             expires_at=context.as_of + timedelta(minutes=5),

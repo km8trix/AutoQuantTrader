@@ -246,6 +246,8 @@ def _validate_target(
         raise StrategyTransitionError("strategy target has the wrong strategy identity")
     if target.strategy_version != strategy_pin.strategy_version:
         raise StrategyTransitionError("strategy target has the wrong strategy version")
+    if target.strategy_configuration_sha256 != strategy_pin.strategy_configuration_sha256:
+        raise StrategyTransitionError("strategy target has the wrong strategy configuration")
     if target.decision_trigger != trigger:
         raise StrategyTransitionError("strategy target is not bound to the exact callback trigger")
     if target.as_of != trigger.as_of:

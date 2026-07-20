@@ -358,6 +358,7 @@ class ClockTargetStrategy:
             target_id=canonical_id("clock-target", context.decision_trigger.semantic_sha256),
             strategy_id=self.strategy_id,
             strategy_version=self.version,
+            strategy_configuration_sha256=self.configuration_sha256,
             decision_trigger=context.decision_trigger,
             as_of=context.as_of,
             expires_at=context.as_of + timedelta(minutes=5),
@@ -513,6 +514,32 @@ class ExplodingClockStrategy(ClockTargetStrategy):
         raise RuntimeError("callback failed")
 
 
+class WrongTargetConfigurationStrategy(FixedQuantityStrategy):
+    def on_market(
+        self,
+        context: ReadOnlyStrategyContext,
+        batch: MarketBatch,
+    ) -> StrategyTransition:
+        transition = super().on_market(context, batch)
+        assert transition.target is not None
+        return replace(
+            transition,
+            target=replace(transition.target, strategy_configuration_sha256="b" * 64),
+        )
+
+
+def test_target_configuration_must_match_captured_runtime_pin() -> None:
+    with pytest.raises(
+        StrategyTransitionError, match="target has the wrong strategy configuration"
+    ):
+        replay_strategy_callbacks(
+            market_replay=market_replay(),
+            clock_events=(),
+            strategy=WrongTargetConfigurationStrategy(target_quantity=Decimal("10")),
+            current_positions={},
+        )
+
+
 def test_callback_failure_returns_no_partial_transcript() -> None:
     with pytest.raises(RuntimeError, match="callback failed"):
         replay_strategy_callbacks(
@@ -589,6 +616,7 @@ def test_transcript_is_decimal_context_independent_and_binds_positions_and_targe
     assert low_precision.semantic_sha256 == high_precision.semantic_sha256
     assert len(low_precision.targets) == 1
     target = low_precision.targets[0]
+    assert target.strategy_configuration_sha256 == low_precision.strategy_configuration_sha256
     assert (
         target.semantic_sha256
         != replace(
