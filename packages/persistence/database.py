@@ -77,7 +77,7 @@ from packages.persistence.schema import (
 )
 from packages.persistence.sqlite_config import enforce_sqlite_foreign_keys
 
-EXPECTED_SCHEMA_REVISION = "0008_phase2_research"
+EXPECTED_SCHEMA_REVISION = "0009_lease_revision_chain"
 
 
 class DatabaseSchemaNotReady(RuntimeError):
@@ -309,6 +309,7 @@ def _verify_phase2_canonical_execution_facts(connection: Connection) -> None:
         LedgerReductionError,
         reduce_execution_ledger,
     )
+    from packages.domain.order_reducer import BrokerOrderEventKind
     from packages.domain.reservation_lifecycle import (
         ReservationLifecycleError,
         ReservationReleaseFact,
@@ -328,7 +329,8 @@ def _verify_phase2_canonical_execution_facts(connection: Connection) -> None:
     )
     from packages.persistence.reservation_lifecycle import (
         load_canonical_order_state,
-        load_reservation_release_history,
+        verify_reservation_correction_integrity,
+        verify_reservation_release_integrity,
         verify_simulation_horizon_release_binding,
     )
     from packages.persistence.simulation_horizon import (
@@ -358,9 +360,8 @@ def _verify_phase2_canonical_execution_facts(connection: Connection) -> None:
         releases_by_account: dict[str, list[AccountLeaseRelease]] = {}
         for release in releases:
             releases_by_account.setdefault(release.fence.account_id, []).append(release)
-        if (
-            set(heads_by_account) != set(leases_by_account)
-            or not set(releases_by_account).issubset(heads_by_account)
+        if set(heads_by_account) != set(leases_by_account) or not set(releases_by_account).issubset(
+            heads_by_account
         ):
             raise AccountCoordinatorError(
                 "account lease history and durable heads cover different accounts"
@@ -385,6 +386,8 @@ def _verify_phase2_canonical_execution_facts(connection: Connection) -> None:
                     "persisted submission attempt disappeared during verify"
                 )
         expected_execution_entries: dict[str, tuple[str, CanonicalLedgerEntry]] = {}
+        expected_execution_chains: dict[tuple[str, str], frozenset[str]] = {}
+        expected_execution_visibility: dict[str, int] = {}
         order_rows = connection.execute(
             sa.select(
                 phase2_logical_orders.c.submission_attempt_id,
@@ -399,10 +402,37 @@ def _verify_phase2_canonical_execution_facts(connection: Connection) -> None:
             decision = decisions.get(str(order_row["parent_decision_id"]))
             if decision is None:
                 raise BatchRiskFactConflict("persisted logical order lacks its risk decision")
-            for entry in reduce_execution_ledger(
+            reduced_entries = reduce_execution_ledger(
                 order_states=(order_state,),
                 execution_currency=decision.currency,
-            ).entries:
+            ).entries
+            entries_by_reference = {entry.reference_id: entry for entry in reduced_entries}
+            event_visibility = {
+                str(event_id): int(visible_after)
+                for event_id, visible_after in connection.execute(
+                    sa.select(
+                        phase2_order_events.c.event_id,
+                        phase2_order_events.c.visible_after_observation_sequence,
+                    ).where(phase2_order_events.c.order_id == order_state.submission.order_id)
+                )
+            }
+            chain_entry_ids: dict[str, set[str]] = {}
+            for event in order_state.broker_events:
+                if event.kind not in {
+                    BrokerOrderEventKind.EXECUTION,
+                    BrokerOrderEventKind.EXECUTION_CORRECTION,
+                }:
+                    continue
+                assert event.execution_id is not None
+                entry = entries_by_reference.get(event.event_id)
+                if entry is not None:
+                    chain_entry_ids.setdefault(event.execution_id, set()).add(entry.entry_id)
+                    expected_execution_visibility[entry.entry_id] = event_visibility[event.event_id]
+            for execution_id, entry_ids in chain_entry_ids.items():
+                expected_execution_chains[(order_state.submission.order_id, execution_id)] = (
+                    frozenset(entry_ids)
+                )
+            for entry in reduced_entries:
                 expected = (decision.account_id, entry)
                 prior = expected_execution_entries.get(entry.entry_id)
                 if prior is not None and prior != expected:
@@ -414,8 +444,9 @@ def _verify_phase2_canonical_execution_facts(connection: Connection) -> None:
         for reservation_id in connection.scalars(
             sa.select(phase2_batch_reservations.c.reservation_id)
         ):
+            verify_reservation_correction_integrity(connection, str(reservation_id))
             reservation_releases.extend(
-                load_reservation_release_history(connection, reservation_id)
+                verify_reservation_release_integrity(connection, str(reservation_id))
             )
         verify_simulation_horizon_integrity(connection)
         horizon_release_ids: set[str] = set()
@@ -442,6 +473,17 @@ def _verify_phase2_canonical_execution_facts(connection: Connection) -> None:
             raise SimulationHorizonPersistenceError(
                 "simulation-horizon proofs and releases are not one-to-one"
             )
+        legacy_execution_entry_ids = frozenset(
+            str(entry_id)
+            for entry_id in connection.scalars(
+                sa.select(phase2_reservation_release_events.c.finality_reference).where(
+                    phase2_reservation_release_events.c.reason
+                    == ReservationReleaseReason.EXECUTION_ACCOUNTED.value,
+                    phase2_reservation_release_events.c.visible_after_observation_sequence == 0,
+                    phase2_reservation_release_events.c.capacity_visibility_sha256.is_(None),
+                )
+            )
+        )
         verify_phase2_ledger_integrity(connection)
         for reservation_release in reservation_releases:
             if reservation_release.reason is not ReservationReleaseReason.EXECUTION_ACCOUNTED:
@@ -473,6 +515,7 @@ def _verify_phase2_canonical_execution_facts(connection: Connection) -> None:
                 raise LedgerReductionError(
                     "accounted execution release conflicts with its canonical ledger evidence"
                 )
+        persisted_execution_entry_ids: set[str] = set()
         for entry_id in connection.scalars(sa.select(phase2_ledger_entries.c.entry_id)):
             persisted = load_phase2_ledger_entry(connection, entry_id)
             if persisted is None:
@@ -488,6 +531,21 @@ def _verify_phase2_canonical_execution_facts(connection: Connection) -> None:
             ):
                 raise LedgerReductionError(
                     "Phase 2 execution ledger entry conflicts with reducer-derived economics"
+                )
+            if entry.kind in {
+                LedgerEntryKind.EXECUTION,
+                LedgerEntryKind.EXECUTION_CORRECTION,
+            }:
+                persisted_execution_entry_ids.add(entry.entry_id)
+        for expected_chain in expected_execution_chains.values():
+            persisted_chain = expected_chain & persisted_execution_entry_ids
+            missing_chain = expected_chain - persisted_chain
+            legacy_partial = persisted_chain.issubset(legacy_execution_entry_ids) and all(
+                expected_execution_visibility[entry_id] == 0 for entry_id in missing_chain
+            )
+            if persisted_chain and persisted_chain != expected_chain and not legacy_partial:
+                raise LedgerReductionError(
+                    "Phase 2 execution ledger contains a partial execution revision chain"
                 )
     except (
         AccountCoordinatorError,
@@ -726,14 +784,10 @@ def _verify_phase2_durability_integrity(connection: Connection) -> None:
           FROM phase2_order_events AS correction
           JOIN phase2_submission_attempts AS attempt
             ON attempt.order_id = correction.order_id
-          JOIN phase2_reservation_release_events AS accounted
-            ON accounted.reservation_id = attempt.reservation_id
-           AND accounted.authorization_id = attempt.authorization_id
-           AND accounted.order_id = attempt.order_id
-           AND accounted.attempt_id = attempt.attempt_id
-           AND accounted.reason = 'execution_accounted'
-          JOIN phase2_order_events AS accounted_event
-            ON accounted_event.event_id = accounted.order_event_id
+          JOIN phase2_order_events AS predecessor
+            ON predecessor.event_id = correction.supersedes_event_id
+           AND predecessor.order_id = correction.order_id
+           AND predecessor.execution_id = correction.execution_id
           WHERE correction.kind = 'execution_correction'
             AND NOT EXISTS (
               SELECT 1
@@ -741,24 +795,19 @@ def _verify_phase2_durability_integrity(connection: Connection) -> None:
               WHERE retry.order_id = attempt.order_id
                 AND retry.attempt_number > attempt.attempt_number
             )
-            AND accounted_event.execution_id = correction.execution_id
-            AND accounted_event.broker_sequence < correction.broker_sequence
-            AND correction.quantity <= accounted_event.quantity
+            AND predecessor.broker_sequence < correction.broker_sequence
+            AND correction.quantity <= predecessor.quantity
             AND NOT EXISTS (
               SELECT 1
-              FROM phase2_order_events AS later
-              WHERE later.order_id = correction.order_id
-                AND later.execution_id = correction.execution_id
-                AND later.broker_sequence > correction.broker_sequence
-            )
-            AND NOT EXISTS (
-              SELECT 1
-              FROM phase2_reservation_release_events AS exact_accounting
-              WHERE exact_accounting.reservation_id = attempt.reservation_id
-                AND exact_accounting.authorization_id = attempt.authorization_id
-                AND exact_accounting.attempt_id = attempt.attempt_id
-                AND exact_accounting.order_event_id = correction.event_id
-                AND exact_accounting.reason = 'execution_accounted'
+              FROM phase2_reservation_release_events AS legacy_accounting
+              WHERE legacy_accounting.reservation_id = attempt.reservation_id
+                AND legacy_accounting.authorization_id = attempt.authorization_id
+                AND legacy_accounting.attempt_id = attempt.attempt_id
+                AND legacy_accounting.order_id = attempt.order_id
+                AND legacy_accounting.order_event_id = correction.event_id
+                AND legacy_accounting.reason = 'execution_accounted'
+                AND legacy_accounting.visible_after_observation_sequence = 0
+                AND legacy_accounting.capacity_visibility_sha256 IS NULL
             )
             AND NOT EXISTS (
               SELECT 1
@@ -781,6 +830,10 @@ def _verify_phase2_durability_integrity(connection: Connection) -> None:
         LEFT JOIN correction_frozen AS correction
           ON correction.reservation_id = reservation.reservation_id
         WHERE (COALESCE(parent.unknown_count, 0) > 0 AND reservation.state <> 'frozen')
+           OR (
+                correction.reservation_id IS NOT NULL
+                AND reservation.state NOT IN ('frozen', 'released')
+              )
            OR (
                 reservation.state = 'frozen'
                 AND COALESCE(parent.unknown_count, 0) = 0

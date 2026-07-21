@@ -32,11 +32,17 @@ from packages.persistence.account_coordinator import (
     SqlAccountCoordinatorAuthority,
 )
 from packages.persistence.batch_risk import (
+    LEGACY_CAPACITY_OBSERVATION_CONTRACT,
     SqlBatchRiskRepository,
     _active_capacity_payload,
+    _decision_fact_payload,
     _decode_active_capacity,
+    load_batch_risk_decision,
 )
-from packages.persistence.database import create_database_engine
+from packages.persistence.database import (
+    _verify_phase2_durability_integrity,
+    create_database_engine,
+)
 from packages.persistence.reservation_lifecycle import SqlReservationLifecycleRepository
 from packages.persistence.schema import (
     metadata,
@@ -44,6 +50,7 @@ from packages.persistence.schema import (
     phase2_batch_decisions,
     phase2_batch_members,
     phase2_batch_reservations,
+    phase2_reservation_release_events,
 )
 from tests.unit.test_batch_risk import (
     CONSUMED_AT,
@@ -117,6 +124,49 @@ def _repository(
         authority=authority,
         coordinator=coordinator,
     )
+
+
+def _rewrite_capacity_facts_as_legacy(engine: sa.Engine) -> None:
+    """Model the 0009 backfill without changing immutable v3 decision payloads."""
+
+    with engine.connect() as connection:
+        rows = tuple(
+            connection.execute(
+                sa.select(phase2_batch_decisions).order_by(
+                    phase2_batch_decisions.c.account_observation_sequence
+                )
+            ).mappings()
+        )
+        legacy_payloads: dict[str, str] = {}
+        for row in rows:
+            decision_id = str(row["decision_id"])
+            decision = load_batch_risk_decision(connection, decision_id)
+            assert decision is not None
+            legacy_payloads[decision_id] = _decision_fact_payload(
+                decision,
+                _decode_active_capacity(row["active_capacity_payload"]),
+                int(row["account_observation_sequence"]),
+                capacity_observation_contract=LEGACY_CAPACITY_OBSERVATION_CONTRACT,
+                fencing_generation=int(row["fencing_generation"]),
+                lease_sha256=str(row["lease_sha256"]),
+                fence_sha256=str(row["fence_sha256"]),
+            )
+    with engine.begin() as connection:
+        for decision_id, canonical_payload in legacy_payloads.items():
+            connection.execute(
+                sa.update(phase2_batch_decisions)
+                .where(phase2_batch_decisions.c.decision_id == decision_id)
+                .values(
+                    capacity_observation_contract=(LEGACY_CAPACITY_OBSERVATION_CONTRACT),
+                    canonical_payload=canonical_payload,
+                )
+            )
+        connection.execute(
+            sa.update(phase2_reservation_release_events).values(
+                visible_after_observation_sequence=0,
+                capacity_visibility_sha256=None,
+            )
+        )
 
 
 def test_approval_persists_parent_reservation_and_children_atomically(
@@ -390,6 +440,312 @@ def test_durable_risk_charges_authenticated_remaining_capacity_and_binds_univers
         )
     assert row["active_capacity_sha256"] == active.semantic_sha256
     assert isinstance(row["active_capacity_payload"], str)
+
+
+def test_equal_timestamp_release_precedes_capacity_observation_and_reloads(
+    tmp_path: Path,
+) -> None:
+    portfolio = make_portfolio(
+        current={},
+        instruments=("US-ETF-QQQ", "US-ETF-SPY"),
+    )
+    first_target, first_batch = make_batch(
+        portfolio,
+        desired={"US-ETF-SPY": Decimal("5")},
+        target_id="same-time-release-parent",
+    )
+    second_target, second_batch = make_batch(
+        portfolio,
+        desired={"US-ETF-QQQ": Decimal("5")},
+        target_id="same-time-release-observer",
+    )
+    capacity = snapshot(portfolio, available_cash=Decimal("700"))
+    engine = _engine(tmp_path / "phase2-same-time-release-first.sqlite")
+    coordinator = _coordinator(
+        engine,
+        clock=MutableClock(EVALUATED_AT),
+        account_id=capacity.account_id,
+    )
+    fence = coordinator.acquire("worker-a").fence
+    first_risk = _repository(engine, capacity, coordinator, MutableClock(EVALUATED_AT))
+    first = first_risk.authorize(first_batch, first_target, fence)
+    assert first.reservation is not None
+    release_at = first.expires_at
+    lifecycle = SqlReservationLifecycleRepository(engine=engine, coordinator=coordinator)
+
+    released = lifecycle.expire_unsent(
+        reservation_id=first.reservation.reservation_id,
+        authorization_id=first.authorizations[0].decision_id,
+        fence=fence,
+        finality_reference="same-time-release-first",
+        observed_at=release_at,
+        recorded_at=release_at,
+    )
+    second_risk = _repository(engine, capacity, coordinator, MutableClock(release_at))
+    second = second_risk.authorize(second_batch, second_target, fence)
+
+    assert second.status is BatchRiskDecisionStatus.APPROVED
+    assert second.reservation is not None
+    assert second_risk.get_batch(second.decision_id) == second
+    retried = lifecycle.expire_unsent(
+        reservation_id=first.reservation.reservation_id,
+        authorization_id=first.authorizations[0].decision_id,
+        fence=fence,
+        finality_reference="same-time-release-first",
+        observed_at=release_at,
+        recorded_at=release_at,
+    )
+    assert retried.fact == released.fact
+    assert retried.inserted is False
+    with engine.connect() as connection:
+        _verify_phase2_durability_integrity(connection)
+
+
+def test_equal_timestamp_decision_then_release_preserves_decision_and_advances_visibility(
+    tmp_path: Path,
+) -> None:
+    portfolio = make_portfolio(
+        current={},
+        instruments=("US-ETF-QQQ", "US-ETF-SPY"),
+    )
+    first_target, first_batch = make_batch(
+        portfolio,
+        desired={"US-ETF-SPY": Decimal("5")},
+        target_id="same-time-decision-parent",
+    )
+    second_target, second_batch = make_batch(
+        portfolio,
+        desired={"US-ETF-QQQ": Decimal("5")},
+        target_id="same-time-decision-observer",
+    )
+    third_target, third_batch = make_batch(
+        portfolio,
+        desired={"US-ETF-QQQ": Decimal("5")},
+        target_id="same-time-post-release-observer",
+    )
+    capacity = snapshot(portfolio, available_cash=Decimal("700"))
+    engine = _engine(tmp_path / "phase2-same-time-decision-first.sqlite")
+    coordinator = _coordinator(
+        engine,
+        clock=MutableClock(EVALUATED_AT),
+        account_id=capacity.account_id,
+    )
+    fence = coordinator.acquire("worker-a").fence
+    first = _repository(
+        engine,
+        capacity,
+        coordinator,
+        MutableClock(EVALUATED_AT),
+    ).authorize(first_batch, first_target, fence)
+    assert first.reservation is not None
+    release_at = first.expires_at
+    second_risk = _repository(engine, capacity, coordinator, MutableClock(release_at))
+    second = second_risk.authorize(second_batch, second_target, fence)
+    assert second.status is BatchRiskDecisionStatus.REJECTED
+    lifecycle = SqlReservationLifecycleRepository(engine=engine, coordinator=coordinator)
+
+    released = lifecycle.expire_unsent(
+        reservation_id=first.reservation.reservation_id,
+        authorization_id=first.authorizations[0].decision_id,
+        fence=fence,
+        finality_reference="same-time-decision-first",
+        observed_at=release_at,
+        recorded_at=release_at,
+    )
+
+    assert second_risk.get_batch(second.decision_id) == second
+    third = _repository(
+        engine,
+        capacity,
+        coordinator,
+        MutableClock(release_at),
+    ).authorize(third_batch, third_target, fence)
+    assert third.status is BatchRiskDecisionStatus.APPROVED
+    assert third.reservation is not None
+    assert released.fact.recorded_at == third.evaluated_at
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                sa.select(sa.func.count()).select_from(phase2_reservation_release_events)
+            )
+            == 1
+        )
+        _verify_phase2_durability_integrity(connection)
+
+
+def test_legacy_equal_timestamp_partial_release_prefix_remains_readable(
+    tmp_path: Path,
+) -> None:
+    portfolio = make_portfolio(
+        current={},
+        instruments=("US-ETF-IWM", "US-ETF-QQQ", "US-ETF-SPY"),
+    )
+    first_target, first_batch = make_batch(
+        portfolio,
+        desired={"US-ETF-IWM": Decimal("5"), "US-ETF-SPY": Decimal("5")},
+        target_id="legacy-equal-prefix-parent",
+    )
+    second_target, second_batch = make_batch(
+        portfolio,
+        desired={"US-ETF-QQQ": Decimal("1")},
+        target_id="legacy-equal-prefix-observer",
+    )
+    capacity = snapshot(portfolio, available_cash=Decimal("2000"))
+    engine = _engine(tmp_path / "phase2-legacy-equal-prefix.sqlite")
+    coordinator = _coordinator(
+        engine,
+        clock=MutableClock(EVALUATED_AT),
+        account_id=capacity.account_id,
+    )
+    fence = coordinator.acquire("worker-a").fence
+    first_risk = _repository(engine, capacity, coordinator, MutableClock(EVALUATED_AT))
+    first = first_risk.authorize(first_batch, first_target, fence)
+    assert first.reservation is not None
+    assert len(first.authorizations) == 2
+    release_at = first.expires_at
+    lifecycle = SqlReservationLifecycleRepository(engine=engine, coordinator=coordinator)
+    lifecycle.expire_unsent(
+        reservation_id=first.reservation.reservation_id,
+        authorization_id=first.authorizations[0].decision_id,
+        fence=fence,
+        finality_reference="legacy-equal-prefix-first",
+        observed_at=release_at,
+        recorded_at=release_at,
+    )
+    second_risk = _repository(engine, capacity, coordinator, MutableClock(release_at))
+    second = second_risk.authorize(second_batch, second_target, fence)
+    with engine.connect() as connection:
+        observed_payload = connection.scalar(
+            sa.select(phase2_batch_decisions.c.active_capacity_payload).where(
+                phase2_batch_decisions.c.decision_id == second.decision_id
+            )
+        )
+    observed = _decode_active_capacity(observed_payload)
+    assert len(observed.reservations) == 1
+    assert len(observed.reservations[0].authorizations) == 1
+    lifecycle.expire_unsent(
+        reservation_id=first.reservation.reservation_id,
+        authorization_id=first.authorizations[1].decision_id,
+        fence=fence,
+        finality_reference="legacy-equal-prefix-second",
+        observed_at=release_at,
+        recorded_at=release_at,
+    )
+
+    _rewrite_capacity_facts_as_legacy(engine)
+
+    assert second_risk.get_batch(second.decision_id) == second
+    with engine.connect() as connection:
+        _verify_phase2_durability_integrity(connection)
+
+
+def test_legacy_completeness_requires_strictly_earlier_terminal_release(
+    tmp_path: Path,
+) -> None:
+    portfolio = make_portfolio(
+        current={},
+        instruments=("US-ETF-QQQ", "US-ETF-SPY"),
+    )
+    first_target, first_batch = make_batch(
+        portfolio,
+        desired={"US-ETF-SPY": Decimal("5")},
+        target_id="legacy-strict-release-parent",
+    )
+    second_target, second_batch = make_batch(
+        portfolio,
+        desired={"US-ETF-QQQ": Decimal("5")},
+        target_id="legacy-strict-release-observer",
+    )
+    capacity = snapshot(portfolio, available_cash=Decimal("700"))
+    engine = _engine(tmp_path / "phase2-legacy-strict-release.sqlite")
+    coordinator = _coordinator(
+        engine,
+        clock=MutableClock(EVALUATED_AT),
+        account_id=capacity.account_id,
+    )
+    fence = coordinator.acquire("worker-a").fence
+    first_risk = _repository(engine, capacity, coordinator, MutableClock(EVALUATED_AT))
+    first = first_risk.authorize(first_batch, first_target, fence)
+    assert first.reservation is not None
+    release_at = first.expires_at
+    lifecycle = SqlReservationLifecycleRepository(engine=engine, coordinator=coordinator)
+    lifecycle.expire_unsent(
+        reservation_id=first.reservation.reservation_id,
+        authorization_id=first.authorizations[0].decision_id,
+        fence=fence,
+        finality_reference="legacy-equal-terminal-release",
+        observed_at=release_at,
+        recorded_at=release_at,
+    )
+    second_risk = _repository(engine, capacity, coordinator, MutableClock(release_at))
+    second = second_risk.authorize(second_batch, second_target, fence)
+    with engine.connect() as connection:
+        observed_payload = connection.scalar(
+            sa.select(phase2_batch_decisions.c.active_capacity_payload).where(
+                phase2_batch_decisions.c.decision_id == second.decision_id
+            )
+        )
+    assert _decode_active_capacity(observed_payload).reservations == ()
+
+    _rewrite_capacity_facts_as_legacy(engine)
+
+    with pytest.raises(BatchRiskFactConflict, match="terminal release evidence"):
+        second_risk.get_batch(second.decision_id)
+
+
+def test_equal_timestamp_history_rejects_a_stale_pre_release_capacity_prefix(
+    tmp_path: Path,
+) -> None:
+    portfolio = make_portfolio(
+        current={},
+        instruments=("US-ETF-QQQ", "US-ETF-SPY"),
+    )
+    first_target, first_batch = make_batch(
+        portfolio,
+        desired={"US-ETF-SPY": Decimal("1")},
+        target_id="same-time-stale-parent",
+    )
+    second_target, second_batch = make_batch(
+        portfolio,
+        desired={"US-ETF-QQQ": Decimal("1")},
+        target_id="same-time-stale-observer",
+    )
+    capacity = snapshot(portfolio, available_cash=Decimal("1000"))
+    engine = _engine(tmp_path / "phase2-same-time-stale-prefix.sqlite")
+    coordinator = _coordinator(
+        engine,
+        clock=MutableClock(EVALUATED_AT),
+        account_id=capacity.account_id,
+    )
+    fence = coordinator.acquire("worker-a").fence
+    risk = _repository(engine, capacity, coordinator, MutableClock(EVALUATED_AT))
+    first = risk.authorize(first_batch, first_target, fence)
+    assert first.reservation is not None
+    stale_capacity = risk.active_capacity(capacity.account_id)
+    release_at = first.expires_at
+    lifecycle = SqlReservationLifecycleRepository(engine=engine, coordinator=coordinator)
+    lifecycle.expire_unsent(
+        reservation_id=first.reservation.reservation_id,
+        authorization_id=first.authorizations[0].decision_id,
+        fence=fence,
+        finality_reference="same-time-stale-release",
+        observed_at=release_at,
+        recorded_at=release_at,
+    )
+    second_risk = _repository(engine, capacity, coordinator, MutableClock(release_at))
+    second = second_risk.authorize(second_batch, second_target, fence)
+    with engine.begin() as connection:
+        connection.execute(
+            sa.update(phase2_batch_decisions)
+            .where(phase2_batch_decisions.c.decision_id == second.decision_id)
+            .values(
+                active_capacity_payload=_active_capacity_payload(stale_capacity),
+                active_capacity_sha256=stale_capacity.semantic_sha256,
+            )
+        )
+
+    with pytest.raises(BatchRiskFactConflict, match="exact historical"):
+        second_risk.get_batch(second.decision_id)
 
 
 def test_active_capacity_rejects_manual_frozen_head_without_immutable_provenance(

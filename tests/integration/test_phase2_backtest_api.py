@@ -209,10 +209,12 @@ def test_completed_job_exposes_verified_rich_report(tmp_path: Path) -> None:
         claim_expires_at=claim_time + timedelta(minutes=5),
     )
     assert claim is not None
+    assert claim.claim_token is not None
     run = run_golden_backtest(generated_at=claim_time + timedelta(minutes=1))
     workflow.complete(
         launched["job_id"],
         worker_id="phase2-api-test-worker",
+        claim_token=claim.claim_token,
         completed_at=run.manifest.result.completed_at,
         report=run.report,
         manifest=run.manifest,

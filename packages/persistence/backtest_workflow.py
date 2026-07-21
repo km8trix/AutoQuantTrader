@@ -20,18 +20,22 @@ from sqlalchemy.engine import RowMapping
 
 from packages.domain.backtest_job import (
     BACKTEST_JOB_CONTRACT_VERSION,
+    BacktestClaimToken,
     BacktestJob,
     BacktestJobConflict,
     BacktestJobEvent,
     BacktestJobInput,
     BacktestJobProjection,
     BacktestJobStatus,
-    cancel_queued_backtest_job,
-    cancel_running_backtest_job,
+    _event,
     claim_backtest_job,
     complete_backtest_job,
     create_backtest_job,
+    current_backtest_claim_token,
     fail_backtest_job,
+    reduce_backtest_job_events,
+    renew_backtest_job_claim,
+    require_current_backtest_claim_token,
 )
 from packages.domain.backtest_report import (
     BACKTEST_RUN_MANIFEST_CONTRACT_VERSION,
@@ -138,6 +142,7 @@ class BacktestJobSnapshot:
     attempt_number: int
     worker_id: str | None
     claim_expires_at: datetime | None
+    claim_token: BacktestClaimToken | None
     updated_at: datetime
     run_manifest_sha256: str | None
     report_sha256: str | None
@@ -1140,6 +1145,32 @@ def _event_matches_row(event: BacktestJobEvent, row: WorkflowRow) -> None:
         raise BacktestWorkflowError("persisted job event is malformed") from error
 
 
+def _event_from_row(row: WorkflowRow) -> BacktestJobEvent:
+    """Rehydrate one immutable fact without applying current command policy."""
+
+    try:
+        return _event(
+            job_id=_required_text(row, "job_id"),
+            sequence=_required_integer(row, "sequence_number"),
+            status=BacktestJobStatus(_required_text(row, "status")),
+            occurred_at=_required_datetime(row, "occurred_at"),
+            actor_id=_required_text(row, "actor_id"),
+            attempt_number=_required_integer(row, "attempt_number"),
+            previous_event_sha256=_optional_text(row, "previous_event_sha256"),
+            worker_id=_optional_text(row, "worker_id"),
+            claim_expires_at=_optional_datetime(row, "claim_expires_at"),
+            run_manifest_sha256=_optional_text(row, "run_manifest_sha256"),
+            report_sha256=_optional_text(row, "report_sha256"),
+            report_artifact_sha256=_optional_text(row, "report_artifact_sha256"),
+            terminal_reason_code=_optional_text(row, "terminal_reason_code"),
+            terminal_reason_sha256=_optional_text(row, "terminal_reason_sha256"),
+        )
+    except BacktestWorkflowError:
+        raise
+    except (TypeError, ValueError) as error:
+        raise BacktestWorkflowError("persisted backtest job event is malformed") from error
+
+
 def _projection(connection: Connection, job: BacktestJob) -> BacktestJobProjection:
     rows = connection.execute(
         sa.select(phase2_backtest_job_events)
@@ -1156,56 +1187,12 @@ def _projection(connection: Connection, job: BacktestJob) -> BacktestJobProjecti
         requested_at=job.requested_at,
     )
     _event_matches_row(projection.latest, event_rows[0])
+    events = [projection.latest]
     for row in event_rows[1:]:
-        status = BacktestJobStatus(_required_text(row, "status"))
-        occurred_at = _required_datetime(row, "occurred_at")
-        actor_id = _required_text(row, "actor_id")
-        if status is BacktestJobStatus.RUNNING:
-            worker_id = _required_text(row, "worker_id")
-            claim_expires_at = _required_datetime(row, "claim_expires_at")
-            projection = claim_backtest_job(
-                projection,
-                worker_id=worker_id,
-                claimed_at=occurred_at,
-                claim_expires_at=claim_expires_at,
-            )
-        elif status is BacktestJobStatus.COMPLETED:
-            projection = complete_backtest_job(
-                projection,
-                worker_id=actor_id,
-                completed_at=occurred_at,
-                run_manifest_sha256=_required_text(row, "run_manifest_sha256"),
-                report_sha256=_required_text(row, "report_sha256"),
-                report_artifact_sha256=_required_text(row, "report_artifact_sha256"),
-            )
-        elif status is BacktestJobStatus.FAILED:
-            projection = fail_backtest_job(
-                projection,
-                worker_id=actor_id,
-                failed_at=occurred_at,
-                terminal_reason_code=_required_text(row, "terminal_reason_code"),
-                terminal_reason_sha256=_required_text(row, "terminal_reason_sha256"),
-            )
-        elif status is BacktestJobStatus.CANCELED:
-            reason_sha256 = _required_text(row, "terminal_reason_sha256")
-            if projection.status is BacktestJobStatus.QUEUED:
-                projection = cancel_queued_backtest_job(
-                    projection,
-                    operator_id=actor_id,
-                    canceled_at=occurred_at,
-                    terminal_reason_sha256=reason_sha256,
-                )
-            else:
-                projection = cancel_running_backtest_job(
-                    projection,
-                    worker_id=actor_id,
-                    canceled_at=occurred_at,
-                    terminal_reason_sha256=reason_sha256,
-                )
-        else:
-            raise BacktestWorkflowError("queued event may only appear first")
-        _event_matches_row(projection.latest, row)
-    return projection
+        event = _event_from_row(row)
+        _event_matches_row(event, row)
+        events.append(event)
+    return reduce_backtest_job_events(job.job_id, tuple(events))
 
 
 def _snapshot(job: BacktestJob, projection: BacktestJobProjection) -> BacktestJobSnapshot:
@@ -1224,6 +1211,7 @@ def _snapshot(job: BacktestJob, projection: BacktestJobProjection) -> BacktestJo
         attempt_number=latest.attempt_number,
         worker_id=latest.worker_id,
         claim_expires_at=latest.claim_expires_at,
+        claim_token=current_backtest_claim_token(projection),
         updated_at=latest.occurred_at,
         run_manifest_sha256=latest.run_manifest_sha256,
         report_sha256=latest.report_sha256,
@@ -2130,15 +2118,22 @@ class SqlBacktestWorkflow:
         job_id: str,
         *,
         worker_id: str,
+        claim_token: BacktestClaimToken,
         renewed_at: datetime,
         claim_expires_at: datetime,
     ) -> BacktestJobSnapshot:
         with _write_transaction(self._engine) as connection:
             job, prior = self._locked_job(connection, job_id)
-            updated = claim_backtest_job(
+            require_current_backtest_claim_token(
                 prior,
                 worker_id=worker_id,
-                claimed_at=renewed_at,
+                claim_token=claim_token,
+            )
+            updated = renew_backtest_job_claim(
+                prior,
+                worker_id=worker_id,
+                claim_token=claim_token,
+                renewed_at=renewed_at,
                 claim_expires_at=claim_expires_at,
             )
             self._append_and_advance(connection, prior, updated)
@@ -2149,6 +2144,7 @@ class SqlBacktestWorkflow:
         job_id: str,
         *,
         worker_id: str,
+        claim_token: BacktestClaimToken,
         completed_at: datetime,
         report: BacktestReport,
         manifest: BacktestRunManifest,
@@ -2165,6 +2161,11 @@ class SqlBacktestWorkflow:
             raise BacktestWorkflowConflict("job completion and report manifest do not agree")
         with _write_transaction(self._engine) as connection:
             job, prior = self._locked_job(connection, job_id)
+            require_current_backtest_claim_token(
+                prior,
+                worker_id=worker_id,
+                claim_token=claim_token,
+            )
             fixture = (
                 connection.execute(
                     sa.select(phase2_backtest_fixtures).where(
@@ -2213,6 +2214,7 @@ class SqlBacktestWorkflow:
             updated = complete_backtest_job(
                 prior,
                 worker_id=worker_id,
+                claim_token=claim_token,
                 completed_at=completed_at,
                 run_manifest_sha256=manifest.manifest_sha256,
                 report_sha256=report.report_sha256,
@@ -2235,15 +2237,22 @@ class SqlBacktestWorkflow:
         job_id: str,
         *,
         worker_id: str,
+        claim_token: BacktestClaimToken,
         failed_at: datetime,
         terminal_reason_code: str,
         terminal_reason_sha256: str,
     ) -> BacktestJobSnapshot:
         with _write_transaction(self._engine) as connection:
             job, prior = self._locked_job(connection, job_id)
+            require_current_backtest_claim_token(
+                prior,
+                worker_id=worker_id,
+                claim_token=claim_token,
+            )
             updated = fail_backtest_job(
                 prior,
                 worker_id=worker_id,
+                claim_token=claim_token,
                 failed_at=failed_at,
                 terminal_reason_code=terminal_reason_code,
                 terminal_reason_sha256=terminal_reason_sha256,

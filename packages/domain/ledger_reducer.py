@@ -462,34 +462,40 @@ def _execution_entries(
             exact_decimal_subtract(current_value, previous_value)
             for current_value, previous_value in zip(current, previous, strict=True)
         )
-        entries.append(
-            _entry(
-                kind=kind,
-                reference_id=event.event_id,
-                source_sha256=event.semantic_sha256,
-                effective_at=event.occurred_at,
-                recorded_at=event.received_at,
-                postings=(
-                    _posting_from_delta(
-                        account=f"assets:cash:{currency}",
-                        currency=currency,
-                        amount_delta=cash_delta,
-                    ),
-                    _posting_from_delta(
-                        account=f"clearing:executions:{intent.instrument_id}",
-                        currency=currency,
-                        amount_delta=clearing_delta,
-                        units_delta=units_delta,
-                        instrument_id=intent.instrument_id,
-                    ),
-                    _posting_from_delta(
-                        account="expenses:execution_fees",
-                        currency=currency,
-                        amount_delta=fee_delta,
-                    ),
+        postings = tuple(
+            posting
+            for posting in (
+                _posting_from_delta(
+                    account=f"assets:cash:{currency}",
+                    currency=currency,
+                    amount_delta=cash_delta,
+                ),
+                _posting_from_delta(
+                    account=f"clearing:executions:{intent.instrument_id}",
+                    currency=currency,
+                    amount_delta=clearing_delta,
+                    units_delta=units_delta,
+                    instrument_id=intent.instrument_id,
+                ),
+                _posting_from_delta(
+                    account="expenses:execution_fees",
+                    currency=currency,
+                    amount_delta=fee_delta,
                 ),
             )
+            if posting is not None
         )
+        if postings:
+            entries.append(
+                _entry(
+                    kind=kind,
+                    reference_id=event.event_id,
+                    source_sha256=event.semantic_sha256,
+                    effective_at=event.occurred_at,
+                    recorded_at=event.received_at,
+                    postings=postings,
+                )
+            )
         predecessors[event.execution_id] = event
     return tuple(entries)
 

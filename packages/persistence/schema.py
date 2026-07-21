@@ -913,6 +913,8 @@ phase2_account_leases = sa.Table(
     sa.Column("owner_id", sa.String(128), nullable=False),
     sa.Column("lease_id", sa.String(64), nullable=False),
     sa.Column("fencing_generation", sa.BigInteger(), nullable=False),
+    sa.Column("revision_number", sa.BigInteger(), nullable=False),
+    sa.Column("previous_lease_sha256", sa.String(64), nullable=True),
     sa.Column("acquired_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
@@ -926,17 +928,40 @@ phase2_account_leases = sa.Table(
     ),
     sa.UniqueConstraint(
         "account_id",
+        "fencing_generation",
+        "revision_number",
+        name="account_generation_revision",
+    ),
+    sa.UniqueConstraint(
+        "account_id",
         "lease_id",
         "heartbeat_at",
         name="account_lease_revision",
     ),
+    sa.ForeignKeyConstraint(
+        ["account_id", "fencing_generation", "previous_lease_sha256"],
+        [
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ],
+        name="previous_lease_revision",
+    ),
     sa.CheckConstraint("fencing_generation > 0", name="positive_generation"),
+    sa.CheckConstraint("revision_number > 0", name="positive_revision"),
+    sa.CheckConstraint(
+        "(revision_number = 1 AND previous_lease_sha256 IS NULL) "
+        "OR (revision_number > 1 AND previous_lease_sha256 IS NOT NULL "
+        "AND previous_lease_sha256 <> lease_sha256)",
+        name="revision_predecessor_shape",
+    ),
     sa.CheckConstraint(
         "heartbeat_at >= acquired_at AND expires_at > heartbeat_at",
         name="valid_time_range",
     ),
     sa.CheckConstraint(
-        "length(lease_sha256) = 64 AND length(policy_sha256) = 64",
+        "length(lease_sha256) = 64 AND length(policy_sha256) = 64 "
+        "AND (previous_lease_sha256 IS NULL OR length(previous_lease_sha256) = 64)",
         name="hash_lengths",
     ),
     sa.CheckConstraint(
@@ -948,6 +973,7 @@ sa.Index(
     "ix_phase2_account_leases_account_generation",
     phase2_account_leases.c.account_id,
     phase2_account_leases.c.fencing_generation,
+    phase2_account_leases.c.revision_number,
 )
 
 phase2_account_lease_heads = sa.Table(
@@ -1027,6 +1053,7 @@ phase2_batch_decisions = sa.Table(
     sa.Column("intent_batch_sha256", sa.String(64), nullable=False),
     sa.Column("account_id", sa.String(64), nullable=False),
     sa.Column("account_observation_sequence", sa.BigInteger(), nullable=False),
+    sa.Column("capacity_observation_contract", sa.String(64), nullable=False),
     sa.Column("fencing_generation", sa.BigInteger(), nullable=False),
     sa.Column("lease_sha256", sa.String(64), nullable=False),
     sa.Column("fence_sha256", sa.String(64), nullable=False),
@@ -1068,6 +1095,11 @@ phase2_batch_decisions = sa.Table(
     sa.CheckConstraint(
         "account_observation_sequence > 0",
         name="positive_observation_sequence",
+    ),
+    sa.CheckConstraint(
+        "capacity_observation_contract IN "
+        "('phase2-capacity-observation-v3', 'phase2-capacity-observation-v4')",
+        name="valid_capacity_observation_contract",
     ),
     sa.CheckConstraint("fencing_generation > 0", name="positive_generation"),
     sa.CheckConstraint("expires_at > evaluated_at", name="positive_ttl"),
@@ -1612,6 +1644,8 @@ phase2_submission_attempt_events = sa.Table(
     sa.Column("state", sa.String(16), nullable=False),
     sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("visible_after_observation_sequence", sa.BigInteger(), nullable=False),
+    sa.Column("capacity_visibility_sha256", sa.String(64), nullable=True),
     sa.Column("previous_event_sha256", sa.String(64), nullable=True),
     sa.Column("dispatch_account_id", sa.String(64), nullable=True),
     sa.Column("dispatch_fencing_generation", sa.BigInteger(), nullable=True),
@@ -1707,6 +1741,12 @@ phase2_submission_attempt_events = sa.Table(
     ),
     sa.CheckConstraint("recorded_at >= occurred_at", name="valid_time_order"),
     sa.CheckConstraint(
+        "(visible_after_observation_sequence = 0 AND capacity_visibility_sha256 IS NULL) "
+        "OR (visible_after_observation_sequence > 0 "
+        "AND length(capacity_visibility_sha256) = 64)",
+        name="valid_capacity_visibility_binding",
+    ),
+    sa.CheckConstraint(
         "(previous_event_sha256 IS NULL OR length(previous_event_sha256) = 64) "
         "AND (dispatch_lease_sha256 IS NULL OR length(dispatch_lease_sha256) = 64) "
         "AND (dispatch_fence_sha256 IS NULL OR length(dispatch_fence_sha256) = 64) "
@@ -1742,6 +1782,8 @@ phase2_order_events = sa.Table(
     sa.Column("broker_sequence", sa.Integer(), nullable=False),
     sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("visible_after_observation_sequence", sa.BigInteger(), nullable=False),
+    sa.Column("capacity_visibility_sha256", sa.String(64), nullable=True),
     sa.Column("kind", sa.String(32), nullable=False),
     sa.Column("reason", sa.String(512), nullable=True),
     sa.Column("execution_id", sa.String(128), nullable=True),
@@ -1766,6 +1808,12 @@ phase2_order_events = sa.Table(
     ),
     sa.CheckConstraint("broker_sequence > 0", name="positive_broker_sequence"),
     sa.CheckConstraint("received_at >= occurred_at", name="valid_time_order"),
+    sa.CheckConstraint(
+        "(visible_after_observation_sequence = 0 AND capacity_visibility_sha256 IS NULL) "
+        "OR (visible_after_observation_sequence > 0 "
+        "AND length(capacity_visibility_sha256) = 64)",
+        name="valid_capacity_visibility_binding",
+    ),
     sa.CheckConstraint(
         "kind IN ('accepted', 'rejected', 'canceled', 'execution', 'execution_correction')",
         name="valid_kind",
@@ -1938,6 +1986,8 @@ phase2_reservation_release_events = sa.Table(
     sa.Column("released_sell_quantity", sa.Numeric(28, 10), nullable=False),
     sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("visible_after_observation_sequence", sa.BigInteger(), nullable=False),
+    sa.Column("capacity_visibility_sha256", sa.String(64), nullable=True),
     sa.Column("canonical_payload", sa.Text(), nullable=False),
     sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
     sa.CheckConstraint(
@@ -1959,6 +2009,12 @@ phase2_reservation_release_events = sa.Table(
         name="whole_sell_quantity",
     ),
     sa.CheckConstraint("recorded_at >= occurred_at", name="valid_time_order"),
+    sa.CheckConstraint(
+        "(visible_after_observation_sequence = 0 AND capacity_visibility_sha256 IS NULL) "
+        "OR (visible_after_observation_sequence > 0 "
+        "AND length(capacity_visibility_sha256) = 64)",
+        name="valid_capacity_visibility_binding",
+    ),
     sa.CheckConstraint(
         "length(source_sha256) = 64 AND length(semantic_sha256) = 64",
         name="hash_lengths",

@@ -74,6 +74,7 @@ from packages.persistence.database import (
     _verify_phase2_durability_integrity,
     create_database_engine,
 )
+from packages.persistence.immutable import as_aware_utc
 from packages.persistence.market_data import SqlMarketDataCatalog
 from packages.persistence.replay import SqlReplayRunManifestRepository
 from packages.persistence.reservation_lifecycle import (
@@ -494,13 +495,17 @@ def test_accounted_fill_releases_only_residual_fee_and_is_readiness_safe(
     assert released.fact.released_buy_exposure == 0
     assert released.snapshot.persisted_state is ReservationCapacityState.RELEASED
     with scenario.system.engine.connect() as connection:
+        horizon_row = (
+            connection.execute(sa.select(phase2_simulation_horizon_facts)).mappings().one()
+        )
         horizon = load_simulation_horizon_fact(
             connection,
-            str(connection.scalar(sa.select(phase2_simulation_horizon_facts.c.horizon_id))),
+            str(horizon_row["horizon_id"]),
         )
         assert horizon is not None
         assert horizon.simulation_result_sha256 == scenario.result.semantic_sha256
         assert horizon.attempt_response_sha256 == scenario.result.semantic_sha256
+        assert as_aware_utc(horizon_row["recorded_at"]) == released.fact.recorded_at
         _verify_phase2_durability_integrity(connection)
 
 
@@ -783,6 +788,39 @@ def test_horizon_session_must_match_the_pinned_durable_calendar(
         _verify_phase2_durability_integrity(connection)
 
 
+def test_horizon_watermarks_must_match_the_pinned_durable_universe(
+    tmp_path: Path,
+) -> None:
+    scenario = _scenario(tmp_path, cap_blocked=True)
+    _release_horizon(scenario)
+    with scenario.system.engine.begin() as connection:
+        row = connection.execute(sa.select(phase2_simulation_horizon_facts)).mappings().one()
+        horizon_id = str(row["horizon_id"])
+        payload = json.loads(str(row["canonical_payload"]))
+        for watermark in payload["replay_watermarks"]:
+            watermark["expected_instrument_ids"] = ["aqt-security-qqq"]
+        connection.execute(
+            sa.update(phase2_simulation_horizon_facts).values(
+                canonical_payload=json.dumps(
+                    payload,
+                    ensure_ascii=True,
+                    allow_nan=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
+        )
+
+    with (
+        scenario.system.engine.connect() as connection,
+        pytest.raises(
+            SimulationHorizonPersistenceError,
+            match="pinned durable replay universe",
+        ),
+    ):
+        load_simulation_horizon_fact(connection, horizon_id)
+
+
 @pytest.mark.parametrize("corruption", ("payload", "event_count"))
 def test_horizon_corruption_fails_strict_load_and_readiness(
     tmp_path: Path,
@@ -826,3 +864,25 @@ def test_horizon_corruption_fails_strict_load_and_readiness(
     ):
         _verify_phase2_durability_integrity(connection)
     assert released.fact.finality_reference
+
+
+def test_horizon_release_rejects_a_distinct_durable_recorded_time(
+    tmp_path: Path,
+) -> None:
+    scenario = _scenario(tmp_path)
+    _account_execution(scenario)
+    released = _release_horizon(scenario)
+    with scenario.system.engine.begin() as connection:
+        horizon_id = str(connection.scalar(sa.select(phase2_simulation_horizon_facts.c.horizon_id)))
+        connection.execute(
+            sa.update(phase2_simulation_horizon_facts).values(
+                recorded_at=released.fact.recorded_at + timedelta(seconds=1)
+            )
+        )
+
+    with scenario.system.engine.connect() as connection:
+        # recorded_at is durable envelope metadata, so the horizon remains
+        # internally canonical while its cross-fact binding is corrupt.
+        assert load_simulation_horizon_fact(connection, horizon_id) is not None
+        with pytest.raises(DatabaseSchemaNotReady, match="canonical execution evidence"):
+            _verify_phase2_durability_integrity(connection)

@@ -31,15 +31,22 @@ phase.
    terminal event chain, and one launch audit fact. A lockable head is only a
    compare-and-swap projection of that reconstructable history.
 4. Give workers bounded SQL claims. A current worker may renew its claim and is
-   the only actor allowed to complete or fail that attempt before expiry. After
-   expiry, another claim increments the attempt number; the stale worker cannot
-   publish a terminal result. PostgreSQL claim selection uses row locking with
+   the only actor allowed to complete or fail that attempt before expiry. A
+   rotating content-addressed claim token binds the job, worker, attempt, and
+   latest authenticated `RUNNING` event and is checked again under the job-head
+   SQL lock for renewal, failure, and completion. After expiry, another claim
+   increments the attempt number; the stale token cannot publish even if the
+   same worker label is reused. PostgreSQL claim selection uses row locking with
    skip-locked semantics, while SQLite uses its serialized write transaction.
+   Persisted legacy renewal events replay through their authenticated historical
+   event chain, while every new renewal must strictly extend expiry and rotate
+   the exact token; compatibility does not relax current command policy.
 5. The local fixture worker idempotently installs the golden catalog, claims at
-   most one job, executes the deterministic golden runner, and commits either a
-   verified success or a bounded failure classification. Raw exception text is
-   not persisted. The continuously running worker polls for additional jobs;
-   `--once` processes at most one.
+   most one job using one process-unique worker identity, executes the
+   deterministic golden runner, and commits either a verified success or a
+   bounded failure classification. Raw exception text is not persisted. The
+   continuously running worker polls for additional jobs; `--once` processes at
+   most one.
 6. On success, atomically bind the terminal job event to one immutable run
    manifest and report. The manifest must reproduce every immutable job input
    and reference the report's semantic and artifact digests. The report retains
@@ -67,8 +74,9 @@ phase.
 
 The browser now drives a reproducible, auditable local research loop from an
 immutable selection through a recoverable worker job to retained result
-evidence. Exact launch retries are safe, concurrent workers cannot complete the
-same active claim, and report corruption makes the workflow unavailable rather
+evidence. Exact launch retries are safe, concurrent workers and stale same-ID
+attempts cannot complete the same active claim, and report corruption makes the
+workflow unavailable rather
 than silently changing a result.
 
 This is not a general backtesting service or a deployment/promotion path. It is

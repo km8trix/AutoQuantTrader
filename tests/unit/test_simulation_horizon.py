@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import FrozenInstanceError, dataclass, replace
+from dataclasses import FrozenInstanceError, dataclass, fields, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -235,7 +235,9 @@ def _receipt(*, validated_at: datetime) -> AccountFenceReceipt:
         owner_id="horizon-worker",
         lease_id="horizon-lease",
         fencing_generation=1,
-        acquired_at=SESSION_OPEN,
+        revision_number=1,
+        previous_lease_sha256=None,
+        acquired_at=EVALUATED_AT,
         heartbeat_at=EVALUATED_AT,
         expires_at=EVALUATED_AT + timedelta(minutes=5),
         policy_sha256="e" * 64,
@@ -278,10 +280,23 @@ def _in_flight_attempt(
 
 
 def _replay(*, close_price: Decimal = Decimal("101")) -> ReplayResult:
-    event = MarketEvent(
-        event_id=f"horizon-event-{close_price}",
+    return _replay_for_instrument(
         instrument_id=WalkingThread.instrument_id,
         symbol=WalkingThread.symbol,
+        close_price=close_price,
+    )
+
+
+def _replay_for_instrument(
+    *,
+    instrument_id: str,
+    symbol: str,
+    close_price: Decimal = Decimal("101"),
+) -> ReplayResult:
+    event = MarketEvent(
+        event_id=f"horizon-event-{instrument_id}-{close_price}",
+        instrument_id=instrument_id,
+        symbol=symbol,
         event_time=EVENT_TIME,
         available_at=CLOSED_AT,
         close_price=close_price,
@@ -293,7 +308,7 @@ def _replay(*, close_price: Decimal = Decimal("101")) -> ReplayResult:
         watermark_id="horizon-watermark",
         event_time_through=EVENT_TIME,
         closed_at=CLOSED_AT,
-        expected_instrument_ids=(WalkingThread.instrument_id,),
+        expected_instrument_ids=(instrument_id,),
     )
     return replay_market_events(events=(event,), watermarks=(watermark,))
 
@@ -448,6 +463,7 @@ def _proofs(
     adapter_version: str = "1.0.0",
     operation: str = "submit_order",
     payload: dict[str, object] | None = None,
+    committed_model: SimulatedMarketOrderModel | None = None,
     result_model: SimulatedMarketOrderModel | None = None,
     session_calendar_version: str | None = None,
 ) -> _Proofs:
@@ -458,7 +474,7 @@ def _proofs(
         manifest,
         calendar_version=session_calendar_version,
     )
-    committed_model = _model()
+    committed_model = _model() if committed_model is None else committed_model
     decision = _decision(intent, session)
     assert decision.reservation is not None
     authorization = decision.authorizations[0]
@@ -631,6 +647,37 @@ def test_factory_requires_simulator_session_to_match_manifest_calendar() -> None
         match="pinned calendar",
     ):
         _create(proofs)
+
+
+def test_factory_rejects_wrong_universe_zero_fill_proof() -> None:
+    late_model = replace(
+        _model(),
+        model_version="late-activation-v1",
+        activation_latency=EVENT_TIME - SUBMITTED_AT,
+    )
+    proofs = _proofs(committed_model=late_model)
+    assert proofs.result.order_state.executions == ()
+    wrong_replay = _replay_for_instrument(
+        instrument_id="horizon-qqq-security",
+        symbol="QQQ",
+    )
+    forged_result = object.__new__(SimulatedBrokerResult)
+    for field in fields(SimulatedBrokerResult):
+        object.__setattr__(forged_result, field.name, getattr(proofs.result, field.name))
+    object.__setattr__(forged_result, "market_batches", wrong_replay.batches)
+
+    with pytest.raises(
+        SimulationHorizonConflict,
+        match="every replay watermark",
+    ):
+        create_simulation_horizon_fact(
+            result=forged_result,
+            replay=wrong_replay,
+            manifest=_manifest(wrong_replay),
+            reservation=proofs.reservation,
+            authorization=proofs.authorization,
+            attempt=proofs.confirmed,
+        )
 
 
 def test_factory_rejects_unaccepted_attempt_and_non_authorized_caps() -> None:

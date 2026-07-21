@@ -22,8 +22,15 @@ from packages.backtest.golden_runner import (
     golden_strategy_registration,
     run_golden_backtest,
 )
-from packages.domain.backtest_job import BacktestJobInput, BacktestJobStatus
+from packages.domain.backtest_job import (
+    BACKTEST_JOB_CONTRACT_VERSION,
+    BacktestClaimToken,
+    BacktestJobInput,
+    BacktestJobNotClaimable,
+    BacktestJobStatus,
+)
 from packages.domain.backtest_report import BacktestRunManifest
+from packages.domain.canonical import canonical_json_bytes, canonical_json_text
 from packages.domain.experiment_registry import (
     StrategyConfigurationRecord,
     StrategyVersionRecord,
@@ -43,6 +50,7 @@ from packages.persistence.schema import (
     phase2_backtest_audit_events,
     phase2_backtest_fixtures,
     phase2_backtest_job_events,
+    phase2_backtest_job_heads,
     phase2_backtest_jobs,
     phase2_backtest_reports,
     phase2_backtest_run_manifests,
@@ -54,7 +62,7 @@ ROOT = Path(__file__).resolve().parents[2]
 REQUESTED_AT = datetime(2026, 7, 20, 14, 0, tzinfo=UTC)
 
 
-def migrated_engine(tmp_path: Path) -> Engine:
+def migrated_engine(tmp_path: Path, *, revision: str = "head") -> Engine:
     engine = create_database_engine(f"sqlite+pysqlite:///{tmp_path}/research.sqlite")
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
@@ -62,14 +70,16 @@ def migrated_engine(tmp_path: Path) -> Engine:
         "sqlalchemy.url",
         engine.url.render_as_string(hide_password=False).replace("%", "%%"),
     )
-    command.upgrade(config, "head")
+    command.upgrade(config, revision)
     return engine
 
 
 def configured_workflow(
     tmp_path: Path,
+    *,
+    revision: str = "head",
 ) -> tuple[Engine, SqlBacktestWorkflow, BacktestJobInput]:
-    engine = migrated_engine(tmp_path)
+    engine = migrated_engine(tmp_path, revision=revision)
     workflow = SqlBacktestWorkflow(engine)
     version, configuration, display_name, parameter_schema = golden_strategy_registration()
     workflow.register_strategy(
@@ -86,6 +96,63 @@ def configured_workflow(
         registered_at=REQUESTED_AT - timedelta(minutes=1),
     )
     return engine, workflow, job_input
+
+
+def _claim_token(snapshot: BacktestJobSnapshot) -> BacktestClaimToken:
+    token = snapshot.claim_token
+    assert token is not None
+    return token
+
+
+def _legacy_renewal_values(
+    snapshot: BacktestJobSnapshot,
+    *,
+    renewed_at: datetime,
+    claim_expires_at: datetime,
+) -> dict[str, object]:
+    """Encode the renewal fact accepted by the schema-0008 writer."""
+
+    token = _claim_token(snapshot)
+    worker_id = snapshot.worker_id
+    assert worker_id is not None
+    sequence_number = len(snapshot.history)
+    material = (
+        BACKTEST_JOB_CONTRACT_VERSION,
+        "event",
+        snapshot.job_id,
+        sequence_number,
+        BacktestJobStatus.RUNNING.value,
+        renewed_at,
+        worker_id,
+        snapshot.attempt_number,
+        token.claim_event_sha256,
+        worker_id,
+        claim_expires_at,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    event_sha256 = hashlib.sha256(canonical_json_bytes(material)).hexdigest()
+    return {
+        "event_sha256": event_sha256,
+        "job_id": snapshot.job_id,
+        "sequence_number": sequence_number,
+        "status": BacktestJobStatus.RUNNING.value,
+        "occurred_at": renewed_at,
+        "actor_id": worker_id,
+        "attempt_number": snapshot.attempt_number,
+        "previous_event_sha256": token.claim_event_sha256,
+        "worker_id": worker_id,
+        "claim_expires_at": claim_expires_at,
+        "run_manifest_sha256": None,
+        "report_sha256": None,
+        "report_artifact_sha256": None,
+        "terminal_reason_code": None,
+        "terminal_reason_sha256": None,
+        "canonical_payload": canonical_json_text(material),
+    }
 
 
 def _registration_for_schema(
@@ -407,6 +474,184 @@ def test_expired_claim_is_recovered_with_a_new_attempt(tmp_path: Path) -> None:
     assert recovered.attempt_number == 2
 
 
+def test_schema_0008_shortening_renewal_replays_with_hardened_claim_tokens(
+    tmp_path: Path,
+) -> None:
+    engine, legacy_workflow, raw_input = configured_workflow(
+        tmp_path,
+        revision="0008_phase2_research",
+    )
+    queued = legacy_workflow.launch(
+        input=raw_input,
+        requested_by="local-operator",
+        idempotency_key="phase2-legacy-short-renewal",
+        requested_at=REQUESTED_AT,
+    )
+    first = legacy_workflow.claim_next(
+        worker_id="legacy-worker",
+        claimed_at=REQUESTED_AT + timedelta(seconds=1),
+        claim_expires_at=REQUESTED_AT + timedelta(minutes=5),
+    )
+    assert first is not None
+    legacy_renewed_at = REQUESTED_AT + timedelta(minutes=1)
+    legacy_expires_at = REQUESTED_AT + timedelta(minutes=2)
+    legacy_event = _legacy_renewal_values(
+        first,
+        renewed_at=legacy_renewed_at,
+        claim_expires_at=legacy_expires_at,
+    )
+    with engine.begin() as connection:
+        connection.execute(sa.insert(phase2_backtest_job_events), legacy_event)
+        connection.execute(
+            sa.update(phase2_backtest_job_heads)
+            .where(phase2_backtest_job_heads.c.job_id == queued.job_id)
+            .values(
+                last_sequence_number=legacy_event["sequence_number"],
+                last_event_sha256=legacy_event["event_sha256"],
+                status=legacy_event["status"],
+                attempt_number=legacy_event["attempt_number"],
+                worker_id=legacy_event["worker_id"],
+                claim_expires_at=legacy_event["claim_expires_at"],
+                updated_at=legacy_event["occurred_at"],
+            )
+        )
+
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "migrations"))
+    config.set_main_option(
+        "sqlalchemy.url",
+        engine.url.render_as_string(hide_password=False).replace("%", "%%"),
+    )
+    command.upgrade(config, "head")
+
+    workflow = SqlBacktestWorkflow(engine)
+    restored = workflow.get(queued.job_id)
+    legacy_token = _claim_token(restored)
+    assert restored.claim_expires_at == legacy_expires_at
+    assert legacy_token.claim_event_sha256 == legacy_event["event_sha256"]
+    verify_operational_schema(engine, require_phase_zero_facts=False)
+
+    with pytest.raises(BacktestJobNotClaimable, match="strictly extend"):
+        workflow.renew_claim(
+            queued.job_id,
+            worker_id="legacy-worker",
+            claim_token=legacy_token,
+            renewed_at=REQUESTED_AT + timedelta(seconds=90),
+            claim_expires_at=legacy_expires_at,
+        )
+
+    renewed = workflow.renew_claim(
+        queued.job_id,
+        worker_id="legacy-worker",
+        claim_token=legacy_token,
+        renewed_at=REQUESTED_AT + timedelta(seconds=90),
+        claim_expires_at=REQUESTED_AT + timedelta(minutes=6),
+    )
+    assert renewed.claim_expires_at == REQUESTED_AT + timedelta(minutes=6)
+    assert _claim_token(renewed) != legacy_token
+    with pytest.raises(BacktestJobNotClaimable, match="claim token"):
+        workflow.renew_claim(
+            queued.job_id,
+            worker_id="legacy-worker",
+            claim_token=legacy_token,
+            renewed_at=REQUESTED_AT + timedelta(minutes=2),
+            claim_expires_at=REQUESTED_AT + timedelta(minutes=7),
+        )
+
+
+def test_same_worker_reclaim_fences_every_stale_attempt_atomically(tmp_path: Path) -> None:
+    engine, workflow, raw_input = configured_workflow(tmp_path)
+    queued = workflow.launch(
+        input=raw_input,
+        requested_by="local-operator",
+        idempotency_key="phase2-exact-claim-fence",
+        requested_at=REQUESTED_AT,
+    )
+    first = workflow.claim_next(
+        worker_id="same-worker",
+        claimed_at=REQUESTED_AT + timedelta(seconds=1),
+        claim_expires_at=REQUESTED_AT + timedelta(seconds=10),
+    )
+    assert first is not None
+    stale_token = _claim_token(first)
+    reclaimed = workflow.claim_next(
+        worker_id="same-worker",
+        claimed_at=REQUESTED_AT + timedelta(seconds=11),
+        claim_expires_at=REQUESTED_AT + timedelta(minutes=5),
+    )
+    assert reclaimed is not None
+    current_token = _claim_token(reclaimed)
+    assert reclaimed.attempt_number == 2
+    assert current_token != stale_token
+
+    run = run_golden_backtest(generated_at=REQUESTED_AT + timedelta(minutes=1))
+    with pytest.raises(BacktestJobNotClaimable, match="claim token"):
+        workflow.renew_claim(
+            queued.job_id,
+            worker_id="same-worker",
+            claim_token=stale_token,
+            renewed_at=REQUESTED_AT + timedelta(seconds=30),
+            claim_expires_at=REQUESTED_AT + timedelta(minutes=5),
+        )
+    with pytest.raises(BacktestJobNotClaimable, match="claim token"):
+        workflow.fail(
+            queued.job_id,
+            worker_id="same-worker",
+            claim_token=stale_token,
+            failed_at=REQUESTED_AT + timedelta(seconds=30),
+            terminal_reason_code="fixture_execution_failed",
+            terminal_reason_sha256="f" * 64,
+        )
+    with pytest.raises(BacktestJobNotClaimable, match="claim token"):
+        workflow.complete(
+            queued.job_id,
+            worker_id="same-worker",
+            claim_token=stale_token,
+            completed_at=run.manifest.result.completed_at,
+            report=run.report,
+            manifest=run.manifest,
+        )
+
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                sa.select(sa.func.count())
+                .select_from(phase2_backtest_reports)
+                .where(phase2_backtest_reports.c.report_sha256 == run.report.report_sha256)
+            )
+            == 0
+        )
+        assert (
+            connection.scalar(
+                sa.select(sa.func.count())
+                .select_from(phase2_backtest_run_manifests)
+                .where(phase2_backtest_run_manifests.c.job_id == queued.job_id)
+            )
+            == 0
+        )
+
+    renewed = workflow.renew_claim(
+        queued.job_id,
+        worker_id="same-worker",
+        claim_token=current_token,
+        renewed_at=REQUESTED_AT + timedelta(seconds=30),
+        claim_expires_at=REQUESTED_AT + timedelta(minutes=6),
+    )
+    renewed_token = _claim_token(renewed)
+    assert renewed_token != current_token
+    completed = workflow.complete(
+        queued.job_id,
+        worker_id="same-worker",
+        claim_token=renewed_token,
+        completed_at=run.manifest.result.completed_at,
+        report=run.report,
+        manifest=run.manifest,
+    )
+    assert completed.status is BacktestJobStatus.COMPLETED
+    assert completed.attempt_number == 2
+    assert completed.claim_token is None
+
+
 def test_worker_publishes_exact_golden_report_manifest_and_query_rows(tmp_path: Path) -> None:
     engine, workflow, raw_input = configured_workflow(tmp_path)
     queued = workflow.launch(
@@ -425,6 +670,7 @@ def test_worker_publishes_exact_golden_report_manifest_and_query_rows(tmp_path: 
     completed = workflow.complete(
         queued.job_id,
         worker_id="worker-a",
+        claim_token=_claim_token(claim),
         completed_at=run.manifest.result.completed_at,
         report=run.report,
         manifest=run.manifest,
@@ -459,15 +705,17 @@ def test_report_corruption_fails_closed(tmp_path: Path) -> None:
         idempotency_key="phase2-launch-0006",
         requested_at=REQUESTED_AT,
     )
-    workflow.claim_next(
+    claim = workflow.claim_next(
         worker_id="worker-a",
         claimed_at=REQUESTED_AT + timedelta(seconds=1),
         claim_expires_at=REQUESTED_AT + timedelta(minutes=5),
     )
+    assert claim is not None
     run = run_golden_backtest(generated_at=REQUESTED_AT + timedelta(minutes=1))
     workflow.complete(
         queued.job_id,
         worker_id="worker-a",
+        claim_token=_claim_token(claim),
         completed_at=run.manifest.result.completed_at,
         report=run.report,
         manifest=run.manifest,
@@ -538,15 +786,17 @@ def test_rehashed_nested_report_corruption_cannot_disguise_tampering(
         idempotency_key=f"phase2-rehashed-report-{section}",
         requested_at=REQUESTED_AT,
     )
-    workflow.claim_next(
+    claim = workflow.claim_next(
         worker_id="worker-a",
         claimed_at=REQUESTED_AT + timedelta(seconds=1),
         claim_expires_at=REQUESTED_AT + timedelta(minutes=5),
     )
+    assert claim is not None
     run = run_golden_backtest(generated_at=REQUESTED_AT + timedelta(minutes=1))
     workflow.complete(
         queued.job_id,
         worker_id="worker-a",
+        claim_token=_claim_token(claim),
         completed_at=run.manifest.result.completed_at,
         report=run.report,
         manifest=run.manifest,
@@ -676,15 +926,17 @@ def test_run_manifest_column_corruption_fails_readiness(tmp_path: Path) -> None:
         idempotency_key="phase2-manifest-time-corruption",
         requested_at=REQUESTED_AT,
     )
-    workflow.claim_next(
+    claim = workflow.claim_next(
         worker_id="worker-a",
         claimed_at=REQUESTED_AT + timedelta(seconds=1),
         claim_expires_at=REQUESTED_AT + timedelta(minutes=5),
     )
+    assert claim is not None
     run = run_golden_backtest(generated_at=REQUESTED_AT + timedelta(minutes=1))
     workflow.complete(
         queued.job_id,
         worker_id="worker-a",
+        claim_token=_claim_token(claim),
         completed_at=run.manifest.result.completed_at,
         report=run.report,
         manifest=run.manifest,
@@ -712,11 +964,12 @@ def test_completion_rejects_replay_evidence_outside_the_registered_fixture(
         idempotency_key="phase2-fixture-pin-conflict",
         requested_at=REQUESTED_AT,
     )
-    workflow.claim_next(
+    claim = workflow.claim_next(
         worker_id="worker-a",
         claimed_at=REQUESTED_AT + timedelta(seconds=1),
         claim_expires_at=REQUESTED_AT + timedelta(minutes=5),
     )
+    assert claim is not None
     run = run_golden_backtest(generated_at=REQUESTED_AT + timedelta(minutes=1))
     manifest = run.manifest
     execution_evidence = manifest.execution_evidence_sha256
@@ -745,6 +998,7 @@ def test_completion_rejects_replay_evidence_outside_the_registered_fixture(
         workflow.complete(
             queued.job_id,
             worker_id="worker-a",
+            claim_token=_claim_token(claim),
             completed_at=conflicting_manifest.result.completed_at,
             report=run.report,
             manifest=conflicting_manifest,

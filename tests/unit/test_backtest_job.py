@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from packages.domain.backtest_job import (
+    BacktestClaimToken,
     BacktestJob,
     BacktestJobConflict,
     BacktestJobEvent,
@@ -17,8 +18,10 @@ from packages.domain.backtest_job import (
     claim_backtest_job,
     complete_backtest_job,
     create_backtest_job,
+    current_backtest_claim_token,
     fail_backtest_job,
     reduce_backtest_job_events,
+    renew_backtest_job_claim,
 )
 
 REQUESTED_AT = datetime(2026, 7, 20, 14, 0, tzinfo=UTC)
@@ -60,6 +63,12 @@ def running() -> tuple[BacktestJob, BacktestJobProjection]:
     )
 
 
+def claim_token(projection: BacktestJobProjection) -> BacktestClaimToken:
+    token = current_backtest_claim_token(projection)
+    assert token is not None
+    return token
+
+
 def test_job_input_and_launch_are_immutable_scale_free_content_evidence() -> None:
     job, projection = queued()
     retried, retried_projection = queued()
@@ -96,15 +105,33 @@ def test_idempotency_identity_is_scoped_to_operator_and_key() -> None:
 
 def test_worker_claim_renewal_recovery_and_terminal_success_are_proven() -> None:
     job, projection = running()
-    renewed = claim_backtest_job(
+    original_token = claim_token(projection)
+    assert original_token.job_id == projection.job_id
+    assert original_token.worker_id == "fixture-worker-1"
+    assert original_token.attempt_number == 1
+    assert original_token.claim_event_sha256 == projection.latest.event_sha256
+    assert len(original_token.token_sha256) == 64
+    with pytest.raises(FrozenInstanceError):
+        original_token.attempt_number = 2  # type: ignore[misc]
+    with pytest.raises(BacktestJobNotClaimable, match="strictly extend"):
+        renew_backtest_job_claim(
+            projection,
+            worker_id="fixture-worker-1",
+            claim_token=original_token,
+            renewed_at=REQUESTED_AT + timedelta(seconds=30),
+            claim_expires_at=projection.latest.claim_expires_at,
+        )
+    renewed = renew_backtest_job_claim(
         projection,
         worker_id="fixture-worker-1",
-        claimed_at=REQUESTED_AT + timedelta(seconds=30),
+        claim_token=original_token,
+        renewed_at=REQUESTED_AT + timedelta(seconds=30),
         claim_expires_at=REQUESTED_AT + timedelta(minutes=2),
     )
 
     assert renewed.latest.attempt_number == 1
     assert renewed.latest.previous_event_sha256 == projection.latest.event_sha256
+    assert claim_token(renewed) != original_token
     with pytest.raises(BacktestJobNotClaimable, match="active worker claim"):
         claim_backtest_job(
             renewed,
@@ -123,6 +150,7 @@ def test_worker_claim_renewal_recovery_and_terminal_success_are_proven() -> None
     completed = complete_backtest_job(
         recovered,
         worker_id="fixture-worker-2",
+        claim_token=claim_token(recovered),
         completed_at=REQUESTED_AT + timedelta(minutes=2, seconds=30),
         run_manifest_sha256="8" * 64,
         report_sha256="9" * 64,
@@ -146,10 +174,11 @@ def test_worker_claim_renewal_recovery_and_terminal_success_are_proven() -> None
 def test_worker_must_close_current_unexpired_claim() -> None:
     _, projection = running()
 
-    with pytest.raises(BacktestJobNotClaimable, match="active worker"):
+    with pytest.raises(BacktestJobNotClaimable, match="claim token"):
         complete_backtest_job(
             projection,
             worker_id="fixture-worker-2",
+            claim_token=claim_token(projection),
             completed_at=REQUESTED_AT + timedelta(seconds=20),
             run_manifest_sha256="8" * 64,
             report_sha256="9" * 64,
@@ -159,6 +188,7 @@ def test_worker_must_close_current_unexpired_claim() -> None:
         complete_backtest_job(
             projection,
             worker_id="fixture-worker-1",
+            claim_token=claim_token(projection),
             completed_at=REQUESTED_AT + timedelta(minutes=1, microseconds=1),
             run_manifest_sha256="8" * 64,
             report_sha256="9" * 64,
@@ -171,6 +201,7 @@ def test_failure_retains_bounded_reason_without_result_claims() -> None:
     failed = fail_backtest_job(
         projection,
         worker_id="fixture-worker-1",
+        claim_token=claim_token(projection),
         failed_at=REQUESTED_AT + timedelta(seconds=20),
         terminal_reason_code="fixture_execution_failed",
         terminal_reason_sha256="b" * 64,
@@ -213,6 +244,12 @@ def test_event_chain_rejects_reordering_forgery_and_direct_construction() -> Non
     object.__setattr__(forged, "previous_event_sha256", "f" * 64)
     with pytest.raises(BacktestJobConflict, match="predecessor"):
         reduce_backtest_job_events(projection.job_id, (events[0], forged))
+    mismatched_actor = object.__new__(BacktestJobEvent)
+    for name, value in ((field, getattr(events[1], field)) for field in events[1].__slots__):
+        object.__setattr__(mismatched_actor, name, value)
+    object.__setattr__(mismatched_actor, "actor_id", "different-worker")
+    with pytest.raises(BacktestJobConflict, match="actor"):
+        reduce_backtest_job_events(projection.job_id, (events[0], mismatched_actor))
     with pytest.raises(TypeError, match="_construction_proof"):
         BacktestJobEvent(  # type: ignore[call-arg]
             job_id=projection.job_id,

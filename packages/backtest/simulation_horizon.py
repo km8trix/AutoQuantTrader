@@ -532,12 +532,19 @@ def _validate_reservation_attempt_and_result(
         raise SimulationHorizonConflict(
             "reservation and authorization do not bind the submission attempt"
         )
+    intent = preparation.intent
+    if intent.instrument_id not in manifest.plan.expected_instrument_ids or any(
+        intent.instrument_id not in batch.watermark.expected_instrument_ids
+        for batch in result.market_batches
+    ):
+        raise SimulationHorizonConflict(
+            "authorized instrument must be expected by the plan and every replay watermark"
+        )
     try:
         result.__post_init__()
     except ValueError as error:
         raise SimulationHorizonError("simulated broker result is not canonical") from error
     submission = result.submission
-    intent = preparation.intent
     expected_request = create_conservative_simulation_request(
         intent=intent,
         manifest=manifest,

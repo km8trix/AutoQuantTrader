@@ -125,6 +125,10 @@ def test_lease_renewal_and_release_rows_use_strict_canonical_readback(
 
     assert renewed.fence == first.fence
     assert renewed.semantic_sha256 != first.semantic_sha256
+    assert first.revision_number == 1
+    assert first.previous_lease_sha256 is None
+    assert renewed.revision_number == 2
+    assert renewed.previous_lease_sha256 == first.semantic_sha256
     assert renewed.acquired_at == first.acquired_at
     assert renewed.heartbeat_at == BASE + timedelta(seconds=10)
     assert renewed.expires_at == BASE + timedelta(seconds=40)
@@ -268,6 +272,48 @@ def test_full_history_reconstruction_rejects_deleted_prior_generation_evidence(
         else "generations are not contiguous"
     )
     with pytest.raises(AccountCoordinatorError, match=expected):
+        account_coordinator.current()
+    with (
+        sqlite_engine.connect() as connection,
+        pytest.raises(DatabaseSchemaNotReady, match="canonical execution evidence"),
+    ):
+        _verify_phase2_durability_integrity(connection)
+
+
+def test_full_history_reconstruction_rejects_deleted_middle_renewal(
+    sqlite_engine: Engine,
+) -> None:
+    account_coordinator, clock, _ = coordinator(sqlite_engine, "renewal-gap-account")
+    first = account_coordinator.acquire("worker-a")
+    clock.advance(timedelta(seconds=1))
+    second_revision = account_coordinator.renew(first.fence)
+    clock.advance(timedelta(seconds=1))
+    third_revision = account_coordinator.renew(first.fence)
+    clock.advance(timedelta(seconds=1))
+    account_coordinator.release(first.fence)
+    clock.advance(timedelta(seconds=1))
+    second_generation = account_coordinator.acquire("worker-b")
+
+    assert second_revision.revision_number == 2
+    assert third_revision.revision_number == 3
+    assert third_revision.previous_lease_sha256 == second_revision.semantic_sha256
+    assert account_coordinator.current() == second_generation
+    with sqlite_engine.connect() as connection:
+        _verify_phase2_durability_integrity(connection)
+
+    # Simulate storage-level corruption below the relational guard so the
+    # application/readiness reconstruction must independently detect the gap.
+    with sqlite_engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys = OFF")
+        connection.execute(
+            sa.delete(phase2_account_leases).where(
+                phase2_account_leases.c.lease_sha256 == second_revision.semantic_sha256
+            )
+        )
+        connection.commit()
+        connection.exec_driver_sql("PRAGMA foreign_keys = ON")
+
+    with pytest.raises(AccountCoordinatorError, match="revision numbers are not contiguous"):
         account_coordinator.current()
     with (
         sqlite_engine.connect() as connection,

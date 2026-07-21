@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 
 from packages.domain.account_coordinator import (
     ACCOUNT_COORDINATOR_CONTRACT_VERSION,
+    ACCOUNT_LEASE_CONTRACT_VERSION,
     AccountCoordinatorError,
     AccountFence,
     AccountFenceReceipt,
@@ -29,6 +30,7 @@ from packages.domain.account_coordinator import (
     AccountLeaseRelease,
     _account_fence_receipt,
     _account_lease_release,
+    _legacy_account_lease,
 )
 from packages.domain.canonical import canonical_json_text
 from packages.domain.clock import Clock
@@ -47,13 +49,28 @@ CoordinatorRow = Mapping[str, object] | RowMapping
 
 
 def _lease_payload(lease: AccountLease) -> tuple[object, ...]:
+    if lease.contract_version == ACCOUNT_COORDINATOR_CONTRACT_VERSION:
+        return (
+            ACCOUNT_COORDINATOR_CONTRACT_VERSION,
+            "lease",
+            lease.account_id,
+            lease.owner_id,
+            lease.lease_id,
+            lease.fencing_generation,
+            lease.acquired_at,
+            lease.heartbeat_at,
+            lease.expires_at,
+            lease.policy_sha256,
+        )
     return (
-        ACCOUNT_COORDINATOR_CONTRACT_VERSION,
+        ACCOUNT_LEASE_CONTRACT_VERSION,
         "lease",
         lease.account_id,
         lease.owner_id,
         lease.lease_id,
         lease.fencing_generation,
+        lease.revision_number,
+        lease.previous_lease_sha256,
         lease.acquired_at,
         lease.heartbeat_at,
         lease.expires_at,
@@ -66,12 +83,16 @@ def immutable_account_lease_values(lease: AccountLease) -> dict[str, Any]:
 
     if type(lease) is not AccountLease:
         raise AccountCoordinatorError("lease persistence requires an exact AccountLease")
+    if lease.contract_version != ACCOUNT_LEASE_CONTRACT_VERSION:
+        raise AccountCoordinatorError("new account lease persistence requires the v2 contract")
     return {
         "lease_sha256": lease.semantic_sha256,
         "account_id": lease.account_id,
         "owner_id": lease.owner_id,
         "lease_id": lease.lease_id,
         "fencing_generation": lease.fencing_generation,
+        "revision_number": lease.revision_number,
+        "previous_lease_sha256": lease.previous_lease_sha256,
         "acquired_at": lease.acquired_at,
         "heartbeat_at": lease.heartbeat_at,
         "expires_at": lease.expires_at,
@@ -105,21 +126,55 @@ def account_lease_from_row(row: CoordinatorRow) -> AccountLease:
     """Strictly decode and authenticate one persisted immutable lease revision."""
 
     try:
-        lease = AccountLease(
-            account_id=_required_text(row, "account_id"),
-            owner_id=_required_text(row, "owner_id"),
-            lease_id=_required_text(row, "lease_id"),
-            fencing_generation=_required_integer(row, "fencing_generation"),
-            acquired_at=_required_datetime(row, "acquired_at"),
-            heartbeat_at=_required_datetime(row, "heartbeat_at"),
-            expires_at=_required_datetime(row, "expires_at"),
-            policy_sha256=_required_text(row, "policy_sha256"),
+        account_id = _required_text(row, "account_id")
+        owner_id = _required_text(row, "owner_id")
+        lease_id = _required_text(row, "lease_id")
+        fencing_generation = _required_integer(row, "fencing_generation")
+        revision_number = _required_integer(row, "revision_number")
+        previous_lease_sha256 = (
+            None
+            if row["previous_lease_sha256"] is None
+            else _required_text(row, "previous_lease_sha256")
         )
-        if _required_text(row, "lease_sha256") != lease.semantic_sha256:
-            raise AccountCoordinatorError("persisted account lease digest conflicts")
-        if _required_text(row, "canonical_payload") != canonical_json_text(_lease_payload(lease)):
-            raise AccountCoordinatorError("persisted account lease canonical payload conflicts")
-        return lease
+        acquired_at = _required_datetime(row, "acquired_at")
+        heartbeat_at = _required_datetime(row, "heartbeat_at")
+        expires_at = _required_datetime(row, "expires_at")
+        policy_sha256 = _required_text(row, "policy_sha256")
+        current = AccountLease(
+            account_id=account_id,
+            owner_id=owner_id,
+            lease_id=lease_id,
+            fencing_generation=fencing_generation,
+            revision_number=revision_number,
+            previous_lease_sha256=previous_lease_sha256,
+            acquired_at=acquired_at,
+            heartbeat_at=heartbeat_at,
+            expires_at=expires_at,
+            policy_sha256=policy_sha256,
+        )
+        legacy = _legacy_account_lease(
+            account_id=account_id,
+            owner_id=owner_id,
+            lease_id=lease_id,
+            fencing_generation=fencing_generation,
+            revision_number=revision_number,
+            previous_lease_sha256=previous_lease_sha256,
+            acquired_at=acquired_at,
+            heartbeat_at=heartbeat_at,
+            expires_at=expires_at,
+            policy_sha256=policy_sha256,
+        )
+        persisted_digest = _required_text(row, "lease_sha256")
+        persisted_payload = _required_text(row, "canonical_payload")
+        if persisted_digest == current.semantic_sha256:
+            if persisted_payload != canonical_json_text(_lease_payload(current)):
+                raise AccountCoordinatorError("persisted account lease canonical payload conflicts")
+            return current
+        if persisted_digest == legacy.semantic_sha256:
+            if persisted_payload != canonical_json_text(_lease_payload(legacy)):
+                raise AccountCoordinatorError("persisted account lease canonical payload conflicts")
+            return legacy
+        raise AccountCoordinatorError("persisted account lease digest conflicts")
     except AccountCoordinatorError:
         raise
     except (KeyError, TypeError, ValueError) as error:
@@ -277,16 +332,19 @@ def verify_account_lease_history(
     lease_ttl: timedelta | None = None
     prior_release: AccountLeaseRelease | None = None
     latest: AccountLease | None = None
+    observed_v2_revision = False
     for generation in range(1, head.last_fencing_generation + 1):
         revisions = sorted(
             leases_by_generation[generation],
-            key=lambda lease: (lease.heartbeat_at, lease.expires_at, lease.semantic_sha256),
+            key=lambda lease: lease.revision_number,
         )
-        first = revisions[0]
-        if first.heartbeat_at != first.acquired_at:
+        if [revision.revision_number for revision in revisions] != list(
+            range(1, len(revisions) + 1)
+        ):
             raise AccountCoordinatorError(
-                "account lease generation lacks its canonical acquisition revision"
+                "account lease renewal revision numbers are not contiguous from one"
             )
+        first = revisions[0]
         stable_identity = (
             first.account_id,
             first.owner_id,
@@ -326,20 +384,30 @@ def verify_account_lease_history(
                 raise AccountCoordinatorError(
                     "account lease generation changes its policy lease duration"
                 )
+            if revision.contract_version == ACCOUNT_LEASE_CONTRACT_VERSION:
+                observed_v2_revision = True
+            elif observed_v2_revision:
+                raise AccountCoordinatorError(
+                    "legacy account lease revision cannot follow a v2 revision"
+                )
             if prior_revision is not None and (
-                revision.heartbeat_at <= prior_revision.heartbeat_at
+                revision.previous_lease_sha256 != prior_revision.semantic_sha256
+                or revision.heartbeat_at <= prior_revision.heartbeat_at
                 or revision.expires_at <= prior_revision.expires_at
             ):
                 raise AccountCoordinatorError(
-                    "account lease renewal revisions are not strictly increasing"
+                    "account lease renewal chain is not predecessor-bound and increasing"
+                )
+            if prior_revision is None and revision.previous_lease_sha256 is not None:
+                raise AccountCoordinatorError(
+                    "account lease acquisition revision has a predecessor"
                 )
             prior_revision = revision
         latest = revisions[-1]
 
         generation_releases = releases_by_generation.get(generation, [])
         is_current_active = (
-            generation == head.last_fencing_generation
-            and head.current_lease_sha256 is not None
+            generation == head.last_fencing_generation and head.current_lease_sha256 is not None
         )
         expected_release_count = 0 if is_current_active else 1
         if len(generation_releases) != expected_release_count:
@@ -453,6 +521,33 @@ def _write_transaction(engine: Engine) -> Iterator[Connection]:
         )
 
 
+def lock_account_capacity_serialization(
+    connection: Connection,
+    account_id: str,
+) -> None:
+    """Lock the durable account head without requiring a still-current effect fence.
+
+    Broker outcomes can arrive after the dispatch lease expires, but they still
+    have to serialize with risk observations.  PostgreSQL uses the same row lock
+    as fence revalidation; SQLite callers already hold ``BEGIN IMMEDIATE``.
+    """
+
+    if type(account_id) is not str or not account_id or account_id != account_id.strip():
+        raise AccountCoordinatorError("capacity serialization requires a valid account ID")
+    statement = sa.select(phase2_account_lease_heads.c.account_id).where(
+        phase2_account_lease_heads.c.account_id == account_id
+    )
+    if connection.dialect.name == "postgresql":
+        statement = statement.with_for_update()
+    elif connection.dialect.name != "sqlite":
+        raise AccountCoordinatorError(
+            f"SQL coordinator does not support dialect {connection.dialect.name!r}"
+        )
+    persisted = connection.scalar(statement)
+    if persisted != account_id:
+        raise AccountCoordinatorError("capacity serialization account head does not exist")
+
+
 class SqlAccountCoordinator:
     """Serialize one account through durable lease heads and immutable evidence."""
 
@@ -553,7 +648,7 @@ class SqlAccountCoordinator:
                 .where(phase2_account_leases.c.account_id == self.account_id)
                 .order_by(
                     phase2_account_leases.c.fencing_generation.desc(),
-                    phase2_account_leases.c.heartbeat_at.desc(),
+                    phase2_account_leases.c.revision_number.desc(),
                 )
                 .limit(1)
             )
@@ -767,6 +862,8 @@ class SqlAccountCoordinator:
                             self._authority.policy.semantic_sha256,
                         ),
                         fencing_generation=generation,
+                        revision_number=1,
+                        previous_lease_sha256=None,
                         acquired_at=now,
                         heartbeat_at=now,
                         expires_at=now + self._authority.policy.lease_ttl,
@@ -837,6 +934,8 @@ class SqlAccountCoordinator:
                             owner_id=current.owner_id,
                             lease_id=current.lease_id,
                             fencing_generation=current.fencing_generation,
+                            revision_number=current.revision_number + 1,
+                            previous_lease_sha256=current.semantic_sha256,
                             acquired_at=current.acquired_at,
                             heartbeat_at=now,
                             expires_at=expires_at,

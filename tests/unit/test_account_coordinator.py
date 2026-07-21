@@ -91,6 +91,8 @@ def test_lease_and_fence_require_strict_identity_time_and_generation() -> None:
             owner_id="owner-a",
             lease_id="lease-a",
             fencing_generation=0,
+            revision_number=1,
+            previous_lease_sha256=None,
             acquired_at=BASE,
             heartbeat_at=BASE,
             expires_at=BASE + timedelta(seconds=30),
@@ -102,6 +104,8 @@ def test_lease_and_fence_require_strict_identity_time_and_generation() -> None:
             owner_id="owner-a",
             lease_id="lease-a",
             fencing_generation=1,
+            revision_number=1,
+            previous_lease_sha256=None,
             acquired_at=BASE.replace(tzinfo=None),
             heartbeat_at=BASE,
             expires_at=BASE + timedelta(seconds=30),
@@ -151,6 +155,8 @@ def test_first_acquisition_and_same_owner_retry_are_identical() -> None:
     assert retried == first
     assert account_coordinator.current() == first
     assert first.fencing_generation == 1
+    assert first.revision_number == 1
+    assert first.previous_lease_sha256 is None
     assert first.acquired_at == BASE
     assert first.heartbeat_at == BASE
     assert first.expires_at == BASE + timedelta(seconds=30)
@@ -193,6 +199,8 @@ def test_renewal_retains_generation_and_refreshes_receipt_lease_evidence() -> No
     assert renewed.owner_id == first.owner_id
     assert renewed.lease_id == first.lease_id
     assert renewed.fencing_generation == first.fencing_generation
+    assert renewed.revision_number == 2
+    assert renewed.previous_lease_sha256 == first.semantic_sha256
     assert renewed.acquired_at == first.acquired_at
     assert renewed.heartbeat_at == BASE + timedelta(seconds=10)
     assert renewed.expires_at == BASE + timedelta(seconds=40)

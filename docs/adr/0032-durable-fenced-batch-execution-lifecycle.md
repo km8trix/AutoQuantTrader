@@ -28,9 +28,13 @@ existing prohibition on paper and live trading.
    increasing fencing generation. Acquisition, renewal, validation, and clean
    release lock and compare the current head. Every risk, preparation, dispatch,
    and reservation mutation revalidates the exact stable fence inside its SQL
-   transaction. Renewal creates a new immutable lease revision without changing
-   that stable fence. Expiry blocks effects and does not itself authorize a new
-   owner or automatic takeover.
+   transaction and samples the trusted coordinator clock while holding that
+   lock. Caller logical event time cannot backdate an effect past real expiry.
+   Renewal creates a gap-free immutable revision that names its exact
+   predecessor without changing the stable fence. An additive migration retains
+   authenticated legacy lease digests and downstream references; all new lease
+   revisions use the chained lease-only v2 contract. Expiry blocks effects and
+   does not itself authorize a new owner or automatic takeover.
 3. Authorize a complete intent batch in one transaction after locking the
    coordinator and current capacity evidence. Reconstruct a canonical
    authenticated active-capacity universe, and bind its exact payload and digest
@@ -38,7 +42,13 @@ existing prohibition on paper and live trading.
    cash, exposure, and sell-share holds; a frozen child retains that exact
    remainder; a fully released child is omitted. Allocate a gap-free account
    observation sequence under the same lock for every approved, rejected, and
-   no-action decision, making equal-timestamp history unambiguous. The
+   no-action decision. Every capacity-affecting submission, order, and release
+   mutation takes that same account-head lock and authenticates the observation
+   watermark after which it is visible. Decision `N` reconstructs exactly the
+   mutation prefix with marker less than `N`, making equal-timestamp history
+   unambiguous without using clocks as a tie-breaker. The additive migration
+   preserves v3 decision identities and marker-zero legacy mutations; all new
+   decisions and mutations use the v4 ordering contract. The
    transaction publishes the decision, ordered members, parent reservation, and
    all child authorizations, or none of them. An exact batch retry returns the
    existing decision before recalculating the capacity changed by its own
@@ -61,9 +71,13 @@ existing prohibition on paper and live trading.
    dispatch with the new receipt; a later fencing generation cannot dispatch old
    preparation. Recovery may close only a stale `PENDING` head, which has no
    dispatch receipt and never crossed the broker-call boundary, as proven-unsent
-   `ABANDONED`. A later confirmation or uncertainty outcome records what
-   happened without pretending an expired lease can erase an already possible
-   broker effect. Recovery promotes stale `IN_FLIGHT` heads to `UNKNOWN`.
+   `ABANDONED`. Any expiry release must reauthenticate the complete causally
+   visible attempt snapshot, prove every target attempt abandoned, reject a
+   visible `UNKNOWN` sibling, and remain valid if unrelated later sibling
+   activity is appended. A later confirmation or uncertainty outcome records
+   what happened without pretending an expired lease can erase an already
+   possible broker effect. Recovery promotes stale `IN_FLIGHT` heads to
+   `UNKNOWN`.
 6. Any unresolved `UNKNOWN` attempt freezes the complete parent reservation and
    prevents sibling dispatch, new attempts, and capacity release. Although the
    domain vocabulary reserves broker-reconciliation outcomes, the Phase 2 SQL
@@ -79,24 +93,40 @@ existing prohibition on paper and live trading.
    cash, buy exposure, and sell shares and move the parent monotonically through
    active, partially released, frozen, and released projections.
 8. Execution accounting releases only a positive increase over previously
-   accounted quantity. The writer derives the exact canonical ledger entry from
-   the persisted order state rather than accepting an arbitrary balanced digest.
+   accounted quantity. Every correction requires exact cumulative accounting
+   coverage of its immediate predecessor revision; only the positive
+   predecessor-relative delta releases. The writer derives the exact canonical
+   ledger entry from the persisted order state rather than accepting an
+   arbitrary balanced digest.
    Quantity, price, fee, cash, security units, postings, source event, account,
    and time must all agree. Readiness re-derives that complete economic entry.
    At the shared SQLite/PostgreSQL boundary, posting decimals must also survive
    SQLite's ten-place `NUMERIC` float transport exactly; non-portable values fail
-   before any row is inserted. A downward or stale correction freezes the
-   reservation instead of reclaiming capacity.
+   before any row is inserted. Any canonical historical downward or equal-
+   quantity correction freezes the reservation instead of reclaiming capacity.
+   That freeze is sticky and cannot be hidden by accounting another execution
+   or appending a later revision. The append-only ledger retains a complete
+   economic revision chain when its predecessor is already accounted; it never
+   persists only one side of a newly discovered corrected chain. New batch
+   authorization for the account is quarantined until the correction has an
+   authenticated closure. A terminal reservation remains released rather than
+   inventing a mutable capacity hold, but it still activates that quarantine.
+   Stale or skipped revision chains are rejected as malformed, and readiness
+   fails closed if they are injected below the relational boundary.
 9. Permit `SIMULATION_HORIZON_FINAL` only for repository-owned deterministic
    simulation through a proof with no caller-supplied hashes or finality time.
-   Persist the complete canonical replay input events and watermarks plus the
-   exact simulated session, model, submission time, and derived result identity,
-   linked to the sealed replay manifest and durable reservation, child
+   Before dispatch, commit a typed simulation request bound to the exact replay
+   manifest, calendar/session, instrument universe, model, and stable submission
+   inputs. Persist the complete canonical replay input events and watermarks plus
+   those committed inputs, the complete safe-retry attempt chain, and the
+   derived result identity, linked to the sealed replay manifest and durable
+   reservation, child
    authorization, `CONFIRMED` attempt, order, and final event. Every write,
    read, and readiness
    check reruns the market replay, reproduces the sealed manifest, reruns
    `ConservativeSimulatedBroker`, and reconstructs the typed horizon fact; all
-   durable and recomputed evidence must be exactly equal.
+   durable and recomputed evidence must be exactly equal, including the one
+   recording instant shared by the horizon proof and release.
 10. Before a simulation horizon releases residual capacity, require every final
     execution projection to be completely covered by `EXECUTION_ACCOUNTED`
     releases bound to the exact head event ID, revision, quantity, and canonical

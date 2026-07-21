@@ -16,6 +16,7 @@ from enum import StrEnum
 from packages.domain.canonical import canonical_json_bytes, canonical_json_text
 
 BACKTEST_JOB_CONTRACT_VERSION = "phase2-backtest-job-v1"
+BACKTEST_CLAIM_TOKEN_CONTRACT_VERSION = "phase2-backtest-claim-token-v1"
 MAX_JOB_EVENTS = 10_000
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -41,6 +42,38 @@ class BacktestJobStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELED = "canceled"
+
+
+@dataclass(frozen=True, slots=True)
+class BacktestClaimToken:
+    """Exact, content-addressed authority for one running claim event."""
+
+    job_id: str
+    worker_id: str
+    attempt_number: int
+    claim_event_sha256: str
+    token_sha256: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        _require_sha256(self.job_id, "claim token job ID")
+        _require_text(self.worker_id, "claim token worker ID")
+        if type(self.attempt_number) is not int or self.attempt_number <= 0:
+            raise BacktestJobError("claim token attempt number must be a positive integer")
+        _require_sha256(self.claim_event_sha256, "claim token event digest")
+        object.__setattr__(self, "token_sha256", _sha256(self._semantic_material()))
+
+    def _semantic_material(self) -> tuple[object, ...]:
+        return (
+            BACKTEST_CLAIM_TOKEN_CONTRACT_VERSION,
+            self.job_id,
+            self.worker_id,
+            self.attempt_number,
+            self.claim_event_sha256,
+        )
+
+    @property
+    def canonical_json(self) -> str:
+        return canonical_json_text(self._semantic_material())
 
 
 def _sha256(value: object) -> str:
@@ -352,6 +385,12 @@ class BacktestJobProjection:
             BacktestJobStatus.CANCELED,
         }
 
+    @property
+    def claim_token(self) -> BacktestClaimToken | None:
+        """Return exact authority for the latest running claim, if any."""
+
+        return current_backtest_claim_token(self)
+
 
 def _event(
     *,
@@ -447,6 +486,10 @@ def _validate_transition(previous: BacktestJobEvent, current: BacktestJobEvent) 
         BacktestJobStatus.CANCELED,
     }:
         raise BacktestJobConflict("terminal job state cannot transition")
+    if current.status is BacktestJobStatus.RUNNING and (
+        current.worker_id is None or current.actor_id != current.worker_id
+    ):
+        raise BacktestJobConflict("running claim actor must equal its worker identity")
     if previous.status is BacktestJobStatus.QUEUED:
         if current.status not in {BacktestJobStatus.RUNNING, BacktestJobStatus.CANCELED}:
             raise BacktestJobConflict("queued job may only be claimed or canceled")
@@ -492,20 +535,22 @@ def claim_backtest_job(
     claimed_at: datetime,
     claim_expires_at: datetime,
 ) -> BacktestJobProjection:
-    """Acquire, renew, or recover a bounded worker claim."""
+    """Acquire a queued job or recover an expired bounded worker claim."""
 
     _require_projection(projection)
     _require_text(worker_id, "worker ID")
+    _require_utc(claimed_at, "claim time")
+    _require_utc(claim_expires_at, "claim expiry")
     latest = projection.latest
     if projection.terminal:
         raise BacktestJobNotClaimable("terminal job cannot be claimed")
     if latest.status is BacktestJobStatus.QUEUED:
         attempt_number = 1
-    elif latest.worker_id == worker_id and (
-        latest.claim_expires_at is not None and claimed_at <= latest.claim_expires_at
-    ):
-        attempt_number = latest.attempt_number
     else:
+        if latest.claim_expires_at is None:
+            raise BacktestJobConflict("running job is missing its claim expiry")
+        if claimed_at <= latest.claim_expires_at:
+            raise BacktestJobNotClaimable("active worker claim cannot be stolen")
         attempt_number = latest.attempt_number + 1
     event = _event(
         job_id=projection.job_id,
@@ -521,10 +566,87 @@ def claim_backtest_job(
     return reduce_backtest_job_events(projection.job_id, (*projection.events, event))
 
 
+def current_backtest_claim_token(
+    projection: BacktestJobProjection,
+) -> BacktestClaimToken | None:
+    """Derive exact claim authority from the latest authenticated running event."""
+
+    _require_projection(projection)
+    latest = projection.latest
+    if latest.status is not BacktestJobStatus.RUNNING:
+        return None
+    if latest.worker_id is None:
+        raise BacktestJobConflict("running job is missing its worker identity")
+    return BacktestClaimToken(
+        job_id=projection.job_id,
+        worker_id=latest.worker_id,
+        attempt_number=latest.attempt_number,
+        claim_event_sha256=latest.event_sha256,
+    )
+
+
+def require_current_backtest_claim_token(
+    projection: BacktestJobProjection,
+    *,
+    worker_id: str,
+    claim_token: BacktestClaimToken,
+) -> BacktestClaimToken:
+    """Fail closed unless a token identifies the exact latest running claim."""
+
+    _require_projection(projection)
+    _require_text(worker_id, "worker ID")
+    current = current_backtest_claim_token(projection)
+    if (
+        type(claim_token) is not BacktestClaimToken
+        or current is None
+        or claim_token != current
+        or claim_token.worker_id != worker_id
+    ):
+        raise BacktestJobNotClaimable("claim token does not match the current worker claim")
+    return current
+
+
+def renew_backtest_job_claim(
+    projection: BacktestJobProjection,
+    *,
+    worker_id: str,
+    claim_token: BacktestClaimToken,
+    renewed_at: datetime,
+    claim_expires_at: datetime,
+) -> BacktestJobProjection:
+    """Renew only the exact current unexpired claim and rotate its token."""
+
+    require_current_backtest_claim_token(
+        projection,
+        worker_id=worker_id,
+        claim_token=claim_token,
+    )
+    _require_utc(renewed_at, "claim renewal time")
+    _require_utc(claim_expires_at, "claim expiry")
+    latest = projection.latest
+    if latest.claim_expires_at is None or renewed_at > latest.claim_expires_at:
+        raise BacktestJobNotClaimable("expired worker claim cannot be renewed")
+    if claim_expires_at <= latest.claim_expires_at:
+        raise BacktestJobNotClaimable("renewed worker claim must strictly extend its expiry")
+    event = _event(
+        job_id=projection.job_id,
+        sequence=len(projection.events),
+        status=BacktestJobStatus.RUNNING,
+        occurred_at=renewed_at,
+        actor_id=worker_id,
+        attempt_number=latest.attempt_number,
+        previous_event_sha256=latest.event_sha256,
+        worker_id=worker_id,
+        claim_expires_at=claim_expires_at,
+    )
+    return reduce_backtest_job_events(projection.job_id, (*projection.events, event))
+
+
 def complete_backtest_job(
     projection: BacktestJobProjection,
     *,
     worker_id: str,
+    claim_token: BacktestClaimToken,
     completed_at: datetime,
     run_manifest_sha256: str,
     report_sha256: str,
@@ -535,6 +657,7 @@ def complete_backtest_job(
     return _terminal_transition(
         projection,
         worker_id=worker_id,
+        claim_token=claim_token,
         occurred_at=completed_at,
         status=BacktestJobStatus.COMPLETED,
         run_manifest_sha256=run_manifest_sha256,
@@ -547,6 +670,7 @@ def fail_backtest_job(
     projection: BacktestJobProjection,
     *,
     worker_id: str,
+    claim_token: BacktestClaimToken,
     failed_at: datetime,
     terminal_reason_code: str,
     terminal_reason_sha256: str,
@@ -556,6 +680,7 @@ def fail_backtest_job(
     return _terminal_transition(
         projection,
         worker_id=worker_id,
+        claim_token=claim_token,
         occurred_at=failed_at,
         status=BacktestJobStatus.FAILED,
         terminal_reason_code=terminal_reason_code,
@@ -567,6 +692,7 @@ def cancel_running_backtest_job(
     projection: BacktestJobProjection,
     *,
     worker_id: str,
+    claim_token: BacktestClaimToken,
     canceled_at: datetime,
     terminal_reason_sha256: str,
 ) -> BacktestJobProjection:
@@ -575,6 +701,7 @@ def cancel_running_backtest_job(
     return _terminal_transition(
         projection,
         worker_id=worker_id,
+        claim_token=claim_token,
         occurred_at=canceled_at,
         status=BacktestJobStatus.CANCELED,
         terminal_reason_code="operator_cancel",
@@ -586,6 +713,7 @@ def _terminal_transition(
     projection: BacktestJobProjection,
     *,
     worker_id: str,
+    claim_token: BacktestClaimToken,
     occurred_at: datetime,
     status: BacktestJobStatus,
     run_manifest_sha256: str | None = None,
@@ -594,11 +722,12 @@ def _terminal_transition(
     terminal_reason_code: str | None = None,
     terminal_reason_sha256: str | None = None,
 ) -> BacktestJobProjection:
-    _require_projection(projection)
-    _require_text(worker_id, "worker ID")
+    require_current_backtest_claim_token(
+        projection,
+        worker_id=worker_id,
+        claim_token=claim_token,
+    )
     latest = projection.latest
-    if latest.status is not BacktestJobStatus.RUNNING or latest.worker_id != worker_id:
-        raise BacktestJobNotClaimable("only the active worker may close a running job")
     event = _event(
         job_id=projection.job_id,
         sequence=len(projection.events),
@@ -670,7 +799,9 @@ def create_backtest_job(
 
 
 __all__ = [
+    "BACKTEST_CLAIM_TOKEN_CONTRACT_VERSION",
     "BACKTEST_JOB_CONTRACT_VERSION",
+    "BacktestClaimToken",
     "BacktestJob",
     "BacktestJobConflict",
     "BacktestJobError",
@@ -684,7 +815,10 @@ __all__ = [
     "claim_backtest_job",
     "complete_backtest_job",
     "create_backtest_job",
+    "current_backtest_claim_token",
     "fail_backtest_job",
     "queue_backtest_job",
     "reduce_backtest_job_events",
+    "renew_backtest_job_claim",
+    "require_current_backtest_claim_token",
 ]

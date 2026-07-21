@@ -899,15 +899,52 @@ def _require_known_broker_effect(attempt: CanonicalSubmissionAttempt) -> None:
         SubmissionAttemptState.PENDING,
         SubmissionAttemptState.IN_FLIGHT,
         SubmissionAttemptState.UNKNOWN,
+        SubmissionAttemptState.ABANDONED,
     ):
         raise ReservationLifecycleError(
-            "pending, in-flight, or UNKNOWN submission cannot authorize release"
+            "pending, in-flight, UNKNOWN, or never-dispatched ABANDONED submission "
+            "cannot authorize a broker-effect release"
         )
     if (
         attempt.state is SubmissionAttemptState.RESOLVED
         and attempt.resolution is UnknownSubmissionResolution.NOT_SUBMITTED
     ):
         raise ReservationLifecycleError("confirmed broker absence has no sent order")
+
+
+def _execution_predecessor(
+    order_state: CanonicalOrderState,
+    execution_event: BrokerOrderEvent,
+) -> BrokerOrderEvent | None:
+    """Return the exact preceding execution revision for one canonical head."""
+
+    if execution_event.kind is BrokerOrderEventKind.EXECUTION:
+        return None
+    if execution_event.kind is not BrokerOrderEventKind.EXECUTION_CORRECTION:
+        raise ReservationLifecycleError("execution accounting requires an execution event")
+    matches = tuple(
+        event
+        for event in order_state.broker_events
+        if event.event_id == execution_event.supersedes_event_id
+    )
+    if len(matches) != 1:
+        raise ReservationReleaseConflict("execution correction lacks its exact predecessor event")
+    predecessor = matches[0]
+    if (
+        predecessor.kind
+        not in (
+            BrokerOrderEventKind.EXECUTION,
+            BrokerOrderEventKind.EXECUTION_CORRECTION,
+        )
+        or predecessor.execution_id != execution_event.execution_id
+        or predecessor.execution_revision is None
+        or execution_event.execution_revision != predecessor.execution_revision + 1
+        or predecessor.quantity is None
+    ):
+        raise ReservationReleaseConflict(
+            "execution correction predecessor has conflicting revision semantics"
+        )
+    return predecessor
 
 
 def _child_projection(
@@ -1200,15 +1237,53 @@ def record_execution_accounted_release(
     assert execution_event.execution_id is not None
     assert execution_event.execution_revision is not None
     assert execution_event.quantity is not None
-    prior_accounted = exact_decimal_sum(
-        fact.accounted_quantity
+    predecessor = _execution_predecessor(order_state, execution_event)
+    execution_releases = tuple(
+        fact
         for fact in prior_releases
         if fact.authorization_id == authorization.decision_id
+        and fact.attempt_id == attempt.attempt_id
+        and fact.order_id == order_state.submission.order_id
         and fact.reason is ReservationReleaseReason.EXECUTION_ACCOUNTED
         and fact.execution_id == execution_event.execution_id
         and fact.accounted_quantity is not None
     )
-    newly_accounted = exact_decimal_subtract(execution_event.quantity, prior_accounted)
+    if predecessor is None:
+        if execution_releases:
+            raise ReservationReleaseConflict(
+                "initial execution revision already has accounting history"
+            )
+        predecessor_quantity = Decimal(0)
+    else:
+        predecessor_accounting = tuple(
+            fact
+            for fact in execution_releases
+            if fact.order_event_id == predecessor.event_id
+            and fact.execution_revision == predecessor.execution_revision
+            and fact.execution_head_quantity == predecessor.quantity
+        )
+        cumulative_accounted = exact_decimal_sum(
+            fact.accounted_quantity
+            for fact in execution_releases
+            if fact.accounted_quantity is not None
+        )
+        latest_revision = max(
+            (fact.execution_revision or 0 for fact in execution_releases),
+            default=0,
+        )
+        if (
+            len(predecessor_accounting) != 1
+            or latest_revision != predecessor.execution_revision
+            or cumulative_accounted != predecessor.quantity
+        ):
+            raise ReservationLifecycleError(
+                "execution predecessor revision must have exact accounting coverage first"
+            )
+        predecessor_quantity = predecessor.quantity
+    newly_accounted = exact_decimal_subtract(
+        execution_event.quantity,
+        predecessor_quantity,
+    )
     if newly_accounted <= 0:
         raise ReservationLifecycleError(
             "execution correction does not establish additional monotone capacity"
@@ -1263,8 +1338,11 @@ def record_reconciled_terminal_release(
         SubmissionAttemptState.PENDING,
         SubmissionAttemptState.IN_FLIGHT,
         SubmissionAttemptState.UNKNOWN,
+        SubmissionAttemptState.ABANDONED,
     ):
-        raise ReservationLifecycleError("unresolved submission cannot be reconciled terminal")
+        raise ReservationLifecycleError(
+            "unresolved or never-dispatched submission cannot be reconciled terminal"
+        )
     if (
         attempt.state is SubmissionAttemptState.RESOLVED
         and attempt.resolution is UnknownSubmissionResolution.NOT_SUBMITTED

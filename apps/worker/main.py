@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from uuid import uuid4
 
 from apps.api.config import Environment, Settings
 from packages.application.backtest_worker import (
@@ -49,11 +50,12 @@ def main() -> None:
     )
     workflow = SqlBacktestWorkflow(engine)
     catalog_input = ensure_golden_research_catalog(workflow)
+    worker_id = f"local-fixture-worker-{uuid4().hex}"
 
     def process_backtest() -> BacktestJobSnapshot | None:
         return process_one_golden_backtest(
             workflow,
-            worker_id="local-fixture-worker-001",
+            worker_id=worker_id,
             catalog_input=catalog_input,
         )
 

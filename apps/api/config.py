@@ -149,13 +149,9 @@ class Settings:
                         "trusted loopback proxy mode requires an exact wildcard container bind"
                     )
             elif not _is_literal_loopback_host(self.api_host):
-                raise ValueError(
-                    "local authentication requires a literal loopback API bind"
-                )
+                raise ValueError("local authentication requires a literal loopback API bind")
         elif self.trusted_loopback_proxy:
-            raise ValueError(
-                "trusted loopback proxy mode is only valid for local authentication"
-            )
+            raise ValueError("trusted loopback proxy mode is only valid for local authentication")
         expected_type: type[CredentialConfig] = {
             Environment.LOCAL: LocalCredentials,
             Environment.PAPER: PaperCredentialRefs,
@@ -209,9 +205,7 @@ class Settings:
             session_secret=os.getenv("AQT_SESSION_SECRET", "local-development-only"),
             api_host=os.getenv("AQT_API_HOST", "127.0.0.1"),
             api_port=int(os.getenv("AQT_API_PORT", "8000")),
-            trusted_loopback_proxy=_parse_bool(
-                os.getenv("AQT_TRUSTED_LOOPBACK_PROXY", "false")
-            ),
+            trusted_loopback_proxy=_parse_bool(os.getenv("AQT_TRUSTED_LOOPBACK_PROXY", "false")),
             data_lake_path=Path(os.getenv("AQT_DATA_LAKE_PATH", ".local/data-lake")),
             market_data_fixture_path=Path(
                 os.getenv(

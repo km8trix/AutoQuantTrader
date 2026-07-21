@@ -134,6 +134,9 @@ def process_one_golden_backtest(
     )
     if claimed is None:
         return None
+    claim_token = claimed.claim_token
+    if claim_token is None:
+        raise BacktestWorkerError("claimed job is missing exact worker claim authority")
 
     try:
         if claimed.input_sha256 != expected_input.input_sha256:
@@ -149,6 +152,7 @@ def process_one_golden_backtest(
         return workflow.fail(
             claimed.job_id,
             worker_id=worker_id,
+            claim_token=claim_token,
             failed_at=failed_at,
             terminal_reason_code=GOLDEN_WORKER_FAILURE_CODE,
             terminal_reason_sha256=_failure_sha256(error),
@@ -161,6 +165,7 @@ def process_one_golden_backtest(
     return workflow.complete(
         claimed.job_id,
         worker_id=worker_id,
+        claim_token=claim_token,
         completed_at=completed_at,
         report=run.report,
         manifest=terminal_manifest,

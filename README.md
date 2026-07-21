@@ -38,18 +38,25 @@ exact Alembic schema revision plus read-only authorization, reservation,
 submission, order, and ledger integrity checks; application startup never
 creates production tables implicitly.
 
-Phase 2 now adds durable SQL account leases and fences, atomic intent-batch risk
-decisions bound to the exact authenticated remaining-capacity universe,
-with a monotone per-account observation sequence for historical reconstruction,
-broker-request preparation before dispatch, append-only submission attempts,
-proven-unsent stale-`PENDING` abandonment, UNKNOWN submission freezes, exact
-canonical-ledger accounting, and the supported expiry/rejection/accounted-
-execution/simulation-horizon release lifecycle. Partially released and frozen
-children continue to consume their exact remaining holds; fully released
-children no longer consume capacity. Its fixture-only
-research path registers immutable strategy/configuration/fixture pins, runs
-bounded durable jobs in the worker, and retains content-authenticated reports
-and run manifests. The local API and React **Strategies** and **Backtests**
+Phase 2 now adds durable SQL account leases and fences, gap-free generation and
+predecessor-bound renewal history, transaction-internal trusted-clock checks,
+and atomic intent-batch risk decisions bound to the exact authenticated
+remaining-capacity universe. Decisions and every capacity-affecting submission,
+order, and release fact serialize on the same account head. A monotone
+per-account observation sequence plus authenticated mutation watermarks makes
+historical reconstruction unambiguous even when timestamps are equal.
+Broker-request preparation precedes dispatch; submission attempts are append-
+only; stale `PENDING` may become
+proven-unsent `ABANDONED`; UNKNOWN freezes its parent; and execution accounting
+is canonical-ledger-bound, revision-ordered, and sticky on any non-monotone
+correction. Partially released and frozen children continue to consume their
+exact remaining holds; fully released children no longer consume capacity. The
+typed simulation-horizon path replays its exact calendar, instrument universe,
+model, request, and attempt chain before releasing residual fixture capacity.
+Its fixture-only research path registers immutable strategy/configuration/
+fixture pins, runs bounded durable jobs under rotating exact claim tokens and a
+process-unique worker identity, and retains content-authenticated reports and
+run manifests. The local API and React **Strategies** and **Backtests**
 workspaces provide catalog selection, loopback-scoped signed and CSRF-protected
 idempotent launch, job progress/history, and verified metrics, equity, trade,
 position, ledger, and provenance views.
@@ -236,15 +243,27 @@ contract. ADR 0032 later adds SQL lease state and transaction-time fence checks
 without enabling automatic takeover or broker authority.
 
 ADR 0032 completes the local Phase 2B durability boundary. Immutable SQL lease
-revisions and lockable heads serialize owners across workers; every batch-risk,
-preparation, dispatch, and reservation mutation performs its exact fence check
-inside the transaction. Batch decisions bind and persist the complete
+revisions and lockable heads serialize owners across workers. Renewal revisions
+form a gap-free predecessor chain, and the additive schema upgrade preserves
+authenticated legacy lease identities while all new revisions use the chained
+lease contract. Every batch-risk, preparation, dispatch, and reservation
+mutation performs its exact fence check inside the transaction and samples the
+coordinator's trusted clock there, so caller event time cannot backdate an
+effect past real lease expiry. Batch decisions bind and persist the complete
 authenticated remaining-capacity universe and publish with all child holds
 atomically. A monotone sequence allocated under the same account lock orders
 every approved, rejected, and no-action observation, even when timestamps are
-equal. Partial releases contribute only their remaining cash, exposure,
-and sell-share holds to later decisions, frozen children retain those remaining
-holds, and fully released children disappear from active capacity.
+equal. Each new capacity mutation binds the decision watermark after which it
+became visible, so decision `N` reconstructs exactly the authenticated mutation
+prefix below `N` rather than using wall-clock tie-breaking. The additive schema
+upgrade preserves v3 decisions and marker-zero legacy mutations without
+rewriting their canonical identity; all new decisions and mutations use the v4
+ordering contract. Partial releases contribute only their remaining cash,
+exposure, and sell-share holds to later decisions, frozen children retain those
+remaining holds, and fully released children disappear from active capacity. Exact
+execution-correction deltas complete their canonical ledger revision chains,
+but unresolved correction provenance quarantines new batch authorization even
+when the affected reservation was already fully released.
 Submission preparation atomically publishes the deterministic logical order,
 one-shot authorization consumption, bounded request, and initial `PENDING`
 event before any possible broker call. Dispatch appends a fresh transaction-
@@ -257,14 +276,21 @@ external reconciliation remain blocked.
 
 Execution-accounted release re-derives the exact canonical ledger entry and
 postings from the persisted order event, including quantity, price, fee, cash,
-units, source, and time. The fixture runtime may release residual capacity at
+units, source, and time. Each correction requires exact cumulative coverage of
+its predecessor revision; only the positive predecessor-relative delta may
+release capacity, and any historical non-monotone correction freezes the
+reservation permanently and blocks new account authorization until authenticated
+closure. The fixture runtime may release residual capacity at
 `SIMULATION_HORIZON_FINAL` only through a typed deterministic proof. SQL
 readiness reruns the exact replay events and watermarks, reproduces the sealed
-replay manifest, reruns `ConservativeSimulatedBroker` from its exact inputs, and
-cross-binds the result to the confirmed attempt, authorization, reservation,
-order, and final event. Every final execution head must already have exact
-canonical-ledger accounting before this proof can release residual capacity;
-an unfilled sealed order requires no execution accounting. Downward or stale
+replay manifest, verifies the pinned calendar and instrument universe, requires
+the proof and release to share the exact durable recording instant, reruns
+`ConservativeSimulatedBroker` from the pre-dispatch committed model and request,
+and cross-binds the result to the complete safe-retry attempt chain,
+authorization, reservation, order, and final event. Every final execution head
+must already have exact canonical-ledger accounting before this proof can
+release residual capacity; an unfilled sealed order requires no execution
+accounting. Downward or stale
 corrections and unresolved UNKNOWN attempts remain frozen. These SQL contracts
 add no real reconciliation, automatic takeover, operator re-arm, or paper/live
 broker authority; those remain Phase 4 gates.
@@ -273,9 +299,13 @@ ADR 0033 completes the local Phase 2C fixture workflow. The API and worker
 idempotently install the immutable golden strategy, configuration, and fixture
 catalog; launch inputs must reproduce every dataset, replay, strategy,
 benchmark, cost, fill, and metric pin. Audited jobs use bounded, recoverable
-worker claims and append-only events. Successful jobs atomically retain a
-content-verified run manifest and immutable report. The golden run proves the
-raw-price buy/split/dividend/sell lifecycle with USD 1,044.04 ending equity,
+worker claims and append-only events. Every claim has a rotating content-
+addressed token bound to the job, worker, attempt, and latest `RUNNING` event;
+the worker chooses one process-unique identity, so even a same-ID stale attempt
+cannot renew, fail, or publish a result after recovery. Successful jobs
+atomically retain a content-verified run manifest and immutable report. The
+golden run proves the raw-price buy/split/dividend/sell lifecycle with USD
+1,044.04 ending equity,
 future-correction causality, and exact repeatability. Launch is local-only and
 requires durable readiness, a validated loopback transport, a process-bound
 signed capability cookie, CSRF token, and idempotency key; the catalog accepts

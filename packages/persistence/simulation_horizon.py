@@ -730,6 +730,43 @@ def _verify_session_catalog_binding(
         )
 
 
+def _verify_instrument_catalog_binding(
+    proof: _SimulationProofInputs,
+    manifest: ReplayRunManifest,
+    catalog: ManifestObjects,
+    authorization: BatchRiskAuthorization,
+    attempt: CanonicalSubmissionAttempt,
+) -> None:
+    instrument_id = attempt.preparation.intent.instrument_id
+    if (
+        authorization.instrument_id != instrument_id
+        or instrument_id not in manifest.plan.expected_instrument_ids
+    ):
+        raise SimulationHorizonPersistenceError(
+            "simulation order conflicts with the pinned durable replay universe"
+        )
+    for watermark in proof.watermarks:
+        expected_from_catalog = tuple(
+            sorted(
+                membership.instrument_id
+                for membership in catalog.universe_memberships
+                if membership.included_from <= watermark.event_time_through
+                and (
+                    membership.included_to is None
+                    or watermark.event_time_through < membership.included_to
+                )
+                and membership.available_at <= watermark.closed_at
+            )
+        )
+        if (
+            expected_from_catalog != watermark.expected_instrument_ids
+            or instrument_id not in watermark.expected_instrument_ids
+        ):
+            raise SimulationHorizonPersistenceError(
+                "simulation order conflicts with the pinned durable replay universe"
+            )
+
+
 def _authorization(
     reservation: BatchRiskReservation,
     authorization_id: str,
@@ -1026,6 +1063,13 @@ def simulation_horizon_from_row(
         attempt=attempt,
         authorization=authorization,
     )
+    _verify_instrument_catalog_binding(
+        proof,
+        manifest,
+        catalog,
+        authorization,
+        attempt,
+    )
     fact, replay, result = _derive_from_proof(
         proof=proof,
         manifest=manifest,
@@ -1139,6 +1183,13 @@ def persist_simulation_horizon_fact(
         proof=proof,
         attempt=attempt,
         authorization=authorization,
+    )
+    _verify_instrument_catalog_binding(
+        proof,
+        sealed_manifest,
+        catalog,
+        authorization,
+        attempt,
     )
     fact, rebuilt_replay, rebuilt_result = _derive_from_proof(
         proof=proof,

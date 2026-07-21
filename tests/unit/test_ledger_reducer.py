@@ -181,6 +181,43 @@ def test_execution_correction_posts_only_the_economic_delta() -> None:
     assert by_account["expenses:execution_fees"].credit == Decimal("1")
 
 
+def test_economically_identical_correction_advances_revision_without_ledger_entry() -> None:
+    initial_state = execution_state(quantity="4", price="100", fee="2")
+    submitted = initial_state.submission
+    initial = initial_state.broker_events[1]
+    identical = broker_event(
+        submitted,
+        3,
+        BrokerOrderEventKind.EXECUTION_CORRECTION,
+        execution_id=initial.execution_id,
+        revision=2,
+        supersedes=initial.event_id,
+        quantity="4",
+        price="100",
+        fee="2",
+    )
+    later = broker_event(
+        submitted,
+        4,
+        BrokerOrderEventKind.EXECUTION_CORRECTION,
+        execution_id=initial.execution_id,
+        revision=3,
+        supersedes=identical.event_id,
+        quantity="5",
+        price="100",
+        fee="2",
+    )
+    order = reduce_order_lifecycle(
+        submission=submitted,
+        broker_events=(*initial_state.broker_events, identical, later),
+    )
+
+    ledger = reduce_execution_ledger(order_states=(order,))
+
+    assert [entry.reference_id for entry in ledger.entries] == [initial.event_id, later.event_id]
+    assert ledger.position_quantity(WalkingThread.instrument_id) == Decimal("5")
+
+
 def test_execution_bust_reverses_cash_units_trade_value_and_fee() -> None:
     order = corrected_state(
         corrected_quantity="0",

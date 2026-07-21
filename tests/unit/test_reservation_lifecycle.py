@@ -197,6 +197,69 @@ def test_expired_approval_releases_only_with_complete_unsent_evidence() -> None:
     assert projection.remaining_cash == projection.remaining_buy_exposure == 0
 
 
+def test_abandoned_never_dispatched_attempt_cannot_claim_broker_effects() -> None:
+    decision, reservation, authorization = approved_case()
+    pending = pending_attempt(decision=decision)
+    abandoned = _abandon_pending_submission(
+        pending,
+        occurred_at=pending.as_of + timedelta(seconds=1),
+        recorded_at=pending.as_of + timedelta(seconds=1),
+        error_class="RecoveredPreparedWithoutDispatch",
+    )
+    submitted = order_state(abandoned, authorization, ())
+    rejection = broker_event(
+        order_id=submitted.submission.order_id,
+        sequence=1,
+        kind=BrokerOrderEventKind.REJECTED,
+        reason="counterfeit rejection",
+    )
+    rejected = order_state(abandoned, authorization, (rejection,))
+    with pytest.raises(ReservationLifecycleError, match="never-dispatched ABANDONED"):
+        record_broker_rejected_release(
+            reservation=reservation,
+            authorization=authorization,
+            attempt=abandoned,
+            order_state=rejected,
+            rejection_event=rejection,
+            recorded_at=rejection.received_at,
+        )
+
+    execution = broker_event(
+        order_id=submitted.submission.order_id,
+        sequence=1,
+        kind=BrokerOrderEventKind.EXECUTION,
+        execution_id="counterfeit-abandoned-execution",
+        revision=1,
+        quantity=Decimal("1"),
+    )
+    executed = order_state(abandoned, authorization, (execution,))
+    with pytest.raises(ReservationLifecycleError, match="never-dispatched ABANDONED"):
+        record_execution_accounted_release(
+            reservation=reservation,
+            authorization=authorization,
+            attempt=abandoned,
+            order_state=executed,
+            execution_event=execution,
+            accounting_reference="counterfeit-abandoned-ledger",
+            accounting_source_sha256="9" * 64,
+            accounted_at=execution.received_at,
+            recorded_at=execution.received_at,
+        )
+
+    with pytest.raises(ReservationLifecycleError, match="never-dispatched"):
+        record_reconciled_terminal_release(
+            reservation=reservation,
+            authorization=authorization,
+            attempt=abandoned,
+            order_state=rejected,
+            terminal_event=rejection,
+            reconciliation_reference="counterfeit-abandoned-reconciliation",
+            reconciliation_source_sha256="8" * 64,
+            reconciled_at=rejection.received_at + timedelta(seconds=1),
+            recorded_at=rejection.received_at + timedelta(seconds=1),
+        )
+
+
 def test_broker_rejection_is_bound_to_exact_attempt_order_and_event() -> None:
     decision, reservation, authorization = approved_case()
     attempt = confirmed_attempt(decision=decision)
@@ -340,6 +403,52 @@ def test_accounted_execution_and_upward_correction_release_only_monotone_capacit
             accounted_at=downward.received_at + timedelta(milliseconds=1),
             recorded_at=downward.received_at + timedelta(milliseconds=1),
             prior_releases=(first_release, correction_release),
+        )
+
+
+def test_execution_correction_requires_exact_predecessor_accounting_first() -> None:
+    decision, reservation, authorization = approved_case()
+    attempt = confirmed_attempt(decision=decision)
+    submitted = order_state(attempt, authorization, ())
+    accepted = broker_event(
+        order_id=submitted.submission.order_id,
+        sequence=1,
+        kind=BrokerOrderEventKind.ACCEPTED,
+    )
+    execution = broker_event(
+        order_id=submitted.submission.order_id,
+        sequence=2,
+        kind=BrokerOrderEventKind.EXECUTION,
+        execution_id="unaccounted-predecessor",
+        revision=1,
+        quantity=Decimal("4"),
+    )
+    correction = broker_event(
+        order_id=submitted.submission.order_id,
+        sequence=3,
+        kind=BrokerOrderEventKind.EXECUTION_CORRECTION,
+        execution_id="unaccounted-predecessor",
+        revision=2,
+        supersedes=execution.event_id,
+        quantity=Decimal("6"),
+    )
+    corrected_state = order_state(
+        attempt,
+        authorization,
+        (accepted, execution, correction),
+    )
+
+    with pytest.raises(ReservationLifecycleError, match="exact accounting coverage first"):
+        record_execution_accounted_release(
+            reservation=reservation,
+            authorization=authorization,
+            attempt=attempt,
+            order_state=corrected_state,
+            execution_event=correction,
+            accounting_reference="correction-only-ledger",
+            accounting_source_sha256="8" * 64,
+            accounted_at=correction.received_at,
+            recorded_at=correction.received_at,
         )
 
 

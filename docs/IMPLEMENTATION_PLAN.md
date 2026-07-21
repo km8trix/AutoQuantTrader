@@ -152,17 +152,20 @@ time and policy, renewable exact leases, monotonically increasing fencing
 generations, clean-release evidence, fail-closed abandoned expiry, and a broker
 wrapper that holds the account transition lock across the exact submission
 call. ADR 0032 completes the local Phase 2B durable execution boundary with SQL
-lease revisions and heads, transaction-time fence rechecks, atomic batch-risk
+lease revisions and heads, gap-free predecessor-bound renewal history, trusted-
+clock transaction-time fence rechecks, atomic batch-risk
 facts bound to the exact authenticated remaining-capacity universe,
 deterministic logical orders and one-shot authorization consumption,
 append-only submission attempts, proven-unsent stale-`PENDING` abandonment,
-UNKNOWN recovery-to-freeze, canonical-ledger accounting, and the durable
-expiry/rejection/accounted-execution plus typed simulation-horizon release
-paths. Every persisted `RESOLVED` attempt and generic reconciled-terminal fact
+UNKNOWN recovery-to-freeze, predecessor-ordered canonical-ledger accounting,
+sticky non-monotone correction freezes, and the durable expiry/rejection/
+accounted-execution plus typed simulation-horizon release paths. Every persisted
+`RESOLVED` attempt and generic reconciled-terminal fact
 remains fail closed pending the real Phase 4 reconciliation producer. ADR 0033
 completes the local Phase 2C research workflow with an immutable strategy/
 configuration/fixture catalog, idempotent audited jobs, bounded recoverable
-worker claims, the golden fixture worker, immutable reports and manifests, a
+worker claims with rotating exact tokens, a process-unique golden fixture
+worker, immutable reports and manifests, a
 loopback-scoped signed launch capability plus CSRF, and browser
 Strategies/Backtests views.
 
@@ -170,9 +173,10 @@ Phase 2 is therefore **complete locally against repository-owned deterministic
 fixtures**. Its golden run proves raw-price buy/split/dividend/sell economics,
 same-bar exclusion, future-correction causality, and exact repeated identity;
 SQL integration tests cover parallel reservation and job-claim exclusion,
-lease renewal, atomic preparation and rollback, exact remaining-capacity
-projection, stale-`PENDING` abandonment, UNKNOWN recovery, lifecycle
-freeze/release conservation, canonical-ledger binding, authenticated local
+gap-free lease renewal and legacy-safe upgrade, atomic preparation and rollback,
+exact remaining-capacity projection, stale-`PENDING` abandonment, UNKNOWN
+recovery, lifecycle freeze/release conservation, predecessor-ordered
+canonical-ledger binding, authenticated local
 simulation-horizon finality, rejection of unsupported external finality facts,
 correction freezes, and corruption fail-closed reads.
 This completion does not qualify a vendor feed or enable broker execution.
@@ -423,19 +427,46 @@ Passing one layer cannot substitute for another.
   retain only their remaining holds, while fully released children are omitted.
   A gap-free per-account observation sequence orders approved, rejected, and
   no-action decisions so equal timestamps cannot make historical capacity
-  completeness ambiguous.
+  completeness ambiguous. Every capacity-affecting submission, order, and
+  release fact serializes on the same account head and authenticates the
+  observation watermark after which it is visible, so release and observation
+  reconstruction uses the same prefix as the writer rather than timestamp
+  tie-breaking. The additive upgrade retains v3 decisions and marker-zero legacy
+  mutations while all new facts use the v4 ordering contract. Lease generations
+  and renewal revisions are both gap-free, every renewal names its exact
+  predecessor digest, and
+  transaction-time revalidation samples the trusted coordinator clock under the
+  SQL lock. The additive schema upgrade preserves authenticated legacy lease
+  identities while every new lease revision uses the chained contract.
   Stale `PENDING` recovery records proven-unsent `ABANDONED`; dispatch requires
   a fresh receipt for the prepared stable fence and current lease revision.
+  Expiry release reauthenticates the complete causally visible attempt snapshot,
+  requires every target attempt to be abandoned, and rejects any visible
+  `UNKNOWN` sibling without treating later sibling activity as historical.
   UNKNOWN remains frozen. Every persisted `RESOLVED` attempt and generic
   reconciled-terminal fact deliberately fails closed until Phase 4 supplies a
   real broker reconciliation producer. Exact retries and relational conflicts
-  fail closed.
+  fail closed. Execution corrections require exact cumulative predecessor
+  coverage before a positive delta can release; any canonical historical
+  downward or equal-quantity correction makes the freeze sticky. Stale or
+  skipped revision chains are rejected as malformed and fail readiness if
+  injected below the relational boundary. Exact correction economics complete
+  the append-only execution-revision ledger chain, but unresolved correction
+  provenance quarantines new batch authorization for the account. A correction
+  discovered after terminal release preserves the authenticated released
+  projection while the same quarantine remains in force. Simulation dispatch
+  commits the exact replay manifest, calendar, instrument universe, model,
+  request, and attempt chain before `IN_FLIGHT`, and typed horizon
+  reconstruction authenticates all of them plus the proof/release recording
+  instant.
 - **Phase 2C durable research workflow — locally complete:** ADR 0033 adds the
   immutable golden strategy/configuration/fixture catalog, idempotent audited
-  launches, append-only jobs with bounded and recoverable worker claims, the
-  continuously polling fixture worker, immutable report/run-manifest storage,
-  loopback-scoped signed API launch capability, durable query views, and the browser
-  Strategies and Backtests workspaces. Arbitrary strategy code, parameters,
+  launches, append-only jobs with bounded and recoverable worker claims, exact
+  rotating claim tokens bound to the latest `RUNNING` event, process-unique
+  worker identities, the continuously polling fixture worker, immutable
+  report/run-manifest storage, loopback-scoped signed API launch capability,
+  durable query views, and the browser Strategies and Backtests workspaces.
+  Arbitrary strategy code, parameters,
   datasets, date ranges, and licensed vendor history remain out of scope.
 
 ### Build
@@ -466,20 +497,25 @@ Passing one layer cannot substitute for another.
   children reserve their exact remainder, and fully released children cease to
   consume capacity. A monotone account observation sequence makes every stored
   universe historically reconstructable even across equal decision timestamps.
-  The durable runtime releases for proven-unsent expiry,
-  exact broker rejection, execution bound to exact canonical-ledger economics,
-  or the typed local simulation-horizon proof described below. Generic
+  Submission, order, and release mutations share the account lock and carry an
+  authenticated visible-after observation marker; decision `N` includes exactly
+  the mutation prefix below `N`.
+  The durable runtime releases for proven-unsent expiry, exact broker rejection,
+  execution bound to exact canonical-ledger economics, or the typed local
+  simulation-horizon proof described below. Generic
   reconciled-terminal evidence remains gated.
 - Local `SIMULATION_HORIZON_FINAL` replays the persisted exact events and
   watermarks, reproduces the sealed replay manifest, reruns
   `ConservativeSimulatedBroker` from the persisted session, model, submission,
-  authorization, and confirmed-attempt evidence, and requires the reconstructed
-  result, order, and final event to equal their durable facts. Before residual
-  release, every final execution head must be completely covered by exact
-  canonical-ledger `EXECUTION_ACCOUNTED` evidence; a sealed zero-fill order
+  authorization, pinned calendar and instrument universe, and complete safe-
+  retry attempt evidence, and requires the reconstructed result, order, and
+  final event and proof/release recording instant to equal their durable facts.
+  Before residual release, every final execution head must be completely covered
+  by exact canonical-ledger `EXECUTION_ACCOUNTED` evidence; a sealed zero-fill order
   requires none. Unaccounted or stale corrections remain frozen.
-- Account-scoped coordinator leases, immutable revisions, monotonically
-  increasing fences, transaction-time rechecks, and clean release are durable.
+- Account-scoped coordinator leases, immutable predecessor-bound revisions,
+  monotonically increasing fences, transaction-internal trusted-clock rechecks,
+  legacy-safe additive upgrade, and clean release are durable.
   Automated expired-lease takeover and paper/live broker effects remain gated.
 - Immutable strategy/configuration/fixture selection, authenticated idempotent
   launch, job progress/history, report metrics and equity, trade trace,
@@ -498,18 +534,22 @@ Passing one layer cannot substitute for another.
   and run identity.
 - Reducer and lifecycle invariant suites cover balanced postings, cash/share
   conservation, one-shot authorization consumption, cumulative fills, late
-  fills, monotone corrections, and fail-closed downward corrections.
+  fills, predecessor-ordered monotone corrections, and sticky fail-closed
+  historical correction freezes.
 - SQL concurrency tests prove parallel intent batches cannot reserve the same
   cash and parallel workers cannot claim the same job; expired job claims
-  advance to a new attempt and reject stale completion.
+  advance to a new attempt, rotate exact claim authority, and reject stale
+  completion even when a worker label is reused.
 - Submission integration tests prove current durable approval and fence binding,
   atomic logical-order/consumption/PENDING preparation, complete rollback on an
   injected failure, stable-fence renewal with an exact dispatch receipt,
   proven-unsent `ABANDONED` recovery, UNKNOWN recovery/freezing, and fail-closed
   rejection of unauthenticated reconciliation. Risk/lifecycle tests cover exact
-  partial and frozen remaining capacity, released-child omission, canonical
-  ledger economics, deterministic simulation-horizon reconstruction, and strict
-  corruption rejection. Readiness rejects every persisted `RESOLVED` attempt
+  partial and frozen remaining capacity, released-child omission including
+  equal-time release/observation ordering across both serialization orders,
+  causal proven-unsent expiry evidence, canonical ledger economics,
+  deterministic simulation-horizon reconstruction, and strict corruption
+  rejection. Readiness rejects every persisted `RESOLVED` attempt
   and generic reconciled-terminal release while accepting only the typed local
   simulation-horizon proof.
 - API/worker/workflow tests prove local session plus CSRF and idempotency gates,

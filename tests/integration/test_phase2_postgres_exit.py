@@ -331,10 +331,25 @@ def test_concurrent_batch_authorizations_cannot_overreserve_cash(
         _delete_account_facts(postgres_engine, account_id)
 
 
-@pytest.mark.parametrize("release_first", [False, True], ids=("risk-first", "release-first"))
+@pytest.mark.parametrize(
+    ("release_first", "equal_timestamp"),
+    (
+        (False, False),
+        (True, False),
+        (False, True),
+        (True, True),
+    ),
+    ids=(
+        "risk-first-distinct-time",
+        "release-first-distinct-time",
+        "risk-first-equal-time",
+        "release-first-equal-time",
+    ),
+)
 def test_release_racing_authorization_observes_one_serialized_capacity_prefix(
     postgres_engine: Engine,
     release_first: bool,
+    equal_timestamp: bool,
 ) -> None:
     token = uuid4().hex
     account_id = f"pytest-p2-release-risk-{token}"
@@ -378,8 +393,11 @@ def test_release_racing_authorization_observes_one_serialized_capacity_prefix(
         assert first.reservation is not None
         first_reservation = first.reservation
         release_at = first.expires_at + timedelta(seconds=1)
-        risk_at = release_at + (
-            timedelta(seconds=1) if release_first else -timedelta(microseconds=1)
+        risk_at = (
+            release_at
+            if equal_timestamp
+            else release_at
+            + (timedelta(seconds=1) if release_first else -timedelta(microseconds=1))
         )
         first_locked = threading.Event()
         second_entered = threading.Event()
@@ -466,14 +484,24 @@ def test_release_racing_authorization_observes_one_serialized_capacity_prefix(
                 .mappings()
                 .one()
             )
+            release_marker = connection.scalar(
+                sa.select(
+                    phase2_reservation_release_events.c.visible_after_observation_sequence
+                ).where(
+                    phase2_reservation_release_events.c.reservation_id
+                    == first_reservation.reservation_id
+                )
+            )
         observed = _decode_active_capacity(row["active_capacity_payload"])
         assert row["account_observation_sequence"] == 2
         assert first_head["state"] == "released"
         if release_first:
+            assert release_marker == 1
             assert second.status is BatchRiskDecisionStatus.APPROVED
             assert observed.reservations == ()
             assert second.reservation is not None
         else:
+            assert release_marker == 2
             assert second.status is BatchRiskDecisionStatus.REJECTED
             assert len(observed.reservations) == 1
             assert observed.reservations[0].reservation_id == first_reservation.reservation_id

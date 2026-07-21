@@ -7,6 +7,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from itertools import pairwise
 from typing import Any, Protocol, cast
 
 import sqlalchemy as sa
@@ -27,15 +28,12 @@ from packages.domain.canonical import (
     canonical_json_text,
     canonical_persisted_decimal,
 )
-from packages.domain.decimal_math import exact_decimal_sum
 from packages.domain.decision import DecisionTrigger, DecisionTriggerKind
 from packages.domain.identifiers import canonical_id
 from packages.domain.models import OrderIntent, Side, require_utc
-from packages.domain.order_reducer import BrokerOrderEventKind
 from packages.domain.reservation_lifecycle import (
     ReservationLifecycleError,
     ReservationReleaseFact,
-    ReservationReleaseReason,
     project_reservation_capacity,
 )
 from packages.domain.risk import intent_payload_hash
@@ -64,8 +62,18 @@ from packages.domain.submission_attempt import (
 from packages.persistence.account_coordinator import (
     _write_transaction,
     account_lease_from_row,
+    lock_account_capacity_serialization,
 )
-from packages.persistence.batch_risk import load_batch_risk_decision
+from packages.persistence.batch_risk import (
+    account_observation_watermark,
+    load_batch_risk_decision,
+)
+from packages.persistence.capacity_ordering import (
+    SUBMISSION_EVENT_VISIBILITY_KIND,
+    CapacityVisibilityError,
+    capacity_visibility_values,
+    verify_capacity_visibility,
+)
 from packages.persistence.immutable import as_aware_utc
 from packages.persistence.schema import (
     phase2_account_leases,
@@ -645,7 +653,12 @@ def _attempt_values(attempt: CanonicalSubmissionAttempt) -> dict[str, object]:
     }
 
 
-def _event_values(event: SubmissionAttemptEvent) -> dict[str, object]:
+def _event_values(
+    event: SubmissionAttemptEvent,
+    *,
+    account_id: str,
+    visible_after_observation_sequence: int,
+) -> dict[str, object]:
     dispatch_receipt = event.dispatch_fence_receipt
     return {
         "event_id": event.event_id,
@@ -654,6 +667,12 @@ def _event_values(event: SubmissionAttemptEvent) -> dict[str, object]:
         "state": event.state.value,
         "occurred_at": event.occurred_at,
         "recorded_at": event.recorded_at,
+        **capacity_visibility_values(
+            account_id=account_id,
+            fact_kind=SUBMISSION_EVENT_VISIBILITY_KIND,
+            fact_sha256=event.semantic_sha256,
+            visible_after_observation_sequence=visible_after_observation_sequence,
+        ),
         "previous_event_sha256": event.previous_event_sha256,
         "dispatch_account_id": (
             None if dispatch_receipt is None else dispatch_receipt.fence.account_id
@@ -1229,9 +1248,8 @@ def _attempt_from_row(
         raise SubmissionAttemptPersistenceError(
             "persisted logical order conflicts with its risk authorization"
         )
-    events = tuple(
-        _event_from_row(connection, event_row)
-        for event_row in connection.execute(
+    event_rows = tuple(
+        connection.execute(
             sa.select(phase2_submission_attempt_events)
             .where(phase2_submission_attempt_events.c.attempt_id == preparation.attempt_id)
             .order_by(phase2_submission_attempt_events.c.sequence_number)
@@ -1239,6 +1257,31 @@ def _attempt_from_row(
         .mappings()
         .all()
     )
+    events = tuple(_event_from_row(connection, event_row) for event_row in event_rows)
+    try:
+        visibility_markers = tuple(
+            verify_capacity_visibility(
+                account_id=preparation.account_id,
+                fact_kind=SUBMISSION_EVENT_VISIBILITY_KIND,
+                fact_sha256=event.semantic_sha256,
+                visible_after_observation_sequence=event_row["visible_after_observation_sequence"],
+                capacity_visibility_sha256_value=event_row["capacity_visibility_sha256"],
+            )
+            for event, event_row in zip(events, event_rows, strict=True)
+        )
+    except CapacityVisibilityError as error:
+        raise SubmissionAttemptPersistenceError(
+            "submission event visibility binding is malformed"
+        ) from error
+    if any(
+        marker > account_observation_watermark(connection, preparation.account_id)
+        for marker in visibility_markers
+    ):
+        raise SubmissionAttemptPersistenceError(
+            "submission event visibility exceeds the durable account observation watermark"
+        )
+    if any(current < previous for previous, current in pairwise(visibility_markers)):
+        raise SubmissionAttemptPersistenceError("submission event visibility sequence regresses")
     try:
         return reduce_submission_attempt(preparation, events)
     except SubmissionAttemptError as error:
@@ -1294,14 +1337,6 @@ def _unknown_attempt_ids(attempts: tuple[CanonicalSubmissionAttempt, ...]) -> tu
         for attempt in attempts
         if attempt.state is SubmissionAttemptState.UNKNOWN
     )
-
-
-_CORRECTION_CLOSURE_REASONS = frozenset(
-    {
-        ReservationReleaseReason.RECONCILED_TERMINAL,
-        ReservationReleaseReason.SIMULATION_HORIZON_FINAL,
-    }
-)
 
 
 def _strict_reservation_release_history(
@@ -1360,7 +1395,11 @@ def _has_unresolved_nonmonotone_correction(
     reservation_row: RowMapping,
     attempts: tuple[CanonicalSubmissionAttempt, ...],
 ) -> bool:
-    from packages.persistence.reservation_lifecycle import load_canonical_order_state
+    from packages.persistence.reservation_lifecycle import (
+        _legacy_release_ids,
+        _unresolved_nonmonotone_correction_material,
+        load_canonical_order_state,
+    )
 
     reservation_id = _require_text(
         reservation_row["reservation_id"],
@@ -1381,44 +1420,18 @@ def _has_unresolved_nonmonotone_correction(
             raise SubmissionAttemptPersistenceError(
                 "reservation freeze references a missing durable order"
             )
-        for execution in order_state.executions:
-            matches = tuple(
-                event for event in order_state.broker_events if event.event_id == execution.event_id
-            )
-            if len(matches) != 1:
-                raise SubmissionAttemptPersistenceError(
-                    "canonical execution head lacks its exact broker event"
-                )
-            event = matches[0]
-            if event.kind is not BrokerOrderEventKind.EXECUTION_CORRECTION:
-                continue
-            exact_accounting = tuple(
-                fact
-                for fact in history
-                if fact.authorization_id == attempt.preparation.authorization_id
-                and fact.reason is ReservationReleaseReason.EXECUTION_ACCOUNTED
-                and fact.order_event_id == event.event_id
-            )
-            if exact_accounting:
-                continue
-            prior_accounted = exact_decimal_sum(
-                fact.accounted_quantity
-                for fact in history
-                if fact.authorization_id == attempt.preparation.authorization_id
-                and fact.reason is ReservationReleaseReason.EXECUTION_ACCOUNTED
-                and fact.execution_id == execution.execution_id
-                and fact.accounted_quantity is not None
-            )
-            closed = any(
-                fact.authorization_id == attempt.preparation.authorization_id
-                and fact.attempt_id == attempt.attempt_id
-                and fact.order_id == order_state.submission.order_id
-                and fact.reason in _CORRECTION_CLOSURE_REASONS
-                and fact.occurred_at >= execution.received_at
-                for fact in history
-            )
-            if not closed and execution.quantity <= prior_accounted:
+        try:
+            if _unresolved_nonmonotone_correction_material(
+                attempt,
+                order_state,
+                history,
+                legacy_release_ids=_legacy_release_ids(connection, history),
+            ):
                 return True
+        except ReservationLifecycleError as error:
+            raise SubmissionAttemptPersistenceError(
+                "reservation freeze references malformed correction evidence"
+            ) from error
     return False
 
 
@@ -1433,11 +1446,15 @@ def _assert_freeze_consistency(
         raise SubmissionAttemptPersistenceError(
             "persisted parent reservation freeze disagrees with UNKNOWN attempts"
         )
-    correction_frozen = state == "frozen" and _has_unresolved_nonmonotone_correction(
+    correction_frozen = _has_unresolved_nonmonotone_correction(
         connection,
         reservation_row,
         attempts,
     )
+    if correction_frozen and state not in {"frozen", "released"}:
+        raise SubmissionAttemptPersistenceError(
+            "persisted parent reservation is not quarantined by durable correction evidence"
+        )
     if state == "frozen" and not unknown and not correction_frozen:
         raise SubmissionAttemptPersistenceError(
             "frozen reservation lacks UNKNOWN or non-monotone correction evidence"
@@ -1563,6 +1580,8 @@ def _initial_envelope_matches_authorization(
 def _insert_preparation(
     connection: Connection,
     attempt: CanonicalSubmissionAttempt,
+    *,
+    visible_after_observation_sequence: int,
 ) -> None:
     try:
         if attempt.attempt_number == 1:
@@ -1577,7 +1596,13 @@ def _insert_preparation(
             _verify_existing_rows(connection, attempt)
         connection.execute(sa.insert(phase2_submission_attempts).values(**_attempt_values(attempt)))
         connection.execute(
-            sa.insert(phase2_submission_attempt_events).values(**_event_values(attempt.events[0]))
+            sa.insert(phase2_submission_attempt_events).values(
+                **_event_values(
+                    attempt.events[0],
+                    account_id=attempt.preparation.account_id,
+                    visible_after_observation_sequence=visible_after_observation_sequence,
+                )
+            )
         )
     except IntegrityError as error:
         raise SubmissionAttemptPersistenceError(
@@ -1645,6 +1670,10 @@ class SqlSubmissionAttemptRepository:
                     "SQL fence receipt does not bind the requested fence and instant"
                 )
             _authenticate_current_receipt(connection, receipt)
+            visible_after_observation_sequence = account_observation_watermark(
+                connection,
+                fence.account_id,
+            )
             persisted_decision = load_batch_risk_decision(
                 connection,
                 risk_decision.decision_id,
@@ -1703,7 +1732,11 @@ class SqlSubmissionAttemptRepository:
                 recorded_at=recorded_at,
                 parent_attempts=parent_attempts,
             )
-            _insert_preparation(connection, attempt)
+            _insert_preparation(
+                connection,
+                attempt,
+                visible_after_observation_sequence=visible_after_observation_sequence,
+            )
             persisted = load_submission_attempt(connection, attempt.attempt_id)
             if persisted != attempt:
                 raise SubmissionAttemptPersistenceError(
@@ -1768,6 +1801,10 @@ class SqlSubmissionAttemptRepository:
                 )
             receipt._validate()
             _authenticate_current_receipt(connection, receipt)
+            visible_after_observation_sequence = account_observation_watermark(
+                connection,
+                fence.account_id,
+            )
             reservation_row, parent_attempts, current, correction_frozen = (
                 _locked_parent_for_attempt(
                     connection,
@@ -1803,7 +1840,11 @@ class SqlSubmissionAttemptRepository:
                 occurred_at=occurred_at,
                 recorded_at=recorded_at,
             )
-            return self._append(connection, updated)
+            return self._append(
+                connection,
+                updated,
+                visible_after_observation_sequence=visible_after_observation_sequence,
+            )
 
     def confirm(
         self,
@@ -1896,10 +1937,16 @@ class SqlSubmissionAttemptRepository:
                 .group_by(phase2_submission_attempt_events.c.attempt_id)
                 .subquery()
             )
-            candidate_ids = tuple(
-                _require_text(row[0], "stale pending attempt ID")
+            candidate_locations = tuple(
+                (
+                    _require_text(row[0], "stale pending attempt ID"),
+                    _require_text(row[1], "stale pending account ID"),
+                )
                 for row in connection.execute(
-                    sa.select(phase2_submission_attempt_events.c.attempt_id)
+                    sa.select(
+                        phase2_submission_attempt_events.c.attempt_id,
+                        phase2_submission_attempts.c.account_id,
+                    )
                     .join(
                         head,
                         sa.and_(
@@ -1908,14 +1955,27 @@ class SqlSubmissionAttemptRepository:
                             == phase2_submission_attempt_events.c.sequence_number,
                         ),
                     )
+                    .join(
+                        phase2_submission_attempts,
+                        phase2_submission_attempts.c.attempt_id
+                        == phase2_submission_attempt_events.c.attempt_id,
+                    )
                     .where(
                         phase2_submission_attempt_events.c.state == "pending",
                         phase2_submission_attempt_events.c.recorded_at < stale_before,
                     )
-                    .order_by(phase2_submission_attempt_events.c.attempt_id)
+                    .order_by(
+                        phase2_submission_attempts.c.account_id,
+                        phase2_submission_attempt_events.c.attempt_id,
+                    )
                 )
             )
-            for attempt_id in candidate_ids:
+            for attempt_id, account_id in candidate_locations:
+                lock_account_capacity_serialization(connection, account_id)
+                visible_after_observation_sequence = account_observation_watermark(
+                    connection,
+                    account_id,
+                )
                 reservation_row, _, current, _correction_frozen = _locked_parent_for_attempt(
                     connection,
                     attempt_id,
@@ -1934,7 +1994,11 @@ class SqlSubmissionAttemptRepository:
                     recorded_at=recorded_at,
                     error_class=error_class,
                 )
-                persisted = self._append(connection, updated)
+                persisted = self._append(
+                    connection,
+                    updated,
+                    visible_after_observation_sequence=(visible_after_observation_sequence),
+                )
                 recovered.append(persisted)
                 attempts = _parent_attempts(
                     connection,
@@ -1978,10 +2042,16 @@ class SqlSubmissionAttemptRepository:
                 .group_by(phase2_submission_attempt_events.c.attempt_id)
                 .subquery()
             )
-            candidate_ids = tuple(
-                row[0]
+            candidate_locations = tuple(
+                (
+                    _require_text(row[0], "stale in-flight attempt ID"),
+                    _require_text(row[1], "stale in-flight account ID"),
+                )
                 for row in connection.execute(
-                    sa.select(phase2_submission_attempt_events.c.attempt_id)
+                    sa.select(
+                        phase2_submission_attempt_events.c.attempt_id,
+                        phase2_submission_attempts.c.account_id,
+                    )
                     .join(
                         head,
                         sa.and_(
@@ -1990,17 +2060,30 @@ class SqlSubmissionAttemptRepository:
                             == phase2_submission_attempt_events.c.sequence_number,
                         ),
                     )
+                    .join(
+                        phase2_submission_attempts,
+                        phase2_submission_attempts.c.attempt_id
+                        == phase2_submission_attempt_events.c.attempt_id,
+                    )
                     .where(
                         phase2_submission_attempt_events.c.state == "in_flight",
                         phase2_submission_attempt_events.c.recorded_at < stale_before,
                     )
-                    .order_by(phase2_submission_attempt_events.c.attempt_id)
+                    .order_by(
+                        phase2_submission_attempts.c.account_id,
+                        phase2_submission_attempt_events.c.attempt_id,
+                    )
                 )
             )
-            for attempt_id in candidate_ids:
+            for attempt_id, account_id in candidate_locations:
+                lock_account_capacity_serialization(connection, account_id)
+                visible_after_observation_sequence = account_observation_watermark(
+                    connection,
+                    account_id,
+                )
                 reservation_row, _, current, _ = _locked_parent_for_attempt(
                     connection,
-                    str(attempt_id),
+                    attempt_id,
                 )
                 if current.state is not SubmissionAttemptState.IN_FLIGHT:
                     continue
@@ -2014,7 +2097,11 @@ class SqlSubmissionAttemptRepository:
                     recorded_at=recorded_at,
                     error_class=error_class,
                 )
-                persisted = self._append(connection, updated)
+                persisted = self._append(
+                    connection,
+                    updated,
+                    visible_after_observation_sequence=(visible_after_observation_sequence),
+                )
                 if reservation_row["state"] != "frozen":
                     connection.execute(
                         sa.update(phase2_batch_reservations)
@@ -2049,11 +2136,19 @@ class SqlSubmissionAttemptRepository:
         self,
         connection: Connection,
         updated: CanonicalSubmissionAttempt,
+        *,
+        visible_after_observation_sequence: int,
     ) -> CanonicalSubmissionAttempt:
         event = updated.events[-1]
         try:
             connection.execute(
-                sa.insert(phase2_submission_attempt_events).values(**_event_values(event))
+                sa.insert(phase2_submission_attempt_events).values(
+                    **_event_values(
+                        event,
+                        account_id=updated.preparation.account_id,
+                        visible_after_observation_sequence=(visible_after_observation_sequence),
+                    )
+                )
             )
         except IntegrityError as error:
             raise SubmissionAttemptPersistenceError(
@@ -2074,6 +2169,18 @@ class SqlSubmissionAttemptRepository:
         freeze: bool = False,
     ) -> CanonicalSubmissionAttempt:
         with _write_transaction(self._engine) as connection:
+            account_id = connection.scalar(
+                sa.select(phase2_submission_attempts.c.account_id).where(
+                    phase2_submission_attempts.c.attempt_id == attempt_id
+                )
+            )
+            if type(account_id) is not str:
+                raise SubmissionAttemptPersistenceError("submission attempt does not exist")
+            lock_account_capacity_serialization(connection, account_id)
+            visible_after_observation_sequence = account_observation_watermark(
+                connection,
+                account_id,
+            )
             reservation_row, _, current, _correction_frozen = _locked_parent_for_attempt(
                 connection,
                 attempt_id,
@@ -2083,7 +2190,11 @@ class SqlSubmissionAttemptRepository:
                     "cannot append submission outcome after reservation release"
                 )
             updated = transition(current)
-            persisted = self._append(connection, updated)
+            persisted = self._append(
+                connection,
+                updated,
+                visible_after_observation_sequence=visible_after_observation_sequence,
+            )
             if freeze and reservation_row["state"] != "frozen":
                 connection.execute(
                     sa.update(phase2_batch_reservations)

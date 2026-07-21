@@ -502,7 +502,8 @@ job events plus a compare-and-swap head, launch audits, reports, and run
 manifests back the fixture research workflow. Startup readiness authenticates
 canonical payload hashes, event-chain continuity, relational bindings, heads, exact
 remaining-capacity conservation, canonical accounting economics, reconstructed
-simulation horizons, and report/manifest references. See
+simulation horizons, reason-specific release evidence, and report/manifest
+references. See
 [ADR 0032](adr/0032-durable-fenced-batch-execution-lifecycle.md) and
 [ADR 0033](adr/0033-durable-fixture-research-workflow.md).
 
@@ -1130,19 +1131,32 @@ reconciliation, and operator re-arm evidence remain gated. See
 The durable coordinator stores immutable lease revisions and clean releases
 behind one lockable account head. Acquisition and clean handoff advance a
 monotone fencing generation; renewal replaces the current lease digest while
-preserving the stable owner fence. Risk authorization, submission preparation,
-dispatch transition, and reservation mutation lock and revalidate that fence in
-their SQL transaction. Expired ownership blocks effects and does not become an
-automatic takeover signal.
+preserving the stable owner fence. Both generations and per-generation renewal
+numbers are gap-free, and every renewal binds its exact predecessor digest. The
+additive lease-chain migration preserves authenticated v1 lease identities and
+downstream references while every new acquisition or renewal uses the v2 lease-
+only semantic contract. Risk authorization, submission preparation, dispatch
+transition, and reservation mutation lock and revalidate that fence in their
+SQL transaction. Revalidation samples the trusted coordinator clock while
+holding the head lock; caller-supplied logical event time cannot backdate a
+mutation past real expiry. Expired ownership blocks effects and does not become
+an automatic takeover signal.
 
 One batch-risk transaction publishes the exact decision, ordered members,
 parent reservation, and all child authorizations, or none. Its identity binds a
 canonical authenticated active-capacity universe reconstructed under the SQL
 lock. Each account also advances a gap-free observation sequence for every
 approved, rejected, or no-action decision, so readiness can prove the complete
-historical universe even when wall timestamps are equal. A partially released
-child contributes its exact remaining cash, exposure, and sell-share holds; a
-frozen child retains its exact remainder; a fully released child is omitted.
+historical universe even when wall timestamps are equal. Every capacity-affecting
+submission, order, and reservation-release fact takes the same account-head lock
+and authenticates the observation watermark after which it is visible. A v4
+decision at sequence `N` therefore observes exactly mutations with marker less
+than `N`; clocks do not decide equality. The additive upgrade preserves v3
+decision payloads and assigns legacy mutations marker zero with no digest, while
+all new decisions and mutations use authenticated v4 ordering. A partially
+released child contributes its exact remaining cash, exposure, and sell-share
+holds; a frozen child retains its exact remainder; a fully released child is
+omitted.
 Thus equal aggregate totals with different
 reservation provenance cannot authenticate the same decision. Exact retry
 returns the existing result before evaluating the now-changed capacity
@@ -1158,7 +1172,10 @@ revision and policy, validation time, and expiry. Renewal under that stable
 fence can dispatch with a new receipt; a new fencing generation cannot dispatch
 old preparation. Recovery may close only a stale `PENDING` head, which has no
 dispatch receipt and never crossed the broker-call boundary, as proven-unsent
-`ABANDONED`; that terminal proof permits an exact safe retry. Confirmed or
+`ABANDONED`; expiry release authenticates the complete causally visible attempt
+snapshot, requires every target attempt to be abandoned, and rejects any
+visible `UNKNOWN` sibling. Later sibling activity cannot rewrite that
+historical proof. That terminal proof permits an exact safe retry. Confirmed or
 ambiguous outcomes are appended even if the lease later expires because expiry
 cannot erase an already possible effect; stale in-flight recovery records
 `UNKNOWN`.
@@ -1175,21 +1192,36 @@ by durable accounting are monotone release paths. Execution accounting does not
 trust a caller-supplied balanced digest: it reconstructs the canonical ledger
 entry from the exact persisted order state and event, then requires quantity,
 price, fee, cash, security units, postings, source, account, and time to agree.
-A downward or stale correction freezes the remaining reservation rather than
-reclaiming capacity.
+Correction revisions must be processed in order with exact cumulative coverage
+of the predecessor quantity, and only a positive predecessor-relative delta can
+release. A canonical downward or equal-quantity correction creates a sticky
+historical freeze; accounting an unrelated execution or appending a later
+revision cannot hide it. Its exact economic delta completes the append-only
+ledger revision chain when the predecessor is already accounted, while a newly
+discovered chain with missing accounting remains wholly absent. New batch
+authorization is quarantined account-wide until authenticated correction
+closure. A terminal reservation keeps its exact released projection, but its
+unresolved correction still activates the quarantine. Stale or skipped
+revision chains are rejected as malformed, and readiness fails closed if they
+are injected below the relational boundary.
 
 The fourth local path, `SIMULATION_HORIZON_FINAL`, is intentionally narrower
 than external reconciliation. Its SQL fact retains the complete canonical
 replay input events and watermarks, exact simulator session/model/submission
-inputs and derived result identity, and foreign-key bindings to the sealed replay manifest,
-reservation, child authorization, confirmed attempt, order, and final event.
-Writes, reads, and readiness rerun the market replay, reproduce the manifest,
-rerun `ConservativeSimulatedBroker`, and reconstruct the typed horizon fact;
-all durable and recomputed evidence must be exactly equal. Before residual
-capacity is released, every final execution projection must have complete
-`EXECUTION_ACCOUNTED` coverage bound to the exact final event ID, revision,
-head quantity, and canonical ledger entry. A sealed zero-fill working result
-needs no execution accounting. Unaccounted fills, correction-frozen heads,
+inputs and derived result identity, and foreign-key bindings to the sealed
+replay manifest, reservation, child authorization, confirmed attempt, order,
+and final event.
+Dispatch first commits the typed request plus the exact replay manifest,
+calendar/session, instrument universe, simulator model, and stable submission
+inputs. Writes, reads, and readiness rerun the market replay, reproduce the
+manifest, authenticate the complete proven-unsent retry chain, rerun
+`ConservativeSimulatedBroker`, and reconstruct the typed horizon fact;
+the horizon proof and its release must also share the exact durable recording
+instant. All durable and recomputed evidence must be exactly equal. Before
+residual capacity is released, every final execution projection must have
+complete `EXECUTION_ACCOUNTED` coverage bound to the exact final event ID,
+revision, head quantity, and canonical ledger entry. A sealed zero-fill working
+result needs no execution accounting. Unaccounted fills, correction-frozen heads,
 arbitrary hashes, and generic terminal assertions remain blocked.
 
 These paths are implemented for SQLite and PostgreSQL deterministic fixtures.
@@ -1220,9 +1252,12 @@ A launch identity is derived from the local operator and bounded idempotency
 key. Exact retry returns the existing audited job while changed inputs conflict.
 Queued, running, completed, failed, and canceled state is an append-only digest
 chain; a compare-and-swap head exists only for locking and query efficiency.
-Worker claims are bounded. Only the current unexpired worker may complete an
-attempt, and recovery after expiry increments the attempt number so stale
-workers cannot publish a terminal result.
+Worker claims are bounded. A content-addressed claim token binds the job,
+worker, attempt number, and latest authenticated `RUNNING` event, and rotates on
+renewal or recovery. Only that exact current unexpired token may renew, fail, or
+complete an attempt. Recovery after expiry increments the attempt number, so a
+stale attempt cannot publish even when a later process reuses the same worker
+label. The shipped worker instead creates one process-unique identity at start.
 
 The local worker idempotently installs the catalog, polls for one claim at a
 time, and runs the deterministic golden path. Success atomically binds the job
@@ -1522,15 +1557,20 @@ docs/
 - Reducer and SQL suites cover balanced postings, cash/share/reservation
   conservation, late fills, correction chains, parallel batch capacity,
   exact partial/frozen/released-child capacity provenance, coordinator exclusion
-  and renewal, atomic preparation rollback, proven-unsent stale-`PENDING`
+  and gap-free renewal history, trusted-clock expiry fencing, additive legacy
+  lease upgrade, atomic preparation rollback, proven-unsent stale-`PENDING`
   abandonment with exact dispatch receipts, UNKNOWN recovery/freezing, exact
-  canonical-ledger release accounting, and deterministic reconstruction of the
-  typed local simulation horizon. Readiness rejects every persisted `RESOLVED`
+  predecessor-ordered canonical-ledger release accounting, sticky historical
+  correction freezes, authenticated equal-time release/observation ordering,
+  and
+  deterministic reconstruction of the typed local simulation horizon.
+  Readiness rejects every persisted `RESOLVED`
   attempt, generic reconciled-terminal facts, unaccounted final executions, and
   corrupted evidence.
 - Research workflow tests cover exact catalog registration, audited idempotent
   launch, conflicting-key rejection, parallel claim exclusion, expired-claim
-  recovery, active-worker-only completion, immutable report/manifest binding,
+  recovery, rotating exact claim tokens, same-worker stale-attempt fencing,
+  active-worker-only completion, immutable report/manifest binding,
   and payload corruption failure. API and React tests cover local session/CSRF
   launch plus catalog, progress/history, and report views.
 

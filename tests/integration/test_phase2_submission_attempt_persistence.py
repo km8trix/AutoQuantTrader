@@ -4,6 +4,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from threading import Barrier
 from typing import TypeVar
@@ -15,6 +16,7 @@ from packages.domain.account_coordinator import AccountLease, AccountLeasePolicy
 from packages.domain.batch_risk import (
     BatchRiskAuthority,
     BatchRiskDecision,
+    BatchRiskFactConflict,
     VersionedBatchRiskSnapshot,
 )
 from packages.domain.models import OrderIntent
@@ -31,7 +33,12 @@ from packages.persistence.account_coordinator import (
     SqlAccountCoordinator,
     SqlAccountCoordinatorAuthority,
 )
-from packages.persistence.batch_risk import SqlBatchRiskRepository
+from packages.persistence.batch_risk import (
+    LEGACY_CAPACITY_OBSERVATION_CONTRACT,
+    SqlBatchRiskRepository,
+    _attempts_at,
+    _decode_active_capacity,
+)
 from packages.persistence.database import (
     DatabaseSchemaNotReady,
     _verify_phase2_durability_integrity,
@@ -43,6 +50,7 @@ from packages.persistence.schema import (
     phase2_account_leases,
     phase2_authorization_consumptions,
     phase2_batch_authorizations,
+    phase2_batch_decisions,
     phase2_batch_reservations,
     phase2_logical_orders,
     phase2_submission_attempt_events,
@@ -58,6 +66,7 @@ from tests.unit.test_batch_risk import (
     EVALUATED_AT,
     MutableClock,
     limits,
+    make_batch,
     mixed_case,
 )
 
@@ -109,6 +118,7 @@ def _system(
     path: Path,
     *,
     lease_ttl: timedelta = timedelta(minutes=10),
+    risk_limit_overrides: dict[str, object] | None = None,
 ) -> SubmissionSystem:
     _, target, batch, capacity = mixed_case()
     engine = create_database_engine(f"sqlite+pysqlite:///{path}")
@@ -131,7 +141,7 @@ def _system(
     )
     lease = coordinator.acquire("worker-a")
     risk_authority = BatchRiskAuthority(
-        limits=limits(),
+        limits=limits(**(risk_limit_overrides or {})),
         snapshots=SnapshotTransactions(capacity),
         evaluation_clock=MutableClock(EVALUATED_AT),
         consumption_clock=MutableClock(EVALUATED_AT + timedelta(seconds=1)),
@@ -177,6 +187,89 @@ def _count(connection: sa.Connection, table: sa.Table) -> int:
     value = connection.scalar(sa.select(sa.func.count()).select_from(table))
     assert isinstance(value, int)
     return value
+
+
+def test_legacy_attempt_cutoff_includes_equal_timestamp_pending_fact(
+    tmp_path: Path,
+) -> None:
+    system = _system(tmp_path / "phase2-legacy-attempt-equal-time.sqlite")
+    observed_at = EVALUATED_AT + timedelta(seconds=1)
+    attempt = _prepare(system, system.intents[0], at=observed_at)
+    with system.engine.begin() as connection:
+        connection.execute(
+            sa.update(phase2_submission_attempt_events)
+            .where(phase2_submission_attempt_events.c.attempt_id == attempt.attempt_id)
+            .values(
+                visible_after_observation_sequence=0,
+                capacity_visibility_sha256=None,
+            )
+        )
+    with system.engine.connect() as connection:
+        observed = _attempts_at(
+            connection,
+            system.decision.decision_id,
+            as_of=observed_at,
+            observation_contract=LEGACY_CAPACITY_OBSERVATION_CONTRACT,
+        )
+
+    assert observed == (attempt,)
+
+
+def test_legacy_attempt_cutoff_rejects_preparation_without_visible_pending_fact(
+    tmp_path: Path,
+) -> None:
+    system = _system(tmp_path / "phase2-legacy-attempt-missing-pending.sqlite")
+    prepared_at = EVALUATED_AT + timedelta(seconds=1)
+    attempt = system.repository.prepare(
+        intent=system.intents[0],
+        risk_decision=system.decision,
+        fence=system.lease.fence,
+        request=_request(system.intents[0]),
+        prepared_at=prepared_at,
+        recorded_at=prepared_at + timedelta(seconds=1),
+    )
+    with system.engine.begin() as connection:
+        connection.execute(
+            sa.update(phase2_submission_attempt_events)
+            .where(phase2_submission_attempt_events.c.attempt_id == attempt.attempt_id)
+            .values(
+                visible_after_observation_sequence=0,
+                capacity_visibility_sha256=None,
+            )
+        )
+    with (
+        system.engine.connect() as connection,
+        pytest.raises(
+            BatchRiskFactConflict,
+            match="attempt preparation lacks its pending fact",
+        ),
+    ):
+        _attempts_at(
+            connection,
+            system.decision.decision_id,
+            as_of=prepared_at + timedelta(milliseconds=500),
+            observation_contract=LEGACY_CAPACITY_OBSERVATION_CONTRACT,
+        )
+
+
+def test_legacy_attempt_cutoff_excludes_post_migration_backdated_attempt(
+    tmp_path: Path,
+) -> None:
+    system = _system(tmp_path / "phase2-legacy-attempt-post-migration.sqlite")
+    attempt = _prepare(
+        system,
+        system.intents[0],
+        at=EVALUATED_AT + timedelta(seconds=1),
+    )
+    with system.engine.connect() as connection:
+        observed = _attempts_at(
+            connection,
+            system.decision.decision_id,
+            as_of=attempt.preparation.prepared_at + timedelta(seconds=1),
+            observation_contract=LEGACY_CAPACITY_OBSERVATION_CONTRACT,
+        )
+
+    assert observed == ()
 
 
 def test_preparation_atomically_persists_order_consumption_attempt_and_pending(
@@ -418,6 +511,85 @@ def test_unknown_cannot_be_resolved_or_retried_without_authenticated_reconciliat
             prepared_at=EVALUATED_AT + timedelta(seconds=5),
             recorded_at=EVALUATED_AT + timedelta(seconds=5),
         )
+
+
+def test_same_timestamp_unknown_is_visible_only_after_its_serialized_decision(
+    tmp_path: Path,
+) -> None:
+    system = _system(tmp_path / "phase2-submission-unknown-ordering.sqlite")
+    pending = _prepare(
+        system,
+        system.intents[0],
+        at=EVALUATED_AT + timedelta(seconds=1),
+    )
+    in_flight = system.repository.mark_in_flight(
+        pending.attempt_id,
+        fence=system.lease.fence,
+        occurred_at=EVALUATED_AT + timedelta(seconds=2),
+        recorded_at=EVALUATED_AT + timedelta(seconds=2),
+    )
+    portfolio, _, _, capacity = mixed_case()
+    observation_at = EVALUATED_AT + timedelta(seconds=3)
+
+    before_target, before_batch = make_batch(
+        portfolio,
+        desired={"US-ETF-IWM": Decimal("7"), "US-ETF-SPY": Decimal("5")},
+        target_id="unknown-ordering-before",
+    )
+    before_risk = SqlBatchRiskRepository(
+        engine=system.engine,
+        authority=BatchRiskAuthority(
+            limits=limits(),
+            snapshots=SnapshotTransactions(capacity),
+            evaluation_clock=MutableClock(observation_at),
+            consumption_clock=MutableClock(observation_at),
+        ),
+        coordinator=system.coordinator,
+    )
+    before = before_risk.authorize(before_batch, before_target, system.lease.fence)
+
+    system.repository.mark_unknown(
+        in_flight.attempt_id,
+        occurred_at=observation_at,
+        recorded_at=observation_at,
+        error_class="SameTimestampTimeout",
+    )
+    assert before_risk.get_batch(before.decision_id) == before
+
+    after_target, after_batch = make_batch(
+        portfolio,
+        desired={"US-ETF-IWM": Decimal("8"), "US-ETF-SPY": Decimal("5")},
+        target_id="unknown-ordering-after",
+    )
+    after_risk = SqlBatchRiskRepository(
+        engine=system.engine,
+        authority=BatchRiskAuthority(
+            limits=limits(),
+            snapshots=SnapshotTransactions(capacity),
+            evaluation_clock=MutableClock(observation_at),
+            consumption_clock=MutableClock(observation_at),
+        ),
+        coordinator=system.coordinator,
+    )
+    after = after_risk.authorize(after_batch, after_target, system.lease.fence)
+    with system.engine.connect() as connection:
+        before_capacity = _decode_active_capacity(
+            connection.scalar(
+                sa.select(phase2_batch_decisions.c.active_capacity_payload).where(
+                    phase2_batch_decisions.c.decision_id == before.decision_id
+                )
+            )
+        )
+        after_capacity = _decode_active_capacity(
+            connection.scalar(
+                sa.select(phase2_batch_decisions.c.active_capacity_payload).where(
+                    phase2_batch_decisions.c.decision_id == after.decision_id
+                )
+            )
+        )
+    assert before_capacity.reservations[0].state.value != "frozen"
+    assert after_capacity.reservations[0].state.value == "frozen"
+    assert after_risk.get_batch(after.decision_id) == after
 
 
 @pytest.mark.parametrize("clean_handoff", [False, True], ids=("renewal", "new-generation"))

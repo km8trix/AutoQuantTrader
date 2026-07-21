@@ -289,9 +289,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     app.state.persistence_error = persistence_error
     local_security = LocalOperatorSecurity(
         enabled=resolved_settings.local_auth_enabled,
-        transport_is_loopback_scoped=(
-            resolved_settings.local_auth_transport_is_loopback_scoped
-        ),
+        transport_is_loopback_scoped=(resolved_settings.local_auth_transport_is_loopback_scoped),
         operator_id=local_credentials.operator_id,
         configured_secret=resolved_settings.session_secret,
     )

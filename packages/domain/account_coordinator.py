@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Protocol, TypeVar
 
@@ -13,6 +13,7 @@ from packages.domain.identifiers import canonical_id
 from packages.domain.models import require_utc
 
 ACCOUNT_COORDINATOR_CONTRACT_VERSION = "phase2-account-coordinator-v1"
+ACCOUNT_LEASE_CONTRACT_VERSION = "phase2-account-lease-v2"
 FencedResultT = TypeVar("FencedResultT")
 
 
@@ -136,10 +137,17 @@ class AccountLease:
     owner_id: str
     lease_id: str
     fencing_generation: int
+    revision_number: int
+    previous_lease_sha256: str | None
     acquired_at: datetime
     heartbeat_at: datetime
     expires_at: datetime
     policy_sha256: str
+    _contract_version: str = field(
+        default=ACCOUNT_LEASE_CONTRACT_VERSION,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         _require_text(self.account_id, "lease account ID")
@@ -147,25 +155,73 @@ class AccountLease:
         _require_text(self.lease_id, "lease ID")
         if type(self.fencing_generation) is not int or self.fencing_generation <= 0:
             raise AccountCoordinatorError("fencing_generation must be a positive integer")
+        if type(self.revision_number) is not int or self.revision_number <= 0:
+            raise AccountCoordinatorError("lease revision_number must be a positive integer")
+        if self.revision_number == 1:
+            if self.previous_lease_sha256 is not None:
+                raise AccountCoordinatorError(
+                    "lease acquisition revision cannot have a predecessor"
+                )
+        else:
+            if self.previous_lease_sha256 is None:
+                raise AccountCoordinatorError("lease renewal revision requires a predecessor")
+            _require_sha256(
+                self.previous_lease_sha256,
+                "lease previous_lease_sha256",
+            )
         _require_utc(self.acquired_at, "lease acquired_at")
         _require_utc(self.heartbeat_at, "lease heartbeat_at")
         _require_utc(self.expires_at, "lease expires_at")
         if self.heartbeat_at < self.acquired_at:
             raise AccountCoordinatorError("lease heartbeat cannot precede acquisition")
+        if self.revision_number == 1 and self.heartbeat_at != self.acquired_at:
+            raise AccountCoordinatorError(
+                "lease acquisition revision heartbeat must equal acquisition"
+            )
+        if self.revision_number > 1 and self.heartbeat_at == self.acquired_at:
+            raise AccountCoordinatorError("lease renewal heartbeat must follow acquisition")
         if self.expires_at <= self.heartbeat_at:
             raise AccountCoordinatorError("lease expiry must follow its heartbeat")
         _require_sha256(self.policy_sha256, "lease policy_sha256")
+        if self._contract_version not in {
+            ACCOUNT_COORDINATOR_CONTRACT_VERSION,
+            ACCOUNT_LEASE_CONTRACT_VERSION,
+        }:
+            raise AccountCoordinatorError("lease contract version is unsupported")
+
+    @property
+    def contract_version(self) -> str:
+        """Return the authenticated semantic contract used by this revision."""
+
+        return self._contract_version
 
     @property
     def semantic_sha256(self) -> str:
+        if self.contract_version == ACCOUNT_COORDINATOR_CONTRACT_VERSION:
+            return _semantic_sha256(
+                (
+                    ACCOUNT_COORDINATOR_CONTRACT_VERSION,
+                    "lease",
+                    self.account_id,
+                    self.owner_id,
+                    self.lease_id,
+                    self.fencing_generation,
+                    self.acquired_at,
+                    self.heartbeat_at,
+                    self.expires_at,
+                    self.policy_sha256,
+                )
+            )
         return _semantic_sha256(
             (
-                ACCOUNT_COORDINATOR_CONTRACT_VERSION,
+                ACCOUNT_LEASE_CONTRACT_VERSION,
                 "lease",
                 self.account_id,
                 self.owner_id,
                 self.lease_id,
                 self.fencing_generation,
+                self.revision_number,
+                self.previous_lease_sha256,
                 self.acquired_at,
                 self.heartbeat_at,
                 self.expires_at,
@@ -181,6 +237,40 @@ class AccountLease:
             lease_id=self.lease_id,
             fencing_generation=self.fencing_generation,
         )
+
+
+def _legacy_account_lease(
+    *,
+    account_id: str,
+    owner_id: str,
+    lease_id: str,
+    fencing_generation: int,
+    revision_number: int,
+    previous_lease_sha256: str | None,
+    acquired_at: datetime,
+    heartbeat_at: datetime,
+    expires_at: datetime,
+    policy_sha256: str,
+) -> AccountLease:
+    """Construct an authenticated legacy revision while keeping normal creation v2-only."""
+
+    lease = object.__new__(AccountLease)
+    for field_name, value in (
+        ("account_id", account_id),
+        ("owner_id", owner_id),
+        ("lease_id", lease_id),
+        ("fencing_generation", fencing_generation),
+        ("revision_number", revision_number),
+        ("previous_lease_sha256", previous_lease_sha256),
+        ("acquired_at", acquired_at),
+        ("heartbeat_at", heartbeat_at),
+        ("expires_at", expires_at),
+        ("policy_sha256", policy_sha256),
+        ("_contract_version", ACCOUNT_COORDINATOR_CONTRACT_VERSION),
+    ):
+        object.__setattr__(lease, field_name, value)
+    lease.__post_init__()
+    return lease
 
 
 @dataclass(frozen=True, slots=True, init=False)

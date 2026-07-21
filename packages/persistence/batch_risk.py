@@ -7,6 +7,7 @@ import json
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from itertools import pairwise
 from typing import Any, Protocol, TypeVar, cast
 
 import sqlalchemy as sa
@@ -69,6 +70,13 @@ from packages.domain.submission_attempt import (
     reduce_submission_attempt,
 )
 from packages.persistence.account_coordinator import account_lease_from_row
+from packages.persistence.capacity_ordering import (
+    ORDER_EVENT_VISIBILITY_KIND,
+    RESERVATION_RELEASE_VISIBILITY_KIND,
+    SUBMISSION_EVENT_VISIBILITY_KIND,
+    CapacityVisibilityError,
+    verify_capacity_visibility,
+)
 from packages.persistence.immutable import as_aware_utc
 from packages.persistence.schema import (
     phase2_account_leases,
@@ -76,11 +84,15 @@ from packages.persistence.schema import (
     phase2_batch_decisions,
     phase2_batch_members,
     phase2_batch_reservations,
+    phase2_order_events,
     phase2_reservation_release_events,
+    phase2_submission_attempt_events,
     phase2_submission_attempts,
 )
 
 PHASE2_BATCH_RISK_PERSISTENCE_VERSION = "phase2-durable-batch-risk-v3"
+LEGACY_CAPACITY_OBSERVATION_CONTRACT = "phase2-capacity-observation-v3"
+CAPACITY_OBSERVATION_CONTRACT_VERSION = "phase2-capacity-observation-v4"
 SnapshotResultT = TypeVar("SnapshotResultT")
 
 
@@ -468,24 +480,28 @@ def _decision_fact_payload(
     active_capacity: ActiveCapacityUniverse,
     account_observation_sequence: int,
     *,
+    capacity_observation_contract: str,
     fencing_generation: int,
     lease_sha256: str,
     fence_sha256: str,
 ) -> str:
-    return canonical_json_text(
-        (
-            PHASE2_BATCH_RISK_PERSISTENCE_VERSION,
-            BATCH_RISK_CONTRACT_VERSION,
-            "decision",
-            decision.semantic_sha256,
-            decision.account_id,
-            account_observation_sequence,
-            fencing_generation,
-            lease_sha256,
-            fence_sha256,
-            active_capacity.semantic_sha256,
-        )
+    legacy_payload = (
+        PHASE2_BATCH_RISK_PERSISTENCE_VERSION,
+        BATCH_RISK_CONTRACT_VERSION,
+        "decision",
+        decision.semantic_sha256,
+        decision.account_id,
+        account_observation_sequence,
+        fencing_generation,
+        lease_sha256,
+        fence_sha256,
+        active_capacity.semantic_sha256,
     )
+    if capacity_observation_contract == LEGACY_CAPACITY_OBSERVATION_CONTRACT:
+        return canonical_json_text(legacy_payload)
+    if capacity_observation_contract != CAPACITY_OBSERVATION_CONTRACT_VERSION:
+        raise BatchRiskFactConflict("batch decision capacity observation contract is unsupported")
+    return canonical_json_text((*legacy_payload, capacity_observation_contract))
 
 
 def _batch_member_semantic_sha256(
@@ -585,6 +601,7 @@ def _decision_values(
         "intent_batch_sha256": decision.intent_batch_sha256,
         **_fence_values(receipt),
         "account_observation_sequence": account_observation_sequence,
+        "capacity_observation_contract": CAPACITY_OBSERVATION_CONTRACT_VERSION,
         "snapshot_version": decision.snapshot_version,
         "snapshot_sha256": decision.snapshot_sha256,
         "active_capacity_payload": _active_capacity_payload(active_capacity),
@@ -602,6 +619,7 @@ def _decision_values(
             decision,
             active_capacity,
             account_observation_sequence,
+            capacity_observation_contract=CAPACITY_OBSERVATION_CONTRACT_VERSION,
             fencing_generation=receipt.fence.fencing_generation,
             lease_sha256=receipt.lease_sha256,
             fence_sha256=receipt.fence.semantic_sha256,
@@ -994,6 +1012,21 @@ def load_batch_risk_decision(
         ):
             raise BatchRiskFactConflict("persisted reservation fence binding disagrees")
         active_capacity = _decode_active_capacity(row["active_capacity_payload"])
+        capacity_observation_contract = _require_text(
+            row["capacity_observation_contract"],
+            "capacity observation contract",
+        )
+        if capacity_observation_contract not in {
+            LEGACY_CAPACITY_OBSERVATION_CONTRACT,
+            CAPACITY_OBSERVATION_CONTRACT_VERSION,
+        }:
+            raise BatchRiskFactConflict(
+                "persisted batch decision uses an unsupported capacity observation contract"
+            )
+        observation_sequence = _require_int(
+            row["account_observation_sequence"],
+            "decision account observation sequence",
+        )
         if (
             active_capacity.account_id != row["account_id"]
             or row["active_capacity_sha256"] != active_capacity.semantic_sha256
@@ -1013,6 +1046,8 @@ def load_batch_risk_decision(
                 account_id=_require_text(row["account_id"], "account_id"),
                 currency=_require_text(row["currency"], "currency"),
                 evaluated_at=_require_datetime(row["evaluated_at"], "decision evaluated_at"),
+                observation_contract=capacity_observation_contract,
+                observation_sequence=observation_sequence,
             )[0]
             for item in active_capacity.reservations
         )
@@ -1020,10 +1055,6 @@ def load_batch_risk_decision(
             raise BatchRiskFactConflict(
                 "persisted batch decision active capacity is not authenticated"
             )
-        observation_sequence = _require_int(
-            row["account_observation_sequence"],
-            "decision account observation sequence",
-        )
         _verify_capacity_observation_completeness(
             connection,
             active_capacity,
@@ -1032,6 +1063,7 @@ def load_batch_risk_decision(
             account_id=_require_text(row["account_id"], "account_id"),
             currency=_require_text(row["currency"], "currency"),
             evaluated_at=_require_datetime(row["evaluated_at"], "decision evaluated_at"),
+            observation_contract=capacity_observation_contract,
         )
         status_raw = _require_text(row["status"], "batch decision status")
         decision = BatchRiskDecision(
@@ -1092,6 +1124,7 @@ def load_batch_risk_decision(
         decision,
         active_capacity,
         observation_sequence,
+        capacity_observation_contract=capacity_observation_contract,
         fencing_generation=decision_envelope[1],
         lease_sha256=decision_envelope[2],
         fence_sha256=decision_envelope[3],
@@ -1127,9 +1160,164 @@ def _strict_release_history(
         )
         ordered = tuple(sorted(facts, key=lambda fact: fact.sequence_number))
         project_reservation_capacity(reservation, ordered)
-    except (ReservationLifecycleError, ReservationLifecyclePersistenceError) as error:
+        rows_by_id = {
+            _require_text(row["release_event_id"], "release event ID"): row
+            for row in connection.execute(
+                sa.select(phase2_reservation_release_events).where(
+                    phase2_reservation_release_events.c.reservation_id == reservation.reservation_id
+                )
+            )
+            .mappings()
+            .all()
+        }
+        release_account_id = _require_text(
+            connection.scalar(
+                sa.select(phase2_batch_reservations.c.account_id).where(
+                    phase2_batch_reservations.c.reservation_id == reservation.reservation_id
+                )
+            ),
+            "reservation account ID",
+        )
+        markers = tuple(
+            verify_capacity_visibility(
+                account_id=release_account_id,
+                fact_kind=RESERVATION_RELEASE_VISIBILITY_KIND,
+                fact_sha256=fact.semantic_sha256,
+                visible_after_observation_sequence=rows_by_id[fact.release_event_id][
+                    "visible_after_observation_sequence"
+                ],
+                capacity_visibility_sha256_value=rows_by_id[fact.release_event_id][
+                    "capacity_visibility_sha256"
+                ],
+            )
+            for fact in ordered
+        )
+        if any(
+            marker > account_observation_watermark(connection, release_account_id)
+            for marker in markers
+        ):
+            raise BatchRiskFactConflict(
+                "reservation release visibility exceeds the durable account observation watermark"
+            )
+        if any(current < previous for previous, current in pairwise(markers)):
+            raise BatchRiskFactConflict("reservation release visibility sequence regresses")
+        if any(
+            current_marker > 0 and current.recorded_at < previous.recorded_at
+            for previous, current, current_marker in zip(
+                ordered,
+                ordered[1:],
+                markers[1:],
+                strict=False,
+            )
+        ):
+            raise BatchRiskFactConflict("reservation release history regresses its recorded time")
+    except (
+        CapacityVisibilityError,
+        ReservationLifecycleError,
+        ReservationLifecyclePersistenceError,
+    ) as error:
         raise BatchRiskFactConflict("reservation release history is not canonical") from error
     return ordered
+
+
+def _release_visibility_markers(
+    connection: Connection,
+    history: tuple[ReservationReleaseFact, ...],
+    *,
+    account_id: str,
+) -> dict[str, int]:
+    markers: dict[str, int] = {
+        _require_text(row["release_event_id"], "release event ID"): verify_capacity_visibility(
+            account_id=account_id,
+            fact_kind=RESERVATION_RELEASE_VISIBILITY_KIND,
+            fact_sha256=_require_text(row["semantic_sha256"], "release semantic digest"),
+            visible_after_observation_sequence=row["visible_after_observation_sequence"],
+            capacity_visibility_sha256_value=row["capacity_visibility_sha256"],
+        )
+        for row in connection.execute(
+            sa.select(
+                phase2_reservation_release_events.c.release_event_id,
+                phase2_reservation_release_events.c.semantic_sha256,
+                phase2_reservation_release_events.c.visible_after_observation_sequence,
+                phase2_reservation_release_events.c.capacity_visibility_sha256,
+            ).where(
+                phase2_reservation_release_events.c.release_event_id.in_(
+                    tuple(fact.release_event_id for fact in history)
+                )
+            )
+        ).mappings()
+    }
+    if len(markers) != len(history):
+        raise BatchRiskFactConflict("reservation release visibility metadata is incomplete")
+    return markers
+
+
+def _release_prefix_at(
+    connection: Connection,
+    history: tuple[ReservationReleaseFact, ...],
+    evaluated_at: datetime,
+    *,
+    account_id: str,
+    observation_contract: str,
+    observation_sequence: int,
+    legacy_equal_time_inclusive: bool = False,
+) -> tuple[ReservationReleaseFact, ...]:
+    """Select the exact strict-legacy or sequence-ordered release prefix."""
+
+    markers = _release_visibility_markers(
+        connection,
+        history,
+        account_id=account_id,
+    )
+    if observation_contract == LEGACY_CAPACITY_OBSERVATION_CONTRACT:
+        prefix = tuple(
+            fact
+            for fact in history
+            if markers[fact.release_event_id] == 0
+            and (
+                fact.recorded_at <= evaluated_at
+                if legacy_equal_time_inclusive
+                else fact.recorded_at < evaluated_at
+            )
+        )
+    elif observation_contract == CAPACITY_OBSERVATION_CONTRACT_VERSION:
+        prefix = tuple(
+            fact for fact in history if markers[fact.release_event_id] < observation_sequence
+        )
+    else:  # pragma: no cover - caller authenticates the discriminator
+        raise BatchRiskFactConflict("unsupported capacity observation contract")
+    if prefix != history[: len(prefix)]:
+        raise BatchRiskFactConflict(
+            "reservation releases do not form a deterministic observation prefix"
+        )
+    return prefix
+
+
+def _legacy_release_prefix_candidates(
+    connection: Connection,
+    history: tuple[ReservationReleaseFact, ...],
+    evaluated_at: datetime,
+    *,
+    account_id: str,
+) -> tuple[tuple[ReservationReleaseFact, ...], ...]:
+    """Enumerate every pre-migration equal-time prefix accepted by v3."""
+
+    markers = _release_visibility_markers(
+        connection,
+        history,
+        account_id=account_id,
+    )
+    legacy_history = tuple(fact for fact in history if markers[fact.release_event_id] == 0)
+    if legacy_history != history[: len(legacy_history)]:
+        raise BatchRiskFactConflict(
+            "legacy reservation releases do not form a deterministic prefix"
+        )
+    return tuple(
+        legacy_history[:prefix_length]
+        for prefix_length in range(len(legacy_history) + 1)
+        if not any(fact.recorded_at > evaluated_at for fact in legacy_history[:prefix_length])
+        and not any(fact.recorded_at < evaluated_at for fact in legacy_history[prefix_length:])
+    )
 
 
 def _attempts_at(
@@ -1137,6 +1325,8 @@ def _attempts_at(
     parent_decision_id: str,
     *,
     as_of: datetime | None,
+    observation_contract: str | None = None,
+    observation_sequence: int | None = None,
 ) -> tuple[CanonicalSubmissionAttempt, ...]:
     """Strictly rebuild each attempt's immutable event prefix at an observation."""
 
@@ -1170,12 +1360,61 @@ def _attempts_at(
         if as_of is None:
             result.append(current)
             continue
-        if current.preparation.prepared_at > as_of:
-            continue
-        prefix = tuple(event for event in current.events if event.recorded_at <= as_of)
-        if not prefix:
+        event_markers = {
+            _require_text(row["event_id"], "submission event ID"): verify_capacity_visibility(
+                account_id=current.preparation.risk_decision.account_id,
+                fact_kind=SUBMISSION_EVENT_VISIBILITY_KIND,
+                fact_sha256=_require_text(
+                    row["semantic_sha256"], "submission event semantic digest"
+                ),
+                visible_after_observation_sequence=row["visible_after_observation_sequence"],
+                capacity_visibility_sha256_value=row["capacity_visibility_sha256"],
+            )
+            for row in connection.execute(
+                sa.select(
+                    phase2_submission_attempt_events.c.event_id,
+                    phase2_submission_attempt_events.c.semantic_sha256,
+                    phase2_submission_attempt_events.c.visible_after_observation_sequence,
+                    phase2_submission_attempt_events.c.capacity_visibility_sha256,
+                ).where(phase2_submission_attempt_events.c.attempt_id == attempt_id)
+            ).mappings()
+        }
+        if len(event_markers) != len(current.events):
             raise BatchRiskFactConflict(
-                "capacity provenance attempt preparation lacks its pending fact"
+                "capacity provenance submission visibility metadata is incomplete"
+            )
+        if observation_contract == LEGACY_CAPACITY_OBSERVATION_CONTRACT:
+            legacy_events = tuple(
+                event for event in current.events if event_markers[event.event_id] == 0
+            )
+            if not legacy_events:
+                # This attempt was created after the v3/v4 migration boundary,
+                # even if its caller-supplied logical time is backdated.
+                continue
+            if current.preparation.prepared_at > as_of:
+                continue
+            prefix = tuple(event for event in legacy_events if event.recorded_at <= as_of)
+            if not prefix:
+                raise BatchRiskFactConflict(
+                    "capacity provenance attempt preparation lacks its pending fact"
+                )
+        elif observation_contract == CAPACITY_OBSERVATION_CONTRACT_VERSION:
+            if observation_sequence is None:
+                raise BatchRiskFactConflict(
+                    "sequence-ordered capacity observation lacks its sequence"
+                )
+            prefix = tuple(
+                event
+                for event in current.events
+                if event_markers[event.event_id] < observation_sequence
+            )
+        else:
+            raise BatchRiskFactConflict("unsupported capacity observation contract")
+        if not prefix:
+            continue
+        if prefix != current.events[: len(prefix)]:
+            raise BatchRiskFactConflict(
+                "capacity provenance submission events do not form a visible prefix"
             )
         try:
             result.append(reduce_submission_attempt(current.preparation, prefix))
@@ -1191,6 +1430,8 @@ def _order_state_at(
     attempt: CanonicalSubmissionAttempt,
     *,
     as_of: datetime | None,
+    observation_contract: str | None = None,
+    observation_sequence: int | None = None,
 ) -> CanonicalOrderState:
     """Rebuild the exact immutable order-event prefix visible at an observation."""
 
@@ -1209,9 +1450,49 @@ def _order_state_at(
         raise BatchRiskFactConflict("capacity provenance references a missing logical order")
     if as_of is None:
         return current
-    events = tuple(event for event in current.broker_events if event.received_at <= as_of)
+    event_markers = {
+        _require_text(row["event_id"], "order event ID"): verify_capacity_visibility(
+            account_id=attempt.preparation.risk_decision.account_id,
+            fact_kind=ORDER_EVENT_VISIBILITY_KIND,
+            fact_sha256=_require_text(row["semantic_sha256"], "order event semantic digest"),
+            visible_after_observation_sequence=row["visible_after_observation_sequence"],
+            capacity_visibility_sha256_value=row["capacity_visibility_sha256"],
+        )
+        for row in connection.execute(
+            sa.select(
+                phase2_order_events.c.event_id,
+                phase2_order_events.c.semantic_sha256,
+                phase2_order_events.c.visible_after_observation_sequence,
+                phase2_order_events.c.capacity_visibility_sha256,
+            ).where(phase2_order_events.c.order_id == current.submission.order_id)
+        ).mappings()
+    }
+    if len(event_markers) != len(current.broker_events):
+        raise BatchRiskFactConflict("capacity provenance order visibility metadata is incomplete")
+    if observation_contract == LEGACY_CAPACITY_OBSERVATION_CONTRACT:
+        events = tuple(
+            event
+            for event in current.broker_events
+            if event_markers[event.event_id] == 0 and event.received_at <= as_of
+        )
+    elif observation_contract == CAPACITY_OBSERVATION_CONTRACT_VERSION:
+        if observation_sequence is None:
+            raise BatchRiskFactConflict("sequence-ordered capacity observation lacks its sequence")
+        events = tuple(
+            event
+            for event in current.broker_events
+            if event_markers[event.event_id] < observation_sequence
+        )
+    else:
+        raise BatchRiskFactConflict("unsupported capacity observation contract")
+    if events != current.broker_events[: len(events)]:
+        raise BatchRiskFactConflict("capacity provenance order events do not form a visible prefix")
     cancel_request = current.cancel_request
-    if cancel_request is not None and cancel_request.requested_at > as_of:
+    if (
+        observation_contract == LEGACY_CAPACITY_OBSERVATION_CONTRACT
+        and cancel_request is not None
+        and cancel_request.requested_at > as_of
+    ):
         cancel_request = None
     if cancel_request is not None and not any(
         event.kind is BrokerOrderEventKind.CANCELED for event in events
@@ -1227,7 +1508,7 @@ def _order_state_at(
         raise BatchRiskFactConflict("capacity provenance order prefix is not canonical") from error
 
 
-_CORRECTION_CLOSURE_REASONS = frozenset(
+_LEGACY_CORRECTION_CLOSURE_REASONS = frozenset(
     {
         ReservationReleaseReason.RECONCILED_TERMINAL,
         ReservationReleaseReason.SIMULATION_HORIZON_FINAL,
@@ -1235,19 +1516,22 @@ _CORRECTION_CLOSURE_REASONS = frozenset(
 )
 
 
-def _freeze_provenance_material(
+def _legacy_freeze_provenance_material(
     connection: Connection,
     reservation: BatchRiskReservation,
     history: tuple[ReservationReleaseFact, ...],
     *,
-    as_of: datetime | None,
+    as_of: datetime,
+    observation_sequence: int | None,
 ) -> tuple[tuple[object, ...], tuple[object, ...]]:
-    """Return exact UNKNOWN and non-monotone-correction freeze evidence."""
+    """Reproduce the exact pre-v4 freeze material for immutable v3 decisions."""
 
     attempts = _attempts_at(
         connection,
         reservation.parent_decision_id,
         as_of=as_of,
+        observation_contract=LEGACY_CAPACITY_OBSERVATION_CONTRACT,
+        observation_sequence=observation_sequence,
     )
     unknown = tuple(
         (
@@ -1267,7 +1551,13 @@ def _freeze_provenance_material(
             latest_by_authorization[attempt.preparation.authorization_id] = attempt
     corrections: list[tuple[object, ...]] = []
     for attempt in latest_by_authorization.values():
-        order_state = _order_state_at(connection, attempt, as_of=as_of)
+        order_state = _order_state_at(
+            connection,
+            attempt,
+            as_of=as_of,
+            observation_contract=LEGACY_CAPACITY_OBSERVATION_CONTRACT,
+            observation_sequence=observation_sequence,
+        )
         for execution in order_state.executions:
             matches = tuple(
                 event for event in order_state.broker_events if event.event_id == execution.event_id
@@ -1305,7 +1595,7 @@ def _freeze_provenance_material(
                 fact.authorization_id == attempt.preparation.authorization_id
                 and fact.attempt_id == attempt.attempt_id
                 and fact.order_id == order_state.submission.order_id
-                and fact.reason in _CORRECTION_CLOSURE_REASONS
+                and fact.reason in _LEGACY_CORRECTION_CLOSURE_REASONS
                 and fact.occurred_at >= execution.received_at
                 for fact in history
             )
@@ -1324,6 +1614,82 @@ def _freeze_provenance_material(
     return unknown, tuple(sorted(corrections))
 
 
+def _freeze_provenance_material(
+    connection: Connection,
+    reservation: BatchRiskReservation,
+    history: tuple[ReservationReleaseFact, ...],
+    *,
+    as_of: datetime | None,
+    observation_contract: str | None = None,
+    observation_sequence: int | None = None,
+) -> tuple[tuple[object, ...], tuple[object, ...]]:
+    """Return exact UNKNOWN and non-monotone-correction freeze evidence."""
+
+    if observation_contract == LEGACY_CAPACITY_OBSERVATION_CONTRACT:
+        if as_of is None:
+            raise BatchRiskFactConflict("legacy capacity observation requires an evaluation time")
+        return _legacy_freeze_provenance_material(
+            connection,
+            reservation,
+            history,
+            as_of=as_of,
+            observation_sequence=observation_sequence,
+        )
+
+    from packages.persistence.reservation_lifecycle import (
+        ReservationLifecyclePersistenceError,
+        _legacy_release_ids,
+        _unresolved_nonmonotone_correction_material,
+    )
+
+    attempts = _attempts_at(
+        connection,
+        reservation.parent_decision_id,
+        as_of=as_of,
+        observation_contract=observation_contract,
+        observation_sequence=observation_sequence,
+    )
+    unknown = tuple(
+        (
+            attempt.attempt_id,
+            attempt.preparation.authorization_id,
+            attempt.semantic_sha256,
+            attempt.events[-1].semantic_sha256,
+        )
+        for attempt in attempts
+        if attempt.state is SubmissionAttemptState.UNKNOWN
+    )
+
+    latest_by_authorization: dict[str, CanonicalSubmissionAttempt] = {}
+    for attempt in attempts:
+        current = latest_by_authorization.get(attempt.preparation.authorization_id)
+        if current is None or attempt.attempt_number > current.attempt_number:
+            latest_by_authorization[attempt.preparation.authorization_id] = attempt
+    corrections: list[tuple[object, ...]] = []
+    for attempt in latest_by_authorization.values():
+        order_state = _order_state_at(
+            connection,
+            attempt,
+            as_of=as_of,
+            observation_contract=observation_contract,
+            observation_sequence=observation_sequence,
+        )
+        try:
+            corrections.extend(
+                _unresolved_nonmonotone_correction_material(
+                    attempt,
+                    order_state,
+                    history,
+                    legacy_release_ids=_legacy_release_ids(connection, history),
+                )
+            )
+        except ReservationLifecyclePersistenceError as error:
+            raise BatchRiskFactConflict(
+                "capacity provenance correction evidence is not canonical"
+            ) from error
+    return unknown, tuple(sorted(corrections))
+
+
 def _capacity_provenance_sha256(
     connection: Connection,
     reservation: BatchRiskReservation,
@@ -1332,12 +1698,16 @@ def _capacity_provenance_sha256(
     history: tuple[ReservationReleaseFact, ...],
     *,
     as_of: datetime | None,
+    observation_contract: str | None = None,
+    observation_sequence: int | None = None,
 ) -> str:
     unknown, corrections = _freeze_provenance_material(
         connection,
         reservation,
         history,
         as_of=as_of,
+        observation_contract=observation_contract,
+        observation_sequence=observation_sequence,
     )
     frozen = bool(unknown or corrections)
     if frozen != (state is ActiveCapacityReservationState.FROZEN):
@@ -1446,6 +1816,8 @@ def _historical_active_capacity(
     account_id: str,
     currency: str,
     evaluated_at: datetime,
+    observation_contract: str,
+    observation_sequence: int,
 ) -> tuple[ActiveCapacityReservation, RowMapping]:
     """Authenticate one stored capacity item as an exact historical prefix."""
 
@@ -1461,46 +1833,69 @@ def _historical_active_capacity(
             "persisted active capacity reservation digest conflicts with SQL facts"
         )
     history = _strict_release_history(connection, reservation)
+    if observation_contract == LEGACY_CAPACITY_OBSERVATION_CONTRACT:
+        prefixes = _legacy_release_prefix_candidates(
+            connection,
+            history,
+            evaluated_at,
+            account_id=account_id,
+        )
+    elif observation_contract == CAPACITY_OBSERVATION_CONTRACT_VERSION:
+        prefixes = (
+            _release_prefix_at(
+                connection,
+                history,
+                evaluated_at,
+                account_id=account_id,
+                observation_contract=observation_contract,
+                observation_sequence=observation_sequence,
+            ),
+        )
+    else:  # pragma: no cover - caller authenticates the discriminator
+        raise BatchRiskFactConflict("unsupported capacity observation contract")
     matches: list[ActiveCapacityReservation] = []
-    for prefix_length in range(len(history) + 1):
-        prefix = history[:prefix_length]
-        suffix = history[prefix_length:]
-        if any(fact.recorded_at > evaluated_at for fact in prefix):
-            continue
-        if any(fact.recorded_at < evaluated_at for fact in suffix):
-            continue
+    for prefix in prefixes:
         try:
             projection = project_reservation_capacity(reservation, prefix)
-        except ReservationLifecycleError as error:  # pragma: no cover - full chain checked above
-            raise BatchRiskFactConflict(
-                "historical capacity release prefix is not canonical"
-            ) from error
-        if projection.semantic_sha256 != persisted.projection_sha256:
-            continue
-        provenance_sha256 = _capacity_provenance_sha256(
-            connection,
-            reservation,
-            projection,
-            persisted.state,
-            prefix,
-            as_of=evaluated_at,
-        )
-        if provenance_sha256 != persisted.provenance_sha256:
-            continue
-        try:
+            _unknown, corrections = _freeze_provenance_material(
+                connection,
+                reservation,
+                prefix,
+                as_of=evaluated_at,
+                observation_contract=observation_contract,
+                observation_sequence=observation_sequence,
+            )
+            provenance_sha256 = _capacity_provenance_sha256(
+                connection,
+                reservation,
+                projection,
+                persisted.state,
+                prefix,
+                as_of=evaluated_at,
+                observation_contract=observation_contract,
+                observation_sequence=observation_sequence,
+            )
             projected = _project_active_capacity(
                 reservation,
                 projection,
                 persisted.state,
                 provenance_sha256,
             )
-        except BatchRiskFactConflict:
+        except (BatchRiskError, ReservationLifecycleError):
             continue
-        if projected == persisted:
+        if (
+            projection.semantic_sha256 == persisted.projection_sha256
+            and provenance_sha256 == persisted.provenance_sha256
+            and projected == persisted
+        ):
+            if corrections and observation_contract == CAPACITY_OBSERVATION_CONTRACT_VERSION:
+                raise BatchRiskFactConflict(
+                    "persisted batch decision observed unresolved execution correction evidence"
+                )
             matches.append(projected)
     if len(matches) != 1:
         raise BatchRiskFactConflict(
-            "persisted active capacity is not one authenticated historical lifecycle prefix"
+            "persisted active capacity is not one exact historical lifecycle prefix"
         )
     return matches[0], parent_row
 
@@ -1514,6 +1909,7 @@ def _verify_capacity_observation_completeness(
     account_id: str,
     currency: str,
     evaluated_at: datetime,
+    observation_contract: str,
 ) -> None:
     """Prove the universe contains every prior nonterminal reservation."""
 
@@ -1577,9 +1973,16 @@ def _verify_capacity_observation_completeness(
             currency=currency,
         )
         history = _strict_release_history(connection, reservation)
-        strict_prior = tuple(fact for fact in history if fact.recorded_at < evaluated_at)
+        observed_prefix = _release_prefix_at(
+            connection,
+            history,
+            evaluated_at,
+            account_id=account_id,
+            observation_contract=observation_contract,
+            observation_sequence=observation_sequence,
+        )
         try:
-            projection = project_reservation_capacity(reservation, strict_prior)
+            projection = project_reservation_capacity(reservation, observed_prefix)
         except ReservationLifecycleError as error:  # pragma: no cover - full chain checked above
             raise BatchRiskFactConflict(
                 "prior reservation lifecycle prefix is not canonical"
@@ -1587,7 +1990,20 @@ def _verify_capacity_observation_completeness(
         if projection.state is not ReservationCapacityState.RELEASED:
             raise BatchRiskFactConflict(
                 "persisted active capacity omits a prior reservation without "
-                "strictly earlier terminal release evidence"
+                "terminal release evidence in its observation prefix"
+            )
+        _unknown, corrections = _freeze_provenance_material(
+            connection,
+            reservation,
+            observed_prefix,
+            as_of=evaluated_at,
+            observation_contract=observation_contract,
+            observation_sequence=observation_sequence,
+        )
+        if corrections:
+            raise BatchRiskFactConflict(
+                "persisted active capacity omits a reservation with unresolved "
+                "execution correction evidence"
             )
 
 
@@ -1596,6 +2012,9 @@ def _active_reservation_evidence(
     account_id: str,
     *,
     as_of: datetime | None = None,
+    observation_contract: str | None = None,
+    observation_sequence: int | None = None,
+    reject_unresolved_corrections: bool = False,
 ) -> tuple[
     tuple[
         BatchRiskReservation,
@@ -1637,8 +2056,23 @@ def _active_reservation_evidence(
             connection,
             row,
             reservation,
-            as_of=as_of,
+            as_of=(
+                as_of if observation_contract != CAPACITY_OBSERVATION_CONTRACT_VERSION else None
+            ),
         )
+        if projection.state is ReservationCapacityState.RELEASED or reject_unresolved_corrections:
+            _unknown, corrections = _freeze_provenance_material(
+                connection,
+                reservation,
+                history,
+                as_of=as_of,
+                observation_contract=observation_contract,
+                observation_sequence=observation_sequence,
+            )
+            if corrections:
+                raise BatchRiskFactConflict(
+                    "unresolved execution correction evidence quarantines account capacity"
+                )
         if projection.state is ReservationCapacityState.RELEASED:
             continue
         try:
@@ -1656,6 +2090,8 @@ def _active_reservation_evidence(
             persisted_state,
             history,
             as_of=as_of,
+            observation_contract=observation_contract,
+            observation_sequence=observation_sequence,
         )
         result.append((reservation, projection, persisted_state, provenance_sha256))
     return tuple(result)
@@ -1759,6 +2195,9 @@ def _active_capacity_universe(
     account_id: str,
     *,
     as_of: datetime | None = None,
+    observation_contract: str | None = None,
+    observation_sequence: int | None = None,
+    reject_unresolved_corrections: bool = False,
 ) -> ActiveCapacityUniverse:
     return ActiveCapacityUniverse(
         account_id=account_id,
@@ -1768,6 +2207,9 @@ def _active_capacity_universe(
                 connection,
                 account_id,
                 as_of=as_of,
+                observation_contract=observation_contract,
+                observation_sequence=observation_sequence,
+                reject_unresolved_corrections=reject_unresolved_corrections,
             )
         ),
     )
@@ -1891,11 +2333,12 @@ def _account_observation_rows(
     connection: Connection,
     account_id: str,
 ) -> tuple[RowMapping, ...]:
-    return tuple(
+    rows = tuple(
         connection.execute(
             sa.select(
                 phase2_batch_decisions.c.decision_id,
                 phase2_batch_decisions.c.account_observation_sequence,
+                phase2_batch_decisions.c.capacity_observation_contract,
             )
             .where(phase2_batch_decisions.c.account_id == account_id)
             .order_by(phase2_batch_decisions.c.account_observation_sequence)
@@ -1903,6 +2346,23 @@ def _account_observation_rows(
         .mappings()
         .all()
     )
+    seen_current_contract = False
+    for row in rows:
+        contract = _require_text(
+            row["capacity_observation_contract"],
+            "capacity observation contract",
+        )
+        if contract == CAPACITY_OBSERVATION_CONTRACT_VERSION:
+            seen_current_contract = True
+        elif contract != LEGACY_CAPACITY_OBSERVATION_CONTRACT:
+            raise BatchRiskFactConflict(
+                "account decision history uses an unsupported capacity observation contract"
+            )
+        elif seen_current_contract:
+            raise BatchRiskFactConflict(
+                "legacy capacity observations cannot follow sequence-ordered observations"
+            )
+    return rows
 
 
 def _next_account_observation_sequence(
@@ -1919,6 +2379,22 @@ def _next_account_observation_sequence(
     if sequences != tuple(range(1, len(sequences) + 1)):
         raise BatchRiskFactConflict("account decision observation sequence is not contiguous")
     return len(sequences) + 1
+
+
+def account_observation_watermark(
+    connection: Connection,
+    account_id: str,
+) -> int:
+    """Return the contiguous durable decision watermark for a locked account."""
+
+    rows = _account_observation_rows(connection, account_id)
+    sequences = tuple(
+        _require_int(row["account_observation_sequence"], "account observation sequence")
+        for row in rows
+    )
+    if sequences != tuple(range(1, len(sequences) + 1)):
+        raise BatchRiskFactConflict("account decision observation sequence is not contiguous")
+    return len(sequences)
 
 
 class SqlBatchRiskRepository:
@@ -2026,6 +2502,9 @@ class SqlBatchRiskRepository:
                     connection,
                     snapshot.account_id,
                     as_of=evaluated_at,
+                    observation_contract=CAPACITY_OBSERVATION_CONTRACT_VERSION,
+                    observation_sequence=account_observation_sequence,
+                    reject_unresolved_corrections=True,
                 )
                 decision = evaluate_batch_risk_decision(
                     batch=batch,
