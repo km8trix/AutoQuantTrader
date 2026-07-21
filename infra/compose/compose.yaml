@@ -9,6 +9,9 @@ x-api-environment: &api-environment
   AQT_SESSION_SECRET: ${AQT_SESSION_SECRET:-local-development-only-change-before-deployment}
   AQT_API_HOST: 0.0.0.0
   AQT_API_PORT: 8000
+  # Uvicorn listens on the container interface, while every checked-in host
+  # publication below is pinned to 127.0.0.1.
+  AQT_TRUSTED_LOOPBACK_PROXY: "true"
   AQT_DATA_LAKE_PATH: /var/lib/autoquant/data-lake
   AQT_MARKET_DATA_FIXTURE_PATH: /workspace/tests/fixtures/market_data/phase1_bars.jsonl
 
@@ -87,7 +90,7 @@ services:
 
   worker:
     image: autoquanttrader-runtime:development
-    command: ["uv", "run", "autoquant-worker", "--once"]
+    command: ["uv", "run", "autoquant-worker"]
     environment: *api-environment
     volumes:
       - ../..:/workspace
@@ -96,7 +99,7 @@ services:
       migrate:
         condition: service_completed_successfully
     init: true
-    restart: "no"
+    restart: unless-stopped
 
   trader:
     image: autoquanttrader-runtime:development

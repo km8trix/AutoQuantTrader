@@ -5,6 +5,8 @@ import { DataCatalogPage } from '../features/data/DataCatalogPage'
 import { DataQualityPage } from '../features/data/DataQualityPage'
 import { OverviewPage } from '../features/overview/OverviewPage'
 import { PlaceholderPage } from '../features/overview/PlaceholderPage'
+import { BacktestsPage } from '../features/research/BacktestsPage'
+import { StrategiesPage } from '../features/research/StrategiesPage'
 
 interface AppRoutesProps {
   bootstrap: UiBootstrap
@@ -12,22 +14,10 @@ interface AppRoutesProps {
 
 const placeholderRoutes = [
   {
-    path: '/research/strategies',
-    title: 'Strategies',
-    description: 'Select immutable strategy versions and configure validated parameters.',
-    phase: 'Phase 2',
-  },
-  {
     path: '/research/experiments',
     title: 'Experiments',
     description: 'Compare governed experiment families and out-of-sample evidence.',
     phase: 'Phase 3',
-  },
-  {
-    path: '/research/backtests',
-    title: 'Backtests',
-    description: 'Launch reproducible event-driven runs and inspect performance artifacts.',
-    phase: 'Phase 2',
   },
   {
     path: '/trading/deployments',
@@ -79,6 +69,8 @@ export function AppRoutes({ bootstrap }: AppRoutesProps) {
       <Route element={<OverviewPage bootstrap={bootstrap} />} path="/overview" />
       <Route element={<DataCatalogPage />} path="/data/datasets" />
       <Route element={<DataQualityPage />} path="/data/quality" />
+      <Route element={<StrategiesPage />} path="/research/strategies" />
+      <Route element={<BacktestsPage bootstrap={bootstrap} />} path="/research/backtests" />
       {placeholderRoutes.map((route) => (
         <Route
           element={

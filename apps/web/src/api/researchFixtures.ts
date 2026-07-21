@@ -1,0 +1,267 @@
+import type {
+  BacktestReportResponse,
+  BacktestsResponse,
+  ResearchStrategiesResponse,
+} from './types'
+
+const digest = (character: string): string => character.repeat(64)
+
+export function makeResearchStrategiesFixture(
+  now = new Date(),
+): ResearchStrategiesResponse {
+  return {
+    as_of: now.toISOString(),
+    strategies: [
+      {
+        strategy_version_id: digest('1'),
+        strategy_id: 'buy-and-hold-fixture',
+        strategy_version: '1.0.0',
+        display_name: 'Buy and hold fixture',
+        parameter_schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { quantity: { type: 'integer', minimum: 1 } },
+        },
+        configurations: [
+          {
+            configuration_sha256: digest('4'),
+            configuration_name: 'Four-share golden path',
+            parameters: { quantity: 4 },
+            launch_inputs: [
+              {
+                fixture_id: 'phase2-golden-lifecycle',
+                fixture_version: '1.0.0',
+                display_name: 'Golden lifecycle fixture',
+                description: 'Raw prices, next-event fills, fees, dividend, split, and settlement.',
+                dataset_manifest_id: digest('5'),
+                dataset_manifest_sha256: digest('5'),
+                replay_run_id: digest('6'),
+                benchmark_sha256: digest('7'),
+                cost_model_sha256: digest('8'),
+                fill_model_sha256: digest('9'),
+                metric_conventions_sha256: digest('a'),
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    fixtures: [
+      {
+        fixture_id: 'phase2-golden-lifecycle',
+        fixture_version: '1.0.0',
+        display_name: 'Golden lifecycle fixture',
+        description: 'Raw prices, next-event fills, fees, dividend, split, and settlement.',
+        dataset_manifest_id: digest('5'),
+        dataset_manifest_sha256: digest('5'),
+        replay_run_id: digest('6'),
+        benchmark_sha256: digest('7'),
+        cost_model_sha256: digest('8'),
+        fill_model_sha256: digest('9'),
+        metric_conventions_sha256: digest('a'),
+      },
+    ],
+  }
+}
+
+export function makeBacktestsFixture(now = new Date()): BacktestsResponse {
+  const requestedAt = new Date(now.getTime() - 12_000).toISOString()
+  const runningAt = new Date(now.getTime() - 8_000).toISOString()
+  return {
+    as_of: now.toISOString(),
+    jobs: [
+      {
+        job_id: digest('b'),
+        input_sha256: digest('c'),
+        fixture_id: 'phase2-golden-lifecycle',
+        fixture_version: '1.0.0',
+        strategy_id: 'buy-and-hold-fixture',
+        strategy_version: '1.0.0',
+        strategy_configuration_sha256: digest('4'),
+        requested_by: 'local-operator',
+        requested_at: requestedAt,
+        status: 'completed',
+        attempt_number: 1,
+        worker_id: null,
+        claim_expires_at: null,
+        updated_at: now.toISOString(),
+        run_manifest_sha256: digest('d'),
+        report_sha256: digest('e'),
+        report_artifact_sha256: digest('f'),
+        terminal_reason_code: null,
+        history: [
+          {
+            sequence: 0,
+            status: 'queued',
+            occurred_at: requestedAt,
+            actor_id: 'local-operator',
+            attempt_number: 0,
+            terminal_reason_code: null,
+          },
+          {
+            sequence: 1,
+            status: 'running',
+            occurred_at: runningAt,
+            actor_id: 'fixture-worker',
+            attempt_number: 1,
+            terminal_reason_code: null,
+          },
+          {
+            sequence: 2,
+            status: 'completed',
+            occurred_at: now.toISOString(),
+            actor_id: 'fixture-worker',
+            attempt_number: 1,
+            terminal_reason_code: null,
+          },
+        ],
+      },
+    ],
+  }
+}
+
+export function makeBacktestReportFixture(now = new Date()): BacktestReportResponse {
+  const start = new Date(now.getTime() - 86_400_000)
+  const middle = new Date(now.getTime() - 43_200_000)
+  return {
+    report_sha256: digest('e'),
+    report_artifact_sha256: digest('f'),
+    account_id: 'fixture-backtest-account',
+    currency: 'USD',
+    period_start: start.toISOString(),
+    period_end: now.toISOString(),
+    generated_at: now.toISOString(),
+    conventions: {
+      convention_id: 'phase2-event-return',
+      convention_version: '1.0.0',
+      currency: 'USD',
+      return_type: 'simple',
+      return_frequency: 'event',
+      annualization_periods: 252,
+      annual_risk_free_rate: '0',
+      risk_free_rate_version: 'fixture-zero-v1',
+      external_cash_flow_treatment: 'time_weighted',
+      uncertainty_method: 'none',
+      absolute_tolerance: '0.00000001',
+      relative_tolerance: '0.00000001',
+    },
+    metrics: {
+      starting_equity: '1000.00',
+      ending_equity: '1044.04',
+      total_return: '0.04404',
+      annualized_return: null,
+      annualized_volatility: null,
+      sharpe_ratio: null,
+      sortino_ratio: null,
+      maximum_drawdown: '0.00318',
+      turnover: '0.84368',
+      average_gross_exposure: '0.278',
+      average_net_exposure: '0.278',
+      trade_count: 1,
+      winning_trade_count: 1,
+      losing_trade_count: 0,
+      breakeven_trade_count: 0,
+      hit_rate: '1',
+      profit_factor: null,
+      total_execution_costs: '1.12',
+      capacity_proxy: null,
+      realized_pnl: '34.04',
+      unrealized_pnl: '0',
+      dividend_income: '10.00',
+    },
+    equity_curve: [
+      {
+        sequence: 0,
+        as_of: start.toISOString(),
+        cash: '1000.00',
+        market_value: '0',
+        equity: '1000.00',
+        gross_exposure: '0',
+        net_exposure: '0',
+        cumulative_external_cash_flow: '0',
+        period_return: '0',
+        cumulative_return: '0',
+        drawdown: '0',
+      },
+      {
+        sequence: 1,
+        as_of: middle.toISOString(),
+        cash: '605.18',
+        market_value: '416.00',
+        equity: '1021.18',
+        gross_exposure: '416.00',
+        net_exposure: '416.00',
+        cumulative_external_cash_flow: '0',
+        period_return: '0.02118',
+        cumulative_return: '0.02118',
+        drawdown: '0',
+      },
+      {
+        sequence: 2,
+        as_of: now.toISOString(),
+        cash: '1044.04',
+        market_value: '0',
+        equity: '1044.04',
+        gross_exposure: '0',
+        net_exposure: '0',
+        cumulative_external_cash_flow: '0',
+        period_return: '0.02239',
+        cumulative_return: '0.04404',
+        drawdown: '0',
+      },
+    ],
+    trades: [
+      {
+        sequence: 0,
+        trade_id: 'golden-trade-001',
+        instrument_id: 'US-ETF-SPY',
+        symbol: 'SPY',
+        opened_at: start.toISOString(),
+        closed_at: now.toISOString(),
+        quantity: '4',
+        cost_basis: '404.28',
+        proceeds: '439.44',
+        gross_pnl: '35.16',
+        execution_costs: '1.12',
+        net_pnl: '34.04',
+        opening_execution_sha256: digest('1'),
+        closing_execution_sha256: digest('2'),
+      },
+    ],
+    positions: [
+      {
+        sequence: 0,
+        as_of: middle.toISOString(),
+        instrument_id: 'US-ETF-SPY',
+        symbol: 'SPY',
+        quantity: '8',
+        cost_basis: '404.82',
+        mark_price: '52.00',
+        market_value: '416.00',
+        realized_pnl: '0',
+        unrealized_pnl: '11.18',
+        execution_costs: '0.54',
+        dividend_income: '10.00',
+        source_projection_sha256: digest('3'),
+      },
+    ],
+    ledger_trace: [
+      {
+        sequence: 0,
+        entry_id: 'ledger-buy-001',
+        entry_kind: 'fill',
+        source_fact_id: 'fill-buy-001',
+        effective_at: start.toISOString(),
+        recorded_at: start.toISOString(),
+        entry_sha256: digest('4'),
+      },
+    ],
+    provenance: {
+      execution_ledger_sha256: digest('5'),
+      corporate_action_ledger_sha256: digest('6'),
+      settlement_ledger_sha256: digest('7'),
+      account_projection_sha256: digest('8'),
+      accounting_evidence_sha256: digest('9'),
+    },
+  }
+}

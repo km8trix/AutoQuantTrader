@@ -134,10 +134,10 @@ function Sidebar() {
       </Box>
       <Box sx={{ borderTop: 1, borderColor: 'divider', px: 2.25, py: 1.75 }}>
         <Typography color="text.secondary" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase' }}>
-          Phase 0 · Walking thread
+          Phase 2 · Research
         </Typography>
         <Typography color="text.secondary" sx={{ fontSize: 11, mt: 0.4 }}>
-          Browser foundation
+          Durable fixture backtests
         </Typography>
       </Box>
     </Box>

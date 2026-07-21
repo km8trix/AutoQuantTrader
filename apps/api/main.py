@@ -6,14 +6,22 @@ import logging
 from datetime import UTC, datetime
 
 import uvicorn
-from fastapi import APIRouter, FastAPI, HTTPException, Response, status
+from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-from apps.api.config import Environment, Settings
+from apps.api.backtest_views import (
+    CSRF_HEADER,
+    IDEMPOTENCY_HEADER,
+    LOCAL_SESSION_COOKIE,
+    LocalOperatorSecurity,
+    create_backtest_router,
+)
+from apps.api.config import Environment, LocalCredentials, Settings
 from apps.api.contracts import (
     AlertCounts,
+    BacktestLaunchCapability,
     DashboardSummary,
     DataCatalogResponse,
     DataQualityResponse,
@@ -42,9 +50,11 @@ from apps.api.data_views import (
     catalog_response,
     quality_response,
 )
+from packages.application.backtest_worker import ensure_golden_research_catalog
 from packages.domain.risk import RiskAuthorizationError
 from packages.domain.walking_thread import WalkingThread, WalkingThreadResult
 from packages.observability.logging import configure_logging
+from packages.persistence.backtest_workflow import BacktestWorkflowError, SqlBacktestWorkflow
 from packages.persistence.database import (
     DatabaseSchemaNotReady,
     create_database_engine,
@@ -93,9 +103,21 @@ def _bootstrap(
     *,
     persistence_status: PersistenceMode,
     readiness_as_of: datetime,
+    operator_id: str,
+    backtest_launch: BacktestLaunchCapability,
 ) -> UiBootstrap:
+    capabilities = [
+        "research",
+        "risk-gated-simulation",
+        "point-in-time-data-catalog",
+        "market-data-admission",
+    ]
+    if persistence_status is PersistenceMode.DURABLE:
+        capabilities.append("fixture-backtest-query")
+    if backtest_launch.enabled:
+        capabilities.append("fixture-backtest-launch")
     return UiBootstrap(
-        user=UserIdentity(id="local-operator", display_name="Local operator"),
+        user=UserIdentity(id=operator_id, display_name="Local operator"),
         environment=EnvironmentIdentity(
             name="Local simulation",
             mode=EnvironmentMode.LOCAL,
@@ -115,20 +137,18 @@ def _bootstrap(
             reasons=_readiness_reason(persistence_status),
             as_of=readiness_as_of,
         ),
-        capabilities=[
-            "research",
-            "risk-gated-simulation",
-            "point-in-time-data-catalog",
-            "market-data-admission",
-        ],
+        capabilities=capabilities,
         feature_flags={
             "walking_thread": True,
             "data_catalog": True,
             "data_admission": True,
+            "backtest_query": persistence_status is PersistenceMode.DURABLE,
+            "backtest_launch": backtest_launch.enabled,
             "controls": False,
             "event_stream": False,
         },
         stream_cursor=None,
+        backtest_launch=backtest_launch,
     )
 
 
@@ -209,12 +229,16 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             "the Phase 0 fixed-tape application is local-only; paper/live startup requires "
             "real market-data, broker, and reconciliation adapters"
         )
+    local_credentials = resolved_settings.credentials
+    if not isinstance(local_credentials, LocalCredentials):
+        raise RuntimeError("the local API requires exact local operator credentials")
     configure_logging(resolved_settings.log_level)
     expected_result = WalkingThread.run()
     persistence_engine = engine
     persistence_status = PersistenceMode.UNAVAILABLE
     persistence_error: str | None = None
     result: WalkingThreadResult | None = None
+    backtest_workflow: SqlBacktestWorkflow | None = None
     try:
         if persistence_engine is None:
             persistence_engine = create_database_engine(resolved_settings.database_url)
@@ -237,11 +261,14 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             )
         unit_of_work.persist(result)
         if persistence_mode(persistence_engine) == "durable":
+            backtest_workflow = SqlBacktestWorkflow(persistence_engine)
+            ensure_golden_research_catalog(backtest_workflow)
             verify_operational_schema(persistence_engine)
         persistence_status = PersistenceMode(persistence_mode(persistence_engine))
     except (
         SQLAlchemyError,
         DatabaseSchemaNotReady,
+        BacktestWorkflowError,
         ImmutableFactConflict,
         RiskAuthorizationError,
     ):
@@ -260,14 +287,23 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     app.state.persistence_ready = persistence_status is PersistenceMode.DURABLE
     app.state.persistence_status = persistence_status
     app.state.persistence_error = persistence_error
+    local_security = LocalOperatorSecurity(
+        enabled=resolved_settings.local_auth_enabled,
+        transport_is_loopback_scoped=(
+            resolved_settings.local_auth_transport_is_loopback_scoped
+        ),
+        operator_id=local_credentials.operator_id,
+        configured_secret=resolved_settings.session_secret,
+    )
+    app.state.backtest_workflow = backtest_workflow
 
     if resolved_settings.cors_origins:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=list(resolved_settings.cors_origins),
             allow_credentials=True,
-            allow_methods=["GET"],
-            allow_headers=["Accept", "Content-Type"],
+            allow_methods=["GET", "POST"],
+            allow_headers=["Accept", "Content-Type", CSRF_HEADER, IDEMPOTENCY_HEADER],
         )
 
     @app.get("/health/live", response_model=HealthResponse, tags=["health"])
@@ -295,12 +331,22 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     router = APIRouter(prefix="/api/v1")
 
     @router.get("/ui/bootstrap", response_model=UiBootstrap, tags=["ui"])
-    def ui_bootstrap() -> UiBootstrap:
+    def ui_bootstrap(request: Request, response: Response) -> UiBootstrap:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
         current_status, probed_at = _probe_persistence(persistence_engine, persistence_status)
+        launch_capability = local_security.bootstrap_capability(
+            response,
+            persistence_ready=current_status is PersistenceMode.DURABLE,
+            issued_at=probed_at,
+            session_cookie=request.cookies.get(LOCAL_SESSION_COOKIE),
+        )
         return _bootstrap(
             result,
             persistence_status=current_status,
             readiness_as_of=probed_at,
+            operator_id=local_credentials.operator_id,
+            backtest_launch=launch_capability,
         )
 
     @router.get("/dashboard/summary", response_model=DashboardSummary, tags=["ui"])
@@ -353,6 +399,16 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                 detail="market-data quality catalog is unavailable or malformed",
             ) from error
 
+    router.include_router(
+        create_backtest_router(
+            workflow=backtest_workflow,
+            security=local_security,
+            persistence_ready=lambda: (
+                _probe_persistence(persistence_engine, persistence_status)[0]
+                is PersistenceMode.DURABLE
+            ),
+        )
+    )
     app.include_router(router)
     return app
 

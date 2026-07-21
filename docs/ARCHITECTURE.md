@@ -30,6 +30,14 @@ AutoQuantTrader will let a single operator:
 - Deployment: Docker Compose locally; one small cloud environment when paper
   trading begins.
 
+The repository currently completes Phases 0 and 2 against deterministic local
+fixtures and implements the Phase 1 ingestion/admission contracts without a
+licensed admitted vendor. Phase 2 includes the canonical reducers, durable
+fenced batch/submission/reservation lifecycle, and fixture-only research
+job/report/API/UI/worker path. It does not implement the target paper/live
+topology below: the trader remains `not_ready`, Phase 4 is gated, and no real
+broker or production market-data adapter is enabled.
+
 ### Non-goals for v1
 
 - High-frequency or latency-arbitrage trading.
@@ -156,6 +164,11 @@ All processes live in one repository and import the same domain packages.
 - Scheduled maintenance, retention, and integrity jobs.
 - Uses separate database roles/pools and bounded CPU/memory concurrency so
   research cannot starve the live account coordinator.
+
+The current local worker ingests the deterministic Phase 1 fixture, installs
+the immutable Phase 2 golden research catalog, and polls durable fixture jobs.
+It executes only the repository-owned golden runner under a bounded job claim;
+arbitrary strategies, licensed datasets, and paper/live work are not accepted.
 
 ### Trading process
 
@@ -298,8 +311,9 @@ declares whether it is a full snapshot or delta, binds a typed market-batch or
 clock-event decision trigger, stores targets as an immutable, sorted, unique
 tuple, and carries the strategy/version, target ID, `as_of`, expiry, and
 rebalance generation. The current intent converter still requires an exact
-complete market batch because Phase 2A does not yet supply clock callbacks with
-causal price and valuation state.
+causal `PortfolioSnapshot`, but it accepts either the exact complete market-batch
+trigger or a clock-event trigger whose snapshot supplies independently causal
+price and valuation evidence.
 
 Strategies emit **targets** (desired quantity or portfolio weight), not broker
 orders. The portfolio layer converts the single active strategy's targets into
@@ -362,11 +376,17 @@ Do not compress the lifecycle into one enum. It contains related state machines:
 
 ```text
 intent:      CREATED -> APPROVED/RESIZED/REJECTED -> CONSUMED/EXPIRED
-submission:  PENDING -> IN_FLIGHT -> CONFIRMED/UNKNOWN -> RESOLVED
+submission:  PENDING -> ABANDONED
+             PENDING -> IN_FLIGHT -> CONFIRMED/UNKNOWN -> RESOLVED
 broker:      PENDING_NEW -> WORKING -> PARTIALLY_FILLED -> FILLED
                               |  +-> PENDING_CANCEL -> CANCELED/CANCEL_REJECTED
                               +----> REJECTED/EXPIRED
 ```
+
+`RESOLVED` is the Phase 4 reconciliation transition in this vocabulary; the
+current durable readiness boundary rejects every persisted `RESOLVED` attempt.
+Its local deterministic path supports `ABANDONED`, `CONFIRMED`, and frozen
+`UNKNOWN` heads only.
 
 Replace/amend orders are out of scope for v1. Cumulative fills and cash/security
 ledger entries are tracked independently from broker status, so a late fill,
@@ -398,6 +418,14 @@ The broker submission protocol is deliberately effect-idempotent:
 5. reconcile stream events and paginated REST snapshots through an inbox keyed
    by provider event/execution ID;
 6. never create a replacement submission while `UNKNOWN` remains unresolved.
+
+The current Phase 2 SQL boundary implements durable preparation, transaction-
+time fence checks before preparation and `IN_FLIGHT`, a dispatch event carrying
+the fresh current-lease receipt, proven-unsent stale-`PENDING` recovery to
+`ABANDONED`, append-only outcome evidence, UNKNOWN recovery/freezing, and the
+replacement prohibition for deterministic simulation. A real broker inbox,
+bounded provider lookup, external reconciliation service, automatic or manual
+takeover barrier, and operator re-arm remain Phase 4 work.
 
 A transient “not found” is not enough to resubmit: the adapter applies a bounded
 lookup/reconciliation policy because broker read paths can lag write paths. A
@@ -462,11 +490,31 @@ Key tables and invariants:
 | `audit_log` | Append-only user/system commands and configuration changes |
 | `outbox` | Durable internal publications; broker submission uses the stricter attempt protocol above |
 
+The implemented Phase 2 schema uses independent `phase2_*` tables. Immutable
+lease revisions/releases plus a lockable account head back the coordinator;
+batch decisions/members/reservations/authorizations back all-or-none risk;
+logical orders, authorization consumptions, submission attempts/events, order
+events, reservation-release events, exact canonical-ledger facts, and typed
+simulation-horizon facts back the durable execution lifecycle. Batch decisions
+also retain the canonical authenticated active-capacity universe on which their
+outcome depended. Strategy versions/configurations/fixtures, jobs, append-only
+job events plus a compare-and-swap head, launch audits, reports, and run
+manifests back the fixture research workflow. Startup readiness authenticates
+canonical payload hashes, event-chain continuity, relational bindings, heads, exact
+remaining-capacity conservation, canonical accounting economics, reconstructed
+simulation horizons, and report/manifest references. See
+[ADR 0032](adr/0032-durable-fenced-batch-execution-lifecycle.md) and
+[ADR 0033](adr/0033-durable-fixture-research-workflow.md).
+
 Use `Decimal`/database `NUMERIC` for broker/accounting money, price, and quantity,
 but `float64` arrays for numerical research with explicit conversion boundaries
 and tolerance tests. Store wall timestamps in UTC and use a monotonic clock for
 deadlines. Soft-delete configuration records; never mutate event or ledger
 history. Ledger reconstruction must conserve cash and security quantities.
+The shared Phase 2 ledger persistence boundary is narrower than the database
+type alone: every posting value must round-trip exactly through SQLite's
+ten-place `NUMERIC` transport before either SQLite fixtures or PostgreSQL may
+accept it.
 
 ## 10. Market-data pipeline
 
@@ -873,9 +921,9 @@ stable across caller ordering and may be empty when no rebalance is needed.
 Every intent retains the batch, complete target digest, strategy configuration,
 decision trigger, and causal price reference, all of which enter the mandatory
 risk payload hash. This permits honest clock-target conversion without
-relabeling a clock as a market batch. It does not yet persist intent batches or
-provide atomic batch risk, expanded ledger, order/execution lifecycle, or broker
-authority. See
+relabeling a clock as a market batch. This reducer is pure and does not itself
+persist intent batches or grant risk/broker authority; the later Phase 2B
+contracts compose that evidence. See
 [ADR 0023](adr/0023-causal-portfolio-snapshots-and-intent-batches.md).
 
 The canonical order lifecycle is a separate pure reducer. Submission evidence
@@ -900,8 +948,9 @@ delta from its predecessor, so a bust reverses the original economics without
 deleting history. Cash, unit, fee, and trade-value balances are rebuilt from the
 entry stream, and conflicting fact identities halt. Execution notional uses an
 explicit clearing account rather than pretending to be securities cost basis or
-realized P&L. Lots, account policy, marks, settlement, dividends, splits, and
-realized/unrealized P&L remain gated on an explicit follow-on contract. See
+realized P&L. Explicit follow-on contracts supply lots, account policy, marks,
+settlement, dividends, splits, and realized/unrealized P&L without changing this
+ledger reducer. See
 [ADR 0025](adr/0025-append-only-execution-ledger-reducer.md).
 
 The initial account policy is a long-only cash account with FIFO trade-date
@@ -917,8 +966,8 @@ halt. The projector derives the ledger, heads, lots, positions, balances, P&L,
 exposure, cash, and equity from source facts. Revalidation checks canonical
 nested evidence and independently re-derives aggregate account totals,
 preventing a caller-injected aggregate or `dataclasses.replace` forgery.
-Settlement, transfers, corporate actions, margin, shorts, and currency
-translation remain unsupported.
+Settlement and corporate actions compose as separate overlays below. Transfers,
+margin, shorts, and currency translation remain unsupported.
 See [ADR 0026](adr/0026-fifo-cash-account-and-causal-valuation.md).
 
 Execution settlement is a separate account-bound append-only overlay on the
@@ -1045,12 +1094,109 @@ opened with the same exact account evidence share that state; conflicting
 initial evidence or a second authority fails closed instead of creating an
 independent capacity universe. All repositories for the exact authority
 serialize on the shared store lock, and a snapshot transition cannot race an
-authorization or consumption. This proves deterministic simulation and
-in-process concurrency conservation only. Durable SQL batch decisions and
-reservations, atomic order/submission-attempt persistence, lifecycle-driven
-release, coordinator leases/fencing, ambiguous-submission recovery, and reconciliation
-remain required before paper execution. See
+authorization or consumption. This process-local contract proves deterministic
+simulation and in-process concurrency conservation. ADR 0032 extends it with
+SQL batch decisions and reservations, atomic order/submission-attempt
+persistence, lifecycle-driven release, durable coordinator leases/fencing, and
+stale in-flight preservation as `UNKNOWN`. Real broker reconciliation remains
+required before paper execution. See
 [ADR 0030](adr/0030-process-local-atomic-intent-batch-risk-reservations.md).
+
+### Current Phase 2B process-local coordinator contract
+
+One strong process-local registry now maps an account identity to a single
+authority-owned coordinator state and retains its monotonically increasing
+fencing generation. The authority owns a versioned lease policy and trusted
+clock. Active same-owner acquisition retries are idempotent; competing owners
+fail. Renewal preserves the generation while replacing the exact lease digest,
+and the stable owner fence remains valid while validation receipts bind the
+current immutable lease revision and expiry.
+
+Every protected operation revalidates the exact account, owner, lease,
+generation, current lease digest, and unexpired trusted time while holding the
+account transition lock. The fenced broker wrapper keeps that lock across the
+delegate submission, rejects reentrant lease transitions, and returns the
+delegate result with exact fence-validation and request evidence rather than
+separating the check from the side effect.
+Clean release is explicit and cannot race a protected operation; the next
+deliberate acquisition increments the generation. Abandoned expiry never
+authorizes automatic takeover. ADR 0032 extends this stable-fence contract with
+durable lease rows and transaction-time SQL revalidation. Manual stop,
+reconciliation, and operator re-arm evidence remain gated. See
+[ADR 0031](adr/0031-process-local-account-coordinator-leases-and-fences.md).
+
+### Current Phase 2B durable execution contract
+
+The durable coordinator stores immutable lease revisions and clean releases
+behind one lockable account head. Acquisition and clean handoff advance a
+monotone fencing generation; renewal replaces the current lease digest while
+preserving the stable owner fence. Risk authorization, submission preparation,
+dispatch transition, and reservation mutation lock and revalidate that fence in
+their SQL transaction. Expired ownership blocks effects and does not become an
+automatic takeover signal.
+
+One batch-risk transaction publishes the exact decision, ordered members,
+parent reservation, and all child authorizations, or none. Its identity binds a
+canonical authenticated active-capacity universe reconstructed under the SQL
+lock. Each account also advances a gap-free observation sequence for every
+approved, rejected, or no-action decision, so readiness can prove the complete
+historical universe even when wall timestamps are equal. A partially released
+child contributes its exact remaining cash, exposure, and sell-share holds; a
+frozen child retains its exact remainder; a fully released child is omitted.
+Thus equal aggregate totals with different
+reservation provenance cannot authenticate the same decision. Exact retry
+returns the existing result before evaluating the now-changed capacity
+projection; changed immutable batch, snapshot, policy, account, or fence
+evidence conflicts.
+
+Before any possible broker call, submission preparation atomically persists the
+deterministic logical order and client ID, one-shot authorization consumption,
+bounded adapter request, preparation fence receipt, attempt, and initial
+`PENDING` event. `IN_FLIGHT` requires a fresh transaction-time dispatch receipt
+for the prepared stable account/owner/generation fence, current immutable lease
+revision and policy, validation time, and expiry. Renewal under that stable
+fence can dispatch with a new receipt; a new fencing generation cannot dispatch
+old preparation. Recovery may close only a stale `PENDING` head, which has no
+dispatch receipt and never crossed the broker-call boundary, as proven-unsent
+`ABANDONED`; that terminal proof permits an exact safe retry. Confirmed or
+ambiguous outcomes are appended even if the lease later expires because expiry
+cannot erase an already possible effect; stale in-flight recovery records
+`UNKNOWN`.
+
+Any unresolved `UNKNOWN` attempt freezes every child in the parent reservation,
+blocking sibling dispatch, retry, and release. Although the domain reserves a
+reconciliation vocabulary, the durable repository rejects UNKNOWN resolution,
+every persisted `RESOLVED` attempt, and every generic
+`RECONCILED_TERMINAL` release. Runtime retry therefore remains blocked until a
+real authenticated broker-reconciliation producer exists in Phase 4.
+
+Proven-unsent expiry, exact broker rejection, and execution already represented
+by durable accounting are monotone release paths. Execution accounting does not
+trust a caller-supplied balanced digest: it reconstructs the canonical ledger
+entry from the exact persisted order state and event, then requires quantity,
+price, fee, cash, security units, postings, source, account, and time to agree.
+A downward or stale correction freezes the remaining reservation rather than
+reclaiming capacity.
+
+The fourth local path, `SIMULATION_HORIZON_FINAL`, is intentionally narrower
+than external reconciliation. Its SQL fact retains the complete canonical
+replay input events and watermarks, exact simulator session/model/submission
+inputs and derived result identity, and foreign-key bindings to the sealed replay manifest,
+reservation, child authorization, confirmed attempt, order, and final event.
+Writes, reads, and readiness rerun the market replay, reproduce the manifest,
+rerun `ConservativeSimulatedBroker`, and reconstruct the typed horizon fact;
+all durable and recomputed evidence must be exactly equal. Before residual
+capacity is released, every final execution projection must have complete
+`EXECUTION_ACCOUNTED` coverage bound to the exact final event ID, revision,
+head quantity, and canonical ledger entry. A sealed zero-fill working result
+needs no execution accounting. Unaccounted fills, correction-frozen heads,
+arbitrary hashes, and generic terminal assertions remain blocked.
+
+These paths are implemented for SQLite and PostgreSQL deterministic fixtures.
+They do not provide real reconciliation, broker-enforced fencing, automated
+takeover, operator re-arm, or paper/live authority; those remain Phase 4 work.
+See
+[ADR 0032](adr/0032-durable-fenced-batch-execution-lifecycle.md).
 
 ## 11. Backtesting model
 
@@ -1058,6 +1204,51 @@ The target canonical event-driven backtester uses a simulated clock and the same
 strategy, accounting, portfolio, order reducer, and risk components as trading.
 The implemented close-only broker above is its first `BrokerPort`; a future live
 adapter must reuse the canonical order model rather than create a second one.
+
+### Current Phase 2C fixture research workflow
+
+The implemented research catalog is immutable and content-bound. Each strategy
+version retains its implementation and parameter-schema digests; each validated
+configuration binds that exact version; and each fixture pins its dataset and
+source tape, sealed replay, strategy/configuration, benchmark, cost model, fill
+model, and metric conventions. The current catalog has exactly one executable
+family: the repository-owned synthetic golden buy/split/dividend/sell fixture.
+Launch validation rejects substitutions and does not accept arbitrary code,
+parameters, uploads, symbols, datasets, or date ranges.
+
+A launch identity is derived from the local operator and bounded idempotency
+key. Exact retry returns the existing audited job while changed inputs conflict.
+Queued, running, completed, failed, and canceled state is an append-only digest
+chain; a compare-and-swap head exists only for locking and query efficiency.
+Worker claims are bounded. Only the current unexpired worker may complete an
+attempt, and recovery after expiry increments the attempt number so stale
+workers cannot publish a terminal result.
+
+The local worker idempotently installs the catalog, polls for one claim at a
+time, and runs the deterministic golden path. Success atomically binds the job
+to an immutable report and run manifest whose dataset, replay, strategy,
+benchmark, model, metric, accounting, and artifact references reproduce the job
+input. The report stores separately authenticated semantic, artifact, and
+browser-query payloads. The query projection exposes declared conventions,
+metrics, equity, trades, positions, ledger trace, and provenance; malformed or
+digest-conflicting storage fails closed. A bounded failure classification is
+persisted without raw exception text.
+
+Durable query routes expose the catalog, jobs, and completed reports. Launch is
+available only in the local environment when durable readiness and a validated
+loopback transport boundary are enabled. Bootstrap issues an eight-hour,
+process-bound, signed `HttpOnly`, `SameSite=Strict` capability cookie and CSRF
+token; the mutation also requires a bounded `Idempotency-Key`. Local-auth CORS
+origins must be literal loopback HTTP origins. The API must either bind directly
+to loopback or use the explicit trusted-loopback-proxy mode exercised by the
+checked-in Compose model, whose only host publication is `127.0.0.1`. The React
+Strategies and Backtests pages select only catalog-provided pins, poll active
+jobs, display append-only history, and render the verified report. This local
+capability is neither identity authentication nor the production OIDC control
+plane, and the workflow confers no deployment, promotion, paper, or live
+authority. See
+[ADR 0033](adr/0033-durable-fixture-research-workflow.md).
+
 The broader backtesting roadmap expands the current narrow contract, when the
 required source evidence and explicit policies exist, to model:
 
@@ -1204,6 +1395,16 @@ GET       /health/ready, /health/live
 GET       /events/stream
 ```
 
+The current local Phase 2C slice implements
+`GET /api/v1/research/strategies`, `GET /api/v1/research/backtests`,
+`GET /api/v1/research/backtests/{job_id}`,
+`GET /api/v1/research/backtests/{job_id}/report`, and authenticated
+`POST /api/v1/research/backtests`. All routes require durable research
+persistence; the launch additionally requires the signed local session cookie,
+CSRF header, exact catalog pins, and idempotency header. It returns `202` with a
+durable job location. Query routes authenticate stored payloads and return
+unavailable rather than serving corrupt evidence.
+
 All mutation requests accept an idempotency key. Control commands return a
 durable command ID; asynchronous state changes are observed through the event
 stream and audit log.
@@ -1229,6 +1430,14 @@ caches, and offline trading are out of scope.
 Navigation groups are Overview; Data; Research; Trading; Risk; Operations; and
 Settings. Strategy code remains version-controlled in the repository; the UI
 selects immutable strategy versions and edits schema-validated parameters.
+
+The current Research group implements Strategies and Backtests for the local
+golden fixture. It displays exact strategy/configuration/data/replay/model pins,
+launches only server-cataloged inputs, polls queued and running jobs, retains the
+selected job history, and renders verified metrics, equity, trades, positions,
+ledger entries, and provenance. Launch controls stay disabled when local auth or
+durable readiness is unavailable. Trading, deployment, paper, and live controls
+remain unavailable.
 
 TanStack Query owns remote state and React owns temporary presentation state.
 SSE carries event IDs and resource versions that invalidate queries rather than
@@ -1301,6 +1510,34 @@ docs/
   clock drift.
 - **Shadow/canary:** compute signals without orders, then minimum-size paper and
   live deployments with automatic rollback/halt criteria.
+
+### Current Phase 2 exit evidence
+
+- The deterministic golden run reproduces the hand-calculated raw-price
+  buy/split/dividend/sell path and ends at USD 1,044.04 equity with USD 1,034.04
+  settled and available trade cash. An exact repeat preserves decisions,
+  orders, ledger, report, and run identity.
+- Causality tests require fills strictly after activation and prove that shifting
+  a later correction cannot change earlier targets, orders, or final economics.
+- Reducer and SQL suites cover balanced postings, cash/share/reservation
+  conservation, late fills, correction chains, parallel batch capacity,
+  exact partial/frozen/released-child capacity provenance, coordinator exclusion
+  and renewal, atomic preparation rollback, proven-unsent stale-`PENDING`
+  abandonment with exact dispatch receipts, UNKNOWN recovery/freezing, exact
+  canonical-ledger release accounting, and deterministic reconstruction of the
+  typed local simulation horizon. Readiness rejects every persisted `RESOLVED`
+  attempt, generic reconciled-terminal facts, unaccounted final executions, and
+  corrupted evidence.
+- Research workflow tests cover exact catalog registration, audited idempotent
+  launch, conflicting-key rejection, parallel claim exclusion, expired-claim
+  recovery, active-worker-only completion, immutable report/manifest binding,
+  and payload corruption failure. API and React tests cover local session/CSRF
+  launch plus catalog, progress/history, and report views.
+
+This evidence closes Phase 2 only for deterministic local fixtures. External
+vendor qualification, real broker contracts and reconciliation, automated
+takeover, operator re-arm, paper execution, and the Phase 4 fault/activation
+gates remain open.
 
 ## 18. Architecture decisions to record
 

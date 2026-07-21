@@ -7,8 +7,15 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, PlainSerializer, WithJsonSchema
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, WithJsonSchema, field_validator
 
+from packages.domain.backtest_job import BacktestJobStatus
+from packages.domain.backtest_report import (
+    BacktestReturnFrequency,
+    BacktestReturnType,
+    ExternalCashFlowTreatment,
+    UncertaintyMethod,
+)
 from packages.domain.canonical import canonical_decimal
 from packages.domain.decimal_math import exact_decimal_sum
 from packages.domain.models import (
@@ -105,6 +112,10 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
+class ApiErrorResponse(ApiModel):
+    detail: str
+
+
 class UserIdentity(ApiModel):
     id: str
     display_name: str
@@ -128,6 +139,15 @@ class Readiness(ApiModel):
     as_of: datetime
 
 
+class BacktestLaunchCapability(ApiModel):
+    enabled: bool
+    operator_id: str | None
+    csrf_token: str | None
+    csrf_header: str
+    idempotency_header: str
+    disabled_reason: str | None
+
+
 class UiBootstrap(ApiModel):
     user: UserIdentity
     environment: EnvironmentIdentity
@@ -136,6 +156,7 @@ class UiBootstrap(ApiModel):
     capabilities: list[str]
     feature_flags: dict[str, bool]
     stream_cursor: str | None
+    backtest_launch: BacktestLaunchCapability | None
 
 
 class AccountSummary(ApiModel):
@@ -492,6 +513,217 @@ class DataQualityResponse(ApiModel):
     as_of: datetime
     issues: list[DataQualityIssueView]
     quarantine: list[QuarantineView]
+
+
+type Sha256Text = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class StrategyCatalogView(ApiModel):
+    strategy_version_id: Sha256Text
+    strategy_id: str
+    strategy_version: str
+    display_name: str
+    configuration_sha256: Sha256Text
+    configuration_name: str
+    parameter_schema_payload: str
+    parameters_payload: str
+    fixture_id: str
+    fixture_version: str
+    dataset_manifest_sha256: Sha256Text
+    replay_run_id: Sha256Text
+    benchmark_sha256: Sha256Text
+    cost_model_sha256: Sha256Text
+    fill_model_sha256: Sha256Text
+    metric_conventions_sha256: Sha256Text
+
+
+class StrategyCatalogResponse(ApiModel):
+    as_of: datetime
+    strategies: list[StrategyCatalogView]
+
+
+class BacktestJobEventView(ApiModel):
+    sequence: int
+    status: BacktestJobStatus
+    occurred_at: datetime
+    actor_id: str
+    attempt_number: int
+    terminal_reason_code: str | None
+
+
+class BacktestJobView(ApiModel):
+    job_id: Sha256Text
+    input_sha256: Sha256Text
+    fixture_id: str
+    fixture_version: str
+    strategy_id: str
+    strategy_version: str
+    strategy_configuration_sha256: Sha256Text
+    requested_by: str
+    requested_at: datetime
+    status: BacktestJobStatus
+    attempt_number: int
+    worker_id: str | None
+    claim_expires_at: datetime | None
+    updated_at: datetime
+    run_manifest_sha256: Sha256Text | None
+    report_sha256: Sha256Text | None
+    report_artifact_sha256: Sha256Text | None
+    terminal_reason_code: str | None
+    history: list[BacktestJobEventView]
+
+
+class BacktestJobListResponse(ApiModel):
+    as_of: datetime
+    jobs: list[BacktestJobView]
+
+
+class BacktestLaunchRequest(BaseModel):
+    """Strict, bounded transport form of the immutable fixture job input."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    fixture_id: str = Field(min_length=1, max_length=128)
+    fixture_version: str = Field(min_length=1, max_length=128)
+    dataset_manifest_id: Sha256Text
+    dataset_manifest_sha256: Sha256Text
+    replay_run_id: Sha256Text
+    strategy_id: str = Field(min_length=1, max_length=128)
+    strategy_version: str = Field(min_length=1, max_length=128)
+    strategy_configuration_sha256: Sha256Text
+    benchmark_sha256: Sha256Text
+    cost_model_sha256: Sha256Text
+    fill_model_sha256: Sha256Text
+    metric_conventions_sha256: Sha256Text
+
+    @field_validator("fixture_id", "fixture_version", "strategy_id", "strategy_version")
+    @classmethod
+    def validate_bounded_identifier(cls, value: str) -> str:
+        if value != value.strip() or any(ord(character) < 32 for character in value):
+            raise ValueError("identifier must be trimmed text without control characters")
+        return value
+
+
+class BacktestMetricConventionsView(ApiModel):
+    convention_id: str
+    convention_version: str
+    currency: str
+    return_type: BacktestReturnType
+    return_frequency: BacktestReturnFrequency
+    annualization_periods: int
+    annual_risk_free_rate: ApiDecimal
+    risk_free_rate_version: str
+    external_cash_flow_treatment: ExternalCashFlowTreatment
+    uncertainty_method: UncertaintyMethod
+    absolute_tolerance: ApiDecimal
+    relative_tolerance: ApiDecimal
+
+
+class BacktestMetricsView(ApiModel):
+    starting_equity: ApiDecimal
+    ending_equity: ApiDecimal
+    total_return: ApiDecimal
+    annualized_return: ApiDecimal | None
+    annualized_volatility: ApiDecimal | None
+    sharpe_ratio: ApiDecimal | None
+    sortino_ratio: ApiDecimal | None
+    maximum_drawdown: ApiDecimal
+    turnover: ApiDecimal
+    average_gross_exposure: ApiDecimal
+    average_net_exposure: ApiDecimal
+    trade_count: int
+    winning_trade_count: int
+    losing_trade_count: int
+    breakeven_trade_count: int
+    hit_rate: ApiDecimal | None
+    profit_factor: ApiDecimal | None
+    total_execution_costs: ApiDecimal
+    capacity_proxy: ApiDecimal | None
+    realized_pnl: ApiDecimal
+    unrealized_pnl: ApiDecimal
+    dividend_income: ApiDecimal
+
+
+class BacktestEquityPointView(ApiModel):
+    sequence: int
+    as_of: datetime
+    cash: ApiDecimal
+    market_value: ApiDecimal
+    equity: ApiDecimal
+    gross_exposure: ApiDecimal
+    net_exposure: ApiDecimal
+    cumulative_external_cash_flow: ApiDecimal
+    period_return: ApiDecimal
+    cumulative_return: ApiDecimal
+    drawdown: ApiDecimal
+
+
+class BacktestTradeView(ApiModel):
+    sequence: int
+    trade_id: str
+    instrument_id: str
+    symbol: str
+    opened_at: datetime
+    closed_at: datetime
+    quantity: ApiDecimal
+    cost_basis: ApiDecimal
+    proceeds: ApiDecimal
+    gross_pnl: ApiDecimal
+    execution_costs: ApiDecimal
+    net_pnl: ApiDecimal
+    opening_execution_sha256: Sha256Text
+    closing_execution_sha256: Sha256Text
+
+
+class BacktestPositionView(ApiModel):
+    sequence: int
+    as_of: datetime
+    instrument_id: str
+    symbol: str
+    quantity: ApiDecimal
+    cost_basis: ApiDecimal
+    mark_price: ApiDecimal
+    market_value: ApiDecimal
+    realized_pnl: ApiDecimal
+    unrealized_pnl: ApiDecimal
+    execution_costs: ApiDecimal
+    dividend_income: ApiDecimal
+    source_projection_sha256: Sha256Text
+
+
+class BacktestLedgerTraceView(ApiModel):
+    sequence: int
+    entry_id: str
+    entry_kind: str
+    source_fact_id: str
+    effective_at: datetime
+    recorded_at: datetime
+    entry_sha256: Sha256Text
+
+
+class BacktestReportProvenanceView(ApiModel):
+    execution_ledger_sha256: Sha256Text
+    corporate_action_ledger_sha256: Sha256Text
+    settlement_ledger_sha256: Sha256Text
+    account_projection_sha256: Sha256Text
+    accounting_evidence_sha256: Sha256Text
+
+
+class BacktestReportView(ApiModel):
+    report_sha256: Sha256Text
+    report_artifact_sha256: Sha256Text
+    account_id: str
+    currency: str
+    period_start: datetime
+    period_end: datetime
+    generated_at: datetime
+    conventions: BacktestMetricConventionsView
+    metrics: BacktestMetricsView
+    equity_curve: list[BacktestEquityPointView]
+    trades: list[BacktestTradeView]
+    positions: list[BacktestPositionView]
+    ledger_trace: list[BacktestLedgerTraceView]
+    provenance: BacktestReportProvenanceView
 
 
 def posting_view(posting: Posting) -> PostingView:

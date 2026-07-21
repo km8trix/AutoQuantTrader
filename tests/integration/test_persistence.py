@@ -29,6 +29,7 @@ from packages.persistence.schema import (
     ledger_entries,
     ledger_postings,
     orders,
+    phase2_batch_members,
     risk_account_guards,
     risk_decisions,
     risk_reservations,
@@ -70,6 +71,29 @@ def test_startup_persists_every_fact_and_duplicate_startup_is_idempotent() -> No
         persisted_order_id = connection.scalar(sa.select(orders.c.order_id))
     assert attempt["state"] == "recorded"
     assert attempt["order_id"] == persisted_order_id
+
+
+def test_sqlite_engine_enforces_phase2_foreign_keys() -> None:
+    engine = create_database_engine("sqlite+pysqlite:///:memory:")
+    initialize_phase_zero_schema(engine)
+
+    with engine.connect() as connection:
+        assert connection.scalar(sa.text("PRAGMA foreign_keys")) == 1
+
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            sa.insert(phase2_batch_members).values(
+                membership_id="orphan-phase2-batch-member",
+                decision_id="missing-phase2-batch-decision",
+                intent_batch_id="orphan-intent-batch",
+                intent_batch_sha256="a" * 64,
+                ordinal=0,
+                intent_id="orphan-phase2-intent",
+                intent_payload_sha256="b" * 64,
+                canonical_payload="{}",
+                semantic_sha256="c" * 64,
+            )
+        )
 
 
 class CommitOrderSpy(RiskDecisionRepository):

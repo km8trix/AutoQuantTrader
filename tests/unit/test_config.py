@@ -1,11 +1,39 @@
 import pytest
 
+from apps.api.backtest_views import LocalOperatorSecurity
 from apps.api.config import (
     Environment,
     LiveCredentialRefs,
+    LocalCredentials,
     PaperCredentialRefs,
     Settings,
 )
+
+
+def test_local_operator_identity_is_bounded_and_cors_cannot_be_wildcarded() -> None:
+    with pytest.raises(ValueError, match="operator ID"):
+        LocalCredentials(operator_id=" untrimmed ")
+    with pytest.raises(ValueError, match="wildcard CORS"):
+        Settings(cors_origins=("*",))
+
+
+def test_local_capability_requires_a_loopback_transport_boundary() -> None:
+    with pytest.raises(ValueError, match="loopback API bind"):
+        Settings(api_host="192.0.2.10")
+    with pytest.raises(ValueError, match="loopback HTTP CORS"):
+        Settings(cors_origins=("https://research.example",))
+    with pytest.raises(ValueError, match="wildcard container bind"):
+        Settings(api_host="127.0.0.1", trusted_loopback_proxy=True)
+
+    proxied = Settings(api_host="0.0.0.0", trusted_loopback_proxy=True)
+    assert proxied.local_auth_transport_is_loopback_scoped is True
+    with pytest.raises(ValueError, match="loopback-scoped transport"):
+        LocalOperatorSecurity(
+            enabled=True,
+            transport_is_loopback_scoped=False,
+            operator_id="local-operator",
+            configured_secret="test-secret",
+        )
 
 
 def test_local_auth_is_rejected_outside_local() -> None:

@@ -1,20 +1,30 @@
-"""Phase 1B local historical-ingestion and admission worker entrypoint."""
+"""Local historical-ingestion and fixture-research worker entrypoint."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import time
 
 from apps.api.config import Environment, Settings
+from packages.application.backtest_worker import (
+    ensure_golden_research_catalog,
+    process_one_golden_backtest,
+)
 from packages.application.market_data_ingestion import ingest_recorded_fixture
 from packages.observability.logging import configure_logging
+from packages.persistence.backtest_workflow import BacktestJobSnapshot, SqlBacktestWorkflow
 from packages.persistence.database import create_database_engine, verify_operational_schema
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--once", action="store_true", help="ingest the configured fixture once")
-    parser.parse_args()
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="ingest the configured fixture and process at most one research job",
+    )
+    arguments = parser.parse_args()
     settings = Settings.from_env()
     if settings.environment is not Environment.LOCAL:
         print(
@@ -37,6 +47,37 @@ def main() -> None:
         data_lake_path=settings.data_lake_path,
         source_path=settings.market_data_fixture_path,
     )
+    workflow = SqlBacktestWorkflow(engine)
+    catalog_input = ensure_golden_research_catalog(workflow)
+
+    def process_backtest() -> BacktestJobSnapshot | None:
+        return process_one_golden_backtest(
+            workflow,
+            worker_id="local-fixture-worker-001",
+            catalog_input=catalog_input,
+        )
+
+    if arguments.once:
+        backtest = process_backtest()
+        print(
+            json.dumps(
+                {
+                    "job_id": outcome.job_id,
+                    "manifest_id": outcome.manifest_id,
+                    "mode": "synthetic_fixture",
+                    "admission_run_id": outcome.admission_run_id,
+                    "qualification": outcome.admission_status,
+                    "backtest_job_id": None if backtest is None else backtest.job_id,
+                    "backtest_status": ("idle" if backtest is None else backtest.status.value),
+                    "service": "worker",
+                    "status": "published" if outcome.first_publication else "idempotent",
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+        return
+
     print(
         json.dumps(
             {
@@ -45,6 +86,7 @@ def main() -> None:
                 "mode": "synthetic_fixture",
                 "admission_run_id": outcome.admission_run_id,
                 "qualification": outcome.admission_status,
+                "backtest_status": "watching",
                 "service": "worker",
                 "status": "published" if outcome.first_publication else "idempotent",
             },
@@ -52,6 +94,23 @@ def main() -> None:
         ),
         flush=True,
     )
+    while True:
+        backtest = process_backtest()
+        if backtest is None:
+            time.sleep(1)
+            continue
+        print(
+            json.dumps(
+                {
+                    "backtest_job_id": backtest.job_id,
+                    "backtest_status": backtest.status.value,
+                    "mode": "fixture_backtest",
+                    "service": "worker",
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

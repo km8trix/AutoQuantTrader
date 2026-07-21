@@ -19,7 +19,12 @@ from apps.api.config import (
 from apps.api.contracts import AccountSummary
 from apps.api.main import create_app
 from packages.persistence.database import create_database_engine
-from packages.persistence.schema import fills, ledger_entries, risk_reservations
+from packages.persistence.schema import (
+    fills,
+    ledger_entries,
+    ledger_postings,
+    risk_reservations,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -257,6 +262,8 @@ def test_missing_execution_chain_facts_downgrade_readiness_and_dashboard_health(
     engine = durable_engine(tmp_path)
     app = create_app(Settings(), engine=engine)
     with engine.begin() as connection:
+        if missing_table is ledger_entries:
+            connection.execute(sa.delete(ledger_postings))
         connection.execute(sa.delete(missing_table))
     client = TestClient(app)
 

@@ -13,6 +13,14 @@ const isoAfter = (now: Date, milliseconds: number): string =>
 
 export function makeBootstrapFixture(now = new Date()): UiBootstrap {
   return {
+    backtest_launch: {
+      enabled: true,
+      operator_id: 'local-operator',
+      csrf_token: 'development-fixture-csrf-token',
+      csrf_header: 'X-CSRF-Token',
+      idempotency_header: 'Idempotency-Key',
+      disabled_reason: null,
+    },
     user: {
       id: 'local-operator',
       display_name: 'Local operator',

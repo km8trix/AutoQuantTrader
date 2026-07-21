@@ -41,19 +41,27 @@ forbidden_domain_imports = [
 # acquire ambient time/randomness or filesystem, process, thread, or network
 # authority merely because those clients happen to live in the standard library.
 side_effect_free_roots = [
+  "packages/backtest/golden_runner.py",
   "packages/backtest/simulated_broker.py",
+  "packages/backtest/simulation_horizon.py",
+  "packages/domain/account_coordinator.py",
   "packages/domain/account_projection.py",
+  "packages/domain/backtest_job.py",
+  "packages/domain/backtest_report.py",
   "packages/domain/batch_risk.py",
   "packages/domain/corporate_action_ledger.py",
   "packages/domain/decision.py",
+  "packages/domain/experiment_registry.py",
   "packages/domain/ledger_reducer.py",
   "packages/domain/models.py",
   "packages/domain/order_reducer.py",
   "packages/domain/portfolio.py",
+  "packages/domain/reservation_lifecycle.py",
   "packages/domain/settlement_ledger.py",
   "packages/domain/strategy.py",
   "packages/domain/strategy_replay.py",
   "packages/domain/strategy_state.py",
+  "packages/domain/submission_attempt.py",
 ]
 forbidden_side_effect_imports = [
   "asyncio",
