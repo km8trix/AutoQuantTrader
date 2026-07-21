@@ -28,5 +28,10 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0023: causal portfolio snapshots and canonical intent batches](0023-causal-portfolio-snapshots-and-intent-batches.md)
 - [ADR 0024: canonical order and execution lifecycle reducer](0024-canonical-order-and-execution-lifecycle-reducer.md)
 - [ADR 0025: append-only execution ledger reducer](0025-append-only-execution-ledger-reducer.md)
+- [ADR 0026: FIFO cash account and causal valuation](0026-fifo-cash-account-and-causal-valuation.md)
+- [ADR 0027: source-bound execution settlement ledger](0027-source-bound-execution-settlement-ledger.md)
+- [ADR 0028: source-bound corporate-action accounting](0028-source-bound-corporate-action-accounting.md)
+- [ADR 0029: conservative source-bound simulated broker](0029-conservative-source-bound-simulated-broker.md)
+- [ADR 0030: process-local atomic intent-batch risk reservations](0030-process-local-atomic-intent-batch-risk-reservations.md)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

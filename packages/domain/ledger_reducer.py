@@ -45,6 +45,11 @@ class LedgerEntryKind(StrEnum):
     CASH_FLOW = "cash_flow"
     EXECUTION = "execution"
     EXECUTION_CORRECTION = "execution_correction"
+    SETTLEMENT_RECLASSIFICATION = "settlement_reclassification"
+    EXECUTION_SETTLEMENT = "execution_settlement"
+    STOCK_SPLIT = "stock_split"
+    CASH_DIVIDEND_ACCRUAL = "cash_dividend_accrual"
+    CASH_DIVIDEND_PAYMENT = "cash_dividend_payment"
 
 
 def _require_text(value: str, field_name: str) -> None:

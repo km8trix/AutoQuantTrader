@@ -148,6 +148,61 @@ never erase the original financial fact. The trade-value clearing account is
 not cost basis or realized P&L; lots, marks, settlement, corporate actions,
 durability, broker effects, and trading authority remain gated.
 
+ADR 0026 makes the first account economics explicit: long-only FIFO trade-date
+lots, immediate execution-fee expense, and causally recorded position marks.
+The pure, account-bound projector proof-constructs its state, rebuilds corrected
+lot history, reconciles units and fees to the append-only ledger, and re-derives
+cost basis, realized/unrealized P&L, exposure, cash, and equity from retained
+evidence. Settlement, corporate actions, margin, shorting, multi-currency
+translation, durability, broker effects, and trading authority remain gated.
+
+ADR 0027 adds explicit account-bound execution settlement without rewriting
+trade-date history. Its proof-constructed state re-derives all obligations,
+balances, and cash views. Exact execution-revision instructions reclassify cash
+into receivables/payables, and separate source-bound confirmations move only
+settled amounts back through cash. The projection distinguishes trade-date, settled,
+and conservative available cash; open payables reduce availability and
+unsettled sale proceeds never increase it. Corporate actions, durable
+settlement, broker effects, and trading authority remain gated.
+
+ADR 0028 adds source-bound stock-split and cash-dividend accounting. Stable
+source action identities distinguish an economic event from its exact revision
+and digest; explicit entitlements must reconcile to both causal ledger units and
+the FIFO lot book. Whole-share splits preserve each lot's total basis and require
+a strictly post-split mark. Dividends accrue receivable and income separately
+from a bound cash-payment fact. Corporate-action corrections, fractional shares,
+cash-in-lieu, broader security lifecycle effects, durability, broker effects,
+and trading authority remain gated.
+
+ADR 0029 adds the first provider-neutral `BrokerPort` implementation: a pure,
+conservative simulator for explicit regular-hours sessions, including shortened
+half-days, and whole-share DAY market orders. It consumes an exact current
+single-use risk approval, accepts deterministically, and considers only the first
+sealed market slice strictly after activation. That slice can fill only when
+complete and is never skipped for a later complete slice; otherwise the order
+remains working or fails closed according to its authorization path. Exact
+calendar/session, source event, model, adverse per-share price offsets, and fee evidence are bound
+into the result and canonical order transcript. The current close-only facts do
+not authorize limit, volume/participation, liquidity, partial-fill, or broker
+expiry behavior.
+
+ADR 0030 adds an independent process-local atomic risk boundary for complete
+intent batches. It revalidates the exact causal portfolio, account, settlement,
+session, operational-state, and policy evidence before approving every member
+or rejecting the batch as a unit. Conservative reservations do not fund buys
+with sale proceeds or credit pending sells against exposure: buffered buy cash,
+all fees, sell shares, aggregate notional, and pending buy exposure remain held.
+One parent decision creates exact-payload one-shot child authorizations consumed
+by the existing broker boundary; exact retries cannot reserve twice and identity
+conflicts fail closed. Capacity retains sealed account-bound projections and is
+re-attested from them at risk trust boundaries; a process-local account registry
+prevents duplicate providers from creating independent reservation authorities.
+After a capped child is consumed, an
+incomplete or invalid first source or a reserved-cap breach remains an auditable
+accepted-working result. Durable SQL batch transactions, reservation release,
+coordinator fencing, reconciliation, paper/live adapters, and trading authority
+remain gated.
+
 For a separately authorized future capture, start from the fail-closed
 [acquisition-profile](docs/admission/tiingo-eod-acquisition-profile.template.json),
 [capture-authorization](docs/admission/tiingo-eod-capture-authorization.template.json),

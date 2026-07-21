@@ -128,8 +128,27 @@ preserving complete strategy configuration, trigger, target, and price evidence.
 ADR 0024 adds the canonical submission/cancel/broker-event/execution-correction
 lifecycle reducer without adding effects or authority. ADR 0025 adds balanced
 append-only cash-flow and execution/correction postings with exact cash,
-security-unit, trade-value, and fee projections. Cost-basis/P&L and the remaining
-simulated broker, atomic batch risk, and fencing boundaries are next.
+security-unit, trade-value, and fee projections. ADR 0026 selects long-only FIFO
+trade-date lots, immediate fee expense, and explicit
+causal marks to project cost basis, realized/unrealized P&L, exposure, and equity.
+ADR 0027 adds source-bound execution settlement instructions and confirmations,
+explicit receivables/payables, and conservative settled/available cash.
+ADR 0028 adds stable source-bound split/dividend facts, dual entitlement
+reconciliation, whole-share FIFO basis preservation, post-split mark gating,
+and separate dividend accrual/payment postings. ADR 0029 adds a provider-neutral
+`BrokerPort` and a conservative source-bound simulator for explicit regular-
+hours sessions, including shortened half-days, and whole-share DAY market
+orders: it consumes an exact current single-use approval,
+accepts deterministically, and considers only the first sealed slice strictly
+after activation. That slice can full-fill only when complete and is never
+skipped for a later complete slice. Pricing uses explicit adverse price and fee
+inputs. ADR 0030 adds process-local atomic intent-batch decisions and conservative cash,
+share, notional, and exposure reservations against exact causal portfolio,
+account, settlement, session, policy, and control evidence. Approved nonempty
+batches create one parent decision and sorted one-shot child authorizations;
+rejected batches create no hold, and exact retries cannot reserve twice.
+The coordinator lease/fencing contract is next; durable batch/order
+transactions remain gated.
 
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
@@ -385,9 +404,37 @@ Passing one layer cannot substitute for another.
   execution corrections into one deterministic projection. A pure append-only
   execution ledger now converts cash flows, executions, corrections, and busts
   into balanced delta postings with rebuildable cash, unit, trade-value, and fee
-  balances. Expand the ledger with explicit account/cost-basis/P&L, marks,
-  settlement, and corporate-action policy, then add the conservative simulated
-  broker, atomic batch risk, and coordinator lease/fencing contracts.
+  balances. FIFO trade-date lots, immediate fee expense, causal marks,
+  realized/unrealized P&L, exposure, and equity are now explicit and reconcile
+  to the append-only ledger. The account and settlement states are account-bound,
+  proof-constructed projections that re-derive retained aggregates rather than
+  accepting caller-supplied balances. Source-bound settlement instructions and
+  separate confirmations now reclassify trade-date cash through
+  receivables/payables and project settled versus conservative available cash.
+  Stable source-bound corporate-action facts now post whole-share splits and
+  separate dividend accrual/payments, preserve FIFO lot basis, require
+  unambiguous entitlements and post-split marks, and reconcile back to the
+  overlaid ledger. The first `BrokerPort` now consumes mandatory single-use
+  authorization and produces a deterministic canonical acceptance. It considers
+  only the first strictly later sealed slice and either full-fills from its exact
+  close when complete or produces an explicitly still-working result without
+  skipping an incomplete slice. Its result binds the canonical tape, session,
+  model, source, adverse
+  offsets, fees, and reducer state without inferring limit, liquidity, volume, partial
+  fill, or expiry behavior. A separate process-local batch-risk repository now
+  validates complete batch/portfolio evidence against one trusted account,
+  settlement, session, control, and policy snapshot and atomically publishes
+  all-or-none conservative cash/share/notional/exposure holds plus one-shot
+  member authorizations. Its account-bound capacity snapshot retains sealed
+  projections and re-attests cash and gross exposure from them at every trust
+  boundary, while one process-local account registry prevents parallel
+  providers from creating independent authorities. It retains
+  approved and consumed pending capacity, rejects duplicate/conflicting facts,
+  and gives exact retries the original result. Capped children preserve an
+  accepted working result with exact evidence when the first later source is
+  incomplete, has invalid terms, or breaches a reserved execution cap. Add the
+  coordinator lease/fencing contract next; durable batch/order transactions
+  remain gated.
 - **Phase 2C durable research workflow:** execute fixture-only runs in the
   worker, persist immutable results, add query-only API/read models and the
   browser Backtests workspace, then add launch commands only after durable jobs,
@@ -406,11 +453,15 @@ Passing one layer cannot substitute for another.
 - Canonical intent, risk, submission, broker-order, cancel, execution, and
   correction reducers. The simulated broker is the first `BrokerPort`; live
   execution will reuse these reducers.
-- Conservative next-event DAY market-order simulation first. Add bar-based limit
-  scenarios only as explicitly ambiguous stress models.
-- Atomic risk decision/reservation for instrument/session, stale price, quantity,
-  notional, cash, account exposure, duplicates, pending order exposure, pause,
-  and halt. Approval is versioned, single-use, and expires.
+- Conservative next-event DAY market-order simulation is implemented for
+  close-only, full-fill-or-working evidence. Add bar-based limit scenarios later
+  only as explicitly ambiguous stress models.
+- Process-local atomic risk decision/reservation is implemented for
+  instrument/session, stale price, quantity, notional, conservative cash,
+  long-only shares, account exposure, duplicates, pending order exposure, pause,
+  and halt. A nonempty approval is versioned and all-or-none, and each exact
+  member authorization is single-use and expires. Durable SQL and lifecycle
+  release remain gated.
 - Account-scoped coordinator interface and lease/fencing data model, even though
   this phase runs only against simulation.
 - Browser strategy-version selection, schema-validated parameters, backtest
@@ -663,7 +714,7 @@ Every change includes:
 6. Corporate-action/security-lifecycle fixtures including a delisting.
 7. Watermark-complete strategy batch and deterministic simulated clock.
 8. Ledger, projections, target conversion, canonical order reducers.
-9. Simulated broker, atomic reservations, and conservation/property tests.
+9. Process-local account coordinator lease/fencing contracts.
 10. Reproducible backtest report and experiment-family registry.
 11. Live market-data capture, quote freshness, shadow replay, feature parity.
 12. Alpaca capability matrix and recorded fixtures.
