@@ -259,9 +259,18 @@ class MarketDataPort(Protocol):
     async def stream(self, subscription: Subscription) -> AsyncIterator[MarketEvent]: ...
     async def history(self, query: HistoryQuery) -> list[Bar]: ...
 
-class BrokerPort(Protocol):
-    async def submit(self, order: BrokerOrder) -> BrokerOrderRef: ...
+class BrokerPort[ResultT](Protocol):
+    def submit(
+        self,
+        intent: OrderIntent,
+        risk_decision_id: str,
+        submission_attempt_id: str,
+    ) -> ResultT: ...
+
+class BrokerControlPort(Protocol):
     async def cancel(self, broker_order_id: str) -> None: ...
+
+class BrokerRecoveryPort(Protocol):
     async def find_by_client_id(self, client_order_id: str) -> BrokerOrder | None: ...
     async def open_orders(self, cursor: str | None) -> BrokerOrderPage: ...
     async def account_snapshot(self) -> BrokerAccountSnapshot: ...
@@ -273,6 +282,11 @@ class RiskRule(Protocol):
         self, batch: OrderIntentBatch, snapshot: VersionedRiskSnapshot
     ) -> RiskDecision: ...
 ```
+
+`BrokerPort` is the narrow authorized-submission capability implemented by the
+pure simulator. Future paper/live adapters compose it with the asynchronous
+control, recovery, reconciliation, and update-stream capabilities instead of
+granting every caller one broad broker authority object.
 
 `MarketBatch` is a replay-proof-constructed decision slice for an `as_of`
 timestamp; callers cannot manufacture a strategy-eligible complete batch. It
@@ -890,12 +904,162 @@ realized P&L. Lots, account policy, marks, settlement, dividends, splits, and
 realized/unrealized P&L remain gated on an explicit follow-on contract. See
 [ADR 0025](adr/0025-append-only-execution-ledger-reducer.md).
 
+The initial account policy is a long-only cash account with FIFO trade-date
+lots. Its reducer requires and binds one stable account identity; the canonical
+state is proof-constructed and publicly non-instantiable. Current buy execution
+heads open lots at execution price; sells consume the oldest lots, and fees are
+expensed immediately rather than capitalized. Corrections rebuild the lot book
+from current execution heads while retaining the append-only financial
+transcript. Explicit marks must be recorded by an explicit valuation time for
+every open instrument. Quantity and fee projections reconcile exactly to the
+execution ledger, and corrected histories that would create a short position
+halt. The projector derives the ledger, heads, lots, positions, balances, P&L,
+exposure, cash, and equity from source facts. Revalidation checks canonical
+nested evidence and independently re-derives aggregate account totals,
+preventing a caller-injected aggregate or `dataclasses.replace` forgery.
+Settlement, transfers, corporate actions, margin, shorts, and currency
+translation remain unsupported.
+See [ADR 0026](adr/0026-fifo-cash-account-and-causal-valuation.md).
+
+Execution settlement is a separate account-bound append-only overlay on the
+trade-date ledger. Its canonical state is proof-constructed and publicly
+non-instantiable. Every nonzero execution-revision cash delta requires an
+immutable instruction bound to the exact broker event. Trade-time
+reclassification removes that delta from cash into a receivable or payable; a
+separately recorded confirmation clears only that exact obligation against
+cash. Corrections and busts therefore settle independently from their
+predecessors. The projection
+distinguishes trade-date cash, settled cash, receivables, payables, and
+conservative available cash. Open payables reduce availability while unsettled
+sale receivables never increase it. Revalidation rebuilds instructions,
+confirmations, entries, obligations, balances, cash views, and observation time
+from retained facts, so a caller cannot inject buying capacity. Settlement
+times are explicit facts rather than inferred T+N dates. See
+[ADR 0027](adr/0027-source-bound-execution-settlement-ledger.md).
+
+Corporate-action accounting is another pure append-only overlay. An admitted
+split or dividend binds a stable source action, exact source revision, content
+digest, explicit whole-share entitlement, and UTC effective/recorded times.
+Entitlements reconcile independently against causal execution-ledger units and
+the FIFO lot book; ambiguous collisions with position changes or split/dividend
+ordering halt. Splits post only their whole-unit delta while retaining each lot's
+total basis, and open adjusted positions require a strictly post-split mark.
+Dividends debit receivable and credit income at entitlement, then a separately
+bound payment clears receivable into cash without recognizing income twice.
+Vendor action candidates do not authorize these accounting facts. See
+[ADR 0028](adr/0028-source-bound-corporate-action-accounting.md).
+
+### Current Phase 2B simulated-broker contract
+
+The first `BrokerPort` implementation is a pure conservative simulator for
+explicit regular-hours sessions, including shortened half-days, and whole-share
+DAY market orders. It consumes the existing exact,
+current, single-use risk approval before producing a submission, then records a
+canonical acceptance and applies explicit activation latency. It fills the full
+quantity only when the first sealed `MarketBatch` whose event-time frontier is
+strictly later than activation is complete. An incomplete first relevant slice
+is never skipped for a later complete slice. If no eligible fact exists, the
+accepted order remains working; an expiry, cancellation, rejection, or partial
+fill is not invented.
+
+The simulator binds the canonicalized session tape, pinned calendar/session,
+working order state, exact source batch and event, versioned price/fee model,
+adverse per-share offsets, and fee components into deterministic evidence and
+passes its broker events through the canonical order reducer. Conflicting or
+incomplete relevant facts fail closed. This source-bound transcript is not a
+liquidity model, durable broker adapter, or paper/live authority. The Phase 0
+single-intent approval remains a compatibility path; the atomic batch authority
+described next supplies exact member authorizations through the same narrow
+consumer boundary. See
+[ADR 0029](adr/0029-conservative-source-bound-simulated-broker.md).
+
+### Current Phase 2B atomic batch-risk contract
+
+Risk now has a separate process-local Phase 2 contract for one complete
+`OrderIntentBatch`. It requires the exact `TargetPortfolio`, re-runs the canonical
+target-to-intent conversion against the exact causal `PortfolioSnapshot`, and
+requires the complete supplied batch to equal that re-derived position delta.
+It then revalidates every member's source event, price, symbol, time, target, and
+trigger binding. A projection-attestation constructor accepts only exact,
+proof-constructed account and settlement projections when their account
+identity, currency, exact ledger, and execution-ledger digest agree, their times
+are causal, post-corporate-action positions equal the portfolio, and every
+open-position mark matches its causal portfolio event. It derives the account
+identity, settlement `available_cash` from cash/payable balances, current gross
+exposure from canonical marked positions, positions, and projection/ledger
+digests into one publicly non-instantiable, version-, currency-, and
+session-bound snapshot. The snapshot retains both projections and revalidates
+them before re-attesting every flattened capacity field at provider admission
+and every repository or direct-evaluation use. The versioned policy, explicit
+regular session, operational state, provider transaction seam, and trusted clocks are
+authority-owned inputs rather than per-call overrides.
+
+The fixed rule set covers duplicate and evidence consistency, pause/halt,
+instrument and session scope, reference/snapshot freshness, expiry, per-order
+quantity and notional, aggregate batch notional, cash buffer, long-only shares,
+per-instrument/account gross exposure, and daily/open order counts including
+active pending reservations. The boundary approves every member or rejects the
+batch as a unit and never resizes an intent. A canonical empty batch produces
+no-action evidence and no execution capability.
+
+Reservations deliberately do not net uncertain effects. Buys reserve their
+reference notional plus an explicit adverse-price buffer and all fees; sells
+reserve fees and shares but cannot fund buys. Pending buys consume exposure
+capacity, pending sells do not reduce it, and buys cannot offset sell holds.
+Approved-unsent and consumed holds remain active because expiry, local status,
+or a cancellation request does not prove that economic exposure disappeared.
+
+A successful nonempty decision atomically installs one immutable,
+currency-bound parent hold and one sorted, exact-payload, one-shot child
+authorization per intent. Every child binds the exact risk-session digest and
+currency. Exact retry returns the original decision, while conflicting reuse of
+any immutable identity fails without changing state. Each child is consumed
+through the same narrow authorization seam required by `BrokerPort`; a missing,
+rejected, expired, mismatched, or reused child cannot produce a simulated
+submission.
+
+Each child also carries its maximum execution price and maximum cash
+requirement. A capped child requires the simulated broker's pinned session and
+model currency to match the authorization, and malformed or internally
+insufficient caps fail before consumption. After these static checks, the child
+is consumed from current evidence and the simulator records acceptance. The
+exact returned submission time and configured latency determine activation; the
+simulator then validates only the first relevant sealed source slice strictly
+later than that instant. A later unreachable tape suffix cannot change the
+selected source, outcome, or broker/order facts, although the result still binds
+its full observation tape and horizon. If no source is eligible, the accepted
+order remains working. If the first slice is incomplete, or its exact event
+produces invalid execution arithmetic, the result is explicitly accepted and
+working but deferred-source-blocked, with no execution. If valid terms instead
+breach the buy-price, buy-notional-plus-fee, or sell-fee cap, it is accepted and
+working but cap-blocked. In each blocked case the child remains consumed and the
+parent hold remains active; a later source cannot erase the earlier causal
+acceptance. Immutable evidence binds the child authorization, caps, exact source
+slice and optional event, model/session context, causal times, and—when
+available—computed terms. Result validation re-proves first-source selection
+and the recorded block.
+
+One process-local registry maps each active account identity to a single
+snapshot, transition lock, and decision/reservation/consumption store. Providers
+opened with the same exact account evidence share that state; conflicting
+initial evidence or a second authority fails closed instead of creating an
+independent capacity universe. All repositories for the exact authority
+serialize on the shared store lock, and a snapshot transition cannot race an
+authorization or consumption. This proves deterministic simulation and
+in-process concurrency conservation only. Durable SQL batch decisions and
+reservations, atomic order/submission-attempt persistence, lifecycle-driven
+release, coordinator leases/fencing, ambiguous-submission recovery, and reconciliation
+remain required before paper execution. See
+[ADR 0030](adr/0030-process-local-atomic-intent-batch-risk-reservations.md).
+
 ## 11. Backtesting model
 
-The canonical event-driven backtester uses a simulated clock and the same
+The target canonical event-driven backtester uses a simulated clock and the same
 strategy, accounting, portfolio, order reducer, and risk components as trading.
-Its simulated broker is the first implementation of `BrokerPort`; the live
-adapter must not create a second order model. It models:
+The implemented close-only broker above is its first `BrokerPort`; a future live
+adapter must reuse the canonical order model rather than create a second one.
+The broader backtesting roadmap expands the current narrow contract, when the
+required source evidence and explicit policies exist, to model:
 
 - explicit availability, decision, risk, submission, and activation timing;
 - market and limit order behavior;
@@ -905,10 +1069,13 @@ adapter must not create a second order model. It models:
 - trading sessions, halts, rejected orders, and missing data;
 - cash, buying power, settlement assumptions, and fractional/whole shares.
 
-Minute OHLCV cannot reveal intrabar path, queue position, or true liquidity.
-Limit-fill modes therefore declare conservative/optimistic ambiguity rules and
-are stress tests, not facts. Paper fills validate workflow, not economic realism.
-Observed live execution later calibrates a versioned cost model.
+The current `MarketEvent` exposes only a close, so ADR 0029 deliberately supports
+neither those richer execution behaviors nor observed-spread claims. Even when
+minute OHLCV becomes available, it cannot reveal intrabar path, queue position,
+or true liquidity. Future limit-fill modes must therefore declare
+conservative/optimistic ambiguity rules and remain stress tests, not facts.
+Paper fills validate workflow, not economic realism. Observed live execution can
+later calibrate a versioned cost model.
 
 Required outputs include equity curve, returns, trades, turnover, gross/net
 exposure, drawdown, Sharpe/Sortino with declared conventions, hit rate, profit

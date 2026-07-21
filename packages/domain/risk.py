@@ -63,10 +63,32 @@ class RiskDecisionIssuer(Protocol):
     def authorize(self, intent: OrderIntent) -> RiskDecision: ...
 
 
+class ExecutableRiskAuthorization(Protocol):
+    """Minimum immutable authorization evidence required at execution."""
+
+    @property
+    def decision_id(self) -> str: ...
+
+    @property
+    def intent_id(self) -> str: ...
+
+    @property
+    def intent_payload_hash(self) -> str: ...
+
+    @property
+    def status(self) -> DecisionStatus: ...
+
+    @property
+    def evaluated_at(self) -> datetime: ...
+
+    @property
+    def expires_at(self) -> datetime: ...
+
+
 class RiskAuthorizationConsumer(Protocol):
     """Narrow execution capability; it cannot create or persist approvals."""
 
-    def get(self, decision_id: str) -> RiskDecision | None: ...
+    def get(self, decision_id: str) -> ExecutableRiskAuthorization | None: ...
 
     def consume(self, decision_id: str, intent: OrderIntent) -> datetime: ...
 
@@ -261,24 +283,34 @@ def evaluate_risk_decision(
     )
 
 
+def validate_authorization_consumption(
+    authorization: ExecutableRiskAuthorization,
+    intent: OrderIntent,
+    consumed_at: datetime,
+) -> None:
+    """Validate the common executable-authorization contract."""
+
+    require_aware(consumed_at, "consumed_at")
+    if authorization.intent_id != intent.intent_id:
+        raise RiskAuthorizationError("risk decision does not authorize this intent")
+    if authorization.intent_payload_hash != intent_payload_hash(intent):
+        raise RiskAuthorizationError("risk decision payload does not match this intent")
+    if authorization.status is not DecisionStatus.APPROVED:
+        raise RiskAuthorizationError("rejected risk decisions cannot authorize execution")
+    if consumed_at < intent.created_at or consumed_at < authorization.evaluated_at:
+        raise RiskAuthorizationError("risk approval cannot be consumed before evaluation")
+    if consumed_at >= authorization.expires_at or consumed_at >= intent.expires_at:
+        raise RiskAuthorizationError("risk approval has expired")
+
+
 def validate_consumption(
     decision: RiskDecision,
     intent: OrderIntent,
     consumed_at: datetime,
 ) -> None:
-    """Validate payload, policy, and full causal time ordering before consumption."""
+    """Preserve the Phase 0 validation entry point."""
 
-    require_aware(consumed_at, "consumed_at")
-    if decision.intent_id != intent.intent_id:
-        raise RiskAuthorizationError("risk decision does not authorize this intent")
-    if decision.intent_payload_hash != intent_payload_hash(intent):
-        raise RiskAuthorizationError("risk decision payload does not match this intent")
-    if decision.status is not DecisionStatus.APPROVED:
-        raise RiskAuthorizationError("rejected risk decisions cannot authorize execution")
-    if consumed_at < intent.created_at or consumed_at < decision.evaluated_at:
-        raise RiskAuthorizationError("risk approval cannot be consumed before evaluation")
-    if consumed_at >= decision.expires_at or consumed_at >= intent.expires_at:
-        raise RiskAuthorizationError("risk approval has expired")
+    validate_authorization_consumption(decision, intent, consumed_at)
 
 
 class InMemoryRiskDecisionRepository:
