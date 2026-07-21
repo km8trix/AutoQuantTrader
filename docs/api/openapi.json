@@ -68,6 +68,1036 @@
         "title": "AlertCounts",
         "type": "object"
       },
+      "ApiErrorResponse": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ApiErrorResponse",
+        "type": "object"
+      },
+      "BacktestEquityPointView": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "cash": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cash",
+            "type": "string"
+          },
+          "cumulative_external_cash_flow": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cumulative External Cash Flow",
+            "type": "string"
+          },
+          "cumulative_return": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cumulative Return",
+            "type": "string"
+          },
+          "drawdown": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Drawdown",
+            "type": "string"
+          },
+          "equity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Equity",
+            "type": "string"
+          },
+          "gross_exposure": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Gross Exposure",
+            "type": "string"
+          },
+          "market_value": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Market Value",
+            "type": "string"
+          },
+          "net_exposure": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Net Exposure",
+            "type": "string"
+          },
+          "period_return": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Period Return",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sequence",
+          "as_of",
+          "cash",
+          "market_value",
+          "equity",
+          "gross_exposure",
+          "net_exposure",
+          "cumulative_external_cash_flow",
+          "period_return",
+          "cumulative_return",
+          "drawdown"
+        ],
+        "title": "BacktestEquityPointView",
+        "type": "object"
+      },
+      "BacktestJobEventView": {
+        "properties": {
+          "actor_id": {
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "attempt_number": {
+            "title": "Attempt Number",
+            "type": "integer"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BacktestJobStatus"
+          },
+          "terminal_reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Reason Code"
+          }
+        },
+        "required": [
+          "sequence",
+          "status",
+          "occurred_at",
+          "actor_id",
+          "attempt_number",
+          "terminal_reason_code"
+        ],
+        "title": "BacktestJobEventView",
+        "type": "object"
+      },
+      "BacktestJobListResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestJobView"
+            },
+            "title": "Jobs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "as_of",
+          "jobs"
+        ],
+        "title": "BacktestJobListResponse",
+        "type": "object"
+      },
+      "BacktestJobStatus": {
+        "enum": [
+          "queued",
+          "running",
+          "completed",
+          "failed",
+          "canceled"
+        ],
+        "title": "BacktestJobStatus",
+        "type": "string"
+      },
+      "BacktestJobView": {
+        "properties": {
+          "attempt_number": {
+            "title": "Attempt Number",
+            "type": "integer"
+          },
+          "claim_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claim Expires At"
+          },
+          "fixture_id": {
+            "title": "Fixture Id",
+            "type": "string"
+          },
+          "fixture_version": {
+            "title": "Fixture Version",
+            "type": "string"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestJobEventView"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "input_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "job_id": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "report_artifact_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256Text"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "report_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256Text"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "requested_by": {
+            "title": "Requested By",
+            "type": "string"
+          },
+          "run_manifest_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256Text"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/BacktestJobStatus"
+          },
+          "strategy_configuration_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "strategy_id": {
+            "title": "Strategy Id",
+            "type": "string"
+          },
+          "strategy_version": {
+            "title": "Strategy Version",
+            "type": "string"
+          },
+          "terminal_reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Reason Code"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "worker_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Id"
+          }
+        },
+        "required": [
+          "job_id",
+          "input_sha256",
+          "fixture_id",
+          "fixture_version",
+          "strategy_id",
+          "strategy_version",
+          "strategy_configuration_sha256",
+          "requested_by",
+          "requested_at",
+          "status",
+          "attempt_number",
+          "worker_id",
+          "claim_expires_at",
+          "updated_at",
+          "run_manifest_sha256",
+          "report_sha256",
+          "report_artifact_sha256",
+          "terminal_reason_code",
+          "history"
+        ],
+        "title": "BacktestJobView",
+        "type": "object"
+      },
+      "BacktestLaunchCapability": {
+        "properties": {
+          "csrf_header": {
+            "title": "Csrf Header",
+            "type": "string"
+          },
+          "csrf_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Csrf Token"
+          },
+          "disabled_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled Reason"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "idempotency_header": {
+            "title": "Idempotency Header",
+            "type": "string"
+          },
+          "operator_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator Id"
+          }
+        },
+        "required": [
+          "enabled",
+          "operator_id",
+          "csrf_token",
+          "csrf_header",
+          "idempotency_header",
+          "disabled_reason"
+        ],
+        "title": "BacktestLaunchCapability",
+        "type": "object"
+      },
+      "BacktestLaunchRequest": {
+        "additionalProperties": false,
+        "description": "Strict, bounded transport form of the immutable fixture job input.",
+        "properties": {
+          "benchmark_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "cost_model_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "dataset_manifest_id": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "dataset_manifest_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "fill_model_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "fixture_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Fixture Id",
+            "type": "string"
+          },
+          "fixture_version": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Fixture Version",
+            "type": "string"
+          },
+          "metric_conventions_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "replay_run_id": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "strategy_configuration_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "strategy_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Strategy Id",
+            "type": "string"
+          },
+          "strategy_version": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Strategy Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fixture_id",
+          "fixture_version",
+          "dataset_manifest_id",
+          "dataset_manifest_sha256",
+          "replay_run_id",
+          "strategy_id",
+          "strategy_version",
+          "strategy_configuration_sha256",
+          "benchmark_sha256",
+          "cost_model_sha256",
+          "fill_model_sha256",
+          "metric_conventions_sha256"
+        ],
+        "title": "BacktestLaunchRequest",
+        "type": "object"
+      },
+      "BacktestLedgerTraceView": {
+        "properties": {
+          "effective_at": {
+            "format": "date-time",
+            "title": "Effective At",
+            "type": "string"
+          },
+          "entry_id": {
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "entry_kind": {
+            "title": "Entry Kind",
+            "type": "string"
+          },
+          "entry_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "source_fact_id": {
+            "title": "Source Fact Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "entry_id",
+          "entry_kind",
+          "source_fact_id",
+          "effective_at",
+          "recorded_at",
+          "entry_sha256"
+        ],
+        "title": "BacktestLedgerTraceView",
+        "type": "object"
+      },
+      "BacktestMetricConventionsView": {
+        "properties": {
+          "absolute_tolerance": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Absolute Tolerance",
+            "type": "string"
+          },
+          "annual_risk_free_rate": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Annual Risk Free Rate",
+            "type": "string"
+          },
+          "annualization_periods": {
+            "title": "Annualization Periods",
+            "type": "integer"
+          },
+          "convention_id": {
+            "title": "Convention Id",
+            "type": "string"
+          },
+          "convention_version": {
+            "title": "Convention Version",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "external_cash_flow_treatment": {
+            "$ref": "#/components/schemas/ExternalCashFlowTreatment"
+          },
+          "relative_tolerance": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Relative Tolerance",
+            "type": "string"
+          },
+          "return_frequency": {
+            "$ref": "#/components/schemas/BacktestReturnFrequency"
+          },
+          "return_type": {
+            "$ref": "#/components/schemas/BacktestReturnType"
+          },
+          "risk_free_rate_version": {
+            "title": "Risk Free Rate Version",
+            "type": "string"
+          },
+          "uncertainty_method": {
+            "$ref": "#/components/schemas/UncertaintyMethod"
+          }
+        },
+        "required": [
+          "convention_id",
+          "convention_version",
+          "currency",
+          "return_type",
+          "return_frequency",
+          "annualization_periods",
+          "annual_risk_free_rate",
+          "risk_free_rate_version",
+          "external_cash_flow_treatment",
+          "uncertainty_method",
+          "absolute_tolerance",
+          "relative_tolerance"
+        ],
+        "title": "BacktestMetricConventionsView",
+        "type": "object"
+      },
+      "BacktestMetricsView": {
+        "properties": {
+          "annualized_return": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annualized Return"
+          },
+          "annualized_volatility": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annualized Volatility"
+          },
+          "average_gross_exposure": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Average Gross Exposure",
+            "type": "string"
+          },
+          "average_net_exposure": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Average Net Exposure",
+            "type": "string"
+          },
+          "breakeven_trade_count": {
+            "title": "Breakeven Trade Count",
+            "type": "integer"
+          },
+          "capacity_proxy": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Proxy"
+          },
+          "dividend_income": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Dividend Income",
+            "type": "string"
+          },
+          "ending_equity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Ending Equity",
+            "type": "string"
+          },
+          "hit_rate": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hit Rate"
+          },
+          "losing_trade_count": {
+            "title": "Losing Trade Count",
+            "type": "integer"
+          },
+          "maximum_drawdown": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Maximum Drawdown",
+            "type": "string"
+          },
+          "profit_factor": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profit Factor"
+          },
+          "realized_pnl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Realized Pnl",
+            "type": "string"
+          },
+          "sharpe_ratio": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sharpe Ratio"
+          },
+          "sortino_ratio": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sortino Ratio"
+          },
+          "starting_equity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Starting Equity",
+            "type": "string"
+          },
+          "total_execution_costs": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Execution Costs",
+            "type": "string"
+          },
+          "total_return": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Return",
+            "type": "string"
+          },
+          "trade_count": {
+            "title": "Trade Count",
+            "type": "integer"
+          },
+          "turnover": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Turnover",
+            "type": "string"
+          },
+          "unrealized_pnl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unrealized Pnl",
+            "type": "string"
+          },
+          "winning_trade_count": {
+            "title": "Winning Trade Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "starting_equity",
+          "ending_equity",
+          "total_return",
+          "annualized_return",
+          "annualized_volatility",
+          "sharpe_ratio",
+          "sortino_ratio",
+          "maximum_drawdown",
+          "turnover",
+          "average_gross_exposure",
+          "average_net_exposure",
+          "trade_count",
+          "winning_trade_count",
+          "losing_trade_count",
+          "breakeven_trade_count",
+          "hit_rate",
+          "profit_factor",
+          "total_execution_costs",
+          "capacity_proxy",
+          "realized_pnl",
+          "unrealized_pnl",
+          "dividend_income"
+        ],
+        "title": "BacktestMetricsView",
+        "type": "object"
+      },
+      "BacktestPositionView": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "cost_basis": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cost Basis",
+            "type": "string"
+          },
+          "dividend_income": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Dividend Income",
+            "type": "string"
+          },
+          "execution_costs": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Execution Costs",
+            "type": "string"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "mark_price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Mark Price",
+            "type": "string"
+          },
+          "market_value": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Market Value",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "realized_pnl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Realized Pnl",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "source_projection_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "unrealized_pnl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unrealized Pnl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "as_of",
+          "instrument_id",
+          "symbol",
+          "quantity",
+          "cost_basis",
+          "mark_price",
+          "market_value",
+          "realized_pnl",
+          "unrealized_pnl",
+          "execution_costs",
+          "dividend_income",
+          "source_projection_sha256"
+        ],
+        "title": "BacktestPositionView",
+        "type": "object"
+      },
+      "BacktestReportProvenanceView": {
+        "properties": {
+          "account_projection_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "accounting_evidence_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "corporate_action_ledger_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "execution_ledger_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "settlement_ledger_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          }
+        },
+        "required": [
+          "execution_ledger_sha256",
+          "corporate_action_ledger_sha256",
+          "settlement_ledger_sha256",
+          "account_projection_sha256",
+          "accounting_evidence_sha256"
+        ],
+        "title": "BacktestReportProvenanceView",
+        "type": "object"
+      },
+      "BacktestReportView": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "conventions": {
+            "$ref": "#/components/schemas/BacktestMetricConventionsView"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "equity_curve": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestEquityPointView"
+            },
+            "title": "Equity Curve",
+            "type": "array"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "ledger_trace": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestLedgerTraceView"
+            },
+            "title": "Ledger Trace",
+            "type": "array"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/BacktestMetricsView"
+          },
+          "period_end": {
+            "format": "date-time",
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "format": "date-time",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestPositionView"
+            },
+            "title": "Positions",
+            "type": "array"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/BacktestReportProvenanceView"
+          },
+          "report_artifact_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "report_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestTradeView"
+            },
+            "title": "Trades",
+            "type": "array"
+          }
+        },
+        "required": [
+          "report_sha256",
+          "report_artifact_sha256",
+          "account_id",
+          "currency",
+          "period_start",
+          "period_end",
+          "generated_at",
+          "conventions",
+          "metrics",
+          "equity_curve",
+          "trades",
+          "positions",
+          "ledger_trace",
+          "provenance"
+        ],
+        "title": "BacktestReportView",
+        "type": "object"
+      },
+      "BacktestReturnFrequency": {
+        "enum": [
+          "event",
+          "daily"
+        ],
+        "title": "BacktestReturnFrequency",
+        "type": "string"
+      },
+      "BacktestReturnType": {
+        "enum": [
+          "simple",
+          "log"
+        ],
+        "title": "BacktestReturnType",
+        "type": "string"
+      },
+      "BacktestTradeView": {
+        "properties": {
+          "closed_at": {
+            "format": "date-time",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "closing_execution_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "cost_basis": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cost Basis",
+            "type": "string"
+          },
+          "execution_costs": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Execution Costs",
+            "type": "string"
+          },
+          "gross_pnl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Gross Pnl",
+            "type": "string"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "net_pnl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Net Pnl",
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "opening_execution_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "proceeds": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Proceeds",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "trade_id": {
+            "title": "Trade Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "trade_id",
+          "instrument_id",
+          "symbol",
+          "opened_at",
+          "closed_at",
+          "quantity",
+          "cost_basis",
+          "proceeds",
+          "gross_pnl",
+          "execution_costs",
+          "net_pnl",
+          "opening_execution_sha256",
+          "closing_execution_sha256"
+        ],
+        "title": "BacktestTradeView",
+        "type": "object"
+      },
       "CorporateActionView": {
         "properties": {
           "action_id": {
@@ -651,6 +1681,14 @@
         "title": "EnvironmentMode",
         "type": "string"
       },
+      "ExternalCashFlowTreatment": {
+        "enum": [
+          "excluded_from_return",
+          "time_weighted"
+        ],
+        "title": "ExternalCashFlowTreatment",
+        "type": "string"
+      },
       "FillView": {
         "properties": {
           "executed_at": {
@@ -711,6 +1749,19 @@
           "executed_at"
         ],
         "title": "FillView",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
         "type": "object"
       },
       "HealthCheck": {
@@ -1750,6 +2801,10 @@
         "title": "ServiceStatus",
         "type": "string"
       },
+      "Sha256Text": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
       "Side": {
         "enum": [
           "buy",
@@ -1757,6 +2812,108 @@
         ],
         "title": "Side",
         "type": "string"
+      },
+      "StrategyCatalogResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "strategies": {
+            "items": {
+              "$ref": "#/components/schemas/StrategyCatalogView"
+            },
+            "title": "Strategies",
+            "type": "array"
+          }
+        },
+        "required": [
+          "as_of",
+          "strategies"
+        ],
+        "title": "StrategyCatalogResponse",
+        "type": "object"
+      },
+      "StrategyCatalogView": {
+        "properties": {
+          "benchmark_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "configuration_name": {
+            "title": "Configuration Name",
+            "type": "string"
+          },
+          "configuration_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "cost_model_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "dataset_manifest_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "fill_model_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "fixture_id": {
+            "title": "Fixture Id",
+            "type": "string"
+          },
+          "fixture_version": {
+            "title": "Fixture Version",
+            "type": "string"
+          },
+          "metric_conventions_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "parameter_schema_payload": {
+            "title": "Parameter Schema Payload",
+            "type": "string"
+          },
+          "parameters_payload": {
+            "title": "Parameters Payload",
+            "type": "string"
+          },
+          "replay_run_id": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "strategy_id": {
+            "title": "Strategy Id",
+            "type": "string"
+          },
+          "strategy_version": {
+            "title": "Strategy Version",
+            "type": "string"
+          },
+          "strategy_version_id": {
+            "$ref": "#/components/schemas/Sha256Text"
+          }
+        },
+        "required": [
+          "strategy_version_id",
+          "strategy_id",
+          "strategy_version",
+          "display_name",
+          "configuration_sha256",
+          "configuration_name",
+          "parameter_schema_payload",
+          "parameters_payload",
+          "fixture_id",
+          "fixture_version",
+          "dataset_manifest_sha256",
+          "replay_run_id",
+          "benchmark_sha256",
+          "cost_model_sha256",
+          "fill_model_sha256",
+          "metric_conventions_sha256"
+        ],
+        "title": "StrategyCatalogView",
+        "type": "object"
       },
       "TargetPortfolioView": {
         "properties": {
@@ -1855,6 +3012,16 @@
       },
       "UiBootstrap": {
         "properties": {
+          "backtest_launch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BacktestLaunchCapability"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "capabilities": {
             "items": {
               "type": "string"
@@ -1900,10 +3067,19 @@
           "readiness",
           "capabilities",
           "feature_flags",
-          "stream_cursor"
+          "stream_cursor",
+          "backtest_launch"
         ],
         "title": "UiBootstrap",
         "type": "object"
+      },
+      "UncertaintyMethod": {
+        "enum": [
+          "none",
+          "iid_standard_error"
+        ],
+        "title": "UncertaintyMethod",
+        "type": "string"
       },
       "UserIdentity": {
         "properties": {
@@ -1921,6 +3097,46 @@
           "display_name"
         ],
         "title": "UserIdentity",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
         "type": "object"
       },
       "WalkingThreadTrace": {
@@ -2000,6 +3216,14 @@
         "title": "WalkingThreadTrace",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "LocalOperatorSession": {
+        "description": "URL-safe, server-issued local session value",
+        "in": "cookie",
+        "name": "aqt_local_session",
+        "type": "apiKey"
+      }
     }
   },
   "info": {
@@ -2069,6 +3293,278 @@
         "summary": "Data Quality",
         "tags": [
           "market-data"
+        ]
+      }
+    },
+    "/api/v1/research/backtests": {
+      "get": {
+        "operationId": "backtests_api_v1_research_backtests_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestJobListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Backtests",
+        "tags": [
+          "research"
+        ]
+      },
+      "post": {
+        "operationId": "launch_backtest_api_v1_research_backtests_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 32,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "title": "X-Csrf-Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestLaunchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestJobView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Launch inputs violate the domain contract."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Local operator session required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "CSRF validation failed."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Idempotency conflict."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Durable backtest persistence unavailable."
+          }
+        },
+        "security": [
+          {
+            "LocalOperatorSession": []
+          }
+        ],
+        "summary": "Launch Backtest",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/v1/research/backtests/{job_id}": {
+      "get": {
+        "operationId": "backtest_api_v1_research_backtests__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestJobView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Backtest",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/v1/research/backtests/{job_id}/report": {
+      "get": {
+        "operationId": "backtest_report_api_v1_research_backtests__job_id__report_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestReportView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Backtest Report",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/v1/research/strategies": {
+      "get": {
+        "operationId": "strategies_api_v1_research_strategies_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Strategies",
+        "tags": [
+          "research"
         ]
       }
     },

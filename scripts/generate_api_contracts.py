@@ -85,6 +85,13 @@ def _schema_type(schema: dict[str, Any], level: int = 0) -> str:
         return f"Array<{_schema_type(items, level)}>"
     if schema_type == "object":
         return _object_type(schema, level)
+    if schema_type is None and set(schema).issubset(
+        {"title", "description", "default", "examples"}
+    ):
+        # OpenAPI uses an unconstrained schema for values such as Pydantic's
+        # validation-error input.  Preserve the trust boundary in TypeScript by
+        # requiring narrowing from ``unknown`` rather than fabricating a type.
+        return "unknown"
 
     raise ContractGenerationError(
         f"unsupported JSON Schema shape: {json.dumps(schema, sort_keys=True)}"
@@ -110,6 +117,14 @@ def _object_type(schema: dict[str, Any], level: int) -> str:
         raise ContractGenerationError("object required must be a list of property names")
     required = set(required_value)
 
+    additional = schema.get("additionalProperties")
+    if not properties and additional is None:
+        # In OpenAPI, an object schema without declared properties or an
+        # additionalProperties constraint is an unconstrained JSON object.
+        # Emit an explicit record instead of ``{}``, whose TypeScript meaning
+        # includes every non-nullish primitive and is rejected by our linter.
+        return "Record<string, unknown>"
+
     lines = ["{"]
     child_indent = "  " * (level + 1)
     for name in sorted(properties):
@@ -120,7 +135,6 @@ def _object_type(schema: dict[str, Any], level: int) -> str:
             f"{_schema_type(property_schema, level + 1)};"
         )
 
-    additional = schema.get("additionalProperties")
     if additional is True:
         raise ContractGenerationError(
             "untyped additionalProperties is unsupported; publish an explicit value schema"

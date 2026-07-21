@@ -899,3 +899,1710 @@ replay_run_manifests = sa.Table(
         name="replay_run_manifests_reconciled_batch_counts",
     ),
 )
+
+# Phase 2 durable execution facts intentionally live beside, rather than mutate,
+# the Phase 0 walking-thread tables above. The two contracts have different
+# cardinality and lifecycle semantics: Phase 0 authorizes one intent, while
+# Phase 2 authorizes one complete batch and records every side effect as an
+# immutable fact plus an explicitly rebuildable projection.
+phase2_account_leases = sa.Table(
+    "phase2_account_leases",
+    metadata,
+    sa.Column("lease_sha256", sa.String(64), primary_key=True),
+    sa.Column("account_id", sa.String(64), nullable=False),
+    sa.Column("owner_id", sa.String(128), nullable=False),
+    sa.Column("lease_id", sa.String(64), nullable=False),
+    sa.Column("fencing_generation", sa.BigInteger(), nullable=False),
+    sa.Column("revision_number", sa.BigInteger(), nullable=False),
+    sa.Column("previous_lease_sha256", sa.String(64), nullable=True),
+    sa.Column("acquired_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("policy_sha256", sa.String(64), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.UniqueConstraint(
+        "account_id",
+        "fencing_generation",
+        "lease_sha256",
+        name="account_generation_digest",
+    ),
+    sa.UniqueConstraint(
+        "account_id",
+        "fencing_generation",
+        "revision_number",
+        name="account_generation_revision",
+    ),
+    sa.UniqueConstraint(
+        "account_id",
+        "lease_id",
+        "heartbeat_at",
+        name="account_lease_revision",
+    ),
+    sa.ForeignKeyConstraint(
+        ["account_id", "fencing_generation", "previous_lease_sha256"],
+        [
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ],
+        name="previous_lease_revision",
+    ),
+    sa.CheckConstraint("fencing_generation > 0", name="positive_generation"),
+    sa.CheckConstraint("revision_number > 0", name="positive_revision"),
+    sa.CheckConstraint(
+        "(revision_number = 1 AND previous_lease_sha256 IS NULL) "
+        "OR (revision_number > 1 AND previous_lease_sha256 IS NOT NULL "
+        "AND previous_lease_sha256 <> lease_sha256)",
+        name="revision_predecessor_shape",
+    ),
+    sa.CheckConstraint(
+        "heartbeat_at >= acquired_at AND expires_at > heartbeat_at",
+        name="valid_time_range",
+    ),
+    sa.CheckConstraint(
+        "length(lease_sha256) = 64 AND length(policy_sha256) = 64 "
+        "AND (previous_lease_sha256 IS NULL OR length(previous_lease_sha256) = 64)",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(canonical_payload) BETWEEN 2 AND 65536",
+        name="payload_size",
+    ),
+)
+sa.Index(
+    "ix_phase2_account_leases_account_generation",
+    phase2_account_leases.c.account_id,
+    phase2_account_leases.c.fencing_generation,
+    phase2_account_leases.c.revision_number,
+)
+
+phase2_account_lease_heads = sa.Table(
+    "phase2_account_lease_heads",
+    metadata,
+    sa.Column("account_id", sa.String(64), primary_key=True),
+    sa.Column("last_fencing_generation", sa.BigInteger(), nullable=False),
+    sa.Column("current_fencing_generation", sa.BigInteger(), nullable=True),
+    sa.Column("current_lease_sha256", sa.String(64), nullable=True),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(
+        ["account_id", "current_fencing_generation", "current_lease_sha256"],
+        [
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ],
+        name="current_lease",
+    ),
+    sa.CheckConstraint("last_fencing_generation >= 0", name="non_negative_generation"),
+    sa.CheckConstraint(
+        "(current_fencing_generation IS NULL AND current_lease_sha256 IS NULL) "
+        "OR (current_fencing_generation IS NOT NULL "
+        "AND current_lease_sha256 IS NOT NULL "
+        "AND current_fencing_generation = last_fencing_generation)",
+        name="current_lease_pair",
+    ),
+    sa.CheckConstraint(
+        "current_lease_sha256 IS NULL OR length(current_lease_sha256) = 64",
+        name="current_hash_length",
+    ),
+)
+
+phase2_account_lease_releases = sa.Table(
+    "phase2_account_lease_releases",
+    metadata,
+    sa.Column("release_id", sa.String(64), primary_key=True),
+    sa.Column("release_sha256", sa.String(64), nullable=False, unique=True),
+    sa.Column("account_id", sa.String(64), nullable=False),
+    sa.Column("owner_id", sa.String(128), nullable=False),
+    sa.Column("lease_id", sa.String(64), nullable=False),
+    sa.Column("fencing_generation", sa.BigInteger(), nullable=False),
+    sa.Column("lease_sha256", sa.String(64), nullable=False, unique=True),
+    sa.Column("released_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("policy_sha256", sa.String(64), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.ForeignKeyConstraint(
+        ["account_id", "fencing_generation", "lease_sha256"],
+        [
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ],
+        name="released_lease",
+    ),
+    sa.CheckConstraint("fencing_generation > 0", name="positive_generation"),
+    sa.CheckConstraint(
+        "length(release_sha256) = 64 AND length(lease_sha256) = 64 AND length(policy_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(canonical_payload) BETWEEN 2 AND 65536",
+        name="payload_size",
+    ),
+)
+sa.Index(
+    "ix_phase2_account_lease_releases_account_generation",
+    phase2_account_lease_releases.c.account_id,
+    phase2_account_lease_releases.c.fencing_generation,
+)
+
+phase2_batch_decisions = sa.Table(
+    "phase2_batch_decisions",
+    metadata,
+    sa.Column("decision_id", sa.String(64), primary_key=True),
+    sa.Column("intent_batch_id", sa.String(64), nullable=False, unique=True),
+    sa.Column("intent_batch_sha256", sa.String(64), nullable=False),
+    sa.Column("account_id", sa.String(64), nullable=False),
+    sa.Column("account_observation_sequence", sa.BigInteger(), nullable=False),
+    sa.Column("capacity_observation_contract", sa.String(64), nullable=False),
+    sa.Column("fencing_generation", sa.BigInteger(), nullable=False),
+    sa.Column("lease_sha256", sa.String(64), nullable=False),
+    sa.Column("fence_sha256", sa.String(64), nullable=False),
+    sa.Column("snapshot_version", sa.String(64), nullable=False),
+    sa.Column("snapshot_sha256", sa.String(64), nullable=False),
+    sa.Column("active_capacity_payload", sa.Text(), nullable=False),
+    sa.Column("active_capacity_sha256", sa.String(64), nullable=False),
+    sa.Column("policy_id", sa.String(64), nullable=False),
+    sa.Column("policy_version", sa.String(64), nullable=False),
+    sa.Column("policy_sha256", sa.String(64), nullable=False),
+    sa.Column("currency", sa.String(3), nullable=False),
+    sa.Column("status", sa.String(16), nullable=False),
+    sa.Column("evaluated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("intent_count", sa.Integer(), nullable=False),
+    sa.Column("rules_payload", sa.Text(), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.ForeignKeyConstraint(
+        ["account_id", "fencing_generation", "lease_sha256"],
+        [
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ],
+        name="authorizing_lease",
+    ),
+    sa.UniqueConstraint(
+        "decision_id",
+        "account_id",
+        "fencing_generation",
+        name="decision_account_generation",
+    ),
+    sa.UniqueConstraint(
+        "account_id",
+        "account_observation_sequence",
+        name="account_observation_sequence",
+    ),
+    sa.CheckConstraint(
+        "account_observation_sequence > 0",
+        name="positive_observation_sequence",
+    ),
+    sa.CheckConstraint(
+        "capacity_observation_contract IN "
+        "('phase2-capacity-observation-v3', 'phase2-capacity-observation-v4')",
+        name="valid_capacity_observation_contract",
+    ),
+    sa.CheckConstraint("fencing_generation > 0", name="positive_generation"),
+    sa.CheckConstraint("expires_at > evaluated_at", name="positive_ttl"),
+    sa.CheckConstraint(
+        "status IN ('approved', 'rejected', 'no_action')",
+        name="valid_status",
+    ),
+    sa.CheckConstraint(
+        "(status = 'no_action' AND intent_count = 0) "
+        "OR (status IN ('approved', 'rejected') AND intent_count > 0)",
+        name="status_matches_count",
+    ),
+    sa.CheckConstraint(
+        "length(intent_batch_sha256) = 64 "
+        "AND length(lease_sha256) = 64 "
+        "AND length(fence_sha256) = 64 "
+        "AND length(snapshot_sha256) = 64 "
+        "AND length(active_capacity_sha256) = 64 "
+        "AND length(policy_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(currency) = 3 AND currency = upper(currency)",
+        name="canonical_currency",
+    ),
+    sa.CheckConstraint(
+        "length(rules_payload) BETWEEN 2 AND 262144 "
+        "AND length(active_capacity_payload) BETWEEN 2 AND 1048576 "
+        "AND length(canonical_payload) BETWEEN 2 AND 1048576",
+        name="payload_sizes",
+    ),
+)
+sa.Index(
+    "ix_phase2_batch_decisions_account_evaluated",
+    phase2_batch_decisions.c.account_id,
+    phase2_batch_decisions.c.evaluated_at,
+)
+
+phase2_batch_members = sa.Table(
+    "phase2_batch_members",
+    metadata,
+    sa.Column("membership_id", sa.String(64), primary_key=True),
+    sa.Column(
+        "decision_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_batch_decisions.decision_id"),
+        nullable=False,
+    ),
+    sa.Column("intent_batch_id", sa.String(64), nullable=False),
+    sa.Column("intent_batch_sha256", sa.String(64), nullable=False),
+    sa.Column("ordinal", sa.Integer(), nullable=False),
+    sa.Column("intent_id", sa.String(64), nullable=False, unique=True),
+    sa.Column("intent_payload_sha256", sa.String(64), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.UniqueConstraint("decision_id", "ordinal", name="decision_ordinal"),
+    sa.UniqueConstraint(
+        "decision_id",
+        "intent_id",
+        name="batch_member_decision_intent",
+    ),
+    sa.CheckConstraint("ordinal >= 0", name="non_negative_ordinal"),
+    sa.CheckConstraint(
+        "length(intent_batch_sha256) = 64 "
+        "AND length(intent_payload_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(canonical_payload) BETWEEN 2 AND 262144",
+        name="payload_size",
+    ),
+)
+sa.Index(
+    "ix_phase2_batch_members_batch_ordinal",
+    phase2_batch_members.c.intent_batch_id,
+    phase2_batch_members.c.ordinal,
+)
+
+phase2_batch_reservations = sa.Table(
+    "phase2_batch_reservations",
+    metadata,
+    sa.Column("reservation_id", sa.String(64), primary_key=True),
+    sa.Column(
+        "parent_decision_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_batch_decisions.decision_id"),
+        nullable=False,
+        unique=True,
+    ),
+    sa.Column("intent_batch_id", sa.String(64), nullable=False, unique=True),
+    sa.Column("intent_batch_sha256", sa.String(64), nullable=False),
+    sa.Column("account_id", sa.String(64), nullable=False),
+    sa.Column("fencing_generation", sa.BigInteger(), nullable=False),
+    sa.Column("lease_sha256", sa.String(64), nullable=False),
+    sa.Column("fence_sha256", sa.String(64), nullable=False),
+    sa.Column("snapshot_sha256", sa.String(64), nullable=False),
+    sa.Column("policy_sha256", sa.String(64), nullable=False),
+    sa.Column("currency", sa.String(3), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("state", sa.String(24), nullable=False),
+    sa.Column("state_version", sa.BigInteger(), nullable=False, server_default="1"),
+    sa.Column("authorization_count", sa.Integer(), nullable=False),
+    sa.Column("remaining_authorization_count", sa.Integer(), nullable=False),
+    sa.Column("initial_cash", sa.Numeric(28, 10), nullable=False),
+    sa.Column("initial_buy_exposure", sa.Numeric(28, 10), nullable=False),
+    sa.Column("remaining_cash", sa.Numeric(28, 10), nullable=False),
+    sa.Column("remaining_buy_exposure", sa.Numeric(28, 10), nullable=False),
+    sa.Column("released_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.ForeignKeyConstraint(
+        ["account_id", "fencing_generation", "lease_sha256"],
+        [
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ],
+        name="authorizing_lease",
+    ),
+    sa.UniqueConstraint(
+        "reservation_id",
+        "parent_decision_id",
+        name="reservation_parent",
+    ),
+    sa.CheckConstraint("fencing_generation > 0", name="positive_generation"),
+    sa.CheckConstraint("expires_at > created_at", name="positive_ttl"),
+    sa.CheckConstraint("state_version > 0", name="positive_state_version"),
+    sa.CheckConstraint(
+        "state IN ('active', 'partially_released', 'frozen', 'released')",
+        name="valid_state",
+    ),
+    sa.CheckConstraint(
+        "authorization_count > 0 "
+        "AND remaining_authorization_count >= 0 "
+        "AND remaining_authorization_count <= authorization_count",
+        name="valid_authorization_counts",
+    ),
+    sa.CheckConstraint(
+        "initial_cash >= 0 "
+        "AND initial_buy_exposure >= 0 "
+        "AND remaining_cash >= 0 "
+        "AND remaining_cash <= initial_cash "
+        "AND remaining_buy_exposure >= 0 "
+        "AND remaining_buy_exposure <= initial_buy_exposure",
+        name="conserved_amounts",
+    ),
+    sa.CheckConstraint(
+        "(state = 'released' "
+        "AND released_at IS NOT NULL "
+        "AND remaining_authorization_count = 0 "
+        "AND remaining_cash = 0 "
+        "AND remaining_buy_exposure = 0) "
+        "OR (state <> 'released' AND released_at IS NULL)",
+        name="released_state",
+    ),
+    sa.CheckConstraint(
+        "length(intent_batch_sha256) = 64 "
+        "AND length(lease_sha256) = 64 "
+        "AND length(fence_sha256) = 64 "
+        "AND length(snapshot_sha256) = 64 "
+        "AND length(policy_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(currency) = 3 AND currency = upper(currency)",
+        name="canonical_currency",
+    ),
+    sa.CheckConstraint(
+        "length(canonical_payload) BETWEEN 2 AND 1048576",
+        name="payload_size",
+    ),
+)
+sa.Index(
+    "ix_phase2_batch_reservations_account_state",
+    phase2_batch_reservations.c.account_id,
+    phase2_batch_reservations.c.state,
+)
+sa.Index(
+    "ix_phase2_batch_reservations_expires_at",
+    phase2_batch_reservations.c.expires_at,
+)
+
+phase2_batch_authorizations = sa.Table(
+    "phase2_batch_authorizations",
+    metadata,
+    sa.Column("authorization_id", sa.String(64), primary_key=True),
+    sa.Column("parent_decision_id", sa.String(64), nullable=False),
+    sa.Column("reservation_id", sa.String(64), nullable=False),
+    sa.Column("intent_batch_id", sa.String(64), nullable=False),
+    sa.Column("intent_batch_sha256", sa.String(64), nullable=False),
+    sa.Column("account_id", sa.String(64), nullable=False),
+    sa.Column("fencing_generation", sa.BigInteger(), nullable=False),
+    sa.Column("lease_sha256", sa.String(64), nullable=False),
+    sa.Column("fence_sha256", sa.String(64), nullable=False),
+    sa.Column("snapshot_sha256", sa.String(64), nullable=False),
+    sa.Column("policy_sha256", sa.String(64), nullable=False),
+    sa.Column("session_sha256", sa.String(64), nullable=False),
+    sa.Column("currency", sa.String(3), nullable=False),
+    sa.Column("intent_id", sa.String(64), nullable=False, unique=True),
+    sa.Column("intent_payload_sha256", sa.String(64), nullable=False),
+    sa.Column("evaluated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("instrument_id", sa.String(64), nullable=False),
+    sa.Column("symbol", sa.String(32), nullable=False),
+    sa.Column("side", sa.String(8), nullable=False),
+    sa.Column("quantity", sa.Numeric(28, 10), nullable=False),
+    sa.Column("reference_price", sa.Numeric(28, 10), nullable=False),
+    sa.Column("snapshot_as_of", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("reference_event_time", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("maximum_execution_price", sa.Numeric(28, 10), nullable=False),
+    sa.Column("maximum_fee", sa.Numeric(28, 10), nullable=False),
+    sa.Column("maximum_cash_requirement", sa.Numeric(28, 10), nullable=False),
+    sa.Column("reserved_cash", sa.Numeric(28, 10), nullable=False),
+    sa.Column("reserved_sell_quantity", sa.Numeric(28, 10), nullable=False),
+    sa.Column("reserved_buy_exposure", sa.Numeric(28, 10), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.ForeignKeyConstraint(
+        ["reservation_id", "parent_decision_id"],
+        [
+            "phase2_batch_reservations.reservation_id",
+            "phase2_batch_reservations.parent_decision_id",
+        ],
+        name="parent_reservation",
+    ),
+    sa.ForeignKeyConstraint(
+        ["account_id", "fencing_generation", "lease_sha256"],
+        [
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ],
+        name="authorizing_lease",
+    ),
+    sa.UniqueConstraint(
+        "parent_decision_id",
+        "intent_id",
+        name="authorization_decision_intent",
+    ),
+    sa.CheckConstraint("fencing_generation > 0", name="positive_generation"),
+    sa.CheckConstraint("expires_at > evaluated_at", name="positive_ttl"),
+    sa.CheckConstraint("side IN ('buy', 'sell')", name="valid_side"),
+    sa.CheckConstraint(
+        "quantity > 0 AND quantity = CAST(quantity AS BIGINT)",
+        name="whole_quantity",
+    ),
+    sa.CheckConstraint(
+        "reference_price > 0 "
+        "AND maximum_execution_price >= reference_price "
+        "AND maximum_fee >= 0 "
+        "AND maximum_cash_requirement >= 0 "
+        "AND reserved_cash >= 0 "
+        "AND reserved_sell_quantity >= 0 "
+        "AND reserved_buy_exposure >= 0",
+        name="valid_amounts",
+    ),
+    sa.CheckConstraint(
+        "maximum_cash_requirement = reserved_cash "
+        "AND reserved_cash = reserved_buy_exposure + maximum_fee",
+        name="cash_conservation",
+    ),
+    sa.CheckConstraint(
+        "(side = 'buy' "
+        "AND reserved_sell_quantity = 0 "
+        "AND reserved_buy_exposure = quantity * maximum_execution_price) "
+        "OR (side = 'sell' "
+        "AND reserved_sell_quantity = quantity "
+        "AND reserved_buy_exposure = 0)",
+        name="side_holds",
+    ),
+    sa.CheckConstraint(
+        "length(intent_batch_sha256) = 64 "
+        "AND length(lease_sha256) = 64 "
+        "AND length(fence_sha256) = 64 "
+        "AND length(snapshot_sha256) = 64 "
+        "AND length(policy_sha256) = 64 "
+        "AND length(session_sha256) = 64 "
+        "AND length(intent_payload_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(currency) = 3 AND currency = upper(currency)",
+        name="canonical_currency",
+    ),
+    sa.CheckConstraint("symbol = upper(symbol)", name="canonical_symbol"),
+    sa.CheckConstraint(
+        "length(canonical_payload) BETWEEN 2 AND 262144",
+        name="payload_size",
+    ),
+)
+sa.Index(
+    "ix_phase2_batch_authorizations_account_instrument",
+    phase2_batch_authorizations.c.account_id,
+    phase2_batch_authorizations.c.instrument_id,
+)
+sa.Index(
+    "ix_phase2_batch_authorizations_expires_at",
+    phase2_batch_authorizations.c.expires_at,
+)
+
+phase2_logical_orders = sa.Table(
+    "phase2_logical_orders",
+    metadata,
+    sa.Column("order_id", sa.String(64), primary_key=True),
+    sa.Column("account_id", sa.String(64), nullable=False),
+    sa.Column("fencing_generation", sa.BigInteger(), nullable=False),
+    sa.Column("lease_sha256", sa.String(64), nullable=False),
+    sa.Column("fence_sha256", sa.String(64), nullable=False),
+    sa.Column("parent_decision_id", sa.String(64), nullable=False),
+    sa.Column("reservation_id", sa.String(64), nullable=False),
+    sa.Column(
+        "authorization_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_batch_authorizations.authorization_id"),
+        nullable=False,
+        unique=True,
+    ),
+    sa.Column("intent_batch_id", sa.String(64), nullable=False),
+    sa.Column("intent_id", sa.String(64), nullable=False, unique=True),
+    sa.Column("intent_payload_sha256", sa.String(64), nullable=False),
+    sa.Column("intent_payload", sa.Text(), nullable=False),
+    sa.Column("submission_attempt_id", sa.String(64), nullable=False, unique=True),
+    sa.Column("client_order_id", sa.String(64), nullable=False, unique=True),
+    sa.Column("instrument_id", sa.String(64), nullable=False),
+    sa.Column("symbol", sa.String(32), nullable=False),
+    sa.Column("side", sa.String(8), nullable=False),
+    sa.Column("quantity", sa.Numeric(28, 10), nullable=False),
+    sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.ForeignKeyConstraint(
+        ["reservation_id", "parent_decision_id"],
+        [
+            "phase2_batch_reservations.reservation_id",
+            "phase2_batch_reservations.parent_decision_id",
+        ],
+        name="parent_reservation",
+    ),
+    sa.ForeignKeyConstraint(
+        ["account_id", "fencing_generation", "lease_sha256"],
+        [
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ],
+        name="authorizing_lease",
+    ),
+    sa.UniqueConstraint(
+        "order_id",
+        "account_id",
+        "fencing_generation",
+        name="order_account_generation",
+    ),
+    sa.CheckConstraint("fencing_generation > 0", name="positive_generation"),
+    sa.CheckConstraint("side IN ('buy', 'sell')", name="valid_side"),
+    sa.CheckConstraint(
+        "quantity > 0 AND quantity = CAST(quantity AS BIGINT)",
+        name="whole_quantity",
+    ),
+    sa.CheckConstraint("symbol = upper(symbol)", name="canonical_symbol"),
+    sa.CheckConstraint(
+        "length(lease_sha256) = 64 "
+        "AND length(fence_sha256) = 64 "
+        "AND length(intent_payload_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(intent_payload) BETWEEN 2 AND 262144 "
+        "AND length(canonical_payload) BETWEEN 2 AND 524288",
+        name="payload_sizes",
+    ),
+)
+sa.Index(
+    "ix_phase2_logical_orders_account_submitted",
+    phase2_logical_orders.c.account_id,
+    phase2_logical_orders.c.submitted_at,
+)
+
+phase2_authorization_consumptions = sa.Table(
+    "phase2_authorization_consumptions",
+    metadata,
+    sa.Column("consumption_id", sa.String(64), primary_key=True),
+    sa.Column(
+        "authorization_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_batch_authorizations.authorization_id"),
+        nullable=False,
+        unique=True,
+    ),
+    sa.Column(
+        "order_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_logical_orders.order_id"),
+        nullable=False,
+        unique=True,
+    ),
+    sa.Column("reservation_id", sa.String(64), nullable=False),
+    sa.Column("intent_id", sa.String(64), nullable=False, unique=True),
+    sa.Column("intent_payload_sha256", sa.String(64), nullable=False),
+    sa.Column("account_id", sa.String(64), nullable=False),
+    sa.Column("fencing_generation", sa.BigInteger(), nullable=False),
+    sa.Column("lease_sha256", sa.String(64), nullable=False),
+    sa.Column("fence_sha256", sa.String(64), nullable=False),
+    sa.Column("consumed_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.ForeignKeyConstraint(
+        ["account_id", "fencing_generation", "lease_sha256"],
+        [
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ],
+        name="consuming_lease",
+    ),
+    sa.CheckConstraint("fencing_generation > 0", name="positive_generation"),
+    sa.CheckConstraint(
+        "length(intent_payload_sha256) = 64 "
+        "AND length(lease_sha256) = 64 "
+        "AND length(fence_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+)
+sa.Index(
+    "ix_phase2_authorization_consumptions_account_time",
+    phase2_authorization_consumptions.c.account_id,
+    phase2_authorization_consumptions.c.consumed_at,
+)
+
+phase2_submission_attempts = sa.Table(
+    "phase2_submission_attempts",
+    metadata,
+    sa.Column("attempt_id", sa.String(64), primary_key=True),
+    sa.Column(
+        "order_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_logical_orders.order_id"),
+        nullable=False,
+    ),
+    sa.Column("account_id", sa.String(64), nullable=False),
+    sa.Column("fencing_generation", sa.BigInteger(), nullable=False),
+    sa.Column("lease_sha256", sa.String(64), nullable=False),
+    sa.Column("fence_sha256", sa.String(64), nullable=False),
+    sa.Column(
+        "parent_decision_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_batch_decisions.decision_id"),
+        nullable=False,
+    ),
+    sa.Column(
+        "authorization_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_batch_authorizations.authorization_id"),
+        nullable=False,
+    ),
+    sa.Column("reservation_id", sa.String(64), nullable=False),
+    sa.Column("intent_id", sa.String(64), nullable=False),
+    sa.Column("intent_payload_sha256", sa.String(64), nullable=False),
+    sa.Column("risk_decision_sha256", sa.String(64), nullable=False),
+    sa.Column("authorization_sha256", sa.String(64), nullable=False),
+    sa.Column("fence_receipt_sha256", sa.String(64), nullable=False),
+    sa.Column("fence_validated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("fence_valid_until", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("attempt_number", sa.Integer(), nullable=False),
+    sa.Column("client_order_id", sa.String(64), nullable=False),
+    sa.Column("adapter_id", sa.String(128), nullable=False),
+    sa.Column("adapter_version", sa.String(64), nullable=False),
+    sa.Column("operation", sa.String(64), nullable=False),
+    sa.Column("request_sha256", sa.String(64), nullable=False),
+    sa.Column("request_payload", sa.Text(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.ForeignKeyConstraint(
+        ["account_id", "fencing_generation", "lease_sha256"],
+        [
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ],
+        name="attempt_lease",
+    ),
+    sa.ForeignKeyConstraint(
+        ["reservation_id", "parent_decision_id"],
+        [
+            "phase2_batch_reservations.reservation_id",
+            "phase2_batch_reservations.parent_decision_id",
+        ],
+        name="attempt_parent_reservation",
+    ),
+    sa.UniqueConstraint("order_id", "attempt_number", name="order_attempt_number"),
+    sa.CheckConstraint("fencing_generation > 0", name="positive_generation"),
+    sa.CheckConstraint("attempt_number > 0", name="positive_attempt_number"),
+    sa.CheckConstraint(
+        "fence_validated_at <= created_at AND created_at < fence_valid_until",
+        name="current_fence_receipt",
+    ),
+    sa.CheckConstraint(
+        "length(lease_sha256) = 64 "
+        "AND length(fence_sha256) = 64 "
+        "AND length(intent_payload_sha256) = 64 "
+        "AND length(risk_decision_sha256) = 64 "
+        "AND length(authorization_sha256) = 64 "
+        "AND length(fence_receipt_sha256) = 64 "
+        "AND length(request_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(request_payload) BETWEEN 2 AND 262144 "
+        "AND length(canonical_payload) BETWEEN 2 AND 524288",
+        name="payload_sizes",
+    ),
+)
+sa.Index(
+    "ix_phase2_submission_attempts_account_created",
+    phase2_submission_attempts.c.account_id,
+    phase2_submission_attempts.c.created_at,
+)
+sa.Index(
+    "ix_phase2_submission_attempts_client_order",
+    phase2_submission_attempts.c.client_order_id,
+)
+
+phase2_submission_attempt_events = sa.Table(
+    "phase2_submission_attempt_events",
+    metadata,
+    sa.Column("event_id", sa.String(64), primary_key=True),
+    sa.Column(
+        "attempt_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_submission_attempts.attempt_id"),
+        nullable=False,
+    ),
+    sa.Column("sequence_number", sa.Integer(), nullable=False),
+    sa.Column("state", sa.String(16), nullable=False),
+    sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("visible_after_observation_sequence", sa.BigInteger(), nullable=False),
+    sa.Column("capacity_visibility_sha256", sa.String(64), nullable=True),
+    sa.Column("previous_event_sha256", sa.String(64), nullable=True),
+    sa.Column("dispatch_account_id", sa.String(64), nullable=True),
+    sa.Column("dispatch_fencing_generation", sa.BigInteger(), nullable=True),
+    sa.Column("dispatch_lease_sha256", sa.String(64), nullable=True),
+    sa.Column("dispatch_fence_sha256", sa.String(64), nullable=True),
+    sa.Column("dispatch_fence_receipt_sha256", sa.String(64), nullable=True),
+    sa.Column("dispatch_fence_validated_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("dispatch_fence_valid_until", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("response_sha256", sa.String(64), nullable=True),
+    sa.Column("broker_order_id", sa.String(128), nullable=True),
+    sa.Column("error_class", sa.String(128), nullable=True),
+    sa.Column("resolution", sa.String(24), nullable=True),
+    sa.Column("reconciliation_sha256", sa.String(64), nullable=True),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.ForeignKeyConstraint(
+        [
+            "dispatch_account_id",
+            "dispatch_fencing_generation",
+            "dispatch_lease_sha256",
+        ],
+        [
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ],
+        name="dispatch_lease",
+    ),
+    sa.UniqueConstraint("attempt_id", "sequence_number", name="attempt_sequence"),
+    sa.CheckConstraint("sequence_number > 0", name="positive_sequence"),
+    sa.CheckConstraint(
+        "state IN ('pending', 'in_flight', 'abandoned', 'confirmed', 'unknown', 'resolved')",
+        name="valid_state",
+    ),
+    sa.CheckConstraint(
+        "(state = 'pending' AND sequence_number = 1 AND previous_event_sha256 IS NULL) "
+        "OR (state <> 'pending' AND sequence_number > 1 "
+        "AND previous_event_sha256 IS NOT NULL)",
+        name="pending_is_first",
+    ),
+    sa.CheckConstraint(
+        "(state = 'in_flight' "
+        "AND dispatch_account_id IS NOT NULL "
+        "AND dispatch_fencing_generation IS NOT NULL "
+        "AND dispatch_lease_sha256 IS NOT NULL "
+        "AND dispatch_fence_sha256 IS NOT NULL "
+        "AND dispatch_fence_receipt_sha256 IS NOT NULL "
+        "AND dispatch_fence_validated_at IS NOT NULL "
+        "AND dispatch_fence_valid_until IS NOT NULL) "
+        "OR (state <> 'in_flight' "
+        "AND dispatch_account_id IS NULL "
+        "AND dispatch_fencing_generation IS NULL "
+        "AND dispatch_lease_sha256 IS NULL "
+        "AND dispatch_fence_sha256 IS NULL "
+        "AND dispatch_fence_receipt_sha256 IS NULL "
+        "AND dispatch_fence_validated_at IS NULL "
+        "AND dispatch_fence_valid_until IS NULL)",
+        name="dispatch_receipt_shape",
+    ),
+    sa.CheckConstraint(
+        "state <> 'in_flight' OR (dispatch_fencing_generation > 0 "
+        "AND dispatch_fence_validated_at = occurred_at "
+        "AND occurred_at < dispatch_fence_valid_until)",
+        name="current_dispatch_receipt",
+    ),
+    sa.CheckConstraint(
+        "(state IN ('pending', 'in_flight') "
+        "AND response_sha256 IS NULL AND broker_order_id IS NULL "
+        "AND error_class IS NULL AND resolution IS NULL "
+        "AND reconciliation_sha256 IS NULL) "
+        "OR (state = 'abandoned' AND response_sha256 IS NULL "
+        "AND broker_order_id IS NULL AND error_class IS NOT NULL "
+        "AND resolution IS NULL AND reconciliation_sha256 IS NULL) "
+        "OR (state = 'confirmed' AND response_sha256 IS NOT NULL "
+        "AND broker_order_id IS NOT NULL AND error_class IS NULL "
+        "AND resolution IS NULL AND reconciliation_sha256 IS NULL) "
+        "OR (state = 'unknown' AND response_sha256 IS NULL "
+        "AND broker_order_id IS NULL AND error_class IS NOT NULL "
+        "AND resolution IS NULL AND reconciliation_sha256 IS NULL) "
+        "OR (state = 'resolved' AND error_class IS NULL "
+        "AND resolution IS NOT NULL AND reconciliation_sha256 IS NOT NULL "
+        "AND ((resolution = 'not_submitted' AND response_sha256 IS NULL "
+        "AND broker_order_id IS NULL) "
+        "OR (resolution = 'broker_accepted' AND response_sha256 IS NOT NULL "
+        "AND broker_order_id IS NOT NULL) "
+        "OR (resolution = 'broker_rejected' AND response_sha256 IS NOT NULL)))",
+        name="state_evidence_shape",
+    ),
+    sa.CheckConstraint(
+        "resolution IS NULL OR resolution IN "
+        "('not_submitted', 'broker_accepted', 'broker_rejected')",
+        name="valid_resolution",
+    ),
+    sa.CheckConstraint("recorded_at >= occurred_at", name="valid_time_order"),
+    sa.CheckConstraint(
+        "(visible_after_observation_sequence = 0 AND capacity_visibility_sha256 IS NULL) "
+        "OR (visible_after_observation_sequence > 0 "
+        "AND length(capacity_visibility_sha256) = 64)",
+        name="valid_capacity_visibility_binding",
+    ),
+    sa.CheckConstraint(
+        "(previous_event_sha256 IS NULL OR length(previous_event_sha256) = 64) "
+        "AND (dispatch_lease_sha256 IS NULL OR length(dispatch_lease_sha256) = 64) "
+        "AND (dispatch_fence_sha256 IS NULL OR length(dispatch_fence_sha256) = 64) "
+        "AND (dispatch_fence_receipt_sha256 IS NULL "
+        "OR length(dispatch_fence_receipt_sha256) = 64) "
+        "AND (response_sha256 IS NULL OR length(response_sha256) = 64) "
+        "AND (reconciliation_sha256 IS NULL OR length(reconciliation_sha256) = 64)",
+        name="optional_hash_lengths",
+    ),
+    sa.CheckConstraint("length(semantic_sha256) = 64", name="semantic_hash_length"),
+    sa.CheckConstraint(
+        "length(canonical_payload) BETWEEN 2 AND 262144",
+        name="payload_size",
+    ),
+)
+sa.Index(
+    "ix_phase2_submission_attempt_events_state_recorded",
+    phase2_submission_attempt_events.c.state,
+    phase2_submission_attempt_events.c.recorded_at,
+)
+
+phase2_order_events = sa.Table(
+    "phase2_order_events",
+    metadata,
+    sa.Column("event_id", sa.String(128), primary_key=True),
+    sa.Column(
+        "order_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_logical_orders.order_id"),
+        nullable=False,
+    ),
+    sa.Column("broker_order_id", sa.String(128), nullable=False),
+    sa.Column("broker_sequence", sa.Integer(), nullable=False),
+    sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("visible_after_observation_sequence", sa.BigInteger(), nullable=False),
+    sa.Column("capacity_visibility_sha256", sa.String(64), nullable=True),
+    sa.Column("kind", sa.String(32), nullable=False),
+    sa.Column("reason", sa.String(512), nullable=True),
+    sa.Column("execution_id", sa.String(128), nullable=True),
+    sa.Column("execution_revision", sa.Integer(), nullable=True),
+    sa.Column("supersedes_event_id", sa.String(128), nullable=True),
+    sa.Column("quantity", sa.Numeric(28, 10), nullable=True),
+    sa.Column("price", sa.Numeric(28, 10), nullable=True),
+    sa.Column("fee", sa.Numeric(28, 10), nullable=True),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.ForeignKeyConstraint(
+        ["supersedes_event_id"],
+        ["phase2_order_events.event_id"],
+        name="superseded_event",
+    ),
+    sa.UniqueConstraint("order_id", "broker_sequence", name="order_broker_sequence"),
+    sa.UniqueConstraint(
+        "order_id",
+        "execution_id",
+        "execution_revision",
+        name="execution_revision",
+    ),
+    sa.CheckConstraint("broker_sequence > 0", name="positive_broker_sequence"),
+    sa.CheckConstraint("received_at >= occurred_at", name="valid_time_order"),
+    sa.CheckConstraint(
+        "(visible_after_observation_sequence = 0 AND capacity_visibility_sha256 IS NULL) "
+        "OR (visible_after_observation_sequence > 0 "
+        "AND length(capacity_visibility_sha256) = 64)",
+        name="valid_capacity_visibility_binding",
+    ),
+    sa.CheckConstraint(
+        "kind IN ('accepted', 'rejected', 'canceled', 'execution', 'execution_correction')",
+        name="valid_kind",
+    ),
+    sa.CheckConstraint(
+        "kind <> 'rejected' OR reason IS NOT NULL",
+        name="rejection_reason",
+    ),
+    sa.CheckConstraint(
+        "(kind NOT IN ('execution', 'execution_correction') "
+        "AND execution_id IS NULL "
+        "AND execution_revision IS NULL "
+        "AND supersedes_event_id IS NULL "
+        "AND quantity IS NULL AND price IS NULL AND fee IS NULL) "
+        "OR (kind = 'execution' "
+        "AND execution_id IS NOT NULL "
+        "AND execution_revision = 1 "
+        "AND supersedes_event_id IS NULL "
+        "AND quantity > 0 AND quantity = CAST(quantity AS BIGINT) "
+        "AND price > 0 AND fee >= 0) "
+        "OR (kind = 'execution_correction' "
+        "AND execution_id IS NOT NULL "
+        "AND execution_revision > 1 "
+        "AND supersedes_event_id IS NOT NULL "
+        "AND quantity >= 0 AND quantity = CAST(quantity AS BIGINT) "
+        "AND price > 0 AND fee >= 0)",
+        name="execution_shape",
+    ),
+    sa.CheckConstraint("length(semantic_sha256) = 64", name="semantic_hash_length"),
+    sa.CheckConstraint(
+        "length(canonical_payload) BETWEEN 2 AND 262144",
+        name="payload_size",
+    ),
+)
+sa.Index(
+    "ix_phase2_order_events_broker_order",
+    phase2_order_events.c.broker_order_id,
+)
+sa.Index(
+    "ix_phase2_order_events_order_received",
+    phase2_order_events.c.order_id,
+    phase2_order_events.c.received_at,
+)
+
+phase2_simulation_horizon_facts = sa.Table(
+    "phase2_simulation_horizon_facts",
+    metadata,
+    sa.Column("horizon_id", sa.String(64), primary_key=True),
+    sa.Column("horizon_reference", sa.String(64), nullable=False, unique=True),
+    sa.Column("horizon_source_sha256", sa.String(64), nullable=False, unique=True),
+    sa.Column(
+        "reservation_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_batch_reservations.reservation_id"),
+        nullable=False,
+    ),
+    sa.Column(
+        "parent_decision_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_batch_decisions.decision_id"),
+        nullable=False,
+    ),
+    sa.Column(
+        "authorization_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_batch_authorizations.authorization_id"),
+        nullable=False,
+    ),
+    sa.Column(
+        "attempt_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_submission_attempts.attempt_id"),
+        nullable=False,
+    ),
+    sa.Column(
+        "order_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_logical_orders.order_id"),
+        nullable=False,
+    ),
+    sa.Column(
+        "final_order_event_id",
+        sa.String(128),
+        sa.ForeignKey("phase2_order_events.event_id"),
+        nullable=False,
+    ),
+    sa.Column(
+        "replay_run_id",
+        sa.String(64),
+        sa.ForeignKey("replay_run_manifests.run_id"),
+        nullable=False,
+    ),
+    sa.Column(
+        "replay_manifest_sha256",
+        sa.String(64),
+        sa.ForeignKey("replay_run_manifests.manifest_sha256"),
+        nullable=False,
+    ),
+    sa.Column("replay_event_count", sa.Integer(), nullable=False),
+    sa.Column("replay_watermark_count", sa.Integer(), nullable=False),
+    sa.Column("simulation_result_id", sa.String(64), nullable=False, unique=True),
+    sa.Column("horizon_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.CheckConstraint(
+        "replay_run_id = replay_manifest_sha256",
+        name="content_addressed_replay",
+    ),
+    sa.CheckConstraint("recorded_at >= horizon_at", name="valid_time_order"),
+    sa.CheckConstraint(
+        "replay_event_count >= 0 AND replay_watermark_count > 0",
+        name="valid_replay_counts",
+    ),
+    sa.CheckConstraint(
+        "length(horizon_id) = 36 "
+        "AND length(horizon_reference) = 36 "
+        "AND length(simulation_result_id) = 36 "
+        "AND length(horizon_source_sha256) = 64 "
+        "AND length(replay_run_id) = 64 "
+        "AND length(replay_manifest_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(canonical_payload) BETWEEN 2 AND 524288",
+        name="payload_size",
+    ),
+)
+sa.Index(
+    "ix_phase2_simulation_horizon_facts_reservation_recorded",
+    phase2_simulation_horizon_facts.c.reservation_id,
+    phase2_simulation_horizon_facts.c.recorded_at,
+)
+
+phase2_reservation_release_events = sa.Table(
+    "phase2_reservation_release_events",
+    metadata,
+    sa.Column("release_event_id", sa.String(64), primary_key=True),
+    sa.Column(
+        "reservation_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_batch_reservations.reservation_id"),
+        nullable=False,
+    ),
+    sa.Column(
+        "authorization_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_batch_authorizations.authorization_id"),
+        nullable=False,
+    ),
+    sa.Column("order_id", sa.String(64), sa.ForeignKey("phase2_logical_orders.order_id")),
+    sa.Column(
+        "attempt_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_submission_attempts.attempt_id"),
+        nullable=True,
+    ),
+    sa.Column(
+        "order_event_id",
+        sa.String(128),
+        sa.ForeignKey("phase2_order_events.event_id"),
+        nullable=True,
+    ),
+    sa.Column("reason", sa.String(32), nullable=False),
+    sa.Column("finality_reference", sa.String(256), nullable=False),
+    sa.Column("source_sha256", sa.String(64), nullable=False),
+    sa.Column("released_cash", sa.Numeric(28, 10), nullable=False),
+    sa.Column("released_buy_exposure", sa.Numeric(28, 10), nullable=False),
+    sa.Column("released_sell_quantity", sa.Numeric(28, 10), nullable=False),
+    sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("visible_after_observation_sequence", sa.BigInteger(), nullable=False),
+    sa.Column("capacity_visibility_sha256", sa.String(64), nullable=True),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.CheckConstraint(
+        "reason IN ('approval_expired_unsent', 'broker_rejected', "
+        "'execution_accounted', 'reconciled_terminal', 'simulation_horizon_final')",
+        name="valid_reason",
+    ),
+    sa.CheckConstraint(
+        "released_cash >= 0 "
+        "AND released_buy_exposure >= 0 "
+        "AND released_sell_quantity >= 0 "
+        "AND (released_cash > 0 "
+        "OR released_buy_exposure > 0 "
+        "OR released_sell_quantity > 0)",
+        name="positive_release",
+    ),
+    sa.CheckConstraint(
+        "released_sell_quantity = CAST(released_sell_quantity AS BIGINT)",
+        name="whole_sell_quantity",
+    ),
+    sa.CheckConstraint("recorded_at >= occurred_at", name="valid_time_order"),
+    sa.CheckConstraint(
+        "(visible_after_observation_sequence = 0 AND capacity_visibility_sha256 IS NULL) "
+        "OR (visible_after_observation_sequence > 0 "
+        "AND length(capacity_visibility_sha256) = 64)",
+        name="valid_capacity_visibility_binding",
+    ),
+    sa.CheckConstraint(
+        "length(source_sha256) = 64 AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(canonical_payload) BETWEEN 2 AND 262144",
+        name="payload_size",
+    ),
+)
+sa.Index(
+    "ix_phase2_reservation_releases_reservation_recorded",
+    phase2_reservation_release_events.c.reservation_id,
+    phase2_reservation_release_events.c.recorded_at,
+)
+
+phase2_ledger_entries = sa.Table(
+    "phase2_ledger_entries",
+    metadata,
+    sa.Column("entry_id", sa.String(64), primary_key=True),
+    sa.Column("account_id", sa.String(64), nullable=False),
+    sa.Column("kind", sa.String(40), nullable=False),
+    sa.Column("reference_id", sa.String(128), nullable=False),
+    sa.Column("source_sha256", sa.String(64), nullable=False),
+    sa.Column("effective_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.UniqueConstraint("account_id", "kind", "reference_id", name="account_fact"),
+    sa.CheckConstraint(
+        "kind IN ('cash_flow', 'execution', 'execution_correction', "
+        "'settlement_reclassification', 'execution_settlement', 'stock_split', "
+        "'cash_dividend_accrual', 'cash_dividend_payment')",
+        name="valid_kind",
+    ),
+    sa.CheckConstraint("recorded_at >= effective_at", name="valid_time_order"),
+    sa.CheckConstraint(
+        "length(source_sha256) = 64 AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(canonical_payload) BETWEEN 2 AND 524288",
+        name="payload_size",
+    ),
+)
+sa.Index(
+    "ix_phase2_ledger_entries_account_effective",
+    phase2_ledger_entries.c.account_id,
+    phase2_ledger_entries.c.effective_at,
+)
+
+phase2_ledger_postings = sa.Table(
+    "phase2_ledger_postings",
+    metadata,
+    sa.Column(
+        "posting_id",
+        sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    ),
+    sa.Column(
+        "entry_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_ledger_entries.entry_id"),
+        nullable=False,
+    ),
+    sa.Column("line_number", sa.Integer(), nullable=False),
+    sa.Column("account", sa.String(128), nullable=False),
+    sa.Column("currency", sa.String(3), nullable=False),
+    sa.Column("debit", sa.Numeric(28, 10), nullable=False, server_default="0"),
+    sa.Column("credit", sa.Numeric(28, 10), nullable=False, server_default="0"),
+    sa.Column("units_delta", sa.Numeric(28, 10), nullable=False, server_default="0"),
+    sa.Column("instrument_id", sa.String(64), nullable=True),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False),
+    sa.UniqueConstraint("entry_id", "line_number", name="entry_line"),
+    sa.UniqueConstraint("entry_id", "semantic_sha256", name="entry_posting_digest"),
+    sa.CheckConstraint("line_number > 0", name="positive_line_number"),
+    sa.CheckConstraint("debit >= 0 AND credit >= 0", name="non_negative_money"),
+    sa.CheckConstraint("debit = 0 OR credit = 0", name="single_money_side"),
+    sa.CheckConstraint(
+        "NOT (debit = 0 AND credit = 0 AND units_delta = 0)",
+        name="non_empty_posting",
+    ),
+    sa.CheckConstraint(
+        "units_delta = 0 "
+        "OR (instrument_id IS NOT NULL "
+        "AND units_delta = CAST(units_delta AS BIGINT))",
+        name="valid_units",
+    ),
+    sa.CheckConstraint(
+        "length(currency) = 3 AND currency = upper(currency)",
+        name="canonical_currency",
+    ),
+    sa.CheckConstraint("length(semantic_sha256) = 64", name="semantic_hash_length"),
+)
+sa.Index(
+    "ix_phase2_ledger_postings_entry_id",
+    phase2_ledger_postings.c.entry_id,
+)
+
+# Phase 2C fixture-only research workflow.  Launch inputs and result artifacts
+# are immutable; ``phase2_backtest_job_heads`` is only a lockable projection of
+# the append-only job event stream.
+phase2_strategy_versions = sa.Table(
+    "phase2_strategy_versions",
+    metadata,
+    sa.Column("strategy_version_id", sa.String(64), primary_key=True),
+    sa.Column("strategy_id", sa.String(128), nullable=False),
+    sa.Column("strategy_version", sa.String(64), nullable=False),
+    sa.Column("display_name", sa.String(128), nullable=False),
+    sa.Column("presentation_payload", sa.Text(), nullable=False),
+    sa.Column("presentation_sha256", sa.String(64), nullable=False, unique=True),
+    sa.Column("implementation_sha256", sa.String(64), nullable=False),
+    sa.Column("parameter_schema_sha256", sa.String(64), nullable=False),
+    sa.Column("parameter_schema_payload", sa.Text(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.UniqueConstraint("strategy_id", "strategy_version", name="strategy_version"),
+    sa.UniqueConstraint(
+        "strategy_version_id", "strategy_id", "strategy_version", name="strategy_identity"
+    ),
+    sa.CheckConstraint(
+        "length(implementation_sha256) = 64 "
+        "AND length(parameter_schema_sha256) = 64 "
+        "AND length(presentation_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(parameter_schema_payload) BETWEEN 2 AND 65536 "
+        "AND length(presentation_payload) BETWEEN 2 AND 65536 "
+        "AND length(canonical_payload) BETWEEN 2 AND 131072",
+        name="payload_sizes",
+    ),
+)
+
+phase2_strategy_configurations = sa.Table(
+    "phase2_strategy_configurations",
+    metadata,
+    sa.Column("configuration_sha256", sa.String(64), primary_key=True),
+    sa.Column("strategy_version_id", sa.String(64), nullable=False),
+    sa.Column("strategy_id", sa.String(128), nullable=False),
+    sa.Column("strategy_version", sa.String(64), nullable=False),
+    sa.Column("display_name", sa.String(128), nullable=False),
+    sa.Column("parameters_payload", sa.Text(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.ForeignKeyConstraint(
+        ["strategy_version_id", "strategy_id", "strategy_version"],
+        [
+            "phase2_strategy_versions.strategy_version_id",
+            "phase2_strategy_versions.strategy_id",
+            "phase2_strategy_versions.strategy_version",
+        ],
+        name="strategy_version_identity",
+    ),
+    sa.UniqueConstraint(
+        "configuration_sha256", "strategy_version_id", name="configuration_version"
+    ),
+    sa.CheckConstraint(
+        "length(configuration_sha256) = 64 AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(parameters_payload) BETWEEN 2 AND 65536 "
+        "AND length(canonical_payload) BETWEEN 2 AND 131072",
+        name="payload_sizes",
+    ),
+)
+
+phase2_backtest_fixtures = sa.Table(
+    "phase2_backtest_fixtures",
+    metadata,
+    sa.Column("fixture_sha256", sa.String(64), primary_key=True),
+    sa.Column("fixture_id", sa.String(128), nullable=False),
+    sa.Column("fixture_version", sa.String(64), nullable=False),
+    sa.Column("dataset_manifest_sha256", sa.String(64), nullable=False),
+    sa.Column("source_tape_sha256", sa.String(64), nullable=False),
+    sa.Column("replay_run_id", sa.String(64), nullable=False),
+    sa.Column("replay_manifest_sha256", sa.String(64), nullable=False),
+    sa.Column("replay_input_sha256", sa.String(64), nullable=False),
+    sa.Column("replay_semantic_sha256", sa.String(64), nullable=False),
+    sa.Column("strategy_version_id", sa.String(64), nullable=False),
+    sa.Column("strategy_id", sa.String(128), nullable=False),
+    sa.Column("strategy_version", sa.String(64), nullable=False),
+    sa.Column("strategy_configuration_sha256", sa.String(64), nullable=False),
+    sa.Column("benchmark_sha256", sa.String(64), nullable=False),
+    sa.Column("cost_model_sha256", sa.String(64), nullable=False),
+    sa.Column("fill_model_sha256", sa.String(64), nullable=False),
+    sa.Column("metric_conventions_sha256", sa.String(64), nullable=False),
+    sa.Column("registered_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.UniqueConstraint("fixture_id", "fixture_version", name="fixture_version"),
+    sa.UniqueConstraint(
+        "fixture_id",
+        "fixture_version",
+        "dataset_manifest_sha256",
+        "replay_run_id",
+        name="fixture_launch_identity",
+    ),
+    sa.ForeignKeyConstraint(
+        ["strategy_version_id", "strategy_id", "strategy_version"],
+        [
+            "phase2_strategy_versions.strategy_version_id",
+            "phase2_strategy_versions.strategy_id",
+            "phase2_strategy_versions.strategy_version",
+        ],
+        name="strategy_version_identity",
+    ),
+    sa.ForeignKeyConstraint(
+        ["strategy_configuration_sha256", "strategy_version_id"],
+        [
+            "phase2_strategy_configurations.configuration_sha256",
+            "phase2_strategy_configurations.strategy_version_id",
+        ],
+        name="strategy_configuration_identity",
+    ),
+    sa.CheckConstraint("replay_run_id = replay_manifest_sha256", name="content_addressed_replay"),
+    sa.CheckConstraint(
+        "length(fixture_sha256) = 64 "
+        "AND length(dataset_manifest_sha256) = 64 "
+        "AND length(source_tape_sha256) = 64 "
+        "AND length(replay_run_id) = 64 "
+        "AND length(replay_manifest_sha256) = 64 "
+        "AND length(replay_input_sha256) = 64 "
+        "AND length(replay_semantic_sha256) = 64 "
+        "AND length(strategy_configuration_sha256) = 64 "
+        "AND length(benchmark_sha256) = 64 "
+        "AND length(cost_model_sha256) = 64 "
+        "AND length(fill_model_sha256) = 64 "
+        "AND length(metric_conventions_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint("length(canonical_payload) BETWEEN 2 AND 131072", name="payload_size"),
+)
+
+phase2_backtest_jobs = sa.Table(
+    "phase2_backtest_jobs",
+    metadata,
+    sa.Column("job_id", sa.String(64), primary_key=True),
+    sa.Column("input_sha256", sa.String(64), nullable=False),
+    sa.Column("fixture_id", sa.String(128), nullable=False),
+    sa.Column("fixture_version", sa.String(64), nullable=False),
+    sa.Column("dataset_manifest_id", sa.String(64), nullable=False),
+    sa.Column("dataset_manifest_sha256", sa.String(64), nullable=False),
+    sa.Column("replay_run_id", sa.String(64), nullable=False),
+    sa.Column("strategy_version_id", sa.String(64), nullable=False),
+    sa.Column("strategy_id", sa.String(128), nullable=False),
+    sa.Column("strategy_version", sa.String(64), nullable=False),
+    sa.Column("strategy_configuration_sha256", sa.String(64), nullable=False),
+    sa.Column("benchmark_sha256", sa.String(64), nullable=False),
+    sa.Column("cost_model_sha256", sa.String(64), nullable=False),
+    sa.Column("fill_model_sha256", sa.String(64), nullable=False),
+    sa.Column("metric_conventions_sha256", sa.String(64), nullable=False),
+    sa.Column("requested_by", sa.String(128), nullable=False),
+    sa.Column("idempotency_key", sa.String(128), nullable=False),
+    sa.Column("requested_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.ForeignKeyConstraint(
+        [
+            "fixture_id",
+            "fixture_version",
+            "dataset_manifest_sha256",
+            "replay_run_id",
+        ],
+        [
+            "phase2_backtest_fixtures.fixture_id",
+            "phase2_backtest_fixtures.fixture_version",
+            "phase2_backtest_fixtures.dataset_manifest_sha256",
+            "phase2_backtest_fixtures.replay_run_id",
+        ],
+        name="fixture_launch_identity",
+    ),
+    sa.ForeignKeyConstraint(
+        ["strategy_version_id", "strategy_id", "strategy_version"],
+        [
+            "phase2_strategy_versions.strategy_version_id",
+            "phase2_strategy_versions.strategy_id",
+            "phase2_strategy_versions.strategy_version",
+        ],
+        name="strategy_version_identity",
+    ),
+    sa.ForeignKeyConstraint(
+        ["strategy_configuration_sha256", "strategy_version_id"],
+        [
+            "phase2_strategy_configurations.configuration_sha256",
+            "phase2_strategy_configurations.strategy_version_id",
+        ],
+        name="strategy_configuration_identity",
+    ),
+    sa.UniqueConstraint("requested_by", "idempotency_key", name="operator_idempotency"),
+    sa.CheckConstraint(
+        "dataset_manifest_id = dataset_manifest_sha256", name="content_addressed_dataset"
+    ),
+    sa.CheckConstraint(
+        "length(job_id) = 64 AND length(input_sha256) = 64 "
+        "AND length(dataset_manifest_id) = 64 "
+        "AND length(dataset_manifest_sha256) = 64 "
+        "AND length(replay_run_id) = 64 "
+        "AND length(strategy_configuration_sha256) = 64 "
+        "AND length(benchmark_sha256) = 64 "
+        "AND length(cost_model_sha256) = 64 "
+        "AND length(fill_model_sha256) = 64 "
+        "AND length(metric_conventions_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint("length(canonical_payload) BETWEEN 2 AND 524288", name="payload_size"),
+)
+sa.Index(
+    "ix_phase2_backtest_jobs_requested_at",
+    phase2_backtest_jobs.c.requested_at,
+)
+
+phase2_backtest_reports = sa.Table(
+    "phase2_backtest_reports",
+    metadata,
+    sa.Column("report_artifact_sha256", sa.String(64), primary_key=True),
+    sa.Column("report_sha256", sa.String(64), nullable=False),
+    sa.Column("account_id", sa.String(64), nullable=False),
+    sa.Column("currency", sa.String(3), nullable=False),
+    sa.Column("period_start", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("period_end", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("generated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("starting_equity", sa.Numeric(28, 10), nullable=False),
+    sa.Column("ending_equity", sa.Numeric(28, 10), nullable=False),
+    sa.Column("total_return", sa.Numeric(28, 10), nullable=False),
+    sa.Column("maximum_drawdown", sa.Numeric(28, 10), nullable=False),
+    sa.Column("turnover", sa.Numeric(28, 10), nullable=False),
+    sa.Column("trade_count", sa.Integer(), nullable=False),
+    sa.Column("realized_pnl", sa.Numeric(28, 10), nullable=False),
+    sa.Column("unrealized_pnl", sa.Numeric(28, 10), nullable=False),
+    sa.Column("dividend_income", sa.Numeric(28, 10), nullable=False),
+    sa.Column("total_execution_costs", sa.Numeric(28, 10), nullable=False),
+    sa.Column("semantic_payload", sa.Text(), nullable=False),
+    sa.Column("artifact_payload", sa.Text(), nullable=False),
+    sa.Column("query_payload", sa.Text(), nullable=False),
+    sa.Column("query_payload_sha256", sa.String(64), nullable=False),
+    sa.UniqueConstraint("report_sha256", "report_artifact_sha256", name="report_artifact_identity"),
+    sa.CheckConstraint(
+        "period_end >= period_start AND generated_at >= period_end", name="valid_time_range"
+    ),
+    sa.CheckConstraint(
+        "starting_equity > 0 AND ending_equity > 0 "
+        "AND maximum_drawdown >= 0 AND turnover >= 0 "
+        "AND trade_count >= 0 AND total_execution_costs >= 0",
+        name="valid_metrics",
+    ),
+    sa.CheckConstraint(
+        "length(currency) = 3 AND currency = upper(currency)", name="canonical_currency"
+    ),
+    sa.CheckConstraint(
+        "length(report_sha256) = 64 AND length(report_artifact_sha256) = 64 "
+        "AND length(query_payload_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(semantic_payload) BETWEEN 2 AND 4194304 "
+        "AND length(artifact_payload) BETWEEN 2 AND 131072 "
+        "AND length(query_payload) BETWEEN 2 AND 4194304",
+        name="payload_sizes",
+    ),
+)
+sa.Index(
+    "ix_phase2_backtest_reports_generated_at",
+    phase2_backtest_reports.c.generated_at,
+)
+
+phase2_backtest_run_manifests = sa.Table(
+    "phase2_backtest_run_manifests",
+    metadata,
+    sa.Column("run_id", sa.String(64), primary_key=True),
+    sa.Column("manifest_sha256", sa.String(64), nullable=False, unique=True),
+    sa.Column(
+        "job_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_backtest_jobs.job_id"),
+        nullable=False,
+        unique=True,
+    ),
+    sa.Column("manifest_input_sha256", sa.String(64), nullable=False),
+    sa.Column("status", sa.String(16), nullable=False),
+    sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("completed_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("report_sha256", sa.String(64), nullable=True),
+    sa.Column("report_artifact_sha256", sa.String(64), nullable=True),
+    sa.Column("terminal_reason_code", sa.String(64), nullable=True),
+    sa.Column("terminal_reason_sha256", sa.String(64), nullable=True),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.ForeignKeyConstraint(
+        ["report_sha256", "report_artifact_sha256"],
+        [
+            "phase2_backtest_reports.report_sha256",
+            "phase2_backtest_reports.report_artifact_sha256",
+        ],
+        name="report_artifact",
+    ),
+    sa.CheckConstraint("run_id = manifest_sha256", name="content_addressed_run"),
+    sa.CheckConstraint("status IN ('completed', 'failed', 'canceled')", name="valid_status"),
+    sa.CheckConstraint(
+        "(status = 'completed' AND report_sha256 IS NOT NULL "
+        "AND report_artifact_sha256 IS NOT NULL "
+        "AND terminal_reason_code IS NULL AND terminal_reason_sha256 IS NULL) "
+        "OR (status IN ('failed', 'canceled') AND report_sha256 IS NULL "
+        "AND report_artifact_sha256 IS NULL "
+        "AND terminal_reason_code IS NOT NULL AND terminal_reason_sha256 IS NOT NULL)",
+        name="terminal_evidence_shape",
+    ),
+    sa.CheckConstraint("completed_at >= started_at", name="valid_time_range"),
+    sa.CheckConstraint(
+        "length(run_id) = 64 AND length(manifest_sha256) = 64 "
+        "AND length(manifest_input_sha256) = 64 "
+        "AND (report_sha256 IS NULL OR length(report_sha256) = 64) "
+        "AND (report_artifact_sha256 IS NULL OR length(report_artifact_sha256) = 64) "
+        "AND (terminal_reason_sha256 IS NULL OR length(terminal_reason_sha256) = 64)",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint("length(canonical_payload) BETWEEN 2 AND 1048576", name="payload_size"),
+)
+sa.Index(
+    "ix_phase2_backtest_run_manifests_completed_at",
+    phase2_backtest_run_manifests.c.completed_at,
+)
+
+phase2_backtest_job_events = sa.Table(
+    "phase2_backtest_job_events",
+    metadata,
+    sa.Column("event_sha256", sa.String(64), primary_key=True),
+    sa.Column(
+        "job_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_backtest_jobs.job_id"),
+        nullable=False,
+    ),
+    sa.Column("sequence_number", sa.Integer(), nullable=False),
+    sa.Column("status", sa.String(16), nullable=False),
+    sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("actor_id", sa.String(128), nullable=False),
+    sa.Column("attempt_number", sa.Integer(), nullable=False),
+    sa.Column("previous_event_sha256", sa.String(64), nullable=True),
+    sa.Column("worker_id", sa.String(128), nullable=True),
+    sa.Column("claim_expires_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("run_manifest_sha256", sa.String(64), nullable=True),
+    sa.Column("report_sha256", sa.String(64), nullable=True),
+    sa.Column("report_artifact_sha256", sa.String(64), nullable=True),
+    sa.Column("terminal_reason_code", sa.String(64), nullable=True),
+    sa.Column("terminal_reason_sha256", sa.String(64), nullable=True),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.ForeignKeyConstraint(
+        ["run_manifest_sha256"],
+        ["phase2_backtest_run_manifests.manifest_sha256"],
+        name="run_manifest",
+    ),
+    sa.ForeignKeyConstraint(
+        ["report_sha256", "report_artifact_sha256"],
+        [
+            "phase2_backtest_reports.report_sha256",
+            "phase2_backtest_reports.report_artifact_sha256",
+        ],
+        name="report_artifact",
+    ),
+    sa.UniqueConstraint("job_id", "sequence_number", name="job_sequence"),
+    sa.UniqueConstraint("job_id", "sequence_number", "event_sha256", name="job_event_identity"),
+    sa.CheckConstraint("sequence_number >= 0", name="non_negative_sequence"),
+    sa.CheckConstraint("attempt_number >= 0", name="non_negative_attempt"),
+    sa.CheckConstraint(
+        "status IN ('queued', 'running', 'completed', 'failed', 'canceled')",
+        name="valid_status",
+    ),
+    sa.CheckConstraint(
+        "(sequence_number = 0 AND status = 'queued' "
+        "AND attempt_number = 0 AND previous_event_sha256 IS NULL) "
+        "OR (sequence_number > 0 AND status <> 'queued' "
+        "AND attempt_number > 0 AND previous_event_sha256 IS NOT NULL)",
+        name="initial_event_shape",
+    ),
+    sa.CheckConstraint(
+        "(status = 'queued' AND worker_id IS NULL AND claim_expires_at IS NULL "
+        "AND run_manifest_sha256 IS NULL AND report_sha256 IS NULL "
+        "AND report_artifact_sha256 IS NULL AND terminal_reason_code IS NULL "
+        "AND terminal_reason_sha256 IS NULL) "
+        "OR (status = 'running' AND worker_id IS NOT NULL "
+        "AND claim_expires_at > occurred_at AND run_manifest_sha256 IS NULL "
+        "AND report_sha256 IS NULL AND report_artifact_sha256 IS NULL "
+        "AND terminal_reason_code IS NULL AND terminal_reason_sha256 IS NULL) "
+        "OR (status = 'completed' AND worker_id IS NULL AND claim_expires_at IS NULL "
+        "AND run_manifest_sha256 IS NOT NULL AND report_sha256 IS NOT NULL "
+        "AND report_artifact_sha256 IS NOT NULL AND terminal_reason_code IS NULL "
+        "AND terminal_reason_sha256 IS NULL) "
+        "OR (status IN ('failed', 'canceled') AND worker_id IS NULL "
+        "AND claim_expires_at IS NULL AND run_manifest_sha256 IS NULL "
+        "AND report_sha256 IS NULL AND report_artifact_sha256 IS NULL "
+        "AND terminal_reason_code IS NOT NULL AND terminal_reason_sha256 IS NOT NULL)",
+        name="status_evidence_shape",
+    ),
+    sa.CheckConstraint(
+        "length(event_sha256) = 64 "
+        "AND (previous_event_sha256 IS NULL OR length(previous_event_sha256) = 64) "
+        "AND (run_manifest_sha256 IS NULL OR length(run_manifest_sha256) = 64) "
+        "AND (report_sha256 IS NULL OR length(report_sha256) = 64) "
+        "AND (report_artifact_sha256 IS NULL OR length(report_artifact_sha256) = 64) "
+        "AND (terminal_reason_sha256 IS NULL OR length(terminal_reason_sha256) = 64)",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint("length(canonical_payload) BETWEEN 2 AND 262144", name="payload_size"),
+)
+sa.Index(
+    "ix_phase2_backtest_job_events_status_occurred",
+    phase2_backtest_job_events.c.status,
+    phase2_backtest_job_events.c.occurred_at,
+)
+
+phase2_backtest_job_heads = sa.Table(
+    "phase2_backtest_job_heads",
+    metadata,
+    sa.Column(
+        "job_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_backtest_jobs.job_id"),
+        primary_key=True,
+    ),
+    sa.Column("last_sequence_number", sa.Integer(), nullable=False),
+    sa.Column("last_event_sha256", sa.String(64), nullable=False),
+    sa.Column("status", sa.String(16), nullable=False),
+    sa.Column("attempt_number", sa.Integer(), nullable=False),
+    sa.Column("worker_id", sa.String(128), nullable=True),
+    sa.Column("claim_expires_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("run_manifest_sha256", sa.String(64), nullable=True),
+    sa.Column("report_sha256", sa.String(64), nullable=True),
+    sa.Column("report_artifact_sha256", sa.String(64), nullable=True),
+    sa.Column("terminal_reason_code", sa.String(64), nullable=True),
+    sa.Column("terminal_reason_sha256", sa.String(64), nullable=True),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(
+        ["job_id", "last_sequence_number", "last_event_sha256"],
+        [
+            "phase2_backtest_job_events.job_id",
+            "phase2_backtest_job_events.sequence_number",
+            "phase2_backtest_job_events.event_sha256",
+        ],
+        name="latest_event",
+    ),
+    sa.CheckConstraint(
+        "status IN ('queued', 'running', 'completed', 'failed', 'canceled')",
+        name="valid_status",
+    ),
+    sa.CheckConstraint(
+        "last_sequence_number >= 0 AND attempt_number >= 0", name="non_negative_versions"
+    ),
+    sa.CheckConstraint("length(last_event_sha256) = 64", name="event_hash_length"),
+)
+sa.Index(
+    "ix_phase2_backtest_job_heads_status_updated",
+    phase2_backtest_job_heads.c.status,
+    phase2_backtest_job_heads.c.updated_at,
+)
+
+phase2_backtest_audit_events = sa.Table(
+    "phase2_backtest_audit_events",
+    metadata,
+    sa.Column("audit_sha256", sa.String(64), primary_key=True),
+    sa.Column(
+        "job_id",
+        sa.String(64),
+        sa.ForeignKey("phase2_backtest_jobs.job_id"),
+        nullable=False,
+    ),
+    sa.Column("action", sa.String(32), nullable=False),
+    sa.Column("actor_id", sa.String(128), nullable=False),
+    sa.Column("idempotency_key", sa.String(128), nullable=False),
+    sa.Column("request_sha256", sa.String(64), nullable=False),
+    sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.UniqueConstraint("actor_id", "idempotency_key", name="actor_idempotency"),
+    sa.CheckConstraint("action = 'launch'", name="phase2_launch_only"),
+    sa.CheckConstraint(
+        "length(audit_sha256) = 64 AND length(request_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="hash_lengths",
+    ),
+    sa.CheckConstraint("length(canonical_payload) BETWEEN 2 AND 131072", name="payload_size"),
+)
+sa.Index(
+    "ix_phase2_backtest_audit_events_occurred_at",
+    phase2_backtest_audit_events.c.occurred_at,
+)

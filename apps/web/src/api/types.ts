@@ -69,3 +69,61 @@ export interface ProblemDetails {
   detail?: string
   instance?: string
 }
+
+export interface ResearchStrategyConfiguration {
+  configuration_sha256: string
+  configuration_name: string
+  parameters: Record<string, boolean | number | string>
+  launch_inputs: ResearchFixture[]
+}
+
+export interface ResearchStrategy {
+  strategy_version_id: string
+  strategy_id: string
+  strategy_version: string
+  display_name: string
+  parameter_schema: Record<string, unknown>
+  configurations: ResearchStrategyConfiguration[]
+}
+
+export interface ResearchFixture {
+  fixture_id: string
+  fixture_version: string
+  display_name: string
+  description: string
+  dataset_manifest_id: string
+  dataset_manifest_sha256: string
+  replay_run_id: string
+  benchmark_sha256: string
+  cost_model_sha256: string
+  fill_model_sha256: string
+  metric_conventions_sha256: string
+}
+
+export interface ResearchStrategiesResponse {
+  as_of: string
+  strategies: ResearchStrategy[]
+  fixtures?: ResearchFixture[]
+}
+
+export type ResearchStrategyCatalogRecord = ApiSchemas['StrategyCatalogView']
+export type ResearchStrategyCatalogResponse = ApiSchemas['StrategyCatalogResponse']
+export type BacktestJobStatus = ApiSchemas['BacktestJobStatus']
+export type BacktestJobEvent = ApiSchemas['BacktestJobEventView']
+export type BacktestJob = ApiSchemas['BacktestJobView']
+export type BacktestsResponse = ApiSchemas['BacktestJobListResponse']
+export type BacktestLaunchRequest = ApiSchemas['BacktestLaunchRequest']
+
+export interface ResearchMutationCredentials {
+  idempotencyKey: string
+  csrfToken: string
+}
+
+export type BacktestMetricConventions = ApiSchemas['BacktestMetricConventionsView']
+export type BacktestMetrics = ApiSchemas['BacktestMetricsView']
+export type BacktestEquityPoint = ApiSchemas['BacktestEquityPointView']
+export type BacktestTrade = ApiSchemas['BacktestTradeView']
+export type BacktestPosition = ApiSchemas['BacktestPositionView']
+export type BacktestLedgerTraceEntry = ApiSchemas['BacktestLedgerTraceView']
+export type BacktestProvenance = ApiSchemas['BacktestReportProvenanceView']
+export type BacktestReportResponse = ApiSchemas['BacktestReportView']

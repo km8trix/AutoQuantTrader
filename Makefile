@@ -19,10 +19,10 @@ bootstrap: ## Install locked Python and browser dependencies.
 	$(UV) sync --all-groups --locked
 	$(PNPM) --dir apps/web install --frozen-lockfile
 
-dev: ## Run the local stack plus one-shot worker/trader stub diagnostics.
+dev: ## Run the local stack, continuous fixture worker, and trader diagnostic.
 	$(COMPOSE) up --build
 
-dev-detached: ## Run the local stack and stub diagnostics in the background.
+dev-detached: ## Run the local stack, fixture worker, and trader diagnostic in the background.
 	$(COMPOSE) up --build --detach
 
 db: ## Start only local PostgreSQL.
@@ -43,7 +43,7 @@ api: ## Run the API on the host with reload enabled.
 web: ## Run the browser application on the host.
 	$(PNPM) --dir apps/web dev --host 127.0.0.1
 
-worker: ## Ingest and evaluate the synthetic Phase 1B point-in-time fixture once.
+worker: ## Ingest the Phase 1 fixture and process at most one Phase 2 backtest.
 	$(UV) run autoquant-worker --once
 
 admission-evaluate: ## Evaluate SPECIFICATION and EVIDENCE JSON; succeeds only if admitted.

@@ -39,7 +39,7 @@ from packages.domain.portfolio import target_to_intent_batch
 from packages.domain.risk import intent_payload_hash
 from packages.domain.settlement_ledger import CanonicalSettlementLedgerState
 
-BATCH_RISK_CONTRACT_VERSION = "phase2-atomic-batch-risk-v1"
+BATCH_RISK_CONTRACT_VERSION = "phase2-atomic-batch-risk-v2"
 SnapshotTransactionResultT = TypeVar("SnapshotTransactionResultT")
 
 BATCH_RISK_RULES = (
@@ -86,6 +86,14 @@ class BatchRiskDecisionStatus(StrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     NO_ACTION = "no_action"
+
+
+class ActiveCapacityReservationState(StrEnum):
+    """Risk-facing state of one durable reservation capacity projection."""
+
+    ACTIVE = "active"
+    PARTIALLY_RELEASED = "partially_released"
+    FROZEN = "frozen"
 
 
 def _semantic_sha256(value: object) -> str:
@@ -999,6 +1007,275 @@ class BatchRiskReservation:
 
 
 @dataclass(frozen=True, slots=True)
+class ActiveCapacityAuthorization:
+    """Exact remaining risk hold for one still-active child authorization."""
+
+    authorization_id: str
+    authorization_sha256: str
+    intent_id: str
+    instrument_id: str
+    side: Side
+    reserved_cash: Decimal
+    reserved_sell_quantity: Decimal
+    reserved_buy_exposure: Decimal
+    remaining_cash: Decimal
+    remaining_sell_quantity: Decimal
+    remaining_buy_exposure: Decimal
+
+    def __post_init__(self) -> None:
+        for value, field_name in (
+            (self.authorization_id, "active authorization ID"),
+            (self.intent_id, "active authorization intent ID"),
+            (self.instrument_id, "active authorization instrument ID"),
+        ):
+            _require_text(value, field_name)
+        _require_sha256(
+            self.authorization_sha256,
+            "active authorization digest",
+        )
+        if type(self.side) is not Side:
+            raise BatchRiskError("active authorization side is unsupported")
+        for field_name in (
+            "reserved_cash",
+            "reserved_sell_quantity",
+            "reserved_buy_exposure",
+            "remaining_cash",
+            "remaining_sell_quantity",
+            "remaining_buy_exposure",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _persisted_decimal(
+                    getattr(self, field_name),
+                    f"active authorization {field_name}",
+                ),
+            )
+        if (
+            self.remaining_cash > self.reserved_cash
+            or self.remaining_sell_quantity > self.reserved_sell_quantity
+            or self.remaining_buy_exposure > self.reserved_buy_exposure
+        ):
+            raise BatchRiskError("active authorization remaining hold exceeds its reservation")
+        if (
+            self.reserved_sell_quantity != self.reserved_sell_quantity.to_integral_value()
+            or self.remaining_sell_quantity != self.remaining_sell_quantity.to_integral_value()
+        ):
+            raise BatchRiskError("active authorization sell capacity must use whole shares")
+        if self.side is Side.BUY:
+            if self.reserved_sell_quantity != 0 or self.remaining_sell_quantity != 0:
+                raise BatchRiskError("active buy authorization cannot reserve sell shares")
+            if self.reserved_buy_exposure <= 0:
+                raise BatchRiskError("active buy authorization requires buy exposure")
+            if self.reserved_cash < self.reserved_buy_exposure:
+                raise BatchRiskError("active buy reserved cash cannot be below buy exposure")
+            if self.remaining_cash < self.remaining_buy_exposure:
+                raise BatchRiskError("active buy cash cannot be below its buy exposure")
+        else:
+            if self.reserved_buy_exposure != 0 or self.remaining_buy_exposure != 0:
+                raise BatchRiskError("active sell authorization cannot reserve buy exposure")
+            if self.reserved_sell_quantity <= 0:
+                raise BatchRiskError("active sell authorization requires reserved sell shares")
+        if not any(
+            value > 0
+            for value in (
+                self.remaining_cash,
+                self.remaining_sell_quantity,
+                self.remaining_buy_exposure,
+            )
+        ):
+            raise BatchRiskError("active authorization must retain positive capacity")
+
+    @property
+    def semantic_sha256(self) -> str:
+        return _semantic_sha256(
+            (
+                BATCH_RISK_CONTRACT_VERSION,
+                "active_capacity_authorization",
+                self.authorization_id,
+                self.authorization_sha256,
+                self.intent_id,
+                self.instrument_id,
+                self.side,
+                self.reserved_cash,
+                self.reserved_sell_quantity,
+                self.reserved_buy_exposure,
+                self.remaining_cash,
+                self.remaining_sell_quantity,
+                self.remaining_buy_exposure,
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveCapacityReservation:
+    """Authenticated remaining capacity from one nonterminal reservation."""
+
+    reservation_id: str
+    reservation_sha256: str
+    projection_sha256: str
+    provenance_sha256: str
+    currency: str
+    state: ActiveCapacityReservationState
+    authorizations: tuple[ActiveCapacityAuthorization, ...]
+
+    def __post_init__(self) -> None:
+        _require_text(self.reservation_id, "active reservation ID")
+        _require_sha256(self.reservation_sha256, "active reservation digest")
+        _require_sha256(self.projection_sha256, "active capacity projection digest")
+        _require_sha256(self.provenance_sha256, "active capacity provenance digest")
+        _require_text(self.currency, "active reservation currency")
+        if (
+            len(self.currency) != 3
+            or not self.currency.isalpha()
+            or self.currency != self.currency.upper()
+        ):
+            raise BatchRiskError("active reservation currency must be three-letter uppercase")
+        if type(self.state) is not ActiveCapacityReservationState:
+            raise BatchRiskError("active reservation state is unsupported")
+        if type(self.authorizations) is not tuple or not self.authorizations:
+            raise BatchRiskError("active reservation requires remaining child capacity")
+        if any(type(item) is not ActiveCapacityAuthorization for item in self.authorizations):
+            raise BatchRiskError("active reservation authorizations must be exact immutable values")
+        ordering = tuple(
+            (item.instrument_id, item.authorization_id) for item in self.authorizations
+        )
+        if ordering != tuple(sorted(ordering)):
+            raise BatchRiskError("active reservation authorizations must be canonically ordered")
+        authorization_ids = tuple(item.authorization_id for item in self.authorizations)
+        intent_ids = tuple(item.intent_id for item in self.authorizations)
+        if len(authorization_ids) != len(set(authorization_ids)):
+            raise BatchRiskFactConflict("active authorization IDs are not unique")
+        if len(intent_ids) != len(set(intent_ids)):
+            raise BatchRiskFactConflict("active intent IDs are not unique")
+
+    @property
+    def remaining_cash(self) -> Decimal:
+        return exact_decimal_sum(item.remaining_cash for item in self.authorizations)
+
+    @property
+    def remaining_buy_exposure(self) -> Decimal:
+        return exact_decimal_sum(item.remaining_buy_exposure for item in self.authorizations)
+
+    @property
+    def semantic_sha256(self) -> str:
+        return _semantic_sha256(
+            (
+                BATCH_RISK_CONTRACT_VERSION,
+                "active_capacity_reservation",
+                self.reservation_id,
+                self.reservation_sha256,
+                self.projection_sha256,
+                self.provenance_sha256,
+                self.currency,
+                self.state,
+                tuple(item.semantic_sha256 for item in self.authorizations),
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveCapacityUniverse:
+    """Complete ordered set of remaining holds charged by one risk decision."""
+
+    account_id: str
+    reservations: tuple[ActiveCapacityReservation, ...]
+
+    def __post_init__(self) -> None:
+        _require_text(self.account_id, "active capacity account ID")
+        if type(self.reservations) is not tuple or any(
+            type(item) is not ActiveCapacityReservation for item in self.reservations
+        ):
+            raise BatchRiskError("active capacity reservations must be immutable exact values")
+        reservation_ids = tuple(item.reservation_id for item in self.reservations)
+        if reservation_ids != tuple(sorted(reservation_ids)):
+            raise BatchRiskError("active capacity reservations must be canonically ordered")
+        if len(reservation_ids) != len(set(reservation_ids)):
+            raise BatchRiskFactConflict("active reservation IDs are not unique")
+        authorizations = self.authorizations
+        authorization_ids = tuple(item.authorization_id for item in authorizations)
+        intent_ids = tuple(item.intent_id for item in authorizations)
+        if len(authorization_ids) != len(set(authorization_ids)):
+            raise BatchRiskFactConflict("active authorization IDs are not unique")
+        if len(intent_ids) != len(set(intent_ids)):
+            raise BatchRiskFactConflict("active intent IDs are not unique")
+
+    @property
+    def authorizations(self) -> tuple[ActiveCapacityAuthorization, ...]:
+        return tuple(
+            authorization
+            for reservation in self.reservations
+            for authorization in reservation.authorizations
+        )
+
+    @property
+    def semantic_sha256(self) -> str:
+        return _semantic_sha256(
+            (
+                BATCH_RISK_CONTRACT_VERSION,
+                "active_capacity_universe",
+                self.account_id,
+                tuple(item.semantic_sha256 for item in self.reservations),
+            )
+        )
+
+
+def initial_active_capacity_universe(
+    account_id: str,
+    reservations: tuple[BatchRiskReservation, ...] = (),
+) -> ActiveCapacityUniverse:
+    """Project immutable, unreleased reservations into their complete initial holds."""
+
+    if type(reservations) is not tuple or any(
+        type(item) is not BatchRiskReservation for item in reservations
+    ):
+        raise BatchRiskError("initial active reservations must be immutable exact values")
+    ordered = tuple(sorted(reservations, key=lambda item: item.reservation_id))
+    if reservations != ordered:
+        raise BatchRiskError("initial active reservations must be canonically ordered")
+    projected = tuple(
+        ActiveCapacityReservation(
+            reservation_id=reservation.reservation_id,
+            reservation_sha256=reservation.semantic_sha256,
+            projection_sha256=_semantic_sha256(
+                (
+                    BATCH_RISK_CONTRACT_VERSION,
+                    "initial_active_capacity_projection",
+                    reservation.semantic_sha256,
+                )
+            ),
+            provenance_sha256=_semantic_sha256(
+                (
+                    BATCH_RISK_CONTRACT_VERSION,
+                    "initial_active_capacity_provenance",
+                    reservation.semantic_sha256,
+                )
+            ),
+            currency=reservation.currency,
+            state=ActiveCapacityReservationState.ACTIVE,
+            authorizations=tuple(
+                ActiveCapacityAuthorization(
+                    authorization_id=authorization.decision_id,
+                    authorization_sha256=authorization.semantic_sha256,
+                    intent_id=authorization.intent_id,
+                    instrument_id=authorization.instrument_id,
+                    side=authorization.side,
+                    reserved_cash=authorization.reserved_cash,
+                    reserved_sell_quantity=authorization.reserved_sell_quantity,
+                    reserved_buy_exposure=authorization.reserved_buy_exposure,
+                    remaining_cash=authorization.reserved_cash,
+                    remaining_sell_quantity=authorization.reserved_sell_quantity,
+                    remaining_buy_exposure=authorization.reserved_buy_exposure,
+                )
+                for authorization in reservation.authorizations
+            ),
+        )
+        for reservation in ordered
+    )
+    return ActiveCapacityUniverse(account_id=account_id, reservations=projected)
+
+
+@dataclass(frozen=True, slots=True)
 class BatchRiskDecision:
     """Immutable all-or-none result for one exact intent batch."""
 
@@ -1008,6 +1285,7 @@ class BatchRiskDecision:
     account_id: str
     snapshot_version: str
     snapshot_sha256: str
+    active_capacity_sha256: str
     policy_id: str
     policy_version: str
     policy_sha256: str
@@ -1034,6 +1312,7 @@ class BatchRiskDecision:
         for value, field_name in (
             (self.intent_batch_sha256, "intent_batch_sha256"),
             (self.snapshot_sha256, "snapshot_sha256"),
+            (self.active_capacity_sha256, "active_capacity_sha256"),
             (self.policy_sha256, "policy_sha256"),
         ):
             _require_sha256(value, field_name)
@@ -1064,6 +1343,7 @@ class BatchRiskDecision:
             self.intent_batch_id,
             self.intent_batch_sha256,
             self.snapshot_sha256,
+            self.active_capacity_sha256,
             self.policy_sha256,
             self.evaluated_at,
         )
@@ -1128,6 +1408,7 @@ class BatchRiskDecision:
                 self.account_id,
                 self.snapshot_version,
                 self.snapshot_sha256,
+                self.active_capacity_sha256,
                 self.policy_id,
                 self.policy_version,
                 self.policy_sha256,
@@ -1152,29 +1433,6 @@ class _IntentReservationTerms:
     reserved_sell_quantity: Decimal
     reserved_buy_exposure: Decimal
     gross_notional: Decimal
-
-
-def _validate_active_reservations(
-    active_reservations: tuple[BatchRiskReservation, ...],
-) -> None:
-    if type(active_reservations) is not tuple or any(
-        type(item) is not BatchRiskReservation for item in active_reservations
-    ):
-        raise BatchRiskError("active reservations must be immutable exact values")
-    reservation_ids = tuple(item.reservation_id for item in active_reservations)
-    if len(reservation_ids) != len(set(reservation_ids)):
-        raise BatchRiskFactConflict("active reservation IDs are not unique")
-    authorizations = tuple(
-        authorization
-        for reservation in active_reservations
-        for authorization in reservation.authorizations
-    )
-    authorization_ids = tuple(item.decision_id for item in authorizations)
-    intent_ids = tuple(item.intent_id for item in authorizations)
-    if len(authorization_ids) != len(set(authorization_ids)):
-        raise BatchRiskFactConflict("active authorization IDs are not unique")
-    if len(intent_ids) != len(set(intent_ids)):
-        raise BatchRiskFactConflict("active intent IDs are not unique")
 
 
 def _validate_batch_evidence(
@@ -1362,14 +1620,22 @@ def evaluate_batch_risk_decision(
     target: TargetPortfolio,
     snapshot: VersionedBatchRiskSnapshot,
     limits: BatchRiskLimits,
-    active_reservations: tuple[BatchRiskReservation, ...],
+    active_capacity: ActiveCapacityUniverse,
     evaluated_at: datetime,
 ) -> BatchRiskDecision:
     """Evaluate and construct one complete batch result without mutating capacity."""
 
     if type(limits) is not BatchRiskLimits:
         raise BatchRiskError("batch risk requires exact versioned limits")
-    _validate_active_reservations(active_reservations)
+    if type(active_capacity) is not ActiveCapacityUniverse:
+        raise BatchRiskError("batch risk requires an exact active capacity universe")
+    active_capacity.__post_init__()
+    if active_capacity.account_id != snapshot.account_id:
+        raise BatchRiskFactConflict("active capacity and risk snapshot accounts differ")
+    if any(
+        reservation.currency != snapshot.currency for reservation in active_capacity.reservations
+    ):
+        raise BatchRiskFactConflict("active capacity and risk snapshot currencies differ")
     current_quantities, current_values = _validate_batch_evidence(
         batch,
         target,
@@ -1381,6 +1647,7 @@ def evaluate_batch_risk_decision(
         batch.intent_batch_id,
         batch.semantic_sha256,
         snapshot.semantic_sha256,
+        active_capacity.semantic_sha256,
         limits.semantic_sha256,
         evaluated_at,
     )
@@ -1392,6 +1659,7 @@ def evaluate_batch_risk_decision(
             account_id=snapshot.account_id,
             snapshot_version=snapshot.version,
             snapshot_sha256=snapshot.semantic_sha256,
+            active_capacity_sha256=active_capacity.semantic_sha256,
             policy_id=limits.policy_id,
             policy_version=limits.policy_version,
             policy_sha256=limits.semantic_sha256,
@@ -1406,9 +1674,7 @@ def evaluate_batch_risk_decision(
         )
 
     terms = tuple(_reservation_terms(intent, limits) for intent in batch.intents)
-    active_authorizations = tuple(
-        item for reservation in active_reservations for item in reservation.authorizations
-    )
+    active_authorizations = active_capacity.authorizations
     new_instruments = {intent.instrument_id for intent in batch.intents}
     active_instruments = {item.instrument_id for item in active_authorizations}
     halted = new_instruments & snapshot.halted_instruments
@@ -1446,7 +1712,7 @@ def evaluate_batch_risk_decision(
     }
     batch_notional = exact_decimal_sum(item.gross_notional for item in terms)
     active_cash = exact_decimal_sum(
-        reservation.reserved_cash for reservation in active_reservations
+        reservation.remaining_cash for reservation in active_capacity.reservations
     )
     proposed_cash = exact_decimal_sum(item.reserved_cash for item in terms)
     remaining_cash = exact_decimal_subtract(
@@ -1458,7 +1724,7 @@ def evaluate_batch_risk_decision(
     for authorization in active_authorizations:
         active_sells[authorization.instrument_id] = exact_decimal_add(
             active_sells.get(authorization.instrument_id, Decimal(0)),
-            authorization.reserved_sell_quantity,
+            authorization.remaining_sell_quantity,
         )
     proposed_sells: dict[str, Decimal] = {}
     for item in terms:
@@ -1482,7 +1748,7 @@ def evaluate_batch_risk_decision(
     for authorization in active_authorizations:
         instrument_exposure[authorization.instrument_id] = exact_decimal_add(
             instrument_exposure.get(authorization.instrument_id, Decimal(0)),
-            authorization.reserved_buy_exposure,
+            authorization.remaining_buy_exposure,
         )
     for item in terms:
         instrument_exposure[item.intent.instrument_id] = exact_decimal_add(
@@ -1498,7 +1764,7 @@ def evaluate_batch_risk_decision(
         snapshot.current_gross_exposure,
         exact_decimal_add(
             exact_decimal_sum(
-                authorization.reserved_buy_exposure for authorization in active_authorizations
+                authorization.remaining_buy_exposure for authorization in active_authorizations
             ),
             exact_decimal_sum(item.reserved_buy_exposure for item in terms),
         ),
@@ -1632,6 +1898,7 @@ def evaluate_batch_risk_decision(
             account_id=snapshot.account_id,
             snapshot_version=snapshot.version,
             snapshot_sha256=snapshot.semantic_sha256,
+            active_capacity_sha256=active_capacity.semantic_sha256,
             policy_id=limits.policy_id,
             policy_version=limits.policy_version,
             policy_sha256=limits.semantic_sha256,
@@ -1709,6 +1976,7 @@ def evaluate_batch_risk_decision(
         account_id=snapshot.account_id,
         snapshot_version=snapshot.version,
         snapshot_sha256=snapshot.semantic_sha256,
+        active_capacity_sha256=active_capacity.semantic_sha256,
         policy_id=limits.policy_id,
         policy_version=limits.policy_version,
         policy_sha256=limits.semantic_sha256,

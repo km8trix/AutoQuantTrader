@@ -19,6 +19,181 @@ export interface components {
       "critical": number;
       "warning": number;
     };
+    "ApiErrorResponse": {
+      "detail": string;
+    };
+    "BacktestEquityPointView": {
+      "as_of": string;
+      "cash": string;
+      "cumulative_external_cash_flow": string;
+      "cumulative_return": string;
+      "drawdown": string;
+      "equity": string;
+      "gross_exposure": string;
+      "market_value": string;
+      "net_exposure": string;
+      "period_return": string;
+      "sequence": number;
+    };
+    "BacktestJobEventView": {
+      "actor_id": string;
+      "attempt_number": number;
+      "occurred_at": string;
+      "sequence": number;
+      "status": components["schemas"]["BacktestJobStatus"];
+      "terminal_reason_code": (string) | (null);
+    };
+    "BacktestJobListResponse": {
+      "as_of": string;
+      "jobs": Array<components["schemas"]["BacktestJobView"]>;
+    };
+    "BacktestJobStatus": "queued" | "running" | "completed" | "failed" | "canceled";
+    "BacktestJobView": {
+      "attempt_number": number;
+      "claim_expires_at": (string) | (null);
+      "fixture_id": string;
+      "fixture_version": string;
+      "history": Array<components["schemas"]["BacktestJobEventView"]>;
+      "input_sha256": components["schemas"]["Sha256Text"];
+      "job_id": components["schemas"]["Sha256Text"];
+      "report_artifact_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "report_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "requested_at": string;
+      "requested_by": string;
+      "run_manifest_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "status": components["schemas"]["BacktestJobStatus"];
+      "strategy_configuration_sha256": components["schemas"]["Sha256Text"];
+      "strategy_id": string;
+      "strategy_version": string;
+      "terminal_reason_code": (string) | (null);
+      "updated_at": string;
+      "worker_id": (string) | (null);
+    };
+    "BacktestLaunchCapability": {
+      "csrf_header": string;
+      "csrf_token": (string) | (null);
+      "disabled_reason": (string) | (null);
+      "enabled": boolean;
+      "idempotency_header": string;
+      "operator_id": (string) | (null);
+    };
+    "BacktestLaunchRequest": {
+      "benchmark_sha256": components["schemas"]["Sha256Text"];
+      "cost_model_sha256": components["schemas"]["Sha256Text"];
+      "dataset_manifest_id": components["schemas"]["Sha256Text"];
+      "dataset_manifest_sha256": components["schemas"]["Sha256Text"];
+      "fill_model_sha256": components["schemas"]["Sha256Text"];
+      "fixture_id": string;
+      "fixture_version": string;
+      "metric_conventions_sha256": components["schemas"]["Sha256Text"];
+      "replay_run_id": components["schemas"]["Sha256Text"];
+      "strategy_configuration_sha256": components["schemas"]["Sha256Text"];
+      "strategy_id": string;
+      "strategy_version": string;
+    };
+    "BacktestLedgerTraceView": {
+      "effective_at": string;
+      "entry_id": string;
+      "entry_kind": string;
+      "entry_sha256": components["schemas"]["Sha256Text"];
+      "recorded_at": string;
+      "sequence": number;
+      "source_fact_id": string;
+    };
+    "BacktestMetricConventionsView": {
+      "absolute_tolerance": string;
+      "annual_risk_free_rate": string;
+      "annualization_periods": number;
+      "convention_id": string;
+      "convention_version": string;
+      "currency": string;
+      "external_cash_flow_treatment": components["schemas"]["ExternalCashFlowTreatment"];
+      "relative_tolerance": string;
+      "return_frequency": components["schemas"]["BacktestReturnFrequency"];
+      "return_type": components["schemas"]["BacktestReturnType"];
+      "risk_free_rate_version": string;
+      "uncertainty_method": components["schemas"]["UncertaintyMethod"];
+    };
+    "BacktestMetricsView": {
+      "annualized_return": (string) | (null);
+      "annualized_volatility": (string) | (null);
+      "average_gross_exposure": string;
+      "average_net_exposure": string;
+      "breakeven_trade_count": number;
+      "capacity_proxy": (string) | (null);
+      "dividend_income": string;
+      "ending_equity": string;
+      "hit_rate": (string) | (null);
+      "losing_trade_count": number;
+      "maximum_drawdown": string;
+      "profit_factor": (string) | (null);
+      "realized_pnl": string;
+      "sharpe_ratio": (string) | (null);
+      "sortino_ratio": (string) | (null);
+      "starting_equity": string;
+      "total_execution_costs": string;
+      "total_return": string;
+      "trade_count": number;
+      "turnover": string;
+      "unrealized_pnl": string;
+      "winning_trade_count": number;
+    };
+    "BacktestPositionView": {
+      "as_of": string;
+      "cost_basis": string;
+      "dividend_income": string;
+      "execution_costs": string;
+      "instrument_id": string;
+      "mark_price": string;
+      "market_value": string;
+      "quantity": string;
+      "realized_pnl": string;
+      "sequence": number;
+      "source_projection_sha256": components["schemas"]["Sha256Text"];
+      "symbol": string;
+      "unrealized_pnl": string;
+    };
+    "BacktestReportProvenanceView": {
+      "account_projection_sha256": components["schemas"]["Sha256Text"];
+      "accounting_evidence_sha256": components["schemas"]["Sha256Text"];
+      "corporate_action_ledger_sha256": components["schemas"]["Sha256Text"];
+      "execution_ledger_sha256": components["schemas"]["Sha256Text"];
+      "settlement_ledger_sha256": components["schemas"]["Sha256Text"];
+    };
+    "BacktestReportView": {
+      "account_id": string;
+      "conventions": components["schemas"]["BacktestMetricConventionsView"];
+      "currency": string;
+      "equity_curve": Array<components["schemas"]["BacktestEquityPointView"]>;
+      "generated_at": string;
+      "ledger_trace": Array<components["schemas"]["BacktestLedgerTraceView"]>;
+      "metrics": components["schemas"]["BacktestMetricsView"];
+      "period_end": string;
+      "period_start": string;
+      "positions": Array<components["schemas"]["BacktestPositionView"]>;
+      "provenance": components["schemas"]["BacktestReportProvenanceView"];
+      "report_artifact_sha256": components["schemas"]["Sha256Text"];
+      "report_sha256": components["schemas"]["Sha256Text"];
+      "trades": Array<components["schemas"]["BacktestTradeView"]>;
+    };
+    "BacktestReturnFrequency": "event" | "daily";
+    "BacktestReturnType": "simple" | "log";
+    "BacktestTradeView": {
+      "closed_at": string;
+      "closing_execution_sha256": components["schemas"]["Sha256Text"];
+      "cost_basis": string;
+      "execution_costs": string;
+      "gross_pnl": string;
+      "instrument_id": string;
+      "net_pnl": string;
+      "opened_at": string;
+      "opening_execution_sha256": components["schemas"]["Sha256Text"];
+      "proceeds": string;
+      "quantity": string;
+      "sequence": number;
+      "symbol": string;
+      "trade_id": string;
+    };
     "CorporateActionView": {
       "action_id": string;
       "action_revision_id": string;
@@ -123,6 +298,7 @@ export interface components {
       "name": string;
     };
     "EnvironmentMode": "local" | "paper" | "live";
+    "ExternalCashFlowTreatment": "excluded_from_return" | "time_weighted";
     "FillView": {
       "executed_at": string;
       "fee": string;
@@ -134,6 +310,9 @@ export interface components {
       "quantity": string;
       "side": components["schemas"]["Side"];
       "symbol": string;
+    };
+    "HTTPValidationError": {
+      "detail"?: Array<components["schemas"]["ValidationError"]>;
     };
     "HealthCheck": {
       "as_of": string;
@@ -320,7 +499,30 @@ export interface components {
       "rule": string;
     };
     "ServiceStatus": "ok" | "ready" | "not_ready";
+    "Sha256Text": string;
     "Side": "buy" | "sell";
+    "StrategyCatalogResponse": {
+      "as_of": string;
+      "strategies": Array<components["schemas"]["StrategyCatalogView"]>;
+    };
+    "StrategyCatalogView": {
+      "benchmark_sha256": components["schemas"]["Sha256Text"];
+      "configuration_name": string;
+      "configuration_sha256": components["schemas"]["Sha256Text"];
+      "cost_model_sha256": components["schemas"]["Sha256Text"];
+      "dataset_manifest_sha256": components["schemas"]["Sha256Text"];
+      "display_name": string;
+      "fill_model_sha256": components["schemas"]["Sha256Text"];
+      "fixture_id": string;
+      "fixture_version": string;
+      "metric_conventions_sha256": components["schemas"]["Sha256Text"];
+      "parameter_schema_payload": string;
+      "parameters_payload": string;
+      "replay_run_id": components["schemas"]["Sha256Text"];
+      "strategy_id": string;
+      "strategy_version": string;
+      "strategy_version_id": components["schemas"]["Sha256Text"];
+    };
     "TargetPortfolioView": {
       "as_of": string;
       "expires_at": string;
@@ -340,6 +542,7 @@ export interface components {
       "title": string;
     };
     "UiBootstrap": {
+      "backtest_launch": (components["schemas"]["BacktestLaunchCapability"]) | (null);
       "capabilities": Array<string>;
       "environment": components["schemas"]["EnvironmentIdentity"];
       "feature_flags": {
@@ -350,9 +553,17 @@ export interface components {
       "stream_cursor": (string) | (null);
       "user": components["schemas"]["UserIdentity"];
     };
+    "UncertaintyMethod": "none" | "iid_standard_error";
     "UserIdentity": {
       "display_name": string;
       "id": string;
+    };
+    "ValidationError": {
+      "ctx"?: Record<string, unknown>;
+      "input"?: unknown;
+      "loc": Array<(string) | (number)>;
+      "msg": string;
+      "type": string;
     };
     "WalkingThreadTrace": {
       "account": components["schemas"]["AccountSummary"];
@@ -402,6 +613,104 @@ export interface paths {
         "200": {
           content: {
             "application/json": components["schemas"]["DataQualityResponse"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/backtests": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["BacktestJobListResponse"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+      }
+    }
+    post: {
+      responses: {
+        "202": {
+          content: {
+            "application/json": components["schemas"]["BacktestJobView"];
+          }
+        }
+        "400": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "401": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "403": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "409": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+        "503": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/backtests/{job_id}": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["BacktestJobView"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/backtests/{job_id}/report": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["BacktestReportView"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/strategies": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["StrategyCatalogResponse"];
           }
         }
       }

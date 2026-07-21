@@ -19,6 +19,7 @@ from packages.domain.batch_risk import (
     BatchRiskReservation,
     VersionedBatchRiskSnapshot,
     evaluate_batch_risk_decision,
+    initial_active_capacity_universe,
 )
 from packages.domain.decimal_math import exact_decimal_add, exact_decimal_sum
 from packages.domain.models import OrderIntent, OrderIntentBatch, TargetPortfolio
@@ -235,7 +236,10 @@ class InMemoryBatchRiskRepository:
                 target=target,
                 snapshot=snapshot,
                 limits=self._authority.limits,
-                active_reservations=active_reservations,
+                active_capacity=initial_active_capacity_universe(
+                    snapshot.account_id,
+                    active_reservations,
+                ),
                 evaluated_at=evaluated_at,
             )
             existing_decision = self._decisions.get(decision.decision_id)

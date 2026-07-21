@@ -16,9 +16,11 @@ from packages.domain.account_projection import (
 )
 from packages.domain.batch_risk import (
     BATCH_RISK_RULES,
+    ActiveCapacityReservationState,
     BatchRiskAuthority,
     BatchRiskDecision,
     BatchRiskDecisionStatus,
+    BatchRiskError,
     BatchRiskFactConflict,
     BatchRiskLimits,
     BatchRiskOperationalState,
@@ -27,6 +29,7 @@ from packages.domain.batch_risk import (
     batch_risk_snapshot_from_projections,
     batch_risk_snapshot_with_controls,
     evaluate_batch_risk_decision,
+    initial_active_capacity_universe,
 )
 from packages.domain.clock import ClockEvent, FixedClock
 from packages.domain.decimal_math import (
@@ -228,6 +231,7 @@ def limits(**changes: object) -> BatchRiskLimits:
 def snapshot(
     portfolio: PortfolioSnapshot,
     *,
+    account_id: str = "batch-risk-account",
     available_cash: Decimal = Decimal("1000"),
     operational_state: BatchRiskOperationalState = BatchRiskOperationalState.RUNNING,
     halted_instruments: frozenset[str] = frozenset(),
@@ -328,7 +332,7 @@ def snapshot(
         for price in portfolio.prices
     )
     account_projection = project_fifo_account(
-        account_id="batch-risk-account",
+        account_id=account_id,
         order_states=tuple(order_states),
         cash_flows=cash_flows,
         marks=marks,
@@ -336,7 +340,7 @@ def snapshot(
         currency="USD",
     )
     settlement_projection = reduce_settlement_ledger(
-        account_id="batch-risk-account",
+        account_id=account_id,
         order_states=tuple(order_states),
         cash_flows=cash_flows,
         instructions=tuple(instructions),
@@ -517,7 +521,7 @@ def test_risk_snapshot_revalidates_capacity_from_retained_projection_proofs(
             target=target,
             snapshot=forged,
             limits=limits(),
-            active_reservations=(),
+            active_capacity=initial_active_capacity_universe(forged.account_id),
             evaluated_at=EVALUATED_AT,
         )
 
@@ -568,6 +572,84 @@ def test_mixed_buy_sell_batch_is_approved_with_exact_indivisible_holds() -> None
         Decimal("304.2"),
         Decimal("301.5"),
     )
+
+
+def test_decision_identity_binds_the_exact_active_capacity_universe() -> None:
+    _, target, batch, capacity = mixed_case()
+    risk, _, _ = repository(capacity)
+    prior = risk.authorize(batch, target)
+    assert prior.reservation is not None
+    active = initial_active_capacity_universe(
+        capacity.account_id,
+        (prior.reservation,),
+    )
+    frozen = replace(
+        active,
+        reservations=(
+            replace(
+                active.reservations[0],
+                state=ActiveCapacityReservationState.FROZEN,
+            ),
+        ),
+    )
+
+    active_decision = evaluate_batch_risk_decision(
+        batch=batch,
+        target=target,
+        snapshot=capacity,
+        limits=limits(),
+        active_capacity=active,
+        evaluated_at=EVALUATED_AT,
+    )
+    frozen_decision = evaluate_batch_risk_decision(
+        batch=batch,
+        target=target,
+        snapshot=capacity,
+        limits=limits(),
+        active_capacity=frozen,
+        evaluated_at=EVALUATED_AT,
+    )
+
+    assert active.authorizations == frozen.authorizations
+    assert active.semantic_sha256 != frozen.semantic_sha256
+    assert active_decision.active_capacity_sha256 == active.semantic_sha256
+    assert frozen_decision.active_capacity_sha256 == frozen.semantic_sha256
+    assert active_decision.decision_id != frozen_decision.decision_id
+    assert active_decision.semantic_sha256 != frozen_decision.semantic_sha256
+
+
+def test_active_capacity_authorization_rejects_impossible_side_shapes() -> None:
+    _, target, batch, capacity = mixed_case()
+    risk, _, _ = repository(capacity)
+    decision = risk.authorize(batch, target)
+    assert decision.reservation is not None
+    universe = initial_active_capacity_universe(
+        capacity.account_id,
+        (decision.reservation,),
+    )
+    buy = next(item for item in universe.authorizations if item.side is Side.BUY)
+    sell = next(item for item in universe.authorizations if item.side is Side.SELL)
+
+    with pytest.raises(BatchRiskError, match="reserved cash cannot be below buy exposure"):
+        replace(
+            buy,
+            reserved_cash=buy.reserved_buy_exposure - Decimal("0.1"),
+            remaining_cash=buy.remaining_buy_exposure - Decimal("0.1"),
+        )
+    with pytest.raises(BatchRiskError, match="requires buy exposure"):
+        replace(buy, reserved_buy_exposure=Decimal(0), remaining_buy_exposure=Decimal(0))
+    with pytest.raises(BatchRiskError, match="whole shares"):
+        replace(
+            sell,
+            reserved_sell_quantity=sell.reserved_sell_quantity + Decimal("0.5"),
+            remaining_sell_quantity=sell.remaining_sell_quantity + Decimal("0.5"),
+        )
+    with pytest.raises(BatchRiskError, match="cannot reserve buy exposure"):
+        replace(
+            sell,
+            reserved_buy_exposure=Decimal("1"),
+            remaining_buy_exposure=Decimal("1"),
+        )
 
 
 def test_one_member_failure_rejects_the_whole_batch_without_partial_holds() -> None:
@@ -622,7 +704,9 @@ def test_batch_and_each_intent_are_rebound_to_exact_portfolio_price_evidence() -
             target=target,
             snapshot=snapshot(changed_portfolio),
             limits=limits(),
-            active_reservations=(),
+            active_capacity=initial_active_capacity_universe(
+                snapshot(changed_portfolio).account_id
+            ),
             evaluated_at=EVALUATED_AT,
         )
 
@@ -634,7 +718,7 @@ def test_batch_and_each_intent_are_rebound_to_exact_portfolio_price_evidence() -
             target=target,
             snapshot=capacity,
             limits=limits(),
-            active_reservations=(),
+            active_capacity=initial_active_capacity_universe(capacity.account_id),
             evaluated_at=EVALUATED_AT,
         )
 
@@ -652,7 +736,7 @@ def test_batch_and_each_intent_are_rebound_to_exact_portfolio_price_evidence() -
             target=target,
             snapshot=capacity,
             limits=limits(),
-            active_reservations=(),
+            active_capacity=initial_active_capacity_universe(capacity.account_id),
             evaluated_at=EVALUATED_AT,
         )
 
@@ -864,7 +948,7 @@ def test_stale_snapshot_and_stale_price_are_distinct_fail_closed_rules() -> None
         target=target,
         snapshot=capacity,
         limits=limits(max_snapshot_age=timedelta(seconds=5)),
-        active_reservations=(),
+        active_capacity=initial_active_capacity_universe(capacity.account_id),
         evaluated_at=EVALUATED_AT,
     )
     assert stale_snapshot.status is BatchRiskDecisionStatus.REJECTED
@@ -888,7 +972,7 @@ def test_stale_snapshot_and_stale_price_are_distinct_fail_closed_rules() -> None
         target=old_target,
         snapshot=snapshot(old_portfolio),
         limits=limits(),
-        active_reservations=(),
+        active_capacity=initial_active_capacity_universe(snapshot(old_portfolio).account_id),
         evaluated_at=EVALUATED_AT,
     )
     assert stale_price.status is BatchRiskDecisionStatus.REJECTED
@@ -918,7 +1002,7 @@ def test_stale_price_on_an_untouched_holding_fails_closed() -> None:
         target=target,
         snapshot=snapshot(portfolio),
         limits=limits(),
-        active_reservations=(),
+        active_capacity=initial_active_capacity_universe(snapshot(portfolio).account_id),
         evaluated_at=EVALUATED_AT,
     )
 
@@ -1241,7 +1325,9 @@ def test_caller_order_and_ambient_decimal_context_cannot_change_decision() -> No
                         target=target,
                         snapshot=snapshot(portfolio),
                         limits=limits(),
-                        active_reservations=(),
+                        active_capacity=initial_active_capacity_universe(
+                            snapshot(portfolio).account_id
+                        ),
                         evaluated_at=FixedClock(EVALUATED_AT).now(),
                     )
                 if expected is None:
