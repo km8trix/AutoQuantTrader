@@ -24,6 +24,10 @@ replay, paper trading, reconciliation, and operational-readiness checks.
 The local application implements the Phase 0 walking thread, a **local Phase
 1A/1B point-in-time data plane and fail-closed admission framework**, and the
 complete **Phase 2 deterministic-fixture engine and durable research workflow**.
+Phase 3 has begun with bounded, pure-domain `rolling_close_mean` feature and
+feature-derived target contracts, including exact batch/incremental parity
+against repository-owned manifest-bound replay evidence; the rest of Phase 3
+remains incomplete.
 Its production worker/trading runtime does not ingest from an admitted
 market-data vendor or connect to a broker, submit paper orders, or submit live
 orders. Secret-safe access probes and separately authorized research-capture
@@ -311,6 +315,34 @@ requires durable readiness, a validated loopback transport, a process-bound
 signed capability cookie, CSRF token, and idempotency key; the catalog accepts
 no arbitrary strategy, parameter, dataset, or date-range execution. This local
 capability is not user identity authentication.
+
+ADR 0034 begins Phase 3A with one deliberately narrow feature contract.
+`rolling_close_mean` binds an authenticated source tape plus its sealed replay-
+run manifest, raw-close input semantics, `lookback=2`, publication lag,
+implementation identity, and the
+`SKIP_AND_RESET` missing-data policy. Every emitted snapshot is causal and
+source-bound. An incomplete or skipped batch emits nothing, clears the rolling
+history for every expected instrument, and requires two new complete
+observations, so a window never crosses a gap. Full-sequence batch window
+selection and authenticated incremental state must produce the exact same
+canonical snapshots before a parity receipt can be constructed. Snapshot
+availability is part of the evidence consumed by the next bounded slice. This
+Phase 3A feature proof remains pure and in memory.
+
+ADR 0035 implements Phase 3B for one versioned reference target rule. Complete
+batch triggers receive only the latest parity-certified feature snapshot per
+instrument from the current post-reset epoch where
+`snapshot.available_at <= trigger.as_of`. Incomplete batches clear both visible
+and delayed pending snapshots; insufficient feature evidence emits an audited
+`WAITING` step and no target. Independent full-sequence-index and incremental
+visibility paths must produce the exact same contexts and `TargetPortfolio`
+sequence before a target-parity receipt can exist. Target configuration binds
+the feature artifact and Phase 3A
+receipt, while intent conversion still uses the causal market event—not the
+feature value—as its reference price. This repository-owned synthetic-tape
+evidence does not satisfy the captured-tape gate. SQL durability, API/CLI and
+browser surfaces, experiment governance, live capture, reconnect freshness,
+shadow replay, and fitted features remain later Phase 3 work.
 
 For a separately authorized future capture, start from the fail-closed
 [acquisition-profile](docs/admission/tiingo-eod-acquisition-profile.template.json),

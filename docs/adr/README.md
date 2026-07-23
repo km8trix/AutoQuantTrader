@@ -36,5 +36,7 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0031: process-local account coordinator leases and fences](0031-process-local-account-coordinator-leases-and-fences.md)
 - [ADR 0032: durable fenced batch execution lifecycle](0032-durable-fenced-batch-execution-lifecycle.md)
 - [ADR 0033: durable fixture-only research workflow](0033-durable-fixture-research-workflow.md)
+- [ADR 0034: versioned feature artifacts and differential parity](0034-versioned-feature-artifacts-and-differential-parity.md)
+- [ADR 0035: causal feature consumers and target parity](0035-causal-feature-consumers-and-target-parity.md)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

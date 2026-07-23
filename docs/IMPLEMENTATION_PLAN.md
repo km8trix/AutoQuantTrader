@@ -181,13 +181,38 @@ simulation-horizon finality, rejection of unsupported external finality facts,
 correction freezes, and corruption fail-closed reads.
 This completion does not qualify a vendor feed or enable broker execution.
 
+ADR 0034 begins Phase 3A without claiming the broader Phase 3 gate. The bounded
+domain slice defines one `rolling_close_mean` artifact whose repository adapter
+authenticates the source tape, dataset manifest, and sealed replay-run manifest.
+It fixes `lookback=2`, explicit publication lag, and `SKIP_AND_RESET` gap
+semantics. Causal feature snapshots bind their complete market batches and
+ordered source observations. Full-sequence batch selection and incremental
+per-instrument state must produce exactly the same canonical snapshot sequence
+before a parity receipt can be proof-constructed. At that Phase 3A boundary,
+persistence, decision-time availability enforcement, API/CLI and browser
+integration, experiment and holdout governance, captured live tapes, shadow
+replay, fitted features, and target parity remained pending.
+
+ADR 0035 implements the bounded Phase 3B consumer boundary against the same
+certified feature evidence. Complete batch decisions see only the latest
+post-reset snapshot per expected instrument with
+`snapshot.available_at <= trigger.as_of`;
+incomplete batches clear visible and delayed pending state. A versioned
+close-versus-mean reference rule emits no target while evidence is incomplete.
+Independent full-sequence-index and incremental visibility reducers must agree
+on every reset, waiting context, feature identity, and target before a manifest-,
+artifact-, feature-receipt-, and strategy-bound target-parity receipt can exist.
+The exercised tape remains a repository-owned synthetic fixture, so parity on
+a captured tape and the broader Phase 3 gates remain pending.
+
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
 treated as admission or evidence that a vendor's real history, entitlement,
 identifiers, calendars, corrections, or corporate actions have passed
 qualification. The trader remains `not_ready`; no paper or live broker/data
-adapter is enabled. The remaining Phase 1 vendor admission and Phases 3-8 below
-retain their exit gates, including the Phase 4 paper-broker gate.
+adapter is enabled. The remaining Phase 1 vendor admission, remaining Phase 3
+work, and Phases 4-8 below retain their exit gates, including the Phase 4
+paper-broker gate.
 
 ## Delivery strategy
 
@@ -563,11 +588,52 @@ Passing one layer cannot substitute for another.
 
 ## Phase 3 - research validity, live tape, shadow replay, and research UI (weeks 7-9)
 
+### Sequencing and current status
+
+- **Phase 3A bounded feature parity — first pure slice implemented:** ADR 0034
+  defines one immutable `rolling_close_mean` artifact bound to an authenticated
+  source tape, content-addressed dataset manifest, and sealed replay-run
+  manifest. The reference feature has `lookback=2`, an artifact-bound
+  publication lag, and `SKIP_AND_RESET` semantics: an incomplete or skipped
+  batch emits no snapshot, clears history for every expected instrument, and
+  requires two new complete observations. Causal snapshots bind the artifact,
+  manifest, complete market batch, ordered source observations, value, and
+  timing. Separate batch and incremental reducers use separate window-selection
+  paths and must agree exactly before a manifest/artifact-bound parity receipt
+  can exist. The snapshot `available_at` contract is recorded.
+- **Phase 3B bounded causal target parity — pure slice implemented:** ADR 0035
+  consumes only exact Phase 3A certification. At each complete batch trigger it
+  exposes the latest snapshot per expected instrument from the current
+  post-reset epoch only when `snapshot.available_at <= trigger.as_of`.
+  Incomplete batches
+  clear both visible and delayed pending features; missing evidence produces an
+  explicit `WAITING` step and no target. Independent full-sequence-index and
+  authenticated incremental visibility paths feed one versioned close-versus-
+  mean whole-share target rule and must agree exactly before a feature- and
+  strategy-bound target-parity receipt can exist. Intent conversion continues
+  to use causal market prices, never the feature value.
+- Both Phase 3A and 3B are in-memory evidence slices exercised on repository-
+  owned synthetic fixtures. Durable feature storage, integration with the
+  research job/API/browser workflow, arbitrary or fitted features and
+  strategies, experiment families and holdout controls, captured live tapes,
+  reconnect and freshness behavior, and shadow mode remain pending. Phase 3 is
+  not complete and its exit gate has not passed.
+
 ### Build
 
-- Versioned feature artifacts with input lineage, lookback/publication lag,
-  missing-data policy, fitted training window, and immutable fitted state.
-- Batch and incremental feature implementations with differential replay tests.
+- A bounded versioned feature-artifact contract is implemented for the
+  manifest-bound `rolling_close_mean` reference feature, including source
+  lineage, `lookback=2`, publication lag, and `SKIP_AND_RESET`. General feature
+  artifacts, fitted training windows, and immutable fitted state remain pending.
+- Exact full-sequence batch and authenticated incremental differential parity is
+  implemented for that pure reference feature and repository-owned manifest
+  evidence.
+- Availability-gated full-sequence-index and incremental target parity is
+  implemented for one exact Phase 3A certification and bounded reference
+  target rule,
+  including explicit waiting/reset steps and exact decision-feature lineage.
+  Captured-tape feature/target parity and research workflow integration remain
+  pending.
 - Experiment families that record every attempted, failed, canceled, and
   completed trial; bounded worker-process concurrency and resource quotas.
 - Chronological and nested walk-forward evaluation, purging/embargo for
@@ -582,6 +648,11 @@ Passing one layer cannot substitute for another.
   replay-versus-shadow views.
 
 ### Exit gate
+
+Status: **open**. The Phase 3A and 3B reference slices supply exact local
+feature-snapshot and feature-derived target parity evidence, but they do not
+satisfy the captured-tape, reconnect, experiment-governance, end-to-end
+traceability, or reporting requirements below.
 
 - Batch and incremental features/targets agree on the same captured tape.
 - A reconnect backlog cannot emit one fresh intent per stale bar; expired targets

@@ -1,5 +1,9 @@
 """Immutable dataset object-store adapters."""
 
+from packages.datasets.feature_artifact import (
+    certify_manifest_rolling_close_mean,
+    certify_manifest_rolling_close_mean_targets,
+)
 from packages.datasets.parquet import (
     ARROW_SEMANTIC_CHECKSUM_VERSION,
     INPUT_REFERENCE_HASH_VERSION,
@@ -53,6 +57,8 @@ __all__ = [
     "ParquetObject",
     "ReplayTapePlan",
     "build_replay_tape_plan",
+    "certify_manifest_rolling_close_mean",
+    "certify_manifest_rolling_close_mean_targets",
     "market_event_from_raw_bar",
     "parquet_semantic_checksum_version",
     "replay_manifest_tape",

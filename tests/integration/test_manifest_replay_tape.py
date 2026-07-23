@@ -13,6 +13,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import Engine
 
+from packages.application.manifest_replay import execute_and_seal_manifest_replay
 from packages.application.market_data_ingestion import ingest_recorded_fixture
 from packages.datasets import (
     DatasetDecodeError,
@@ -21,12 +22,16 @@ from packages.datasets import (
     ManifestReplayTape,
     ManifestReplayTapeReader,
     ReplayTapePlan,
+    certify_manifest_rolling_close_mean,
+    certify_manifest_rolling_close_mean_targets,
     market_event_from_raw_bar,
     replay_manifest_tape,
     validate_manifest_watermark_policy,
 )
+from packages.domain.feature_target import RollingCloseMeanTargetPolicy
 from packages.domain.market_batch import MarketBatchStatus, ReplayRevisionPolicy
 from packages.domain.replay import LateMarketEvent
+from packages.domain.replay_manifest import ReplayRunManifest, RuntimePin
 from packages.market_data import BarInterval
 from packages.persistence.database import create_database_engine
 from packages.persistence.immutable import ImmutableFactConflict
@@ -46,6 +51,22 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests" / "fixtures" / "market_data" / "phase1_bars.jsonl"
 START = datetime(2026, 7, 15, 13, 31, tzinfo=UTC)
 END = datetime(2026, 7, 15, 13, 34, tzinfo=UTC)
+
+
+class AcceptingReplayManifestPublisher:
+    def publish(self, manifest: ReplayRunManifest, tape: ManifestReplayTape) -> bool:
+        return True
+
+
+def phase3_runtime_pin() -> RuntimePin:
+    return RuntimePin(
+        source_revision="1" * 40,
+        dirty_patch_sha256="2" * 64,
+        dependency_lock_sha256="3" * 64,
+        schema_revision="phase3-feature-test",
+        python_version="3.12",
+        pyarrow_version=pa.__version__,
+    )
 
 
 def migrated_engine(tmp_path: Path) -> Engine:
@@ -161,6 +182,94 @@ def test_replay_includes_calendar_slice_with_quarantined_bar_as_incomplete(tmp_p
     assert result.batches[-1].missing_instrument_ids == ("aqt-security-spy",)
     assert result.skipped_batch_ids == (result.batches[-1].batch_id,)
     assert result.batches[0].events[0].revision == 2
+
+
+def test_manifest_tape_certifies_exact_feature_batch_incremental_parity(
+    tmp_path: Path,
+) -> None:
+    _, manifest_id, reader, _ = published_reader(tmp_path)
+    plan = reader.build_plan(
+        manifest_id=manifest_id,
+        event_time_start=START,
+        event_time_end=END,
+        interval=BarInterval.ONE_MINUTE,
+        decision_lag=timedelta(minutes=1),
+    )
+    tape = reader.read(plan)
+    sealed = execute_and_seal_manifest_replay(
+        tape=tape,
+        runtime=phase3_runtime_pin(),
+        repository=AcceptingReplayManifestPublisher(),
+    )
+
+    certified = certify_manifest_rolling_close_mean(
+        tape,
+        replay_run_manifest=sealed.manifest,
+        implementation_sha256="f" * 64,
+        publication_lag=timedelta(seconds=30),
+    )
+    repeated = certify_manifest_rolling_close_mean(
+        tape,
+        replay_run_manifest=sealed.manifest,
+        implementation_sha256="f" * 64,
+        publication_lag=timedelta(seconds=30),
+    )
+
+    assert certified == repeated
+    assert certified.artifact.lineage.manifest_id == tape.manifest_id
+    assert certified.artifact.lineage.manifest_sha256 == tape.manifest_hash
+    assert certified.artifact.lineage.manifest_tape_sha256 == tape.semantic_sha256
+    assert certified.artifact.lineage.replay_run_id == sealed.manifest.run_id
+    assert certified.artifact.lineage.replay_run_manifest_sha256 == (
+        sealed.manifest.manifest_sha256
+    )
+    assert certified.artifact.lineage.replay_plan_sha256 == sealed.manifest.plan.semantic_sha256
+    assert certified.batch_result.steps == certified.incremental_result.steps
+    assert [step.status.value for step in certified.batch_result.steps] == [
+        "warming",
+        "ready",
+        "ready",
+        "skipped_reset",
+    ]
+    assert certified.receipt.snapshot_count == 2
+    assert certified.batch_result.snapshots[0].source_observations[0].event.revision == 2
+
+    target_certified = certify_manifest_rolling_close_mean_targets(
+        tape,
+        replay_run_manifest=sealed.manifest,
+        implementation_sha256="f" * 64,
+        publication_lag=timedelta(seconds=30),
+        target_policy=RollingCloseMeanTargetPolicy(long_quantity=Decimal("10")),
+    )
+    assert target_certified.feature_certification == certified
+    assert target_certified.batch_result.steps == target_certified.incremental_result.steps
+    assert [step.status.value for step in target_certified.batch_result.steps] == [
+        "waiting",
+        "waiting",
+        "ready",
+        "skipped_reset",
+    ]
+    assert target_certified.receipt.target_count == 1
+    assert target_certified.batch_result.targets[0].strategy_configuration_sha256 == (
+        target_certified.runtime_pin.semantic_sha256
+    )
+
+    forged_manifest = replace(sealed.manifest, replay_semantic_sha256="0" * 64)
+    with pytest.raises(ValueError, match="does not authenticate"):
+        certify_manifest_rolling_close_mean(
+            tape,
+            replay_run_manifest=forged_manifest,
+            implementation_sha256="f" * 64,
+            publication_lag=timedelta(seconds=30),
+        )
+    with pytest.raises(ValueError, match="does not authenticate"):
+        certify_manifest_rolling_close_mean_targets(
+            tape,
+            replay_run_manifest=forged_manifest,
+            implementation_sha256="f" * 64,
+            publication_lag=timedelta(seconds=30),
+            target_policy=RollingCloseMeanTargetPolicy(long_quantity=Decimal("10")),
+        )
 
 
 def test_five_second_decision_lag_exposes_correction_as_late(tmp_path: Path) -> None:
