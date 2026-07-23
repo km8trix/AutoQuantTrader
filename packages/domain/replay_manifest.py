@@ -319,6 +319,12 @@ class ReplayPlanPin:
             "watermarks_sha256": self.watermarks_sha256,
         }
 
+    @property
+    def semantic_sha256(self) -> str:
+        """Return the exact identity of the sealed replay-plan fields."""
+
+        return _sha256(self._semantic_material())
+
 
 @dataclass(frozen=True, slots=True)
 class EnginePin:

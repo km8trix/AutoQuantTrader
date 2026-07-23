@@ -34,9 +34,12 @@ The repository currently completes Phases 0 and 2 against deterministic local
 fixtures and implements the Phase 1 ingestion/admission contracts without a
 licensed admitted vendor. Phase 2 includes the canonical reducers, durable
 fenced batch/submission/reservation lifecycle, and fixture-only research
-job/report/API/UI/worker path. It does not implement the target paper/live
-topology below: the trader remains `not_ready`, Phase 4 is gated, and no real
-broker or production market-data adapter is enabled.
+job/report/API/UI/worker path. Phase 3 has begun with bounded, pure-domain
+manifest-bound feature and feature-derived target parity proofs for one
+reference path; the remaining durable research-validity, captured-tape, shadow,
+and research-UI work is not complete. The repository does not implement the
+target paper/live topology below: the trader remains `not_ready`, Phase 4 is
+gated, and no real broker or production market-data adapter is enabled.
 
 ### Non-goals for v1
 
@@ -1283,6 +1286,96 @@ capability is neither identity authentication nor the production OIDC control
 plane, and the workflow confers no deployment, promotion, paper, or live
 authority. See
 [ADR 0033](adr/0033-durable-fixture-research-workflow.md).
+
+### Current Phase 3A bounded feature contract
+
+The first Phase 3 slice defines one immutable reference feature artifact,
+`rolling_close_mean`. A repository-owned adapter authenticates its source tape
+against the content-addressed dataset manifest and sealed replay-run manifest.
+The artifact freezes those pins plus its feature/version identity, raw-close
+input semantics, implementation contract, `lookback=2`, publication lag, and
+`SKIP_AND_RESET` gap policy. It has no fitted state. A future fitted feature
+must bind its immutable state and training window under a distinct artifact
+contract.
+
+Feature outputs are immutable causal snapshots. Each snapshot names the exact
+artifact, replay manifest, complete market batch, and ordered source
+observations used to compute its value, together with observation and
+availability times. Only the manifest-bound replay prefix may contribute.
+Publication lag advances the snapshot's explicit `available_at`. Phase 3A
+itself connects no downstream decision consumer; ADR 0035 adds the separate
+bounded Phase 3B boundary that enforces this timestamp rather than treating the
+second source observation as visibility.
+
+`SKIP_AND_RESET` makes missing-data behavior explicit. An incomplete or skipped
+batch emits no snapshot and clears rolling history for every expected
+instrument in that batch. Two new complete observations are required after the
+reset; neither imputation nor a window that bridges the gap is permitted.
+
+Separate pure batch and incremental reducers consume the same canonical replay
+evidence. The batch reducer selects adjacent windows from the full immutable
+sequence; the incremental reducer authenticates the exact next lineage digest
+and retains independent per-instrument state. Their complete canonical snapshot
+sequences must agree exactly in identity, lineage, value, timing, reset
+behavior, and order. Only then can a parity receipt bind the manifest and
+artifact, both result digests, and the ordered snapshot identities and count.
+Any mismatch fails closed and produces no successful receipt. Snapshot values
+retain exact canonical Decimal results, including means that require more scale
+than the normalized input SQL type.
+
+This is in-memory differential evidence, not a complete feature platform. No
+feature SQL schema/repository, API or CLI, browser view, job/worker integration,
+live provider capture, captured-tape playback, shadow deployment, fitted model,
+experiment/holdout governance, or target parity is implemented by this slice.
+Those remain later Phase 3 work except for the bounded reference target parity
+slice described next, and the Phase 3 exit gate is still open. See
+[ADR 0034](adr/0034-versioned-feature-artifacts-and-differential-parity.md).
+
+### Current Phase 3B causal feature-to-target contract
+
+Phase 3B consumes only an exact `CertifiedFeatureReplay`; callers cannot submit
+loose snapshots or a claimed digest. Every complete market batch creates a
+proof-constructed decision context containing at most the latest feature
+snapshot per expected instrument from the current post-reset epoch. A snapshot
+is visible only when `available_at <= decision_trigger.as_of`. Equality is
+allowed, while even one microsecond later remains hidden regardless of its
+observation or source-batch time.
+
+The consumer retains explicit pending and visible state. An incomplete batch
+emits `SKIPPED_RESET` and clears both classes for every expected instrument, so
+a delayed pre-gap snapshot cannot become visible after the reset. A universe
+change starts a new epoch. A complete batch without one visible snapshot for
+every expected instrument emits `WAITING` and no target.
+
+The bounded reference rule `rolling-close-mean-cross@1.0.0` targets a declared
+positive whole-share quantity when the decision batch's current raw close is
+strictly above the latest visible rolling-close mean and zero otherwise. Its
+strategy-configuration digest binds the policy, exact feature artifact, and
+successful Phase 3A feature-parity receipt. Each immutable decision record also
+binds the trigger, context, ordered feature snapshot identities, and resulting
+`TargetPortfolio`. Feature values remain signal evidence: target-to-intent
+conversion obtains its reference price from the causal decision-time market
+event, never from the rolling mean.
+
+Independent target paths enforce parity. The batch path builds immutable reset-
+epoch and availability indexes from the full feature sequence and resolves each
+prefix without reducer state. The incremental path authenticates the exact next
+feature step and advances a monotonic pending cursor plus visible state. A
+separate canonical visibility proof prevents a loose or stale snapshot from
+escaping as standalone decision evidence. Only exact equality of the complete
+reset, waiting, context, and target transcript permits a target-parity receipt.
+That receipt binds manifest lineage, the feature artifact and parity receipt,
+the target runtime configuration, both result digests, and ordered step,
+decision, and target identities.
+
+The repository manifest-tape adapter exercises this path against an
+authenticated synthetic fixture and sealed replay-run manifest. This is still
+pure in-memory research evidence. It adds no feature SQL repository, job or
+worker integration, API/CLI or browser view, experiment/holdout governance,
+captured live tape, reconnect handling, shadow deployment, or paper/live
+authority. Captured-tape feature/target parity and the Phase 3 exit gate remain
+open. See
+[ADR 0035](adr/0035-causal-feature-consumers-and-target-parity.md).
 
 The broader backtesting roadmap expands the current narrow contract, when the
 required source evidence and explicit policies exist, to model:
