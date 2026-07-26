@@ -5,8 +5,11 @@ import {
   makeDataQualityFixture,
 } from './fixtures'
 import {
+  DEVELOPMENT_EXPERIMENT_FAMILY_ID,
   makeBacktestReportFixture,
   makeBacktestsFixture,
+  makeExperimentFixture,
+  makeExperimentsFixture,
   makeResearchStrategiesFixture,
 } from './researchFixtures'
 import type {
@@ -18,6 +21,8 @@ import type {
   DashboardSummary,
   DataCatalogResponse,
   DataQualityResponse,
+  ExperimentListResponse,
+  ExperimentResponse,
   ProblemDetails,
   ResearchMutationCredentials,
   ResearchStrategiesResponse,
@@ -295,6 +300,36 @@ export function fetchBacktestReport(
         { signal },
       ),
     () => makeBacktestReportFixture(),
+  )
+}
+
+export function fetchExperiments(
+  signal?: AbortSignal,
+): Promise<ApiResult<ExperimentListResponse>> {
+  return withDevelopmentFallback(
+    () => requestJson<ExperimentListResponse>('/research/experiments', { signal }),
+    () => makeExperimentsFixture(),
+  )
+}
+
+export function fetchExperiment(
+  familyId: string,
+  signal?: AbortSignal,
+): Promise<ApiResult<ExperimentResponse>> {
+  return withDevelopmentFallback(
+    () =>
+      requestJson<ExperimentResponse>(
+        `/research/experiments/${encodeURIComponent(familyId)}`,
+        { signal },
+      ),
+    () => {
+      if (familyId !== DEVELOPMENT_EXPERIMENT_FAMILY_ID) {
+        throw new ApiError(
+          'Synthetic development experiment fixture does not match the requested family.',
+        )
+      }
+      return makeExperimentFixture()
+    },
   )
 }
 

@@ -51,6 +51,7 @@ side_effect_free_roots = [
   "packages/domain/batch_risk.py",
   "packages/domain/corporate_action_ledger.py",
   "packages/domain/decision.py",
+  "packages/domain/experiment_governance.py",
   "packages/domain/experiment_registry.py",
   "packages/domain/feature.py",
   "packages/domain/feature_replay.py",

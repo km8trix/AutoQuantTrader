@@ -36,10 +36,14 @@ licensed admitted vendor. Phase 2 includes the canonical reducers, durable
 fenced batch/submission/reservation lifecycle, and fixture-only research
 job/report/API/UI/worker path. Phase 3 has begun with bounded, pure-domain
 manifest-bound feature and feature-derived target parity proofs for one
-reference path; the remaining durable research-validity, captured-tape, shadow,
-and research-UI work is not complete. The repository does not implement the
-target paper/live topology below: the trader remains `not_ready`, Phase 4 is
-gated, and no real broker or production market-data adapter is enabled.
+reference path plus a durable bounded experiment-governance registry with
+opaque pre-reveal holdout commitments, configuration-bound target-evaluation
+receipts, and read-only inspection. General segment workers and process
+isolation, queryable replay transcripts, performance evaluation, captured-tape,
+shadow, and broader research-UI work are not complete. The repository does not
+implement the target paper/live topology below: the trader remains `not_ready`,
+Phase 4 is gated, and no real broker or production market-data adapter is
+enabled.
 
 ### Non-goals for v1
 
@@ -473,7 +477,9 @@ Key tables and invariants:
 | `data_quality_issues` | Gaps, duplicates, stale values, outliers, and resolution |
 | `dataset_manifests` / `dataset_manifest_partitions` | Immutable ordered normalized partitions plus schema, calendar, universe, corporate-action version, raw basis, and revision policy |
 | `feature_artifacts` | Input lineage, lookback/lag, fitted state, code digest, and batch/online parity result |
-| `experiment_families` | Every attempted/canceled/completed trial and holdout-access audit |
+| `phase3_experiment_tape_policies` / `phase3_experiment_tape_claims` | Global exploratory/holdout tape-role isolation plus exact per-family train, validation, and test claims |
+| `phase3_experiment_families` / `phase3_experiment_attempts` | Immutable family declarations and stable, budget-counted research attempts |
+| `phase3_experiment_attempt_events` / `phase3_holdout_reveals` / `phase3_experiment_audit_events` | Append-only attempt lifecycle, typed reveal evidence, and reconstructable governance audit |
 | `strategy_versions` | Code/artifact digest, schema, parameters, source commit |
 | `backtest_runs` | Immutable run manifest, lifecycle, metrics, and artifact links |
 | `deployments` | Strategy version + environment + account + approved config |
@@ -1377,6 +1383,105 @@ authority. Captured-tape feature/target parity and the Phase 3 exit gate remain
 open. See
 [ADR 0035](adr/0035-causal-feature-consumers-and-target-parity.md).
 
+### Current Phase 3C bounded experiment-governance registry
+
+Phase 3C separates research governance from execution. An experiment family
+declares immutable, non-overlapping train, validation, and final-test segments,
+frozen criteria, a pre-holdout attempt budget, and a multiple-testing treatment.
+Train and validation evidence is segment-scoped. Before reveal, the final test
+is represented only by an opaque content commitment; a complete-tape
+feature/target certificate cannot be attached as though its final-test
+transcript were still hidden.
+
+`phase3_experiment_tape_policies` provides a global role ledger keyed by tape
+content. Exploratory train and validation claims may share a source tape across
+families, while a holdout tape belongs to exactly one family. Once a tape is
+claimed in either usage class, it cannot cross between exploratory and holdout
+roles. Each family has exactly three authenticated role claims, and
+registration locks policies in deterministic content-digest order.
+
+Each `ExperimentAttempt` has one stable identity. Its queued, running,
+completed, failed, canceled, or abandoned states are append-only
+`ExperimentAttemptEvent` facts, so revisions neither consume extra budget nor
+erase unsuccessful work. ADR 0036's initial completed-status fixture evidence
+is superseded for the bounded reference path by the configuration-bound receipt
+described below.
+`StrategyConfigurationValidationReceipt` proves schema conformance. Only a
+configuration with exact completed validation evidence is eligible for
+final-test selection.
+
+`HoldoutRevealAuthorization` binds the family, frozen criteria, selected
+configuration, opaque `TestSegmentCommitment`, exact pre-reveal registry head,
+actor, reason, and time. `AuditedHoldoutReveal` is the first object allowed to
+retain the exact certificate-derived test-evidence receipt. Every earlier
+attempt must be terminal. Reveal serializes against attempt creation;
+afterward, no exploratory attempt may be added and at most one stable
+final-test attempt may use the selected configuration. Its lifecycle events
+remain revisions of that attempt, not additional holdout accesses.
+
+`SqlExperimentGovernance` persists canonical tape policies, family claims,
+families, stable attempts, attempt-event chains, holdout reveals, and audit
+events. Exact command retries are idempotent, conflicting identity reuse fails,
+and transactional compare-and-swap prevents an attempt/reveal race. Reads
+reconstruct and authenticate the full registry rather than trusting a mutable
+projection. Read-only API and browser views expose the hypothesis, segment
+declarations, frozen criteria, budget, lifecycle history, and sealed/revealed
+state while withholding pre-reveal final-test evidence.
+
+This registry is not connected to the Phase 2 backtest job or worker. That
+runner consumes one fixed complete fixture tape and cannot truthfully label a
+run as a declared evaluation segment. Phase 3C adds no experiment mutation API,
+parameter-sweep or walk-forward runner, holdout byte isolation, process quota,
+automated criteria adjudication, promotion, deployment, or trading authority.
+The complete Phase 3A/3B synthetic transcript also remains in-memory evidence,
+not durable segment evidence. Phase 3 and its exit gate remain open. See
+[ADR 0036](adr/0036-bounded-experiment-governance-and-holdout-commitments.md).
+
+### Current Phase 3D configuration-bound segment evaluation
+
+Phase 3D separates one governed segment's immutable input from an attempt's
+selected behavior. `ExperimentSegmentEvidence` is proof-constructed from an
+exact `CertifiedFeatureReplay` and retains the scoped replay, authenticated
+tape and manifest lineage, feature artifact, feature parity receipt and
+transcript digest, and bounded step and snapshot counts. The final-test
+commitment seals the same configuration-neutral input, so it cannot precompute
+the target policy that will later be selected.
+
+The bounded evaluator accepts only the reference
+`rolling-close-mean-cross@1.0.0` strategy and the exact configuration vocabulary
+`long_quantity` plus `target_lifetime_seconds`. A
+`GovernedSegmentEvaluationReceipt` can exist only when those parameters
+reproduce the supplied `CertifiedFeatureTargetReplay` policy over the family's
+exact feature evidence. It binds the stable attempt, configuration and schema
+validation, segment and any holdout reveal, feature and target certifications,
+target runtime and parity evidence, result and transcript digests, counts, and
+the exact current `RUNNING` event.
+
+Completion retains strict recorded actor-identifier continuity: the worker actor
+identifier on `RUNNING` must also identify the receipt and completion event.
+Failed, canceled, and abandoned attempts keep typed non-executable reasons. A
+crashed worker is abandoned and a replacement consumes a new stable attempt;
+Phase 3D adds no worker-identity issuer, lease renewal, or claim stealing.
+
+The existing authenticated attempt-event terminal payload stores the receipt.
+The locked completion command transiently requires the exact target
+certification and reproduces the proposed domain completion before writing, so
+a caller-supplied restored summary cannot become a completed fact. Family-head
+compare-and-swap, exact idempotent writes, full reconstruction, audit coverage,
+and readiness verification then apply without a new table. Read-only API and
+browser projections redact linkable final-test segment/replay digests until
+reveal, lock unused exploratory budget afterward, and show only an allowlisted
+set of completed receipt digests, counts, times, and recorded actor identifier.
+They do not return feature or target transcript contents, observations,
+positions, returns, or a promotion decision.
+
+This boundary is target parity, not a segment-aware economic backtest. It adds
+no experiment mutation endpoint or scheduler, arbitrary strategy execution,
+subprocess quotas, walk-forward evaluation, cost/benchmark stress, criteria
+adjudication, captured/live tape, reconnect handling, shadow deployment, or
+paper/live authority. Phase 3 and its exit gate remain open. See
+[ADR 0037](adr/0037-configuration-bound-governed-segment-evaluation.md).
+
 The broader backtesting roadmap expands the current narrow contract, when the
 required source evidence and explicit policies exist, to model:
 
@@ -1533,6 +1638,15 @@ CSRF header, exact catalog pins, and idempotency header. It returns `202` with a
 durable job location. Query routes authenticate stored payloads and return
 unavailable rather than serving corrupt evidence.
 
+The Phase 3C/3D slices add read-only
+`GET /api/v1/research/experiments` and
+`GET /api/v1/research/experiments/{family_id}` inspection. These routes
+reconstruct authenticated governance history and expose only the opaque
+final-test commitment before reveal. Completed events may expose the allowlisted
+configuration-bound evaluation receipt digests and counts, but never replay
+transcript contents or performance claims. There is no experiment create,
+attempt, completion, reveal, or promotion mutation route.
+
 All mutation requests accept an idempotency key. Control commands return a
 durable command ID; asynchronous state changes are observed through the event
 stream and audit log.
@@ -1560,10 +1674,13 @@ Settings. Strategy code remains version-controlled in the repository; the UI
 selects immutable strategy versions and edits schema-validated parameters.
 
 The current Research group implements Strategies and Backtests for the local
-golden fixture. It displays exact strategy/configuration/data/replay/model pins,
-launches only server-cataloged inputs, polls queued and running jobs, retains the
-selected job history, and renders verified metrics, equity, trades, positions,
-ledger entries, and provenance. Launch controls stay disabled when local auth or
+golden fixture plus read-only Experiments inspection. It displays exact
+strategy/configuration/data/replay/model pins, launches only server-cataloged
+fixture inputs, polls queued and running jobs, retains the selected job history,
+and renders verified metrics, equity, trades, positions, ledger entries, and
+provenance. Experiments displays immutable family declarations, criteria,
+attempt histories, budgets, and sealed/revealed holdout state; it cannot create
+an attempt or reveal a holdout. Launch controls stay disabled when local auth or
 durable readiness is unavailable. Trading, deployment, paper, and live controls
 remain unavailable.
 

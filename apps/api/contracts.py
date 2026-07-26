@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated
@@ -18,6 +18,8 @@ from packages.domain.backtest_report import (
 )
 from packages.domain.canonical import canonical_decimal
 from packages.domain.decimal_math import exact_decimal_sum
+from packages.domain.experiment_governance import ExperimentAttemptStatus
+from packages.domain.experiment_registry import EvaluationSegmentKind, PromotionComparison
 from packages.domain.models import (
     DecisionStatus,
     LedgerEntry,
@@ -576,6 +578,149 @@ class BacktestJobView(ApiModel):
 class BacktestJobListResponse(ApiModel):
     as_of: datetime
     jobs: list[BacktestJobView]
+
+
+class ExperimentHoldoutState(StrEnum):
+    SEALED = "sealed"
+    REVEALED = "revealed"
+
+
+class ExperimentSummaryView(ApiModel):
+    family_id: Sha256Text
+    family_name: str
+    hypothesis: str
+    owner_id: str
+    created_at: datetime
+    strategy_id: str
+    strategy_version: str
+    strategy_version_sha256: Sha256Text
+    evaluation_plan_version: str
+    evaluation_plan_sha256: Sha256Text
+    promotion_criteria_sha256: Sha256Text
+    test_commitment_sha256: Sha256Text
+    maximum_pre_holdout_trials: int
+    pre_holdout_attempt_count: int
+    remaining_pre_holdout_attempts: int
+    attempt_count: int
+    holdout_state: ExperimentHoldoutState
+    snapshot_sha256: Sha256Text
+    registry_head_sha256: Sha256Text
+
+
+class ExperimentSegmentView(ApiModel):
+    kind: EvaluationSegmentKind
+    segment_sha256: Sha256Text | None
+    coverage_start: datetime
+    coverage_end: datetime
+    dataset_replay_sha256: Sha256Text | None
+    purge_before: timedelta
+    embargo_after: timedelta
+
+
+class ExperimentPromotionCriterionView(ApiModel):
+    metric_name: str
+    comparison: PromotionComparison
+    threshold: ApiDecimal
+    minimum_observations: int
+
+
+class ExperimentPromotionCriteriaView(ApiModel):
+    criteria_sha256: Sha256Text
+    criteria_version: str
+    criteria: list[ExperimentPromotionCriterionView]
+    selection_rule: str
+    multiple_testing_method: str
+    maximum_pre_holdout_trials: int
+    frozen_at: datetime
+    frozen_by: str
+
+
+class ExperimentEvaluationReceiptView(ApiModel):
+    evidence_kind: str
+    family_id: Sha256Text
+    attempt_id: Sha256Text
+    receipt_sha256: Sha256Text
+    strategy_version_sha256: Sha256Text
+    configuration_sha256: Sha256Text
+    configuration_validation_sha256: Sha256Text
+    segment_kind: EvaluationSegmentKind
+    segment_sha256: Sha256Text
+    source_evidence_sha256: Sha256Text
+    holdout_reveal_sha256: Sha256Text | None
+    feature_certification_sha256: Sha256Text
+    target_policy_sha256: Sha256Text
+    target_runtime_pin_sha256: Sha256Text
+    target_certification_sha256: Sha256Text
+    batch_result_sha256: Sha256Text
+    incremental_result_sha256: Sha256Text
+    target_parity_receipt_sha256: Sha256Text
+    target_transcript_sha256: Sha256Text
+    step_count: int = Field(ge=1, le=100_000)
+    target_count: int = Field(ge=0, le=100_000)
+    running_event_sha256: Sha256Text
+    started_at: datetime
+    completed_at: datetime
+    evaluated_by: str = Field(min_length=1, max_length=128)
+
+
+class ExperimentAttemptEventView(ApiModel):
+    event_sha256: Sha256Text
+    global_sequence_number: int
+    attempt_sequence_number: int
+    status: ExperimentAttemptStatus
+    occurred_at: datetime
+    actor_id: str
+    terminal_evidence_sha256: Sha256Text | None
+    terminal_reason_code: str | None
+    evaluation: ExperimentEvaluationReceiptView | None
+
+
+class ExperimentAttemptView(ApiModel):
+    attempt_id: Sha256Text
+    attempt_number: int
+    configuration_sha256: Sha256Text
+    configuration_name: str
+    configuration_validation_sha256: Sha256Text
+    segment_kind: EvaluationSegmentKind
+    segment_sha256: Sha256Text
+    requested_at: datetime
+    requested_by: str
+    holdout_reveal_sha256: Sha256Text | None
+    status: ExperimentAttemptStatus
+    history: list[ExperimentAttemptEventView]
+
+
+class ExperimentHoldoutView(ApiModel):
+    state: ExperimentHoldoutState
+    commitment_sha256: Sha256Text
+    authorization_sha256: Sha256Text | None
+    reveal_sha256: Sha256Text | None
+    selected_configuration_sha256: Sha256Text | None
+    pre_reveal_snapshot_sha256: Sha256Text | None
+    pre_reveal_registry_head_sha256: Sha256Text | None
+    pre_reveal_attempts_sha256: Sha256Text | None
+    pre_reveal_attempt_count: int | None
+    revealed_at: datetime | None
+    revealed_by: str | None
+    access_reason: str | None
+
+
+class ExperimentView(ApiModel):
+    summary: ExperimentSummaryView
+    segments: list[ExperimentSegmentView]
+    promotion_criteria: ExperimentPromotionCriteriaView
+    attempts: list[ExperimentAttemptView]
+    holdout: ExperimentHoldoutView
+
+
+class ExperimentListResponse(ApiModel):
+    as_of: datetime
+    experiments: list[ExperimentSummaryView]
+
+
+class ExperimentResponse(ApiModel):
+    as_of: datetime
+    experiment: ExperimentView
 
 
 class BacktestLaunchRequest(BaseModel):

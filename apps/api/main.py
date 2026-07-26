@@ -50,6 +50,10 @@ from apps.api.data_views import (
     catalog_response,
     quality_response,
 )
+from apps.api.experiment_views import (
+    ExperimentGovernanceQuery,
+    create_experiment_router,
+)
 from packages.application.backtest_worker import ensure_golden_research_catalog
 from packages.domain.risk import RiskAuthorizationError
 from packages.domain.walking_thread import WalkingThread, WalkingThreadResult
@@ -60,6 +64,10 @@ from packages.persistence.database import (
     create_database_engine,
     persistence_mode,
     verify_operational_schema,
+)
+from packages.persistence.experiment_governance import (
+    ExperimentGovernanceError,
+    SqlExperimentGovernance,
 )
 from packages.persistence.immutable import ImmutableFactConflict
 from packages.persistence.market_data import SqlMarketDataCatalog
@@ -114,6 +122,7 @@ def _bootstrap(
     ]
     if persistence_status is PersistenceMode.DURABLE:
         capabilities.append("fixture-backtest-query")
+        capabilities.append("experiment-governance-query")
     if backtest_launch.enabled:
         capabilities.append("fixture-backtest-launch")
     return UiBootstrap(
@@ -143,6 +152,7 @@ def _bootstrap(
             "data_catalog": True,
             "data_admission": True,
             "backtest_query": persistence_status is PersistenceMode.DURABLE,
+            "experiment_query": persistence_status is PersistenceMode.DURABLE,
             "backtest_launch": backtest_launch.enabled,
             "controls": False,
             "event_stream": False,
@@ -239,6 +249,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     persistence_error: str | None = None
     result: WalkingThreadResult | None = None
     backtest_workflow: SqlBacktestWorkflow | None = None
+    experiment_governance: ExperimentGovernanceQuery | None = None
     try:
         if persistence_engine is None:
             persistence_engine = create_database_engine(resolved_settings.database_url)
@@ -263,12 +274,14 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         if persistence_mode(persistence_engine) == "durable":
             backtest_workflow = SqlBacktestWorkflow(persistence_engine)
             ensure_golden_research_catalog(backtest_workflow)
+            experiment_governance = SqlExperimentGovernance(persistence_engine)
             verify_operational_schema(persistence_engine)
         persistence_status = PersistenceMode(persistence_mode(persistence_engine))
     except (
         SQLAlchemyError,
         DatabaseSchemaNotReady,
         BacktestWorkflowError,
+        ExperimentGovernanceError,
         ImmutableFactConflict,
         RiskAuthorizationError,
     ):
@@ -294,6 +307,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         configured_secret=resolved_settings.session_secret,
     )
     app.state.backtest_workflow = backtest_workflow
+    app.state.experiment_governance = experiment_governance
 
     if resolved_settings.cors_origins:
         app.add_middleware(
@@ -401,6 +415,15 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         create_backtest_router(
             workflow=backtest_workflow,
             security=local_security,
+            persistence_ready=lambda: (
+                _probe_persistence(persistence_engine, persistence_status)[0]
+                is PersistenceMode.DURABLE
+            ),
+        )
+    )
+    router.include_router(
+        create_experiment_router(
+            repository=experiment_governance,
             persistence_ready=lambda: (
                 _probe_persistence(persistence_engine, persistence_status)[0]
                 is PersistenceMode.DURABLE

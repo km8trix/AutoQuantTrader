@@ -38,5 +38,8 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0033: durable fixture-only research workflow](0033-durable-fixture-research-workflow.md)
 - [ADR 0034: versioned feature artifacts and differential parity](0034-versioned-feature-artifacts-and-differential-parity.md)
 - [ADR 0035: causal feature consumers and target parity](0035-causal-feature-consumers-and-target-parity.md)
+- [ADR 0036: bounded experiment governance and holdout commitments](0036-bounded-experiment-governance-and-holdout-commitments.md)
+  (completion evidence superseded by ADR 0037)
+- [ADR 0037: configuration-bound governed segment evaluation](0037-configuration-bound-governed-segment-evaluation.md)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
