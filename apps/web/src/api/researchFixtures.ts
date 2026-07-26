@@ -1,10 +1,16 @@
 import type {
   BacktestReportResponse,
   BacktestsResponse,
+  ExperimentAttemptStatus,
+  ExperimentHoldoutState,
+  ExperimentListResponse,
+  ExperimentResponse,
+  ExperimentSummaryView,
   ResearchStrategiesResponse,
 } from './types'
 
 const digest = (character: string): string => character.repeat(64)
+export const DEVELOPMENT_EXPERIMENT_FAMILY_ID = digest('a')
 
 export function makeResearchStrategiesFixture(
   now = new Date(),
@@ -262,6 +268,274 @@ export function makeBacktestReportFixture(now = new Date()): BacktestReportRespo
       settlement_ledger_sha256: digest('7'),
       account_projection_sha256: digest('8'),
       accounting_evidence_sha256: digest('9'),
+    },
+  }
+}
+
+const experimentStatuses: ExperimentAttemptStatus[] = [
+  'queued',
+  'running',
+  'completed',
+  'failed',
+  'canceled',
+  'abandoned',
+]
+
+function experimentSummary(
+  now: Date,
+  holdoutState: ExperimentHoldoutState,
+): ExperimentSummaryView {
+  return {
+    family_id: DEVELOPMENT_EXPERIMENT_FAMILY_ID,
+    family_name: 'Synthetic rolling-close-mean stability study',
+    hypothesis:
+      'A pinned rolling-close-mean target configuration preserves parity across declared train and validation segments before one authorized holdout reveal.',
+    owner_id: 'fixture-research-owner',
+    created_at: new Date(now.getTime() - 14 * 86_400_000).toISOString(),
+    strategy_id: 'rolling-close-mean-cross',
+    strategy_version: '1.0.0',
+    strategy_version_sha256: digest('b'),
+    evaluation_plan_version: 'phase3d-reference-plan-v1',
+    evaluation_plan_sha256: digest('c'),
+    promotion_criteria_sha256: digest('d'),
+    test_commitment_sha256: digest('e'),
+    maximum_pre_holdout_trials: 8,
+    pre_holdout_attempt_count: 6,
+    remaining_pre_holdout_attempts: holdoutState === 'sealed' ? 2 : 0,
+    attempt_count: holdoutState === 'sealed' ? 6 : 7,
+    holdout_state: holdoutState,
+    snapshot_sha256:
+      holdoutState === 'sealed' ? digest('f') : 'ab'.repeat(32),
+    registry_head_sha256:
+      holdoutState === 'sealed' ? digest('0') : digest('8'),
+  }
+}
+
+export function makeExperimentsFixture(
+  now = new Date(),
+  holdoutState: ExperimentHoldoutState = 'sealed',
+): ExperimentListResponse {
+  return {
+    as_of: now.toISOString(),
+    experiments: [experimentSummary(now, holdoutState)],
+  }
+}
+
+export function makeExperimentFixture(
+  now = new Date(),
+  holdoutState: ExperimentHoldoutState = 'sealed',
+): ExperimentResponse {
+  const timestamp = (minutesAgo: number) =>
+    new Date(now.getTime() - minutesAgo * 60_000).toISOString()
+  let globalSequenceNumber = 0
+  const latestStatuses =
+    holdoutState === 'sealed'
+      ? experimentStatuses
+      : ([
+          'canceled',
+          'abandoned',
+          'completed',
+          'failed',
+          'canceled',
+          'abandoned',
+          'completed',
+        ] satisfies ExperimentAttemptStatus[])
+
+  const attempts = latestStatuses.map((status, index) => {
+    const isTestAttempt = holdoutState === 'revealed' && index === 6
+    if (isTestAttempt) {
+      globalSequenceNumber += 1
+    }
+    const queuedAt = isTestAttempt ? timestamp(4) : timestamp(180 - index * 20)
+    const configurationSha256 = isTestAttempt
+      ? digest('4')
+      : digest(((index + 2) % 10).toString())
+    const configurationValidationSha256 = isTestAttempt
+      ? digest('5')
+      : digest(((index + 3) % 10).toString())
+    const attemptId = digest((index + 1).toString())
+    const segmentKind = isTestAttempt
+      ? ('test' as const)
+      : index < 2
+        ? ('train' as const)
+        : ('validation' as const)
+    const segmentSha256 =
+      segmentKind === 'train'
+        ? digest('1')
+        : segmentKind === 'validation'
+          ? digest('2')
+          : digest('3')
+    const holdoutRevealSha256 = isTestAttempt ? digest('8') : null
+    const lifecycle: ExperimentAttemptStatus[] =
+      status === 'queued'
+        ? ['queued']
+        : status === 'running'
+          ? ['queued', 'running']
+          : status === 'canceled'
+            ? ['queued', 'canceled']
+            : ['queued', 'running', status]
+    const history = lifecycle.map((eventStatus, eventIndex) => {
+      const occurredAt = new Date(
+        new Date(queuedAt).getTime() + eventIndex * 60_000,
+      ).toISOString()
+      const terminalEvidenceSha256 = ['completed', 'failed', 'canceled', 'abandoned'].includes(
+        eventStatus,
+      )
+        ? digest(((index + eventIndex + 3) % 10).toString())
+        : null
+
+      return {
+        event_sha256: digest(((index + eventIndex + 1) % 10).toString()),
+        global_sequence_number: globalSequenceNumber++,
+        attempt_sequence_number: eventIndex,
+        status: eventStatus,
+        occurred_at: occurredAt,
+        actor_id: eventIndex === 0 ? 'fixture-research-owner' : 'fixture-research-worker',
+        terminal_evidence_sha256: terminalEvidenceSha256,
+        terminal_reason_code:
+          eventStatus === 'failed'
+            ? 'synthetic_worker_failure'
+            : eventStatus === 'canceled'
+              ? 'synthetic_operator_cancel'
+              : eventStatus === 'abandoned'
+                ? 'synthetic_lease_expired'
+                : null,
+        evaluation:
+          eventStatus === 'completed' && terminalEvidenceSha256
+            ? {
+                evidence_kind: 'governed_segment_evaluation',
+                family_id: DEVELOPMENT_EXPERIMENT_FAMILY_ID,
+                attempt_id: attemptId,
+                receipt_sha256: terminalEvidenceSha256,
+                strategy_version_sha256: digest('b'),
+                configuration_sha256: configurationSha256,
+                configuration_validation_sha256: configurationValidationSha256,
+                segment_kind: segmentKind,
+                segment_sha256: segmentSha256,
+                source_evidence_sha256: digest('4'),
+                holdout_reveal_sha256: holdoutRevealSha256,
+                feature_certification_sha256: digest('5'),
+                target_policy_sha256: digest('6'),
+                target_runtime_pin_sha256: digest('7'),
+                target_certification_sha256: digest('8'),
+                batch_result_sha256: digest('9'),
+                incremental_result_sha256: digest('0'),
+                target_parity_receipt_sha256: digest('a'),
+                target_transcript_sha256: digest('b'),
+                step_count: 48,
+                target_count: 31,
+                running_event_sha256: digest(((index + 2) % 10).toString()),
+                started_at: new Date(new Date(queuedAt).getTime() + 60_000).toISOString(),
+                completed_at: occurredAt,
+                evaluated_by: 'fixture-research-worker',
+              }
+            : null,
+      }
+    })
+
+    return {
+      attempt_id: attemptId,
+      attempt_number: index + 1,
+      configuration_sha256: configurationSha256,
+      configuration_name: `Synthetic candidate ${index + 1}`,
+      configuration_validation_sha256: configurationValidationSha256,
+      segment_kind: segmentKind,
+      segment_sha256: segmentSha256,
+      requested_at: queuedAt,
+      requested_by: 'fixture-research-owner',
+      holdout_reveal_sha256: holdoutRevealSha256,
+      status,
+      history,
+    }
+  })
+
+  return {
+    as_of: now.toISOString(),
+    experiment: {
+      summary: experimentSummary(now, holdoutState),
+      segments: [
+        {
+          kind: 'train',
+          segment_sha256: digest('1'),
+          coverage_start: '2022-01-03T00:00:00.000Z',
+          coverage_end: '2023-06-30T23:59:59.000Z',
+          dataset_replay_sha256: digest('4'),
+          purge_before: 'P7D',
+          embargo_after: 'P3D',
+        },
+        {
+          kind: 'validation',
+          segment_sha256: digest('2'),
+          coverage_start: '2023-07-10T00:00:00.000Z',
+          coverage_end: '2024-06-28T23:59:59.000Z',
+          dataset_replay_sha256: digest('5'),
+          purge_before: 'P7D',
+          embargo_after: 'P3D',
+        },
+        {
+          kind: 'test',
+          segment_sha256: holdoutState === 'revealed' ? digest('3') : null,
+          coverage_start: '2024-07-08T00:00:00.000Z',
+          coverage_end: '2025-06-30T23:59:59.000Z',
+          dataset_replay_sha256: holdoutState === 'revealed' ? digest('6') : null,
+          purge_before: 'P7D',
+          embargo_after: 'P3D',
+        },
+      ],
+      promotion_criteria: {
+        criteria_sha256: digest('d'),
+        criteria_version: 'phase3c-promotion-v1',
+        criteria: [
+          {
+            metric_name: 'annualized_sharpe_ratio',
+            comparison: 'greater_than_or_equal',
+            threshold: '1.25',
+            minimum_observations: 252,
+          },
+          {
+            metric_name: 'maximum_drawdown',
+            comparison: 'less_than_or_equal',
+            threshold: '0.15',
+            minimum_observations: 252,
+          },
+        ],
+        selection_rule: 'Select the highest validation Sharpe ratio among passing candidates.',
+        multiple_testing_method: 'Bonferroni correction across the frozen attempt budget.',
+        maximum_pre_holdout_trials: 8,
+        frozen_at: new Date(now.getTime() - 14 * 86_400_000).toISOString(),
+        frozen_by: 'fixture-research-owner',
+      },
+      attempts,
+      holdout:
+        holdoutState === 'sealed'
+          ? {
+              state: 'sealed',
+              commitment_sha256: digest('e'),
+              authorization_sha256: null,
+              reveal_sha256: null,
+              selected_configuration_sha256: null,
+              pre_reveal_snapshot_sha256: null,
+              pre_reveal_registry_head_sha256: null,
+              pre_reveal_attempts_sha256: null,
+              pre_reveal_attempt_count: null,
+              revealed_at: null,
+              revealed_by: null,
+              access_reason: null,
+            }
+          : {
+              state: 'revealed',
+              commitment_sha256: digest('e'),
+              authorization_sha256: digest('7'),
+              reveal_sha256: digest('8'),
+              selected_configuration_sha256: digest('4'),
+              pre_reveal_snapshot_sha256: digest('f'),
+              pre_reveal_registry_head_sha256: digest('0'),
+              pre_reveal_attempts_sha256: digest('9'),
+              pre_reveal_attempt_count: 6,
+              revealed_at: timestamp(5),
+              revealed_by: 'fixture-governance-reviewer',
+              access_reason: 'Synthetic governance drill completed after frozen selection.',
+            },
     },
   }
 }

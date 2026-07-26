@@ -7,6 +7,8 @@ import {
   fetchDashboardSummary,
   fetchDataCatalog,
   fetchDataQuality,
+  fetchExperiment,
+  fetchExperiments,
   fetchResearchStrategies,
   launchBacktest,
 } from './client'
@@ -20,6 +22,8 @@ export const queryKeys = {
   researchStrategies: ['research', 'strategies'] as const,
   backtests: ['research', 'backtests'] as const,
   backtestReport: (jobId: string) => ['research', 'backtests', jobId, 'report'] as const,
+  experiments: ['research', 'experiments'] as const,
+  experiment: (familyId: string) => ['research', 'experiments', familyId] as const,
 }
 
 export function useBootstrap() {
@@ -115,5 +119,26 @@ export function useBacktestReport(jobId: string | null, enabled = true) {
     enabled: enabled && Boolean(jobId),
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
+  })
+}
+
+export function useExperiments() {
+  return useQuery({
+    queryKey: queryKeys.experiments,
+    queryFn: ({ signal }) => fetchExperiments(signal),
+    staleTime: 30_000,
+    retry: false,
+    refetchOnWindowFocus: true,
+  })
+}
+
+export function useExperiment(familyId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.experiment(familyId ?? 'none'),
+    queryFn: ({ signal }) => fetchExperiment(familyId ?? '', signal),
+    enabled: enabled && Boolean(familyId),
+    staleTime: 30_000,
+    retry: false,
+    refetchOnWindowFocus: true,
   })
 }

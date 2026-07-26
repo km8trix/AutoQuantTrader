@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Literal
 
@@ -67,6 +69,13 @@ from packages.persistence.schema import (
     phase2_strategy_versions,
     phase2_submission_attempt_events,
     phase2_submission_attempts,
+    phase3_experiment_attempt_events,
+    phase3_experiment_attempts,
+    phase3_experiment_audit_events,
+    phase3_experiment_families,
+    phase3_experiment_tape_claims,
+    phase3_experiment_tape_policies,
+    phase3_holdout_reveals,
     replay_run_manifests,
     risk_account_guards,
     risk_decisions,
@@ -77,7 +86,7 @@ from packages.persistence.schema import (
 )
 from packages.persistence.sqlite_config import enforce_sqlite_foreign_keys
 
-EXPECTED_SCHEMA_REVISION = "0009_lease_revision_chain"
+EXPECTED_SCHEMA_REVISION = "0010_phase3_governance"
 
 
 class DatabaseSchemaNotReady(RuntimeError):
@@ -1178,6 +1187,24 @@ def persistence_mode(engine: Engine) -> Literal["ephemeral", "durable"]:
     return "durable"
 
 
+@contextmanager
+def _repeatable_read_transaction(engine: Engine) -> Iterator[Connection]:
+    """Hold one stable database snapshot across a multi-query read."""
+
+    with engine.connect() as connection:
+        if connection.dialect.name == "postgresql":
+            connection = connection.execution_options(isolation_level="REPEATABLE READ")
+            connection.begin()
+        elif connection.dialect.name == "sqlite":
+            connection.exec_driver_sql("BEGIN")
+        else:
+            connection.begin()
+        try:
+            yield connection
+        finally:
+            connection.rollback()
+
+
 def verify_operational_schema(
     engine: Engine,
     *,
@@ -1186,7 +1213,7 @@ def verify_operational_schema(
     """Fail closed unless migrations and every Phase 0 operational table are readable."""
 
     try:
-        with engine.connect() as connection:
+        with _repeatable_read_transaction(engine) as connection:
             revision = connection.scalar(sa.text("SELECT version_num FROM alembic_version"))
             if revision != EXPECTED_SCHEMA_REVISION:
                 raise DatabaseSchemaNotReady(
@@ -1249,11 +1276,29 @@ def verify_operational_schema(
                 phase2_backtest_job_events,
                 phase2_backtest_job_heads,
                 phase2_backtest_audit_events,
+                phase3_experiment_families,
+                phase3_experiment_attempts,
+                phase3_experiment_attempt_events,
+                phase3_holdout_reveals,
+                phase3_experiment_audit_events,
+                phase3_experiment_tape_claims,
+                phase3_experiment_tape_policies,
             )
             for table in required_tables:
                 connection.execute(sa.select(table).limit(0))
             _verify_phase2_durability_integrity(connection)
             _verify_phase2_research_integrity(connection)
+            from packages.persistence.experiment_governance import (
+                ExperimentGovernanceError,
+                _verify_experiment_governance_integrity,
+            )
+
+            try:
+                _verify_experiment_governance_integrity(connection)
+            except ExperimentGovernanceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 3 experiment-governance integrity verification failed"
+                ) from error
             if not require_phase_zero_facts:
                 _verify_data_plane_integrity(connection)
                 return

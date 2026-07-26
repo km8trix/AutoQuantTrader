@@ -26,8 +26,14 @@ The local application implements the Phase 0 walking thread, a **local Phase
 complete **Phase 2 deterministic-fixture engine and durable research workflow**.
 Phase 3 has begun with bounded, pure-domain `rolling_close_mean` feature and
 feature-derived target contracts, including exact batch/incremental parity
-against repository-owned manifest-bound replay evidence; the rest of Phase 3
-remains incomplete.
+against repository-owned manifest-bound replay evidence, plus a durable bounded
+experiment-governance registry with opaque pre-reveal holdout commitments and
+read-only inspection. Configuration-neutral segment inputs and
+configuration-bound target-parity completion receipts now close the reference
+path from one governed attempt to its exact strategy policy. General segment
+workers and process isolation, queryable replay transcripts, performance
+evaluation, captured-tape and shadow workflows, and the rest of Phase 3 remain
+incomplete.
 Its production worker/trading runtime does not ingest from an admitted
 market-data vendor or connect to a broker, submit paper orders, or submit live
 orders. Secret-safe access probes and separately authorized research-capture
@@ -340,9 +346,47 @@ sequence before a target-parity receipt can exist. Target configuration binds
 the feature artifact and Phase 3A
 receipt, while intent conversion still uses the causal market event—not the
 feature value—as its reference price. This repository-owned synthetic-tape
-evidence does not satisfy the captured-tape gate. SQL durability, API/CLI and
-browser surfaces, experiment governance, live capture, reconnect freshness,
-shadow replay, and fitted features remain later Phase 3 work.
+evidence does not satisfy the captured-tape gate. Durable feature evidence,
+job/worker integration, live capture, reconnect freshness, shadow replay, and
+fitted features remain later Phase 3 work.
+
+ADR 0036 implements Phase 3C as a bounded experiment-governance registry.
+Families declare non-overlapping train, validation, and final-test segments,
+frozen criteria, and a pre-holdout attempt budget. Train and validation
+evidence is segment-scoped; before reveal, the final test is represented only by
+an opaque content commitment. Stable research attempts retain append-only
+queued, running, completed, failed, canceled, or abandoned lifecycle events, so
+updates do not consume extra budget and unsuccessful work cannot disappear.
+Only an exact completed validation configuration is eligible for final-test
+selection.
+
+A typed reveal authorization binds the family, frozen criteria, selected
+configuration, opaque holdout commitment, exact pre-reveal registry head,
+actor, reason, and time; the audited reveal is the first object allowed to
+retain the exact certificate-derived test-evidence receipt. A global tape-role
+ledger permits exploratory reuse while preventing exploratory/holdout
+crossover and reserving each holdout tape to one family. Canonical tape
+policies, family claims, families, attempts, lifecycle events, reveals, and
+audit facts are retained through authenticated SQL storage and exposed through
+read-only API and browser inspection. Phase 3C deliberately does not connect
+to the Phase 2 fixture worker: its fixed complete tape cannot truthfully serve
+as a train, validation, or final-test run. There is no experiment mutation API,
+parameter-sweep runner, holdout-byte isolation, automated promotion, paper/live
+authority, or completed Phase 3 exit gate.
+
+ADR 0037 implements Phase 3D for the bounded reference evaluator. Family
+segment evidence and the sealed final-test commitment are now derived from
+configuration-neutral `CertifiedFeatureReplay` input. Once an attempt is
+running, its exact `long_quantity` and `target_lifetime_seconds` configuration
+must reproduce the policy in a successful `CertifiedFeatureTargetReplay`.
+Only then can the same recorded running-actor identifier proof-construct a
+`GovernedSegmentEvaluationReceipt` and complete the attempt. The durable event
+payload binds the configuration, schema-validation receipt, source evidence,
+feature and target certifications, parity receipts, runtime pin, transcript
+digest, counts, and actor-identifier continuity. Read-only views expose those
+digests and counts, never transcript contents or held-out observations. This is
+causal target-evaluation evidence, not a P&L report, criteria decision,
+promotion, deployment, or trading authority.
 
 For a separately authorized future capture, start from the fail-closed
 [acquisition-profile](docs/admission/tiingo-eod-acquisition-profile.template.json),

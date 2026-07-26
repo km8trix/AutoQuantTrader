@@ -6,6 +6,7 @@ import { DataQualityPage } from '../features/data/DataQualityPage'
 import { OverviewPage } from '../features/overview/OverviewPage'
 import { PlaceholderPage } from '../features/overview/PlaceholderPage'
 import { BacktestsPage } from '../features/research/BacktestsPage'
+import { ExperimentsPage } from '../features/research/ExperimentsPage'
 import { StrategiesPage } from '../features/research/StrategiesPage'
 
 interface AppRoutesProps {
@@ -13,12 +14,6 @@ interface AppRoutesProps {
 }
 
 const placeholderRoutes = [
-  {
-    path: '/research/experiments',
-    title: 'Experiments',
-    description: 'Compare governed experiment families and out-of-sample evidence.',
-    phase: 'Phase 3',
-  },
   {
     path: '/trading/deployments',
     title: 'Deployments',
@@ -71,6 +66,7 @@ export function AppRoutes({ bootstrap }: AppRoutesProps) {
       <Route element={<DataQualityPage />} path="/data/quality" />
       <Route element={<StrategiesPage />} path="/research/strategies" />
       <Route element={<BacktestsPage bootstrap={bootstrap} />} path="/research/backtests" />
+      <Route element={<ExperimentsPage />} path="/research/experiments" />
       {placeholderRoutes.map((route) => (
         <Route
           element={

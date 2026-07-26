@@ -127,3 +127,22 @@ export type BacktestPosition = ApiSchemas['BacktestPositionView']
 export type BacktestLedgerTraceEntry = ApiSchemas['BacktestLedgerTraceView']
 export type BacktestProvenance = ApiSchemas['BacktestReportProvenanceView']
 export type BacktestReportResponse = ApiSchemas['BacktestReportView']
+
+export type ExperimentHoldoutState = ApiSchemas['ExperimentHoldoutState']
+export type ExperimentSegmentKind = ApiSchemas['EvaluationSegmentKind']
+export type ExperimentPromotionComparison = ApiSchemas['PromotionComparison']
+export type ExperimentAttemptStatus = ApiSchemas['ExperimentAttemptStatus']
+export type ExperimentSummaryView = ApiSchemas['ExperimentSummaryView']
+export type ExperimentSegmentView = ApiSchemas['ExperimentSegmentView']
+export type ExperimentPromotionCriterionView =
+  ApiSchemas['ExperimentPromotionCriterionView']
+export type ExperimentPromotionCriteriaView =
+  ApiSchemas['ExperimentPromotionCriteriaView']
+export type ExperimentEvaluationReceiptView =
+  ApiSchemas['ExperimentEvaluationReceiptView']
+export type ExperimentAttemptEventView = ApiSchemas['ExperimentAttemptEventView']
+export type ExperimentAttemptView = ApiSchemas['ExperimentAttemptView']
+export type ExperimentHoldoutView = ApiSchemas['ExperimentHoldoutView']
+export type ExperimentView = ApiSchemas['ExperimentView']
+export type ExperimentListResponse = ApiSchemas['ExperimentListResponse']
+export type ExperimentResponse = ApiSchemas['ExperimentResponse']

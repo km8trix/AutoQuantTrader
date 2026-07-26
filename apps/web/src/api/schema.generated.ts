@@ -298,6 +298,136 @@ export interface components {
       "name": string;
     };
     "EnvironmentMode": "local" | "paper" | "live";
+    "EvaluationSegmentKind": "train" | "validation" | "test";
+    "ExperimentAttemptEventView": {
+      "actor_id": string;
+      "attempt_sequence_number": number;
+      "evaluation": (components["schemas"]["ExperimentEvaluationReceiptView"]) | (null);
+      "event_sha256": components["schemas"]["Sha256Text"];
+      "global_sequence_number": number;
+      "occurred_at": string;
+      "status": components["schemas"]["ExperimentAttemptStatus"];
+      "terminal_evidence_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "terminal_reason_code": (string) | (null);
+    };
+    "ExperimentAttemptStatus": "queued" | "running" | "completed" | "failed" | "canceled" | "abandoned";
+    "ExperimentAttemptView": {
+      "attempt_id": components["schemas"]["Sha256Text"];
+      "attempt_number": number;
+      "configuration_name": string;
+      "configuration_sha256": components["schemas"]["Sha256Text"];
+      "configuration_validation_sha256": components["schemas"]["Sha256Text"];
+      "history": Array<components["schemas"]["ExperimentAttemptEventView"]>;
+      "holdout_reveal_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "requested_at": string;
+      "requested_by": string;
+      "segment_kind": components["schemas"]["EvaluationSegmentKind"];
+      "segment_sha256": components["schemas"]["Sha256Text"];
+      "status": components["schemas"]["ExperimentAttemptStatus"];
+    };
+    "ExperimentEvaluationReceiptView": {
+      "attempt_id": components["schemas"]["Sha256Text"];
+      "batch_result_sha256": components["schemas"]["Sha256Text"];
+      "completed_at": string;
+      "configuration_sha256": components["schemas"]["Sha256Text"];
+      "configuration_validation_sha256": components["schemas"]["Sha256Text"];
+      "evaluated_by": string;
+      "evidence_kind": string;
+      "family_id": components["schemas"]["Sha256Text"];
+      "feature_certification_sha256": components["schemas"]["Sha256Text"];
+      "holdout_reveal_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "incremental_result_sha256": components["schemas"]["Sha256Text"];
+      "receipt_sha256": components["schemas"]["Sha256Text"];
+      "running_event_sha256": components["schemas"]["Sha256Text"];
+      "segment_kind": components["schemas"]["EvaluationSegmentKind"];
+      "segment_sha256": components["schemas"]["Sha256Text"];
+      "source_evidence_sha256": components["schemas"]["Sha256Text"];
+      "started_at": string;
+      "step_count": number;
+      "strategy_version_sha256": components["schemas"]["Sha256Text"];
+      "target_certification_sha256": components["schemas"]["Sha256Text"];
+      "target_count": number;
+      "target_parity_receipt_sha256": components["schemas"]["Sha256Text"];
+      "target_policy_sha256": components["schemas"]["Sha256Text"];
+      "target_runtime_pin_sha256": components["schemas"]["Sha256Text"];
+      "target_transcript_sha256": components["schemas"]["Sha256Text"];
+    };
+    "ExperimentHoldoutState": "sealed" | "revealed";
+    "ExperimentHoldoutView": {
+      "access_reason": (string) | (null);
+      "authorization_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "commitment_sha256": components["schemas"]["Sha256Text"];
+      "pre_reveal_attempt_count": (number) | (null);
+      "pre_reveal_attempts_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "pre_reveal_registry_head_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "pre_reveal_snapshot_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "reveal_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "revealed_at": (string) | (null);
+      "revealed_by": (string) | (null);
+      "selected_configuration_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "state": components["schemas"]["ExperimentHoldoutState"];
+    };
+    "ExperimentListResponse": {
+      "as_of": string;
+      "experiments": Array<components["schemas"]["ExperimentSummaryView"]>;
+    };
+    "ExperimentPromotionCriteriaView": {
+      "criteria": Array<components["schemas"]["ExperimentPromotionCriterionView"]>;
+      "criteria_sha256": components["schemas"]["Sha256Text"];
+      "criteria_version": string;
+      "frozen_at": string;
+      "frozen_by": string;
+      "maximum_pre_holdout_trials": number;
+      "multiple_testing_method": string;
+      "selection_rule": string;
+    };
+    "ExperimentPromotionCriterionView": {
+      "comparison": components["schemas"]["PromotionComparison"];
+      "metric_name": string;
+      "minimum_observations": number;
+      "threshold": string;
+    };
+    "ExperimentResponse": {
+      "as_of": string;
+      "experiment": components["schemas"]["ExperimentView"];
+    };
+    "ExperimentSegmentView": {
+      "coverage_end": string;
+      "coverage_start": string;
+      "dataset_replay_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "embargo_after": string;
+      "kind": components["schemas"]["EvaluationSegmentKind"];
+      "purge_before": string;
+      "segment_sha256": (components["schemas"]["Sha256Text"]) | (null);
+    };
+    "ExperimentSummaryView": {
+      "attempt_count": number;
+      "created_at": string;
+      "evaluation_plan_sha256": components["schemas"]["Sha256Text"];
+      "evaluation_plan_version": string;
+      "family_id": components["schemas"]["Sha256Text"];
+      "family_name": string;
+      "holdout_state": components["schemas"]["ExperimentHoldoutState"];
+      "hypothesis": string;
+      "maximum_pre_holdout_trials": number;
+      "owner_id": string;
+      "pre_holdout_attempt_count": number;
+      "promotion_criteria_sha256": components["schemas"]["Sha256Text"];
+      "registry_head_sha256": components["schemas"]["Sha256Text"];
+      "remaining_pre_holdout_attempts": number;
+      "snapshot_sha256": components["schemas"]["Sha256Text"];
+      "strategy_id": string;
+      "strategy_version": string;
+      "strategy_version_sha256": components["schemas"]["Sha256Text"];
+      "test_commitment_sha256": components["schemas"]["Sha256Text"];
+    };
+    "ExperimentView": {
+      "attempts": Array<components["schemas"]["ExperimentAttemptView"]>;
+      "holdout": components["schemas"]["ExperimentHoldoutView"];
+      "promotion_criteria": components["schemas"]["ExperimentPromotionCriteriaView"];
+      "segments": Array<components["schemas"]["ExperimentSegmentView"]>;
+      "summary": components["schemas"]["ExperimentSummaryView"];
+    };
     "ExternalCashFlowTreatment": "excluded_from_return" | "time_weighted";
     "FillView": {
       "executed_at": string;
@@ -467,6 +597,7 @@ export interface components {
       "instrument_id": (string) | (null);
       "units_delta": string;
     };
+    "PromotionComparison": "greater_than_or_equal" | "less_than_or_equal";
     "QuarantineView": {
       "partition_id": string;
       "quarantined_at": string;
@@ -700,6 +831,53 @@ export interface paths {
         "422": {
           content: {
             "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/experiments": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["ExperimentListResponse"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+        "503": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/experiments/{family_id}": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["ExperimentResponse"];
+          }
+        }
+        "404": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+        "503": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
           }
         }
       }

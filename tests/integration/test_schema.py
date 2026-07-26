@@ -95,6 +95,17 @@ PHASE2_TABLE_NAMES = frozenset(
         "phase2_strategy_versions",
     }
 )
+PHASE3_TABLE_NAMES = frozenset(
+    {
+        "phase3_experiment_attempt_events",
+        "phase3_experiment_attempts",
+        "phase3_experiment_audit_events",
+        "phase3_experiment_families",
+        "phase3_experiment_tape_claims",
+        "phase3_experiment_tape_policies",
+        "phase3_holdout_reveals",
+    }
+)
 
 
 def _legacy_lease_values(lease: AccountLease) -> dict[str, object]:
@@ -223,6 +234,13 @@ def test_operational_schema_can_be_created_without_postgresql() -> None:
         "phase2_submission_attempts",
         "phase2_strategy_configurations",
         "phase2_strategy_versions",
+        "phase3_experiment_attempt_events",
+        "phase3_experiment_attempts",
+        "phase3_experiment_audit_events",
+        "phase3_experiment_families",
+        "phase3_experiment_tape_claims",
+        "phase3_experiment_tape_policies",
+        "phase3_holdout_reveals",
         "risk_account_guards",
         "risk_decisions",
         "risk_reservations",
@@ -350,7 +368,7 @@ def test_phase2_durability_migration_is_additive_and_reversible(tmp_path: Path) 
     command.upgrade(config, "head")
 
     upgraded_tables = set(inspect(engine).get_table_names())
-    assert upgraded_tables == legacy_tables | PHASE2_TABLE_NAMES
+    assert upgraded_tables == legacy_tables | PHASE2_TABLE_NAMES | PHASE3_TABLE_NAMES
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
         for table_name in legacy_tables
@@ -389,6 +407,35 @@ def test_phase2_durability_migration_is_additive_and_reversible(tmp_path: Path) 
     command.downgrade(config, "0006_replay_run_manifests")
     downgraded_engine = create_engine(database_url)
     assert set(inspect(downgraded_engine).get_table_names()) == legacy_tables
+    downgraded_engine.dispose()
+
+
+def test_phase3_governance_migration_is_additive_and_reversible(tmp_path: Path) -> None:
+    database_path = tmp_path / "phase3-governance.sqlite"
+    database_url = f"sqlite+pysqlite:///{database_path}"
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "0009_lease_revision_chain")
+    engine = create_engine(database_url)
+    prior_tables = set(inspect(engine).get_table_names())
+    prior_columns = {
+        table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
+        for table_name in prior_tables
+    }
+
+    command.upgrade(config, "head")
+
+    assert set(inspect(engine).get_table_names()) == prior_tables | PHASE3_TABLE_NAMES
+    assert {
+        table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
+        for table_name in prior_tables
+    } == prior_columns
+    engine.dispose()
+    command.downgrade(config, "0009_lease_revision_chain")
+    downgraded_engine = create_engine(database_url)
+    assert set(inspect(downgraded_engine).get_table_names()) == prior_tables
     downgraded_engine.dispose()
 
 
@@ -558,6 +605,7 @@ def test_lease_revision_upgrade_preserves_v1_history_and_transitions_to_v2(
         match="cannot downgrade after a v2 account lease revision has been persisted",
     ):
         command.downgrade(config, "0008_phase2_research")
+    command.upgrade(config, "head")
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
             EXPECTED_SCHEMA_REVISION

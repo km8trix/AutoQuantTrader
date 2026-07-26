@@ -205,6 +205,31 @@ artifact-, feature-receipt-, and strategy-bound target-parity receipt can exist.
 The exercised tape remains a repository-owned synthetic fixture, so parity on
 a captured tape and the broader Phase 3 gates remain pending.
 
+ADR 0036 implements the bounded Phase 3C governance boundary without treating
+the Phase 2 fixture runner as a segment-aware experiment engine. Experiment
+families declare non-overlapping train, validation, and final-test segments;
+train and validation evidence is segment-scoped, while the final test remains
+an opaque commitment before an audited reveal. Stable attempts retain
+append-only lifecycle events, unsuccessful attempts still consume the frozen
+pre-holdout budget, and only an exact completed validation configuration may be
+selected. A typed reveal authorization binds the family, holdout commitment,
+criteria, selected configuration, and exact pre-reveal registry head; the
+audited reveal is the first object allowed to retain the exact
+certificate-derived test-evidence receipt. A global tape-role ledger permits
+exploratory reuse while preventing exploratory/holdout crossover. The pure
+registry is retained in authenticated SQL facts and exposed for read-only
+inspection. It adds no experiment mutation API or segment execution path.
+
+ADR 0037 implements the bounded Phase 3D reference evaluation boundary. Segment
+and final-holdout inputs now bind configuration-neutral feature certification;
+an exact attempt configuration must reproduce the target policy in a
+parity-certified target replay before the same recorded running-worker actor
+can complete the attempt. The durable completion receipt binds the
+configuration, source evidence, runtime, target transcript digest, counts, and
+recorded actor-identifier continuity, and is exposed only as allowlisted
+read-only proof. It is not
+a P&L report, promotion decision, general segment runner, or trading authority.
+
 Massive remains the deferred intraday candidate. No credential,
 authorization, synthetic fixture, or capture has been
 treated as admission or evidence that a vendor's real history, entitlement,
@@ -612,12 +637,33 @@ Passing one layer cannot substitute for another.
   mean whole-share target rule and must agree exactly before a feature- and
   strategy-bound target-parity receipt can exist. Intent conversion continues
   to use causal market prices, never the feature value.
-- Both Phase 3A and 3B are in-memory evidence slices exercised on repository-
-  owned synthetic fixtures. Durable feature storage, integration with the
-  research job/API/browser workflow, arbitrary or fitted features and
-  strategies, experiment families and holdout controls, captured live tapes,
-  reconnect and freshness behavior, and shadow mode remain pending. Phase 3 is
-  not complete and its exit gate has not passed.
+- **Phase 3C bounded experiment governance — durable registry implemented:**
+  ADR 0036 separates stable attempts from their append-only lifecycle events,
+  retains unsuccessful attempts in the frozen budget, and allows only an exact
+  completed validation configuration to be selected for final-test access.
+  Train and validation evidence is segment-scoped; the final test is only an
+  opaque commitment before a typed reveal authorization binds the exact
+  pre-reveal registry head. A global tape-role ledger allows exploratory tape
+  reuse while preventing any exploratory/holdout role crossover and reserving
+  each holdout tape to one family. Canonical tape policies, family claims,
+  families, attempts, events, reveal, and audit facts are durably authenticated
+  and available through read-only inspection.
+- **Phase 3D configuration-bound segment evaluation — bounded reference path
+  implemented:** segment and holdout inputs are configuration-neutral feature
+  evidence. A running attempt's exact `long_quantity` and
+  `target_lifetime_seconds` configuration must reproduce a successful target
+  parity certification before the same recorded actor may complete it. The
+  immutable receipt binds configuration/schema validation, segment input,
+  target runtime and result digests, counts, running event, times, and
+  evaluator. Read-only views expose proof metadata only; no transcript contents,
+  performance metric, criteria decision, or promotion is produced.
+- Phase 3A and 3B remain in-memory full-tape evidence slices exercised on
+  repository-owned synthetic fixtures. Phase 3C/3D do not connect to the Phase
+  2 job or worker. General durable segment execution and process isolation,
+  separately queryable feature/target transcripts, arbitrary or fitted
+  features and strategies, mutation APIs, performance/criteria evaluation,
+  captured live tapes, reconnect/freshness behavior, and shadow mode remain
+  pending. Phase 3 is not complete and its exit gate has not passed.
 
 ### Build
 
@@ -634,12 +680,21 @@ Passing one layer cannot substitute for another.
   including explicit waiting/reset steps and exact decision-feature lineage.
   Captured-tape feature/target parity and research workflow integration remain
   pending.
-- Experiment families that record every attempted, failed, canceled, and
-  completed trial; bounded worker-process concurrency and resource quotas.
+- A durable bounded experiment registry records every stable attempted, failed,
+  canceled, abandoned, and completed trial through append-only lifecycle
+  evidence. The bounded reference completion path now requires exact
+  configuration-derived target-parity evidence and running actor-identifier
+  continuity.
+  General worker scheduling, worker-process concurrency, and resource quotas
+  remain pending.
 - Chronological and nested walk-forward evaluation, purging/embargo for
   overlapping labels, benchmark/cost stress, parameter stability, uncertainty,
   and declared multiple-testing treatment.
-- Audited final-holdout access and promotion criteria frozen before reveal.
+- A typed, audited final-holdout reveal is bound to frozen criteria, one
+  completed validation configuration, the opaque holdout commitment, and the
+  exact pre-reveal registry head. The selected configuration can produce one
+  post-reveal bounded target-evaluation receipt; economic segment execution and
+  isolation remain pending.
 - A live market-data adapter with feed-entitlement metadata, quote/NBBO support,
   per-symbol freshness, gap backfill, reconnect watermarking, and captured event
   tapes. Run the candidate in shadow mode without any broker submission.
@@ -650,8 +705,11 @@ Passing one layer cannot substitute for another.
 ### Exit gate
 
 Status: **open**. The Phase 3A and 3B reference slices supply exact local
-feature-snapshot and feature-derived target parity evidence, but they do not
-satisfy the captured-tape, reconnect, experiment-governance, end-to-end
+feature-snapshot and feature-derived target parity evidence, and Phase 3C
+supplies a durable bounded governance registry and opaque pre-reveal holdout
+commitment. Phase 3D binds that target parity to an exact governed
+configuration and running attempt. These slices do not satisfy the
+captured-tape, reconnect, economic segment-execution/isolation, end-to-end
 traceability, or reporting requirements below.
 
 - Batch and incremental features/targets agree on the same captured tape.
@@ -868,8 +926,9 @@ Every change includes:
 9. Process-local and durable account coordinator lease/fencing contracts.
    **Implemented by ADRs 0031 and 0032 for deterministic simulation.**
 10. Reproducible backtest report and experiment-family registry contracts.
-    **Implemented for the golden fixture; broader research validity remains
-    Phase 3.**
+    **Implemented for the Phase 2 golden fixture and the bounded Phase 3C
+    governance registry; governed segment execution and broader research
+    validity remain Phase 3.**
 11. Live market-data capture, quote freshness, shadow replay, feature parity.
 12. Alpaca capability matrix and recorded fixtures.
 13. Account lease/fence and submission attempts are **implemented by ADR 0032**;
