@@ -3049,3 +3049,132 @@ sa.Index(
     phase3_experiment_audit_events.c.family_id,
     phase3_experiment_audit_events.c.occurred_at,
 )
+
+phase4_broker_ingress_receipts = sa.Table(
+    "phase4_broker_ingress_receipts",
+    metadata,
+    sa.Column("receipt_id", sa.String(64), primary_key=True),
+    sa.Column(
+        "account_id",
+        sa.String(64),
+        sa.ForeignKey(
+            "phase2_account_lease_heads.account_id",
+            name="fk_phase4_broker_ingress_account_head",
+        ),
+        nullable=False,
+    ),
+    sa.Column("ingress_sequence", sa.BigInteger(), nullable=False),
+    sa.Column("previous_receipt_sha256", sa.String(64), nullable=True),
+    sa.Column("delivery_idempotency_key", sa.String(128), nullable=False),
+    sa.Column("provider_id", sa.String(128), nullable=False),
+    sa.Column("adapter_version", sa.String(64), nullable=False),
+    sa.Column("environment", sa.String(32), nullable=False),
+    sa.Column("channel", sa.String(128), nullable=False),
+    sa.Column("operation", sa.String(128), nullable=False),
+    sa.Column("correlation_sha256", sa.String(64), nullable=True),
+    sa.Column("transport_status", sa.Integer(), nullable=True),
+    sa.Column("provider_request_id", sa.String(256), nullable=True),
+    sa.Column("media_type", sa.String(128), nullable=True),
+    sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("body", sa.LargeBinary(), nullable=False),
+    sa.Column("body_size_bytes", sa.BigInteger(), nullable=False),
+    sa.Column("body_sha256", sa.String(64), nullable=False),
+    sa.Column("delivery_sha256", sa.String(64), nullable=False, unique=True),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.UniqueConstraint(
+        "account_id",
+        "ingress_sequence",
+        name="uq_phase4_broker_ingress_account_sequence",
+    ),
+    sa.UniqueConstraint(
+        "account_id",
+        "delivery_idempotency_key",
+        name="uq_phase4_broker_ingress_account_delivery_key",
+    ),
+    sa.UniqueConstraint(
+        "account_id",
+        "semantic_sha256",
+        name="uq_phase4_broker_ingress_account_semantic",
+    ),
+    sa.ForeignKeyConstraint(
+        ["account_id", "previous_receipt_sha256"],
+        [
+            "phase4_broker_ingress_receipts.account_id",
+            "phase4_broker_ingress_receipts.semantic_sha256",
+        ],
+        name="fk_phase4_broker_ingress_predecessor",
+    ),
+    sa.CheckConstraint(
+        "(ingress_sequence = 1 AND previous_receipt_sha256 IS NULL) "
+        "OR (ingress_sequence > 1 AND previous_receipt_sha256 IS NOT NULL)",
+        name="phase4_broker_ingress_predecessor_shape",
+    ),
+    sa.CheckConstraint(
+        "transport_status IS NULL OR transport_status BETWEEN 100 AND 599",
+        name="phase4_broker_ingress_transport_status",
+    ),
+    sa.CheckConstraint(
+        "recorded_at >= received_at",
+        name="phase4_broker_ingress_time_order",
+    ),
+    sa.CheckConstraint(
+        "body_size_bytes BETWEEN 0 AND 1048576 AND length(body) = body_size_bytes",
+        name="phase4_broker_ingress_body_size",
+    ),
+    sa.CheckConstraint(
+        "length(receipt_id) = 64 "
+        "AND (previous_receipt_sha256 IS NULL "
+        "OR length(previous_receipt_sha256) = 64) "
+        "AND (correlation_sha256 IS NULL OR length(correlation_sha256) = 64) "
+        "AND length(body_sha256) = 64 "
+        "AND length(delivery_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="phase4_broker_ingress_hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(canonical_payload) BETWEEN 2 AND 8192",
+        name="phase4_broker_ingress_canonical_payload_size",
+    ),
+)
+sa.Index(
+    "ix_phase4_broker_ingress_account_received",
+    phase4_broker_ingress_receipts.c.account_id,
+    phase4_broker_ingress_receipts.c.received_at,
+)
+sa.Index(
+    "ix_phase4_broker_ingress_provider_request",
+    phase4_broker_ingress_receipts.c.provider_id,
+    phase4_broker_ingress_receipts.c.provider_request_id,
+)
+
+phase4_broker_ingress_heads = sa.Table(
+    "phase4_broker_ingress_heads",
+    metadata,
+    sa.Column(
+        "account_id",
+        sa.String(64),
+        sa.ForeignKey(
+            "phase2_account_lease_heads.account_id",
+            name="fk_phase4_broker_ingress_head_account",
+        ),
+        primary_key=True,
+    ),
+    sa.Column("last_ingress_sequence", sa.BigInteger(), nullable=False),
+    sa.Column("last_receipt_sha256", sa.String(64), nullable=True),
+    sa.ForeignKeyConstraint(
+        ["account_id", "last_receipt_sha256"],
+        [
+            "phase4_broker_ingress_receipts.account_id",
+            "phase4_broker_ingress_receipts.semantic_sha256",
+        ],
+        name="fk_phase4_broker_ingress_head_terminal_receipt",
+    ),
+    sa.CheckConstraint(
+        "(last_ingress_sequence = 0 AND last_receipt_sha256 IS NULL) "
+        "OR (last_ingress_sequence > 0 AND last_receipt_sha256 IS NOT NULL "
+        "AND length(last_receipt_sha256) = 64)",
+        name="phase4_broker_ingress_head_terminal_shape",
+    ),
+)

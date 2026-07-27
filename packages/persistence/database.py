@@ -76,6 +76,8 @@ from packages.persistence.schema import (
     phase3_experiment_tape_claims,
     phase3_experiment_tape_policies,
     phase3_holdout_reveals,
+    phase4_broker_ingress_heads,
+    phase4_broker_ingress_receipts,
     replay_run_manifests,
     risk_account_guards,
     risk_decisions,
@@ -86,7 +88,7 @@ from packages.persistence.schema import (
 )
 from packages.persistence.sqlite_config import enforce_sqlite_foreign_keys
 
-EXPECTED_SCHEMA_REVISION = "0010_phase3_governance"
+EXPECTED_SCHEMA_REVISION = "0011_phase4_broker_ingress"
 
 
 class DatabaseSchemaNotReady(RuntimeError):
@@ -1283,9 +1285,22 @@ def verify_operational_schema(
                 phase3_experiment_audit_events,
                 phase3_experiment_tape_claims,
                 phase3_experiment_tape_policies,
+                phase4_broker_ingress_heads,
+                phase4_broker_ingress_receipts,
             )
             for table in required_tables:
                 connection.execute(sa.select(table).limit(0))
+            from packages.domain.broker_ingress import BrokerIngressError
+            from packages.persistence.broker_ingress import (
+                _verify_broker_ingress_integrity,
+            )
+
+            try:
+                _verify_broker_ingress_integrity(connection)
+            except BrokerIngressError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 broker-ingress integrity verification failed"
+                ) from error
             _verify_phase2_durability_integrity(connection)
             _verify_phase2_research_integrity(connection)
             from packages.persistence.experiment_governance import (

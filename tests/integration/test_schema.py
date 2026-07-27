@@ -20,6 +20,7 @@ from packages.domain.account_coordinator import (
     _legacy_account_lease,
 )
 from packages.domain.batch_risk import BatchRiskDecisionStatus
+from packages.domain.broker_ingress import BrokerIngressDelivery
 from packages.domain.canonical import canonical_json_text
 from packages.domain.clock import FixedClock
 from packages.domain.identifiers import canonical_id
@@ -37,10 +38,13 @@ from packages.persistence.batch_risk import (
     _decode_active_capacity,
     load_batch_risk_decision,
 )
+from packages.persistence.broker_ingress import SqlBrokerIngressRepository
 from packages.persistence.database import (
     EXPECTED_SCHEMA_REVISION,
+    DatabaseSchemaNotReady,
     _verify_phase2_durability_integrity,
     create_database_engine,
+    verify_operational_schema,
 )
 from packages.persistence.reservation_lifecycle import SqlReservationLifecycleRepository
 from packages.persistence.schema import (
@@ -55,6 +59,8 @@ from packages.persistence.schema import (
     phase2_reservation_release_events,
     phase2_simulation_horizon_facts,
     phase2_submission_attempt_events,
+    phase4_broker_ingress_heads,
+    phase4_broker_ingress_receipts,
 )
 from tests.integration.test_phase2_batch_risk_persistence import _repository
 from tests.unit.test_batch_risk import (
@@ -104,6 +110,12 @@ PHASE3_TABLE_NAMES = frozenset(
         "phase3_experiment_tape_claims",
         "phase3_experiment_tape_policies",
         "phase3_holdout_reveals",
+    }
+)
+PHASE4_TABLE_NAMES = frozenset(
+    {
+        "phase4_broker_ingress_heads",
+        "phase4_broker_ingress_receipts",
     }
 )
 
@@ -241,6 +253,8 @@ def test_operational_schema_can_be_created_without_postgresql() -> None:
         "phase3_experiment_tape_claims",
         "phase3_experiment_tape_policies",
         "phase3_holdout_reveals",
+        "phase4_broker_ingress_heads",
+        "phase4_broker_ingress_receipts",
         "risk_account_guards",
         "risk_decisions",
         "risk_reservations",
@@ -350,6 +364,79 @@ def test_account_lease_schema_preserves_gap_free_revision_bindings() -> None:
     }
 
 
+def test_broker_ingress_schema_preserves_raw_provenance_and_account_chain() -> None:
+    assert tuple(phase4_broker_ingress_receipts.c.keys()) == (
+        "receipt_id",
+        "account_id",
+        "ingress_sequence",
+        "previous_receipt_sha256",
+        "delivery_idempotency_key",
+        "provider_id",
+        "adapter_version",
+        "environment",
+        "channel",
+        "operation",
+        "correlation_sha256",
+        "transport_status",
+        "provider_request_id",
+        "media_type",
+        "received_at",
+        "recorded_at",
+        "body",
+        "body_size_bytes",
+        "body_sha256",
+        "delivery_sha256",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_broker_ingress_receipts.foreign_key_constraints
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        (
+            "phase4_broker_ingress_receipts.account_id",
+            "phase4_broker_ingress_receipts.semantic_sha256",
+        ),
+    }
+    assert {
+        tuple(column.name for column in constraint.columns)
+        for constraint in phase4_broker_ingress_receipts.constraints
+        if isinstance(constraint, sa.UniqueConstraint)
+    } >= {
+        ("account_id", "ingress_sequence"),
+        ("account_id", "delivery_idempotency_key"),
+        ("account_id", "semantic_sha256"),
+        ("delivery_sha256",),
+        ("semantic_sha256",),
+    }
+    assert {
+        index.name: tuple(column.name for column in index.columns)
+        for index in phase4_broker_ingress_receipts.indexes
+    } == {
+        "ix_phase4_broker_ingress_account_received": ("account_id", "received_at"),
+        "ix_phase4_broker_ingress_provider_request": (
+            "provider_id",
+            "provider_request_id",
+        ),
+    }
+    assert tuple(phase4_broker_ingress_heads.c.keys()) == (
+        "account_id",
+        "last_ingress_sequence",
+        "last_receipt_sha256",
+    )
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_broker_ingress_heads.foreign_key_constraints
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        (
+            "phase4_broker_ingress_receipts.account_id",
+            "phase4_broker_ingress_receipts.semantic_sha256",
+        ),
+    }
+
+
 def test_phase2_durability_migration_is_additive_and_reversible(tmp_path: Path) -> None:
     database_path = tmp_path / "phase2-durability.sqlite"
     database_url = f"sqlite+pysqlite:///{database_path}"
@@ -368,7 +455,9 @@ def test_phase2_durability_migration_is_additive_and_reversible(tmp_path: Path) 
     command.upgrade(config, "head")
 
     upgraded_tables = set(inspect(engine).get_table_names())
-    assert upgraded_tables == legacy_tables | PHASE2_TABLE_NAMES | PHASE3_TABLE_NAMES
+    assert upgraded_tables == (
+        legacy_tables | PHASE2_TABLE_NAMES | PHASE3_TABLE_NAMES | PHASE4_TABLE_NAMES
+    )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
         for table_name in legacy_tables
@@ -427,7 +516,9 @@ def test_phase3_governance_migration_is_additive_and_reversible(tmp_path: Path) 
 
     command.upgrade(config, "head")
 
-    assert set(inspect(engine).get_table_names()) == prior_tables | PHASE3_TABLE_NAMES
+    assert set(inspect(engine).get_table_names()) == (
+        prior_tables | PHASE3_TABLE_NAMES | PHASE4_TABLE_NAMES
+    )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
         for table_name in prior_tables
@@ -437,6 +528,169 @@ def test_phase3_governance_migration_is_additive_and_reversible(tmp_path: Path) 
     downgraded_engine = create_engine(database_url)
     assert set(inspect(downgraded_engine).get_table_names()) == prior_tables
     downgraded_engine.dispose()
+
+
+def test_phase4_broker_ingress_migration_is_additive_and_reversible(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "phase4-broker-ingress.sqlite"
+    database_url = f"sqlite+pysqlite:///{database_path}"
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "0010_phase3_governance")
+    engine = create_engine(database_url)
+    prior_tables = set(inspect(engine).get_table_names())
+    prior_columns = {
+        table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
+        for table_name in prior_tables
+    }
+
+    command.upgrade(config, "head")
+
+    assert set(inspect(engine).get_table_names()) == prior_tables | PHASE4_TABLE_NAMES
+    assert {
+        table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
+        for table_name in prior_tables
+    } == prior_columns
+    assert tuple(
+        column["name"] for column in inspect(engine).get_columns("phase4_broker_ingress_receipts")
+    ) == tuple(phase4_broker_ingress_receipts.c.keys())
+    assert tuple(
+        column["name"] for column in inspect(engine).get_columns("phase4_broker_ingress_heads")
+    ) == tuple(phase4_broker_ingress_heads.c.keys())
+    engine.dispose()
+
+    command.downgrade(config, "0010_phase3_governance")
+    downgraded_engine = create_engine(database_url)
+    assert set(inspect(downgraded_engine).get_table_names()) == prior_tables
+    downgraded_engine.dispose()
+
+
+def test_phase4_broker_ingress_migration_refuses_data_loss_on_downgrade(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "phase4-broker-ingress-downgrade.sqlite"
+    database_url = f"sqlite+pysqlite:///{database_path}"
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    observed_at = datetime(2026, 7, 26, 15, 0, tzinfo=UTC)
+    with engine.begin() as connection:
+        connection.execute(
+            sa.insert(phase2_account_lease_heads).values(
+                account_id="phase4-downgrade-account",
+                last_fencing_generation=0,
+                current_fencing_generation=None,
+                current_lease_sha256=None,
+                updated_at=observed_at,
+            )
+        )
+    SqlBrokerIngressRepository(engine).record(
+        BrokerIngressDelivery(
+            account_id="phase4-downgrade-account",
+            delivery_idempotency_key="downgrade-proof-delivery",
+            provider_id="alpaca",
+            adapter_version="1.0.0",
+            environment="paper",
+            channel="trading-rest",
+            operation="get-order-by-client-order-id",
+            received_at=observed_at,
+            recorded_at=observed_at,
+            body=b'{"id":"durable-provider-order"}',
+        )
+    )
+    engine.dispose()
+
+    with pytest.raises(
+        RuntimeError,
+        match="cannot downgrade after durable broker ingress receipts",
+    ):
+        command.downgrade(config, "0010_phase3_governance")
+
+    preserved_engine = create_engine(database_url)
+    with preserved_engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            EXPECTED_SCHEMA_REVISION
+        )
+        assert (
+            connection.scalar(
+                sa.select(sa.func.count()).select_from(phase4_broker_ingress_receipts)
+            )
+            == 1
+        )
+    preserved_engine.dispose()
+
+
+def test_operational_readiness_rejects_truncated_broker_ingress_tail(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "phase4-broker-ingress-readiness.sqlite"
+    database_url = f"sqlite+pysqlite:///{database_path}"
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    observed_at = datetime(2026, 7, 26, 15, 0, tzinfo=UTC)
+    account_id = "phase4-readiness-account"
+    policy = AccountLeasePolicy(
+        policy_id="phase4-readiness-coordinator",
+        policy_version="1.0.0",
+        lease_ttl=timedelta(minutes=5),
+        maximum_in_flight_duration=timedelta(seconds=5),
+        takeover_safety_interval=timedelta(seconds=10),
+    )
+    coordinator = SqlAccountCoordinator(
+        account_id=account_id,
+        authority=SqlAccountCoordinatorAuthority(
+            engine=engine,
+            policy=policy,
+            clock=FixedClock(observed_at),
+        ),
+    )
+    coordinator.acquire("phase4-readiness-worker")
+    repository = SqlBrokerIngressRepository(engine)
+    receipts = tuple(
+        repository.record(
+            BrokerIngressDelivery(
+                account_id=account_id,
+                delivery_idempotency_key=f"readiness-delivery-{sequence}",
+                provider_id="alpaca",
+                adapter_version="1.0.0",
+                environment="paper",
+                channel="trading-rest",
+                operation="get-order-by-client-order-id",
+                received_at=observed_at + timedelta(seconds=sequence),
+                recorded_at=observed_at + timedelta(seconds=sequence),
+                body=f'{{"sequence":{sequence}}}'.encode(),
+            )
+        )
+        for sequence in (1, 2)
+    )
+    verify_operational_schema(engine, require_phase_zero_facts=False)
+
+    # Simulate storage corruption below the relational guard. The durable head
+    # must let readiness distinguish a truncated journal from a shorter history.
+    with engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys = OFF")
+        connection.execute(
+            sa.delete(phase4_broker_ingress_receipts).where(
+                phase4_broker_ingress_receipts.c.semantic_sha256 == receipts[-1].semantic_sha256
+            )
+        )
+        connection.commit()
+        connection.exec_driver_sql("PRAGMA foreign_keys = ON")
+
+    with pytest.raises(
+        DatabaseSchemaNotReady,
+        match="Phase 4 broker-ingress integrity verification failed",
+    ):
+        verify_operational_schema(engine, require_phase_zero_facts=False)
+    engine.dispose()
 
 
 def test_lease_revision_upgrade_preserves_v1_history_and_transitions_to_v2(
