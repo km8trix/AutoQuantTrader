@@ -6,6 +6,9 @@ from decimal import Decimal, localcontext
 
 import pytest
 
+from packages.adapters.broker.alpaca_paper import (
+    create_alpaca_paper_submission_description,
+)
 from packages.domain.account_coordinator import (
     AccountFence,
     AccountFenceReceipt,
@@ -656,6 +659,23 @@ def test_request_is_bounded_immutable_and_strictly_typed() -> None:
             operation="submit_order",
             payload={},
         )
+
+
+def test_alpaca_description_composes_only_as_pending_submission_evidence() -> None:
+    order_intent = intent()
+    description = create_alpaca_paper_submission_description(order_intent)
+
+    pending = pending_attempt(
+        order_intent=order_intent,
+        request=description.request,
+    )
+
+    assert pending.preparation.intent == description.intent
+    assert pending.preparation.request == description.request
+    assert pending.state is SubmissionAttemptState.PENDING
+    assert tuple(event.state for event in pending.events) == (SubmissionAttemptState.PENDING,)
+    assert pending.events[0].dispatch_fence_receipt is None
+    assert description.trading_effect_authorized is False
 
 
 def test_digests_ignore_ambient_decimal_context() -> None:

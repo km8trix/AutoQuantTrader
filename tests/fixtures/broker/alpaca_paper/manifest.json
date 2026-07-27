@@ -1,0 +1,44 @@
+{
+  "contract_version": "phase4b-alpaca-paper-client-order-observation-v1",
+  "fixtures": {
+    "lookup_found.json": {
+      "provenance": "documentation_derived_synthetic",
+      "sha256": "125225a48a0a6e9429865b02eee91943de4d45fcdb18207747413885bddc2836"
+    },
+    "lookup_not_found.json": {
+      "provenance": "unqualified_synthetic_error_example",
+      "sha256": "e7471ba0c3327f18cd614ff50eecbbabe60745657cafffa0c7c6191d99e81ee5"
+    }
+  },
+  "notes": [
+    "These fixtures are synthetic adaptations of official documentation and SDK schemas.",
+    "They are not authenticated Alpaca paper-account captures and contain no account or credential evidence.",
+    "The found fixture uses AutoQuantTrader's deterministic walking-thread client order ID.",
+    "The not-found code and message are an unqualified bounded example; HTTP 404, not either body value, supplies the always-inconclusive meaning."
+  ],
+  "reviewed_on": "2026-07-26",
+  "source_artifacts": {
+    "alpaca_py_enums": {
+      "commit": "bd1fa9ea2fc3194914be9d47f7f5822a18a05b5f",
+      "sha256": "08a7d06d9ae6ce4ad6251c5628d74eaeef8d62a001784951dc24b90df0e5cc30"
+    },
+    "alpaca_py_models": {
+      "commit": "bd1fa9ea2fc3194914be9d47f7f5822a18a05b5f",
+      "sha256": "0a4296847ea46c434de3fe08ef6bb82519d9442705e59b4671127ffffad3855f"
+    },
+    "trading_openapi": {
+      "retrieved_on": "2026-07-26",
+      "sha256": "fd4f33cf6a5f21416cd1abe27eff19fa858425bdc9569a9e6937086d752e55d1"
+    }
+  },
+  "sources": [
+    "https://docs.alpaca.markets/us/v1.4.2/reference/getorderbyclientorderid",
+    "https://docs.alpaca.markets/us/docs/getting-started-with-trading-api",
+    "https://docs.alpaca.markets/us/docs/orders-at-alpaca",
+    "https://docs.alpaca.markets/us/docs/alpaca-api-platform",
+    "https://docs.alpaca.markets/us/openapi/trading-api.json",
+    "https://docs.alpaca.markets/us/v1.1/changelog/2026-06-24-trading-api-00bf221",
+    "https://raw.githubusercontent.com/alpacahq/alpaca-py/bd1fa9ea2fc3194914be9d47f7f5822a18a05b5f/alpaca/trading/enums.py",
+    "https://raw.githubusercontent.com/alpacahq/alpaca-py/bd1fa9ea2fc3194914be9d47f7f5822a18a05b5f/alpaca/trading/models.py"
+  ]
+}

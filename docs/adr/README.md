@@ -41,5 +41,9 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0036: bounded experiment governance and holdout commitments](0036-bounded-experiment-governance-and-holdout-commitments.md)
   (completion evidence superseded by ADR 0037)
 - [ADR 0037: configuration-bound governed segment evaluation](0037-configuration-bound-governed-segment-evaluation.md)
+- [ADR 0038: offline Alpaca paper contract boundary](0038-offline-alpaca-paper-contract-boundary.md)
+  (status vocabulary amended by ADR 0039)
+- [ADR 0039: offline Alpaca client-order lookup observations](0039-offline-alpaca-client-order-lookup-observations.md)
+- [ADR 0040: durable pre-decode broker ingress](0040-durable-pre-decode-broker-ingress.md)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

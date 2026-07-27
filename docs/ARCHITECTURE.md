@@ -41,9 +41,17 @@ opaque pre-reveal holdout commitments, configuration-bound target-evaluation
 receipts, and read-only inspection. General segment workers and process
 isolation, queryable replay transcripts, performance evaluation, captured-tape,
 shadow, and broader research-UI work are not complete. The repository does not
-implement the target paper/live topology below: the trader remains `not_ready`,
-Phase 4 is gated, and no real broker or production market-data adapter is
-enabled.
+implement the target paper/live topology below. Phase 4A supplies an offline,
+non-authorizing Alpaca paper capability contract and deterministic request
+translation for the narrow v1 subset. Phase 4B adds bounded offline decoding of
+a versioned local wire profile for synthetic client-order lookup responses,
+including an explicit inconclusive 404 meaning. Phase 4C adds a durable
+provider-neutral raw-delivery journal and Alpaca persist-then-decode wrapper.
+None of these slices has credentials, network transport, broker reads/streams,
+normalized facts, reconciliation, or dispatch authority. The trader remains
+`not_ready`, Phase 4's exit gate is open, and no network-capable broker or
+production market-data adapter is enabled. Phase 3's external gates remain open
+as well.
 
 ### Non-goals for v1
 
@@ -444,6 +452,119 @@ sessions, fractionality, tick/lot rules, client-ID constraints, lifecycle
 mappings, pagination/cursors, stream-resume behavior, and request budgets.
 Unsupported combinations are rejected locally before risk approval.
 
+### Current Phase 4A-4C offline Alpaca paper contracts
+
+The first Phase 4 slice freezes a reviewed Alpaca paper capability contract
+without granting any broker capability. It records the paper base URL and order
+path, authentication-header names, provider order-type and time-in-force
+breadth, client-order-ID limit, order and account-activity pagination metadata,
+the documented request ceiling, and explicit readiness flags. Those metadata
+were reviewed on 2026-07-26 and are bound by a semantic digest; they cannot
+silently expand the enabled trading surface.
+
+The translation shape uses the candidate DIA, IWM, QQQ, and SPY
+instrument/symbol mapping, U.S. equities, whole shares, a simple market order,
+`DAY`, and `extended_hours=false`. It accepts canonical buy and sell intents,
+but does not prove that an asset is currently active/tradable, that the current
+instant is inside the exact exchange-calendar session, or that a sell is
+reduce-only. Those facts require fresh broker/security, `BatchRiskSession`, risk
+authorization, position-reservation, and fence evidence at dispatch. This is
+important on shortened sessions; no nominal 16:00 close is session authority.
+Limit, stop, trailing-stop, fractional/notional, extended-hours, replacement,
+and advanced-order-class shapes fail locally even where Alpaca documents
+broader provider support. The translation is an intent-bound immutable request
+description with the existing deterministic client order ID; constructing it
+makes no request.
+
+Provider order statuses are classified through a closed vocabulary.
+Acknowledged, working, partial, filled, pending-cancel, canceled, expired, and
+rejected meanings remain distinct. Rare/special `accepted_for_bidding`, `held`,
+`stopped`, `done_for_day`, `calculated`, `pending_replace`, `pending_review`,
+`replaced`, and `suspended` states are reconciliation-required rather than
+optimistically interpreted, and an unknown status fails closed. Phase 4A does
+not freeze or parse a broker stream-event schema; cancel rejection, late fills,
+busts/corrections, and other inbox events remain later Phase 4 work.
+
+Phase 4B binds a non-I/O `GET /v2/orders:by_client_order_id` description to the
+exact Phase 4A submission description, account identifier, capability digest,
+and deterministic client order ID. Its decoder accepts only bounded retained
+HTTP 200 or 404 bytes, rejects ambiguous JSON, and applies a deliberately narrow
+local accepted wire profile rather than claiming the complete provider schema.
+It supports the reviewed legacy example shape plus optional deprecated/new
+fields, retains the response digest and `X-Request-ID`, and preserves provider
+timestamps at up to nanosecond precision without truncating them to Python
+microseconds. The found fixture is documentation-derived synthetic evidence;
+the 404 body values are an unqualified synthetic example. Neither fixture is an
+authenticated paper-account capture.
+
+A 200 Order object must repeat the requested client ID. Its request economics
+are compared with the original request: a match is `FOUND_MATCHED`, while a
+supported same-ID order with different symbol, quantity, side, class, type,
+time-in-force, session, price, or replacement fields is retained as
+`FOUND_MISMATCH`. `FOUND_MATCHED` does not validate the provider asset ID,
+security mapping, or current tradability. A 404 with a bounded positive integer
+code and bounded message is only `NOT_VISIBLE_INCONCLUSIVE`; body values have no
+stronger meaning, never prove that the broker did not receive the order, and
+never permit resubmission. REST
+cumulative fill quantity and average price are not execution facts because they
+lack the execution identity, per-fill economics, fee, and correction evidence
+required by the canonical reducers. Consequently neither outcome constructs a
+`BrokerOrderEvent`, broker sequence, ledger entry, or
+`UnknownSubmissionResolution`. See
+[ADR 0039](adr/0039-offline-alpaca-client-order-lookup-observations.md).
+
+Alpaca treats additive response fields and enum members as compatible changes.
+This offline decoder deliberately fails closed on unreviewed additions, but it
+does not itself persist a quarantine record. Phase 4C now commits the exact
+delivery before calling it, so schema failures remain inspectable rather than
+disappearing at the parser boundary.
+
+The provider-neutral raw journal accepts empty, malformed, and otherwise
+arbitrary bodies up to 1 MiB. It commits the exact bytes, byte count, digest,
+stable delivery idempotency key, and only allowlisted versioned transport
+metadata before any UTF-8, JSON, status, or provider-schema decoding. Provenance
+includes provider, adapter version, environment, channel, and operation. An
+exact account/key retry returns the authenticated existing receipt; changed
+immutable content under the same identity fails closed. Every new receipt
+receives an independent, contiguous account-local ingress sequence under the
+existing account transition and capacity-serialization lock and binds the
+previous receipt's semantic digest. The same transaction advances a durable
+per-account head containing the last sequence and terminal receipt digest.
+This local journal sequence is neither the risk-observation sequence nor a
+provider or canonical per-order broker sequence.
+
+The journal references the durable account head but has no logical-order or
+submission-attempt foreign key. That shape can retain future manual or foreign
+activity before classification instead of dropping evidence that lacks a known
+local order. The Alpaca client-order lookup wrapper commits this raw receipt
+first and only then invokes the Phase 4B decoder; malformed, empty, and
+schema-drift bytes survive a decoder exception. A successful observation is
+cross-bound to its raw receipt but still authorizes no normalized provider fact
+or local transition.
+
+Phase 4C deliberately stops before normalized provider-fact, quarantine, and
+application-receipt schemas. Those identities cannot be derived safely from the
+single qualified lookup response: stream and overlapping snapshot events,
+executions, busts, and corrections still need stable provider identity,
+revision, and ordering contracts. Arrival order must not be promoted to
+provider truth. Consequently this slice performs no lifecycle mutation,
+execution or ledger write, `UNKNOWN` resolution, stream/snapshot
+deduplication, or reconciliation. See
+[ADR 0040](adr/0040-durable-pre-decode-broker-ingress.md).
+
+Every runtime-readiness flag remains false. The boundary resolves no credential,
+imports no network client, validates no exchange calendar/session, security
+mapping, asset tradability, or reduce-only sell, enforces no broker request
+allocation, paginates no snapshot, performs no authenticated client-ID request
+or recovery, consumes no update stream, writes no normalized inbox fact, and
+runs no reconciliation barrier. A future transport must consume a durable
+`SubmissionAttemptPreparation`,
+revalidate its intent-bound request, and require a fresh dispatch fence; the
+request description alone is never authority. Phase 4 and its exit gate remain
+open; Phase 3's captured-tape, reconnect, shadow, economic-evaluation, and
+reporting gates are independently still open. See
+[ADR 0038](adr/0038-offline-alpaca-paper-contract-boundary.md).
+
 ### Reconciliation barrier
 
 Startup and reconnect recovery use a race-aware barrier:
@@ -489,6 +610,8 @@ Key tables and invariants:
 | `orders` | Logical order, unique client ID, payload hash, broker ID, state axes, cumulative quantity, and version |
 | `submission_attempts` | Immutable attempt number, delivery state, request/response digest, timestamps, and error class |
 | `order_events` | Append-only broker/local transition history; deduplicated source ID |
+| `phase4_broker_ingress_heads` | Mutable account-local terminal anchor for the raw journal's last sequence and receipt digest |
+| `phase4_broker_ingress_receipts` | Exact pre-decode bytes and allowlisted versioned transport metadata; account-local idempotency, contiguous sequence, and predecessor-digest chain |
 | `inbox` | Unique provider event/execution IDs for at-least-once stream and snapshot processing |
 | `fills` | Unique broker execution ID; price and quantity stored exactly |
 | `ledger_entries` | Balanced append-only cash/security/fee/dividend/split/settlement/P&L postings |
@@ -515,6 +638,16 @@ simulation horizons, reason-specific release evidence, and report/manifest
 references. See
 [ADR 0032](adr/0032-durable-fenced-batch-execution-lifecycle.md) and
 [ADR 0033](adr/0033-durable-fixture-research-workflow.md).
+
+The implemented Phase 4C schema adds `phase4_broker_ingress_heads` and
+`phase4_broker_ingress_receipts`. Its terminal anchor and chain serialize on the
+Phase 2 account head, while receipts have no logical-order or
+submission-attempt foreign key. They are raw delivery evidence, not the target
+normalized `inbox` row in the table above. Append point reads authenticate the
+terminal anchor; full-history reads use one repeatable database snapshot, and
+startup integrity streams each account's contiguous sequence and predecessor
+digests one receipt at a time. See
+[ADR 0040](adr/0040-durable-pre-decode-broker-ingress.md).
 
 Use `Decimal`/database `NUMERIC` for broker/accounting money, price, and quantity,
 but `float64` arrays for numerical research with explicit conversion boundaries
@@ -1785,9 +1918,10 @@ docs/
   launch plus catalog, progress/history, and report views.
 
 This evidence closes Phase 2 only for deterministic local fixtures. External
-vendor qualification, real broker contracts and reconciliation, automated
-takeover, operator re-arm, paper execution, and the Phase 4 fault/activation
-gates remain open.
+vendor qualification, an enabled broker transport and reconciliation,
+automated takeover, operator re-arm, paper execution, and the Phase 4
+fault/activation gates remain open. ADR 0038's offline capability contract does
+not change those runtime gates.
 
 ## 18. Architecture decisions to record
 

@@ -34,12 +34,28 @@ path from one governed attempt to its exact strategy policy. General segment
 workers and process isolation, queryable replay transcripts, performance
 evaluation, captured-tape and shadow workflows, and the rest of Phase 3 remain
 incomplete.
-Its production worker/trading runtime does not ingest from an admitted
+Phase 4 has begun with offline, non-authorizing Alpaca paper contracts. Phase
+4A records the reviewed provider capability and deterministically describes a
+candidate DIA, IWM, QQQ, and SPY whole-share market `DAY` request with
+`extended_hours=false`. Phase 4B decodes a bounded, deliberately narrow local
+wire profile for synthetic client-order lookup responses, preserves nanosecond
+timestamps and exact response digests, distinguishes request-economics matches
+from mismatches, and treats every 404 as inconclusive. The found fixture is
+documentation-derived; the 404 body values are explicitly unqualified
+synthetic examples. Phase 4C durably commits exact broker-response bytes and
+allowlisted versioned metadata before decoding, with a 1 MiB capture bound,
+stable delivery idempotency, and an independent terminal-head-anchored,
+predecessor-linked account-local sequence. These slices cannot prove current
+asset tradability, an
+exchange session, or that a sell is reduce-only. They have no credential,
+network broker read, stream, normalized provider fact, reconciliation, or
+dispatch capability.
+The production worker/trading runtime does not ingest from an admitted
 market-data vendor or connect to a broker, submit paper orders, or submit live
 orders. Secret-safe access probes and separately authorized research-capture
-tools do not change that state. Paper and live startup fail closed, Phase 4
-remains gated, and the trader entrypoint remains an explicit `not_ready`
-diagnostic.
+tools do not change that state. Paper and live startup fail closed, Phase 4's
+exit gate remains open, and the trader entrypoint remains an explicit
+`not_ready` diagnostic.
 
 The walking thread uses trusted clocks, payload-bound risk decisions, atomic
 account cash reservations, single-use consumption, and a durable submission
@@ -387,6 +403,62 @@ digest, counts, and actor-identifier continuity. Read-only views expose those
 digests and counts, never transcript contents or held-out observations. This is
 causal target-evaluation evidence, not a P&L report, criteria decision,
 promotion, deployment, or trading authority.
+
+ADR 0038 begins Phase 4A with a pure Alpaca paper contract boundary. The
+versioned capability matrix freezes the paper endpoint, authentication-header
+names, supported provider breadth, candidate instrument mapping and request
+shape, client-ID and pagination constraints, lifecycle classification, and the
+currently documented request ceiling as reviewed on 2026-07-26. The
+translatable shape is a whole-share simple market `DAY` buy or sell for DIA,
+IWM, QQQ, or SPY with `extended_hours=false`; an exact exchange-calendar
+session and reduce-only proof for a sell are mandatory future dispatch gates,
+not compiler conclusions. Unsupported shapes fail locally; rare, special, and
+replacement lifecycle states require reconciliation. This slice does not read
+credentials, perform network I/O, prove current asset tradability, enforce a
+runtime request budget, dispatch an order, consume broker events or snapshots,
+or enable paper authority. Phase 4 and its exit gate remain open, as do Phase
+3's external captured-tape, reconnect, shadow, economic-evaluation, and
+reporting gates.
+
+ADR 0039 adds the Phase 4B offline client-order lookup observation boundary.
+Lookup descriptions are derived from the exact Phase 4A submission description,
+not arbitrary client IDs. The decoder retains bounded 200/404 response bytes,
+provider request IDs, digests, and nanosecond-safe timestamps while applying a
+versioned local accepted wire profile rather than claiming the complete Alpaca
+schema. A same-ID order with different request economics is
+reconciliation-required; `FOUND_MATCHED` validates neither provider asset
+identity nor tradability. A 404 is only temporarily not visible, regardless of
+its bounded integer code and message. REST cumulative fills cannot manufacture
+execution identities, fees, broker sequence, ledger entries, or an `UNKNOWN`
+resolution. The found fixture is documentation-derived synthetic evidence; the
+404 body is an unqualified synthetic example, and neither is an authenticated
+Alpaca capture. Unknown additive fields or statuses fail decoding until
+reviewed. ADR 0040 now gives those failures durable raw retention but does not
+create a normalized fact or quarantine receipt. All runtime-readiness flags
+remain false.
+
+ADR 0040 adds the bounded Phase 4C durable pre-decode ingress slice. The
+provider-neutral journal commits exact raw bytes, byte count, digest, and
+allowlisted versioned transport metadata before any UTF-8, JSON, status, or
+provider-schema decoding. Provider, adapter version, environment, channel, and
+operation remain explicit provenance. It accepts empty, malformed, and
+otherwise arbitrary bodies up to 1 MiB so a decoder failure cannot erase its
+input. A stable account-local delivery idempotency key makes exact retry safe
+and changed-content reuse a conflict. New receipts receive an independent
+contiguous account-local ingress sequence under the existing account transition
+lock, bind the predecessor receipt digest, and atomically advance a durable
+terminal head. This is neither the risk-observation sequence nor canonical
+per-order broker sequence.
+
+Raw receipts have no local-order or submission-attempt foreign key, allowing
+future manual and foreign activity to be retained before classification. The
+Alpaca lookup wrapper commits its raw delivery and only then runs the Phase 4B
+decoder. Phase 4C intentionally defines no normalized provider fact,
+quarantine receipt, application receipt, lifecycle mutation, `UNKNOWN`
+resolution, or reconciliation path. Those schemas wait for qualified
+stream/snapshot/execution/correction identities instead of inventing event IDs
+or provider ordering from local arrival. It adds no transport, credential, or
+trading authority, all readiness flags remain false, and Phase 4 remains open.
 
 For a separately authorized future capture, start from the fail-closed
 [acquisition-profile](docs/admission/tiingo-eod-acquisition-profile.template.json),
