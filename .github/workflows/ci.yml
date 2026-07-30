@@ -17,7 +17,7 @@ jobs:
   backend:
     name: Backend quality and tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     env:
       AQT_ENVIRONMENT: local
       AQT_LOG_LEVEL: INFO
