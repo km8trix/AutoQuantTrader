@@ -76,8 +76,66 @@ from packages.persistence.schema import (
     phase3_experiment_tape_claims,
     phase3_experiment_tape_policies,
     phase3_holdout_reveals,
+    phase4_alpaca_paper_account_activity_comparison_heads,
+    phase4_alpaca_paper_account_activity_comparisons,
+    phase4_alpaca_paper_account_activity_heads,
+    phase4_alpaca_paper_account_activity_pages,
+    phase4_alpaca_paper_account_activity_plans,
+    phase4_alpaca_paper_account_activity_preparations,
+    phase4_alpaca_paper_account_binding_heads,
+    phase4_alpaca_paper_account_bindings,
+    phase4_alpaca_paper_asset_binding_heads,
+    phase4_alpaca_paper_asset_bindings,
+    phase4_alpaca_paper_lookup_observation_heads,
+    phase4_alpaca_paper_lookup_observations,
+    phase4_alpaca_paper_order_snapshot_heads,
+    phase4_alpaca_paper_order_snapshot_pages,
+    phase4_alpaca_paper_order_snapshot_plans,
+    phase4_alpaca_paper_order_snapshot_preparations,
+    phase4_alpaca_paper_order_transition_claims,
+    phase4_alpaca_paper_order_transition_consumptions,
+    phase4_alpaca_paper_order_transition_members,
+    phase4_alpaca_paper_order_view_comparison_heads,
+    phase4_alpaca_paper_order_view_comparisons,
+    phase4_alpaca_paper_position_snapshot_plans,
+    phase4_alpaca_paper_position_snapshots,
+    phase4_alpaca_paper_position_transition_claims,
+    phase4_alpaca_paper_position_transition_consumptions,
+    phase4_alpaca_paper_position_transition_members,
+    phase4_alpaca_paper_position_view_comparison_heads,
+    phase4_alpaca_paper_position_view_comparisons,
+    phase4_broker_inbox_application_receipts,
+    phase4_broker_inbox_heads,
+    phase4_broker_inbox_source_links,
     phase4_broker_ingress_heads,
     phase4_broker_ingress_receipts,
+    phase4_broker_normalized_facts,
+    phase4_broker_reconciliation_facts,
+    phase4_broker_reconciliation_heads,
+    phase4_broker_request_heads,
+    phase4_broker_request_permits,
+    phase4_unknown_lookup_recovery_events,
+    phase4_unknown_lookup_recovery_heads,
+    phase4_unknown_lookup_recovery_plans,
+    phase5_advanced_risk_assessments,
+    phase5_advanced_risk_assignment_heads,
+    phase5_advanced_risk_assignments,
+    phase5_advanced_risk_batch_admissions,
+    phase5_advanced_risk_batch_outcomes,
+    phase5_advanced_risk_enforcement_heads,
+    phase5_advanced_risk_evidence,
+    phase5_advanced_risk_evidence_sources,
+    phase5_advanced_risk_policies,
+    phase5_critical_alert_delivery_attempts,
+    phase5_critical_alert_delivery_results,
+    phase5_critical_alert_failure_control_receipts,
+    phase5_critical_alert_incidents,
+    phase5_operational_control_completions,
+    phase5_operational_control_heads,
+    phase5_operational_control_transitions,
+    phase5_strategy_invocation_claims,
+    phase5_strategy_invocation_finalizations,
+    phase5_strategy_supervision_results,
     replay_run_manifests,
     risk_account_guards,
     risk_decisions,
@@ -88,7 +146,7 @@ from packages.persistence.schema import (
 )
 from packages.persistence.sqlite_config import enforce_sqlite_foreign_keys
 
-EXPECTED_SCHEMA_REVISION = "0011_phase4_broker_ingress"
+EXPECTED_SCHEMA_REVISION = "0033_phase4_activity_comparison"
 
 
 class DatabaseSchemaNotReady(RuntimeError):
@@ -1285,11 +1343,135 @@ def verify_operational_schema(
                 phase3_experiment_audit_events,
                 phase3_experiment_tape_claims,
                 phase3_experiment_tape_policies,
+                phase4_alpaca_paper_account_binding_heads,
+                phase4_alpaca_paper_account_bindings,
+                phase4_alpaca_paper_account_activity_comparison_heads,
+                phase4_alpaca_paper_account_activity_comparisons,
+                phase4_alpaca_paper_account_activity_heads,
+                phase4_alpaca_paper_account_activity_pages,
+                phase4_alpaca_paper_account_activity_plans,
+                phase4_alpaca_paper_account_activity_preparations,
+                phase4_alpaca_paper_asset_binding_heads,
+                phase4_alpaca_paper_asset_bindings,
+                phase4_alpaca_paper_lookup_observation_heads,
+                phase4_alpaca_paper_lookup_observations,
+                phase4_alpaca_paper_order_snapshot_heads,
+                phase4_alpaca_paper_order_snapshot_pages,
+                phase4_alpaca_paper_order_snapshot_plans,
+                phase4_alpaca_paper_order_snapshot_preparations,
+                phase4_alpaca_paper_order_transition_members,
+                phase4_alpaca_paper_order_transition_claims,
+                phase4_alpaca_paper_order_transition_consumptions,
+                phase4_alpaca_paper_order_view_comparison_heads,
+                phase4_alpaca_paper_order_view_comparisons,
+                phase4_alpaca_paper_position_snapshot_plans,
+                phase4_alpaca_paper_position_snapshots,
+                phase4_alpaca_paper_position_transition_members,
+                phase4_alpaca_paper_position_transition_claims,
+                phase4_alpaca_paper_position_transition_consumptions,
+                phase4_alpaca_paper_position_view_comparison_heads,
+                phase4_alpaca_paper_position_view_comparisons,
+                phase4_broker_inbox_application_receipts,
+                phase4_broker_inbox_heads,
+                phase4_broker_inbox_source_links,
                 phase4_broker_ingress_heads,
                 phase4_broker_ingress_receipts,
+                phase4_broker_normalized_facts,
+                phase4_broker_reconciliation_facts,
+                phase4_broker_reconciliation_heads,
+                phase4_broker_request_heads,
+                phase4_broker_request_permits,
+                phase4_unknown_lookup_recovery_events,
+                phase4_unknown_lookup_recovery_heads,
+                phase4_unknown_lookup_recovery_plans,
+                phase5_advanced_risk_policies,
+                phase5_advanced_risk_assignments,
+                phase5_advanced_risk_assignment_heads,
+                phase5_advanced_risk_evidence,
+                phase5_advanced_risk_evidence_sources,
+                phase5_advanced_risk_assessments,
+                phase5_advanced_risk_batch_admissions,
+                phase5_advanced_risk_batch_outcomes,
+                phase5_advanced_risk_enforcement_heads,
+                phase5_critical_alert_incidents,
+                phase5_critical_alert_delivery_attempts,
+                phase5_critical_alert_delivery_results,
+                phase5_critical_alert_failure_control_receipts,
+                phase5_operational_control_completions,
+                phase5_operational_control_heads,
+                phase5_operational_control_transitions,
+                phase5_strategy_invocation_claims,
+                phase5_strategy_invocation_finalizations,
+                phase5_strategy_supervision_results,
             )
             for table in required_tables:
                 connection.execute(sa.select(table).limit(0))
+            from packages.persistence.advanced_batch_risk import (
+                AdvancedBatchRiskPersistenceError,
+                _verify_advanced_batch_risk_integrity,
+            )
+
+            try:
+                _verify_advanced_batch_risk_integrity(connection)
+            except AdvancedBatchRiskPersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 5 advanced-risk outcome integrity verification failed"
+                ) from error
+            from packages.domain.operational_control import OperationalControlError
+            from packages.persistence.operational_control import (
+                _verify_operational_control_integrity,
+            )
+
+            try:
+                _verify_operational_control_integrity(connection)
+            except OperationalControlError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 5 operational-control integrity verification failed"
+                ) from error
+            from packages.domain.critical_alert import CriticalAlertError
+            from packages.persistence.critical_alert import (
+                _verify_critical_alert_integrity,
+            )
+
+            try:
+                _verify_critical_alert_integrity(connection)
+            except CriticalAlertError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 5 critical-alert integrity verification failed"
+                ) from error
+            from packages.persistence.critical_alert_failure_control import (
+                CriticalAlertFailureControlPersistenceError,
+                _verify_critical_alert_failure_control_integrity,
+            )
+
+            try:
+                _verify_critical_alert_failure_control_integrity(connection)
+            except CriticalAlertFailureControlPersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 5 critical-alert failure-control integrity verification failed"
+                ) from error
+            from packages.persistence.strategy_supervision import (
+                StrategySupervisionPersistenceError,
+                _verify_strategy_supervision_integrity,
+            )
+
+            try:
+                _verify_strategy_supervision_integrity(connection)
+            except StrategySupervisionPersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 5 strategy-supervision integrity verification failed"
+                ) from error
+            from packages.persistence.strategy_invocation_lifecycle import (
+                StrategyInvocationLifecyclePersistenceError,
+                _verify_strategy_invocation_lifecycle_integrity,
+            )
+
+            try:
+                _verify_strategy_invocation_lifecycle_integrity(connection)
+            except StrategyInvocationLifecyclePersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 5 strategy-invocation lifecycle integrity verification failed"
+                ) from error
             from packages.domain.broker_ingress import BrokerIngressError
             from packages.persistence.broker_ingress import (
                 _verify_broker_ingress_integrity,
@@ -1300,6 +1482,181 @@ def verify_operational_schema(
             except BrokerIngressError as error:
                 raise DatabaseSchemaNotReady(
                     "Phase 4 broker-ingress integrity verification failed"
+                ) from error
+            from packages.domain.broker_request_budget import BrokerRequestBudgetError
+            from packages.persistence.broker_request_budget import (
+                _verify_broker_request_budget_integrity,
+            )
+
+            try:
+                _verify_broker_request_budget_integrity(connection)
+            except BrokerRequestBudgetError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 broker-request budget integrity verification failed"
+                ) from error
+            from packages.adapters.broker.alpaca_paper_account_runtime import (
+                AlpacaPaperAccountRuntimeError,
+            )
+            from packages.persistence.alpaca_paper_account_binding import (
+                _verify_alpaca_paper_account_binding_integrity,
+            )
+
+            try:
+                _verify_alpaca_paper_account_binding_integrity(connection)
+            except AlpacaPaperAccountRuntimeError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 Alpaca paper account-binding integrity verification failed"
+                ) from error
+            from packages.adapters.broker.alpaca_paper_asset_runtime import (
+                AlpacaPaperAssetRuntimeError,
+            )
+            from packages.persistence.alpaca_paper_asset_binding import (
+                _verify_alpaca_paper_asset_binding_integrity,
+            )
+
+            try:
+                _verify_alpaca_paper_asset_binding_integrity(connection)
+            except AlpacaPaperAssetRuntimeError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 Alpaca paper asset-binding integrity verification failed"
+                ) from error
+            from packages.adapters.broker.alpaca_paper_lookup_runtime import (
+                AlpacaPaperLookupRuntimeError,
+            )
+            from packages.persistence.alpaca_paper_lookup_observation import (
+                _verify_alpaca_paper_lookup_observation_integrity,
+            )
+
+            try:
+                _verify_alpaca_paper_lookup_observation_integrity(connection)
+            except AlpacaPaperLookupRuntimeError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 Alpaca paper lookup-observation integrity verification failed"
+                ) from error
+            from packages.adapters.broker.alpaca_paper_order_snapshot_runtime import (
+                AlpacaPaperOrderSnapshotRuntimeError,
+            )
+            from packages.persistence.alpaca_paper_order_snapshot import (
+                _verify_alpaca_paper_order_snapshot_integrity,
+            )
+
+            try:
+                _verify_alpaca_paper_order_snapshot_integrity(connection)
+            except AlpacaPaperOrderSnapshotRuntimeError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 Alpaca paper order-snapshot integrity verification failed"
+                ) from error
+            from packages.adapters.broker.alpaca_paper_account_activity_runtime import (
+                AlpacaPaperAccountActivityRuntimeError,
+            )
+            from packages.persistence.alpaca_paper_account_activity import (
+                _verify_alpaca_paper_account_activity_integrity,
+            )
+
+            try:
+                _verify_alpaca_paper_account_activity_integrity(connection)
+            except AlpacaPaperAccountActivityRuntimeError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 Alpaca paper account-activity integrity verification failed"
+                ) from error
+            from packages.persistence.alpaca_paper_account_activity_comparison import (
+                AlpacaPaperAccountActivityComparisonPersistenceError,
+                _verify_alpaca_paper_account_activity_comparison_integrity,
+            )
+
+            try:
+                _verify_alpaca_paper_account_activity_comparison_integrity(connection)
+            except AlpacaPaperAccountActivityComparisonPersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 Alpaca paper account-activity comparison integrity verification failed"
+                ) from error
+            from packages.persistence.alpaca_paper_order_view_transition import (
+                AlpacaPaperOrderViewTransitionPersistenceError,
+                _verify_alpaca_paper_order_view_transition_integrity,
+            )
+
+            try:
+                _verify_alpaca_paper_order_view_transition_integrity(connection)
+            except AlpacaPaperOrderViewTransitionPersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 Alpaca paper order-transition integrity verification failed"
+                ) from error
+            from packages.persistence.alpaca_paper_order_view_comparison import (
+                AlpacaPaperOrderViewComparisonPersistenceError,
+                _verify_alpaca_paper_order_view_comparison_integrity,
+            )
+
+            try:
+                _verify_alpaca_paper_order_view_comparison_integrity(connection)
+            except AlpacaPaperOrderViewComparisonPersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 Alpaca paper order-view comparison integrity verification failed"
+                ) from error
+            from packages.persistence.alpaca_paper_position_snapshot import (
+                AlpacaPaperPositionSnapshotPersistenceError,
+                _verify_alpaca_paper_position_snapshot_integrity,
+            )
+
+            try:
+                _verify_alpaca_paper_position_snapshot_integrity(connection)
+            except AlpacaPaperPositionSnapshotPersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 Alpaca paper position-snapshot integrity verification failed"
+                ) from error
+            from packages.persistence.alpaca_paper_position_view_transition import (
+                AlpacaPaperPositionViewTransitionPersistenceError,
+                _verify_alpaca_paper_position_view_transition_integrity,
+            )
+
+            try:
+                _verify_alpaca_paper_position_view_transition_integrity(connection)
+            except AlpacaPaperPositionViewTransitionPersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 Alpaca paper position-transition integrity verification failed"
+                ) from error
+            from packages.persistence.alpaca_paper_position_view_comparison import (
+                AlpacaPaperPositionViewComparisonPersistenceError,
+                _verify_alpaca_paper_position_view_comparison_integrity,
+            )
+
+            try:
+                _verify_alpaca_paper_position_view_comparison_integrity(connection)
+            except AlpacaPaperPositionViewComparisonPersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 Alpaca paper position-view comparison integrity verification failed"
+                ) from error
+            from packages.persistence.unknown_submission_recovery import (
+                UnknownSubmissionRecoveryPersistenceError,
+                _verify_unknown_submission_recovery_integrity,
+            )
+
+            try:
+                _verify_unknown_submission_recovery_integrity(connection)
+            except UnknownSubmissionRecoveryPersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 UNKNOWN lookup-schedule integrity verification failed"
+                ) from error
+            from packages.persistence.broker_reconciliation import (
+                BrokerReconciliationPersistenceError,
+                _verify_broker_reconciliation_integrity,
+            )
+
+            try:
+                _verify_broker_reconciliation_integrity(connection)
+            except BrokerReconciliationPersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 broker-reconciliation integrity verification failed"
+                ) from error
+            from packages.persistence.broker_inbox import (
+                BrokerInboxPersistenceError,
+                _verify_broker_inbox_integrity,
+            )
+
+            try:
+                _verify_broker_inbox_integrity(connection)
+            except BrokerInboxPersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 4 broker-inbox integrity verification failed"
                 ) from error
             _verify_phase2_durability_integrity(connection)
             _verify_phase2_research_integrity(connection)

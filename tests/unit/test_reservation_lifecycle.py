@@ -528,6 +528,14 @@ def test_cancel_and_local_terminal_state_do_not_authorize_release() -> None:
         requested_at=working.as_of + timedelta(seconds=1),
         reason="user requested cancellation",
     )
+    pending_cancel = reduce_order_lifecycle(
+        submission=working.submission,
+        broker_events=(accepted,),
+        cancel_request=cancel,
+    )
+    pending_cancel_capacity = project_reservation_capacity(reservation)
+    assert pending_cancel.cancel_request == cancel
+    assert pending_cancel_capacity.remaining_buy_exposure == authorization.reserved_buy_exposure
     canceled_event = broker_event(
         order_id=submitted.submission.order_id,
         sequence=2,
@@ -643,6 +651,7 @@ def test_unknown_child_freezes_parent_without_releasing_its_capacity() -> None:
     )
     assert unknown_projection.released_cash == 0
     assert unknown_projection.remaining_cash == unknown_child.reserved_cash
+    assert unknown_projection.remaining_buy_exposure == unknown_child.reserved_buy_exposure
 
     unknown_release = record_approval_expired_unsent_release(
         reservation=reservation,

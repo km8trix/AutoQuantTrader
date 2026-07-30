@@ -43,6 +43,10 @@ export function makeBootstrapFixture(now = new Date()): UiBootstrap {
     capabilities: ['research', 'simulation-only'],
     feature_flags: {
       walking_thread: true,
+      operations_query: false,
+      operations_control: false,
+      control_pause: false,
+      control_halt: false,
       controls: false,
       event_stream: false,
     },

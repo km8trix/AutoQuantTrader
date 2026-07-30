@@ -56,6 +56,16 @@ class MutableClock:
         self.instant += delta
 
 
+class SequenceClock:
+    def __init__(self, *instants: datetime) -> None:
+        self.instants = list(instants)
+
+    def now(self) -> datetime:
+        if not self.instants:
+            raise AssertionError("test clock was sampled more times than expected")
+        return self.instants.pop(0)
+
+
 def policy(*, version: str = "1.0.0") -> AccountLeasePolicy:
     return AccountLeasePolicy(
         policy_id="phase2-sql-coordinator",
@@ -401,6 +411,47 @@ def test_transactional_revalidation_locks_and_binds_the_exact_revision(
             lease.fence,
             checked_at=BASE + timedelta(seconds=1),
         )
+
+
+def test_commit_revalidation_rejects_regression_between_authority_samples(
+    sqlite_engine: Engine,
+) -> None:
+    clock = SequenceClock(
+        BASE,
+        BASE + timedelta(seconds=10),
+        BASE + timedelta(seconds=5),
+    )
+    authority = SqlAccountCoordinatorAuthority(
+        engine=sqlite_engine,
+        policy=policy(),
+        clock=clock,
+    )
+    account_coordinator = SqlAccountCoordinator(
+        account_id="commit-regression-account",
+        authority=authority,
+    )
+    lease = account_coordinator.acquire("worker-a")
+
+    with (
+        pytest.raises(
+            AccountCoordinatorError,
+            match="cannot regress during commit validation",
+        ),
+        sqlite_engine.begin() as connection,
+    ):
+        account_coordinator.revalidate_for_commit_in_transaction(
+            connection,
+            lease.fence,
+        )
+
+    with sqlite_engine.connect() as connection:
+        head_updated_at = connection.scalar(
+            sa.select(phase2_account_lease_heads.c.updated_at).where(
+                phase2_account_lease_heads.c.account_id == "commit-regression-account"
+            )
+        )
+    assert isinstance(head_updated_at, datetime)
+    assert head_updated_at.replace(tzinfo=UTC) == BASE
 
 
 def test_transactional_revalidation_cannot_backdate_past_trusted_expiry(

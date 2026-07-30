@@ -9,6 +9,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, WithJsonSchema, field_validator
 
+from packages.domain.advanced_risk_policy import AdvancedRiskDisposition
 from packages.domain.backtest_job import BacktestJobStatus
 from packages.domain.backtest_report import (
     BacktestReturnFrequency,
@@ -17,6 +18,7 @@ from packages.domain.backtest_report import (
     UncertaintyMethod,
 )
 from packages.domain.canonical import canonical_decimal
+from packages.domain.critical_alert import CriticalAlertDeliveryState
 from packages.domain.decimal_math import exact_decimal_sum
 from packages.domain.experiment_governance import ExperimentAttemptStatus
 from packages.domain.experiment_registry import EvaluationSegmentKind, PromotionComparison
@@ -26,6 +28,11 @@ from packages.domain.models import (
     OrderStatus,
     Posting,
     Side,
+)
+from packages.domain.operational_control import (
+    OperationalControlCommandKind,
+    OperationalControlOperationKind,
+    OperationalControlState,
 )
 from packages.domain.walking_thread import WalkingThreadResult
 
@@ -518,6 +525,128 @@ class DataQualityResponse(ApiModel):
 
 
 type Sha256Text = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class OperationsCoordinatorStatus(StrEnum):
+    ACTIVE = "active"
+    ABSENT = "absent"
+    EXPIRED = "expired"
+    UNKNOWN = "unknown"
+
+
+class OperationalControlAction(StrEnum):
+    PAUSE = "pause"
+    DRAIN = "drain"
+    FLATTEN = "flatten"
+    HALT = "halt"
+    REARM = "rearm"
+
+    @property
+    def command_kind(self) -> OperationalControlCommandKind:
+        return OperationalControlCommandKind(self.value)
+
+
+class OperationalControlCommandRequest(ApiModel):
+    """Only browser-authored control input; proof fields are forbidden."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    reason_code: str = Field(min_length=1, max_length=128)
+
+    @field_validator("reason_code")
+    @classmethod
+    def validate_reason_code(cls, value: str) -> str:
+        if value != value.strip() or any(
+            ord(character) < 32 or ord(character) == 127 for character in value
+        ):
+            raise ValueError("reason_code must be trimmed visible text")
+        return value
+
+
+class OperationsEnvironmentView(ApiModel):
+    name: str = Field(min_length=1, max_length=64)
+    mode: EnvironmentMode
+    account_id: str = Field(min_length=1, max_length=64)
+    loopback_only: bool
+
+
+class OperationsReadinessView(ApiModel):
+    status: ReadinessStatus
+    reasons: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(max_length=64)
+    as_of: datetime
+
+
+class OperationsCoordinatorView(ApiModel):
+    status: OperationsCoordinatorStatus
+    owner_id: Annotated[str, Field(min_length=1, max_length=128)] | None
+    fencing_generation: int | None
+    lease_expires_at: datetime | None
+
+
+class OperationalControlOperationView(ApiModel):
+    attempt_id: str
+    operation: OperationalControlOperationKind
+    opened_at: datetime
+
+
+class OperationalControlTransitionView(ApiModel):
+    transition_id: str
+    sequence_number: int
+    prior_state: OperationalControlState | None
+    effective_state: OperationalControlState
+    state_changed: bool
+    state_epoch_id: str
+    blocker_count: int
+    blocker_overflowed: bool
+    active_operation: OperationalControlOperationView | None
+    decided_at: datetime
+
+
+class OperationalControlMutationResponse(ApiModel):
+    action: OperationalControlAction
+    control: OperationalControlTransitionView
+
+
+class AdvancedRiskAssignmentView(ApiModel):
+    assignment_id: str
+    sequence_number: int
+    policy_id: str
+    policy_sha256: Sha256Text
+    environment: str
+    assigned_at: datetime
+
+
+class AdvancedRiskAssessmentView(ApiModel):
+    assessment_id: str
+    disposition: AdvancedRiskDisposition
+    assessed_at: datetime
+    valid_through: datetime
+
+
+class ActiveCriticalAlertView(ApiModel):
+    incident_id: str
+    alert_code: str
+    recorded_at: datetime
+    primary_delivery_state: CriticalAlertDeliveryState
+    escalation_delivery_state: CriticalAlertDeliveryState
+    primary_deadline_at: datetime
+    escalation_deadline_at: datetime
+
+
+class OperationsOverviewResponse(ApiModel):
+    as_of: datetime
+    environment: OperationsEnvironmentView
+    readiness: OperationsReadinessView
+    coordinator: OperationsCoordinatorView
+    control: OperationalControlTransitionView | None
+    control_history: list[OperationalControlTransitionView] = Field(max_length=512)
+    current_risk_assignment: AdvancedRiskAssignmentView | None
+    current_risk_assessment: AdvancedRiskAssessmentView | None
+    active_alerts: list[ActiveCriticalAlertView] = Field(max_length=512)
+
+
+class AdvancedRiskAssignmentMutationResponse(ApiModel):
+    assignment: AdvancedRiskAssignmentView
 
 
 class StrategyCatalogView(ApiModel):

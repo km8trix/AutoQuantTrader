@@ -11,6 +11,7 @@ import MonitorHeartRoundedIcon from '@mui/icons-material/MonitorHeartRounded'
 import RocketLaunchRoundedIcon from '@mui/icons-material/RocketLaunchRounded'
 import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
+import SpaceDashboardRoundedIcon from '@mui/icons-material/SpaceDashboardRounded'
 import type { SvgIconComponent } from '@mui/icons-material'
 
 export interface NavigationItem {
@@ -103,6 +104,12 @@ export const navigationGroups: NavigationGroup[] = [
   {
     label: 'Control',
     items: [
+      {
+        label: 'Operations',
+        path: '/operations/dashboard',
+        icon: SpaceDashboardRoundedIcon,
+        description: 'Snapshot and fail-safe controls',
+      },
       {
         label: 'Risk',
         path: '/risk',

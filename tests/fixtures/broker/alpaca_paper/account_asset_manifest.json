@@ -1,0 +1,44 @@
+{
+  "contract_version": "phase4e-alpaca-paper-account-asset-observation-v1",
+  "fixtures": {
+    "account_active.json": {
+      "provenance": "documentation_derived_synthetic",
+      "sha256": "a2b852b7e80b8a0769e5947e5fbb8b9dc129bafac500854a9028150269b85a38"
+    },
+    "asset_not_found.json": {
+      "provenance": "unqualified_synthetic_error_example",
+      "sha256": "3f7286aaa0ba921dd6a6d5c4eac8185baedafd925aabe88a54934054dfc09dfe"
+    },
+    "asset_spy_active.json": {
+      "provenance": "unqualified_synthetic_contract_example",
+      "sha256": "0fffbd895857dd032928aee83f7bc3fda6b0b9e892e780c8340628153d38570f"
+    }
+  },
+  "notes": [
+    "The account fixture is a synthetic adaptation of official Alpaca account documentation and the pinned SDK model; it omits provider-retired PDT/day-trade fields and exercises current options fields.",
+    "The asset and not-found bodies are unqualified synthetic contract examples.",
+    "No fixture is an authenticated Alpaca paper-account capture, a current observation, a provider-account binding, or security-master evidence.",
+    "A locally usable-candidate decoder outcome from these bytes grants no credential, transport, reconciliation, dispatch, or trading authority."
+  ],
+  "reviewed_on": "2026-07-27",
+  "source_artifacts": {
+    "alpaca_py_enums": {
+      "commit": "bd1fa9ea2fc3194914be9d47f7f5822a18a05b5f",
+      "sha256": "08a7d06d9ae6ce4ad6251c5628d74eaeef8d62a001784951dc24b90df0e5cc30"
+    },
+    "alpaca_py_models": {
+      "commit": "bd1fa9ea2fc3194914be9d47f7f5822a18a05b5f",
+      "sha256": "0a4296847ea46c434de3fe08ef6bb82519d9442705e59b4671127ffffad3855f"
+    }
+  },
+  "sources": [
+    "https://docs.alpaca.markets/us/v1.1/docs/working-with-account",
+    "https://docs.alpaca.markets/us/v1.1/docs/account-plans",
+    "https://docs.alpaca.markets/us/v1.1/docs/accounts-statuses",
+    "https://docs.alpaca.markets/us/reference/get-v2-assets-symbol_or_asset_id",
+    "https://docs.alpaca.markets/us/docs/market-data-faq",
+    "https://docs.alpaca.markets/us/docs/getting-started-with-trading-api",
+    "https://raw.githubusercontent.com/alpacahq/alpaca-py/bd1fa9ea2fc3194914be9d47f7f5822a18a05b5f/alpaca/trading/enums.py",
+    "https://raw.githubusercontent.com/alpacahq/alpaca-py/bd1fa9ea2fc3194914be9d47f7f5822a18a05b5f/alpaca/trading/models.py"
+  ]
+}

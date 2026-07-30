@@ -283,7 +283,9 @@ def test_fixed_tape_api_cannot_masquerade_as_trading_environment(
         credentials=(
             PaperCredentialRefs(
                 account_id="paper-account",
+                expected_provider_account_id="11111111-1111-4111-8111-111111111111",
                 broker_secret_ref="secret://paper/broker",
+                broker_secret_version="version-1",
                 market_data_secret_ref="secret://paper/data",
             )
             if environment is Environment.PAPER

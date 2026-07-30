@@ -50,6 +50,128 @@
         "title": "AccountSummary",
         "type": "object"
       },
+      "ActiveCriticalAlertView": {
+        "properties": {
+          "alert_code": {
+            "title": "Alert Code",
+            "type": "string"
+          },
+          "escalation_deadline_at": {
+            "format": "date-time",
+            "title": "Escalation Deadline At",
+            "type": "string"
+          },
+          "escalation_delivery_state": {
+            "$ref": "#/components/schemas/CriticalAlertDeliveryState"
+          },
+          "incident_id": {
+            "title": "Incident Id",
+            "type": "string"
+          },
+          "primary_deadline_at": {
+            "format": "date-time",
+            "title": "Primary Deadline At",
+            "type": "string"
+          },
+          "primary_delivery_state": {
+            "$ref": "#/components/schemas/CriticalAlertDeliveryState"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "incident_id",
+          "alert_code",
+          "recorded_at",
+          "primary_delivery_state",
+          "escalation_delivery_state",
+          "primary_deadline_at",
+          "escalation_deadline_at"
+        ],
+        "title": "ActiveCriticalAlertView",
+        "type": "object"
+      },
+      "AdvancedRiskAssessmentView": {
+        "properties": {
+          "assessed_at": {
+            "format": "date-time",
+            "title": "Assessed At",
+            "type": "string"
+          },
+          "assessment_id": {
+            "title": "Assessment Id",
+            "type": "string"
+          },
+          "disposition": {
+            "$ref": "#/components/schemas/AdvancedRiskDisposition"
+          },
+          "valid_through": {
+            "format": "date-time",
+            "title": "Valid Through",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assessment_id",
+          "disposition",
+          "assessed_at",
+          "valid_through"
+        ],
+        "title": "AdvancedRiskAssessmentView",
+        "type": "object"
+      },
+      "AdvancedRiskAssignmentView": {
+        "properties": {
+          "assigned_at": {
+            "format": "date-time",
+            "title": "Assigned At",
+            "type": "string"
+          },
+          "assignment_id": {
+            "title": "Assignment Id",
+            "type": "string"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "policy_id": {
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "policy_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "sequence_number": {
+            "title": "Sequence Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "assignment_id",
+          "sequence_number",
+          "policy_id",
+          "policy_sha256",
+          "environment",
+          "assigned_at"
+        ],
+        "title": "AdvancedRiskAssignmentView",
+        "type": "object"
+      },
+      "AdvancedRiskDisposition": {
+        "description": "Closed policy outcomes, ordered separately by evaluation mode.",
+        "enum": [
+          "none",
+          "reject",
+          "pause",
+          "halt"
+        ],
+        "title": "AdvancedRiskDisposition",
+        "type": "string"
+      },
       "AlertCounts": {
         "properties": {
           "critical": {
@@ -67,6 +189,16 @@
         ],
         "title": "AlertCounts",
         "type": "object"
+      },
+      "AlertDeliveryStatus": {
+        "enum": [
+          "delivered",
+          "pending",
+          "failed",
+          "unknown"
+        ],
+        "title": "AlertDeliveryStatus",
+        "type": "string"
       },
       "ApiErrorResponse": {
         "properties": {
@@ -1098,6 +1230,94 @@
         "title": "BacktestTradeView",
         "type": "object"
       },
+      "CoordinatorOwnershipView": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "fencing_generation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fencing Generation"
+          },
+          "heartbeat_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heartbeat At"
+          },
+          "lease_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Id"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CoordinatorStatus"
+          }
+        },
+        "required": [
+          "status",
+          "owner_id",
+          "lease_id",
+          "fencing_generation",
+          "heartbeat_at",
+          "expires_at",
+          "detail"
+        ],
+        "title": "CoordinatorOwnershipView",
+        "type": "object"
+      },
+      "CoordinatorStatus": {
+        "enum": [
+          "active",
+          "expired",
+          "unavailable"
+        ],
+        "title": "CoordinatorStatus",
+        "type": "string"
+      },
       "CorporateActionView": {
         "properties": {
           "action_id": {
@@ -1152,6 +1372,16 @@
         ],
         "title": "CorporateActionView",
         "type": "object"
+      },
+      "CriticalAlertDeliveryState": {
+        "enum": [
+          "confirmed",
+          "timeout",
+          "error",
+          "unknown"
+        ],
+        "title": "CriticalAlertDeliveryState",
+        "type": "string"
       },
       "DashboardSummary": {
         "properties": {
@@ -2492,6 +2722,15 @@
         "title": "FillView",
         "type": "object"
       },
+      "FreshnessStatus": {
+        "enum": [
+          "current",
+          "stale",
+          "unavailable"
+        ],
+        "title": "FreshnessStatus",
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2786,6 +3025,58 @@
           "postings"
         ],
         "title": "LedgerEntryView",
+        "type": "object"
+      },
+      "LedgerIntegrityView": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "entry_count": {
+            "title": "Entry Count",
+            "type": "integer"
+          },
+          "latest_entry_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Entry Id"
+          },
+          "latest_posted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Posted At"
+          },
+          "status": {
+            "enum": [
+              "balanced",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "entry_count",
+          "latest_entry_id",
+          "latest_posted_at",
+          "detail"
+        ],
+        "title": "LedgerIntegrityView",
         "type": "object"
       },
       "MarketClock": {
@@ -3097,6 +3388,960 @@
         ],
         "title": "MarketStatus",
         "type": "string"
+      },
+      "OperationalAccountView": {
+        "properties": {
+          "cash": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cash",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "equity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Equity",
+            "type": "string"
+          },
+          "gross_exposure": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Gross Exposure",
+            "type": "string"
+          },
+          "net_exposure": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Net Exposure",
+            "type": "string"
+          },
+          "realized_pnl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Realized Pnl",
+            "type": "string"
+          },
+          "unrealized_pnl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unrealized Pnl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "equity",
+          "cash",
+          "realized_pnl",
+          "unrealized_pnl",
+          "gross_exposure",
+          "net_exposure"
+        ],
+        "title": "OperationalAccountView",
+        "type": "object"
+      },
+      "OperationalAlertView": {
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "delivery_status": {
+            "$ref": "#/components/schemas/AlertDeliveryStatus"
+          },
+          "escalation_due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation Due At"
+          },
+          "incident_id": {
+            "title": "Incident Id",
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "incident_id",
+          "severity",
+          "category",
+          "opened_at",
+          "summary",
+          "delivery_status",
+          "escalation_due_at"
+        ],
+        "title": "OperationalAlertView",
+        "type": "object"
+      },
+      "OperationalControlAction": {
+        "enum": [
+          "pause",
+          "drain",
+          "flatten",
+          "halt",
+          "rearm"
+        ],
+        "title": "OperationalControlAction",
+        "type": "string"
+      },
+      "OperationalControlCommandRequest": {
+        "additionalProperties": false,
+        "description": "Only browser-authored control input; proof fields are forbidden.",
+        "properties": {
+          "reason_code": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Reason Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason_code"
+        ],
+        "title": "OperationalControlCommandRequest",
+        "type": "object"
+      },
+      "OperationalControlMutationResponse": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/OperationalControlAction"
+          },
+          "control": {
+            "$ref": "#/components/schemas/OperationalControlTransitionView"
+          }
+        },
+        "required": [
+          "action",
+          "control"
+        ],
+        "title": "OperationalControlMutationResponse",
+        "type": "object"
+      },
+      "OperationalControlOperationKind": {
+        "enum": [
+          "drain",
+          "flatten"
+        ],
+        "title": "OperationalControlOperationKind",
+        "type": "string"
+      },
+      "OperationalControlOperationView": {
+        "properties": {
+          "attempt_id": {
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/OperationalControlOperationKind"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "operation",
+          "opened_at"
+        ],
+        "title": "OperationalControlOperationView",
+        "type": "object"
+      },
+      "OperationalControlReceiptView": {
+        "properties": {
+          "actor_id": {
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "command_kind": {
+            "title": "Command Kind",
+            "type": "string"
+          },
+          "decided_at": {
+            "format": "date-time",
+            "title": "Decided At",
+            "type": "string"
+          },
+          "sequence_number": {
+            "title": "Sequence Number",
+            "type": "integer"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "transition_id": {
+            "title": "Transition Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transition_id",
+          "sequence_number",
+          "state",
+          "command_kind",
+          "actor_id",
+          "decided_at"
+        ],
+        "title": "OperationalControlReceiptView",
+        "type": "object"
+      },
+      "OperationalControlState": {
+        "description": "Closed states ordered by increasing safety severity.",
+        "enum": [
+          "running",
+          "paused",
+          "draining",
+          "flattening",
+          "halted"
+        ],
+        "title": "OperationalControlState",
+        "type": "string"
+      },
+      "OperationalControlTransitionView": {
+        "properties": {
+          "active_operation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationalControlOperationView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "blocker_count": {
+            "title": "Blocker Count",
+            "type": "integer"
+          },
+          "blocker_overflowed": {
+            "title": "Blocker Overflowed",
+            "type": "boolean"
+          },
+          "decided_at": {
+            "format": "date-time",
+            "title": "Decided At",
+            "type": "string"
+          },
+          "effective_state": {
+            "$ref": "#/components/schemas/OperationalControlState"
+          },
+          "prior_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationalControlState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sequence_number": {
+            "title": "Sequence Number",
+            "type": "integer"
+          },
+          "state_changed": {
+            "title": "State Changed",
+            "type": "boolean"
+          },
+          "state_epoch_id": {
+            "title": "State Epoch Id",
+            "type": "string"
+          },
+          "transition_id": {
+            "title": "Transition Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transition_id",
+          "sequence_number",
+          "prior_state",
+          "effective_state",
+          "state_changed",
+          "state_epoch_id",
+          "blocker_count",
+          "blocker_overflowed",
+          "active_operation",
+          "decided_at"
+        ],
+        "title": "OperationalControlTransitionView",
+        "type": "object"
+      },
+      "OperationalControlView": {
+        "properties": {
+          "actions_available": {
+            "const": false,
+            "title": "Actions Available",
+            "type": "boolean"
+          },
+          "blocking_event_count": {
+            "title": "Blocking Event Count",
+            "type": "integer"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/OperationalControlReceiptView"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "pending_operation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Operation"
+          },
+          "sequence_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sequence Number"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "transition_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transition Id"
+          }
+        },
+        "required": [
+          "state",
+          "transition_id",
+          "sequence_number",
+          "blocking_event_count",
+          "pending_operation",
+          "actions_available",
+          "history",
+          "detail"
+        ],
+        "title": "OperationalControlView",
+        "type": "object"
+      },
+      "OperationalFillView": {
+        "properties": {
+          "executed_at": {
+            "format": "date-time",
+            "title": "Executed At",
+            "type": "string"
+          },
+          "fee": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Fee",
+            "type": "string"
+          },
+          "fill_id": {
+            "title": "Fill Id",
+            "type": "string"
+          },
+          "order_id": {
+            "title": "Order Id",
+            "type": "string"
+          },
+          "price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Price",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "side": {
+            "title": "Side",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fill_id",
+          "order_id",
+          "symbol",
+          "side",
+          "quantity",
+          "price",
+          "fee",
+          "executed_at"
+        ],
+        "title": "OperationalFillView",
+        "type": "object"
+      },
+      "OperationalFreshnessView": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "maximum_age_seconds": {
+            "title": "Maximum Age Seconds",
+            "type": "integer"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FreshnessStatus"
+          }
+        },
+        "required": [
+          "source_id",
+          "label",
+          "status",
+          "observed_at",
+          "maximum_age_seconds",
+          "detail"
+        ],
+        "title": "OperationalFreshnessView",
+        "type": "object"
+      },
+      "OperationalOrderView": {
+        "properties": {
+          "client_order_id": {
+            "title": "Client Order Id",
+            "type": "string"
+          },
+          "filled_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Filled Quantity",
+            "type": "string"
+          },
+          "intent_id": {
+            "title": "Intent Id",
+            "type": "string"
+          },
+          "order_id": {
+            "title": "Order Id",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "risk_decision_id": {
+            "title": "Risk Decision Id",
+            "type": "string"
+          },
+          "side": {
+            "title": "Side",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id",
+          "client_order_id",
+          "intent_id",
+          "risk_decision_id",
+          "symbol",
+          "side",
+          "quantity",
+          "filled_quantity",
+          "status",
+          "submitted_at"
+        ],
+        "title": "OperationalOrderView",
+        "type": "object"
+      },
+      "OperationalPositionView": {
+        "properties": {
+          "average_cost": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Average Cost",
+            "type": "string"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "market_price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Market Price",
+            "type": "string"
+          },
+          "market_value": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Market Value",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instrument_id",
+          "symbol",
+          "quantity",
+          "average_cost",
+          "market_price",
+          "market_value"
+        ],
+        "title": "OperationalPositionView",
+        "type": "object"
+      },
+      "OperationalReconciliationView": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "differences": {
+            "items": {
+              "$ref": "#/components/schemas/ReconciliationDifferenceView"
+            },
+            "title": "Differences",
+            "type": "array"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReconciliationStatus"
+          }
+        },
+        "required": [
+          "status",
+          "observed_at",
+          "differences",
+          "detail"
+        ],
+        "title": "OperationalReconciliationView",
+        "type": "object"
+      },
+      "OperationalRiskDecisionView": {
+        "properties": {
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "evaluated_at": {
+            "format": "date-time",
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "policy_version": {
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/RiskRuleObservationView"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id",
+          "policy_version",
+          "status",
+          "evaluated_at",
+          "expires_at",
+          "rules"
+        ],
+        "title": "OperationalRiskDecisionView",
+        "type": "object"
+      },
+      "OperationsCoordinatorStatus": {
+        "enum": [
+          "active",
+          "absent",
+          "expired",
+          "unknown"
+        ],
+        "title": "OperationsCoordinatorStatus",
+        "type": "string"
+      },
+      "OperationsCoordinatorView": {
+        "properties": {
+          "fencing_generation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fencing Generation"
+          },
+          "lease_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Expires At"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OperationsCoordinatorStatus"
+          }
+        },
+        "required": [
+          "status",
+          "owner_id",
+          "fencing_generation",
+          "lease_expires_at"
+        ],
+        "title": "OperationsCoordinatorView",
+        "type": "object"
+      },
+      "OperationsDashboardSnapshot": {
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/OperationalAccountView"
+          },
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/OperationalAlertView"
+            },
+            "title": "Alerts",
+            "type": "array"
+          },
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "control": {
+            "$ref": "#/components/schemas/OperationalControlView"
+          },
+          "coordinator": {
+            "$ref": "#/components/schemas/CoordinatorOwnershipView"
+          },
+          "deployment": {
+            "$ref": "#/components/schemas/StrategyDeploymentView"
+          },
+          "fills": {
+            "items": {
+              "$ref": "#/components/schemas/OperationalFillView"
+            },
+            "title": "Fills",
+            "type": "array"
+          },
+          "freshness": {
+            "items": {
+              "$ref": "#/components/schemas/OperationalFreshnessView"
+            },
+            "title": "Freshness",
+            "type": "array"
+          },
+          "ledger": {
+            "$ref": "#/components/schemas/LedgerIntegrityView"
+          },
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/OperationalOrderView"
+            },
+            "title": "Orders",
+            "type": "array"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/OperationalPositionView"
+            },
+            "title": "Positions",
+            "type": "array"
+          },
+          "read_only": {
+            "const": true,
+            "title": "Read Only",
+            "type": "boolean"
+          },
+          "reconciliation": {
+            "$ref": "#/components/schemas/OperationalReconciliationView"
+          },
+          "reservations": {
+            "items": {
+              "$ref": "#/components/schemas/RiskReservationView"
+            },
+            "title": "Reservations",
+            "type": "array"
+          },
+          "risk_decisions": {
+            "items": {
+              "$ref": "#/components/schemas/OperationalRiskDecisionView"
+            },
+            "title": "Risk Decisions",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": "phase5-operations-dashboard-v1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "as_of",
+          "read_only",
+          "coordinator",
+          "deployment",
+          "freshness",
+          "account",
+          "orders",
+          "fills",
+          "positions",
+          "ledger",
+          "reservations",
+          "risk_decisions",
+          "reconciliation",
+          "alerts",
+          "control"
+        ],
+        "title": "OperationsDashboardSnapshot",
+        "type": "object"
+      },
+      "OperationsEnvironmentView": {
+        "properties": {
+          "account_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Account Id",
+            "type": "string"
+          },
+          "loopback_only": {
+            "title": "Loopback Only",
+            "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/EnvironmentMode"
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "mode",
+          "account_id",
+          "loopback_only"
+        ],
+        "title": "OperationsEnvironmentView",
+        "type": "object"
+      },
+      "OperationsOverviewResponse": {
+        "properties": {
+          "active_alerts": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveCriticalAlertView"
+            },
+            "maxItems": 512,
+            "title": "Active Alerts",
+            "type": "array"
+          },
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "control": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationalControlTransitionView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "control_history": {
+            "items": {
+              "$ref": "#/components/schemas/OperationalControlTransitionView"
+            },
+            "maxItems": 512,
+            "title": "Control History",
+            "type": "array"
+          },
+          "coordinator": {
+            "$ref": "#/components/schemas/OperationsCoordinatorView"
+          },
+          "current_risk_assessment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdvancedRiskAssessmentView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current_risk_assignment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdvancedRiskAssignmentView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "environment": {
+            "$ref": "#/components/schemas/OperationsEnvironmentView"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/OperationsReadinessView"
+          }
+        },
+        "required": [
+          "as_of",
+          "environment",
+          "readiness",
+          "coordinator",
+          "control",
+          "control_history",
+          "current_risk_assignment",
+          "current_risk_assessment",
+          "active_alerts"
+        ],
+        "title": "OperationsOverviewResponse",
+        "type": "object"
+      },
+      "OperationsReadinessView": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Reasons",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReadinessStatus"
+          }
+        },
+        "required": [
+          "status",
+          "reasons",
+          "as_of"
+        ],
+        "title": "OperationsReadinessView",
+        "type": "object"
       },
       "OrderIntentView": {
         "properties": {
@@ -3446,6 +4691,43 @@
         "title": "ReadinessStatus",
         "type": "string"
       },
+      "ReconciliationDifferenceView": {
+        "properties": {
+          "broker_value": {
+            "title": "Broker Value",
+            "type": "string"
+          },
+          "disposition": {
+            "title": "Disposition",
+            "type": "string"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "local_value": {
+            "title": "Local Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "local_value",
+          "broker_value",
+          "disposition"
+        ],
+        "title": "ReconciliationDifferenceView",
+        "type": "object"
+      },
+      "ReconciliationStatus": {
+        "enum": [
+          "clean",
+          "differences",
+          "unavailable"
+        ],
+        "title": "ReconciliationStatus",
+        "type": "string"
+      },
       "RiskDecisionView": {
         "properties": {
           "decision_id": {
@@ -3511,6 +4793,74 @@
           "rules"
         ],
         "title": "RiskDecisionView",
+        "type": "object"
+      },
+      "RiskReservationView": {
+        "properties": {
+          "amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "intent_id": {
+            "title": "Intent Id",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id",
+          "intent_id",
+          "amount",
+          "currency",
+          "state",
+          "expires_at"
+        ],
+        "title": "RiskReservationView",
+        "type": "object"
+      },
+      "RiskRuleObservationView": {
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "string"
+          },
+          "observed": {
+            "title": "Observed",
+            "type": "string"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule",
+          "passed",
+          "observed",
+          "limit"
+        ],
+        "title": "RiskRuleObservationView",
         "type": "object"
       },
       "RiskRuleView": {
@@ -3662,6 +5012,50 @@
           "metric_conventions_sha256"
         ],
         "title": "StrategyCatalogView",
+        "type": "object"
+      },
+      "StrategyDeploymentView": {
+        "properties": {
+          "deployment_id": {
+            "title": "Deployment Id",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "strategy_configuration_sha256": {
+            "title": "Strategy Configuration Sha256",
+            "type": "string"
+          },
+          "strategy_id": {
+            "title": "Strategy Id",
+            "type": "string"
+          },
+          "strategy_version": {
+            "title": "Strategy Version",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deployment_id",
+          "strategy_id",
+          "strategy_version",
+          "strategy_configuration_sha256",
+          "state",
+          "mode",
+          "updated_at"
+        ],
+        "title": "StrategyDeploymentView",
         "type": "object"
       },
       "TargetPortfolioView": {
@@ -4042,6 +5436,320 @@
         "summary": "Data Quality",
         "tags": [
           "market-data"
+        ]
+      }
+    },
+    "/api/v1/operations/accounts/{account_id}": {
+      "get": {
+        "operationId": "operations_overview_api_v1_operations_accounts__account_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 32,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "title": "X-Csrf-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "LocalOperatorSession": []
+          }
+        ],
+        "summary": "Operations Overview",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/api/v1/operations/accounts/{account_id}/control/{action}": {
+      "post": {
+        "operationId": "mutate_control_api_v1_operations_accounts__account_id__control__action__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "action",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/OperationalControlAction"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 32,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "title": "X-Csrf-Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationalControlCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalControlMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "LocalOperatorSession": []
+          }
+        ],
+        "summary": "Mutate Control",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/api/v1/operations/dashboard": {
+      "get": {
+        "operationId": "dashboard_api_v1_operations_dashboard_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 32,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "title": "X-Csrf-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsDashboardSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "The complete read-only operations projection is unavailable."
+          }
+        },
+        "security": [
+          {
+            "LocalOperatorSession": []
+          }
+        ],
+        "summary": "Read the local operational dashboard",
+        "tags": [
+          "operations"
         ]
       }
     },

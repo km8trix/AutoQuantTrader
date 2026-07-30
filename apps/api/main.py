@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import UTC, datetime
 
@@ -54,7 +55,24 @@ from apps.api.experiment_views import (
     ExperimentGovernanceQuery,
     create_experiment_router,
 )
+from apps.api.operations_dashboard_views import (
+    WalkingThreadOperationsDashboardQuery,
+    create_operations_dashboard_router,
+)
+from apps.api.operations_views import (
+    AdvancedRiskAssignmentCommandService,
+    DurableLocalOperationsQuery,
+    LocalOperationsQuery,
+    OperationalControlCommandService,
+    create_operations_router,
+)
 from packages.application.backtest_worker import ensure_golden_research_catalog
+from packages.application.local_operations import (
+    DatabaseOnlyOperationalControlService,
+)
+from packages.domain.canonical import canonical_json_bytes
+from packages.domain.clock import SystemClock
+from packages.domain.operational_control import OperationalControlCommandKind
 from packages.domain.risk import RiskAuthorizationError
 from packages.domain.walking_thread import WalkingThread, WalkingThreadResult
 from packages.observability.logging import configure_logging
@@ -70,7 +88,9 @@ from packages.persistence.experiment_governance import (
     SqlExperimentGovernance,
 )
 from packages.persistence.immutable import ImmutableFactConflict
+from packages.persistence.local_operations import SqlLocalOperationsSnapshotReader
 from packages.persistence.market_data import SqlMarketDataCatalog
+from packages.persistence.operational_control import SqlOperationalControlRepository
 from packages.persistence.risk import SqlRiskDecisionRepository
 from packages.persistence.walking_thread import (
     WalkingThreadUnitOfWork,
@@ -106,6 +126,19 @@ def _readiness_reason(mode: PersistenceMode) -> list[str]:
     return ["operational persistence unavailable"]
 
 
+def _available_control_actions(
+    service: OperationalControlCommandService | None,
+) -> frozenset[OperationalControlCommandKind]:
+    if service is None:
+        return frozenset()
+    declared = getattr(service, "available_actions", None)
+    if type(declared) is not frozenset or any(
+        type(item) is not OperationalControlCommandKind for item in declared
+    ):
+        return frozenset()
+    return declared
+
+
 def _bootstrap(
     result: WalkingThreadResult,
     *,
@@ -113,7 +146,19 @@ def _bootstrap(
     readiness_as_of: datetime,
     operator_id: str,
     backtest_launch: BacktestLaunchCapability,
+    operations_query_available: bool,
+    operations_control_available: bool,
+    control_actions: frozenset[OperationalControlCommandKind],
 ) -> UiBootstrap:
+    full_control_actions = frozenset(
+        {
+            OperationalControlCommandKind.PAUSE,
+            OperationalControlCommandKind.DRAIN,
+            OperationalControlCommandKind.FLATTEN,
+            OperationalControlCommandKind.HALT,
+            OperationalControlCommandKind.REARM,
+        }
+    )
     capabilities = [
         "research",
         "risk-gated-simulation",
@@ -125,6 +170,14 @@ def _bootstrap(
         capabilities.append("experiment-governance-query")
     if backtest_launch.enabled:
         capabilities.append("fixture-backtest-launch")
+    if operations_query_available:
+        capabilities.append("durable-operations-query")
+    if operations_control_available:
+        capabilities.append("authenticated-operational-control")
+    if OperationalControlCommandKind.PAUSE in control_actions:
+        capabilities.append("operational-control-pause")
+    if OperationalControlCommandKind.HALT in control_actions:
+        capabilities.append("operational-control-halt")
     return UiBootstrap(
         user=UserIdentity(id=operator_id, display_name="Local operator"),
         environment=EnvironmentIdentity(
@@ -154,7 +207,16 @@ def _bootstrap(
             "backtest_query": persistence_status is PersistenceMode.DURABLE,
             "experiment_query": persistence_status is PersistenceMode.DURABLE,
             "backtest_launch": backtest_launch.enabled,
-            "controls": False,
+            "operations_query": operations_query_available,
+            "operations_control": operations_control_available,
+            "controls": (
+                operations_control_available and full_control_actions.issubset(control_actions)
+            ),
+            "control_pause": OperationalControlCommandKind.PAUSE in control_actions,
+            "control_drain": OperationalControlCommandKind.DRAIN in control_actions,
+            "control_flatten": OperationalControlCommandKind.FLATTEN in control_actions,
+            "control_halt": OperationalControlCommandKind.HALT in control_actions,
+            "control_rearm": OperationalControlCommandKind.REARM in control_actions,
             "event_stream": False,
         },
         stream_cursor=None,
@@ -232,7 +294,14 @@ def _summary(
     )
 
 
-def create_app(settings: Settings | None = None, engine: Engine | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    engine: Engine | None = None,
+    *,
+    operations_query: LocalOperationsQuery | None = None,
+    operations_control: OperationalControlCommandService | None = None,
+    operations_assignment: AdvancedRiskAssignmentCommandService | None = None,
+) -> FastAPI:
     resolved_settings = settings or Settings.from_env()
     if resolved_settings.environment is not Environment.LOCAL:
         raise RuntimeError(
@@ -289,6 +358,61 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         logger.exception("walking-thread persistence bootstrap failed")
     if result is None:
         result = expected_result
+    resolved_operations_query = operations_query
+    resolved_operations_control = operations_control
+    secure_local_operations = (
+        resolved_settings.local_auth_enabled
+        and resolved_settings.local_auth_transport_is_loopback_scoped
+    )
+    if (
+        persistence_status is PersistenceMode.DURABLE
+        and persistence_engine is not None
+        and secure_local_operations
+    ):
+        if resolved_operations_query is None:
+            operations_reader = SqlLocalOperationsSnapshotReader(persistence_engine)
+            resolved_operations_query = DurableLocalOperationsQuery(
+                reader=operations_reader,
+                environment_name="Local durable operations",
+                environment_mode=EnvironmentMode.LOCAL,
+                loopback_only=True,
+            )
+        if resolved_operations_control is None:
+            control_clock = SystemClock()
+            actor_authority_sha256 = hashlib.sha256(
+                canonical_json_bytes(
+                    (
+                        "phase5f-local-operations-authentication-v1",
+                        local_credentials.operator_id,
+                        resolved_settings.session_secret,
+                    )
+                )
+            ).hexdigest()
+            control_repository = SqlOperationalControlRepository(
+                engine=persistence_engine,
+                clock=control_clock,
+            )
+            resolved_operations_control = DatabaseOnlyOperationalControlService(
+                repository=control_repository,
+                actor_authority_sha256=actor_authority_sha256,
+                clock=control_clock.now,
+            )
+        if (
+            type(resolved_operations_query) is DurableLocalOperationsQuery
+            and type(resolved_operations_control) is DatabaseOnlyOperationalControlService
+            and (
+                resolved_operations_query.runtime_store_identity
+                != resolved_operations_control.runtime_store_identity
+                or resolved_operations_query.runtime_store_identity != id(persistence_engine)
+            )
+        ):
+            raise RuntimeError(
+                "local operations query and control require the exact durable SQL engine"
+            )
+    operations_dashboard_query = WalkingThreadOperationsDashboardQuery(
+        result=result,
+        clock=SystemClock(),
+    )
     app = FastAPI(
         title="AutoQuantTrader API",
         version="0.1.0",
@@ -308,6 +432,10 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     )
     app.state.backtest_workflow = backtest_workflow
     app.state.experiment_governance = experiment_governance
+    app.state.operations_query = resolved_operations_query
+    app.state.operations_control = resolved_operations_control
+    app.state.operations_assignment = operations_assignment
+    app.state.operations_dashboard_query = operations_dashboard_query
 
     if resolved_settings.cors_origins:
         app.add_middleware(
@@ -359,6 +487,18 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             readiness_as_of=probed_at,
             operator_id=local_credentials.operator_id,
             backtest_launch=launch_capability,
+            operations_query_available=(
+                current_status is PersistenceMode.DURABLE and resolved_operations_query is not None
+            ),
+            operations_control_available=(
+                current_status is PersistenceMode.DURABLE
+                and resolved_operations_control is not None
+            ),
+            control_actions=(
+                _available_control_actions(resolved_operations_control)
+                if current_status is PersistenceMode.DURABLE
+                else frozenset()
+            ),
         )
 
     @router.get("/dashboard/summary", response_model=DashboardSummary, tags=["ui"])
@@ -424,6 +564,28 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     router.include_router(
         create_experiment_router(
             repository=experiment_governance,
+            persistence_ready=lambda: (
+                _probe_persistence(persistence_engine, persistence_status)[0]
+                is PersistenceMode.DURABLE
+            ),
+        )
+    )
+    router.include_router(
+        create_operations_router(
+            query=resolved_operations_query,
+            control=resolved_operations_control,
+            security=local_security,
+            persistence_ready=lambda: (
+                _probe_persistence(persistence_engine, persistence_status)[0]
+                is PersistenceMode.DURABLE
+            ),
+            assignment=operations_assignment,
+        )
+    )
+    router.include_router(
+        create_operations_dashboard_router(
+            query=operations_dashboard_query,
+            security=local_security,
             persistence_ready=lambda: (
                 _probe_persistence(persistence_engine, persistence_status)[0]
                 is PersistenceMode.DURABLE

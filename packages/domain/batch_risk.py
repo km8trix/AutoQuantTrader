@@ -1425,7 +1425,9 @@ class BatchRiskDecision:
 
 
 @dataclass(frozen=True, slots=True)
-class _IntentReservationTerms:
+class BatchRiskReservationTerms:
+    """Exact Phase 2 reservation economics for one canonical intent."""
+
     intent: OrderIntent
     maximum_execution_price: Decimal
     maximum_fee: Decimal
@@ -1435,7 +1437,7 @@ class _IntentReservationTerms:
     gross_notional: Decimal
 
 
-def _validate_batch_evidence(
+def validate_batch_risk_evidence(
     batch: OrderIntentBatch,
     target: TargetPortfolio,
     snapshot: VersionedBatchRiskSnapshot,
@@ -1535,10 +1537,16 @@ def _validate_batch_evidence(
     return current_quantities, current_values
 
 
-def _reservation_terms(
+def batch_risk_reservation_terms(
     intent: OrderIntent,
     limits: BatchRiskLimits,
-) -> _IntentReservationTerms:
+) -> BatchRiskReservationTerms:
+    """Derive the same conservative terms used by the Phase 2 decision."""
+
+    if type(intent) is not OrderIntent:
+        raise BatchRiskError("reservation terms require an exact OrderIntent")
+    if type(limits) is not BatchRiskLimits:
+        raise BatchRiskError("reservation terms require exact versioned limits")
     variable_fee = exact_decimal_multiply(limits.estimated_fee_per_share, intent.quantity)
     maximum_fee = exact_decimal_add(limits.estimated_fixed_fee, variable_fee)
     maximum_execution_price = (
@@ -1560,7 +1568,7 @@ def _reservation_terms(
         if intent.side is Side.BUY
         else exact_decimal_multiply(intent.quantity, intent.reference_price)
     )
-    return _IntentReservationTerms(
+    return BatchRiskReservationTerms(
         intent=intent,
         maximum_execution_price=_persisted_decimal(
             maximum_execution_price,
@@ -1636,7 +1644,7 @@ def evaluate_batch_risk_decision(
         reservation.currency != snapshot.currency for reservation in active_capacity.reservations
     ):
         raise BatchRiskFactConflict("active capacity and risk snapshot currencies differ")
-    current_quantities, current_values = _validate_batch_evidence(
+    current_quantities, current_values = validate_batch_risk_evidence(
         batch,
         target,
         snapshot,
@@ -1673,7 +1681,7 @@ def evaluate_batch_risk_decision(
             authorizations=(),
         )
 
-    terms = tuple(_reservation_terms(intent, limits) for intent in batch.intents)
+    terms = tuple(batch_risk_reservation_terms(intent, limits) for intent in batch.intents)
     active_authorizations = active_capacity.authorizations
     new_instruments = {intent.instrument_id for intent in batch.intents}
     active_instruments = {item.instrument_id for item in active_authorizations}

@@ -123,7 +123,7 @@ jobs:
         run: pnpm build
 
   containers:
-    name: Development container definitions
+    name: Container definitions and paper admission
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs:
@@ -138,3 +138,16 @@ jobs:
 
       - name: Build development images
         run: docker compose -f infra/compose/compose.yaml build migrate web
+
+      - name: Build production paper-preflight image
+        run: >-
+          docker build
+          --target production
+          --file infra/docker/api.Dockerfile
+          --tag autoquanttrader-runtime:paper-preflight-ci
+          .
+
+      - name: Verify production image fails closed
+        run: >-
+          python scripts/verify_paper_preflight_image.py
+          autoquanttrader-runtime:paper-preflight-ci

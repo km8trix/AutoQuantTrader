@@ -376,6 +376,19 @@ def _verify_streamed_history(
         )
 
 
+def _authenticate_receipt_position(
+    connection: Connection,
+    receipt: BrokerIngressReceipt,
+) -> _BrokerIngressHead:
+    """Authenticate the complete account-local chain containing one receipt."""
+
+    head = _head(connection, receipt.account_id)
+    if head is None or receipt.ingress_sequence > head.last_ingress_sequence:
+        raise BrokerIngressError("broker ingress receipt exists outside its durable head")
+    _verify_streamed_history(connection, head)
+    return head
+
+
 def _require_account_id(account_id: object) -> str:
     if (
         type(account_id) is not str
@@ -465,6 +478,12 @@ class SqlBrokerIngressRepository:
                 f"SQL broker ingress does not support dialect {engine.dialect.name!r}"
             )
         self._engine = engine
+
+    @property
+    def runtime_store_identity(self) -> int:
+        """Expose process-local SQL-store identity for fail-fast composition."""
+
+        return id(self._engine)
 
     def record(self, delivery: BrokerIngressDelivery) -> BrokerIngressReceipt:
         """Commit exact bytes before any caller attempts provider decoding."""

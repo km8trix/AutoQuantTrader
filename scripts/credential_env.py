@@ -3,20 +3,56 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 from collections.abc import Mapping
+from io import StringIO
 from pathlib import Path
 
 from dotenv import dotenv_values
+
+_DOTENV_ASSIGNMENT = re.compile(
+    r"^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=",
+)
+
+
+def _reject_symlinked_parent_components(path: Path) -> None:
+    absolute = path if path.is_absolute() else Path.cwd() / path
+    cursor = Path(absolute.anchor)
+    for component in absolute.parts[1:-1]:
+        cursor /= component
+        try:
+            if cursor.is_symlink():
+                raise ValueError("env file path cannot contain symlinked parent components")
+        except OSError as error:
+            raise ValueError("env file path components must be inspectable") from error
+
+
+def _reject_duplicate_variables(payload: str) -> None:
+    observed: set[str] = set()
+    for line in payload.splitlines():
+        match = _DOTENV_ASSIGNMENT.match(line)
+        if match is None:
+            continue
+        variable = match.group(1)
+        if variable in observed:
+            raise ValueError("env file cannot contain duplicate variable assignments")
+        observed.add(variable)
 
 
 def load_owner_only_environment(
     path: Path | None,
     *,
     variables: tuple[str, ...],
+    maximum_bytes: int | None = None,
+    reject_duplicate_variables: bool = False,
+    reject_symlinked_parents: bool = False,
+    require_current_user_owner: bool = False,
 ) -> Mapping[str, str]:
     if path is None:
         return os.environ
+    if reject_symlinked_parents:
+        _reject_symlinked_parent_components(path)
     if path.is_symlink():
         raise ValueError("env file must be a readable, non-symlinked regular file")
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
@@ -30,7 +66,20 @@ def load_owner_only_environment(
             raise ValueError("env file must be a regular file")
         if stat.S_IMODE(metadata.st_mode) & 0o077:
             raise ValueError("env file permissions must be owner-only (chmod 600)")
-        parsed = dotenv_values(stream=stream, interpolate=False)
+        if require_current_user_owner and metadata.st_uid != os.getuid():
+            raise ValueError("env file must be owned by the current user")
+        if maximum_bytes is not None and (
+            type(maximum_bytes) is not int or maximum_bytes <= 0 or metadata.st_size > maximum_bytes
+        ):
+            raise ValueError("env file exceeds the accepted size bound")
+        payload = stream.read(
+            -1 if maximum_bytes is None else maximum_bytes + 1,
+        )
+        if maximum_bytes is not None and len(payload.encode("utf-8")) > maximum_bytes:
+            raise ValueError("env file exceeds the accepted size bound")
+        if reject_duplicate_variables:
+            _reject_duplicate_variables(payload)
+        parsed = dotenv_values(stream=StringIO(payload), interpolate=False)
     environment: dict[str, str] = {}
     for variable in variables:
         if variable not in parsed:

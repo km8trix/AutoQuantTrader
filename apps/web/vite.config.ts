@@ -21,15 +21,6 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: 4173,
     },
-    build: {
-      rollupOptions: {
-        output: {
-          manualChunks(id) {
-            return id.includes('/node_modules/') ? 'vendor' : undefined
-          },
-        },
-      },
-    },
     test: {
       environment: 'jsdom',
       setupFiles: './src/test/setup.ts',

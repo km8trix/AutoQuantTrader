@@ -7,7 +7,13 @@ import os
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
+
+if TYPE_CHECKING:
+    from packages.adapters.broker.alpaca_paper_account_runtime import (
+        AlpacaPaperCredentialReference,
+    )
 
 
 class Environment(StrEnum):
@@ -34,16 +40,30 @@ class LocalCredentials:
 @dataclass(frozen=True, slots=True)
 class PaperCredentialRefs:
     account_id: str
+    expected_provider_account_id: str
     broker_secret_ref: str
+    broker_secret_version: str
     market_data_secret_ref: str
 
     def __post_init__(self) -> None:
-        if not self.account_id:
-            raise ValueError("paper account ID is required")
-        if not self.broker_secret_ref.startswith("secret://paper/"):
-            raise ValueError("paper broker credentials require a paper-scoped secret reference")
+        self.alpaca_paper_account_reference.__post_init__()
         if not self.market_data_secret_ref.startswith("secret://paper/"):
             raise ValueError("paper data credentials require a paper-scoped secret reference")
+
+    @property
+    def alpaca_paper_account_reference(self) -> AlpacaPaperCredentialReference:
+        """Return the nonsecret, operator-pinned Phase 4G account reference."""
+
+        from packages.adapters.broker.alpaca_paper_account_runtime import (
+            AlpacaPaperCredentialReference,
+        )
+
+        return AlpacaPaperCredentialReference(
+            account_id=self.account_id,
+            expected_provider_account_id=self.expected_provider_account_id,
+            secret_ref=self.broker_secret_ref,
+            secret_version=self.broker_secret_version,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,7 +204,15 @@ class Settings:
         elif environment is Environment.PAPER:
             credentials = PaperCredentialRefs(
                 account_id=os.getenv("AQT_PAPER_ACCOUNT_ID", ""),
+                expected_provider_account_id=os.getenv(
+                    "AQT_PAPER_PROVIDER_ACCOUNT_ID",
+                    "",
+                ),
                 broker_secret_ref=os.getenv("AQT_PAPER_BROKER_SECRET_REF", ""),
+                broker_secret_version=os.getenv(
+                    "AQT_PAPER_BROKER_SECRET_VERSION",
+                    "",
+                ),
                 market_data_secret_ref=os.getenv("AQT_PAPER_DATA_SECRET_REF", ""),
             )
         else:

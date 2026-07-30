@@ -571,6 +571,12 @@ class SqlAccountCoordinator:
     def account_id(self) -> str:
         return self._account_id
 
+    @property
+    def runtime_store_identity(self) -> int:
+        """Identify the SQL engine for process-local composition checks."""
+
+        return id(self._authority._engine)
+
     def _trusted_now(self) -> datetime:
         instant = self._authority.clock.now()
         if not isinstance(instant, datetime):
@@ -971,6 +977,21 @@ class SqlAccountCoordinator:
         durable observation head.
         """
 
+        return self._revalidate_in_transaction(
+            connection,
+            fence,
+            checked_at=checked_at,
+            trusted_not_before=None,
+        )
+
+    def _revalidate_in_transaction(
+        self,
+        connection: Connection,
+        fence: AccountFence,
+        *,
+        checked_at: datetime,
+        trusted_not_before: datetime | None,
+    ) -> AccountFenceReceipt:
         if not isinstance(connection, Connection) or not connection.in_transaction():
             raise AccountCoordinatorError(
                 "transactional fence validation requires an active SQLAlchemy transaction"
@@ -992,6 +1013,10 @@ class SqlAccountCoordinator:
         if head is None:
             raise AccountLeaseOwnershipLost("account fence is no longer current")
         trusted_now = self._trusted_now()
+        if trusted_not_before is not None and trusted_now < trusted_not_before:
+            raise AccountCoordinatorError(
+                "coordinator clock cannot regress during commit validation"
+            )
         if trusted_now < head.updated_at:
             raise AccountCoordinatorError("coordinator clock cannot regress")
         if checked_at < head.updated_at:
@@ -1007,6 +1032,21 @@ class SqlAccountCoordinator:
         self._receipt(fence, current, trusted_now)
         self._observe(connection, head, trusted_now)
         return self._receipt(fence, current, checked_at)
+
+    def revalidate_for_commit_in_transaction(
+        self,
+        connection: Connection,
+        fence: AccountFence,
+    ) -> AccountFenceReceipt:
+        """Return a coordinator-clock receipt for a caller's durable commit."""
+
+        checked_at = self._trusted_now()
+        return self._revalidate_in_transaction(
+            connection,
+            fence,
+            checked_at=checked_at,
+            trusted_not_before=checked_at,
+        )
 
     def revalidate(self, fence: AccountFence) -> AccountFenceReceipt:
         with self._state.lock:
