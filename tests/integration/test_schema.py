@@ -59,6 +59,7 @@ from packages.persistence.schema import (
     phase2_reservation_release_events,
     phase2_simulation_horizon_facts,
     phase2_submission_attempt_events,
+    phase4_alpaca_paper_account_activity_comparisons,
     phase4_alpaca_paper_account_binding_heads,
     phase4_alpaca_paper_account_bindings,
     phase4_alpaca_paper_asset_binding_heads,
@@ -427,6 +428,21 @@ def test_readiness_revision_pin_matches_the_single_alembic_head() -> None:
     config.set_main_option("script_location", str(ROOT / "migrations"))
 
     assert ScriptDirectory.from_config(config).get_current_head() == EXPECTED_SCHEMA_REVISION
+
+
+def test_account_activity_comparison_unique_names_match_migration() -> None:
+    singleton_unique_constraints = {
+        constraint.name: tuple(column.name for column in constraint.columns)
+        for constraint in phase4_alpaca_paper_account_activity_comparisons.constraints
+        if isinstance(constraint, sa.UniqueConstraint) and len(constraint.columns) == 1
+    }
+
+    assert singleton_unique_constraints == {
+        "uq_phase4_activity_cmp_comparison": ("comparison_id",),
+        "uq_phase4_activity_cmp_evidence": ("evidence_id",),
+        "uq_phase4_activity_cmp_evidence_sha": ("evidence_sha256",),
+        "uq_phase4_activity_cmp_semantic": ("semantic_sha256",),
+    }
 
 
 def test_phase5_critical_alert_schema_preserves_exact_delivery_bindings() -> None:
