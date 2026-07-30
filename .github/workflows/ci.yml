@@ -79,7 +79,14 @@ jobs:
       - name: Exercise Phase 1A ingestion and trader fail-closed diagnostic
         run: |
           uv run autoquant-worker --once
+          set +e
           uv run autoquant-trader --once
+          trader_status=$?
+          set -e
+          if [ "${trader_status}" -ne 2 ]; then
+            echo "Expected autoquant-trader to exit 2; got ${trader_status}" >&2
+            exit 1
+          fi
 
       - name: Test
         run: uv run pytest
