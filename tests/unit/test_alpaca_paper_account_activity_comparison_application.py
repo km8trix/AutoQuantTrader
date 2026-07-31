@@ -888,13 +888,13 @@ def test_validate_once_materialization_is_byte_stable_and_fail_closed() -> None:
     evidence_material = _materialize_authenticated_comparison_evidence(evidence)
     receipt_material = _materialize_authenticated_comparison_receipt(receipt)
 
-    assert evidence_material.evidence_id == ("bc267615-8661-5d02-9d08-02f3893e588d")
+    assert evidence_material.evidence_id == ("6d352819-ef4f-58d4-a613-5ac243f860f6")
     assert evidence_material.semantic_sha256 == (
-        "01aa2b7730886087acb0fa45b07059c2dd50b48ca63d5885b60c52a34893cda9"
+        "bd059445d5259814c30feed3a79cf12978a1703f892360bc3a9f59f845184ce2"
     )
-    assert receipt_material.receipt_id == ("f63d4814-2636-5534-a9ed-ce6d4d8b4a32")
+    assert receipt_material.receipt_id == ("43a3c61b-eef3-54c0-a16a-ba2a22172c96")
     assert receipt_material.semantic_sha256 == (
-        "2ff404c438ef9a32a6b055742d14bcef465593a2e7f1d8d6512da50ba9b9cad5"
+        "40c31c9d0bc3dc98e1c7b32a60f72ec50f1321b39260accbe591399b3d4c05ef"
     )
     assert evidence.canonical_json == evidence_material.canonical_json
     assert receipt.canonical_json == receipt_material.canonical_json

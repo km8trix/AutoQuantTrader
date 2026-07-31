@@ -20,7 +20,7 @@
     "No fixture is an authenticated Alpaca paper-account capture, a current observation, a provider-account binding, or security-master evidence.",
     "A locally usable-candidate decoder outcome from these bytes grants no credential, transport, reconciliation, dispatch, or trading authority."
   ],
-  "reviewed_on": "2026-07-27",
+  "reviewed_on": "2026-07-30",
   "source_artifacts": {
     "alpaca_py_enums": {
       "commit": "bd1fa9ea2fc3194914be9d47f7f5822a18a05b5f",
