@@ -95,5 +95,6 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0088: fail-closed paper smoke deployment profile (amended local preflight)](0088-fail-closed-paper-smoke-deployment-profile.md)
   (historical enrollment projection amended by ADR 0089)
 - [ADR 0089: read-only paper-account enrollment attestation](0089-read-only-paper-account-enrollment-attestation.md)
+- [ADR 0090: durable trusted-time persistence and one-shot supervision](0090-durable-trusted-time-persistence-and-one-shot-supervision.md)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

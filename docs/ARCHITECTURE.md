@@ -2932,13 +2932,39 @@ rejects a successful probe longer than one second or with UTC/monotonic elapsed
 divergence above 250 milliseconds. Equality remains within both limits. The
 selected deployment adapter must enforce that deadline; this seam adds no
 watchdog. It also sanitizes source failure and rejects mismatched or malformed
-readings. There is no selected time source, scheduler, persistence,
-startup/readiness integration, dashboard/API projection, alert, control trip,
-final dispatch gate, or authoritative re-arm verifier. The deterministic state
-seal is tamper detection rather than trusted-head authentication, and no
-reviewed source-uncertainty bound is yet represented. Those deployed boundaries
-and the clock-drift game day remain open. See
+readings. The ADR 0086 seam itself has no selected time source, scheduler, or
+persistence and no startup/readiness integration, dashboard/API projection,
+alert, control trip, final dispatch gate, or authoritative re-arm verifier. The
+deterministic state seal is tamper detection rather than trusted-head
+authentication, and no reviewed source-uncertainty bound is yet represented.
+Those deployed boundaries and the clock-drift game day remain open. See
 [ADR 0086](adr/0086-provider-neutral-trusted-time-monitor.md).
+
+ADR 0090 adds durable local provenance without changing that authority
+boundary. Each process registers a newly generated monitor epoch and receives
+an opaque repository-, process-, and session-bound capability; no public API
+can resume an epoch from its durable identifier. Registration atomically
+rotates one host head, so older sessions are fenced and every new epoch starts
+with `prior=None`. A separate gap-free attempt sequence retains every recorded,
+unavailable, identity-mismatched, or invalid probe outcome. Only recorded
+outcomes retain sample fields, and domain sample sequence remains independent
+from attempt sequence.
+
+One durable probe authenticates and replays the exact head, releases the
+transaction before source I/O, then atomically appends only if that head is
+unchanged. A concurrent loser or stale epoch is discarded without retry. Replay
+constructs public `TrustedTimeSample` values and invokes
+`evaluate_trusted_time`; it never reconstructs or trusts the reducer's private
+state seal. Canonical payload, predecessor, policy, projection, and head
+mismatches fail closed. This makes the database history tamper-evident, not
+externally authenticated or rollback-proof. On 2026-07-31, the owner approved
+and applied migration 0034 to runtime Supabase. Post-migration verification
+found all three tables, empty trusted-time histories, revision 0034, and a
+passing operational-schema integrity gate. Selecting an authenticated source
+and uncertainty bound, choosing a deployed host/failover identity, starting a
+scheduler/watchdog, or wiring readiness, alerts, control, exposure, or re-arm
+remains owner-approved deployment work. See
+[ADR 0090](adr/0090-durable-trusted-time-persistence-and-one-shot-supervision.md).
 
 ADR 0072 implements the local durable critical-alert boundary behind those
 budgets. A source-idempotent incident records only an alert code and evidence/
