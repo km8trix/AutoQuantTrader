@@ -82,6 +82,10 @@ side_effect_free_roots = [
   # ADR 0088 records only nonsecret deployment/source identities and reduces
   # injected evidence to non-authorizing smoke/activation readiness.
   "packages/application/paper_deployment.py",
+  # Phase 5I reduces one injected, repository-authenticated terminal account
+  # identity to digest-only historical evidence without ambient clock,
+  # persistence, credential, transport, control, or broker authority.
+  "packages/application/paper_account_enrollment.py",
   # Phase 6A samples only injected clocks and a provider-neutral time-source
   # port. It owns no ambient clock, scheduler, persistence, network, control,
   # broker, or re-arm authority.

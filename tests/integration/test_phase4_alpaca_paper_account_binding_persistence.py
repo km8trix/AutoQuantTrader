@@ -564,6 +564,254 @@ def test_terminal_identity_authentication_survives_status_freshness_expiry(
     assert not receipt.trading_effect_authorized
 
 
+def test_configured_terminal_identity_attests_exact_history_without_writes(
+    tmp_path: Path,
+) -> None:
+    system = _system(tmp_path / "binding-configured-attestation.sqlite")
+    reference = AlpacaPaperCredentialReference(
+        account_id=ACCOUNT_ID,
+        expected_provider_account_id=PROVIDER_ACCOUNT_ID,
+        secret_ref="secret://paper/alpaca/trading",
+        secret_version="version-001",
+    )
+
+    assert (
+        system.bindings.authenticate_configured_terminal_identity(
+            reference,
+            checked_at=BASE,
+        )
+        is None
+    )
+    binding = system.observe("001")
+    checked_at = binding.valid_until + timedelta(days=1)
+    resolver_references_before = tuple(system.resolver.references)
+    resolver_materials_before = tuple(system.resolver.materials)
+    transport_calls_before = system.transport.calls
+    with system.engine.connect() as connection:
+        before = tuple(
+            int(connection.scalar(sa.select(sa.func.count()).select_from(table)) or 0)
+            for table in (
+                phase4_alpaca_paper_account_bindings,
+                phase4_alpaca_paper_account_binding_heads,
+                phase4_broker_request_permits,
+                phase4_broker_ingress_receipts,
+            )
+        )
+
+    statements: list[str] = []
+
+    def capture_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(system.engine, "before_cursor_execute", capture_statement)
+    try:
+        receipt = system.bindings.authenticate_configured_terminal_identity(
+            reference,
+            checked_at=checked_at,
+        )
+        foreign_only = system.bindings.authenticate_configured_terminal_identity(
+            AlpacaPaperCredentialReference(
+                account_id="different-local-paper-account",
+                expected_provider_account_id=PROVIDER_ACCOUNT_ID,
+                secret_ref="secret://paper/alpaca/trading",
+                secret_version="version-001",
+            ),
+            checked_at=checked_at,
+        )
+    finally:
+        event.remove(system.engine, "before_cursor_execute", capture_statement)
+
+    assert receipt is not None
+    assert foreign_only is None
+    assert receipt.binding_id == binding.binding_id
+    assert receipt.binding_sha256 == binding.semantic_sha256
+    assert receipt.credential_reference_sha256 == reference.semantic_sha256
+    assert receipt.checked_at == checked_at
+    assert not receipt.account_status_current
+    assert not receipt.submission_authorized
+    assert not receipt.trading_effect_authorized
+    assert statements
+    assert not any(
+        statement.lstrip().upper().startswith(("INSERT ", "UPDATE ", "DELETE "))
+        for statement in statements
+    )
+    assert tuple(system.resolver.references) == resolver_references_before
+    assert tuple(system.resolver.materials) == resolver_materials_before
+    assert system.transport.calls == transport_calls_before
+    with system.engine.connect() as connection:
+        after = tuple(
+            int(connection.scalar(sa.select(sa.func.count()).select_from(table)) or 0)
+            for table in (
+                phase4_alpaca_paper_account_bindings,
+                phase4_alpaca_paper_account_binding_heads,
+                phase4_broker_request_permits,
+                phase4_broker_ingress_receipts,
+            )
+        )
+    assert after == before
+
+
+def test_configured_terminal_identity_selects_latest_binding_and_rejects_stale_pin(
+    tmp_path: Path,
+) -> None:
+    system = _system(
+        tmp_path / "binding-configured-terminal.sqlite",
+        run_count=2,
+    )
+    first = system.observe("001")
+    terminal = system.observe("002", secret_version="version-002")
+    terminal_reference = AlpacaPaperCredentialReference(
+        account_id=ACCOUNT_ID,
+        expected_provider_account_id=PROVIDER_ACCOUNT_ID,
+        secret_ref="secret://paper/alpaca/trading",
+        secret_version="version-002",
+    )
+    checked_at = terminal.valid_until + timedelta(days=1)
+
+    receipt = system.bindings.authenticate_configured_terminal_identity(
+        terminal_reference,
+        checked_at=checked_at,
+    )
+
+    assert system.bindings.history(ACCOUNT_ID) == (first, terminal)
+    assert receipt is not None
+    assert receipt.binding_id == terminal.binding_id
+    assert receipt.binding_sha256 == terminal.semantic_sha256
+    assert receipt.credential_reference_sha256 == terminal_reference.semantic_sha256
+    assert receipt.sequence_number == 2
+    assert receipt.checked_at == checked_at
+    with pytest.raises(
+        AlpacaPaperAccountBindingConflict,
+        match="configured paper account identity conflicts",
+    ):
+        system.bindings.authenticate_configured_terminal_identity(
+            AlpacaPaperCredentialReference(
+                account_id=ACCOUNT_ID,
+                expected_provider_account_id=PROVIDER_ACCOUNT_ID,
+                secret_ref="secret://paper/alpaca/trading",
+                secret_version="version-001",
+            ),
+            checked_at=checked_at,
+        )
+
+
+def test_configured_terminal_identity_rejects_every_configured_pin_mismatch(
+    tmp_path: Path,
+) -> None:
+    system = _system(tmp_path / "binding-configured-mismatch.sqlite")
+    binding = system.observe("001")
+    checked_at = binding.valid_until + timedelta(days=1)
+    mismatches = (
+        AlpacaPaperCredentialReference(
+            account_id=ACCOUNT_ID,
+            expected_provider_account_id=ROTATED_PROVIDER_ACCOUNT_ID,
+            secret_ref="secret://paper/alpaca/trading",
+            secret_version="version-001",
+        ),
+        AlpacaPaperCredentialReference(
+            account_id=ACCOUNT_ID,
+            expected_provider_account_id=PROVIDER_ACCOUNT_ID,
+            secret_ref="secret://paper/alpaca/other",
+            secret_version="version-001",
+        ),
+        AlpacaPaperCredentialReference(
+            account_id=ACCOUNT_ID,
+            expected_provider_account_id=PROVIDER_ACCOUNT_ID,
+            secret_ref="secret://paper/alpaca/trading",
+            secret_version="version-002",
+        ),
+    )
+
+    for reference in mismatches:
+        with pytest.raises(
+            AlpacaPaperAccountBindingConflict,
+            match="configured paper account identity conflicts",
+        ):
+            system.bindings.authenticate_configured_terminal_identity(
+                reference,
+                checked_at=checked_at,
+            )
+
+
+def test_configured_terminal_identity_rejects_binding_orphaned_from_its_head(
+    tmp_path: Path,
+) -> None:
+    system = _system(tmp_path / "binding-configured-orphan.sqlite")
+    binding = system.observe("001")
+    with system.engine.begin() as connection:
+        connection.execute(
+            sa.delete(phase4_alpaca_paper_account_binding_heads).where(
+                phase4_alpaca_paper_account_binding_heads.c.account_id == ACCOUNT_ID
+            )
+        )
+
+    with pytest.raises(
+        AlpacaPaperAccountBindingConflict,
+        match="without durable account heads",
+    ):
+        system.bindings.authenticate_configured_terminal_identity(
+            AlpacaPaperCredentialReference(
+                account_id=ACCOUNT_ID,
+                expected_provider_account_id=PROVIDER_ACCOUNT_ID,
+                secret_ref="secret://paper/alpaca/trading",
+                secret_version="version-001",
+            ),
+            checked_at=binding.valid_until + timedelta(days=1),
+        )
+
+
+def test_configured_terminal_identity_rejects_unrelated_corrupt_binding_history(
+    tmp_path: Path,
+) -> None:
+    system = _system(tmp_path / "binding-configured-unrelated-corruption.sqlite")
+    configured_binding = system.observe("001")
+    configured_reference = AlpacaPaperCredentialReference(
+        account_id=ACCOUNT_ID,
+        expected_provider_account_id=PROVIDER_ACCOUNT_ID,
+        secret_ref="secret://paper/alpaca/trading",
+        secret_version="version-001",
+    )
+    unrelated_evidence, _ = _prepare_concurrent_postgres_evidence(
+        system.engine,
+        "zz-phase4g-unrelated-account",
+    )
+    unrelated_binding = system.bindings.record(unrelated_evidence)
+    checked_at = configured_binding.valid_until + timedelta(days=1)
+
+    receipt = system.bindings.authenticate_configured_terminal_identity(
+        configured_reference,
+        checked_at=checked_at,
+    )
+
+    assert receipt is not None
+    assert receipt.binding_id == configured_binding.binding_id
+    assert unrelated_binding.account_id != configured_binding.account_id
+    with system.engine.begin() as connection:
+        connection.execute(
+            sa.update(phase4_alpaca_paper_account_bindings)
+            .where(
+                phase4_alpaca_paper_account_bindings.c.binding_id == unrelated_binding.binding_id
+            )
+            .values(canonical_payload="[]")
+        )
+
+    with pytest.raises(
+        AlpacaPaperAccountBindingConflict,
+        match="canonical_payload",
+    ):
+        system.bindings.authenticate_configured_terminal_identity(
+            configured_reference,
+            checked_at=checked_at,
+        )
+
+
 def test_terminal_reads_and_replay_reject_a_corrupted_predecessor(
     tmp_path: Path,
 ) -> None:
@@ -592,6 +840,19 @@ def test_terminal_reads_and_replay_reject_a_corrupted_predecessor(
     ):
         system.bindings.authenticate_terminal_identity(
             terminal,
+            checked_at=terminal.valid_until + timedelta(days=1),
+        )
+    with pytest.raises(
+        AlpacaPaperAccountBindingConflict,
+        match="canonical_payload",
+    ):
+        system.bindings.authenticate_configured_terminal_identity(
+            AlpacaPaperCredentialReference(
+                account_id=ACCOUNT_ID,
+                expected_provider_account_id=PROVIDER_ACCOUNT_ID,
+                secret_ref="secret://paper/alpaca/trading",
+                secret_version="version-002",
+            ),
             checked_at=terminal.valid_until + timedelta(days=1),
         )
     with pytest.raises(
@@ -778,6 +1039,59 @@ def test_binding_tamper_is_detected_by_repository_and_startup_readiness(
         match="account-binding integrity",
     ):
         verify_operational_schema(system.engine, require_phase_zero_facts=False)
+
+
+def test_postgresql_configured_terminal_identity_attestation_is_read_only(
+    phase4g_postgres_engine: Engine,
+) -> None:
+    base_engine = phase4g_postgres_engine
+    schema_name = f"phase4g_attest_{uuid4().hex}"
+    with base_engine.begin() as connection:
+        connection.execute(sa.schema.CreateSchema(schema_name))
+    engine = base_engine.execution_options(schema_translate_map={None: schema_name})
+    try:
+        metadata.create_all(engine)
+        account_id = f"phase4g-pg-attestation-{uuid4().hex[:20]}"
+        evidence, _unused = _prepare_concurrent_postgres_evidence(engine, account_id)
+        repository = SqlAlpacaPaperAccountBindingRepository(engine)
+        binding = repository.record(evidence)
+        checked_at = binding.valid_until + timedelta(days=1)
+        statements: list[str] = []
+
+        def capture_statement(
+            _connection: object,
+            _cursor: object,
+            statement: str,
+            _parameters: object,
+            _context: object,
+            _executemany: bool,
+        ) -> None:
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", capture_statement)
+        try:
+            receipt = repository.authenticate_configured_terminal_identity(
+                evidence.reference,
+                checked_at=checked_at,
+            )
+        finally:
+            event.remove(engine, "before_cursor_execute", capture_statement)
+
+        assert receipt is not None
+        assert receipt.account_id == account_id
+        assert receipt.binding_id == binding.binding_id
+        assert receipt.binding_sha256 == binding.semantic_sha256
+        assert receipt.credential_reference_sha256 == evidence.reference.semantic_sha256
+        assert receipt.checked_at == checked_at
+        assert not receipt.account_status_current
+        assert statements
+        assert not any(
+            statement.lstrip().upper().startswith(("INSERT ", "UPDATE ", "DELETE "))
+            for statement in statements
+        )
+    finally:
+        with base_engine.begin() as connection:
+            connection.execute(sa.schema.DropSchema(schema_name, cascade=True, if_exists=True))
 
 
 def test_postgresql_shared_account_lock_serializes_exact_binding_append_order(

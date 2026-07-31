@@ -16,8 +16,9 @@ import os
 import re
 import stat
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -26,8 +27,17 @@ from sqlalchemy import Engine
 from sqlalchemy.engine import URL, make_url
 
 from apps.trader.main import PaperSmokePreflight
+from packages.adapters.broker.alpaca_paper_account_runtime import (
+    AlpacaPaperCredentialReference,
+)
 from packages.application.no_exposure_smoke_strategy import (
     load_no_exposure_smoke_artifact,
+)
+from packages.application.paper_account_enrollment import (
+    PAPER_ACCOUNT_ENROLLMENT_ATTESTATION_CONTRACT_VERSION,
+    PaperAccountEnrollmentAttestation,
+    PaperAccountEnrollmentAttestationError,
+    attest_paper_account_enrollment,
 )
 from packages.application.paper_deployment import (
     AuthoritativeSourcePin,
@@ -45,6 +55,7 @@ from packages.observability.sentry_otlp import (
     SentryOtlpConfigurationError,
 )
 from packages.persistence.alpaca_paper_account_binding import (
+    SqlAlpacaPaperAccountBindingRepository,
     verify_alpaca_paper_account_binding_integrity,
 )
 from packages.persistence.database import (
@@ -72,6 +83,19 @@ _SUPABASE_PROJECT_REF = re.compile(r"^[a-z0-9]{20}$")
 _DATABASE_CONNECT_TIMEOUT_SECONDS = 10
 _DATABASE_STATEMENT_TIMEOUT_MILLISECONDS = 30_000
 _DATABASE_LOCK_TIMEOUT_MILLISECONDS = 5_000
+_MAXIMUM_OWNER_ENVIRONMENT_BYTES = 128 * 1024
+_PAPER_ACCOUNT_IDENTITY_VARIABLES = (
+    "AQT_PAPER_ACCOUNT_ID",
+    "AQT_PAPER_PROVIDER_ACCOUNT_ID",
+    "AQT_PAPER_BROKER_SECRET_REF",
+    "AQT_PAPER_BROKER_SECRET_VERSION",
+)
+_PREFLIGHT_ENVIRONMENT_VARIABLES = (
+    "AQT_DATABASE_URL",
+    "AQT_TEST_POSTGRES_URL",
+    "AQT_SENTRY_DSN",
+    *_PAPER_ACCOUNT_IDENTITY_VARIABLES,
+)
 type DatabaseEngineFactory = Callable[[str], Engine]
 _LOCAL_VERIFICATION_SEAL = object()
 
@@ -95,6 +119,7 @@ class LocalDatabaseVerification:
     account_binding_head_count: int
     control_head_count: int
     running_control_head_count: int
+    account_enrollment: PaperAccountEnrollmentAttestation | None
     binding_sha256: str
     _seal: object = field(repr=False, compare=False)
 
@@ -115,6 +140,16 @@ class LocalDatabaseVerification:
             or _SHA256.fullmatch(self.binding_sha256) is None
         ):
             raise LocalPaperSmokePreflightError("runtime_database_not_ready")
+        if self.account_enrollment is not None:
+            if (
+                type(self.account_enrollment) is not PaperAccountEnrollmentAttestation
+                or self.account_binding_head_count <= 0
+            ):
+                raise LocalPaperSmokePreflightError("runtime_database_not_ready")
+            try:
+                self.account_enrollment._validate()
+            except PaperAccountEnrollmentAttestationError:
+                raise LocalPaperSmokePreflightError("runtime_database_not_ready") from None
 
     @classmethod
     def _verified(
@@ -127,6 +162,7 @@ class LocalDatabaseVerification:
         account_binding_head_count: int,
         control_head_count: int,
         running_control_head_count: int,
+        account_enrollment: PaperAccountEnrollmentAttestation | None,
         binding_sha256: str,
     ) -> LocalDatabaseVerification:
         return cls(
@@ -137,6 +173,7 @@ class LocalDatabaseVerification:
             account_binding_head_count=account_binding_head_count,
             control_head_count=control_head_count,
             running_control_head_count=running_control_head_count,
+            account_enrollment=account_enrollment,
             binding_sha256=binding_sha256,
             _seal=_LOCAL_VERIFICATION_SEAL,
         )
@@ -149,9 +186,11 @@ class LocalDatabaseVerification:
 
     @property
     def account_binding_observation(self) -> str:
+        if self.account_enrollment is not None:
+            return "configured_historical_identity_attested_non_authorizing"
         if self.account_binding_head_count == 0:
             return "unbound"
-        return "bound_non_authorizing"
+        return "binding_heads_present_unattested"
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,6 +286,37 @@ def validate_distinct_database_bindings(
         raise LocalPaperSmokePreflightError("runtime_test_database_reuse_rejected")
 
 
+def configured_paper_account_reference(
+    environment: Mapping[str, str],
+) -> AlpacaPaperCredentialReference | None:
+    """Build the all-or-none nonsecret account identity pins."""
+
+    if not isinstance(environment, Mapping):
+        raise LocalPaperSmokePreflightError("paper_account_identity_configuration_invalid")
+    values: list[str] = []
+    for variable in _PAPER_ACCOUNT_IDENTITY_VARIABLES:
+        value = environment.get(variable, "")
+        if type(value) is not str:
+            raise LocalPaperSmokePreflightError("paper_account_identity_configuration_invalid")
+        values.append(value)
+    present = tuple(bool(value) for value in values)
+    if not any(present):
+        return None
+    if not all(present):
+        raise LocalPaperSmokePreflightError("paper_account_identity_configuration_incomplete")
+    try:
+        return AlpacaPaperCredentialReference(
+            account_id=values[0],
+            expected_provider_account_id=values[1],
+            secret_ref=values[2],
+            secret_version=values[3],
+        )
+    except Exception:
+        raise LocalPaperSmokePreflightError(
+            "paper_account_identity_configuration_invalid"
+        ) from None
+
+
 def _nonsecret_identity_sha256(label: str, *parts: object) -> str:
     return hashlib.sha256(
         json.dumps(
@@ -274,6 +344,24 @@ def _owner_environment_version_sha256(path: Path) -> str:
         metadata.st_mtime_ns,
         metadata.st_ctime_ns,
     )
+
+
+def _load_preflight_environment(path: Path) -> Mapping[str, str]:
+    """Load only selected bindings through the hardened owner-file boundary."""
+
+    if not path.is_absolute():
+        raise LocalPaperSmokePreflightError("owner_environment_invalid")
+    try:
+        return load_owner_only_environment(
+            path,
+            variables=_PREFLIGHT_ENVIRONMENT_VARIABLES,
+            maximum_bytes=_MAXIMUM_OWNER_ENVIRONMENT_BYTES,
+            reject_duplicate_variables=True,
+            reject_symlinked_parents=True,
+            require_current_user_owner=True,
+        )
+    except (OSError, ValueError):
+        raise LocalPaperSmokePreflightError("owner_environment_invalid") from None
 
 
 def _database_target_sha256(
@@ -356,6 +444,7 @@ def verify_runtime_database(
     test_database_url: str,
     *,
     owner_environment_version_sha256: str,
+    paper_account_reference: AlpacaPaperCredentialReference | None = None,
     engine_factory: object = create_bounded_supabase_runtime_engine,
 ) -> LocalDatabaseVerification:
     """Verify the exact migrated runtime database without retaining its DSN."""
@@ -373,7 +462,20 @@ def verify_runtime_database(
             raise LocalPaperSmokePreflightError("database_engine_invalid")
         engine = candidate
         verify_operational_schema(engine, require_phase_zero_facts=False)
-        verify_alpaca_paper_account_binding_integrity(engine)
+        account_enrollment: PaperAccountEnrollmentAttestation | None = None
+        if paper_account_reference is None:
+            verify_alpaca_paper_account_binding_integrity(engine)
+        else:
+            try:
+                account_enrollment = attest_paper_account_enrollment(
+                    paper_account_reference,
+                    repository=SqlAlpacaPaperAccountBindingRepository(engine),
+                    checked_at=datetime.now(UTC),
+                )
+            except PaperAccountEnrollmentAttestationError:
+                raise LocalPaperSmokePreflightError(
+                    "paper_account_enrollment_attestation_failed"
+                ) from None
         with engine.connect() as connection:
             revision = connection.scalar(
                 sa.text("SELECT version_num FROM public.alembic_version"),
@@ -416,6 +518,7 @@ def verify_runtime_database(
             account_binding_head_count=account_binding_head_count,
             control_head_count=control_head_count,
             running_control_head_count=running_control_head_count,
+            account_enrollment=account_enrollment,
             binding_sha256=_source_version_sha256(
                 purpose="database",
                 owner_environment_version_sha256=owner_environment_version_sha256,
@@ -606,7 +709,7 @@ def main() -> int:
         "--env-file",
         required=True,
         type=Path,
-        help="owner-only dotenv file containing the runtime bindings",
+        help="absolute owner-only dotenv path containing the runtime bindings",
     )
     parser.add_argument(
         "--image",
@@ -624,14 +727,7 @@ def main() -> int:
         owner_environment_version_sha256 = _owner_environment_version_sha256(
             arguments.env_file,
         )
-        environment = load_owner_only_environment(
-            arguments.env_file,
-            variables=(
-                "AQT_DATABASE_URL",
-                "AQT_TEST_POSTGRES_URL",
-                "AQT_SENTRY_DSN",
-            ),
-        )
+        environment = _load_preflight_environment(arguments.env_file)
         if (
             _owner_environment_version_sha256(arguments.env_file)
             != owner_environment_version_sha256
@@ -644,11 +740,13 @@ def main() -> int:
             raise LocalPaperSmokePreflightError("database_binding_missing")
         if not sentry_dsn:
             raise LocalPaperSmokePreflightError("sentry_binding_missing")
+        paper_account_reference = configured_paper_account_reference(environment)
 
         database = verify_runtime_database(
             runtime_database_url,
             test_database_url,
             owner_environment_version_sha256=owner_environment_version_sha256,
+            paper_account_reference=paper_account_reference,
         )
         runtime_image = verify_local_image(arguments.image)
         release = f"local-{runtime_image.content_sha256[:16]}"
@@ -680,6 +778,23 @@ def main() -> int:
                 "durable_strategy_invocation": "blocked_no_bound_running_control",
                 "external_notifications": "unavailable",
                 "mode": "local_paper_smoke_preflight",
+                "paper_account_enrollment": (
+                    database.account_enrollment.public_payload
+                    if database.account_enrollment is not None
+                    else {
+                        "account_status_current": False,
+                        "automatic_rearm_authorized": False,
+                        "binding_fresh": False,
+                        "broker_action_authorized": False,
+                        "contract_version": (PAPER_ACCOUNT_ENROLLMENT_ATTESTATION_CONTRACT_VERSION),
+                        "current": False,
+                        "historical": False,
+                        "new_exposure_authorized": False,
+                        "operational_control_authenticated": False,
+                        "status": "not_configured",
+                        "strategy_invocation_authorized": False,
+                    }
+                ),
                 "operational_control": {
                     "account_binding": database.account_binding_observation,
                     "configured_start_state": "paused",

@@ -166,7 +166,9 @@ factory. Phase 5G keeps the dashboard
 snapshot observational while a
 separate capability-gated browser client can request only database-backed
 `PAUSE` or `HALT`. Phase 5H adds the pure typed local operational-drill
-evidence contract alongside the deterministic pytest fault matrix.
+evidence contract alongside the deterministic pytest fault matrix. Phase 5I
+adds a pure digest-only historical enrollment attestation over one exact
+repository-authenticated terminal Phase 4G identity.
 External alert credentials/routes/recipients and independence probes, Sentry
 runtime composition/queryable-ingestion proof, selected strategy runtime
 composition, authoritative risk/reconciliation/broker composition, and timed
@@ -174,17 +176,20 @@ deployment drills remain open. Phase 5 and its exit gate remain open. Amended
 ADR 0088 selects a supervised local fail-closed paper preflight topology: one
 unbound exact-image verification plus a separate host-side database/Sentry
 check using the owner's Mac CPU/RAM, a Supabase Free runtime database, one
-intended but currently unbound Alpaca paper account, the pinned no-exposure
-artifact, and Sentry diagnostic configuration. Hosted or unattended compute,
-PagerDuty, Twilio, paid Supabase capacity, and an external stale-heartbeat
-watchdog are deferred. The profile keeps the operations API/browser nonpublic,
-configures a non-authorizing `PAUSED` policy, rejects live credentials and
-automatic re-arm, and separates smoke-preflight readiness from Phase 5
-activation readiness. It creates no control state and authenticates no
-account-bound durable head; its aggregate read-only safety scan rejects any
-`RUNNING` head. Without external notifications or an independent watchdog,
-every check must remain directly supervised and cannot qualify as unattended
-deployment evidence. The production container stage pins its base-image
+historically enrolled Alpaca paper account, the pinned no-exposure artifact,
+and Sentry diagnostic configuration. ADR 0089 authenticates that account's
+complete durable source lineage and exact terminal identity from four
+nonsecret pins in one repeatable-read snapshot, while treating the expired
+status window as historical only. Hosted or unattended compute, PagerDuty,
+Twilio, paid Supabase capacity, and an external stale-heartbeat watchdog are
+deferred. The profile keeps the operations API/browser nonpublic, configures a
+non-authorizing `PAUSED` policy, rejects live credentials and automatic re-arm,
+and separates smoke-preflight readiness from Phase 5 activation readiness. It
+creates no control state and authenticates no account-bound durable control
+head; its aggregate read-only safety scan rejects any `RUNNING` head. Without
+external notifications or an independent watchdog, every check must remain
+directly supervised and cannot qualify as unattended deployment evidence. The
+production container stage pins its base-image
 digests, runs as UID/GID 10001 with root-owned strategy inputs, has no inbound
 port, defaults to `paper`, and exits nonzero while admission sources remain
 unbound. The local workflow resolves its exact inspected `sha256:` image ID
@@ -192,16 +197,21 @@ instead of treating a mutable tag as immutable; CI builds and executes the
 fail-closed container contract. The v2 typed assessment freezes
 owner-supervised local compute, Supabase Free, Sentry, and deferred external
 alerts. A separate host-side credential-aware preflight validates the
-owner-only database/test/Sentry bindings, exact migrated schema, inspected
-image ID, artifact pins, and aggregate absence of `RUNNING` control heads. It
-neither executes a credential-bound image nor authenticates the intended
-account or any account-specific control head. Local supervision and deferred
-alerts remain permanent activation blockers; fabricated route evidence cannot
-remove them. Image, database, Sentry configuration, and offline artifact checks
-are preflight evidence only. The durable strategy claim authorizer requires an
-authenticated account-bound `RUNNING` head; this profile supplies only the
-configured `PAUSED` policy plus an unbound aggregate safety observation, so the
-durable no-exposure invocation is unrun and Phase 5 remains open.
+owner-only database/test/Sentry bindings, all-or-none nonsecret account pins,
+exact migrated schema, inspected image ID, artifact pins, exact historical
+terminal enrollment, and aggregate absence of `RUNNING` control heads. It
+neither executes a credential-bound image nor requests, returns, resolves, or
+uses Alpaca API credential variables, refreshes account status, or
+authenticates any account-specific control head. The shared dotenv parser does
+parse the owner-only file before filtering selected variables, so the preflight
+process remains inside that file's credential boundary. Local supervision and
+deferred alerts remain permanent activation blockers; fabricated route
+evidence cannot remove them. Image, database, historical identity, Sentry
+configuration, and offline artifact checks are preflight evidence only. The
+durable strategy claim authorizer requires an authenticated account-bound
+`RUNNING` head; this profile supplies only the configured `PAUSED` policy plus
+an aggregate safety observation, so the durable no-exposure invocation is
+unrun and Phase 5 remains open.
 
 ### Non-goals for v1
 
