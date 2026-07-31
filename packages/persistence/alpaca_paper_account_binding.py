@@ -1088,6 +1088,61 @@ class SqlAlpacaPaperAccountBindingRepository:
                 checked_at=checked_at,
             )
 
+    def authenticate_configured_terminal_identity(
+        self,
+        reference: AlpacaPaperCredentialReference,
+        checked_at: datetime,
+    ) -> AlpacaPaperAccountIdentityContinuityReceipt | None:
+        """Attest one configured historical identity without asserting freshness.
+
+        The complete binding and source history is authenticated in one stable
+        database snapshot.  ``None`` means that the configured local account has
+        no durable binding history; a mismatched identity is a conflict rather
+        than absence.
+        """
+
+        if type(reference) is not AlpacaPaperCredentialReference:
+            raise AlpacaPaperAccountBindingConflict(
+                "configured account-identity authentication requires an exact "
+                "paper credential reference"
+            )
+        reference.__post_init__()
+        with _repeatable_read_transaction(self._engine) as connection:
+            _verify_alpaca_paper_account_binding_integrity(connection)
+            history = _history(connection, reference.account_id)
+            if not history:
+                return None
+            terminal = history[-1]
+            configured_values = (
+                (terminal.account_id, reference.account_id),
+                (terminal.provider_id, reference.provider_id),
+                (terminal.environment, reference.environment),
+                (
+                    terminal.expected_provider_account_id,
+                    reference.expected_provider_account_id,
+                ),
+                (
+                    terminal.observed_provider_account_id,
+                    reference.expected_provider_account_id,
+                ),
+                (terminal.secret_ref, reference.secret_ref),
+                (terminal.secret_version, reference.secret_version),
+                (
+                    terminal.credential_reference_sha256,
+                    reference.semantic_sha256,
+                ),
+                (terminal.capability_sha256, reference.capability_sha256),
+            )
+            if any(actual != expected for actual, expected in configured_values):
+                raise AlpacaPaperAccountBindingConflict(
+                    "configured paper account identity conflicts with its exact "
+                    "durable terminal binding"
+                )
+            return _alpaca_paper_account_identity_continuity_receipt(
+                terminal,
+                checked_at=checked_at,
+            )
+
     def history(
         self,
         account_id: str,

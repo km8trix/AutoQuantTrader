@@ -19,8 +19,8 @@ retention.
 - one directly observed unbound image verification plus one host-side
   credential-aware preflight using the owner's local Mac CPU/RAM;
 - one Supabase Free PostgreSQL project bound through `AQT_DATABASE_URL`;
-- one intended but currently unbound Alpaca paper account and no live
-  credentials;
+- one historically enrolled Alpaca paper account whose exact nonsecret
+  identity pins are reauthenticated read-only, and no live credentials;
 - Sentry diagnostic OTLP trace configuration, without runtime exporter
   composition;
 - no PagerDuty, Twilio, or external stale-heartbeat watchdog;
@@ -61,6 +61,10 @@ The selected provider boundaries are implemented and tested locally:
   sends at most one fixed paper `GET /v2/account` with no retry, retains the
   exact response in Supabase before decoding, and can append only a secret-free
   short-lived account binding whose observed provider UUID matches the pin;
+- `phase5-paper-account-enrollment-attestation-v1` authenticates the configured
+  account's complete durable binding/source history and exact terminal identity
+  in one repeatable-read snapshot, then emits only non-authorizing digest and
+  sequence evidence;
 - `pagerduty-events-v2-primary` implements bounded PagerDuty Events API v2
   primary delivery; and
 - `twilio-messaging-service-sms-escalation` implements bounded Twilio
@@ -77,44 +81,53 @@ provider-independence drills are deliberately unavailable. They block
 unattended or Phase 5 deployment readiness, but do not block a directly
 supervised no-exposure preflight.
 
-No real account-binding invocation is claimed by this runbook. Implementing or
-testing the command does not prove that the intended account has been
-authenticated or bound.
+On 2026-07-31, the separately approved single-shot recovery established one
+terminal binding at account-local binding sequence one. The original raw-only
+attempt and both request/lease histories remain preserved. This dated result
+proves historical identity only; its account-status window expired after at
+most five seconds.
 
-The v2 assessment and credential-aware local preflight consume only the
-owner-approved database/test/Sentry bindings. They validate distinct Supabase
-session/TLS identities, the exact migrated schema, the inspected local image
-ID, Sentry configuration, and artifact pins. They do not consume Alpaca
-credentials, authenticate an account, create control state, or authenticate an
-account-specific operational-control head. They do perform an aggregate
-read-only scan and require zero `RUNNING` heads. A successful result is
-`smoke_preflight_ready`; it still reports external notifications unavailable
-and Phase 5 activation false. Do not invent account, control, provider, route,
-recipient, or watchdog evidence to remove those blockers.
+The v2 assessment and credential-aware local preflight consume the
+owner-approved database/test/Sentry bindings plus, when configured, all four
+nonsecret account identity pins. They validate distinct Supabase session/TLS
+identities, the exact migrated schema, the inspected local image ID, Sentry
+configuration, and artifact pins. They do not request, return, resolve, or use
+Alpaca API credential variables, call Alpaca, create control state, or
+authenticate an account-specific operational-control head. The shared dotenv
+parser does parse the complete owner-only file before filtering selected
+variables, so the preflight process remains inside that file's credential
+boundary. ADR 0089 reauthenticates the exact historical terminal enrollment
+but explicitly reports account status and binding freshness false. The
+aggregate control scan still requires zero `RUNNING` heads. A successful result
+is `smoke_preflight_ready`; it still reports external notifications unavailable
+and Phase 5 activation false. Do not invent current account, control, provider,
+route, recipient, or watchdog evidence to remove those blockers.
 
 The durable strategy claim path has an additional intentional gate: its start
 authorization requires an authenticated account-bound `RUNNING` control head.
-The current preflight configures only a non-authorizing `PAUSED` policy and
-reports an unbound aggregate safety observation: either no heads or only
-non-running heads are present. A successful local preflight cannot establish or
-lower durable state, does not create a durable strategy result, and does not
-close Phase 5.
+The current preflight configures only a non-authorizing `PAUSED` policy. Its
+account evidence is historical, while its control observation remains an
+aggregate safety observation: either no heads or only non-running heads are
+present. A successful local preflight cannot establish or lower durable state,
+does not create a durable strategy result, and does not close Phase 5.
 
 ## Owner-controlled prerequisites
 
 Before starting a smoke window:
 
-1. Confirm that the owner's untracked `.env` is mode `0600`, that
+1. Address the owner's untracked `.env` by an absolute path with no symlinked
+   parent components. Confirm it is a current-user-owned mode-`0600` regular
+   file no larger than 128 KiB with no duplicate assignments, that
    `AQT_DATABASE_URL` identifies the intended Supabase Free runtime database,
    and that `AQT_TEST_POSTGRES_URL` identifies a different database. Do not
    print either DSN.
-2. Record the intended Alpaca paper account in owner-controlled operator notes
-   only. The current preflight does not consume its UUID, paper trading keys, or
-   base URL and does not prove an authenticated account binding. SIP entitlement
-   is not required for this preflight and must not be inferred. If separately
-   enrolling the account, follow the approval-gated procedure below; never
-   derive the trusted provider UUID pin from the same API response that is being
-   qualified.
+2. Keep the four nonsecret paper-account identity pins in the owner-controlled
+   environment. The current preflight consumes those pins only to authenticate
+   the existing historical binding; it does not select, return, resolve, or use
+   paper trading keys or the base URL, make a provider request, or prove current
+   account status. SIP entitlement is not required for this preflight and must
+   not be inferred. Never derive the trusted provider UUID pin from the same API
+   response being qualified.
 3. Restrict the existing Sentry project to the operator, enable MFA, confirm
    its project DSN/client key, and keep `AQT_SENTRY_DSN` only in the untracked
    local environment. The local exporter derives OTLP
@@ -213,12 +226,16 @@ stale-host watchdog are explicitly deferred owner actions.
 6. Run the host-side credential-aware local preflight under the configured
    non-authorizing `PAUSED` policy. It verifies the exact schema revision,
    runtime/test database separation, artifact, inspected local image ID, and
-   diagnostic telemetry configuration. It does not execute a bound container,
-   authenticate a paper account, or authenticate an account-specific control
-   head. Its aggregate read-only scan requires zero `RUNNING` heads and reports
-   either `absent_fail_closed` or `unbound_non_running_heads_present`. Missing
-   broker credentials, alert routes, and an independent heartbeat remain
-   activation blockers and must not be synthesized as ready.
+   diagnostic telemetry configuration. With all four nonsecret account pins
+   present, it also authenticates the configured account's complete historical
+   binding/source lineage and exact terminal identity. It does not execute a
+   bound container, select, return, resolve, or use Alpaca API credential
+   variables, refresh account status, or authenticate an account-specific
+   control head. Its aggregate read-only control scan requires zero `RUNNING`
+   heads and reports either `absent_fail_closed` or
+   `unbound_non_running_heads_present`. Missing broker credentials, alert
+   routes, and an independent heartbeat remain activation blockers and must
+   not be synthesized as ready.
 
    ```console
    .venv/bin/python scripts/verify_local_paper_smoke_preflight.py \
@@ -248,12 +265,13 @@ stale-host watchdog are explicitly deferred owner actions.
 9. Record PagerDuty, Twilio, external alert delivery, and independent
    stale-heartbeat evidence as `UNAVAILABLE`; do not substitute a local log,
    terminal observation, or Sentry receipt.
-10. Confirm the operator's direct observation is preflight evidence only, not
-    an authenticated account binding, account-bound durable control evidence,
-    durable strategy invocation, or independent watchdog receipt. The aggregate
-    zero-`RUNNING` scan is not an account-bound control observation. Successful
-    checks preserve only the configured non-authorizing `PAUSED` policy; they do
-    not establish or mutate an account control head.
+10. Confirm the operator's direct observation is preflight evidence only. The
+    historical enrollment attestation is not current account status,
+    account-bound durable control evidence, a durable strategy invocation, or
+    an independent watchdog receipt. The aggregate zero-`RUNNING` scan is not
+    an account-bound control observation. Successful checks preserve only the
+    configured non-authorizing `PAUSED` policy; they do not establish or mutate
+    an account control head.
 
 Any missing, ambiguous, or corrupt evidence fails the preflight. Because the
 database verification has no whole-command timeout, an unresponsive check must
@@ -334,7 +352,9 @@ On success, the predecessor-linked binding history is durable, but its runtime
 freshness window is at most five seconds. It is identity evidence for that
 receipt window, not a persistent readiness grant, account-economics fact,
 reconciliation result, control authorization, or Phase 5 activation. This
-runbook does not claim that a real enrollment has been executed.
+runbook records the 2026-07-31 successful historical enrollment described
+above. ADR 0089 can reauthenticate its exact terminal identity after expiry
+without making another provider request.
 
 ## Deferred timed drills
 

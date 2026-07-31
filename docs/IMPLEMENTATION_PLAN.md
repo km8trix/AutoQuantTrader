@@ -1619,6 +1619,19 @@ and the separate machine-readable pytest catalog are non-authorizing local
 evidence; neither represents a deployed provider, telemetry backend, paper
 account, or wall-clock game day.
 
+Phase 5I adds a read-only historical paper-account enrollment attestation.
+When all four nonsecret account/provider/secret-reference pins are configured,
+one repeatable-read snapshot authenticates every binding chain, reconstructs
+the configured account's complete permit/raw/observation lineage, and requires
+the exact terminal binding to match every pin. The pure application receipt
+exposes only opaque digests and sequence with current-status, control, broker,
+exposure, automatic-rearm, and strategy-invocation authority false. Absence,
+partial configuration, a foreign-only head, pin drift, rollback, orphaning, or
+source corruption fails the configured attestation closed. No Alpaca API
+credential value is selected, returned, resolved, or used by this path; it
+constructs no resolver or transport and makes no database write or freshness
+claim. See ADR 0089.
+
 The local operations API still does not execute cancel/drain/flatten, qualify
 Phase 4 reconciliation, dispatch to a broker, enable remote/live access, or
 invent an authoritative re-arm verifier. Deployed advanced-risk producers and
@@ -1632,27 +1645,28 @@ gate.
 Amended ADR 0088 now selects, but does not activate, a supervised local paper
 smoke preflight: one unbound exact-image verification plus a separate host-side
 database/Sentry check using the owner's Mac CPU/RAM, a Supabase Free runtime
-database, one intended but currently unbound Alpaca paper account without
-requiring a data-plan upgrade, the ADR 0087 no-exposure artifact, and Sentry
-diagnostic configuration. Hosted or unattended compute, PagerDuty, Twilio,
-paid Supabase capacity, moderate-risk activation, and an external
-stale-heartbeat watchdog are deferred. `PAUSED` is the configured
-non-authorizing policy. The current preflight creates no control state and
-authenticates no account-bound durable head; its aggregate read-only scan
-rejects any `RUNNING` head. The profile rejects live credentials, public
-operations ingress, provider substitution, automatic re-arm, and test-database
-reuse.
+database, one historically enrolled Alpaca paper account without requiring a
+data-plan upgrade, the ADR 0087 no-exposure artifact, and Sentry diagnostic
+configuration. ADR 0089 lets the host-side check authenticate the configured
+terminal enrollment history without treating its expired status window as
+current. Hosted or unattended compute, PagerDuty, Twilio, paid Supabase
+capacity, moderate-risk activation, and an external stale-heartbeat watchdog
+are deferred. `PAUSED` is the configured non-authorizing policy. The current
+preflight creates no control state and authenticates no account-bound durable
+control head; its aggregate read-only scan rejects any `RUNNING` head. The
+profile rejects live credentials, public operations ingress, provider
+substitution, automatic re-arm, and test-database reuse.
 With no external notification route or independent watchdog, every check is
 directly supervised and cannot qualify as unattended deployment evidence. The
 v2 pure nonsecret assessment reports smoke blockers separately from Phase 5
 activation blockers, permanently retains local-supervision and deferred-alert
 activation blockers, and grants neither broker nor exposure authority.
-An executed paper-account binding, runtime exporter composition,
+Current account-status evidence, runtime exporter composition,
 queryable-ingestion evidence, authoritative producers, external alert/watchdog
 paths, and wall-clock drill evidence remain open. A production container built
 from digest-pinned bases and a CI admission check are implemented: the image
-runs as a non-root identity without an inbound port, keeps the verified strategy
-inputs root-owned, defaults to `paper`, and must exit `2` with only
+runs as a non-root identity without an inbound port, keeps the verified
+strategy inputs root-owned, defaults to `paper`, and must exit `2` with only
 non-authorizing public evidence while external smoke sources remain unbound.
 The local workflow records its exact inspected `sha256:` image ID rather than
 treating a mutable tag as immutable.
@@ -1671,9 +1685,11 @@ fields, and only a matching usable response can append the secret-free
 short-lived binding history. The command runs on the owner's local Mac with the
 Supabase Free runtime database. It creates no control state, does not transition
 or re-arm `PAUSED`/`HALTED` state, submits no order, creates no exposure, and
-grants no broker-effect authority. This plan records the command
-implementation only; it does not claim that a real binding has been executed
-or that Phase 5 has been activated.
+grants no broker-effect authority. On 2026-07-31, the separately approved
+single-shot recovery executed and established one terminal binding at
+account-local binding sequence one. The original raw-only checkpoint and both
+request/lease histories remain preserved. This is historical identity evidence
+only and does not claim current account status or Phase 5 activation.
 
 An additive single-shot recovery mode handles only the exact
 generation-one released-permit/raw-without-binding checkpoint. It requires
@@ -1693,22 +1709,26 @@ inspected local production-image ID, Sentry configuration, and the checked-in
 artifact/manifest. They also require the read-only aggregate control scan to
 observe zero `RUNNING` heads. The credential-aware check runs on the host and
 does not execute a bound image. A successful result is
-`smoke_preflight_ready`, not Phase 5 activation. Alpaca credentials remain
-unused by that preflight, the intended account and every account-specific
-control head remain unauthenticated by it, external notifications and the
-watchdog remain unavailable, and synthetic route evidence cannot remove the
-permanent activation blockers.
+`smoke_preflight_ready`, not Phase 5 activation. Alpaca API credential
+variables remain unrequested, unreturned, unresolved, and unused by that
+preflight. When all four nonsecret enrollment pins are present, ADR 0089
+authenticates the exact historical terminal binding but never its expired
+account-status freshness. Every account-specific control head remains
+unauthenticated by the profile, external notifications and the watchdog remain
+unavailable, and synthetic route evidence cannot remove the permanent
+activation blockers.
 
 Successful exact-ID image inspection, database connectivity/schema validation,
 Sentry configuration validation, and offline artifact verification are
 preflight evidence only. The dated synthetic Sentry transport observation is
 separate, non-durable, and not queryable-ingestion evidence. The current
-preflight creates no control state and reports only an unbound aggregate
-observation: no heads or non-running heads may be present, but any `RUNNING`
-head fails readiness. A durable strategy claim would require an authenticated
-account-bound `RUNNING` head; this profile supplies only a configured
-non-authorizing `PAUSED` policy, approves no transition, leaves the durable
-no-exposure invocation unrun, and keeps Phase 5 open.
+preflight creates no control state. Its account attestation is historical and
+its control observation remains aggregate: no heads or non-running heads may
+be present, but any `RUNNING` head fails readiness. A durable strategy claim
+would require an authenticated account-bound `RUNNING` head; this profile
+supplies only a configured non-authorizing `PAUSED` policy, approves no
+transition, leaves the durable no-exposure invocation unrun, and keeps Phase 5
+open.
 
 ### Build
 
@@ -1831,6 +1851,13 @@ no-exposure invocation unrun, and keeps Phase 5 open.
   unavailable evidence, and manual-only re-arm. It grants no runtime or
   deployment authority and remains separate from the machine-readable pytest
   catalog.
+- **Phase 5I exact historical enrollment attestation — local slice
+  implemented:** all-or-none nonsecret account pins feed one read-only,
+  repeatable-read authentication of the exact configured terminal Phase 4G
+  history and all of its durable sources. The sanitized result remains
+  historical and non-authorizing after the five-second status window expires.
+  It performs no credential resolution, broker request, write, control
+  transition, or strategy invocation.
 - Deployed provider routes and recipients for every critical failure, with
   delivery probes, approved activation of the fixed total-failure policy, and
   its exact actor/authority digest.
@@ -1853,12 +1880,13 @@ delivery, telemetry export, a complete eight-stage trace, provider
 independence, or timed deployed drills. Phase 5H and the deterministic catalog
 are local regression evidence only.
 
-The owner-operated account-enrollment command narrows one identity-composition
-step but does not change this gate. Its durable history, if a separately
-approved invocation later creates it, proves only the pinned paper-account
-identity for a receipt-scoped freshness window of at most five seconds. It is
-not an approved account assignment, durable operational-control head,
-reconciliation barrier, broker-control deployment, or activation fact.
+The owner-operated account enrollment and Phase 5I attestation narrow one
+identity-composition step but do not change this gate. The dated durable
+history proves the pinned paper-account identity, and the current read-only
+attestation proves exact terminal continuity after its five-second status
+window expired. Neither is current account status, an approved account
+assignment, durable operational-control head, reconciliation barrier,
+broker-control deployment, or activation fact.
 
 The Phase 5B cutover is additive and quiesced. An assessment binds the exact
 pre-transition control head, active assignment, evidence, batch,

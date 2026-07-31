@@ -382,6 +382,13 @@ new-exposure withholding, unavailable evidence, and the prohibition on
 automatic re-arm determine each result. The machine-readable pytest catalog
 remains separate from this typed evidence, and neither can stand in for a
 deployed provider, broker, telemetry, or wall-clock game day.
+Phase 5I adds a digest-only historical paper-account enrollment attestation.
+One repeatable-read snapshot authenticates every binding chain, reconstructs
+the configured account's complete durable source lineage, and requires the
+exact terminal binding to match all four nonsecret identity pins. It accepts
+the expired five-second status window only as historical identity evidence and
+grants no current-status, control, broker, exposure, automatic-rearm, or
+strategy-invocation authority.
 Phase 6A adds a pure provider-neutral trusted-time evidence reducer and one
 injected in-memory probe step. It derives signed source offset from an exact
 UTC probe midpoint, correlates monotonic cadence, applies the reviewed
@@ -446,14 +453,16 @@ exit gates.
 Amended ADR 0088 now selects a supervised local paper-smoke preflight without
 activating trading: an unbound exact-image verification plus a separate
 host-side database/Sentry check using the owner's Mac CPU/RAM, a Supabase Free
-runtime database, one intended but currently unbound Alpaca paper account, the
-verified no-exposure artifact, and Sentry diagnostic configuration. Hosted or
-unattended compute, PagerDuty, Twilio, paid Supabase capacity, and an external
+runtime database, one historically enrolled Alpaca paper account, the verified
+no-exposure artifact, and Sentry diagnostic configuration. ADR 0089 adds an
+exact read-only historical enrollment attestation without refreshing the
+account or resolving or using Alpaca API credentials. Hosted or unattended
+compute, PagerDuty, Twilio, paid Supabase capacity, and an external
 stale-heartbeat watchdog are deferred. `PAUSED` is the configured
 non-authorizing policy. The current preflight creates no control state and
-authenticates no account-bound durable head; it performs only an aggregate
-read-only scan that rejects any `RUNNING` head. Live credentials, public
-operations ingress, automatic re-arm, and provider substitution fail closed.
+authenticates no account-bound durable control head; its aggregate control scan
+rejects any `RUNNING` head. Live credentials, public operations ingress,
+automatic re-arm, and provider substitution fail closed.
 With no external notification route or independent watchdog, the checks must
 run during an operator-declared, directly observed window; they cannot qualify
 as unattended or Phase 5 deployment evidence. The v2 typed deployment
@@ -464,30 +473,37 @@ non-root, has no inbound port, defaults to a nonzero paper admission, and keeps
 the verified strategy inputs root-owned; the local workflow resolves its exact
 inspected `sha256:` image ID rather than treating a mutable tag as immutable. CI
 builds and executes the fail-closed image contract.
-Exact image/database/account bindings, Sentry queryable-ingestion proof,
-authoritative risk/fill/reconciliation/time/re-arm facts, external alert and
-watchdog evidence, and deployed timed drills remain required for later
-activation. See
-[ADR 0088](docs/adr/0088-fail-closed-paper-smoke-deployment-profile.md) and the
+Current account-status evidence, Sentry queryable-ingestion proof, authoritative
+risk/fill/reconciliation/time/re-arm facts, external alert and watchdog
+evidence, and deployed timed drills remain required for later activation. See
+[ADR 0088](docs/adr/0088-fail-closed-paper-smoke-deployment-profile.md),
+[ADR 0089](docs/adr/0089-read-only-paper-account-enrollment-attestation.md), and the
 [paper smoke deployment runbook](docs/runbooks/paper-smoke-deployment.md).
 The credential-aware local preflight consumes the owner-only
-`AQT_DATABASE_URL`, `AQT_TEST_POSTGRES_URL`, and `AQT_SENTRY_DSN` bindings,
-verifies distinct Supabase session/TLS identities and the exact migrated
-schema, validates the inspected local image ID and artifact pins, and can
-report `smoke_preflight_ready`. It runs on the host and does not execute a
-credential-bound container. It deliberately leaves Alpaca credentials dormant,
-the intended account unauthenticated, external notifications unavailable, every
-authority flag false, and Phase 5 activation blocked. These checks are
+`AQT_DATABASE_URL`, `AQT_TEST_POSTGRES_URL`, `AQT_SENTRY_DSN`, and all-or-none
+nonsecret `AQT_PAPER_*` identity bindings, verifies distinct Supabase
+session/TLS identities and the exact migrated schema, validates the inspected
+local image ID and artifact pins, and can report `smoke_preflight_ready`. It
+runs on the host and does not execute a credential-bound container. It leaves
+the Alpaca API credential variables unrequested, unreturned, unresolved, and
+unused, authenticates only the configured historical terminal enrollment,
+reports external notifications unavailable and every authority flag false, and
+keeps Phase 5 activation blocked. The shared dotenv parser still parses the
+owner-only file before filtering selected variables, so the preflight process
+remains inside that file's credential boundary. These checks are
 preflight evidence only: durable strategy claims require an authenticated
 account-bound `RUNNING` head, while this profile supplies only a configured
-non-authorizing `PAUSED` policy. Its control observation is aggregate and
+non-authorizing `PAUSED` policy. Its control observation remains aggregate and
 unbound—either no heads or only non-running heads—and cannot authorize an
 invocation. No durable strategy invocation has run, and Phase 5 remains open.
 The owner-operated paper-account enrollment also has a fail-closed recovery
 mode for exactly one reviewed generation-one raw-only checkpoint. It requires
 a distinct new operation UUID and explicit approval for one second account
 `GET`, atomically limits acquisition to generation two, retains all prior
-evidence, and stops permanently after that attempt. See the
+evidence, and stops permanently after that attempt. The separately approved
+recovery succeeded on 2026-07-31 and created the first account-local binding;
+its status freshness has expired and ADR 0089 treats it only as historical
+identity. See the
 [paper smoke deployment runbook](docs/runbooks/paper-smoke-deployment.md).
 The application does not ingest
 from an admitted market-data vendor,

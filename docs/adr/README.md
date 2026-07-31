@@ -93,5 +93,7 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0086: provider-neutral trusted-time monitor](0086-provider-neutral-trusted-time-monitor.md)
 - [ADR 0087: verified no-exposure smoke strategy artifact](0087-verified-no-exposure-smoke-strategy.md)
 - [ADR 0088: fail-closed paper smoke deployment profile (amended local preflight)](0088-fail-closed-paper-smoke-deployment-profile.md)
+  (historical enrollment projection amended by ADR 0089)
+- [ADR 0089: read-only paper-account enrollment attestation](0089-read-only-paper-account-enrollment-attestation.md)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
