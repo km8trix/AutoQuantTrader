@@ -1675,6 +1675,16 @@ grants no broker-effect authority. This plan records the command
 implementation only; it does not claim that a real binding has been executed
 or that Phase 5 has been activated.
 
+An additive single-shot recovery mode handles only the exact
+generation-one released-permit/raw-without-binding checkpoint. It requires
+distinct prior and new operation UUIDs plus an explicit second-`GET` flag,
+revalidates the retained response offline against the current reviewed profile
+and independent provider-account pin, and preserves every original fact. Its
+atomic lease acquisition can create generation two only, calls the unchanged
+observer at most once, and cannot synthesize missing authenticated evidence,
+change operational control, weaken the fresh path, or continue to generation
+three after any result.
+
 The `phase5-paper-deployment-readiness-v2` assessment and credential-aware
 local preflight compose the approved boundary without weakening fail-closed
 behavior. They validate an owner-only environment file, distinct Supabase

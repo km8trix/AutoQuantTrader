@@ -147,6 +147,20 @@ preserves every other runtime gate.
     durable budget/fence/source binding, reject silent provider-account
     rotation and corruption, and prove that every trading-authority property
     remains false.
+15. The owner-operated enrollment command remains generation-one-only by
+    default. A separate recovery mode may authorize exactly one second account
+    `GET` only when explicit CLI authority accompanies distinct old and new
+    operation UUIDs and the same database contains exactly one released
+    generation-one attempt, one matching reconciliation permit, one retained
+    successful JSON response that now decodes to the exact pinned usable
+    account, no binding, no alias conflict, a clear lease head, unchanged
+    control, and no other account-local state. Recovery preserves that history,
+    acquires generation two, and invokes the unchanged Phase 4G observer at
+    most once. It cannot accept another checkpoint or authorize generation
+    three. The retained response cannot be promoted directly into a binding:
+    the original credential-resolution, permit-freshness, request, and fence
+    receipts were transient and cannot be faithfully reconstructed after the
+    failed decode.
 
 ## Consequences
 
@@ -155,6 +169,9 @@ freshness-bounded local-alias-to-provider-account proof. A successful request
 has durable capacity evidence, survives raw-first inspection, and cannot silently
 bind another provider account. Received failures remain diagnosable without
 granting readiness, and credential values remain outside durable evidence.
+The bounded owner recovery path preserves an exact failed raw-first attempt and
+requires fresh authority and fresh authenticated evidence instead of deleting
+history or manufacturing a binding from an incomplete transcript.
 
 This is not a paper-trading runtime. No concrete secret-store deployment,
 authenticated asset observation, current security master, quote/session check,

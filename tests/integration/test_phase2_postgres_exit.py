@@ -244,6 +244,96 @@ def test_two_owners_racing_for_first_coordinator_lease_have_one_winner(
         _delete_account_facts(postgres_engine, account_id)
 
 
+def test_same_owner_conditional_generation_race_advances_only_once(
+    postgres_engine: Engine,
+) -> None:
+    token = uuid4().hex
+    account_id = f"pytest-p2-conditional-lease-{token}"
+    try:
+        primary_clock = MutableClock(EVALUATED_AT)
+        primary = _coordinator(
+            postgres_engine,
+            account_id=account_id,
+            clock=primary_clock,
+        )
+        first = primary.acquire(f"worker-a-{token}")
+        primary_clock.instant += timedelta(seconds=1)
+        primary.release(first.fence)
+        primary_clock.instant += timedelta(seconds=1)
+        contender_instant = primary_clock.instant
+        contender_owner_id = f"worker-b-{token}"
+        start_together = threading.Barrier(3)
+
+        def acquire() -> AccountLease | AccountLeaseConflict:
+            contender = _coordinator(
+                postgres_engine,
+                account_id=account_id,
+                clock=MutableClock(contender_instant),
+            )
+            start_together.wait(timeout=10)
+            try:
+                return contender.acquire_if_inactive_generation(
+                    contender_owner_id,
+                    expected_last_fencing_generation=1,
+                )
+            except AccountLeaseConflict as error:
+                return error
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = tuple(executor.submit(acquire) for _ in range(2))
+            start_together.wait(timeout=10)
+            outcomes = tuple(future.result(timeout=20) for future in futures)
+
+        leases = tuple(outcome for outcome in outcomes if type(outcome) is AccountLease)
+        conflicts = tuple(outcome for outcome in outcomes if type(outcome) is AccountLeaseConflict)
+        assert len(leases) == 1
+        assert len(conflicts) == 1
+        assert leases[0].owner_id == contender_owner_id
+        assert leases[0].fencing_generation == 2
+
+        with postgres_engine.connect() as connection:
+            durable_leases = tuple(
+                connection.execute(
+                    sa.select(
+                        phase2_account_leases.c.fencing_generation,
+                        phase2_account_leases.c.revision_number,
+                        phase2_account_leases.c.owner_id,
+                    )
+                    .where(phase2_account_leases.c.account_id == account_id)
+                    .order_by(
+                        phase2_account_leases.c.fencing_generation,
+                        phase2_account_leases.c.revision_number,
+                    )
+                )
+            )
+            head = (
+                connection.execute(
+                    sa.select(phase2_account_lease_heads).where(
+                        phase2_account_lease_heads.c.account_id == account_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            release_generations = tuple(
+                connection.scalars(
+                    sa.select(phase2_account_lease_releases.c.fencing_generation)
+                    .where(phase2_account_lease_releases.c.account_id == account_id)
+                    .order_by(phase2_account_lease_releases.c.fencing_generation)
+                )
+            )
+
+        assert durable_leases == (
+            (1, 1, f"worker-a-{token}"),
+            (2, 1, contender_owner_id),
+        )
+        assert release_generations == (1,)
+        assert head["last_fencing_generation"] == 2
+        assert head["current_lease_sha256"] == leases[0].semantic_sha256
+    finally:
+        _delete_account_facts(postgres_engine, account_id)
+
+
 def test_concurrent_batch_authorizations_cannot_overreserve_cash(
     postgres_engine: Engine,
 ) -> None:

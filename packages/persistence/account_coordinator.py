@@ -889,6 +889,72 @@ class SqlAccountCoordinator:
                 raise AccountCoordinatorError("account acquisition produced no lease")
             return acquired
 
+    def acquire_if_inactive_generation(
+        self,
+        owner_id: str,
+        *,
+        expected_last_fencing_generation: int,
+    ) -> AccountLease:
+        """Acquire only from one exact, durably inactive generation."""
+
+        if type(owner_id) is not str or not owner_id or owner_id != owner_id.strip():
+            raise AccountCoordinatorError("coordinator owner ID must be non-empty and trimmed")
+        if (
+            type(expected_last_fencing_generation) is not int
+            or expected_last_fencing_generation < 0
+        ):
+            raise AccountCoordinatorError(
+                "expected last fencing generation must be a non-negative exact integer"
+            )
+        with self._state.lock:
+            self._require_no_effect_transition()
+            now = self._trusted_now()
+            with _write_transaction(self._authority._engine) as connection:
+                head = self._head(connection, lock=True)
+                if head is None:
+                    raise AccountLeaseConflict(
+                        "account inactive generation does not match expected checkpoint"
+                    )
+                current = self._current_from_head(connection, head)
+                if (
+                    current is not None
+                    or head.last_fencing_generation != expected_last_fencing_generation
+                ):
+                    raise AccountLeaseConflict(
+                        "account inactive generation does not match expected checkpoint"
+                    )
+                if now < head.updated_at:
+                    raise AccountCoordinatorError("coordinator clock cannot regress")
+                generation = expected_last_fencing_generation + 1
+                lease = AccountLease(
+                    account_id=self.account_id,
+                    owner_id=owner_id,
+                    lease_id=canonical_id(
+                        "account-coordinator-lease",
+                        self.account_id,
+                        generation,
+                        owner_id,
+                        now,
+                        self._authority.policy.semantic_sha256,
+                    ),
+                    fencing_generation=generation,
+                    revision_number=1,
+                    previous_lease_sha256=None,
+                    acquired_at=now,
+                    heartbeat_at=now,
+                    expires_at=now + self._authority.policy.lease_ttl,
+                    policy_sha256=self._authority.policy.semantic_sha256,
+                )
+                acquired = self._insert_lease(connection, lease)
+                self._set_head(
+                    connection,
+                    head,
+                    last_generation=generation,
+                    current_lease=acquired,
+                    updated_at=now,
+                )
+            return acquired
+
     def current(self) -> AccountLease | None:
         with self._state.lock:
             connection = self._state.effect_connection

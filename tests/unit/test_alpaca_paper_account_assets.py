@@ -149,7 +149,7 @@ def test_account_description_is_deterministic_and_paper_bound() -> None:
     description = account_description()
 
     assert description.contract_version == ALPACA_PAPER_ACCOUNT_ASSET_OBSERVATION_CONTRACT_VERSION
-    assert ALPACA_PAPER_ACCOUNT_ASSET_OBSERVATION_REVIEWED_ON == "2026-07-27"
+    assert ALPACA_PAPER_ACCOUNT_ASSET_OBSERVATION_REVIEWED_ON == "2026-07-30"
     assert description.reviewed_on == ALPACA_PAPER_ACCOUNT_ASSET_OBSERVATION_REVIEWED_ON
     assert description.provider_model_commit == ALPACA_PY_ACCOUNT_ASSET_MODEL_COMMIT
     assert ALPACA_PY_ACCOUNT_ASSET_MODEL_COMMIT == ("bd1fa9ea2fc3194914be9d47f7f5822a18a05b5f")
@@ -501,6 +501,144 @@ def test_account_profile_accepts_and_strictly_validates_reviewed_optional_fields
     assert decode_account(nullable).outcome is (
         AlpacaAccountObservationOutcome.OBSERVED_USABLE_CANDIDATE
     )
+
+
+def test_current_account_response_accepts_reviewed_raw_only_fields() -> None:
+    payload = account_payload()
+    payload.update(
+        {
+            "admin_configurations": {},
+            "balance_asof": "2026-07-30",
+            "crypto_tier": 1,
+            "effective_buying_power": "200000.00",
+            "intraday_adjustments": "0",
+            "pending_reg_taf_fees": "1.25",
+            "position_market_value": "100000.00",
+            "user_configurations": {},
+        }
+    )
+
+    observation = decode_account(payload)
+
+    assert observation.outcome is AlpacaAccountObservationOutcome.OBSERVED_USABLE_CANDIDATE
+    reviewed_economic_fields = (
+        "effective_buying_power",
+        "intraday_adjustments",
+        "pending_reg_taf_fees",
+        "position_market_value",
+    )
+    assert (
+        tuple(
+            field_name
+            for field_name in observation.validated_noncanonical_economic_fields
+            if field_name in reviewed_economic_fields
+        )
+        == reviewed_economic_fields
+    )
+    for field_name in payload.keys() & {
+        "admin_configurations",
+        "balance_asof",
+        "crypto_tier",
+        *reviewed_economic_fields,
+        "user_configurations",
+    }:
+        assert not hasattr(observation, field_name)
+
+
+@pytest.mark.parametrize(
+    "balance_asof",
+    (
+        "2026-02-30",
+        "2026-7-30",
+        "2026/07/30",
+    ),
+)
+def test_account_balance_asof_rejects_impossible_or_wrong_shape_dates(
+    balance_asof: str,
+) -> None:
+    payload = account_payload()
+    payload["balance_asof"] = balance_asof
+
+    with pytest.raises(
+        AlpacaPaperAccountAssetObservationError,
+        match="exact valid YYYY-MM-DD date",
+    ):
+        decode_account(payload)
+
+
+@pytest.mark.parametrize("crypto_tier", (True, "1", -1, 101))
+def test_account_crypto_tier_rejects_noncanonical_or_out_of_range_values(
+    crypto_tier: object,
+) -> None:
+    payload = account_payload()
+    payload["crypto_tier"] = crypto_tier
+
+    with pytest.raises(
+        AlpacaPaperAccountAssetObservationError,
+        match="exact integer from 0 through 100 or null",
+    ):
+        decode_account(payload)
+
+
+@pytest.mark.parametrize("field_name", ("admin_configurations", "user_configurations"))
+@pytest.mark.parametrize("configuration", (None, {}))
+def test_account_configurations_accept_only_null_or_empty_objects(
+    field_name: str,
+    configuration: object,
+) -> None:
+    payload = account_payload()
+    payload[field_name] = configuration
+
+    assert decode_account(payload).outcome is (
+        AlpacaAccountObservationOutcome.OBSERVED_USABLE_CANDIDATE
+    )
+
+
+@pytest.mark.parametrize("field_name", ("admin_configurations", "user_configurations"))
+@pytest.mark.parametrize(
+    "configuration",
+    (
+        {"enabled": True},
+        [],
+        "{}",
+        False,
+    ),
+)
+def test_account_configurations_reject_populated_objects_and_wrong_types(
+    field_name: str,
+    configuration: object,
+) -> None:
+    payload = account_payload()
+    payload[field_name] = configuration
+
+    with pytest.raises(
+        AlpacaPaperAccountAssetObservationError,
+        match="null or an exact empty object",
+    ):
+        decode_account(payload)
+
+
+def test_current_account_review_still_rejects_unrelated_top_level_fields() -> None:
+    payload = account_payload()
+    payload.update(
+        {
+            "admin_configurations": None,
+            "balance_asof": "2026-07-30",
+            "crypto_tier": 1,
+            "effective_buying_power": "200000.00",
+            "intraday_adjustments": "0",
+            "pending_reg_taf_fees": "1.25",
+            "position_market_value": "100000.00",
+            "unreviewed_provider_field": None,
+            "user_configurations": {},
+        }
+    )
+
+    with pytest.raises(
+        AlpacaPaperAccountAssetObservationError,
+        match="reviewed wire profile",
+    ):
+        decode_account(payload)
 
 
 def test_current_account_shape_omits_all_retired_pdt_fields() -> None:

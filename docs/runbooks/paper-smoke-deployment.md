@@ -306,6 +306,30 @@ timeout, transport failure, raw-only receipt, pin mismatch, or ambiguous exit,
 preserve and review the Supabase evidence before separately approving any new
 attempt.
 
+If and only if the reviewed evidence is exactly one generation-one
+lease/release, one reconciliation permit, one retained successful account JSON
+response, no binding, a clear lease head, unchanged non-running control, and no
+other account-local state, the command exposes a separate single-shot recovery
+mode. Use it only after the decoder/profile fix is committed, reviewed, and
+green in CI; re-decode the retained bytes offline; obtain a fresh explicit
+approval for one second `GET /v2/account`; and generate a distinct new
+operation UUID:
+
+```console
+.venv/bin/python scripts/bind_alpaca_paper_account.py \
+  --env-file /absolute/path/to/owner/.env \
+  --operation-id <new-canonical-lowercase-operation-uuid> \
+  --recovery-from-operation-id <generation-one-operation-uuid> \
+  --authorize-second-account-get
+```
+
+Both recovery flags are mandatory and the old and new operation IDs must be
+different. Recovery preserves the original lease, permit, and raw receipt,
+acquires generation two, and invokes the unchanged bounded account observer at
+most once. It cannot resume any other checkpoint and cannot authorize
+generation three. If the second attempt fails or exits ambiguously, preserve
+all state and stop for a new architecture and security decision.
+
 On success, the predecessor-linked binding history is durable, but its runtime
 freshness window is at most five seconds. It is identity evidence for that
 receipt window, not a persistent readiness grant, account-economics fact,

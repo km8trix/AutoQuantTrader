@@ -483,6 +483,12 @@ account-bound `RUNNING` head, while this profile supplies only a configured
 non-authorizing `PAUSED` policy. Its control observation is aggregate and
 unbound—either no heads or only non-running heads—and cannot authorize an
 invocation. No durable strategy invocation has run, and Phase 5 remains open.
+The owner-operated paper-account enrollment also has a fail-closed recovery
+mode for exactly one reviewed generation-one raw-only checkpoint. It requires
+a distinct new operation UUID and explicit approval for one second account
+`GET`, atomically limits acquisition to generation two, retains all prior
+evidence, and stops permanently after that attempt. See the
+[paper smoke deployment runbook](docs/runbooks/paper-smoke-deployment.md).
 The application does not ingest
 from an admitted market-data vendor,
 connect to a broker in a deployed process, submit paper orders, or submit live

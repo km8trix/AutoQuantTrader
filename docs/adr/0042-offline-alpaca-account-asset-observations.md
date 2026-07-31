@@ -63,7 +63,14 @@ also returns an `X-Request-ID` response header that should be retained.
    `daytrading_buying_power` from responses on 2026-07-06; accept those only as
    absent/null or strictly typed legacy fields, never as readiness inputs.
    Validate the current options buying-power and approved/effective level fields
-   as retained-only optional data.
+   as retained-only optional data. The 2026-07-30 paper-profile review also
+   accepts `effective_buying_power`, `intraday_adjustments`,
+   `pending_reg_taf_fees`, and `position_market_value` only as strictly
+   validated noncanonical decimal text; `balance_asof` only as a valid exact
+   `YYYY-MM-DD` date; and `crypto_tier` only as a bounded nonnegative integer.
+   `admin_configurations` and `user_configurations` remain raw-only and are
+   accepted only when null or empty. Populated configuration objects and every
+   other additive field still require a new explicit review and fail closed.
 5. The provider account UUID is an observed value, not an authenticated durable
    binding to the local account alias. Neither the response object nor a caller
    may assert its environment. Paper provenance comes only from the
@@ -120,7 +127,8 @@ order, or enable paper/live startup. Phase 4 and its exit gate remain open.
 
 ## Reviewed provider references
 
-Reviewed on 2026-07-27:
+Initially reviewed on 2026-07-27 and additively re-reviewed for the account
+profile on 2026-07-30:
 
 - <https://docs.alpaca.markets/us/v1.1/docs/working-with-account>
 - <https://docs.alpaca.markets/us/v1.1/docs/account-plans>
@@ -128,5 +136,6 @@ Reviewed on 2026-07-27:
 - <https://docs.alpaca.markets/us/reference/get-v2-assets-symbol_or_asset_id>
 - <https://docs.alpaca.markets/us/docs/market-data-faq>
 - <https://docs.alpaca.markets/us/docs/getting-started-with-trading-api>
+- <https://docs.alpaca.markets/us/docs/instant-funding>
 - <https://raw.githubusercontent.com/alpacahq/alpaca-py/bd1fa9ea2fc3194914be9d47f7f5822a18a05b5f/alpaca/trading/enums.py>
 - <https://raw.githubusercontent.com/alpacahq/alpaca-py/bd1fa9ea2fc3194914be9d47f7f5822a18a05b5f/alpaca/trading/models.py>

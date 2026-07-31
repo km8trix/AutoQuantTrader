@@ -13,7 +13,7 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from types import MappingProxyType
@@ -36,7 +36,7 @@ from packages.domain.models import require_utc
 ALPACA_PAPER_ACCOUNT_ASSET_OBSERVATION_CONTRACT_VERSION = (
     "phase4e-alpaca-paper-account-asset-observation-v1"
 )
-ALPACA_PAPER_ACCOUNT_ASSET_OBSERVATION_REVIEWED_ON = "2026-07-27"
+ALPACA_PAPER_ACCOUNT_ASSET_OBSERVATION_REVIEWED_ON = "2026-07-30"
 ALPACA_PAPER_ASSET_PATH_TEMPLATE = "/v2/assets/{symbol_or_asset_id}"
 ALPACA_PAPER_MAX_ACCOUNT_ASSET_RESPONSE_BYTES = 262_144
 ALPACA_PAPER_ACCOUNT_ASSET_EVIDENCE_QUALIFICATION = "unqualified_offline_bytes"
@@ -53,15 +53,20 @@ _ALPACA_ACCOUNT_OPTIONAL_RESPONSE_KEYS = frozenset(
     {
         "account_blocked",
         "accrued_fees",
+        "admin_configurations",
+        "balance_asof",
         "buying_power",
         "cash",
         "created_at",
         "crypto_status",
+        "crypto_tier",
         "currency",
         "daytrade_count",
         "daytrading_buying_power",
+        "effective_buying_power",
         "equity",
         "initial_margin",
+        "intraday_adjustments",
         "last_equity",
         "last_maintenance_margin",
         "long_market_value",
@@ -72,9 +77,11 @@ _ALPACA_ACCOUNT_OPTIONAL_RESPONSE_KEYS = frozenset(
         "options_buying_power",
         "options_trading_level",
         "pattern_day_trader",
+        "pending_reg_taf_fees",
         "pending_transfer_in",
         "pending_transfer_out",
         "portfolio_value",
+        "position_market_value",
         "regt_buying_power",
         "shorting_enabled",
         "short_market_value",
@@ -82,6 +89,7 @@ _ALPACA_ACCOUNT_OPTIONAL_RESPONSE_KEYS = frozenset(
         "trade_suspended_by_user",
         "trading_blocked",
         "transfers_blocked",
+        "user_configurations",
     }
 )
 _ALPACA_ACCOUNT_RESPONSE_KEYS = (
@@ -92,8 +100,10 @@ _ALPACA_ACCOUNT_NONCANONICAL_ECONOMIC_FIELDS = (
     "buying_power",
     "cash",
     "daytrading_buying_power",
+    "effective_buying_power",
     "equity",
     "initial_margin",
+    "intraday_adjustments",
     "last_equity",
     "last_maintenance_margin",
     "long_market_value",
@@ -101,9 +111,11 @@ _ALPACA_ACCOUNT_NONCANONICAL_ECONOMIC_FIELDS = (
     "multiplier",
     "non_marginable_buying_power",
     "options_buying_power",
+    "pending_reg_taf_fees",
     "pending_transfer_in",
     "pending_transfer_out",
     "portfolio_value",
+    "position_market_value",
     "regt_buying_power",
     "short_market_value",
     "sma",
@@ -157,6 +169,7 @@ _ASSET_FAILURE_NAMES = frozenset(
 )
 _DECIMAL_TEXT_PATTERN = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?")
 _CURRENCY_PATTERN = re.compile(r"[A-Z]{3}")
+_DATE_PATTERN = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _SYMBOL_PATTERN = re.compile(r"[A-Z][A-Z0-9./-]{0,31}")
 _TIMESTAMP_PATTERN = re.compile(
     r"(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})"
@@ -367,6 +380,23 @@ def _require_optional_timestamp_text(value: object, field_name: str) -> str | No
     return _require_timestamp_text(value, field_name)
 
 
+def _require_optional_date_text(value: object, field_name: str) -> str | None:
+    if value is None:
+        return None
+    raw = _require_text(value, field_name, maximum_length=10)
+    if _DATE_PATTERN.fullmatch(raw) is None:
+        raise AlpacaPaperAccountAssetObservationError(
+            f"{field_name} must be an exact valid YYYY-MM-DD date"
+        )
+    try:
+        date.fromisoformat(raw)
+    except ValueError as error:
+        raise AlpacaPaperAccountAssetObservationError(
+            f"{field_name} must be an exact valid YYYY-MM-DD date"
+        ) from error
+    return raw
+
+
 def _require_decimal_text(value: object, field_name: str) -> None:
     raw = _require_text(value, field_name, maximum_length=64)
     if _DECIMAL_TEXT_PATTERN.fullmatch(raw) is None:
@@ -439,6 +469,20 @@ def _require_optional_level(value: object, field_name: str) -> None:
     if value is not None and (type(value) is not int or not 0 <= value <= 3):
         raise AlpacaPaperAccountAssetObservationError(
             f"{field_name} must be an exact integer from 0 through 3 or null"
+        )
+
+
+def _require_optional_crypto_tier(value: object, field_name: str) -> None:
+    if value is not None and (type(value) is not int or not 0 <= value <= 100):
+        raise AlpacaPaperAccountAssetObservationError(
+            f"{field_name} must be an exact integer from 0 through 100 or null"
+        )
+
+
+def _require_optional_empty_object(value: object, field_name: str) -> None:
+    if value is not None and (type(value) is not dict or value):
+        raise AlpacaPaperAccountAssetObservationError(
+            f"{field_name} must be null or an exact empty object"
         )
 
 
@@ -853,6 +897,19 @@ def _decode_account_wire(value: Mapping[str, Any]) -> _DecodedAccount:
                 value[field_name],
                 f"Alpaca account {field_name}",
             )
+    _require_optional_date_text(
+        value.get("balance_asof"),
+        "Alpaca account balance_asof",
+    )
+    _require_optional_crypto_tier(
+        value.get("crypto_tier"),
+        "Alpaca account crypto_tier",
+    )
+    for field_name in ("admin_configurations", "user_configurations"):
+        _require_optional_empty_object(
+            value.get(field_name),
+            f"Alpaca account {field_name}",
+        )
     if "crypto_status" in value and value["crypto_status"] is not None:
         raw_crypto_status = _require_text(
             value["crypto_status"],
