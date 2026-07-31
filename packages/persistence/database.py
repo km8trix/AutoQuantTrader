@@ -136,6 +136,9 @@ from packages.persistence.schema import (
     phase5_strategy_invocation_claims,
     phase5_strategy_invocation_finalizations,
     phase5_strategy_supervision_results,
+    phase6_trusted_time_epoch_registrations,
+    phase6_trusted_time_host_heads,
+    phase6_trusted_time_probe_evaluations,
     replay_run_manifests,
     risk_account_guards,
     risk_decisions,
@@ -146,7 +149,7 @@ from packages.persistence.schema import (
 )
 from packages.persistence.sqlite_config import enforce_sqlite_foreign_keys
 
-EXPECTED_SCHEMA_REVISION = "0033_phase4_activity_comparison"
+EXPECTED_SCHEMA_REVISION = "0034_phase6_trusted_time"
 
 
 class DatabaseSchemaNotReady(RuntimeError):
@@ -1403,6 +1406,9 @@ def verify_operational_schema(
                 phase5_strategy_invocation_claims,
                 phase5_strategy_invocation_finalizations,
                 phase5_strategy_supervision_results,
+                phase6_trusted_time_epoch_registrations,
+                phase6_trusted_time_probe_evaluations,
+                phase6_trusted_time_host_heads,
             )
             for table in required_tables:
                 connection.execute(sa.select(table).limit(0))
@@ -1657,6 +1663,17 @@ def verify_operational_schema(
             except BrokerInboxPersistenceError as error:
                 raise DatabaseSchemaNotReady(
                     "Phase 4 broker-inbox integrity verification failed"
+                ) from error
+            from packages.persistence.trusted_time import (
+                TrustedTimePersistenceError,
+                _verify_global_integrity,
+            )
+
+            try:
+                _verify_global_integrity(connection)
+            except TrustedTimePersistenceError as error:
+                raise DatabaseSchemaNotReady(
+                    "Phase 6 trusted-time integrity verification failed"
                 ) from error
             _verify_phase2_durability_integrity(connection)
             _verify_phase2_research_integrity(connection)

@@ -389,17 +389,21 @@ exact terminal binding to match all four nonsecret identity pins. It accepts
 the expired five-second status window only as historical identity evidence and
 grants no current-status, control, broker, exposure, automatic-rearm, or
 strategy-invocation authority.
-Phase 6A adds a pure provider-neutral trusted-time evidence reducer and one
-injected in-memory probe step. It derives signed source offset from an exact
-UTC probe midpoint, correlates monotonic cadence, applies the reviewed
-`<250 ms` healthy, inclusive `250-1,000 ms` warning, and `>1,000 ms`
+Phase 6A adds a pure provider-neutral trusted-time reducer, one injected probe
+step, and a local durable evidence composition. It derives signed source offset
+from an exact UTC probe midpoint, correlates monotonic cadence, applies the
+reviewed `<250 ms` healthy, inclusive `250-1,000 ms` warning, and `>1,000 ms`
 hard/latching bands, and requires a gap-free 60-second healthy chain before it
-offers clock-recovery evidence. The fixed public policy, reducer-sealed state,
-one-second source deadline, and duration/cross-clock checks fail closed without
-granting control authority; identity rotation is rejected before source I/O and
-cannot become a new baseline. It selects no actual time source or watchdog,
-persists no authenticated head, defines no reviewed source-uncertainty bound,
-and cannot arm, re-arm, change control, or authorize exposure.
+offers clock-recovery evidence. Every process registers a fresh, non-resumable
+epoch; immutable attempt history records successes and sanitized failures, an
+exact host-head compare-and-swap fences stale processes and concurrent probe
+losers, and startup replay rebuilds state only through the public reducer. The
+history is tamper-evident rather than externally authenticated or rollback
+proof. No actual time source, watchdog, scheduler, reviewed source-uncertainty
+bound, readiness/control/exposure gate, alert, or re-arm authority is selected
+or deployed. On 2026-07-31, owner-approved migration 0034 was applied to the
+runtime Supabase database; the three new tables were present with empty
+histories and the full operational-schema integrity gate passed.
 Phase 6B lazy-loads implemented browser feature routes behind an accessible
 fallback, leaving the shared shell and the remaining production
 browser-security, performance, SSE, and multi-browser work open.

@@ -218,7 +218,10 @@ def run_trusted_time_probe(
     if type(binding) is not TrustedTimeMonitorBinding:
         raise TrustedTimeMonitorError("trusted-time monitor binding must be exact")
     _require_binding_continuity(prior, binding)
-    read_source = getattr(source, "read_trusted_time", None)
+    try:
+        read_source = getattr(source, "read_trusted_time", None)
+    except Exception:
+        raise TrustedTimeMonitorError("trusted-time source port is unavailable") from None
     if not callable(read_source):
         raise TrustedTimeMonitorError("trusted-time source port is unavailable")
 

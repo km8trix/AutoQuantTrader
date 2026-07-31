@@ -50,6 +50,13 @@ class Source:
         return self.reading
 
 
+class ExplodingSourcePort:
+    def __getattribute__(self, name: str) -> object:
+        if name == "read_trusted_time":
+            raise RuntimeError("secret source port detail")
+        return super().__getattribute__(name)
+
+
 def _binding(
     *,
     source_id: str = "trusted-source-1",
@@ -189,6 +196,24 @@ def test_wrong_reading_type_is_invalid_and_fails_closed() -> None:
     assert result.status is TrustedTimeProbeStatus.INVALID_READING
     assert result.evaluation.sample is None
     assert result.state.health is TrustedTimeHealth.BLOCKED
+
+
+def test_source_port_attribute_failure_is_sanitized_before_clock_or_source_effect() -> None:
+    utc_clock = SequenceClock(BASE, BASE)
+    monotonic_clock = SequenceClock(0, 0)
+
+    with pytest.raises(TrustedTimeMonitorError, match="source port is unavailable") as captured:
+        run_trusted_time_probe(
+            None,
+            binding=_binding(),
+            source=ExplodingSourcePort(),  # type: ignore[arg-type]
+            utc_clock=utc_clock,  # type: ignore[arg-type]
+            monotonic_clock=monotonic_clock,  # type: ignore[arg-type]
+        )
+
+    assert "secret" not in str(captured.value)
+    assert utc_clock.calls == 0
+    assert monotonic_clock.calls == 0
 
 
 @pytest.mark.parametrize(

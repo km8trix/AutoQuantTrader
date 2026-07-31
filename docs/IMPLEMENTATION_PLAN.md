@@ -1926,11 +1926,11 @@ deferred, while exporter runtime wiring, queryable-ingestion proof,
 authoritative facts, and timed deployed evidence do not yet exist. The local
 no-exposure preflight is not a substitute for those gates.
 
-Phase 6A now begins operational hardening with a provider-neutral, in-memory
-trusted-time evidence contract and one injected probe step. It binds exact
-source/authority, host, monitor-epoch, UTC, monotonic, sequence, and source
-evidence; derives rather than accepts the signed offset; preserves the reviewed
-`<250 ms` healthy, inclusive `250-1,000 ms` warning, and `>1,000 ms`
+Phase 6A now begins operational hardening with a provider-neutral trusted-time
+evidence contract, one injected probe step, and local durable supervision. It
+binds exact source/authority, host, monitor-epoch, UTC, monotonic, sequence, and
+source evidence; derives rather than accepts the signed offset; preserves the
+reviewed `<250 ms` healthy, inclusive `250-1,000 ms` warning, and `>1,000 ms`
 hard/latching bands; and proves strict sample freshness, 30-second replacement
 cadence, and a continuous 60-second healthy recovery interval. The public
 reducer pins that policy and seals/recomputes derived state. The probe passes a
@@ -1938,12 +1938,25 @@ fixed one-second monotonic deadline to its injected source and rejects
 successful overruns or UTC/monotonic elapsed divergence above 250 milliseconds.
 Identity-conflicting bindings fail before source I/O and cannot self-establish
 a recovery chain.
-`clock_recovery_qualified` is evidence only and never automatically re-arms.
-The selected adapter must enforce the deadline; no source, watchdog, scheduler,
-persistence, readiness or control wiring, API, deployment, or paper authority
-is implied. Deployment still requires an authenticated trusted head and a
-reviewed source-uncertainty bound. See
-[ADR 0086](adr/0086-provider-neutral-trusted-time-monitor.md).
+
+Durable Phase 6A registers a fresh non-resumable epoch for each process,
+retains every probe attempt in an immutable predecessor chain, and advances one
+host head with an exact compare-and-swap after source I/O. Replay reconstructs
+state only from public samples through the public reducer; stale sessions,
+concurrent losers, gaps, forks, malformed payloads, policy substitution,
+projection changes, and head rewinds fail closed. A fresh epoch deliberately
+does not carry monotonic state, latch state, or recovery qualification across
+restart. The retained history is tamper-evident, not externally authenticated
+or rollback-proof.
+
+`clock_recovery_qualified` remains evidence only and never automatically
+re-arms. On 2026-07-31, the owner approved and applied migration 0034 to
+runtime Supabase; revision, table presence, empty trusted-time histories, and
+the operational-schema integrity gate were verified. No source,
+source-uncertainty bound, watchdog, scheduler, readiness/control/exposure
+wiring, alert, API, deployed supervisor, or paper authority is implied. Those
+remaining deployment decisions still require owner approval. See
+[ADR 0086](adr/0086-provider-neutral-trusted-time-monitor.md) and [ADR 0090](adr/0090-durable-trusted-time-persistence-and-one-shot-supervision.md).
 
 Phase 6B begins desktop-browser bundle splitting. Feature routes now load
 through distinct React lazy chunks behind one accessible, polite loading
@@ -1958,11 +1971,12 @@ multi-browser end-to-end claim.
 
 ### Build
 
-- Compose ADR 0086 with an approved authenticated time source, durable sample
-  retention, startup and at-most-30-second in-session scheduling, arming and
-  final new-exposure gates, alerting, and exact-head manual re-arm evidence.
-  The checked-in provider-neutral probe is non-authorizing and does not satisfy
-  this deployment work.
+- Migration 0034 is applied to runtime Supabase. Compose ADR 0086/0090 with an
+  approved authenticated time source and uncertainty bound, an authenticated
+  external head anchor, startup and at-most-30-second in-session scheduling,
+  arming and final new-exposure gates, alerting, and exact-head manual re-arm
+  evidence. The checked-in durable provider-neutral probe and empty runtime
+  tables are non-authorizing and do not satisfy this deployment work.
 - Separate worker/trader roles, pools, quotas, and service identities; managed
   PostgreSQL, secret manager, object storage, restricted network, and immutable
   images/configuration.

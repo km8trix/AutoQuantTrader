@@ -594,7 +594,7 @@ def test_binding_rotation_changes_readiness_evidence_hash() -> None:
 
 def test_database_verification_projection_rejects_partial_or_false_evidence() -> None:
     verified = _database_verification()
-    assert verified.public_table_count == 124
+    assert verified.public_table_count == 127
     assert verified.operational_control_observation == "absent_fail_closed"
 
     with pytest.raises(LocalPaperSmokePreflightError, match="runtime_database_not_ready"):

@@ -218,6 +218,13 @@ PHASE5_TABLE_NAMES = frozenset(
         "phase5_strategy_supervision_results",
     }
 )
+PHASE6_TABLE_NAMES = frozenset(
+    {
+        "phase6_trusted_time_epoch_registrations",
+        "phase6_trusted_time_host_heads",
+        "phase6_trusted_time_probe_evaluations",
+    }
+)
 
 
 def _legacy_lease_values(lease: AccountLease) -> dict[str, object]:
@@ -413,6 +420,9 @@ def test_operational_schema_can_be_created_without_postgresql() -> None:
         "phase5_strategy_invocation_claims",
         "phase5_strategy_invocation_finalizations",
         "phase5_strategy_supervision_results",
+        "phase6_trusted_time_epoch_registrations",
+        "phase6_trusted_time_host_heads",
+        "phase6_trusted_time_probe_evaluations",
         "risk_account_guards",
         "risk_decisions",
         "risk_reservations",
@@ -2025,6 +2035,7 @@ def test_phase2_durability_migration_is_additive_and_reversible(tmp_path: Path) 
         | PHASE3_TABLE_NAMES
         | PHASE4_TABLE_NAMES
         | PHASE5_TABLE_NAMES
+        | PHASE6_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
@@ -2085,7 +2096,11 @@ def test_phase3_governance_migration_is_additive_and_reversible(tmp_path: Path) 
     command.upgrade(config, "head")
 
     assert set(inspect(engine).get_table_names()) == (
-        prior_tables | PHASE3_TABLE_NAMES | PHASE4_TABLE_NAMES | PHASE5_TABLE_NAMES
+        prior_tables
+        | PHASE3_TABLE_NAMES
+        | PHASE4_TABLE_NAMES
+        | PHASE5_TABLE_NAMES
+        | PHASE6_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
@@ -2118,7 +2133,7 @@ def test_phase4_broker_ingress_migration_is_additive_and_reversible(
     command.upgrade(config, "head")
 
     assert set(inspect(engine).get_table_names()) == (
-        prior_tables | PHASE4_TABLE_NAMES | PHASE5_TABLE_NAMES
+        prior_tables | PHASE4_TABLE_NAMES | PHASE5_TABLE_NAMES | PHASE6_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
@@ -3106,7 +3121,7 @@ def test_phase5_operational_control_migration_is_additive_and_reversible(
     command.upgrade(config, "head")
 
     assert set(inspect(engine).get_table_names()) == (
-        prior_tables | PHASE4_TABLE_NAMES | PHASE5_TABLE_NAMES
+        prior_tables | PHASE4_TABLE_NAMES | PHASE5_TABLE_NAMES | PHASE6_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))

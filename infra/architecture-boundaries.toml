@@ -90,6 +90,10 @@ side_effect_free_roots = [
   # port. It owns no ambient clock, scheduler, persistence, network, control,
   # broker, or re-arm authority.
   "packages/application/trusted_time_monitor.py",
+  # ADR 0090 composes an injected durable repository with the same injected
+  # probe ports. It owns no concrete database, process identity, scheduler,
+  # source adapter, control, exposure, alert, broker, or re-arm authority.
+  "packages/application/durable_trusted_time_monitor.py",
   # Phase 5C claims before the injected runner and never owns a concrete
   # subprocess, clock, database, broker, risk, order, or control authority.
   "packages/application/durable_supervised_strategy.py",
