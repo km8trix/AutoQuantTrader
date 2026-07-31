@@ -40,20 +40,76 @@ forbidden_domain_imports = [
 # Strategy replay must remain a pure in-memory reducer. These modules cannot
 # acquire ambient time/randomness or filesystem, process, thread, or network
 # authority merely because those clients happen to live in the standard library.
+# The Phase 4G/4H/4I/4O/4U/4AE authenticated runtime modules are intentionally
+# absent: they own reviewed HTTPX transports and must stay side-effectful
+# adapters.
 side_effect_free_roots = [
   "packages/adapters/broker/__init__.py",
   "packages/adapters/broker/alpaca_paper.py",
+  "packages/adapters/broker/alpaca_paper_account_activities.py",
+  "packages/adapters/broker/alpaca_paper_account_activity_comparison.py",
+  "packages/adapters/broker/alpaca_paper_account_assets.py",
+  "packages/adapters/broker/alpaca_paper_budget.py",
+  "packages/adapters/broker/alpaca_paper_inbox.py",
   "packages/adapters/broker/alpaca_paper_ingress.py",
   "packages/adapters/broker/alpaca_paper_observations.py",
+  "packages/adapters/broker/alpaca_paper_order_snapshot_comparison.py",
+  "packages/adapters/broker/alpaca_paper_order_snapshots.py",
+  "packages/adapters/broker/alpaca_paper_positions.py",
+  "packages/adapters/broker/alpaca_paper_position_snapshot_comparison.py",
+  "packages/adapters/broker/alpaca_paper_preflight.py",
+  "packages/adapters/broker/alpaca_paper_reconciliation.py",
+  # Phase 4AG authenticates injected durable sources and appends through an
+  # injected repository without ambient clock, database, or transport access.
+  "packages/application/alpaca_paper_account_activity_comparison.py",
+  # Phase 4AI chooses one bounded transition through injected Phase 4AE/4AG
+  # ports and an injected clock; it owns no ambient I/O or persistence.
+  "packages/application/alpaca_paper_account_activity_supervisor.py",
+  "packages/application/alpaca_paper_order_view_supervisor.py",
+  # Phase 4AA's proof contract remains ambient-side-effect-free. Its SQL
+  # repository lives under packages/persistence and remains covered by the
+  # global package scan rather than this pure-root list.
+  "packages/application/alpaca_paper_order_view_transition.py",
+  # Phase 4AB composes injected Phase 4Q/4O/4P ports and transition proofs but
+  # owns no ambient clock, credential, database, or transport authority.
+  "packages/application/alpaca_paper_order_view_runtime.py",
+  "packages/application/alpaca_paper_position_view_supervisor.py",
+  "packages/application/alpaca_paper_position_view_transition.py",
+  "packages/application/alpaca_paper_position_view_runtime.py",
+  # Phase 5D reauthenticates injected supervisor evidence and reduces it to a
+  # severity-joined command/receipt without owning persistence or runtime I/O.
+  "packages/application/critical_alert_supervisor_failure_control.py",
+  # ADR 0088 records only nonsecret deployment/source identities and reduces
+  # injected evidence to non-authorizing smoke/activation readiness.
+  "packages/application/paper_deployment.py",
+  # Phase 6A samples only injected clocks and a provider-neutral time-source
+  # port. It owns no ambient clock, scheduler, persistence, network, control,
+  # broker, or re-arm authority.
+  "packages/application/trusted_time_monitor.py",
+  # Phase 5C claims before the injected runner and never owns a concrete
+  # subprocess, clock, database, broker, risk, order, or control authority.
+  "packages/application/durable_supervised_strategy.py",
   "packages/backtest/golden_runner.py",
   "packages/backtest/simulated_broker.py",
   "packages/backtest/simulation_horizon.py",
   "packages/domain/account_coordinator.py",
   "packages/domain/account_projection.py",
+  # Phase 5B measurement, assignment, fixed-policy evaluation, and authoritative
+  # source construction remain pure domain contracts. SQL activation,
+  # operational-control mutation, admission, and dispatch stay in persistence.
+  "packages/domain/advanced_risk.py",
+  "packages/domain/advanced_risk_assignment.py",
+  "packages/domain/advanced_risk_enforcement.py",
+  "packages/domain/advanced_risk_metrics.py",
+  "packages/domain/advanced_risk_policy.py",
+  "packages/domain/advanced_risk_sources.py",
   "packages/domain/backtest_job.py",
   "packages/domain/backtest_report.py",
   "packages/domain/batch_risk.py",
+  "packages/domain/broker_inbox.py",
   "packages/domain/broker_ingress.py",
+  "packages/domain/broker_reconciliation.py",
+  "packages/domain/broker_request_budget.py",
   "packages/domain/corporate_action_ledger.py",
   "packages/domain/decision.py",
   "packages/domain/experiment_governance.py",
@@ -64,6 +120,9 @@ side_effect_free_roots = [
   "packages/domain/feature_target_replay.py",
   "packages/domain/ledger_reducer.py",
   "packages/domain/models.py",
+  # Phase 5A control transitions, precedence, re-arm proofs, and completion
+  # results are pure immutable contracts. SQL history lives in persistence.
+  "packages/domain/operational_control.py",
   "packages/domain/order_reducer.py",
   "packages/domain/portfolio.py",
   "packages/domain/reservation_lifecycle.py",
@@ -71,7 +130,17 @@ side_effect_free_roots = [
   "packages/domain/strategy.py",
   "packages/domain/strategy_replay.py",
   "packages/domain/strategy_state.py",
+  # Phase 5C's protocol and result semantics are pure. The subprocess runner is
+  # deliberately outside this list under packages/application.
+  "packages/domain/strategy_invocation_lifecycle.py",
+  "packages/domain/strategy_supervision.py",
+  "packages/domain/strategy_supervision_alert.py",
+  "packages/domain/strategy_supervision_control.py",
   "packages/domain/submission_attempt.py",
+  # Phase 6A trusted-time policy, samples, and state reduction are immutable
+  # pure-domain evidence with no source adapter or ambient clock authority.
+  "packages/domain/trusted_time.py",
+  "packages/domain/unknown_submission_recovery.py",
 ]
 forbidden_side_effect_imports = [
   "asyncio",

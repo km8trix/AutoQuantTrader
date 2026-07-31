@@ -21,9 +21,22 @@ from packages.adapters.broker.alpaca_paper import (
     ALPACA_PAPER_ADAPTER_VERSION,
     create_alpaca_paper_submission_description,
 )
+from packages.adapters.broker.alpaca_paper_account_assets import (
+    AlpacaAccountObservationOutcome,
+    AlpacaAssetObservationOutcome,
+    AlpacaPaperAccountAssetObservationError,
+    create_alpaca_account_observation_description,
+    create_alpaca_asset_observation_description,
+)
 from packages.adapters.broker.alpaca_paper_ingress import (
+    ALPACA_PAPER_ACCOUNT_INGRESS_CHANNEL,
+    ALPACA_PAPER_ACCOUNT_INGRESS_OPERATION,
+    ALPACA_PAPER_ASSET_INGRESS_CHANNEL,
+    ALPACA_PAPER_ASSET_INGRESS_OPERATION,
     ALPACA_PAPER_LOOKUP_INGRESS_CHANNEL,
     ALPACA_PAPER_LOOKUP_INGRESS_OPERATION,
+    persist_then_decode_alpaca_account_observation_response,
+    persist_then_decode_alpaca_asset_observation_response,
     persist_then_decode_alpaca_client_order_lookup_response,
 )
 from packages.adapters.broker.alpaca_paper_observations import (
@@ -143,6 +156,7 @@ def test_record_commits_exact_raw_bytes_before_any_decode(tmp_path: Path) -> Non
 
     receipt = repository.record(_delivery(body=malformed))
 
+    assert repository.runtime_store_identity == id(engine)
     assert receipt.ingress_sequence == 1
     assert receipt.previous_receipt_sha256 is None
     assert receipt.delivery.body == malformed
@@ -644,6 +658,95 @@ def test_alpaca_lookup_boundary_persists_before_successful_decode(
     assert result.trading_effect_authorized is False
 
 
+def test_alpaca_account_and_asset_boundaries_persist_through_sql(
+    tmp_path: Path,
+) -> None:
+    engine = _engine(tmp_path / "account-asset-ingress.sqlite", DEFAULT_ACCOUNT_ID)
+    repository = SqlBrokerIngressRepository(engine)
+    account_description = create_alpaca_account_observation_description(
+        account_id=DEFAULT_ACCOUNT_ID
+    )
+    asset_description = create_alpaca_asset_observation_description(
+        account_id=DEFAULT_ACCOUNT_ID,
+        instrument_id="US-ETF-SPY",
+        symbol="SPY",
+    )
+    account_body = (BROKER_FIXTURES / "account_active.json").read_bytes()
+    asset_body = (BROKER_FIXTURES / "asset_spy_active.json").read_bytes()
+
+    account = persist_then_decode_alpaca_account_observation_response(
+        repository,
+        account_description,
+        delivery_idempotency_key="account-active-delivery",
+        http_status=200,
+        provider_request_id="phase4e-account-request",
+        response_body=account_body,
+        received_at=RECEIVED_AT,
+        recorded_at=RECORDED_AT,
+    )
+    asset = persist_then_decode_alpaca_asset_observation_response(
+        repository,
+        asset_description,
+        delivery_idempotency_key="asset-spy-active-delivery",
+        http_status=200,
+        provider_request_id="phase4e-asset-request",
+        response_body=asset_body,
+        received_at=RECEIVED_AT + timedelta(milliseconds=1),
+        recorded_at=RECORDED_AT + timedelta(milliseconds=1),
+    )
+
+    assert account.observation.outcome is (
+        AlpacaAccountObservationOutcome.OBSERVED_USABLE_CANDIDATE
+    )
+    assert asset.observation.outcome is (AlpacaAssetObservationOutcome.OBSERVED_USABLE_CANDIDATE)
+    assert account.receipt.ingress_sequence == 1
+    assert asset.receipt.ingress_sequence == 2
+    assert asset.receipt.previous_receipt_sha256 == account.receipt.semantic_sha256
+    assert account.receipt.delivery.channel == ALPACA_PAPER_ACCOUNT_INGRESS_CHANNEL
+    assert account.receipt.delivery.operation == ALPACA_PAPER_ACCOUNT_INGRESS_OPERATION
+    assert asset.receipt.delivery.channel == ALPACA_PAPER_ASSET_INGRESS_CHANNEL
+    assert asset.receipt.delivery.operation == ALPACA_PAPER_ASSET_INGRESS_OPERATION
+    assert repository.history(DEFAULT_ACCOUNT_ID) == (account.receipt, asset.receipt)
+    assert verify_broker_ingress_integrity(engine) is None
+    assert account.normalized_fact_authorized is False
+    assert asset.normalized_fact_authorized is False
+    assert account.trading_effect_authorized is False
+    assert asset.trading_effect_authorized is False
+
+
+def test_alpaca_account_asset_decode_failure_retains_sql_raw_receipt(
+    tmp_path: Path,
+) -> None:
+    engine = _engine(tmp_path / "account-asset-decode-failure.sqlite", DEFAULT_ACCOUNT_ID)
+    repository = SqlBrokerIngressRepository(engine)
+    malformed = b'{"unreviewed_additive_field":true}'
+
+    with pytest.raises(
+        AlpacaPaperAccountAssetObservationError,
+        match="reviewed wire profile",
+    ):
+        persist_then_decode_alpaca_asset_observation_response(
+            repository,
+            create_alpaca_asset_observation_description(
+                account_id=DEFAULT_ACCOUNT_ID,
+                instrument_id="US-ETF-SPY",
+                symbol="SPY",
+            ),
+            delivery_idempotency_key="asset-schema-drift-delivery",
+            http_status=200,
+            provider_request_id="phase4e-asset-schema-drift-request",
+            response_body=malformed,
+            received_at=RECEIVED_AT,
+            recorded_at=RECORDED_AT,
+        )
+
+    (receipt,) = repository.history(DEFAULT_ACCOUNT_ID)
+    assert receipt.delivery.body == malformed
+    assert receipt.delivery.body_sha256
+    assert receipt.ingress_sequence == 1
+    assert receipt.normalized_fact_authorized is False
+
+
 def test_alpaca_decode_failure_cannot_roll_back_raw_receipt(
     tmp_path: Path,
 ) -> None:
@@ -669,6 +772,31 @@ def test_alpaca_decode_failure_cannot_roll_back_raw_receipt(
     assert receipt.delivery.body_sha256
     assert receipt.ingress_sequence == 1
     assert receipt.normalized_fact_authorized is False
+
+
+def test_alpaca_lookup_missing_request_id_is_retained_before_rejection(
+    tmp_path: Path,
+) -> None:
+    engine = _engine(tmp_path / "lookup-missing-request-id.sqlite", DEFAULT_ACCOUNT_ID)
+    repository = SqlBrokerIngressRepository(engine)
+    body = (BROKER_FIXTURES / "lookup_found.json").read_bytes()
+
+    with pytest.raises(AlpacaPaperObservationError, match="missing X-Request-ID"):
+        persist_then_decode_alpaca_client_order_lookup_response(
+            repository,
+            _lookup_description(),
+            delivery_idempotency_key="lookup-missing-request-id-delivery",
+            http_status=200,
+            provider_request_id=None,
+            response_body=body,
+            received_at=RECEIVED_AT,
+            recorded_at=RECORDED_AT,
+        )
+
+    (receipt,) = repository.history(DEFAULT_ACCOUNT_ID)
+    assert receipt.delivery.provider_request_id is None
+    assert receipt.delivery.body == body
+    assert receipt.ingress_sequence == 1
 
 
 def test_alpaca_boundary_rejects_a_mismatched_receipt_before_decoding() -> None:

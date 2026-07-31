@@ -56,6 +56,16 @@ class MutableClock:
         self.instant += delta
 
 
+class SequenceClock:
+    def __init__(self, *instants: datetime) -> None:
+        self.instants = list(instants)
+
+    def now(self) -> datetime:
+        if not self.instants:
+            raise AssertionError("test clock was sampled more times than expected")
+        return self.instants.pop(0)
+
+
 def policy(*, version: str = "1.0.0") -> AccountLeasePolicy:
     return AccountLeasePolicy(
         policy_id="phase2-sql-coordinator",
@@ -94,6 +104,38 @@ def coordinator(
         trusted_clock,
         authority,
     )
+
+
+def coordinator_evidence(
+    engine: Engine,
+    account_id: str,
+) -> tuple[tuple[object, ...], tuple[object, ...], tuple[object, ...]]:
+    with engine.connect() as connection:
+        heads = tuple(
+            connection.execute(
+                sa.select(phase2_account_lease_heads)
+                .where(phase2_account_lease_heads.c.account_id == account_id)
+                .order_by(phase2_account_lease_heads.c.account_id)
+            )
+        )
+        leases = tuple(
+            connection.execute(
+                sa.select(phase2_account_leases)
+                .where(phase2_account_leases.c.account_id == account_id)
+                .order_by(
+                    phase2_account_leases.c.fencing_generation,
+                    phase2_account_leases.c.revision_number,
+                )
+            )
+        )
+        releases = tuple(
+            connection.execute(
+                sa.select(phase2_account_lease_releases)
+                .where(phase2_account_lease_releases.c.account_id == account_id)
+                .order_by(phase2_account_lease_releases.c.fencing_generation)
+            )
+        )
+    return heads, leases, releases
 
 
 def test_lease_renewal_and_release_rows_use_strict_canonical_readback(
@@ -230,6 +272,145 @@ def test_clean_handoff_is_idempotent_and_generation_survives_new_authority(
     )
     with pytest.raises(AccountLeaseConflict, match="policy conflicts"):
         incompatible.current()
+
+
+def test_conditional_acquisition_advances_one_exact_inactive_generation(
+    sqlite_engine: Engine,
+) -> None:
+    account_coordinator, clock, _ = coordinator(
+        sqlite_engine,
+        "conditional-acquire-account",
+    )
+    first = account_coordinator.acquire("worker-a")
+    clock.advance(timedelta(seconds=1))
+    account_coordinator.release(first.fence)
+    clock.advance(timedelta(seconds=1))
+
+    second = account_coordinator.acquire_if_inactive_generation(
+        "worker-b",
+        expected_last_fencing_generation=1,
+    )
+
+    assert second.owner_id == "worker-b"
+    assert second.fencing_generation == 2
+    assert second.revision_number == 1
+    assert account_coordinator.current() == second
+
+
+def test_stale_conditional_acquisition_has_zero_durable_mutation(
+    sqlite_engine: Engine,
+) -> None:
+    account_coordinator, clock, _ = coordinator(
+        sqlite_engine,
+        "stale-conditional-account",
+    )
+    first = account_coordinator.acquire("worker-a")
+    clock.advance(timedelta(seconds=1))
+    account_coordinator.release(first.fence)
+    clock.advance(timedelta(seconds=1))
+    second = account_coordinator.acquire("worker-b")
+    clock.advance(timedelta(seconds=1))
+    account_coordinator.release(second.fence)
+    before = coordinator_evidence(sqlite_engine, account_coordinator.account_id)
+    clock.advance(timedelta(seconds=1))
+
+    with pytest.raises(AccountLeaseConflict, match="expected checkpoint"):
+        account_coordinator.acquire_if_inactive_generation(
+            "worker-c",
+            expected_last_fencing_generation=1,
+        )
+
+    assert coordinator_evidence(sqlite_engine, account_coordinator.account_id) == before
+    assert account_coordinator.current() is None
+    with sqlite_engine.connect() as connection:
+        assert (
+            connection.scalar(
+                sa.select(sa.func.max(phase2_account_leases.c.fencing_generation)).where(
+                    phase2_account_leases.c.account_id == account_coordinator.account_id
+                )
+            )
+            == 2
+        )
+
+
+def test_conditional_acquisition_rejects_missing_head_without_bootstrap(
+    sqlite_engine: Engine,
+) -> None:
+    account_coordinator, _, _ = coordinator(
+        sqlite_engine,
+        "missing-conditional-account",
+    )
+
+    with pytest.raises(AccountLeaseConflict, match="expected checkpoint"):
+        account_coordinator.acquire_if_inactive_generation(
+            "worker-a",
+            expected_last_fencing_generation=1,
+        )
+
+    assert coordinator_evidence(sqlite_engine, account_coordinator.account_id) == ((), (), ())
+
+
+@pytest.mark.parametrize("expected_generation", [True, -1, 1.0, "1"])
+def test_conditional_acquisition_requires_exact_non_negative_generation(
+    sqlite_engine: Engine,
+    expected_generation: object,
+) -> None:
+    account_coordinator, _, _ = coordinator(
+        sqlite_engine,
+        "invalid-conditional-account",
+    )
+
+    with pytest.raises(AccountCoordinatorError, match="non-negative exact integer"):
+        account_coordinator.acquire_if_inactive_generation(
+            "worker-a",
+            expected_last_fencing_generation=expected_generation,  # type: ignore[arg-type]
+        )
+
+    assert coordinator_evidence(sqlite_engine, account_coordinator.account_id) == ((), (), ())
+
+
+def test_concurrent_conditional_acquisition_has_one_generation_two_winner(
+    sqlite_engine: Engine,
+) -> None:
+    primary, clock, _ = coordinator(sqlite_engine, "parallel-conditional-account")
+    first = primary.acquire("worker-a")
+    clock.advance(timedelta(seconds=1))
+    primary.release(first.fence)
+    clock.advance(timedelta(seconds=1))
+    start = threading.Barrier(3)
+
+    def acquire(owner_id: str) -> AccountLease | AccountLeaseConflict:
+        contender, _, _ = coordinator(
+            sqlite_engine,
+            "parallel-conditional-account",
+            clock=MutableClock(clock.instant),
+        )
+        start.wait(timeout=10)
+        try:
+            return contender.acquire_if_inactive_generation(
+                owner_id,
+                expected_last_fencing_generation=1,
+            )
+        except AccountLeaseConflict as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(acquire, "worker-b") for _ in range(2)]
+        start.wait(timeout=10)
+        outcomes = [future.result(timeout=10) for future in futures]
+
+    leases = [outcome for outcome in outcomes if type(outcome) is AccountLease]
+    conflicts = [outcome for outcome in outcomes if type(outcome) is AccountLeaseConflict]
+    assert len(leases) == 1
+    assert len(conflicts) == 1
+    assert leases[0].fencing_generation == 2
+    heads, durable_leases, releases = coordinator_evidence(
+        sqlite_engine,
+        "parallel-conditional-account",
+    )
+    assert len(heads) == 1
+    assert len(durable_leases) == 2
+    assert len(releases) == 1
 
 
 @pytest.mark.parametrize("corruption", ["prior_release", "prior_generation"])
@@ -401,6 +582,47 @@ def test_transactional_revalidation_locks_and_binds_the_exact_revision(
             lease.fence,
             checked_at=BASE + timedelta(seconds=1),
         )
+
+
+def test_commit_revalidation_rejects_regression_between_authority_samples(
+    sqlite_engine: Engine,
+) -> None:
+    clock = SequenceClock(
+        BASE,
+        BASE + timedelta(seconds=10),
+        BASE + timedelta(seconds=5),
+    )
+    authority = SqlAccountCoordinatorAuthority(
+        engine=sqlite_engine,
+        policy=policy(),
+        clock=clock,
+    )
+    account_coordinator = SqlAccountCoordinator(
+        account_id="commit-regression-account",
+        authority=authority,
+    )
+    lease = account_coordinator.acquire("worker-a")
+
+    with (
+        pytest.raises(
+            AccountCoordinatorError,
+            match="cannot regress during commit validation",
+        ),
+        sqlite_engine.begin() as connection,
+    ):
+        account_coordinator.revalidate_for_commit_in_transaction(
+            connection,
+            lease.fence,
+        )
+
+    with sqlite_engine.connect() as connection:
+        head_updated_at = connection.scalar(
+            sa.select(phase2_account_lease_heads.c.updated_at).where(
+                phase2_account_lease_heads.c.account_id == "commit-regression-account"
+            )
+        )
+    assert isinstance(head_updated_at, datetime)
+    assert head_updated_at.replace(tzinfo=UTC) == BASE
 
 
 def test_transactional_revalidation_cannot_backdate_past_trusted_expiry(

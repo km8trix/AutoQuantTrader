@@ -53,7 +53,9 @@ def test_non_local_environment_requires_session_secret() -> None:
 def test_paper_credentials_cannot_be_reused_for_live() -> None:
     paper_credentials = PaperCredentialRefs(
         account_id="paper-account",
+        expected_provider_account_id="11111111-1111-4111-8111-111111111111",
         broker_secret_ref="secret://paper/broker",
+        broker_secret_version="version-1",
         market_data_secret_ref="secret://paper/data",
     )
 
@@ -64,6 +66,81 @@ def test_paper_credentials_cannot_be_reused_for_live() -> None:
             session_secret="non-placeholder-secret",
             credentials=paper_credentials,
         )
+
+
+def test_paper_credentials_compose_an_exact_nonsecret_account_reference() -> None:
+    credentials = PaperCredentialRefs(
+        account_id="paper-account",
+        expected_provider_account_id="11111111-1111-4111-8111-111111111111",
+        broker_secret_ref="secret://paper/alpaca/account",
+        broker_secret_version="version-7",
+        market_data_secret_ref="secret://paper/data",
+    )
+
+    reference = credentials.alpaca_paper_account_reference
+
+    assert reference.account_id == "paper-account"
+    assert reference.expected_provider_account_id == "11111111-1111-4111-8111-111111111111"
+    assert reference.secret_ref == "secret://paper/alpaca/account"
+    assert reference.secret_version == "version-7"
+    assert reference.credential_values_present is False
+    assert reference.transport_authorized is False
+    assert reference.trading_effect_authorized is False
+
+
+@pytest.mark.parametrize(
+    ("provider_account_id", "secret_ref", "secret_version", "message"),
+    [
+        ("not-a-uuid", "secret://paper/broker", "version-1", "canonical UUID"),
+        (
+            "11111111-1111-4111-8111-111111111111",
+            "secret://live/broker",
+            "version-1",
+            "paper-scoped",
+        ),
+        (
+            "11111111-1111-4111-8111-111111111111",
+            "secret://paper/broker",
+            "version with spaces",
+            "safe-text",
+        ),
+    ],
+)
+def test_paper_account_reference_rejects_unpinned_or_unsafe_configuration(
+    provider_account_id: str,
+    secret_ref: str,
+    secret_version: str,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        PaperCredentialRefs(
+            account_id="paper-account",
+            expected_provider_account_id=provider_account_id,
+            broker_secret_ref=secret_ref,
+            broker_secret_version=secret_version,
+            market_data_secret_ref="secret://paper/data",
+        )
+
+
+def test_paper_account_reference_is_loaded_from_nonsecret_environment_pins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AQT_ENVIRONMENT", "paper")
+    monkeypatch.setenv("AQT_LOCAL_AUTH_ENABLED", "false")
+    monkeypatch.setenv("AQT_SESSION_SECRET", "non-placeholder-secret")
+    monkeypatch.setenv("AQT_PAPER_ACCOUNT_ID", "paper-account")
+    monkeypatch.setenv(
+        "AQT_PAPER_PROVIDER_ACCOUNT_ID",
+        "11111111-1111-4111-8111-111111111111",
+    )
+    monkeypatch.setenv("AQT_PAPER_BROKER_SECRET_REF", "secret://paper/alpaca/account")
+    monkeypatch.setenv("AQT_PAPER_BROKER_SECRET_VERSION", "version-7")
+    monkeypatch.setenv("AQT_PAPER_DATA_SECRET_REF", "secret://paper/data")
+
+    settings = Settings.from_env()
+
+    assert type(settings.credentials) is PaperCredentialRefs
+    assert settings.credentials.alpaca_paper_account_reference.secret_version == "version-7"
 
 
 def test_live_secret_references_must_be_live_scoped() -> None:

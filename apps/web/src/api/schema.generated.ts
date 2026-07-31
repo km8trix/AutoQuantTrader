@@ -15,10 +15,35 @@ export interface components {
       "realized_pnl": string;
       "unrealized_pnl": string;
     };
+    "ActiveCriticalAlertView": {
+      "alert_code": string;
+      "escalation_deadline_at": string;
+      "escalation_delivery_state": components["schemas"]["CriticalAlertDeliveryState"];
+      "incident_id": string;
+      "primary_deadline_at": string;
+      "primary_delivery_state": components["schemas"]["CriticalAlertDeliveryState"];
+      "recorded_at": string;
+    };
+    "AdvancedRiskAssessmentView": {
+      "assessed_at": string;
+      "assessment_id": string;
+      "disposition": components["schemas"]["AdvancedRiskDisposition"];
+      "valid_through": string;
+    };
+    "AdvancedRiskAssignmentView": {
+      "assigned_at": string;
+      "assignment_id": string;
+      "environment": string;
+      "policy_id": string;
+      "policy_sha256": components["schemas"]["Sha256Text"];
+      "sequence_number": number;
+    };
+    "AdvancedRiskDisposition": "none" | "reject" | "pause" | "halt";
     "AlertCounts": {
       "critical": number;
       "warning": number;
     };
+    "AlertDeliveryStatus": "delivered" | "pending" | "failed" | "unknown";
     "ApiErrorResponse": {
       "detail": string;
     };
@@ -194,6 +219,16 @@ export interface components {
       "symbol": string;
       "trade_id": string;
     };
+    "CoordinatorOwnershipView": {
+      "detail": string;
+      "expires_at": (string) | (null);
+      "fencing_generation": (number) | (null);
+      "heartbeat_at": (string) | (null);
+      "lease_id": (string) | (null);
+      "owner_id": (string) | (null);
+      "status": components["schemas"]["CoordinatorStatus"];
+    };
+    "CoordinatorStatus": "active" | "expired" | "unavailable";
     "CorporateActionView": {
       "action_id": string;
       "action_revision_id": string;
@@ -205,6 +240,7 @@ export interface components {
       "revision": number;
       "symbol": string;
     };
+    "CriticalAlertDeliveryState": "confirmed" | "timeout" | "error" | "unknown";
     "DashboardSummary": {
       "account": components["schemas"]["AccountSummary"];
       "alerts": components["schemas"]["AlertCounts"];
@@ -441,6 +477,7 @@ export interface components {
       "side": components["schemas"]["Side"];
       "symbol": string;
     };
+    "FreshnessStatus": "current" | "stale" | "unavailable";
     "HTTPValidationError": {
       "detail"?: Array<components["schemas"]["ValidationError"]>;
     };
@@ -495,6 +532,13 @@ export interface components {
       "reference_id": string;
       "total": string;
     };
+    "LedgerIntegrityView": {
+      "detail": string;
+      "entry_count": number;
+      "latest_entry_id": (string) | (null);
+      "latest_posted_at": (string) | (null);
+      "status": "balanced" | "unavailable";
+    };
     "MarketClock": {
       "as_of": string;
       "next_transition_at": (string) | (null);
@@ -546,6 +590,168 @@ export interface components {
       "symbol": string;
     };
     "MarketStatus": "open" | "closed" | "pre_market" | "after_hours" | "unknown";
+    "OperationalAccountView": {
+      "cash": string;
+      "currency": string;
+      "equity": string;
+      "gross_exposure": string;
+      "net_exposure": string;
+      "realized_pnl": string;
+      "unrealized_pnl": string;
+    };
+    "OperationalAlertView": {
+      "category": string;
+      "delivery_status": components["schemas"]["AlertDeliveryStatus"];
+      "escalation_due_at": (string) | (null);
+      "incident_id": string;
+      "opened_at": string;
+      "severity": string;
+      "summary": string;
+    };
+    "OperationalControlAction": "pause" | "drain" | "flatten" | "halt" | "rearm";
+    "OperationalControlCommandRequest": {
+      "reason_code": string;
+    };
+    "OperationalControlMutationResponse": {
+      "action": components["schemas"]["OperationalControlAction"];
+      "control": components["schemas"]["OperationalControlTransitionView"];
+    };
+    "OperationalControlOperationKind": "drain" | "flatten";
+    "OperationalControlOperationView": {
+      "attempt_id": string;
+      "opened_at": string;
+      "operation": components["schemas"]["OperationalControlOperationKind"];
+    };
+    "OperationalControlReceiptView": {
+      "actor_id": string;
+      "command_kind": string;
+      "decided_at": string;
+      "sequence_number": number;
+      "state": string;
+      "transition_id": string;
+    };
+    "OperationalControlState": "running" | "paused" | "draining" | "flattening" | "halted";
+    "OperationalControlTransitionView": {
+      "active_operation": (components["schemas"]["OperationalControlOperationView"]) | (null);
+      "blocker_count": number;
+      "blocker_overflowed": boolean;
+      "decided_at": string;
+      "effective_state": components["schemas"]["OperationalControlState"];
+      "prior_state": (components["schemas"]["OperationalControlState"]) | (null);
+      "sequence_number": number;
+      "state_changed": boolean;
+      "state_epoch_id": string;
+      "transition_id": string;
+    };
+    "OperationalControlView": {
+      "actions_available": boolean;
+      "blocking_event_count": number;
+      "detail": string;
+      "history": Array<components["schemas"]["OperationalControlReceiptView"]>;
+      "pending_operation": (string) | (null);
+      "sequence_number": (number) | (null);
+      "state": string;
+      "transition_id": (string) | (null);
+    };
+    "OperationalFillView": {
+      "executed_at": string;
+      "fee": string;
+      "fill_id": string;
+      "order_id": string;
+      "price": string;
+      "quantity": string;
+      "side": string;
+      "symbol": string;
+    };
+    "OperationalFreshnessView": {
+      "detail": string;
+      "label": string;
+      "maximum_age_seconds": number;
+      "observed_at": (string) | (null);
+      "source_id": string;
+      "status": components["schemas"]["FreshnessStatus"];
+    };
+    "OperationalOrderView": {
+      "client_order_id": string;
+      "filled_quantity": string;
+      "intent_id": string;
+      "order_id": string;
+      "quantity": string;
+      "risk_decision_id": string;
+      "side": string;
+      "status": string;
+      "submitted_at": string;
+      "symbol": string;
+    };
+    "OperationalPositionView": {
+      "average_cost": string;
+      "instrument_id": string;
+      "market_price": string;
+      "market_value": string;
+      "quantity": string;
+      "symbol": string;
+    };
+    "OperationalReconciliationView": {
+      "detail": string;
+      "differences": Array<components["schemas"]["ReconciliationDifferenceView"]>;
+      "observed_at": (string) | (null);
+      "status": components["schemas"]["ReconciliationStatus"];
+    };
+    "OperationalRiskDecisionView": {
+      "decision_id": string;
+      "evaluated_at": string;
+      "expires_at": string;
+      "policy_version": string;
+      "rules": Array<components["schemas"]["RiskRuleObservationView"]>;
+      "status": string;
+    };
+    "OperationsCoordinatorStatus": "active" | "absent" | "expired" | "unknown";
+    "OperationsCoordinatorView": {
+      "fencing_generation": (number) | (null);
+      "lease_expires_at": (string) | (null);
+      "owner_id": (string) | (null);
+      "status": components["schemas"]["OperationsCoordinatorStatus"];
+    };
+    "OperationsDashboardSnapshot": {
+      "account": components["schemas"]["OperationalAccountView"];
+      "alerts": Array<components["schemas"]["OperationalAlertView"]>;
+      "as_of": string;
+      "control": components["schemas"]["OperationalControlView"];
+      "coordinator": components["schemas"]["CoordinatorOwnershipView"];
+      "deployment": components["schemas"]["StrategyDeploymentView"];
+      "fills": Array<components["schemas"]["OperationalFillView"]>;
+      "freshness": Array<components["schemas"]["OperationalFreshnessView"]>;
+      "ledger": components["schemas"]["LedgerIntegrityView"];
+      "orders": Array<components["schemas"]["OperationalOrderView"]>;
+      "positions": Array<components["schemas"]["OperationalPositionView"]>;
+      "read_only": boolean;
+      "reconciliation": components["schemas"]["OperationalReconciliationView"];
+      "reservations": Array<components["schemas"]["RiskReservationView"]>;
+      "risk_decisions": Array<components["schemas"]["OperationalRiskDecisionView"]>;
+      "schema_version": string;
+    };
+    "OperationsEnvironmentView": {
+      "account_id": string;
+      "loopback_only": boolean;
+      "mode": components["schemas"]["EnvironmentMode"];
+      "name": string;
+    };
+    "OperationsOverviewResponse": {
+      "active_alerts": Array<components["schemas"]["ActiveCriticalAlertView"]>;
+      "as_of": string;
+      "control": (components["schemas"]["OperationalControlTransitionView"]) | (null);
+      "control_history": Array<components["schemas"]["OperationalControlTransitionView"]>;
+      "coordinator": components["schemas"]["OperationsCoordinatorView"];
+      "current_risk_assessment": (components["schemas"]["AdvancedRiskAssessmentView"]) | (null);
+      "current_risk_assignment": (components["schemas"]["AdvancedRiskAssignmentView"]) | (null);
+      "environment": components["schemas"]["OperationsEnvironmentView"];
+      "readiness": components["schemas"]["OperationsReadinessView"];
+    };
+    "OperationsReadinessView": {
+      "as_of": string;
+      "reasons": Array<string>;
+      "status": components["schemas"]["ReadinessStatus"];
+    };
     "OrderIntentView": {
       "created_at": string;
       "decision_event_id": string;
@@ -610,6 +816,13 @@ export interface components {
       "status": components["schemas"]["ReadinessStatus"];
     };
     "ReadinessStatus": "ready" | "not_ready" | "reconciling" | "halted" | "unknown";
+    "ReconciliationDifferenceView": {
+      "broker_value": string;
+      "disposition": string;
+      "field": string;
+      "local_value": string;
+    };
+    "ReconciliationStatus": "clean" | "differences" | "unavailable";
     "RiskDecisionView": {
       "decision_id": string;
       "evaluated_at": string;
@@ -622,6 +835,20 @@ export interface components {
       "reserved_cash": string;
       "rules": Array<components["schemas"]["RiskRuleView"]>;
       "status": components["schemas"]["DecisionStatus"];
+    };
+    "RiskReservationView": {
+      "amount": string;
+      "currency": string;
+      "decision_id": string;
+      "expires_at": string;
+      "intent_id": string;
+      "state": string;
+    };
+    "RiskRuleObservationView": {
+      "limit": string;
+      "observed": string;
+      "passed": boolean;
+      "rule": string;
     };
     "RiskRuleView": {
       "limit": string;
@@ -653,6 +880,15 @@ export interface components {
       "strategy_id": string;
       "strategy_version": string;
       "strategy_version_id": components["schemas"]["Sha256Text"];
+    };
+    "StrategyDeploymentView": {
+      "deployment_id": string;
+      "mode": string;
+      "state": string;
+      "strategy_configuration_sha256": string;
+      "strategy_id": string;
+      "strategy_version": string;
+      "updated_at": string;
     };
     "TargetPortfolioView": {
       "as_of": string;
@@ -744,6 +980,109 @@ export interface paths {
         "200": {
           content: {
             "application/json": components["schemas"]["DataQualityResponse"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/operations/accounts/{account_id}": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["OperationsOverviewResponse"];
+          }
+        }
+        "401": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "403": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+        "503": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/operations/accounts/{account_id}/control/{action}": {
+    post: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["OperationalControlMutationResponse"];
+          }
+        }
+        "400": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "401": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "403": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "409": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+        "503": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/operations/dashboard": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["OperationsDashboardSnapshot"];
+          }
+        }
+        "401": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "403": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+        "503": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
           }
         }
       }

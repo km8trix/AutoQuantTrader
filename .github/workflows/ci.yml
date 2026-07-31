@@ -17,7 +17,7 @@ jobs:
   backend:
     name: Backend quality and tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     env:
       AQT_ENVIRONMENT: local
       AQT_LOG_LEVEL: INFO
@@ -79,7 +79,14 @@ jobs:
       - name: Exercise Phase 1A ingestion and trader fail-closed diagnostic
         run: |
           uv run autoquant-worker --once
+          set +e
           uv run autoquant-trader --once
+          trader_status=$?
+          set -e
+          if [ "${trader_status}" -ne 2 ]; then
+            echo "Expected autoquant-trader to exit 2; got ${trader_status}" >&2
+            exit 1
+          fi
 
       - name: Test
         run: uv run pytest
@@ -123,7 +130,7 @@ jobs:
         run: pnpm build
 
   containers:
-    name: Development container definitions
+    name: Container definitions and paper admission
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs:
@@ -138,3 +145,16 @@ jobs:
 
       - name: Build development images
         run: docker compose -f infra/compose/compose.yaml build migrate web
+
+      - name: Build production paper-preflight image
+        run: >-
+          docker build
+          --target production
+          --file infra/docker/api.Dockerfile
+          --tag autoquanttrader-runtime:paper-preflight-ci
+          .
+
+      - name: Verify production image fails closed
+        run: >-
+          python scripts/verify_paper_preflight_image.py
+          autoquanttrader-runtime:paper-preflight-ci

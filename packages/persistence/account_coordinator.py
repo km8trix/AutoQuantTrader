@@ -571,6 +571,12 @@ class SqlAccountCoordinator:
     def account_id(self) -> str:
         return self._account_id
 
+    @property
+    def runtime_store_identity(self) -> int:
+        """Identify the SQL engine for process-local composition checks."""
+
+        return id(self._authority._engine)
+
     def _trusted_now(self) -> datetime:
         instant = self._authority.clock.now()
         if not isinstance(instant, datetime):
@@ -883,6 +889,72 @@ class SqlAccountCoordinator:
                 raise AccountCoordinatorError("account acquisition produced no lease")
             return acquired
 
+    def acquire_if_inactive_generation(
+        self,
+        owner_id: str,
+        *,
+        expected_last_fencing_generation: int,
+    ) -> AccountLease:
+        """Acquire only from one exact, durably inactive generation."""
+
+        if type(owner_id) is not str or not owner_id or owner_id != owner_id.strip():
+            raise AccountCoordinatorError("coordinator owner ID must be non-empty and trimmed")
+        if (
+            type(expected_last_fencing_generation) is not int
+            or expected_last_fencing_generation < 0
+        ):
+            raise AccountCoordinatorError(
+                "expected last fencing generation must be a non-negative exact integer"
+            )
+        with self._state.lock:
+            self._require_no_effect_transition()
+            now = self._trusted_now()
+            with _write_transaction(self._authority._engine) as connection:
+                head = self._head(connection, lock=True)
+                if head is None:
+                    raise AccountLeaseConflict(
+                        "account inactive generation does not match expected checkpoint"
+                    )
+                current = self._current_from_head(connection, head)
+                if (
+                    current is not None
+                    or head.last_fencing_generation != expected_last_fencing_generation
+                ):
+                    raise AccountLeaseConflict(
+                        "account inactive generation does not match expected checkpoint"
+                    )
+                if now < head.updated_at:
+                    raise AccountCoordinatorError("coordinator clock cannot regress")
+                generation = expected_last_fencing_generation + 1
+                lease = AccountLease(
+                    account_id=self.account_id,
+                    owner_id=owner_id,
+                    lease_id=canonical_id(
+                        "account-coordinator-lease",
+                        self.account_id,
+                        generation,
+                        owner_id,
+                        now,
+                        self._authority.policy.semantic_sha256,
+                    ),
+                    fencing_generation=generation,
+                    revision_number=1,
+                    previous_lease_sha256=None,
+                    acquired_at=now,
+                    heartbeat_at=now,
+                    expires_at=now + self._authority.policy.lease_ttl,
+                    policy_sha256=self._authority.policy.semantic_sha256,
+                )
+                acquired = self._insert_lease(connection, lease)
+                self._set_head(
+                    connection,
+                    head,
+                    last_generation=generation,
+                    current_lease=acquired,
+                    updated_at=now,
+                )
+            return acquired
+
     def current(self) -> AccountLease | None:
         with self._state.lock:
             connection = self._state.effect_connection
@@ -971,6 +1043,21 @@ class SqlAccountCoordinator:
         durable observation head.
         """
 
+        return self._revalidate_in_transaction(
+            connection,
+            fence,
+            checked_at=checked_at,
+            trusted_not_before=None,
+        )
+
+    def _revalidate_in_transaction(
+        self,
+        connection: Connection,
+        fence: AccountFence,
+        *,
+        checked_at: datetime,
+        trusted_not_before: datetime | None,
+    ) -> AccountFenceReceipt:
         if not isinstance(connection, Connection) or not connection.in_transaction():
             raise AccountCoordinatorError(
                 "transactional fence validation requires an active SQLAlchemy transaction"
@@ -992,6 +1079,10 @@ class SqlAccountCoordinator:
         if head is None:
             raise AccountLeaseOwnershipLost("account fence is no longer current")
         trusted_now = self._trusted_now()
+        if trusted_not_before is not None and trusted_now < trusted_not_before:
+            raise AccountCoordinatorError(
+                "coordinator clock cannot regress during commit validation"
+            )
         if trusted_now < head.updated_at:
             raise AccountCoordinatorError("coordinator clock cannot regress")
         if checked_at < head.updated_at:
@@ -1007,6 +1098,21 @@ class SqlAccountCoordinator:
         self._receipt(fence, current, trusted_now)
         self._observe(connection, head, trusted_now)
         return self._receipt(fence, current, checked_at)
+
+    def revalidate_for_commit_in_transaction(
+        self,
+        connection: Connection,
+        fence: AccountFence,
+    ) -> AccountFenceReceipt:
+        """Return a coordinator-clock receipt for a caller's durable commit."""
+
+        checked_at = self._trusted_now()
+        return self._revalidate_in_transaction(
+            connection,
+            fence,
+            checked_at=checked_at,
+            trusted_not_before=checked_at,
+        )
 
     def revalidate(self, fence: AccountFence) -> AccountFenceReceipt:
         with self._state.lock:

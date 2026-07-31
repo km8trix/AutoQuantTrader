@@ -47,11 +47,161 @@ translation for the narrow v1 subset. Phase 4B adds bounded offline decoding of
 a versioned local wire profile for synthetic client-order lookup responses,
 including an explicit inconclusive 404 meaning. Phase 4C adds a durable
 provider-neutral raw-delivery journal and Alpaca persist-then-decode wrapper.
-None of these slices has credentials, network transport, broker reads/streams,
-normalized facts, reconciliation, or dispatch authority. The trader remains
-`not_ready`, Phase 4's exit gate is open, and no network-capable broker or
-production market-data adapter is enabled. Phase 3's external gates remain open
-as well.
+Phase 4D adds durable account-local request-budget permits with a conservative
+rolling window and protected recovery/control capacity. Phase 4E adds strict
+offline account and exact candidate-asset observations, routed through the
+raw-first journal. Phase 4F cross-binds the existing pending-attempt, session,
+capacity, fence, account/asset, request, and budget evidence into a pure
+dispatch-preflight assessment while enumerating the unresolved runtime gates.
+Phase 4G adds one bounded authenticated `GET /v2/account` runtime and a
+durable short-lived local-alias-to-pinned-provider-UUID binding. It resolves
+paper credential material ephemerally, reauthenticates a reconciliation-tier
+permit, validates the same stable fence around strict transport, and persists
+the response before decoding. Phase 4H adds one exact authenticated
+fixed-candidate asset read, rooted in that fresh terminal account binding and
+an independent provider-asset UUID pin, and persists a short-lived
+account/instrument binding. Phase 4I adds one authenticated raw-first
+client-order-ID lookup bound to an exact current UNKNOWN attempt, the current
+recovery fence and terminal provider-account identity anchor, and an
+independent provider-asset UUID comparison for a 200 response. A null or
+different canonical UUID remains a typed reconciliation blocker. The lookup
+retains historical observation evidence, requires neither a current account
+status window nor current asset tradability, and cannot resolve or resubmit
+the attempt. Phase 4J durably schedules bounded one-shot UNKNOWN lookups under
+the current recovery fence without changing that state. Phase 4K
+reauthenticates and re-decodes an exact Phase 4I/raw-ingress source into a
+predecessor-linked normalized historical reconciliation-evidence fact, with
+explicit candidate, quarantine, and inconclusive dispositions. It remains
+non-applying and is not a stream/snapshot inbox. Phase 4L derives a
+versioned source-scoped historical observation and normalized inbox request
+from each exact Phase 4K fact. Durable account-local source links and explicit
+fixed-policy non-application receipts account for withheld, quarantined, and
+inconclusive sources without claiming provider revision, execution, correction,
+or cross-channel deduplication identity. Phase 4M adds a pure, bounded,
+raw-first descending order-page chain: each page derives its exact cursor and
+reconciliation demand from the preceding page, but a short page proves only
+cursor exhaustion and never snapshot isolation or convergence. Phase 4N adds a
+pure two-capture value comparison for distinct, strictly ordered Phase 4M
+sources. It reports page-boundary-independent added, removed, and changed order
+IDs, but safety truncation remains incomplete and even an exact separated match
+remains unqualified with `converged=false`. Phase 4O adds an authenticated,
+durable one-page-at-a-time order traversal that prepares the exact next page
+before permit issuance, persists raw bytes before qualification, and commits a
+contiguous prefix under the account fence. It is not a deployed traversal
+supervisor and cannot claim snapshot isolation or convergence. Phase 4P
+reloads and authenticates two exact terminal Phase 4O prefixes, recomputes the
+Phase 4N result, and persists a predecessor-linked comparison receipt under a
+transaction-internal fence recheck. The receipt is durable provenance, not
+convergence or application authority. Phase 4Q adds a bounded application
+supervisor that derives one action from authenticated durable Phase 4O state:
+append at most one exact page, wait without I/O for the later-start scheduling
+boundary, or invoke the idempotent Phase 4P comparison. It has no loop,
+automatic resend, or new authority. Phase 4R adds a bounded raw-first
+`GET /v2/positions` observation: exact bytes precede strict decoding, overflow
+never truncates, and neither an empty nor populated array is canonical account
+state. Phase 4S compares two such sources by a sorted exact asset-ID view after
+a two-second local receive boundary, but even equality is unqualified. Phase
+4T adds one authenticated single-use position request: a fresh durable claim
+precedes credentials and capacity, the same terminal provider-account identity
+and fence surround raw-first transport, and a distinct commit-time fence check
+precedes exact reload. Phase 4U implements that claim and receipt in two
+immutable SQL tables, treats a claim without its one-to-one receipt as stalled,
+and includes exact source reconstruction in readiness. It has no retry. Phase
+4V durably reauthenticates two exact receipts, recomputes their Phase 4S
+comparison, and appends a fenced predecessor-linked result without promoting
+equality. Phase 4W derives one restart-safe capture, wait, or comparison action
+from those single-use states and never retries a stalled claim. Phase 4X
+registers the exact position pair under the shared account lock, prevents
+cross-round member reuse, and atomically consumes each same-lease role claim
+with the unchanged Phase 4U preparation. The account-lock winner is decided
+before credentials, request capacity, or transport, without holding a
+transaction across provider I/O. Phase 4Y composes those claims through the
+unchanged Phase 4T runtime and Phase 4W selector. Pair-authenticating W/V
+source loads reject direct Phase 4U
+history, while claim-bound snapshot and coordinator adapters require the exact
+consumed preparation and lease through record/reload. One call remains bounded
+to one capture, wait, or comparison and no transaction spans provider I/O.
+Phase 4Z then advances Phase 4Q to a coherent-store version 2 contract. The
+Phase 4O source loader and one-page workflow plus the Phase 4P comparison
+repository must expose one exact positive process-local SQL-engine identity
+before source reads, clock access, or effects. That opaque identity is not
+evidence and does not close same-store ordered-pair races. Phase 4AA closes
+that pre-effect race with immutable pair membership, gap-free next-page
+claims, atomic preparation consumption, public unscoped-prepare exclusion, and
+same-lease proofs under the account lock. Revision 0024 also normalizes and
+backfills Phase 4O preparations as immutable derived facts and includes
+transition-aware readiness checks. Phase 4AB composes that exact page
+admission through the unchanged Phase 4Q/4O/4P path, authenticating the
+ordered claim/consumption history for every page and pinning the selected
+page's own lease through request and reload. Phase 4AC makes the UNKNOWN
+recovery composition restart-safe. Phases 4AD-4AI add bounded raw-first
+FILL-activity pages, an authenticated durable one-page runtime, pure and
+source-authenticated comparisons, migration 0033 comparison history, and
+one-effect restart-safe supervision. No deployed resolver, general security
+master, stream, reconciliation, order effect, or dispatch authority exists.
+The trader remains `not_ready`, Phase 4's exit gate
+is open, and no network-capable broker or production market-data adapter is
+enabled. Phase 3's external gates remain open as well. Phase 5A now provides a
+local durable operational-control contract and persistence spine. It freezes
+the five-state severity order, actor-bound exact retries, fail-closed absence,
+breaker trips, explicit drain/flatten results, and proof-bound manual re-arm
+without executing a broker action or qualifying the Phase 4 reconciliation
+evidence. Phase 5F now exposes an authenticated loopback-only operations
+boundary; `REARM` can use only injected server-authoritative exact-head proof,
+and missing authority fails unavailable. Phase 5B retains its separate
+observe-only measurement contract, while ADR 0068 freezes the owner-approved
+moderate paper-only policy. The local evaluator, persistence, source-shape, and
+additive cutover/admission implementation are locally verified through final
+dispatch reauthentication and startup integrity, with no deployed assignment
+or producer authority inferred. Phase 5C provides strict supervised strategy
+subprocesses, durable pre-run claims, restart-safe orphan recovery, and atomic
+results; every non-completed result preserves or raises control to at least
+`PAUSED` and opens a critical-alert incident. Phase 5D provides a bounded
+restart-safe provider-neutral alert worker plus uncomposed, tested PagerDuty
+Events API v2 and Twilio Messaging Service SMS adapters; its only local
+same-store failure-control composition atomically applies fixed,
+severity-preserving `PAUSED`. Phase 5E provides local bounded OpenTelemetry
+correlation plus an uncomposed, tested Sentry Cloud OTLP/HTTP trace-exporter
+factory. Phase 5G keeps the dashboard
+snapshot observational while a
+separate capability-gated browser client can request only database-backed
+`PAUSE` or `HALT`. Phase 5H adds the pure typed local operational-drill
+evidence contract alongside the deterministic pytest fault matrix.
+External alert credentials/routes/recipients and independence probes, Sentry
+runtime composition/queryable-ingestion proof, selected strategy runtime
+composition, authoritative risk/reconciliation/broker composition, and timed
+deployment drills remain open. Phase 5 and its exit gate remain open. Amended
+ADR 0088 selects a supervised local fail-closed paper preflight topology: one
+unbound exact-image verification plus a separate host-side database/Sentry
+check using the owner's Mac CPU/RAM, a Supabase Free runtime database, one
+intended but currently unbound Alpaca paper account, the pinned no-exposure
+artifact, and Sentry diagnostic configuration. Hosted or unattended compute,
+PagerDuty, Twilio, paid Supabase capacity, and an external stale-heartbeat
+watchdog are deferred. The profile keeps the operations API/browser nonpublic,
+configures a non-authorizing `PAUSED` policy, rejects live credentials and
+automatic re-arm, and separates smoke-preflight readiness from Phase 5
+activation readiness. It creates no control state and authenticates no
+account-bound durable head; its aggregate read-only safety scan rejects any
+`RUNNING` head. Without external notifications or an independent watchdog,
+every check must remain directly supervised and cannot qualify as unattended
+deployment evidence. The production container stage pins its base-image
+digests, runs as UID/GID 10001 with root-owned strategy inputs, has no inbound
+port, defaults to `paper`, and exits nonzero while admission sources remain
+unbound. The local workflow resolves its exact inspected `sha256:` image ID
+instead of treating a mutable tag as immutable; CI builds and executes the
+fail-closed container contract. The v2 typed assessment freezes
+owner-supervised local compute, Supabase Free, Sentry, and deferred external
+alerts. A separate host-side credential-aware preflight validates the
+owner-only database/test/Sentry bindings, exact migrated schema, inspected
+image ID, artifact pins, and aggregate absence of `RUNNING` control heads. It
+neither executes a credential-bound image nor authenticates the intended
+account or any account-specific control head. Local supervision and deferred
+alerts remain permanent activation blockers; fabricated route evidence cannot
+remove them. Image, database, Sentry configuration, and offline artifact checks
+are preflight evidence only. The durable strategy claim authorizer requires an
+authenticated account-bound `RUNNING` head; this profile supplies only the
+configured `PAUSED` policy plus an unbound aggregate safety observation, so the
+durable no-exposure invocation is unrun and Phase 5 remains open.
 
 ### Non-goals for v1
 
@@ -122,7 +272,7 @@ asset class is a better foundation than shallow support for many markets.
 | Frontend | React + strict TypeScript + Vite | Static desktop-browser SPA; avoids native packaging and an unnecessary SSR runtime |
 | UI libraries | React Router, TanStack Query, MUI Community, ECharts | Routing, remote-state synchronization, accessible controls/grids, and analytical charts |
 | Browser auth | Auth0 OIDC with server-side tokens/session cookie | Keeps identity tokens and broker/vendor secrets out of browser storage |
-| Observability | OpenTelemetry, Prometheus, Grafana, structured JSON logs | Correlated traces, metrics, logs, and alerts |
+| Observability | OpenTelemetry with Sentry for the paper diagnostic profile; structured JSON logs; Prometheus/Grafana deferred | Correlated diagnostics with a selected paper backend while PostgreSQL remains authoritative |
 | Packaging | `uv`, Ruff, mypy/pyright, pytest | Fast deterministic environments and strict automated checks |
 | Deployment | Docker Compose, then managed PostgreSQL and containers | Local parity with a modest production footprint |
 | Secrets | `.env` only for local development; cloud secret manager elsewhere | Keeps credentials out of code, images, logs, and database rows |
@@ -452,7 +602,7 @@ sessions, fractionality, tick/lot rules, client-ID constraints, lifecycle
 mappings, pagination/cursors, stream-resume behavior, and request budgets.
 Unsupported combinations are rejected locally before risk approval.
 
-### Current Phase 4A-4C offline Alpaca paper contracts
+### Current Phase 4A-4AI Alpaca paper contracts
 
 The first Phase 4 slice freezes a reviewed Alpaca paper capability contract
 without granting any broker capability. It records the paper base URL and order
@@ -552,18 +702,722 @@ execution or ledger write, `UNKNOWN` resolution, stream/snapshot
 deduplication, or reconciliation. See
 [ADR 0040](adr/0040-durable-pre-decode-broker-ingress.md).
 
-Every runtime-readiness flag remains false. The boundary resolves no credential,
-imports no network client, validates no exchange calendar/session, security
-mapping, asset tradability, or reduce-only sell, enforces no broker request
-allocation, paginates no snapshot, performs no authenticated client-ID request
-or recovery, consumes no update stream, writes no normalized inbox fact, and
-runs no reconciliation barrier. A future transport must consume a durable
-`SubmissionAttemptPreparation`,
-revalidate its intent-bound request, and require a fresh dispatch fence; the
-request description alone is never authority. Phase 4 and its exit gate remain
-open; Phase 3's captured-tape, reconnect, shadow, economic-evaluation, and
-reporting gates are independently still open. See
-[ADR 0038](adr/0038-offline-alpaca-paper-contract-boundary.md).
+Phase 4D adds a provider-neutral durable request-admission boundary. Every
+demand binds one account, provider/environment, stable idempotency key,
+operation, purpose, correlation digest, and request time. A grant burns one
+unit of rolling-window capacity before any future call, even if it expires
+unused, because a crash cannot prove whether an external request was sent.
+Exact retry returns the original permit; changed content under the same
+identity fails closed. That replay is for lookup/idempotent coordination, not
+resend authority: network paths use new-only issuance and reject an already
+admitted demand before transport. New permits form their own account-local
+predecessor chain and advance a terminal head under the existing
+account-transition lock.
+
+The versioned policy applies progressively protected ceilings to the total
+active permit count: new submissions stop first, UNKNOWN lookups retain a
+recovery reserve, and cancellation or reconciliation may use the final
+critical reserve. A permit remains counted through its expiry plus the provider
+window, inclusive at equality, so the three-second permit lifetime produces a
+63-second local accounting horizon. That covers a future request sent near
+expiry instead of aging it out at 60 seconds from allocation. The prior
+accounting horizon prevents a policy change from resetting capacity, and issue
+time cannot regress. The provider ceiling comes from the reviewed Phase 4A
+contract; smaller tier ceilings and permit lifetime are explicit local safety
+policy rather than a claim about provider reset behavior. See
+[ADR 0041](adr/0041-durable-broker-request-budget-admission.md).
+
+Phase 4E freezes deterministic, non-I/O descriptions for `GET /v2/account` and
+one `GET /v2/assets/{symbol}` request at a time. Each description binds the
+local account alias, Alpaca paper provider and environment, adapter version,
+Phase 4A capability digest, exact operation/path, and, for an asset, one exact
+instrument/symbol pair from the fixed DIA/IWM/QQQ/SPY candidate map. The
+response cannot supply or override its environment.
+
+The accepted account and asset wire profiles are intentionally narrower than
+the provider's full extensible models. Both reject duplicate JSON keys,
+non-object roots, invalid UTF-8, empty or oversized bodies, missing or unknown
+fields, wrong primitive types, malformed canonical UUIDs, malformed timestamps
+or decimal strings, and unreviewed enum values. Each successful observation
+retains the exact response bytes and digest, HTTP status, provider request ID,
+receipt time, typed values, and a semantic digest. The account/asset models and
+closed enums are pinned to Alpaca Python SDK commit
+`bd1fa9ea2fc3194914be9d47f7f5822a18a05b5f`.
+
+An account observation preserves the provider account UUID, status, currency,
+optional creation/shorting fields, and the explicit account, trading, transfer,
+and user-suspension blockers. The narrow profile validates selected balance,
+buying-power, and options-level fields, but those values remain only in the
+retained raw body: they are not canonical cash, equity, capacity, ledger, or
+risk evidence. The provider-retired PDT/day-trade fields are accepted only as
+absent/null or strictly typed legacy values and never participate in readiness.
+`ACTIVE`, `USD`, and all local blockers being false can produce a locally
+usable-candidate outcome, but not authenticated identity or runtime readiness.
+Treating the transfer-only provider flag as a blocker is intentionally
+conservative local policy.
+
+An asset observation preserves the provider asset UUID, class, exchange,
+symbol, optional name, status, tradability, and reviewed margin, shorting,
+borrowing, fractional, maintenance-margin, increment, and attribute fields. A
+locally usable candidate requires the response symbol to match the exact
+requested mapping and requires a reviewed listed-U.S. exchange, `us_equity`,
+`active`, `tradable`, and no PTP attribute requiring review. An unknown
+exchange/attribute fails decoding; a recognized ineligible exchange, recognized
+non-empty PTP attribute, mismatch, other class, inactive state, nontradable
+response, or strictly profiled 404 is explicit fail-closed evidence.
+Fractional, shorting, borrowing, margin, and increment capabilities never
+broaden the whole-share long-only Phase 4A surface.
+
+The account and asset ingress wrappers commit their exact bytes and paper
+transport provenance through Phase 4C before typed decoding. A decode failure
+therefore remains durable. A successful wrapper then cross-binds every receipt
+and observation field. Checked-in examples are documentation-derived or
+explicitly unqualified synthetic inputs, not authenticated paper-account
+captures, provider-account bindings, current observations, or durable
+security-master facts. Phase 4E adds no normalized provider-fact schema or
+migration because broader snapshot/stream identities, revisions, ordering,
+quarantine, and application receipts remain unresolved. See
+[ADR 0042](adr/0042-offline-alpaca-account-asset-observations.md).
+
+Phase 4F defines a pure Alpaca paper dispatch-preflight assessment rather than
+a dispatch capability. It re-reduces one exact submission attempt and the
+supplied complete parent-attempt snapshot, binds the intent-bound Phase 4A
+submission description, and verifies the child authorization, reservation,
+session digest, supplied active-capacity projection, account identity, and
+same-stable-fence receipt. It also binds the Phase 4E raw-first account and
+asset observations and the exact Phase 4D Alpaca budget policy, submission
+demand, and permit. The submission-demand correlation is derived from the
+preparation and submission-description digests; a caller cannot substitute an
+arbitrary correlation or purpose.
+
+Immutable source conflicts are rejected. Expected fail-closed conditions are
+retained as an ordered closed finding set, including a non-pending attempt,
+parent `UNKNOWN`, expired risk or intent evidence, a closed session, missing,
+frozen, or partially consumed child capacity, an unfresh permit, a locally
+blocked account or asset response, and an unproved reduce-only sell. The
+assessment digest covers every source digest, its explicit UTC instant, the
+findings, and the frozen Phase 4A runtime-gate snapshot.
+
+The assessment cannot prove that its pure parent-attempt or capacity snapshots
+are complete and current durable state. A raw account/asset response remains
+unauthenticated and freshness-unqualified, and a typed permit is not a durable
+freshness receipt. Runtime credential/account/security binding, calendar and
+quote evidence, reconciliation and control state, and a composite SQL
+transaction that rechecks the fence, reservation, parent barrier, permit, and
+`PENDING` head immediately before the effect remain future work. Phase 4F
+therefore performs no persistence or lifecycle transition and leaves
+mark-in-flight, coordinator-dispatch, transport, and every trading-effect
+authority false. See
+[ADR 0043](adr/0043-offline-alpaca-dispatch-preflight-evidence-binder.md).
+
+Phase 4G introduces a separate, tightly restricted runtime for one authenticated
+Alpaca paper `GET /v2/account`. Its nonsecret credential reference binds the
+local account alias to an operator-pinned canonical provider UUID, canonical
+paper-scoped secret reference, immutable secret version, and current capability
+digest. An injected trusted resolver returns an opaque envelope consumed only
+by the exact account-observation boundary and a secret-free 30-second
+resolution receipt. Credential material, sessions, headers, standalone
+resolution, and the concrete transport remain internal rather than exports of
+the pure broker contract package. Credential and header representations are
+redacted, copying and serialization are prohibited, resolver/transport
+exceptions are sanitized, and every exit path explicitly zeros the stored
+bytes.
+
+The account demand and correlation are derived rather than supplied. It uses
+the fixed Phase 4D policy and protected `reconciliation` purpose. The durable
+budget repository issues the permit and reauthenticates its exact current SQL
+fact, policy, and demand to produce a freshness receipt before transport. This
+runtime uses new-only issuance, so an exact admitted demand cannot send a
+second provider request under the same debit. The runtime also revalidates the
+same stable account fence before and after the request. The credential session,
+three-second permit, and pre-request fence must be current at request start and
+response completion; a late bounded response can be retained but cannot bind.
+
+The concrete transport has exactly one method and URL. It verifies TLS, follows
+no redirect, inherits no ambient proxy, requests identity content coding, and
+applies two seconds independently to HTTPX connect, pool, read, and write
+inactivity waits; this is not an end-to-end deadline. Once the exact transport
+completes a raw entity body within the journal's 1 MiB limit and trusted
+receive/record times are available, representable metadata and exact
+`iter_raw()` bytes are committed through Phase 4C before the strict Phase 4E
+decoder runs. Invalid optional metadata becomes absent and cannot qualify; HTTP
+framing is not retained and content coding is not decoded. Thus HTTP failures,
+a missing or over-bound request ID, unexpected media type or coding, malformed
+or drifted bytes, a locally blocked account, or an observed UUID different
+from the operator pin create no binding while leaving bounded raw evidence
+inspectable. A body-limit, pre-response, clock, or recorder failure cannot
+claim a raw receipt and does not refund its consumed permit.
+
+A successful response produces a proof across the credential resolution,
+budget permit and freshness receipt, both fence receipts, transport
+request/response, raw ingress receipt, and usable account observation.
+`phase4_alpaca_paper_account_bindings` stores a scalar, secret-free,
+predecessor-linked account-local chain and
+`phase4_alpaca_paper_account_binding_heads` stores its terminal anchor. Both
+advance under the shared account-capacity lock. Foreign keys bind the exact
+permit and raw receipt; reads and startup integrity authenticate those source
+journals, the complete chain, the terminal head, and an invariant provider UUID
+pin. A binding lasts at most five seconds and no longer than its persisted
+post-request fence expiry; domain readback and SQL constraints enforce both
+bounds.
+
+Phase 4G defines the resolver port but deploys no concrete secret-manager
+resolver and does not wire this runtime into an API, worker, trader, or startup
+path. Consequently the global capability matrix stays false even though one
+particular receipt-scoped binding can prove credential resolution and
+authenticated account identity. Account balances remain noncanonical.
+Exchange calendar/session, current quote and collar, positions and reduce-only
+proof, paginated snapshots, client-ID recovery, streams, normalized facts,
+reconciliation, order effects, and paper startup remain absent. See
+[ADR 0044](adr/0044-authenticated-alpaca-paper-account-binding.md).
+
+Phase 4H adds a second exact authenticated read for one fixed-candidate
+`GET /v2/assets/{symbol}`. A secret-free security reference cross-binds the
+Phase 4G credential reference, local instrument and symbol, current capability
+digest, and an independently operator/review-pinned provider asset UUID. The
+runtime will not learn this identity from a response. Its derived
+`observe_asset` demand consumes protected reconciliation capacity through
+new-only durable issuance. Immediately before transport and again after raw
+persistence and the post-request fence check, the account-binding repository
+reauthenticates the supplied Phase 4G fact as the current terminal head,
+including its exact durable sources and half-open freshness window.
+
+The restricted asset transport preserves the Phase 4G TLS, no-redirect,
+no-proxy, identity-coding, raw-entity, bounded-body, and per-I/O inactivity
+contracts. Completed raw bytes and representable metadata enter the Phase 4C
+journal before Phase 4E decoding. Only an HTTP 200 JSON response with a request
+ID, exact pinned UUID, exact fixed symbol, `us_equity`, reviewed listed-U.S.
+exchange, `active`, `tradable`, and no PTP/review attribute can qualify. A 404,
+metadata failure, malformed or drifted body, ineligible state, late response,
+or UUID mismatch remains raw evidence and creates no security binding.
+
+Successful facts form a predecessor-linked chain per account and instrument,
+with a terminal head advanced under the shared account-capacity lock. Exact
+foreign keys bind the canonical instrument, source account binding, request
+permit, and ingress receipt. Reads and startup reauthenticate those sources and
+the complete chain; head uniqueness rejects cross-instrument UUID or symbol
+aliasing, and provider identity rotation requires a future reviewed lifecycle
+contract. A new insert also rechecks under the shared lock that its source
+account binding is still the exact terminal Phase 4G fact, closing the gap
+between the post-request check and durable commit. A binding lasts at most five
+seconds and no longer than its source account binding or post-request fence.
+Point and history reads remain historical and non-authorizing; the timestamp
+window alone is not proof of current account or asset-head authority.
+
+This receipt-scoped proof may establish authenticated provider security
+identity and current tradability for one pinned candidate, but it is not
+published as a general market-data security master. No concrete secret resolver
+or API, worker, trader, or startup composition is added. The capability matrix,
+quote/session, position/reduce-only, reconciliation, order, dispatch, startup,
+and trading-effect gates remain false. See
+[ADR 0045](adr/0045-authenticated-alpaca-paper-asset-binding.md).
+
+Phase 4I adds one exact authenticated recovery read for
+`GET /v2/orders:by_client_order_id`. Its request is derived from the immutable
+submission preparation and Phase 4A description; the caller cannot choose a
+different client ID, method, URL, query, body, redirect, retry, or proxy. The
+durable attempt must reconstruct with its exact terminal event in `UNKNOWN`
+immediately before send and again after the raw response. The same current
+recovery fence and exact terminal Phase 4G provider-account identity anchor are
+likewise authenticated on both sides of transport. Those account checks
+produce identity-continuity receipts; they do not require the binding's earlier
+status-eligibility window to remain fresh or claim its blocker flags are
+current. A post-response source change leaves the completed raw delivery
+inspectable but prevents publication of a typed attempt-bound receipt.
+
+Recovery ownership is distinct from the original dispatch generation. A
+legitimate current owner may inspect an older UNKNOWN attempt under its own
+database-authenticated fence, without gaining permission to repeat the
+original effect. The derived demand consumes protected `unknown_lookup`
+capacity through new-only issuance. Credential material remains transient,
+owned mutable buffers are zeroed, and credential values remain absent from
+evidence, SQL, and bounded diagnostics. Transport retains the existing TLS,
+no-redirect, no-proxy, identity-coding, raw-entity, bounded-body, and per-I/O
+inactivity contracts. Completed representable responses enter Phase 4C before
+the Phase 4B decoder or any post-request source check.
+
+For a 200 Order object, the independent security reference must match the
+attempt's fixed local instrument/symbol. A matching returned `asset_id`
+preserves the Phase 4B request-economics outcome; a null or different canonical
+UUID produces the typed authenticated `SECURITY_IDENTITY_MISMATCH` outcome and
+blocks reconciliation. A wrong client order ID or other strict decoder failure
+remains raw-only. The lookup does not require a current Phase 4H asset binding
+or present tradability: those facts are irrelevant to the historical identity
+of a prior order. A 404 carries no asset identity and remains only
+`NOT_VISIBLE_INCONCLUSIVE`. Strict 200 request-economics matches, economics
+mismatches, and security-identity mismatches remain observation evidence, while
+cumulative fill fields, recognized provider status, and the UUID comparison
+cannot create canonical order or execution facts.
+
+The typed receipt and its predecessor-linked durable history authenticate the
+UNKNOWN-at-send event, account and security references, both account
+identity-continuity receipts, protected permit, both fence receipts, transport,
+raw ingress, and decoded observation. It remains a historical fact after
+commit. It cannot resolve UNKNOWN, authorize resubmission, release a
+reservation, apply a lifecycle transition, infer executions or fees, or
+establish reconciliation. There is no normalized provider fact,
+quarantine/application receipt, API/worker/trader/startup composition, or
+readiness change. See
+[ADR 0046](adr/0046-authenticated-alpaca-paper-client-order-lookup.md).
+
+Phase 4J adds the durable local scheduling boundary around that exact lookup.
+One immutable plan binds the canonical attempt, its exact `IN_FLIGHT` dispatch
+and terminal `UNKNOWN` event, stable client order ID, and Phase 4I correlation.
+The reviewed v1 policy creates slots 1, 2, 4, 8, 16, and 32 seconds after the
+durable UNKNOWN commit, dropping every slot at or beyond the original
+dispatch's 60-second uncertainty deadline. A late poll consumes only the latest
+due slot and records the earlier range as coalesced, so restart backlog never
+becomes a lookup burst.
+
+Durable one-shot tickets derive exact request-budget and raw-ingress delivery
+identities. Account-lock serialization, current-UNKNOWN authentication, and
+current recovery-fence validation prevent concurrent issuance; Phase 4I still
+performs its independent checks around transport. Crashes and raw-only failures
+burn their slot. A qualified 404 waits for a later slot, a match stops only for
+reconciliation, mismatch blocks, and deadline exhaustion stays inconclusive.
+The append-only schedule never resolves the submission or authorizes another
+effect. See
+[ADR 0047](adr/0047-durable-bounded-unknown-lookup-scheduling.md).
+
+Phase 4K adds a durable normalization boundary for that already-authenticated
+historical lookup. The workflow reloads the exact Phase 4I receipt and Phase 4C
+raw receipt, authenticates their durable positions and complete source
+bindings, and strictly re-decodes the retained response bytes instead of
+trusting duplicated scalar columns. It emits one closed disposition:
+`ORDER_OBSERVED_CANDIDATE`, `QUARANTINED_ECONOMIC_MISMATCH`,
+`QUARANTINED_SECURITY_MISMATCH`, or `INCONCLUSIVE_NOT_VISIBLE`.
+
+Found-order evidence preserves local and provider identities, request
+economics, replacement links, cumulative order values, and exact
+nanosecond-preserving provider timestamps. A local append sequence is not a
+provider sequence, nullable `updated_at` is not revision authority, and
+cumulative fill quantity or average price cannot identify an execution, fee,
+bust, or correction. Separate authenticated lookups therefore remain separate
+historical facts even when their decoded Order objects match.
+
+Facts form an immutable account-local predecessor chain with a terminal head
+under the existing serialization lock. Exact source replay is idempotent;
+changed-content reuse, missing source facts, gaps, truncation, and head rollback
+fail closed. The fact remains historical after later reconciliation and grants
+no lifecycle, UNKNOWN-resolution, reservation-release, ledger, retry,
+reconciliation-completion, readiness, or trading authority. This is not the
+general stream/snapshot inbox and creates no application receipt. See
+[ADR 0048](adr/0048-durable-normalized-lookup-reconciliation-evidence.md).
+
+Phase 4L adds a bounded source-scoped inbox-admission layer over those exact
+Phase 4K facts. A fixed identity profile derives one historical observation
+and normalized request from the source fact ID and digest while retaining the
+complete Phase 4K evidence payload/digest, lookup receipt, and raw-ingress
+lineage. Separate authenticated lookup sources remain separate observations
+even when their decoded Order values are identical; the profile explicitly
+does not claim cross-channel deduplication or a provider revision identity.
+
+The durable boundary stores the normalized request once, appends an
+account-local predecessor-linked source link under a terminal head, and records
+one fixed-policy non-application receipt. A matched candidate becomes
+`WITHHELD_UNQUALIFIED_REVISION_IDENTITY`; economic and security mismatches
+remain quarantined; and a qualified 404 remains
+`INCONCLUSIVE_NOT_VISIBLE`. The decision uses trusted UTC no earlier than the
+Phase 4K normalization, while exact retry returns the original decision rather
+than sampling a new semantic time. Missing or substituted sources, identity or
+policy drift, gaps, rollback, truncation, and orphan records fail closed.
+
+No Phase 4L object contains a canonical order event, execution, fee,
+bust/correction, reservation, ledger, UNKNOWN-resolution, reconciliation,
+readiness, or trading target. Raw decode quarantine, provider-qualified stream
+and snapshot revision identities, execution/correction identity, authoritative
+application, authenticated pagination, buffering, and convergent reconciliation remain open.
+See [ADR 0049](adr/0049-source-scoped-broker-inbox-admission.md).
+
+Phase 4M defines one pure descending order-list traversal without treating
+several requests as one provider snapshot. Its exact `GET /v2/orders` profile
+uses `status=all`, `direction=desc`, `nested=false`,
+`asset_class=us_equity`, and a page limit no greater than 500. Page one has no
+cursor. A later page can use only the final provider order ID from its exact
+full predecessor as `before_order_id`; caller time cursors, `after_order_id`,
+gaps, forks, overlaps, and receive-time or submission-order regressions fail
+closed. One capture has at most eight pages.
+
+Every page description derives a distinct Phase 4D reconciliation demand, but
+Phase 4M neither allocates nor revalidates a permit and therefore cannot
+authorize transport. Representable response metadata and bytes enter the Phase
+4C journal before the strict Phase 4B order-profile decoder runs. The typed page
+then binds its exact raw receipt, predecessor, cursor, order sequence,
+request ID, and body digest. Decoder failure leaves the raw receipt durable but
+creates no typed page.
+
+A short or empty page means `pagination_exhausted` only for this non-isolated
+cursor walk. A full eighth page means `bounded_truncation`. Neither state
+establishes provider snapshot completeness, revision order, cross-channel
+deduplication, execution/correction identity, lifecycle or UNKNOWN application,
+reconciliation completion, readiness, or any broker/trading authority.
+Authenticated restart-safe traversal, activity/position snapshots, stream
+buffering and resume, convergence, and application remain later Phase 4 work.
+See
+[ADR 0050](adr/0050-bounded-raw-first-alpaca-order-snapshot-pages.md).
+
+Phase 4N defines a pure comparison between two exact Phase 4M captures without
+promoting either source to an isolated provider snapshot. The inputs must be
+distinct ended traversals for the same account, page limit, and maximum-page
+profile. Their Phase 4C ingress receipt IDs must be disjoint, and the earlier
+capture's final ingress sequence must be less than the later capture's first
+sequence. In-progress, same-capture, cross-account, profile-drifted,
+shared-source, or reversed inputs fail closed.
+This pure structural ordering check does not authenticate either capture or its
+durable source position.
+
+The comparator flattens each capture into a page-boundary-independent sorted
+view of `(provider_order_id, order_semantic_sha256)` pairs. IDs appearing only
+later are added, IDs appearing only earlier are removed, and common IDs with
+different order digests are changed. It never interprets those value
+differences as provider revisions, lifecycle events, executions, busts, or
+corrections.
+
+Disposition precedence remains conservative. Any capture that ended at the
+Phase 4M page bound produces `bounded_traversal_incomplete`. Otherwise the
+later first observation must be at least two seconds after the earlier final
+observation; a shorter observed UTC separation produces
+`waiting_minimum_separation`. Separated differences produce
+`order_view_different`, while equal sorted views produce only
+`exact_order_view_match_unqualified`. Exactly two seconds qualifies, but UTC
+ordering is not monotonic-clock proof, and even an exact match keeps
+`monotonic_timing_qualified=false` and `converged=false`.
+
+Phase 4N adds no SQL, repository, runtime request, permit, transport, worker, or
+startup composition. Snapshot isolation, provider revision and cross-channel
+deduplication identity, authoritative application, reconciliation completion,
+readiness, broker-call authority, and trading authority remain false. See
+[ADR 0051](adr/0051-bounded-non-authorizing-order-snapshot-comparison.md).
+
+Phase 4O wraps exactly one Phase 4M page in an authenticated durable runtime.
+The SQL repository prepares an immutable capture plan and exact next-page claim
+before credential resolution or permit issuance. The claim binds the page
+number, derived cursor, traversal profile, prefix digest, and predecessor
+receipt. Callers cannot select the request or raw-delivery idempotency
+identities, and one public invocation cannot traverse more than one page.
+
+The runtime resolves paper credentials ephemerally, consumes one new Phase 4D
+reconciliation-purpose permit, reauthenticates that permit's freshness, and
+requires the same current account fence and terminal Phase 4G provider-account
+identity before and after the strict TLS/no-redirect/no-proxy request.
+Representable response metadata and exact bytes enter Phase 4C before request
+ID, media type, status, or Phase 4M decoding qualification. A typed receipt is
+committed under a transaction-internal fence recheck and cross-binds the plan,
+preparation, credential receipt, permit, fence receipts, account-identity
+receipts, transport, raw receipt, and decoded page.
+
+Committed receipts reconstruct one contiguous prefix and derive only their
+exact next page. The first durable preparation is a single-use claim; every
+overlapping or restarted prepare call fails before credentials, permit
+issuance, or transport. Any crash after preparation therefore conservatively
+stalls that capture. Cursor exhaustion remains non-isolated and bounded
+truncation remains incomplete. Phase 4O grants no snapshot completeness,
+convergence, provider revision/execution identity, lifecycle application,
+UNKNOWN resolution, reconciliation completion, readiness transition, or
+trading authority, and it adds no deployed worker or secret resolver. See
+[ADR 0052](adr/0052-authenticated-durable-alpaca-order-snapshot-pages.md).
+
+Phase 4P accepts only two terminal Phase 4O prefixes reloaded from their exact
+durable sources. It reauthenticates both complete plan/page/head lineages,
+requires the same account and traversal profile, distinct capture and raw
+sources, and strict account-local ingress order, then recomputes the Phase 4N
+comparison. Callers cannot supply pages, source positions, differences, or a
+disposition.
+
+The immutable comparison receipt binds both capture and terminal page
+identities and digests, the exact views and differences, the account-local
+predecessor, and the transaction-internal commit fence. Cursor exhaustion
+remains non-isolated, bounded truncation remains incomplete, and equality
+remains `exact_order_view_match_unqualified` with `converged=false`. Phase 4P
+performs no provider I/O and grants no revision/deduplication, application,
+reconciliation-completion, readiness, or trading authority. See
+[ADR 0053](adr/0053-durable-authenticated-order-view-comparisons.md).
+
+Phase 4Q supervises one ordered pair of those plans without storing process
+state. It reloads both authenticated durable states and chooses exactly one
+outcome: advance the earlier traversal by one page, wait without I/O until the
+later capture's fixed scheduling boundary, advance the later traversal by one
+page, or invoke Phase 4P after both have ended. After page execution it reloads
+both states and accepts only an exact one-receipt append with the unselected
+state unchanged. A stalled state never reaches the executor, and the
+two-second UTC gate requires the later prefix's authenticated first-page
+preparation, request start, and receive times to meet the same boundary before
+that prefix can be adopted. Those local scheduling facts do not qualify
+provider timing, snapshot isolation, or convergence. The supervisor adds no
+SQL, deployed worker, reconciliation completion, readiness, or trading
+authority. See
+[ADR 0054](adr/0054-bounded-restart-safe-order-view-supervision.md).
+
+Phase 4R defines one immutable non-I/O `GET /v2/positions` description and
+routes every representable response through the Phase 4C raw journal before
+strict decoding. Its reviewed USD U.S.-equity profile caps the response at 512
+objects and one mebibyte, preserves exact decimal lexemes, permits only
+`qty_available` to be absent, and rejects duplicate provider asset identities
+or profile drift without truncation. The endpoint has no provider timestamp or
+revision, so receive order remains local evidence only. An empty array does not
+prove the account flat, and no position observation is canonical, isolated,
+converged, applicable, ready, or broker-authorizing. See
+[ADR 0055](adr/0055-bounded-raw-first-alpaca-position-views.md).
+
+Phase 4S accepts only two distinct Phase 4R sources for the same account and
+frozen profile, with disjoint raw receipt identities and increasing ingress
+sequence. It sorts exact position digests by provider asset UUID, reports
+added, removed, and changed IDs, and ignores response-array/JSON formatting
+order while preserving every provider decimal lexeme as semantic evidence.
+The fixed two-second UTC receive interval is local scheduling evidence only:
+too-close views wait, changed views differ, and equal views remain
+`exact_position_view_match_unqualified` with `converged=false`. It adds no
+persistence, I/O, provider revision, canonical position, application,
+readiness, or authority. See
+[ADR 0056](adr/0056-bounded-non-authorizing-alpaca-position-view-comparison.md).
+
+Phase 4T executes one exact Phase 4R capture through an authenticated
+single-use envelope. A durable fresh preparation must be the first external
+mutation, so any stalled, completed, overlapping, or restarted use fails before
+credential resolution, permit issuance, or transport. One new reconciliation
+permit, the terminal Phase 4G provider-account identity, and the same account
+fence surround a strict raw-first `GET /v2/positions`; the recorder must
+independently revalidate that fence in its commit transaction before the exact
+receipt is reloaded. The contract has no retry, concrete SQL repository,
+snapshot-completeness or canonical-position claim, convergence, application,
+readiness, or trading authority. See
+[ADR 0057](adr/0057-authenticated-single-use-alpaca-position-views.md).
+
+Phase 4U implements the Phase 4T durable port with an immutable SQL plan-as-
+claim and an optional one-to-one receipt. Stable capture and account-key
+uniqueness, the shared account lock, exact binding/permit/raw-ingress/fence
+foreign keys, transaction-internal fence revalidation, exact reconstruction,
+whole-store readiness verification, and guarded downgrade preserve the
+single-use rule across restart. A claim without its receipt remains stalled.
+Account identity continuity keeps its causal qualification lower bound but does
+not reuse the Phase 4G account-status TTL as an upper bound. The repository adds
+no retry, canonical position, convergence, application, readiness transition,
+or trading authority. See
+[ADR 0058](adr/0058-durable-single-use-alpaca-position-snapshots.md).
+
+Phase 4V reloads two exact complete Phase 4U receipts for the same local and
+pinned provider account identities, recomputes Phase 4S without caller-supplied
+views or differences, and stores one immutable comparison. Composite source
+foreign keys, a current transaction fence, and an account-local
+predecessor/head chain make substitutions, forks, rollback, and orphans fail
+closed. Raw-ingress sequence establishes source order while the signed receive
+separation may remain negative. Exact retry returns its original historical
+receipt after fresh source and call-fence authentication. It adds no provider
+I/O, convergence, application, readiness, or trading authority. See
+[ADR 0059](adr/0059-durable-authenticated-position-view-comparisons.md).
+
+Phase 4W adds a bounded one-step supervisor over an ordered pair of Phase 4T
+plans. The Phase 4U repository exposes exact `ABSENT`, `STALLED`, and
+`COMPLETE` meanings; a stalled claim observed at invocation fails before
+effects. One invocation may execute one earlier capture, wait without I/O,
+execute one later capture, or invoke Phase 4V. All three ports must identify
+the same process-local durable store. The later capture's preparation, request,
+receive time, and raw-ingress sequence must authenticate the fixed two-second
+start boundary, and both states are reloaded to prove only the selected source
+changed. A concurrent unselected mutation is rejected after the bounded
+selected read; durable pair-wide compare-and-swap remains pending. There is no
+loop, sleep, deployed scheduler, resend, convergence claim, or new authority.
+See
+[ADR 0060](adr/0060-bounded-restart-safe-position-view-supervision.md).
+
+Phase 4X adds durable pre-effect admission for a registered position pair. Two
+immutable globally unique membership rows reserve both roles before either can
+be prepared. An earlier role claim requires both Phase 4U sources absent; a
+later role claim reauthenticates the exact complete earlier receipt and its
+two-second receive boundary. Pair-aware preparation inserts the unchanged
+Phase 4U plan and a one-to-one claim consumption atomically under the same
+account lock, while ordinary Phase 4U preparation rejects either membership.
+Claim and consumption appends receive post-readback same-lease fence checks;
+renewal or takeover before consumption stalls the claim rather than
+transferring it. There is no provider I/O, long-lived transaction, scheduler,
+comparison, convergence, readiness, or trading authority. See
+[ADR 0061](adr/0061-durable-position-pair-transition-admission.md).
+
+Phase 4Y composes the Phase 4X boundary into Phase 4W and unchanged Phase 4T.
+Every W state load and V receipt load authenticates the exact transition role
+claim and consumption before selection or comparison. A selected capture
+claims its role before entering Phase 4T; its runtime adapter consumes that
+claim as the canonical Phase 4U preparation, and its coordinator adapter
+requires the exact claim policy, lease digest, and expiry on every fence check.
+The transaction closes before credentials or provider I/O. Post-effect reload
+requires the exact consumed preparation, receipt, and unchanged peer, and a
+crash after consumption remains stalled without resend. A distinct
+non-authorizing result binds the unchanged Phase 4W/T/U evidence to its Phase
+4X history. There is no loop, scheduler, convergence, application, readiness,
+or trading authority. See
+[ADR 0062](adr/0062-pair-admitted-position-view-runtime-composition.md).
+
+Phase 4Z advances the Phase 4Q order-view supervisor to contract and policy
+version 2. Before loading either Phase 4O state, consulting the scheduling
+clock, invoking the one-page workflow, or recording/loading Phase 4P, the
+state, page, and comparison ports must expose the same exact positive
+process-local durable-store identity. The SQL repositories use the identity of
+their exact shared SQLAlchemy engine, so separate repository instances over
+that engine compose while split engines fail closed.
+
+The process-local identity itself is never included in round or result
+evidence; only the versioned coherence requirement is semantic. This is a
+dependency-wiring guard, not durable transition admission. An unscoped
+same-store Phase 4O caller can still prepare the unselected plan after the
+supervisor reads both sources, and the supervisor can detect that mutation only
+after the selected bounded request. Cross-round plan reuse, ordered-pair
+membership, and one-to-one next-page claim consumption remain pending. Phase
+4Z adds no schema, provider I/O, retry, scheduler, convergence, reconciliation,
+readiness, or trading authority. See
+[ADR 0063](adr/0063-coherent-order-view-supervision-wiring.md).
+
+Phase 4AA defines a separate, fixed order-transition policy rather than
+extending the Phase 4Q policy digest. Its application proof values reserve two
+distinct same-account Phase 4O plans in fixed earlier/later roles, bind one
+gap-free claim to each exact next page and predecessor claim, require the later
+role's exact terminal earlier source and two-second start boundary, and bind
+one immutable preparation consumption to that claim. New claim/consumption
+evidence requires a final same-lease readback fence; a historical retry must
+authenticate the current fence, and an unconsumed claim cannot move across a
+renewal or takeover.
+
+Revision 0024 projects every completed-page preparation and sole stalled-head
+preparation into one immutable normalized fact, verifies exact bidirectional
+projection equality, and makes the mutable head a pointer/cache. Each fact is
+referenced by exactly one completed page or stalled head. The same revision
+adds non-derived pair members, per-page claims, and one-to-one consumptions.
+Downgrade to 0023 may remove the derived projection only while all transition
+tables are empty; re-upgrade must reproduce the exact facts.
+
+The direct-prepare race has a binary account-lock outcome: direct Phase 4O
+preparation wins and records no transition, or pair registration wins and
+public unscoped preparation of either member fails before credentials, request
+capacity, or transport. Pair-aware consumption inserts the unchanged Phase 4O
+preparation atomically with its claim link, then closes the transaction before
+provider I/O. A pre-consumption crash can resume only under the exact current
+lease; a post-consumption crash remains Phase 4O-stalled without resend; a
+committed page permits only the next exact claim. Repository reads and startup
+verification reconstruct every member, predecessor, source, preparation,
+consumption, and fence.
+
+Phase 4AB supplies the explicit composition boundary. Before source or clock
+access, it requires the transition, Phase 4O, Phase 4P, page-workflow, and
+coordinator ports to identify one process-local durable store. Its
+pair-authenticating loader reconstructs every committed page from the exact
+role claim, consumption, unchanged preparation, receipt, and that page's own
+lease. Successive pages may use successive leases; no page may borrow another
+page's lease evidence. Every later-page claim also binds the exact
+authenticated terminal earlier prefix and source-head digest, both before any
+later-page effect and in the final proof.
+
+The one-page adapter caches the exact source state selected by Phase 4Q and
+passes its prefix and authenticated head digest into Phase 4AA admission.
+That state is compared under the account lock, so a stale selection records no
+future-page claim. A claim-bound Phase 4O adapter consumes the selected claim
+as the unchanged preparation, while a restricted coordinator adapter pins
+every request and commit revalidation to the consumption lease. The transaction
+closes before credentials, capacity, or provider I/O, and a consumed-but-
+uncommitted page remains stalled without resend.
+
+Phase 4Q remains the bounded selector: one call advances one admitted page,
+waits without I/O, or records one Phase 4P comparison. Waiting and comparison
+create no claims; comparison source loading still authenticates every page in
+both histories. A distinct proof result retains the unchanged Phase 4Q result,
+both ordered transition histories, and the optional selected
+claim/consumption. Phase 4AB grants no convergence, reconciliation readiness,
+or trading authority. See
+[ADR 0064](adr/0064-durable-order-pair-page-transition-admission.md) and
+[ADR 0065](adr/0065-pair-admitted-order-view-runtime-composition.md).
+
+Phase 4AC closes the process-level restart gap between the existing UNKNOWN
+recovery boundaries. One bounded invocation first authenticates the Phase 4J
+dispatch prefix, attaches any Phase 4I receipt already committed under the
+ticket's deterministic raw-ingress identity, and accounts every attached
+receipt through idempotent Phase 4K normalization and Phase 4L
+non-application. Only then may the unchanged Phase 4J workflow evaluate and
+execute at most one new scheduled lookup. A final bounded pass repairs a
+receipt committed concurrently or by that step. All schedule, executor,
+lookup, attempt, ingress, reconciliation, and inbox ports must expose the same
+positive process-local SQL-store identity before any read, clock, credential,
+or effect. The returned ordered J/I/K/L chains remain non-authorizing; they do
+not resolve UNKNOWN, apply broker facts, release reservations, or establish
+convergence. See
+[ADR 0069](adr/0069-restart-safe-unknown-recovery-composition.md).
+
+Phase 4AD implements the local raw-first FILL-activity page boundary. Its exact
+Trading API request uses `GET /v2/account/activities`,
+`activity_types=FILL`, `direction=asc`, a page size from 1 through 100, and the
+prior full page's exact final activity ID as the next `page_token`. One capture
+is bounded to eight pages, 800 items, one mebibyte per body, and eight
+mebibytes in aggregate. Each page derives distinct reconciliation demand and
+must commit its exact Phase 4C raw ingress before strict UTF-8, duplicate-key,
+schema, type, timestamp, decimal, order, or overlap validation.
+
+The typed local profile retains exact activity/order IDs plus timestamp and
+decimal lexemes. Activity IDs cannot repeat within or across pages, the prior
+token cannot recur in the next page, and chronological instants cannot regress;
+IDs are not treated as clocks. A short page emits explicit pagination-terminal
+evidence for that walk, while a full page at the configured page or item bound
+emits bounded-truncation evidence. Neither is a provider snapshot. The bounded
+models, decoder, chain validator, and fixture tests alone grant no canonical
+execution/revision, stream deduplication, fact application, reconciliation
+completion, readiness, or trading authority. See
+[ADR 0070](adr/0070-bounded-raw-first-alpaca-account-activity-pages.md).
+
+Phase 4AE advances exactly one Phase 4AD page through authenticated
+credentials, purpose-matched request admission, restricted raw-first transport,
+and single-use durable preparation under one stable account fence. Migration
+0029 retains authenticated plans, preparations, receipts, and traversal heads;
+an ambiguous prepared call is stalled after restart rather than resent. Phase
+4AF compares two supplied bounded captures without I/O or authority. Phase 4AG
+reloads and authenticates both exact Phase 4AE sources before recomputing that
+comparison. See
+[ADR 0076](adr/0076-durable-authenticated-account-activity-traversals.md).
+
+Phase 4AH and migration 0033 retain one immutable comparison receipt for each
+exact ordered Phase 4AG source pair. The repository recomputes derived values,
+reauthenticates both raw-backed sources and the current fence under the account
+lock, and advances an authenticated predecessor chain. Phase 4AI derives at
+most one page effect, one comparison append, or one explicit no-I/O wait from
+reloaded durable state. Equality and terminal traversal evidence remain
+historical and non-authorizing; they do not prove completeness, isolation,
+canonical execution/correction identity, reconciliation, or application. See
+[ADR 0083](adr/0083-durable-authenticated-account-activity-comparisons.md).
+
+Every global runtime-readiness flag remains false. A future order transport
+must consume a durably revalidated purpose-matched budget permit and
+`SubmissionAttemptPreparation`, revalidate its intent-bound request and current
+reservation under the fresh stable fence, atomically record `IN_FLIGHT`, and
+retain the exact preflight evidence. Neither the request description nor the
+offline assessment nor the account, asset, or lookup receipt is order
+authority. Phase 4 and its exit gate remain open; Phase 3's captured-tape,
+reconnect, shadow,
+economic-evaluation, and reporting gates are independently still open. See ADRs
+[0038](adr/0038-offline-alpaca-paper-contract-boundary.md) and
+[0042](adr/0042-offline-alpaca-account-asset-observations.md), and
+[0043](adr/0043-offline-alpaca-dispatch-preflight-evidence-binder.md), and
+[0044](adr/0044-authenticated-alpaca-paper-account-binding.md), and
+[0045](adr/0045-authenticated-alpaca-paper-asset-binding.md),
+[0046](adr/0046-authenticated-alpaca-paper-client-order-lookup.md), and
+[0047](adr/0047-durable-bounded-unknown-lookup-scheduling.md), and
+[0048](adr/0048-durable-normalized-lookup-reconciliation-evidence.md), and
+[0049](adr/0049-source-scoped-broker-inbox-admission.md), and
+[0050](adr/0050-bounded-raw-first-alpaca-order-snapshot-pages.md), and
+[0051](adr/0051-bounded-non-authorizing-order-snapshot-comparison.md), and
+[0052](adr/0052-authenticated-durable-alpaca-order-snapshot-pages.md), and
+[0053](adr/0053-durable-authenticated-order-view-comparisons.md),
+[0054](adr/0054-bounded-restart-safe-order-view-supervision.md), and
+[0055](adr/0055-bounded-raw-first-alpaca-position-views.md), and
+[0056](adr/0056-bounded-non-authorizing-alpaca-position-view-comparison.md), and
+[0057](adr/0057-authenticated-single-use-alpaca-position-views.md), and
+[0058](adr/0058-durable-single-use-alpaca-position-snapshots.md), and
+[0059](adr/0059-durable-authenticated-position-view-comparisons.md), and
+[0060](adr/0060-bounded-restart-safe-position-view-supervision.md), and
+[0061](adr/0061-durable-position-pair-transition-admission.md), and
+[0062](adr/0062-pair-admitted-position-view-runtime-composition.md),
+[0063](adr/0063-coherent-order-view-supervision-wiring.md), and
+[0064](adr/0064-durable-order-pair-page-transition-admission.md), and
+[0065](adr/0065-pair-admitted-order-view-runtime-composition.md), and
+[0066](adr/0066-durable-operational-control-spine.md), and
+[0069](adr/0069-restart-safe-unknown-recovery-composition.md),
+[0070](adr/0070-bounded-raw-first-alpaca-account-activity-pages.md),
+[0076](adr/0076-durable-authenticated-account-activity-traversals.md), and
+[0083](adr/0083-durable-authenticated-account-activity-comparisons.md).
 
 ### Reconciliation barrier
 
@@ -612,7 +1466,30 @@ Key tables and invariants:
 | `order_events` | Append-only broker/local transition history; deduplicated source ID |
 | `phase4_broker_ingress_heads` | Mutable account-local terminal anchor for the raw journal's last sequence and receipt digest |
 | `phase4_broker_ingress_receipts` | Exact pre-decode bytes and allowlisted versioned transport metadata; account-local idempotency, contiguous sequence, and predecessor-digest chain |
-| `inbox` | Unique provider event/execution IDs for at-least-once stream and snapshot processing |
+| `phase4_broker_request_heads` | Mutable account-local terminal anchor for the last durable request-permit sequence, digest, and issue time |
+| `phase4_broker_request_permits` | Immutable consumed-at-issuance rolling-capacity facts with policy/demand proofs, purpose ceiling, idempotency, and predecessor chain |
+| `phase4_unknown_lookup_recovery_plans` | Immutable exact-IN_FLIGHT/UNKNOWN schedule source, lookup correlation, reviewed slots, and dispatch-plus-60-second deadline |
+| `phase4_unknown_lookup_recovery_events` / `phase4_unknown_lookup_recovery_heads` | One-shot/coalesced dispatch claims, attached Phase 4I observations, deadline exhaustion, predecessor chain, and compare-and-swap terminal anchor |
+| `phase4_broker_reconciliation_facts` / `phase4_broker_reconciliation_heads` | Source-authenticated, predecessor-linked historical normalization of exact Phase 4I/raw-ingress lookup evidence; candidate, quarantine, and inconclusive dispositions remain non-applying |
+| `phase4_broker_normalized_facts` | Source-scoped Phase 4L historical observation/request retaining the exact Phase 4K fact and raw/lookup lineage; not a cross-channel provider identity |
+| `phase4_broker_inbox_source_links` / `phase4_broker_inbox_heads` | Account-local predecessor-linked ordering and terminal anchor for exact Phase 4L source admission |
+| `phase4_broker_inbox_application_receipts` | Explicit fixed-policy Phase 4L non-application decision for each normalized request |
+| `phase4_alpaca_paper_order_snapshot_plans` | Immutable Phase 4O traversal profile and capture identity prepared before credentials or request admission |
+| `phase4_alpaca_paper_order_snapshot_pages` | Contiguous authenticated one-page receipts cross-bound to Phase 4G identity, Phase 4D permit, Phase 4C raw ingress, stable fence, and Phase 4M typed page |
+| `phase4_alpaca_paper_order_snapshot_preparations` | Immutable Phase 4AA projection of every exact Phase 4O completed or stalled page preparation; forward-backfilled from source history |
+| `phase4_alpaca_paper_order_snapshot_heads` | Pointer/cache for a stalled immutable preparation, committed-prefix tip, and conservative active/exhausted/truncated/stalled state |
+| `phase4_alpaca_paper_order_view_comparisons` | Immutable Phase 4P source-authenticated Phase 4N results with exact capture, terminal-page, view, difference, fence, and predecessor proofs |
+| `phase4_alpaca_paper_order_view_comparison_heads` | Account-local terminal anchor for the tamper-evident Phase 4P comparison chain |
+| `phase4_alpaca_paper_order_transition_members` | Globally unique immutable Phase 4AA earlier/later membership for one exact ordered Phase 4O pair |
+| `phase4_alpaca_paper_order_transition_claims` | Same-lease, gap-free Phase 4AA admission of one exact next page, including exact earlier-terminal evidence for the later role |
+| `phase4_alpaca_paper_order_transition_consumptions` | One-to-one Phase 4AA claim consumption atomically bound to the unchanged immutable Phase 4O preparation |
+| `phase4_alpaca_paper_position_transition_members` | Globally unique immutable Phase 4X earlier/later plan membership for one ordered position pair |
+| `phase4_alpaca_paper_position_transition_claims` | Current-fenced immutable Phase 4X role admission, with exact prior Phase 4U source proof for the later role |
+| `phase4_alpaca_paper_position_transition_consumptions` | One-to-one same-lease claim consumption atomically bound to the unchanged Phase 4U plan preparation |
+| `phase4_alpaca_paper_account_activity_plans` / `phase4_alpaca_paper_account_activity_preparations` | Immutable Phase 4AE traversal profile and single-use next-page preparation before credentials, request admission, or transport |
+| `phase4_alpaca_paper_account_activity_pages` / `phase4_alpaca_paper_account_activity_heads` | Contiguous authenticated Phase 4AE raw-backed page receipts and conservative active/exhausted/truncated/stalled traversal heads |
+| `phase4_alpaca_paper_account_activity_comparisons` / `phase4_alpaca_paper_account_activity_comparison_heads` | Immutable Phase 4AH source-authenticated recomputed comparisons and their account-local predecessor-chain anchor |
+| `inbox` | Future provider-qualified event/execution identities for at-least-once stream and snapshot processing |
 | `fills` | Unique broker execution ID; price and quantity stored exactly |
 | `ledger_entries` | Balanced append-only cash/security/fee/dividend/split/settlement/P&L postings |
 | `positions` | Rebuildable account projection from ledger entries; never source of truth |
@@ -648,6 +1525,208 @@ terminal anchor; full-history reads use one repeatable database snapshot, and
 startup integrity streams each account's contiguous sequence and predecessor
 digests one receipt at a time. See
 [ADR 0040](adr/0040-durable-pre-decode-broker-ingress.md).
+
+The implemented Phase 4D schema adds `phase4_broker_request_heads` and
+`phase4_broker_request_permits`. Allocation serializes on the same Phase 2
+account head, samples its trusted clock, evaluates the requesting purpose
+against every permit whose expiry-plus-window horizon is still active, and
+commits one immutable consumed-capacity fact plus the advanced terminal anchor.
+The stored policy, demand, derived ceiling, and post-grant rolling count are
+authenticated on read. Startup verification replays each chain, proves its
+terminal head, and rejects a policy transition that occurred before the prior
+policy's own accounting horizon drained. See
+[ADR 0041](adr/0041-durable-broker-request-budget-admission.md).
+
+The implemented Phase 4G schema adds
+`phase4_alpaca_paper_account_bindings` and
+`phase4_alpaca_paper_account_binding_heads`. A successful authenticated account
+read appends one immutable, secret-free scalar binding and advances its
+account-local terminal head under the same Phase 2 capacity-serialization lock.
+The fact carries an operator-pinned provider UUID, nonsecret secret-reference
+version, credential-resolution digest, permit/freshness digests, pre/post fence
+digests, restricted transport digests, ingress and account-observation digests,
+trusted-time order, fixed expiry, and predecessor link. Foreign keys bind the
+exact Phase 4D permit and Phase 4C raw ingress receipt. Point reads authenticate
+the terminal position and source journals; full-history and startup checks
+replay the contiguous chain, reject a provider UUID rotation, and prove the
+terminal head. See
+[ADR 0044](adr/0044-authenticated-alpaca-paper-account-binding.md).
+
+The implemented Phase 4J schema adds
+`phase4_unknown_lookup_recovery_plans`,
+`phase4_unknown_lookup_recovery_events`, and
+`phase4_unknown_lookup_recovery_heads`. The plan has exact foreign keys to the
+canonical attempt and its IN_FLIGHT/UNKNOWN events. Account-lock and
+coordinator-fence validation serialize each new three-second one-shot claim;
+dispatch events consume the selected slot and every earlier coalesced due slot.
+Observation events bind one exact Phase 4I receipt, reconstructed request
+demand, and raw-ingress delivery identity. Exhaustion consumes the remaining
+slots without changing the submission. Reads and startup replay the complete
+event chain, source journals, and terminal head; no table is a normalized
+provider fact or UNKNOWN-resolution authority. See
+[ADR 0047](adr/0047-durable-bounded-unknown-lookup-scheduling.md).
+
+The implemented Phase 4K schema adds
+`phase4_broker_reconciliation_facts` and
+`phase4_broker_reconciliation_heads`. Each fact reauthenticates one exact
+Phase 4I/4C source, retains its complete historical observation payload, and
+joins an account-local predecessor chain under the shared serialization lock.
+Reads and startup verification reconstruct the source and reject identity,
+payload, predecessor, or head substitution. These remain reconciliation
+evidence rather than lifecycle or execution facts. See
+[ADR 0048](adr/0048-durable-normalized-lookup-reconciliation-evidence.md).
+
+The implemented Phase 4L schema adds `phase4_broker_normalized_facts`,
+`phase4_broker_inbox_source_links`, `phase4_broker_inbox_heads`, and
+`phase4_broker_inbox_application_receipts`. Normalized facts retain one frozen
+source-scoped identity and the exact Phase 4K payload/digests. Source links bind
+that request to its Phase 4K reconciliation fact and Phase 4C raw receipt while
+forming a contiguous account-local predecessor chain. The application table
+contains only an explicit non-application disposition and fixed policy proof;
+it has no reducer target. Exact retries return the original receipt, and reads
+or startup verification reject source, policy, time, chain, head, or orphan
+corruption. These tables are not the future provider-qualified general
+`inbox`. See [ADR 0049](adr/0049-source-scoped-broker-inbox-admission.md).
+
+The implemented Phase 4O schema adds
+`phase4_alpaca_paper_order_snapshot_plans`,
+`phase4_alpaca_paper_order_snapshot_pages`, and
+`phase4_alpaca_paper_order_snapshot_heads`. Preparation serializes on the
+existing Phase 2 account head and persists the exact next page before a permit
+can be issued. A committed page has exact relational bindings to its plan and
+predecessor, current Phase 4G account identity, one unique Phase 4D permit, one
+unique Phase 4C raw receipt, and pre/post/commit account-fence leases. Reads and
+startup verification rebuild the Phase 4M prefix, authenticate every source,
+and reject gaps, forks, substitutions, rollback, truncation, or orphaned rows.
+The head records conservative cursor-exhausted, bounded-truncated, or stalled
+states without claiming provider snapshot completion. See
+[ADR 0052](adr/0052-authenticated-durable-alpaca-order-snapshot-pages.md).
+
+The implemented Phase 4AA transition foundation additionally adds
+`phase4_alpaca_paper_order_snapshot_preparations`. Revision 0024 backfills one
+immutable fact from every completed page and sole stalled head, retains exact
+plan/cursor/prefix/predecessor/time columns, and verifies that no source claim
+is lost. Phase 4O reads reconstruct the canonical preparation from that row
+and whole-store integrity requires exactly one page-or-stalled-head reference.
+Downgrade safely removes only this derived projection; the original page/head
+source history remains sufficient for exact re-upgrade when the non-derived
+member, claim, and consumption tables are empty. Those tables, public-prepare
+exclusion, and transition-aware readiness are also implemented in revision
+0024. Phase 4AB adds no schema: it composes those facts through process-local
+pair-authenticating application adapters and the unchanged Phase 4O and
+Phase 4P SQL repositories. See
+[ADR 0064](adr/0064-durable-order-pair-page-transition-admission.md) and
+[ADR 0065](adr/0065-pair-admitted-order-view-runtime-composition.md).
+Phase 4AC adds no schema. It uses authenticated source indexes already present
+in the Phase 4I, 4K, and 4L tables plus a proof-constructed Phase 4J progress
+projection to resume the J/I/K/L evidence path. See
+[ADR 0069](adr/0069-restart-safe-unknown-recovery-composition.md).
+Phase 4AD itself adds no SQL schema. Its local typed FILL-activity pages bind
+the existing Phase 4C raw ingress and distinct Phase 4D reconciliation demands.
+Revision 0029 implements Phase 4AE plans, single-use preparations, raw-backed
+page receipts, and authenticated traversal heads. Revision 0033 implements
+Phase 4AH immutable comparison receipts and account-local comparison heads;
+each read and startup verification reconstructs both exact Phase 4AE sources
+and the recomputed Phase 4AG result. Phases 4AF, 4AG, and 4AI add no schema.
+See [ADR 0070](adr/0070-bounded-raw-first-alpaca-account-activity-pages.md),
+[ADR 0076](adr/0076-durable-authenticated-account-activity-traversals.md), and
+[ADR 0083](adr/0083-durable-authenticated-account-activity-comparisons.md).
+
+The implemented Phase 5A schema adds
+`phase5_operational_control_transitions`,
+`phase5_operational_control_heads`, and
+`phase5_operational_control_completions`. Revision 0025 stores each account's
+gap-free predecessor-linked commands, an authenticated current-head
+pointer/cache, and immutable operation-scoped drain/flatten results. Residual
+positions remain canonical members of the completion payload, with exact
+count/exposure projections for relational validation. Account/actor
+idempotency, severity replay, transition/state-epoch scope, distinct
+operation-attempt identity, completion opener and observation-head bindings,
+and completion readback are authenticated on ordinary reads and whole-store
+readiness. The bounded open-blocker head projection keeps accepting stronger
+commands after overflow but sets a sticky flag that blocks re-arm; immutable
+history remains complete. Missing heads remain explicit and fail closed;
+nonempty history refuses downgrade. The schema performs no broker effect and
+supplies no authoritative reconciliation or re-arm fact. See
+[ADR 0066](adr/0066-durable-operational-control-spine.md).
+
+Phase 5B deliberately does not extend the durable Phase 2 decision contract or
+the Phase 5A control policy. ADR 0067's separate observe-only contract
+describes proposed rule calculators/source schemas and structurally complete
+or explicitly incomplete causal evidence. `COMPLETE` means reproducible under
+the proposed binding, never healthy or within a limit, and those historical
+proposal artifacts remain non-authorizing.
+
+ADR 0068 separately freezes the owner-approved
+`phase5b-moderate-paper-rth-etf-v1` semantics for DIA, IWM, QQQ, and SPY.
+Revision 0026 and the local evaluator implement immutable policy registration,
+expected-head assignment history, bounded causal evidence/source membership,
+assessment history, additive batch admissions/outcomes, and the one-way
+enforcement head. This does not authenticate a deployed account assignment.
+Current point-in-time account projections still cannot invent a session
+high-water chain, close-only prices cannot invent a spread, and unqualified
+Phase 4 comparisons cannot invent canonical broker exposure, fills, rejects,
+or reconciliation.
+
+The additive enforcement transaction binds the assessment to the active
+policy assignment, observation watermark, intent batch, account fence,
+snapshot/capacity, and exact pre-transition operational head. Any greatest-
+severity `PAUSED`/`HALTED` trip binds that assessment in the same transaction.
+An admission sidecar then binds the unchanged Phase 2 v2 decision and exact
+final control head. This pre-head/assessment/trip/final-head ordering avoids a
+digest cycle and prevents a separately committed or post-hoc trip from being
+treated as atomic enforcement. Assignment requires authenticated exact-head
+compare-and-set and a quiesced cutover; post-cutover dispatch refuses any
+decision without its exact sidecar. See
+[ADR 0067](adr/0067-approval-gated-advanced-risk-evidence.md) and
+[ADR 0068](adr/0068-owner-approved-moderate-paper-risk-policy.md).
+
+Revision 0027 adds `phase5_critical_alert_incidents`,
+`phase5_critical_alert_delivery_attempts`, and
+`phase5_critical_alert_delivery_results`. Incidents are source-idempotent;
+delivery attempts form a gap-free predecessor-authenticated chain and are
+claimed before external I/O; terminal results retain only a receipt digest or
+sanitized failure code. Whole-store readiness authenticates every canonical
+payload, normalized projection, link, digest, and orphan constraint. These
+tables select no provider or recipient and grant no control or broker
+authority. See
+[ADR 0072](adr/0072-durable-critical-alert-delivery.md).
+
+Revision 0032 adds the exact composite result identity required by receipt
+foreign keys and `phase5_critical_alert_failure_control_receipts`. Each receipt
+binds one replay-authenticated terminal/unresolved escalation fact, route-plan
+digest, fixed local `PAUSED` policy and actor authority, exact pre/final control
+heads, and canonical source material. The control transition and receipt
+commit or roll back together. Operational-control persistence rejects public,
+raw-transaction, or re-arm use of any reserved actor/reason/rule/policy/key
+namespace component; only a sealed capability bound to the exact active
+transaction, receipt, command, time, and predecessor permits the atomic append.
+Startup also rejects any unreceipted reserved command. PostgreSQL downgrade
+locks the receipt and result tables before checking for nonempty history and
+destructive DDL. See
+[ADR 0085](adr/0085-atomic-critical-alert-worker-composition.md).
+
+Revision 0028 adds `phase5_strategy_supervision_results`. Each immutable row
+binds the exact strategy invocation/result, account lease and fence, pre/final
+operational-control heads, and—only for a non-completed outcome—the exact
+critical-alert incident. Success requires the control head to remain unchanged
+and forbids an alert reference. Failure requires the deterministic
+severity-preserving `PAUSED` transition and alert incident; the result,
+transition, and incident commit or roll back together. Startup verification
+reauthenticates the complete envelope. See
+[ADR 0075](adr/0075-strict-supervised-strategy-subprocess.md) and
+[ADR 0077](adr/0077-durable-strategy-supervision-composition.md).
+
+The implemented Phase 4P schema adds
+`phase4_alpaca_paper_order_view_comparisons` and
+`phase4_alpaca_paper_order_view_comparison_heads`. Each immutable comparison
+authenticates two exact terminal Phase 4O prefixes and retains the recomputed
+Phase 4N view digests, differences, disposition, source tips, commit fence, and
+account-local predecessor. Reads and startup verification reconstruct both
+sources and the chain, rejecting substitutions, forks, rollback, truncation,
+or orphaned rows. The head is a local integrity anchor and never a provider
+convergence or readiness fact. See
+[ADR 0053](adr/0053-durable-authenticated-order-view-comparisons.md).
 
 Use `Decimal`/database `NUMERIC` for broker/accounting money, price, and quantity,
 but `float64` arrays for numerical research with explicit conversion boundaries
@@ -1696,6 +2775,47 @@ have reserved broker API capacity ahead of new exposure.
 - Excessive slippage, spread, volatility, or order latency.
 - Process heartbeat failure or clock drift.
 
+### Approved Phase 5B paper envelope
+
+For the exact paper-only DIA/IWM/QQQ/SPY cash-account scope, ADR 0068 fixes
+these magnitude bands:
+
+| Rule | Hypothetical new exposure | Current/committed runtime |
+|---|---|---|
+| Session loss | Denied through control after a trip | `>2%` through `3%` pauses; `>3%` halts |
+| Session drawdown | Denied through control after a trip | `>2.5%` through `4%` pauses; `>4%` halts |
+| Instrument concentration | `>35%` rejects only that batch | `>35%` through `50%` pauses; `>50%` halts |
+| Gross/absolute-net leverage | `>1.00x` rejects only that batch | `>1.00x` through `1.10x` pauses; `>1.10x` halts |
+| Maximum absolute one-minute return over 30 returns | `>1.5%` rejects only that batch | `>1.5%` through `3%` pauses; `>3%` halts for exposed instruments |
+| Full SIP NBBO spread | `>20 bps` rejects only that batch | `>20` through `50 bps` pauses; `>50 bps` halts for exposed instruments |
+| Modeled half-spread plus distinct impact | `>25 bps` rejects only that batch | No runtime action from a hypothetical model |
+| Realized adverse arrival-mid slippage | Not applicable | Latest 20 eligible fills/30 minutes: `>15` through `30 bps` pauses; `>30 bps` halts |
+| Broker business-reject rate | Not applicable | 10-minute rate/count and 3/5-consecutive rules pause/halt as specified in ADR 0068 |
+
+Magnitude equality stays within the named limit. Time windows are left-open
+and right-closed, while source freshness fails at equality. `REJECT` is
+hypothetical-only and cannot write a control transition; runtime actions use
+the Phase 5A breaker path and never auto-resume. Worst-case exposure includes
+every unreleased approved-unsent, unknown, working, partial, and
+pending-cancel buy obligation, while pending sells do not reduce it.
+
+Loss and drawdown include fees and admitted dividend economics but neutralize
+external contributions/withdrawals. Volatility requires 31 consecutive
+complete RTH bars. Spread and arrival-mid slippage require an admitted
+consolidated SIP quote less than five seconds old; IEX or close-only data
+cannot claim NBBO. Realized slippage is arrival-notional weighted over exactly
+20 eligible fills in the trailing 30 minutes. Reject-rate evidence includes
+only definitive, locally correlated new-entry broker business outcomes; local
+risk rejects, `UNKNOWN`, `429`, `5xx`, cancel, and reconciliation activity are
+excluded.
+
+These owner-chosen numbers are neither regulatory limits nor vendor
+recommendations. They do not add margin authority, infer live execution
+quality from Alpaca paper, or loosen any existing clock/data/unknown/request/
+reconciliation budget. The exact formulas, sources, classifications, and
+atomic cutover contract are normative in
+[ADR 0068](adr/0068-owner-approved-moderate-paper-risk-policy.md).
+
 ### Kill-switch semantics
 
 Higher-severity state wins. Every transition is durable and idempotent; no state
@@ -1712,6 +2832,39 @@ auto-resumes.
 `FLATTEN` cannot promise zero when the market is closed, halted, or illiquid;
 its result reports residual exposure. The broker dashboard/manual channel is an
 independent last resort when this application or its database is unavailable.
+
+Phase 5A implements this as a local durable state spine with the exact order
+`RUNNING < PAUSED < DRAINING < FLATTENING < HALTED`. Every non-rearm command
+retains the stronger state and is still audited when it becomes a same- or
+lower-severity no-op. Exact retry is scoped by account, actor, and idempotency
+key; a changed payload conflicts. Explicit absence maps to batch-risk `HALTED`;
+unreadable or corrupt evidence raises and must deny authorization rather than
+inventing a state. `DRAINING` and `FLATTENING` preserve the existing batch-risk
+behavior by mapping to `PAUSED`.
+
+Only a manual, exact-head-bound re-arm can lower state to `RUNNING`. It requires
+authenticated human action, fresh readiness, authoritative clean
+reconciliation, disposition of every blocker, zero unknown/working/
+pending-cancel orders, and any state-specific terminal drain or zero-flatten
+result. Current Phase 4 comparisons are deliberately unqualified and cannot
+satisfy that verifier. Completion facts do not call the broker or change the
+head, and an incomplete flatten remains non-running with explicit residual
+facts. Retrying an incomplete operation requires a new explicit command and
+distinct operation-attempt identity at unchanged severity; unrelated no-op
+commands cannot reset that active attempt. See
+[ADR 0066](adr/0066-durable-operational-control-spine.md) and the
+[operational-control runbook](runbooks/operational-control.md).
+
+ADR 0073 exposes that contract only through the loopback local-operator
+authentication boundary. Every operations read or mutation requires the
+signed HTTP-only session and matching CSRF token; mutations add a bounded
+idempotency key. The browser supplies only an action and reason code. For
+`REARM`, an injected verifier—not the request—must construct fresh,
+exact-head-bound authoritative facts, and the SQL repository reauthenticates
+the proof under the shared account lock. The ordinary repository append still
+rejects raw `REARM`. Without the verifier, the command fails closed. No route
+invokes broker, cancel, drain, flatten, reconciliation, or execution adapters.
+See [ADR 0073](adr/0073-authenticated-local-operations-api.md).
 
 ## 13. Security and operational controls
 
@@ -1743,6 +2896,172 @@ universe/backtest throughput and fail CI on a material regression; optimization
 is profile-driven rather than achieved by adding services. The versioned initial
 values and tuning rules are recorded in
 [Operational budgets](OPERATIONAL_BUDGETS.md).
+
+ADR 0086 adds the first local trusted-time evidence boundary. One immutable
+sample pins a deployment-supplied source and authority digest, host, monitor
+epoch, gap-free sequence, source-evidence digest, exact UTC probe interval and
+source instant, and matching monotonic probe interval. Its signed offset is
+derived against the local UTC midpoint rather than accepted as a scalar claim.
+The fixed policy classifies absolute offset below 250 milliseconds as healthy,
+250 through 1,000 milliseconds inclusive as warning, and only a value above
+1,000 milliseconds as hard failure. The public reducer cannot accept an
+alternate policy, derived states are payload-sealed, and evaluations recompute
+their reducer semantics. Sample age must remain strictly below 30 seconds,
+while a replacement exactly 30 seconds after its predecessor preserves
+cadence. Identity changes, discontinuity, staleness, unavailability, and UTC or
+monotonic regression fail closed. A conflicting identity is never promoted to
+the retained baseline, and the application rejects a changed binding before
+source I/O, so repeated unapproved rotation cannot form a recovery chain.
+
+The in-memory reducer latches hard failure and tracks a gap-free healthy interval
+using monotonic time. A 60-second interval, including equality, produces only
+`clock_recovery_qualified` evidence; it never clears the latch, changes control,
+or authorizes arming, exposure, or re-arm. The application seam gives its
+pinned provider-neutral source port a fixed one-second monotonic deadline and
+rejects a successful probe longer than one second or with UTC/monotonic elapsed
+divergence above 250 milliseconds. Equality remains within both limits. The
+selected deployment adapter must enforce that deadline; this seam adds no
+watchdog. It also sanitizes source failure and rejects mismatched or malformed
+readings. There is no selected time source, scheduler, persistence,
+startup/readiness integration, dashboard/API projection, alert, control trip,
+final dispatch gate, or authoritative re-arm verifier. The deterministic state
+seal is tamper detection rather than trusted-head authentication, and no
+reviewed source-uncertainty bound is yet represented. Those deployed boundaries
+and the clock-drift game day remain open. See
+[ADR 0086](adr/0086-provider-neutral-trusted-time-monitor.md).
+
+ADR 0072 implements the local durable critical-alert boundary behind those
+budgets. A source-idempotent incident records only an alert code and evidence/
+correlation digests. Each external delivery is claimed before I/O in a
+gap-free, predecessor-authenticated chain and terminates with either a provider
+receipt digest or a sanitized timeout/error code. Exact restarts never resend
+an unresolved claim, and concurrent same-key requests converge on the winning
+provider-request identity even when their trusted-time samples differ.
+Confirmation must be strictly inside both the UTC and monotonic 15-/30-second
+bounds; deadline equality misses. Startup readiness reauthenticates every
+incident, claim, command digest, predecessor, and result.
+
+`PRIMARY` and `ESCALATION` are only provider-neutral route classes. Bounded
+secret-safe HTTP adapters implement PagerDuty Events API v2 and Twilio
+Messaging Service SMS calls locally, but amended ADR 0088 defers both external
+providers. Those adapters are not a route: no destination, recipient,
+credential, escalation roster, worker deployment/schedule, channel probe, or
+independence evidence is composed. The retained evidence requests no control
+state and authorizes no broker action. Strategy-supervision failures
+do atomically create their incident alongside their severity-preserving breaker
+transition; that does not prove external delivery. See
+[ADR 0072](adr/0072-durable-critical-alert-delivery.md).
+
+ADR 0078 adds a bounded history-first worker over the same facts. It scans
+active incidents in stable `(recorded_at, incident_id)` pages, authenticates an
+exact injected route plan, lazily resolves only the selected adapter, performs
+at most one provider call per incident step, and never resends an unresolved
+claim. The strict 15- and 30-second equality boundaries select escalation and
+deadline-derived total-failure evidence respectively; terminal route
+exhaustion can produce total failure earlier. Its older split policy/writer
+control path is retired and fails unavailable. See
+[ADR 0078](adr/0078-bounded-critical-alert-worker.md).
+
+ADR 0085 composes that worker with migration 0032's same-store failure-control
+repository. The complete durable alert history is reauthenticated before only
+replay-terminal failure or an unresolved escalation at its 30-second deadline
+may bind. A provider-called terminal result cannot bind in the same invocation;
+its durable replay atomically appends one fixed, severity-preserving `PAUSED`
+transition and exact source receipt. Exact and concurrent retries converge,
+stronger control states are preserved, and no broker/fence/re-arm authority is
+created. Provider bindings, recipients, credentials, channel-independence
+proof, worker deployment, and activation of the fixed policy with its exact
+actor/authority digest remain approval-gated. See
+[ADR 0085](adr/0085-atomic-critical-alert-worker-composition.md).
+
+ADR 0075 isolates one strategy invocation in a fresh process group with a
+canonical one-request/one-response protocol, fixed request/stdout/stderr/JSON/
+argv bounds, a sanitized environment, no shell, inclusive two-second warning
+and five-second kill thresholds, and complete child cleanup. A result is one
+of `completed`, `timeout`, `crash`, `protocol_error`, or
+`resource_exceeded`. ADR 0077 persists that exact result under the current
+account fence. A completed result carries no control action; every other
+outcome requests only `PAUSED`, preserves any stronger state, and atomically
+opens one critical-alert incident. It never re-arms or stops the separately
+protected order, risk, broker-event, cancel, and reconciliation loops. The
+local boundary is process isolation, not a hostile-code sandbox; strategy
+artifact approval, namespaces/containers/resource controls, runtime
+attestation, deployment, and timed fault drills remain open. See
+[ADR 0075](adr/0075-strict-supervised-strategy-subprocess.md) and
+[ADR 0077](adr/0077-durable-strategy-supervision-composition.md).
+
+ADR 0087 adds the repository-owned `no-exposure-smoke@1.0.0` artifact for this
+boundary. A canonical manifest fixes its exact source SHA-256 and
+protocol/configuration/result identities. Stable bounded verification happens
+before the launch spec is created; both reviewed digests are code-pinned. An
+isolated trusted bootstrap hashes then executes the same bounded source bytes,
+and the standard-library child emits only a batch-bound `NO_EXPOSURE`
+observation with zero proposed intents. A separate verifier requires the exact
+sealed artifact/runtime and fixed strategy identity before it produces
+non-authorizing smoke evidence. The offline operator command does not execute
+the child. No deployment/account assignment, paper/live startup, control, risk,
+dispatch, or broker authority is added. See
+[ADR 0087](adr/0087-verified-no-exposure-smoke-strategy.md).
+
+ADR 0079 closes the crash window before the subprocess effect. A durable claim
+under the exact current fence is committed before the runner is called, and
+only the newly inserted claim returns a repository/PID-bound, process-local
+one-shot permit after commit. The permit is consumed before fallible start
+authorization; authorization revalidates the current fence and a still-
+`RUNNING` control head, then issues the sealed proof required by the configured
+runner. That proof carries a second repository/PID-bound atomic use state and
+is consumed before any fallible runner preparation; concurrent or later reuse
+fails before `Popen`. The child boundary is strict at claim time plus one second. One
+pre-spawn monotonic origin bounds execution to five seconds and aggregate
+cleanup to three additional seconds; with the start window this is one fixed
+nine-second claim-to-recovery envelope, and cleanup never receives a fresh
+interval. Claim time is sampled under the account lock, and bounded
+cursor-exact scans expose due claims without invoking strategy code. An exact
+retry, restart, concurrent caller, or changed fence returns the retained
+pending claim and never reruns it. At the fixed nine-second
+recovery instant (`1+5+3`), the current fence may atomically finalize an orphan
+as one deterministic `CRASH` through ADR 0077, preserving stronger control and
+opening one source-idempotent incident. Lifecycle-aware startup rejects the
+legacy direct result writer. Claim, result, control, alert, and finalization
+histories are authenticated at readiness. Migration 0031 owns the lifecycle
+tables, migration 0032 adds atomic alert failure-control receipts, and the
+current additive schema head is migration 0033 after the later Phase 4
+account-activity comparison slice. See
+[ADR 0079](adr/0079-durable-pre-run-strategy-invocation-claims.md).
+
+ADR 0071 defines correlation names for `market_batch`, `target`, `reservation`,
+`submission_attempt`, `broker_event`, `fill`, `ledger_posting`, and
+`reconciliation`, and the local composer currently accepts the six
+authoritative fact types available together. `fill` and `reconciliation`
+remain explicit missing stages; transient or historical non-applying inputs
+are not relabeled. Spans carry only account/environment scope and opaque
+immutable fact IDs/digests. Cross-process carriers accept W3C `traceparent` and
+optional `tracestate` only; baggage is neither injected nor extracted. The
+optional asynchronous provider fixes a 2,048-span queue, 256-span batch,
+one-second schedule delay, and five-second export timeout. Telemetry remains
+non-authorizing and cannot become a second source of truth. ADR 0088 selects
+Sentry, and the local Sentry Cloud OTLP/HTTP trace-exporter factory derives its
+fixed endpoint and authentication header from a validated DSN while redacting
+that header from representations and failures, enforces paper
+service/release/environment pins, and exports only allowlisted diagnostic
+hashes and state. It strips account/fact IDs, arbitrary attributes,
+events, links, status descriptions, trace state, and caller instrumentation
+metadata. On 2026-07-29, the operator supplied a DSN outside the repository and
+observed transport acceptance for one sanitized synthetic export. That dated,
+non-durable setup observation is not checked-in or reproducible readiness
+evidence. Sampling/runtime composition, retention/access enforcement, outage
+testing, a reproducible transport receipt, and queryable-ingestion evidence
+remain composition-root work. See
+[ADR 0071](adr/0071-opentelemetry-trading-correlation.md).
+
+ADR 0084 defines a separate pure typed local operational-drill evidence
+contract for kill-state, strategy-failure, total-alert-failure, data-gap,
+broker-disconnect, and risk-trip scenarios. Inclusive deadlines, minimum
+control severity, new-exposure withholding, unavailable evidence, and
+manual-only re-arm produce deterministic `PASSED`, `FAILED`, or `UNAVAILABLE`
+results. This typed contract complements the machine-readable pytest catalog;
+neither is deployed provider, broker, telemetry, or wall-clock drill evidence.
+See [ADR 0084](adr/0084-typed-local-operational-drill-evidence.md).
 
 ## 14. API surface
 
@@ -1780,6 +3099,58 @@ configuration-bound evaluation receipt digests and counts, but never replay
 transcript contents or performance claims. There is no experiment create,
 attempt, completion, reveal, or promotion mutation route.
 
+Phase 5F adds the authenticated local operations routes:
+
+```text
+GET   /api/v1/operations/accounts/{account_id}
+POST  /api/v1/operations/accounts/{account_id}/control/{action}
+POST  /api/v1/operations/accounts/{account_id}/advanced-risk-assignment
+```
+
+The assignment route is conditional and is not registered without an injected
+approved-policy/current-fence service. Account reads and controls require the
+same signed loopback-only local-operator cookie and matching CSRF header;
+mutations also require `Idempotency-Key`. Control bodies expose only a bounded
+`reason_code`; clients cannot submit readiness, reconciliation, blocker,
+order, completion, or re-arm proof fields. `pause`, `drain`, `flatten`, and
+`halt` append durable commands without broker I/O. `rearm` invokes an injected
+server-authoritative verifier and the dedicated exact-head SQL path; without
+that verifier it is rejected. Missing query/control dependencies return a
+sanitized `503` rather than fabricated state. See
+[ADR 0073](adr/0073-authenticated-local-operations-api.md).
+
+The current authenticated durable composition intentionally narrows that
+generic server contract. It reads coordinator, operational-control,
+advanced-risk, and active-alert facts in one bounded repeatable SQL snapshot,
+and exposes only database-backed `pause` and `halt` against an already
+initialized control head on the exact same engine. It advertises those actions
+with granular bootstrap flags; the aggregate full-control flag remains false.
+It provides no drain/flatten executor, re-arm verifier, assignment authority,
+control initialization, reconciliation qualification, or broker port. See
+[ADR 0081](adr/0081-durable-local-operations-composition.md).
+
+Phase 5G adds
+`GET /api/v1/operations/dashboard`. It is a distinct GET-only, no-store
+projection whose schema declares `read_only: true`. The current composition
+uses deterministic walking-thread facts and explicitly marks coordinator,
+broker reconciliation, critical-alert, and operational-control authority
+unavailable. The route requires the signed local-operator session, matching
+CSRF header, loopback transport, and durable-persistence readiness. It has no
+mutation method and no broker port. See
+[ADR 0074](adr/0074-read-only-local-operations-dashboard.md).
+
+The browser renders that projection separately from its fail-safe command
+client. ADR 0082 permits only `pause` and `halt` when the bootstrap advertises
+the operations service plus the exact granular action flag and supplies the
+canonical session/CSRF/header contract. A bounded reason and confirmation are
+required, HALT adds typed confirmation, and a network, `5xx`, malformed, or
+mismatched success retains one exact idempotency key only for an explicit
+retry. A confirmed result clears the intent and refreshes the authoritative
+account overview. Stale or unavailable display evidence does not hide an
+advertised fail-safe command. Development fixtures cannot enable mutation, and
+the client has no drain, flatten, re-arm, assignment, initialization, or broker
+call. See [ADR 0082](adr/0082-safe-browser-pause-halt-controls.md).
+
 All mutation requests accept an idempotency key. Control commands return a
 durable command ID; asynchronous state changes are observed through the event
 stream and audit log.
@@ -1790,6 +3161,13 @@ The desktop-browser SPA uses `GET /ui/bootstrap` for immutable environment,
 identity, capability, readiness, market-clock, and stream-cursor state;
 `GET /dashboard/summary` for the overview projection; and resumable
 `GET /events/stream?after={cursor}` SSE for compact resource-version events.
+The Operations route additionally polls
+`GET /api/v1/operations/dashboard`, which is a complete GET-only snapshot with
+source-specific freshness and explicit unavailable states. The request carries
+the CSRF value paired with the signed HTTP-only local-operator session.
+Separately, the capability-gated PAUSE/HALT client reads
+`GET /api/v1/operations/accounts/{account_id}` and submits only the advertised
+action to its authenticated control route with a one-intent idempotency key.
 Lists use cursor pagination with an `as_of` timestamp. Time-series responses are
 server-downsampled to at most 2,000 rendered points, while full-resolution data
 remains a downloadable artifact. Configuration mutations require a resource
@@ -1806,6 +3184,15 @@ Navigation groups are Overview; Data; Research; Trading; Risk; Operations; and
 Settings. Strategy code remains version-controlled in the repository; the UI
 selects immutable strategy versions and edits schema-validated parameters.
 
+Phase 6B loads each implemented feature route through a distinct React lazy
+chunk behind one `aria-live` loading surface. Production builds retain separate
+data, research, operations, risk, audit, reconciliation, and settings route
+artifacts instead of placing every page in the startup graph. Placeholder-only
+trading routes stay synchronous. The shared React/MUI shell remains above
+Vite's default size advisory and still needs measured optimization; this local
+split alone is not CSP, production-session, table-virtualization,
+chart-downsampling, backend-SSE, or multi-browser end-to-end evidence.
+
 The current Research group implements Strategies and Backtests for the local
 golden fixture plus read-only Experiments inspection. It displays exact
 strategy/configuration/data/replay/model pins, launches only server-cataloged
@@ -1814,8 +3201,18 @@ and renders verified metrics, equity, trades, positions, ledger entries, and
 provenance. Experiments displays immutable family declarations, criteria,
 attempt histories, budgets, and sealed/revealed holdout state; it cannot create
 an attempt or reveal a holdout. Launch controls stay disabled when local auth or
-durable readiness is unavailable. Trading, deployment, paper, and live controls
-remain unavailable.
+durable readiness is unavailable.
+
+The current Operations group implements a read-only dashboard snapshot for
+environment identity, freshness, coordinator state, strategy/deployment,
+orders, fills, account/ledger positions, risk reservations/decisions,
+reconciliation, alerts, and control history. It keeps stale and unavailable
+sources visible and labels deterministic fixture data. A separate
+authenticated panel is rendered even when that snapshot fails; it exposes only
+granularly advertised `PAUSE` and `HALT` against the durable local command API.
+It has no drain, flatten, re-arm, assignment, initialization, deployment, or
+broker action, and fixture fallback cannot enable mutation. Paper/live browser
+control remains unavailable.
 
 TanStack Query owns remote state and React owns temporary presentation state.
 SSE carries event IDs and resource versions that invalidate queries rather than

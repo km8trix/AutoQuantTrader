@@ -12,13 +12,54 @@ interface StatusChipProps {
 }
 
 function colorForStatus(status: SemanticStatus): 'success' | 'warning' | 'error' | 'default' {
-  if (['healthy', 'ready', 'running', 'completed', 'open', 'connected'].includes(status)) {
+  if (
+    [
+      'active',
+      'approved',
+      'balanced',
+      'clean',
+      'completed',
+      'connected',
+      'current',
+      'delivered',
+      'filled',
+      'healthy',
+      'open',
+      'passed',
+      'ready',
+      'running',
+    ].includes(status)
+  ) {
     return 'success'
   }
-  if (['warning', 'reconciling', 'pending', 'closed', 'connecting', 'stale'].includes(status)) {
+  if (
+    [
+      'blocked_pending_convergence',
+      'closed',
+      'connecting',
+      'differences',
+      'paused',
+      'pending',
+      'reconciling',
+      'stale',
+      'warning',
+      'working',
+    ].includes(status)
+  ) {
     return 'warning'
   }
-  if (['critical', 'halted', 'failed', 'not_ready', 'disconnected'].includes(status)) {
+  if (
+    [
+      'critical',
+      'disconnected',
+      'expired',
+      'failed',
+      'halted',
+      'not_ready',
+      'rejected',
+      'unavailable',
+    ].includes(status)
+  ) {
     return 'error'
   }
   return 'default'

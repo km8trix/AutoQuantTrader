@@ -836,6 +836,14 @@ def _order_observation(value: Mapping[str, Any]) -> AlpacaOrderObservation:
     )
 
 
+def decode_alpaca_order_observation_object(
+    value: Mapping[str, Any],
+) -> AlpacaOrderObservation:
+    """Decode one order object using the frozen offline observation profile."""
+
+    return _order_observation(value)
+
+
 @dataclass(frozen=True, slots=True)
 class AlpacaClientOrderLookupDescription:
     """An exact non-I/O lookup bound to one prior submission description."""
@@ -1183,4 +1191,5 @@ __all__ = [
     "AlpacaProviderTimestamp",
     "create_alpaca_client_order_lookup_description",
     "decode_alpaca_client_order_lookup_response",
+    "decode_alpaca_order_observation_object",
 ]

@@ -24,6 +24,15 @@ export type UiBootstrap =
 export type DashboardSummary =
   paths['/api/v1/dashboard/summary']['get']['responses']['200']['content']['application/json']
 
+export type OperationsOverviewResponse =
+  paths['/api/v1/operations/accounts/{account_id}']['get']['responses']['200']['content']['application/json']
+
+export type OperationalControlAction = ApiSchemas['OperationalControlAction']
+export type OperationalControlCommandRequest =
+  ApiSchemas['OperationalControlCommandRequest']
+export type OperationalControlMutationResponse =
+  paths['/api/v1/operations/accounts/{account_id}/control/{action}']['post']['responses']['200']['content']['application/json']
+
 export type DataCatalogResponse = ApiSchemas['DataCatalogResponse']
 export type DataQualityResponse = ApiSchemas['DataQualityResponse']
 

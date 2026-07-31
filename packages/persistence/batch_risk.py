@@ -28,6 +28,7 @@ from packages.domain.batch_risk import (
     BatchRiskDecisionStatus,
     BatchRiskError,
     BatchRiskFactConflict,
+    BatchRiskLimits,
     BatchRiskReservation,
     VersionedBatchRiskSnapshot,
     evaluate_batch_risk_decision,
@@ -88,6 +89,7 @@ from packages.persistence.schema import (
     phase2_reservation_release_events,
     phase2_submission_attempt_events,
     phase2_submission_attempts,
+    phase5_advanced_risk_enforcement_heads,
 )
 
 PHASE2_BATCH_RISK_PERSISTENCE_VERSION = "phase2-durable-batch-risk-v3"
@@ -2397,6 +2399,195 @@ def account_observation_watermark(
     return len(sequences)
 
 
+def advanced_risk_enforcement_exists_in_transaction(
+    connection: Connection,
+    account_id: str,
+) -> bool:
+    """Fail-closed presence check used to lock out the legacy Phase 2 writer."""
+
+    if not isinstance(connection, Connection):
+        raise BatchRiskFactConflict(
+            "advanced-risk enforcement presence check requires a Connection"
+        )
+    _require_text(account_id, "advanced-risk enforcement account ID")
+    return (
+        connection.scalar(
+            sa.select(phase5_advanced_risk_enforcement_heads.c.account_id).where(
+                phase5_advanced_risk_enforcement_heads.c.account_id == account_id
+            )
+        )
+        is not None
+    )
+
+
+def load_active_capacity_in_transaction(
+    connection: Connection,
+    account_id: str,
+    *,
+    as_of: datetime,
+    observation_sequence: int,
+) -> ActiveCapacityUniverse:
+    """Authenticate the exact active-capacity universe on a caller-owned lock."""
+
+    if not isinstance(connection, Connection):
+        raise BatchRiskFactConflict("transactional active-capacity load requires a Connection")
+    _require_text(account_id, "transactional active-capacity account ID")
+    require_utc(as_of, "transactional active-capacity as_of")
+    if type(observation_sequence) is not int or observation_sequence <= 0:
+        raise BatchRiskFactConflict(
+            "transactional active-capacity observation sequence must be positive"
+        )
+    return _active_capacity_universe(
+        connection,
+        account_id,
+        as_of=as_of,
+        observation_contract=CAPACITY_OBSERVATION_CONTRACT_VERSION,
+        observation_sequence=observation_sequence,
+        reject_unresolved_corrections=True,
+    )
+
+
+def next_account_observation_sequence_in_transaction(
+    connection: Connection,
+    account_id: str,
+) -> int:
+    """Allocate the next Phase 2 observation sequence under the account lock."""
+
+    if not isinstance(connection, Connection):
+        raise BatchRiskFactConflict("transactional observation sequence requires a Connection")
+    _require_text(account_id, "transactional observation account ID")
+    return _next_account_observation_sequence(connection, account_id)
+
+
+def load_batch_risk_decision_for_batch_in_transaction(
+    connection: Connection,
+    batch: OrderIntentBatch,
+) -> BatchRiskDecision | None:
+    """Authenticate an exact existing decision for one immutable intent batch."""
+
+    if not isinstance(connection, Connection):
+        raise BatchRiskFactConflict("transactional batch-risk retry load requires a Connection")
+    if type(batch) is not OrderIntentBatch:
+        raise BatchRiskFactConflict("transactional batch-risk retry load requires an exact batch")
+    prior = _decision_for_batch(connection, batch.intent_batch_id)
+    if prior is None:
+        return None
+    decision, _row = prior
+    if decision.intent_batch_sha256 != batch.semantic_sha256:
+        raise BatchRiskFactConflict("intent batch IDs are immutable")
+    expected_members = tuple(
+        (intent.intent_id, intent_payload_hash(intent)) for intent in batch.intents
+    )
+    if _decode_batch_members(connection, decision.decision_id) != expected_members:
+        raise BatchRiskFactConflict("intent batch members conflict with durable identity evidence")
+    return decision
+
+
+def persist_batch_risk_decision_in_transaction(
+    connection: Connection,
+    *,
+    batch: OrderIntentBatch,
+    target: TargetPortfolio,
+    snapshot: VersionedBatchRiskSnapshot,
+    limits: BatchRiskLimits,
+    receipt: AccountFenceReceipt,
+    active_capacity: ActiveCapacityUniverse,
+    account_observation_sequence: int,
+    evaluated_at: datetime,
+) -> BatchRiskDecision:
+    """Persist the unchanged Phase 2 v2 decision and holds in this transaction."""
+
+    if not isinstance(connection, Connection):
+        raise BatchRiskFactConflict("transactional batch-risk persistence requires a Connection")
+    if type(batch) is not OrderIntentBatch or type(target) is not TargetPortfolio:
+        raise BatchRiskFactConflict(
+            "transactional batch-risk persistence requires exact batch and target"
+        )
+    if type(snapshot) is not VersionedBatchRiskSnapshot:
+        raise BatchRiskFactConflict(
+            "transactional batch-risk persistence requires an exact snapshot"
+        )
+    snapshot._validate()
+    if type(limits) is not BatchRiskLimits:
+        raise BatchRiskFactConflict("transactional batch-risk persistence requires exact limits")
+    if type(receipt) is not AccountFenceReceipt:
+        raise BatchRiskFactConflict(
+            "transactional batch-risk persistence requires an exact fence receipt"
+        )
+    receipt._validate()
+    if type(active_capacity) is not ActiveCapacityUniverse:
+        raise BatchRiskFactConflict(
+            "transactional batch-risk persistence requires exact active capacity"
+        )
+    active_capacity.__post_init__()
+    require_utc(evaluated_at, "transactional batch-risk evaluated_at")
+    if receipt.validated_at != evaluated_at:
+        raise BatchRiskFactConflict("transactional batch-risk receipt and evaluation times differ")
+    if (
+        snapshot.account_id != receipt.fence.account_id
+        or active_capacity.account_id != snapshot.account_id
+    ):
+        raise BatchRiskFactConflict("transactional batch-risk account bindings differ")
+    expected_sequence = _next_account_observation_sequence(
+        connection,
+        snapshot.account_id,
+    )
+    if account_observation_sequence != expected_sequence:
+        raise BatchRiskFactConflict("transactional batch-risk observation sequence changed")
+    prior = _decision_for_batch(connection, batch.intent_batch_id)
+    if prior is not None:
+        raise BatchRiskFactConflict(
+            "transactional batch-risk caller must resolve exact retry before persistence"
+        )
+    decision = evaluate_batch_risk_decision(
+        batch=batch,
+        target=target,
+        snapshot=snapshot,
+        limits=limits,
+        active_capacity=active_capacity,
+        evaluated_at=evaluated_at,
+    )
+    try:
+        connection.execute(
+            sa.insert(phase2_batch_decisions).values(
+                **_decision_values(
+                    decision,
+                    receipt,
+                    active_capacity,
+                    account_observation_sequence,
+                )
+            )
+        )
+        member_values = _batch_member_values(decision, batch)
+        if member_values:
+            connection.execute(sa.insert(phase2_batch_members), member_values)
+        if decision.reservation is not None:
+            connection.execute(
+                sa.insert(phase2_batch_reservations).values(
+                    **_reservation_values(
+                        decision.reservation,
+                        receipt,
+                        expires_at=decision.expires_at,
+                    )
+                )
+            )
+            connection.execute(
+                sa.insert(phase2_batch_authorizations),
+                [
+                    _authorization_values(authorization, receipt)
+                    for authorization in decision.authorizations
+                ],
+            )
+    except IntegrityError as error:
+        raise BatchRiskFactConflict(
+            "transactional batch-risk facts conflict with immutable identities"
+        ) from error
+    persisted = load_batch_risk_decision(connection, decision.decision_id)
+    if persisted != decision:
+        raise BatchRiskFactConflict("transactional SQL storage changed the Phase 2 decision")
+    return decision
+
+
 class SqlBatchRiskRepository:
     """Serialize one account's durable batch capacity under its lease-head lock."""
 
@@ -2463,6 +2654,14 @@ class SqlBatchRiskRepository:
                 if receipt.fence != fence or receipt.validated_at != evaluated_at:
                     raise BatchRiskFactConflict(
                         "SQL fence receipt does not bind the requested fence and instant"
+                    )
+                if advanced_risk_enforcement_exists_in_transaction(
+                    connection,
+                    snapshot.account_id,
+                ):
+                    raise BatchRiskFactConflict(
+                        "legacy batch-risk authorization is disabled after "
+                        "advanced-risk enforcement cutover"
                     )
                 prior = _decision_for_batch(connection, batch.intent_batch_id)
                 if prior is not None:

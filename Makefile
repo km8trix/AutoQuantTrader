@@ -10,7 +10,7 @@ COMPOSE ?= docker compose -f infra/compose/compose.yaml
 	api-contracts api-contracts-check admission-evaluate market-data-probe \
 	sharadar-sfp-capture tiingo-eod-profile-inspect tiingo-eod-capture tiingo-eod-verify \
 	tiingo-eod-lineage tiingo-eod-fields-qualify tiingo-eod-identity-qualify \
-	tiingo-eod-semantics-qualify
+	tiingo-eod-semantics-qualify no-exposure-smoke-verify
 
 help: ## List developer commands.
 	@awk 'BEGIN {FS = ":.*## "; printf "AutoQuantTrader developer commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -45,6 +45,10 @@ web: ## Run the browser application on the host.
 
 worker: ## Ingest the Phase 1 fixture and process at most one Phase 2 backtest.
 	$(UV) run autoquant-worker --once
+
+no-exposure-smoke-verify: ## Verify the checked-in no-exposure strategy bytes and manifest.
+	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+		scripts/verify_no_exposure_smoke_strategy.py
 
 admission-evaluate: ## Evaluate SPECIFICATION and EVIDENCE JSON; succeeds only if admitted.
 	$(UV) run python scripts/evaluate_market_data_admission.py --specification "$(SPECIFICATION)" --evidence "$(EVIDENCE)"
@@ -135,7 +139,7 @@ tiingo-eod-profile-inspect: ## Validate a Tiingo profile and print its normalize
 		scripts/inspect_tiingo_eod_profile.py \
 		--profile-file "$(PROFILE)"
 
-trader: ## Run the local Phase 0 trader stub diagnostic once.
+trader: ## Verify the paper smoke profile and report fail-closed readiness once.
 	$(UV) run autoquant-trader --once
 
 migrate: ## Upgrade the configured database to the latest schema.

@@ -59,8 +59,46 @@ from packages.persistence.schema import (
     phase2_reservation_release_events,
     phase2_simulation_horizon_facts,
     phase2_submission_attempt_events,
+    phase4_alpaca_paper_account_activity_comparisons,
+    phase4_alpaca_paper_account_binding_heads,
+    phase4_alpaca_paper_account_bindings,
+    phase4_alpaca_paper_asset_binding_heads,
+    phase4_alpaca_paper_asset_bindings,
+    phase4_alpaca_paper_lookup_observation_heads,
+    phase4_alpaca_paper_lookup_observations,
+    phase4_alpaca_paper_order_snapshot_heads,
+    phase4_alpaca_paper_order_snapshot_pages,
+    phase4_alpaca_paper_order_snapshot_plans,
+    phase4_alpaca_paper_order_snapshot_preparations,
+    phase4_alpaca_paper_order_transition_claims,
+    phase4_alpaca_paper_order_transition_consumptions,
+    phase4_alpaca_paper_order_transition_members,
+    phase4_alpaca_paper_order_view_comparison_heads,
+    phase4_alpaca_paper_order_view_comparisons,
+    phase4_alpaca_paper_position_snapshot_plans,
+    phase4_alpaca_paper_position_snapshots,
+    phase4_alpaca_paper_position_transition_claims,
+    phase4_alpaca_paper_position_transition_consumptions,
+    phase4_alpaca_paper_position_transition_members,
+    phase4_alpaca_paper_position_view_comparison_heads,
+    phase4_alpaca_paper_position_view_comparisons,
+    phase4_broker_inbox_application_receipts,
+    phase4_broker_inbox_heads,
+    phase4_broker_inbox_source_links,
     phase4_broker_ingress_heads,
     phase4_broker_ingress_receipts,
+    phase4_broker_normalized_facts,
+    phase4_broker_reconciliation_facts,
+    phase4_broker_reconciliation_heads,
+    phase5_critical_alert_delivery_attempts,
+    phase5_critical_alert_delivery_results,
+    phase5_critical_alert_failure_control_receipts,
+    phase5_critical_alert_incidents,
+    phase5_operational_control_completions,
+    phase5_operational_control_heads,
+    phase5_operational_control_transitions,
+    phase5_strategy_invocation_claims,
+    phase5_strategy_invocation_finalizations,
 )
 from tests.integration.test_phase2_batch_risk_persistence import _repository
 from tests.unit.test_batch_risk import (
@@ -114,8 +152,70 @@ PHASE3_TABLE_NAMES = frozenset(
 )
 PHASE4_TABLE_NAMES = frozenset(
     {
+        "phase4_alpaca_paper_account_binding_heads",
+        "phase4_alpaca_paper_account_bindings",
+        "phase4_alpaca_paper_account_activity_heads",
+        "phase4_alpaca_paper_account_activity_pages",
+        "phase4_alpaca_paper_account_activity_plans",
+        "phase4_alpaca_paper_account_activity_preparations",
+        "phase4_alpaca_paper_account_activity_comparison_heads",
+        "phase4_alpaca_paper_account_activity_comparisons",
+        "phase4_alpaca_paper_asset_binding_heads",
+        "phase4_alpaca_paper_asset_bindings",
+        "phase4_alpaca_paper_lookup_observation_heads",
+        "phase4_alpaca_paper_lookup_observations",
+        "phase4_alpaca_paper_order_snapshot_heads",
+        "phase4_alpaca_paper_order_snapshot_pages",
+        "phase4_alpaca_paper_order_snapshot_plans",
+        "phase4_alpaca_paper_order_snapshot_preparations",
+        "phase4_alpaca_paper_order_transition_claims",
+        "phase4_alpaca_paper_order_transition_consumptions",
+        "phase4_alpaca_paper_order_transition_members",
+        "phase4_alpaca_paper_order_view_comparison_heads",
+        "phase4_alpaca_paper_order_view_comparisons",
+        "phase4_alpaca_paper_position_snapshot_plans",
+        "phase4_alpaca_paper_position_snapshots",
+        "phase4_alpaca_paper_position_transition_claims",
+        "phase4_alpaca_paper_position_transition_consumptions",
+        "phase4_alpaca_paper_position_transition_members",
+        "phase4_alpaca_paper_position_view_comparison_heads",
+        "phase4_alpaca_paper_position_view_comparisons",
+        "phase4_broker_inbox_application_receipts",
+        "phase4_broker_inbox_heads",
+        "phase4_broker_inbox_source_links",
         "phase4_broker_ingress_heads",
         "phase4_broker_ingress_receipts",
+        "phase4_broker_normalized_facts",
+        "phase4_broker_reconciliation_facts",
+        "phase4_broker_reconciliation_heads",
+        "phase4_broker_request_heads",
+        "phase4_broker_request_permits",
+        "phase4_unknown_lookup_recovery_events",
+        "phase4_unknown_lookup_recovery_heads",
+        "phase4_unknown_lookup_recovery_plans",
+    }
+)
+PHASE5_TABLE_NAMES = frozenset(
+    {
+        "phase5_advanced_risk_assignment_heads",
+        "phase5_advanced_risk_assignments",
+        "phase5_advanced_risk_assessments",
+        "phase5_advanced_risk_batch_admissions",
+        "phase5_advanced_risk_batch_outcomes",
+        "phase5_advanced_risk_enforcement_heads",
+        "phase5_advanced_risk_evidence",
+        "phase5_advanced_risk_evidence_sources",
+        "phase5_advanced_risk_policies",
+        "phase5_critical_alert_delivery_attempts",
+        "phase5_critical_alert_delivery_results",
+        "phase5_critical_alert_failure_control_receipts",
+        "phase5_critical_alert_incidents",
+        "phase5_operational_control_completions",
+        "phase5_operational_control_heads",
+        "phase5_operational_control_transitions",
+        "phase5_strategy_invocation_claims",
+        "phase5_strategy_invocation_finalizations",
+        "phase5_strategy_supervision_results",
     }
 )
 
@@ -253,8 +353,66 @@ def test_operational_schema_can_be_created_without_postgresql() -> None:
         "phase3_experiment_tape_claims",
         "phase3_experiment_tape_policies",
         "phase3_holdout_reveals",
+        "phase4_alpaca_paper_account_binding_heads",
+        "phase4_alpaca_paper_account_bindings",
+        "phase4_alpaca_paper_account_activity_heads",
+        "phase4_alpaca_paper_account_activity_pages",
+        "phase4_alpaca_paper_account_activity_plans",
+        "phase4_alpaca_paper_account_activity_preparations",
+        "phase4_alpaca_paper_account_activity_comparison_heads",
+        "phase4_alpaca_paper_account_activity_comparisons",
+        "phase4_alpaca_paper_asset_binding_heads",
+        "phase4_alpaca_paper_asset_bindings",
+        "phase4_alpaca_paper_lookup_observation_heads",
+        "phase4_alpaca_paper_lookup_observations",
+        "phase4_alpaca_paper_order_snapshot_heads",
+        "phase4_alpaca_paper_order_snapshot_pages",
+        "phase4_alpaca_paper_order_snapshot_plans",
+        "phase4_alpaca_paper_order_snapshot_preparations",
+        "phase4_alpaca_paper_order_transition_claims",
+        "phase4_alpaca_paper_order_transition_consumptions",
+        "phase4_alpaca_paper_order_transition_members",
+        "phase4_alpaca_paper_order_view_comparison_heads",
+        "phase4_alpaca_paper_order_view_comparisons",
+        "phase4_alpaca_paper_position_snapshot_plans",
+        "phase4_alpaca_paper_position_snapshots",
+        "phase4_alpaca_paper_position_transition_claims",
+        "phase4_alpaca_paper_position_transition_consumptions",
+        "phase4_alpaca_paper_position_transition_members",
+        "phase4_alpaca_paper_position_view_comparison_heads",
+        "phase4_alpaca_paper_position_view_comparisons",
+        "phase4_broker_inbox_application_receipts",
+        "phase4_broker_inbox_heads",
+        "phase4_broker_inbox_source_links",
         "phase4_broker_ingress_heads",
         "phase4_broker_ingress_receipts",
+        "phase4_broker_normalized_facts",
+        "phase4_broker_reconciliation_facts",
+        "phase4_broker_reconciliation_heads",
+        "phase4_broker_request_heads",
+        "phase4_broker_request_permits",
+        "phase4_unknown_lookup_recovery_events",
+        "phase4_unknown_lookup_recovery_heads",
+        "phase4_unknown_lookup_recovery_plans",
+        "phase5_advanced_risk_assignment_heads",
+        "phase5_advanced_risk_assignments",
+        "phase5_advanced_risk_assessments",
+        "phase5_advanced_risk_batch_admissions",
+        "phase5_advanced_risk_batch_outcomes",
+        "phase5_advanced_risk_enforcement_heads",
+        "phase5_advanced_risk_evidence",
+        "phase5_advanced_risk_evidence_sources",
+        "phase5_advanced_risk_policies",
+        "phase5_critical_alert_delivery_attempts",
+        "phase5_critical_alert_delivery_results",
+        "phase5_critical_alert_failure_control_receipts",
+        "phase5_critical_alert_incidents",
+        "phase5_operational_control_completions",
+        "phase5_operational_control_heads",
+        "phase5_operational_control_transitions",
+        "phase5_strategy_invocation_claims",
+        "phase5_strategy_invocation_finalizations",
+        "phase5_strategy_supervision_results",
         "risk_account_guards",
         "risk_decisions",
         "risk_reservations",
@@ -270,6 +428,336 @@ def test_readiness_revision_pin_matches_the_single_alembic_head() -> None:
     config.set_main_option("script_location", str(ROOT / "migrations"))
 
     assert ScriptDirectory.from_config(config).get_current_head() == EXPECTED_SCHEMA_REVISION
+
+
+def test_account_activity_comparison_unique_names_match_migration() -> None:
+    singleton_unique_constraints = {
+        constraint.name: tuple(column.name for column in constraint.columns)
+        for constraint in phase4_alpaca_paper_account_activity_comparisons.constraints
+        if isinstance(constraint, sa.UniqueConstraint) and len(constraint.columns) == 1
+    }
+
+    assert singleton_unique_constraints == {
+        "uq_phase4_activity_cmp_comparison": ("comparison_id",),
+        "uq_phase4_activity_cmp_evidence": ("evidence_id",),
+        "uq_phase4_activity_cmp_evidence_sha": ("evidence_sha256",),
+        "uq_phase4_activity_cmp_semantic": ("semantic_sha256",),
+    }
+
+
+def test_phase5_critical_alert_schema_preserves_exact_delivery_bindings() -> None:
+    assert tuple(phase5_critical_alert_incidents.c.keys()) == (
+        "incident_id",
+        "scope_id",
+        "source_id",
+        "idempotency_key",
+        "alert_code",
+        "evidence_sha256",
+        "detected_at",
+        "recorded_at",
+        "correlation_sha256",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert tuple(phase5_critical_alert_delivery_attempts.c.keys()) == (
+        "attempt_id",
+        "incident_id",
+        "incident_sha256",
+        "sequence_number",
+        "previous_attempt_id",
+        "previous_attempt_sha256",
+        "route",
+        "provider_id",
+        "idempotency_key",
+        "request_sha256",
+        "requested_at",
+        "claimed_at",
+        "command_sha256",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert tuple(phase5_critical_alert_delivery_results.c.keys()) == (
+        "result_id",
+        "incident_id",
+        "incident_sha256",
+        "attempt_id",
+        "attempt_sha256",
+        "outcome",
+        "completed_at",
+        "elapsed_microseconds",
+        "provider_receipt_sha256",
+        "failure_code",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert tuple(phase5_critical_alert_failure_control_receipts.c.keys()) == (
+        "receipt_id",
+        "account_id",
+        "incident_id",
+        "incident_sha256",
+        "route_plan_id",
+        "route_plan_version",
+        "route_plan_sha256",
+        "primary_provider_id",
+        "primary_destination_sha256",
+        "primary_recipient_set_sha256",
+        "escalation_provider_id",
+        "escalation_destination_sha256",
+        "escalation_recipient_set_sha256",
+        "supervisor_evidence_sha256",
+        "supervisor_disposition",
+        "supervisor_reason",
+        "observed_at",
+        "selected_route",
+        "attempt_id",
+        "attempt_sha256",
+        "result_id",
+        "result_sha256",
+        "provider_called",
+        "unresolved_claim",
+        "actor_authority_sha256",
+        "control_policy_sha256",
+        "control_command_id",
+        "control_command_sha256",
+        "pre_control_transition_id",
+        "pre_control_transition_sha256",
+        "pre_control_state",
+        "final_control_transition_id",
+        "final_control_transition_sha256",
+        "final_control_state",
+        "bound_at",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+
+
+def test_phase5_strategy_invocation_schema_preserves_exact_lifecycle_bindings() -> None:
+    assert tuple(phase5_strategy_invocation_claims.c.keys()) == (
+        "claim_id",
+        "account_id",
+        "invocation_id",
+        "invocation_sha256",
+        "owner_id",
+        "lease_id",
+        "fencing_generation",
+        "lease_sha256",
+        "fence_sha256",
+        "fence_receipt_sha256",
+        "policy_sha256",
+        "claimed_at",
+        "claim_valid_until",
+        "recoverable_at",
+        "invocation_payload",
+        "semantic_sha256",
+    )
+    assert tuple(phase5_strategy_invocation_finalizations.c.keys()) == (
+        "claim_id",
+        "claim_sha256",
+        "account_id",
+        "invocation_id",
+        "invocation_sha256",
+        "result_record_sha256",
+        "finalized_at",
+        "semantic_sha256",
+    )
+
+
+def test_phase5_operational_control_schema_preserves_exact_chain_bindings() -> None:
+    assert tuple(phase5_operational_control_transitions.c.keys()) == (
+        "transition_id",
+        "account_id",
+        "sequence_number",
+        "previous_transition_id",
+        "previous_transition_sha256",
+        "command_id",
+        "actor_kind",
+        "actor_id",
+        "actor_authority_sha256",
+        "actor_authenticated_at",
+        "idempotency_key",
+        "command_kind",
+        "target_state",
+        "requested_at",
+        "reason_code",
+        "reason_evidence_sha256",
+        "rearm_evidence_sha256",
+        "trip_rule_id",
+        "trip_policy_sha256",
+        "trip_observation_sha256",
+        "command_canonical_payload",
+        "command_sha256",
+        "prior_state",
+        "effective_state",
+        "state_changed",
+        "state_epoch_id",
+        "blocking_event_count",
+        "blocking_event_ids_payload",
+        "blocking_event_ids_sha256",
+        "blocker_overflowed",
+        "active_operation_attempt_id",
+        "active_operation_kind",
+        "active_operation_state_epoch_id",
+        "active_operation_opened_by_command_id",
+        "active_operation_opened_at",
+        "active_operation_sha256",
+        "operation_started",
+        "decided_at",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert tuple(phase5_operational_control_heads.c.keys()) == (
+        "account_id",
+        "sequence_number",
+        "transition_id",
+        "transition_sha256",
+        "effective_state",
+        "state_epoch_id",
+        "blocking_event_count",
+        "blocking_event_ids_payload",
+        "blocking_event_ids_sha256",
+        "blocker_overflowed",
+        "active_operation_attempt_id",
+        "active_operation_kind",
+        "active_operation_state_epoch_id",
+        "active_operation_opened_by_command_id",
+        "active_operation_opened_at",
+        "active_operation_sha256",
+        "decided_at",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert tuple(phase5_operational_control_completions.c.keys()) == (
+        "completion_id",
+        "account_id",
+        "idempotency_key",
+        "operation_attempt_id",
+        "operation_kind",
+        "state_epoch_id",
+        "operation_state_epoch_id",
+        "operation_attempt_sha256",
+        "operation_opened_by_command_id",
+        "operation_opened_at",
+        "opener_transition_id",
+        "opener_sequence_number",
+        "opener_transition_sha256",
+        "opener_operation_started",
+        "head_transition_id",
+        "head_sequence_number",
+        "head_transition_sha256",
+        "outcome",
+        "observed_at",
+        "evidence_sha256",
+        "terminal_order_count",
+        "working_order_count",
+        "working_order_ids_payload",
+        "working_order_ids_sha256",
+        "unknown_order_count",
+        "unknown_order_ids_payload",
+        "unknown_order_ids_sha256",
+        "pending_cancel_order_count",
+        "pending_cancel_order_ids_payload",
+        "pending_cancel_order_ids_sha256",
+        "reconciliation_clean",
+        "source_evidence_sha256",
+        "incomplete_reason",
+        "deadline_at",
+        "residual_position_count",
+        "residual_gross_exposure",
+        "residual_positions_payload",
+        "residual_positions_sha256",
+        "residual_facts_sha256",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert {
+        tuple(column.name for column in constraint.columns)
+        for constraint in phase5_operational_control_transitions.constraints
+        if isinstance(constraint, sa.UniqueConstraint)
+    } >= {
+        ("semantic_sha256",),
+        ("account_id", "sequence_number"),
+        ("account_id", "semantic_sha256"),
+        ("account_id", "actor_kind", "actor_id", "idempotency_key"),
+        (
+            "account_id",
+            "transition_id",
+            "sequence_number",
+            "effective_state",
+            "state_epoch_id",
+            "blocking_event_count",
+            "blocking_event_ids_sha256",
+            "blocker_overflowed",
+            "semantic_sha256",
+        ),
+    }
+    completion_foreign_keys = {
+        constraint.name: tuple(column.name for column in constraint.columns)
+        for constraint in phase5_operational_control_completions.constraints
+        if isinstance(constraint, sa.ForeignKeyConstraint)
+    }
+    assert completion_foreign_keys["fk_phase5_control_completion_opener"] == (
+        "account_id",
+        "opener_transition_id",
+        "opener_sequence_number",
+        "state_epoch_id",
+        "operation_attempt_id",
+        "operation_kind",
+        "operation_state_epoch_id",
+        "operation_opened_by_command_id",
+        "operation_opened_at",
+        "operation_attempt_sha256",
+        "opener_operation_started",
+        "opener_transition_sha256",
+    )
+    assert completion_foreign_keys["fk_phase5_control_completion_head"] == (
+        "account_id",
+        "head_transition_id",
+        "head_sequence_number",
+        "state_epoch_id",
+        "operation_attempt_id",
+        "operation_kind",
+        "operation_state_epoch_id",
+        "operation_opened_by_command_id",
+        "operation_opened_at",
+        "operation_attempt_sha256",
+        "head_transition_sha256",
+    )
+    exposure_type = phase5_operational_control_completions.c.residual_gross_exposure.type
+    assert isinstance(exposure_type, sa.Numeric)
+    assert (exposure_type.precision, exposure_type.scale) == (32, 10)
+
+
+def test_phase5_operational_control_schema_compiles_for_postgresql() -> None:
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateIndex, CreateTable
+
+    dialect = postgresql.dialect()
+    for table in (
+        phase5_operational_control_transitions,
+        phase5_operational_control_heads,
+        phase5_operational_control_completions,
+    ):
+        assert str(CreateTable(table).compile(dialect=dialect))
+        assert all(
+            constraint.name is None or len(constraint.name) <= dialect.max_identifier_length
+            for constraint in table.constraints
+        )
+        for index in table.indexes:
+            assert index.name is None or len(index.name) <= dialect.max_identifier_length
+            assert str(CreateIndex(index).compile(dialect=dialect))
+
+
+def test_complete_schema_compiles_for_postgresql() -> None:
+    """Every checked-in table and index must fit PostgreSQL's identifier rules."""
+
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateIndex, CreateTable
+
+    dialect = postgresql.dialect()
+    for table in metadata.tables.values():
+        assert str(CreateTable(table).compile(dialect=dialect))
+        for index in table.indexes:
+            assert str(CreateIndex(index).compile(dialect=dialect))
 
 
 def test_index_backed_constraint_names_are_schema_wide_unique() -> None:
@@ -419,6 +907,11 @@ def test_broker_ingress_schema_preserves_raw_provenance_and_account_chain() -> N
             "provider_id",
             "provider_request_id",
         ),
+        "ux_phase4_broker_ingress_account_receipt_semantic": (
+            "account_id",
+            "receipt_id",
+            "semantic_sha256",
+        ),
     }
     assert tuple(phase4_broker_ingress_heads.c.keys()) == (
         "account_id",
@@ -434,6 +927,1077 @@ def test_broker_ingress_schema_preserves_raw_provenance_and_account_chain() -> N
             "phase4_broker_ingress_receipts.account_id",
             "phase4_broker_ingress_receipts.semantic_sha256",
         ),
+    }
+
+
+def test_alpaca_account_binding_schema_is_secret_free_and_source_bound() -> None:
+    assert tuple(phase4_alpaca_paper_account_bindings.c.keys()) == (
+        "binding_id",
+        "account_id",
+        "sequence_number",
+        "previous_binding_sha256",
+        "provider_id",
+        "environment",
+        "expected_provider_account_id",
+        "observed_provider_account_id",
+        "secret_ref",
+        "secret_version",
+        "credential_reference_sha256",
+        "credential_resolution_sha256",
+        "resolver_id",
+        "resolver_version",
+        "capability_sha256",
+        "description_sha256",
+        "policy_sha256",
+        "demand_id",
+        "demand_sha256",
+        "permit_id",
+        "permit_sha256",
+        "permit_freshness_sha256",
+        "pre_fence_receipt_sha256",
+        "post_fence_receipt_sha256",
+        "ingress_receipt_id",
+        "ingress_receipt_sha256",
+        "observation_sha256",
+        "transport_request_sha256",
+        "transport_response_sha256",
+        "requested_at",
+        "resolved_at",
+        "permit_checked_at",
+        "pre_fence_validated_at",
+        "request_started_at",
+        "received_at",
+        "raw_recorded_at",
+        "qualified_at",
+        "post_fence_valid_until",
+        "valid_until",
+        "evidence_sha256",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert not {
+        "api_key",
+        "api_key_id",
+        "secret_key",
+        "secret_value",
+        "credential_value",
+    } & set(phase4_alpaca_paper_account_bindings.c.keys())
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_alpaca_paper_account_bindings.foreign_key_constraints
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        (
+            "phase4_alpaca_paper_account_bindings.account_id",
+            "phase4_alpaca_paper_account_bindings.expected_provider_account_id",
+            "phase4_alpaca_paper_account_bindings.semantic_sha256",
+        ),
+        (
+            "phase4_broker_request_permits.account_id",
+            "phase4_broker_request_permits.permit_id",
+            "phase4_broker_request_permits.semantic_sha256",
+        ),
+        (
+            "phase4_broker_ingress_receipts.account_id",
+            "phase4_broker_ingress_receipts.receipt_id",
+            "phase4_broker_ingress_receipts.semantic_sha256",
+        ),
+    }
+    assert tuple(phase4_alpaca_paper_account_binding_heads.c.keys()) == (
+        "account_id",
+        "provider_id",
+        "environment",
+        "expected_provider_account_id",
+        "last_sequence_number",
+        "last_binding_sha256",
+        "last_qualified_at",
+        "last_valid_until",
+    )
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_alpaca_paper_account_binding_heads.foreign_key_constraints
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        (
+            "phase4_alpaca_paper_account_bindings.account_id",
+            "phase4_alpaca_paper_account_bindings.sequence_number",
+            "phase4_alpaca_paper_account_bindings.semantic_sha256",
+            "phase4_alpaca_paper_account_bindings.expected_provider_account_id",
+        ),
+    }
+
+
+def test_alpaca_asset_binding_schema_is_pinned_secret_free_and_source_bound() -> None:
+    assert tuple(phase4_alpaca_paper_asset_bindings.c.keys()) == (
+        "binding_id",
+        "account_id",
+        "instrument_id",
+        "sequence_number",
+        "previous_binding_sha256",
+        "provider_id",
+        "environment",
+        "expected_provider_account_id",
+        "symbol",
+        "expected_provider_asset_id",
+        "observed_provider_asset_id",
+        "asset_class",
+        "exchange",
+        "asset_status",
+        "tradable",
+        "secret_ref",
+        "secret_version",
+        "credential_reference_sha256",
+        "security_reference_sha256",
+        "credential_resolution_sha256",
+        "resolver_id",
+        "resolver_version",
+        "capability_sha256",
+        "account_binding_id",
+        "account_binding_sha256",
+        "pre_account_binding_freshness_sha256",
+        "post_account_binding_freshness_sha256",
+        "description_sha256",
+        "policy_sha256",
+        "demand_id",
+        "demand_sha256",
+        "permit_id",
+        "permit_sha256",
+        "permit_freshness_sha256",
+        "pre_fence_receipt_sha256",
+        "post_fence_receipt_sha256",
+        "ingress_receipt_id",
+        "ingress_receipt_sha256",
+        "observation_sha256",
+        "transport_request_sha256",
+        "transport_response_sha256",
+        "requested_at",
+        "resolved_at",
+        "pre_fence_validated_at",
+        "permit_checked_at",
+        "pre_account_binding_checked_at",
+        "request_started_at",
+        "received_at",
+        "raw_recorded_at",
+        "post_fence_validated_at",
+        "post_account_binding_checked_at",
+        "account_binding_valid_until",
+        "post_fence_valid_until",
+        "qualified_at",
+        "valid_until",
+        "evidence_sha256",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert not {
+        "api_key",
+        "api_key_id",
+        "secret_key",
+        "secret_value",
+        "credential_value",
+    } & set(phase4_alpaca_paper_asset_bindings.c.keys())
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_alpaca_paper_asset_bindings.foreign_key_constraints
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        ("instruments.instrument_id",),
+        (
+            "phase4_alpaca_paper_asset_bindings.account_id",
+            "phase4_alpaca_paper_asset_bindings.instrument_id",
+            "phase4_alpaca_paper_asset_bindings.expected_provider_asset_id",
+            "phase4_alpaca_paper_asset_bindings.semantic_sha256",
+        ),
+        (
+            "phase4_alpaca_paper_account_bindings.account_id",
+            "phase4_alpaca_paper_account_bindings.binding_id",
+            "phase4_alpaca_paper_account_bindings.semantic_sha256",
+            "phase4_alpaca_paper_account_bindings.expected_provider_account_id",
+        ),
+        (
+            "phase4_broker_request_permits.account_id",
+            "phase4_broker_request_permits.permit_id",
+            "phase4_broker_request_permits.semantic_sha256",
+        ),
+        (
+            "phase4_broker_ingress_receipts.account_id",
+            "phase4_broker_ingress_receipts.receipt_id",
+            "phase4_broker_ingress_receipts.semantic_sha256",
+        ),
+    }
+    assert tuple(phase4_alpaca_paper_asset_binding_heads.c.keys()) == (
+        "account_id",
+        "instrument_id",
+        "provider_id",
+        "environment",
+        "expected_provider_account_id",
+        "symbol",
+        "expected_provider_asset_id",
+        "last_sequence_number",
+        "last_binding_sha256",
+        "last_qualified_at",
+        "last_valid_until",
+    )
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_alpaca_paper_asset_binding_heads.foreign_key_constraints
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        ("instruments.instrument_id",),
+        (
+            "phase4_alpaca_paper_asset_bindings.account_id",
+            "phase4_alpaca_paper_asset_bindings.instrument_id",
+            "phase4_alpaca_paper_asset_bindings.sequence_number",
+            "phase4_alpaca_paper_asset_bindings.semantic_sha256",
+            "phase4_alpaca_paper_asset_bindings.expected_provider_asset_id",
+        ),
+    }
+
+
+def test_alpaca_lookup_observation_schema_is_pinned_secret_free_and_source_bound() -> None:
+    assert tuple(phase4_alpaca_paper_lookup_observations.c.keys()) == (
+        "receipt_id",
+        "account_id",
+        "provider_id",
+        "environment",
+        "attempt_id",
+        "attempt_sha256",
+        "terminal_event_id",
+        "terminal_event_sha256",
+        "terminal_event_sequence",
+        "parent_decision_id",
+        "reservation_id",
+        "order_id",
+        "client_order_id",
+        "instrument_id",
+        "symbol",
+        "expected_provider_account_id",
+        "expected_provider_asset_id",
+        "outcome",
+        "provider_order_id",
+        "provider_order_status",
+        "observed_provider_asset_id",
+        "mismatch_fields_payload",
+        "secret_ref",
+        "secret_version",
+        "credential_reference_sha256",
+        "security_reference_sha256",
+        "credential_resolution_sha256",
+        "resolver_id",
+        "resolver_version",
+        "capability_sha256",
+        "account_binding_id",
+        "account_binding_sha256",
+        "pre_attempt_freshness_sha256",
+        "post_attempt_freshness_sha256",
+        "pre_account_identity_sha256",
+        "post_account_identity_sha256",
+        "description_sha256",
+        "submission_sha256",
+        "policy_sha256",
+        "demand_id",
+        "demand_sha256",
+        "permit_id",
+        "permit_sha256",
+        "permit_freshness_sha256",
+        "fence_owner_id",
+        "fence_lease_id",
+        "fence_fencing_generation",
+        "fence_sha256",
+        "fence_policy_sha256",
+        "pre_fence_lease_sha256",
+        "post_fence_lease_sha256",
+        "pre_fence_receipt_sha256",
+        "post_fence_receipt_sha256",
+        "ingress_receipt_id",
+        "ingress_receipt_sha256",
+        "observation_sha256",
+        "transport_request_sha256",
+        "transport_response_sha256",
+        "http_status",
+        "provider_request_id",
+        "requested_at",
+        "credential_resolution_started_at",
+        "resolved_at",
+        "credential_resolution_valid_until",
+        "permit_checked_at",
+        "pre_fence_validated_at",
+        "pre_fence_valid_until",
+        "pre_attempt_checked_at",
+        "pre_account_identity_checked_at",
+        "request_started_at",
+        "received_at",
+        "raw_recorded_at",
+        "post_fence_validated_at",
+        "post_fence_valid_until",
+        "post_attempt_checked_at",
+        "post_account_identity_checked_at",
+        "authenticated_at",
+        "commit_checked_at",
+        "sequence_number",
+        "previous_receipt_sha256",
+        "evidence_sha256",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert not {
+        "api_key",
+        "api_key_id",
+        "secret_key",
+        "secret_value",
+        "credential_value",
+    } & set(phase4_alpaca_paper_lookup_observations.c.keys())
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in (phase4_alpaca_paper_lookup_observations.foreign_key_constraints)
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        ("phase2_submission_attempts.attempt_id",),
+        ("instruments.instrument_id",),
+        (
+            "phase2_submission_attempt_events.attempt_id",
+            "phase2_submission_attempt_events.event_id",
+            "phase2_submission_attempt_events.semantic_sha256",
+        ),
+        (
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ),
+        (
+            "phase4_alpaca_paper_account_bindings.account_id",
+            "phase4_alpaca_paper_account_bindings.binding_id",
+            "phase4_alpaca_paper_account_bindings.semantic_sha256",
+            "phase4_alpaca_paper_account_bindings.expected_provider_account_id",
+        ),
+        (
+            "phase4_broker_request_permits.account_id",
+            "phase4_broker_request_permits.permit_id",
+            "phase4_broker_request_permits.semantic_sha256",
+        ),
+        (
+            "phase4_broker_ingress_receipts.account_id",
+            "phase4_broker_ingress_receipts.receipt_id",
+            "phase4_broker_ingress_receipts.semantic_sha256",
+        ),
+        (
+            "phase4_alpaca_paper_lookup_observations.account_id",
+            "phase4_alpaca_paper_lookup_observations.attempt_id",
+            "phase4_alpaca_paper_lookup_observations.semantic_sha256",
+        ),
+    }
+    assert tuple(phase4_alpaca_paper_lookup_observation_heads.c.keys()) == (
+        "account_id",
+        "attempt_id",
+        "terminal_event_id",
+        "terminal_event_sha256",
+        "last_sequence_number",
+        "last_receipt_sha256",
+        "last_authenticated_at",
+    )
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in (phase4_alpaca_paper_lookup_observation_heads.foreign_key_constraints)
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        ("phase2_submission_attempts.attempt_id",),
+        (
+            "phase4_alpaca_paper_lookup_observations.account_id",
+            "phase4_alpaca_paper_lookup_observations.attempt_id",
+            "phase4_alpaca_paper_lookup_observations.sequence_number",
+            "phase4_alpaca_paper_lookup_observations.semantic_sha256",
+            "phase4_alpaca_paper_lookup_observations.terminal_event_id",
+            "phase4_alpaca_paper_lookup_observations.terminal_event_sha256",
+        ),
+    }
+
+
+def test_order_snapshot_schema_preserves_preparation_and_exact_source_bindings() -> None:
+    assert tuple(phase4_alpaca_paper_order_snapshot_plans.c.keys()) == (
+        "snapshot_id",
+        "account_id",
+        "capture_idempotency_key",
+        "capability_sha256",
+        "traversal_profile_sha256",
+        "page_limit",
+        "maximum_pages",
+        "prepared_at",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_alpaca_paper_order_snapshot_plans.foreign_key_constraints
+    } == {("phase2_account_lease_heads.account_id",)}
+    assert tuple(phase4_alpaca_paper_order_snapshot_preparations.c.keys()) == (
+        "preparation_sha256",
+        "snapshot_id",
+        "account_id",
+        "page_number",
+        "plan_sha256",
+        "before_order_id",
+        "description_sha256",
+        "prefix_capture_sha256",
+        "prefix_page_count",
+        "previous_page_receipt_id",
+        "previous_page_receipt_sha256",
+        "previous_persisted_page_sha256",
+        "prepared_at",
+    )
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in (phase4_alpaca_paper_order_snapshot_preparations.foreign_key_constraints)
+    } == {
+        (
+            "phase4_alpaca_paper_order_snapshot_pages.snapshot_id",
+            "phase4_alpaca_paper_order_snapshot_pages.page_number",
+            "phase4_alpaca_paper_order_snapshot_pages.receipt_id",
+            "phase4_alpaca_paper_order_snapshot_pages.semantic_sha256",
+            "phase4_alpaca_paper_order_snapshot_pages.persisted_page_sha256",
+        ),
+        (
+            "phase4_alpaca_paper_order_snapshot_plans.snapshot_id",
+            "phase4_alpaca_paper_order_snapshot_plans.account_id",
+            "phase4_alpaca_paper_order_snapshot_plans.semantic_sha256",
+        ),
+    }
+    assert tuple(phase4_alpaca_paper_order_snapshot_heads.c.keys()) == (
+        "snapshot_id",
+        "account_id",
+        "plan_sha256",
+        "committed_page_count",
+        "last_page_receipt_id",
+        "last_page_receipt_sha256",
+        "last_persisted_page_sha256",
+        "next_page_number",
+        "next_before_order_id",
+        "next_previous_page_sha256",
+        "prepared_description_sha256",
+        "prepared_prefix_capture_sha256",
+        "prepared_prefix_page_count",
+        "prepared_previous_page_receipt_id",
+        "prepared_previous_page_receipt_sha256",
+        "preparation_sha256",
+        "prepared_at",
+        "state",
+        "updated_at",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert tuple(phase4_alpaca_paper_order_snapshot_pages.c.keys()) == (
+        "receipt_id",
+        "snapshot_id",
+        "account_id",
+        "page_number",
+        "plan_sha256",
+        "previous_page_receipt_sha256",
+        "previous_persisted_page_sha256",
+        "description_sha256",
+        "preparation_sha256",
+        "prefix_capture_sha256",
+        "prefix_page_count",
+        "preparation_previous_page_receipt_id",
+        "preparation_previous_page_receipt_sha256",
+        "prepared_at",
+        "provider_id",
+        "environment",
+        "capability_sha256",
+        "expected_provider_account_id",
+        "secret_ref",
+        "secret_version",
+        "credential_reference_sha256",
+        "credential_resolution_sha256",
+        "resolver_id",
+        "resolver_version",
+        "credential_resolution_started_at",
+        "resolved_at",
+        "credential_resolution_valid_until",
+        "account_binding_id",
+        "account_binding_sha256",
+        "pre_account_identity_sha256",
+        "post_account_identity_sha256",
+        "pre_account_identity_checked_at",
+        "post_account_identity_checked_at",
+        "policy_sha256",
+        "demand_id",
+        "demand_sha256",
+        "requested_at",
+        "permit_id",
+        "permit_sha256",
+        "permit_freshness_sha256",
+        "permit_checked_at",
+        "fence_owner_id",
+        "fence_lease_id",
+        "fence_fencing_generation",
+        "fence_sha256",
+        "fence_policy_sha256",
+        "pre_fence_lease_sha256",
+        "pre_fence_receipt_sha256",
+        "pre_fence_validated_at",
+        "pre_fence_valid_until",
+        "transport_request_sha256",
+        "transport_response_sha256",
+        "request_started_at",
+        "http_status",
+        "provider_request_id",
+        "received_at",
+        "ingress_receipt_id",
+        "ingress_receipt_sha256",
+        "ingress_sequence",
+        "raw_recorded_at",
+        "observation_sha256",
+        "persisted_page_sha256",
+        "before_order_id",
+        "next_before_order_id",
+        "terminal_page",
+        "bounded_truncation",
+        "post_fence_lease_sha256",
+        "post_fence_receipt_sha256",
+        "post_fence_validated_at",
+        "post_fence_valid_until",
+        "authenticated_at",
+        "evidence_sha256",
+        "commit_fence_lease_sha256",
+        "commit_fence_receipt_sha256",
+        "commit_fence_validated_at",
+        "commit_fence_valid_until",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert not {
+        "api_key",
+        "api_key_id",
+        "secret_key",
+        "secret_value",
+        "credential_value",
+        "response_body",
+    } & set(phase4_alpaca_paper_order_snapshot_pages.c.keys())
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_alpaca_paper_order_snapshot_pages.foreign_key_constraints
+    } == {
+        (
+            "phase4_alpaca_paper_order_snapshot_plans.snapshot_id",
+            "phase4_alpaca_paper_order_snapshot_plans.account_id",
+            "phase4_alpaca_paper_order_snapshot_plans.semantic_sha256",
+        ),
+        (
+            "phase4_alpaca_paper_order_snapshot_pages.snapshot_id",
+            "phase4_alpaca_paper_order_snapshot_pages.semantic_sha256",
+        ),
+        (
+            "phase4_alpaca_paper_account_bindings.account_id",
+            "phase4_alpaca_paper_account_bindings.binding_id",
+            "phase4_alpaca_paper_account_bindings.semantic_sha256",
+            "phase4_alpaca_paper_account_bindings.expected_provider_account_id",
+        ),
+        (
+            "phase4_broker_request_permits.account_id",
+            "phase4_broker_request_permits.permit_id",
+            "phase4_broker_request_permits.semantic_sha256",
+            "phase4_broker_request_permits.demand_id",
+            "phase4_broker_request_permits.demand_sha256",
+            "phase4_broker_request_permits.policy_sha256",
+        ),
+        (
+            "phase4_broker_ingress_receipts.account_id",
+            "phase4_broker_ingress_receipts.receipt_id",
+            "phase4_broker_ingress_receipts.semantic_sha256",
+        ),
+        (
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ),
+    }
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_alpaca_paper_order_snapshot_heads.foreign_key_constraints
+    } == {
+        (
+            "phase4_alpaca_paper_order_snapshot_plans.snapshot_id",
+            "phase4_alpaca_paper_order_snapshot_plans.account_id",
+            "phase4_alpaca_paper_order_snapshot_plans.semantic_sha256",
+        ),
+        (
+            "phase4_alpaca_paper_order_snapshot_pages.snapshot_id",
+            "phase4_alpaca_paper_order_snapshot_pages.page_number",
+            "phase4_alpaca_paper_order_snapshot_pages.receipt_id",
+            "phase4_alpaca_paper_order_snapshot_pages.semantic_sha256",
+            "phase4_alpaca_paper_order_snapshot_pages.persisted_page_sha256",
+        ),
+    }
+    time_order = next(
+        constraint
+        for constraint in phase4_alpaca_paper_order_snapshot_pages.constraints
+        if constraint.name is not None
+        and constraint.name.endswith("phase4_order_snapshot_page_time_order")
+    )
+    assert "post_account_identity_checked_at <= authenticated_at" in str(time_order.sqltext)
+
+
+def test_order_view_comparison_schema_binds_exact_sources_fence_and_account_chain() -> None:
+    assert tuple(phase4_alpaca_paper_order_view_comparisons.c.keys()) == (
+        "receipt_id",
+        "evidence_id",
+        "comparison_id",
+        "account_id",
+        "account_sequence",
+        "previous_receipt_sha256",
+        "fence_owner_id",
+        "fence_lease_id",
+        "fence_fencing_generation",
+        "fence_sha256",
+        "fence_policy_sha256",
+        "commit_fence_lease_sha256",
+        "commit_fence_receipt_sha256",
+        "commit_fence_validated_at",
+        "commit_fence_valid_until",
+        "authentication_policy_sha256",
+        "comparison_policy_sha256",
+        "traversal_profile_sha256",
+        "earlier_snapshot_id",
+        "earlier_plan_sha256",
+        "earlier_head_sha256",
+        "earlier_prefix_id",
+        "earlier_prefix_sha256",
+        "earlier_capture_sha256",
+        "earlier_page_count",
+        "earlier_tip_receipt_id",
+        "earlier_tip_receipt_sha256",
+        "earlier_tip_persisted_page_sha256",
+        "earlier_source_committed_at",
+        "earlier_window_started_at",
+        "earlier_window_ended_at",
+        "earlier_view_sha256",
+        "later_snapshot_id",
+        "later_plan_sha256",
+        "later_head_sha256",
+        "later_prefix_id",
+        "later_prefix_sha256",
+        "later_capture_sha256",
+        "later_page_count",
+        "later_tip_receipt_id",
+        "later_tip_receipt_sha256",
+        "later_tip_persisted_page_sha256",
+        "later_source_committed_at",
+        "later_window_started_at",
+        "later_window_ended_at",
+        "later_view_sha256",
+        "observed_utc_separation_microseconds",
+        "disposition",
+        "added_provider_order_ids_payload",
+        "removed_provider_order_ids_payload",
+        "changed_provider_order_ids_payload",
+        "added_count",
+        "removed_count",
+        "changed_count",
+        "comparison_sha256",
+        "evidence_sha256",
+        "recorded_at",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert tuple(phase4_alpaca_paper_order_view_comparison_heads.c.keys()) == (
+        "account_id",
+        "last_account_sequence",
+        "last_receipt_id",
+        "last_receipt_sha256",
+        "last_recorded_at",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert not {
+        "api_key",
+        "api_key_id",
+        "secret_key",
+        "secret_value",
+        "credential_value",
+        "response_body",
+    } & set(phase4_alpaca_paper_order_view_comparisons.c.keys())
+    unique_columns = {
+        constraint.name: tuple(column.name for column in constraint.columns)
+        for constraint in phase4_alpaca_paper_order_view_comparisons.constraints
+        if isinstance(constraint, sa.UniqueConstraint)
+    }
+    assert unique_columns["uq_phase4_order_view_cmp_exact"] == (
+        "account_id",
+        "account_sequence",
+        "receipt_id",
+        "semantic_sha256",
+        "recorded_at",
+    )
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_alpaca_paper_order_view_comparisons.foreign_key_constraints
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        (
+            "phase2_account_leases.account_id",
+            "phase2_account_leases.fencing_generation",
+            "phase2_account_leases.lease_sha256",
+        ),
+        (
+            "phase4_alpaca_paper_order_snapshot_plans.snapshot_id",
+            "phase4_alpaca_paper_order_snapshot_plans.account_id",
+            "phase4_alpaca_paper_order_snapshot_plans.semantic_sha256",
+        ),
+        (
+            "phase4_alpaca_paper_order_snapshot_heads.snapshot_id",
+            "phase4_alpaca_paper_order_snapshot_heads.account_id",
+            "phase4_alpaca_paper_order_snapshot_heads.semantic_sha256",
+        ),
+        (
+            "phase4_alpaca_paper_order_snapshot_pages.snapshot_id",
+            "phase4_alpaca_paper_order_snapshot_pages.page_number",
+            "phase4_alpaca_paper_order_snapshot_pages.receipt_id",
+            "phase4_alpaca_paper_order_snapshot_pages.semantic_sha256",
+            "phase4_alpaca_paper_order_snapshot_pages.persisted_page_sha256",
+        ),
+        (
+            "phase4_alpaca_paper_order_view_comparisons.account_id",
+            "phase4_alpaca_paper_order_view_comparisons.semantic_sha256",
+        ),
+    }
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_alpaca_paper_order_view_comparison_heads.foreign_key_constraints
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        (
+            "phase4_alpaca_paper_order_view_comparisons.account_id",
+            "phase4_alpaca_paper_order_view_comparisons.account_sequence",
+            "phase4_alpaca_paper_order_view_comparisons.receipt_id",
+            "phase4_alpaca_paper_order_view_comparisons.semantic_sha256",
+            "phase4_alpaca_paper_order_view_comparisons.recorded_at",
+        ),
+    }
+    fence_check = next(
+        constraint
+        for constraint in phase4_alpaca_paper_order_view_comparisons.constraints
+        if constraint.name is not None
+        and constraint.name.endswith("phase4_order_view_cmp_commit_fence")
+    )
+    assert "commit_fence_validated_at = recorded_at" in str(fence_check.sqltext)
+
+
+def test_broker_reconciliation_schema_preserves_authenticated_source_chain() -> None:
+    assert tuple(phase4_broker_reconciliation_facts.c.keys()) == (
+        "fact_id",
+        "account_id",
+        "account_sequence",
+        "previous_fact_sha256",
+        "provider_id",
+        "environment",
+        "attempt_id",
+        "order_id",
+        "client_order_id",
+        "instrument_id",
+        "symbol",
+        "outcome",
+        "expected_provider_asset_id",
+        "provider_order_id",
+        "provider_order_status",
+        "provider_replaced_by",
+        "provider_replaces",
+        "observed_provider_asset_id",
+        "mismatch_fields_payload",
+        "provider_timestamps_payload",
+        "requested_quantity",
+        "requested_notional",
+        "cumulative_filled_quantity",
+        "cumulative_filled_average_price",
+        "provider_source",
+        "source_lookup_receipt_id",
+        "source_lookup_receipt_sha256",
+        "source_ingress_receipt_id",
+        "source_ingress_receipt_sha256",
+        "source_ingress_sequence",
+        "source_delivery_idempotency_key",
+        "source_observation_sha256",
+        "source_body_sha256",
+        "http_status",
+        "provider_request_id",
+        "received_at",
+        "raw_recorded_at",
+        "authenticated_at",
+        "source_committed_at",
+        "normalized_at",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_broker_reconciliation_facts.foreign_key_constraints
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        (
+            "phase4_broker_reconciliation_facts.account_id",
+            "phase4_broker_reconciliation_facts.semantic_sha256",
+        ),
+        (
+            "phase4_alpaca_paper_lookup_observations.account_id",
+            "phase4_alpaca_paper_lookup_observations.attempt_id",
+            "phase4_alpaca_paper_lookup_observations.receipt_id",
+            "phase4_alpaca_paper_lookup_observations.semantic_sha256",
+        ),
+        (
+            "phase4_broker_ingress_receipts.account_id",
+            "phase4_broker_ingress_receipts.receipt_id",
+            "phase4_broker_ingress_receipts.semantic_sha256",
+        ),
+    }
+    assert {
+        tuple(column.name for column in constraint.columns)
+        for constraint in phase4_broker_reconciliation_facts.constraints
+        if isinstance(constraint, sa.UniqueConstraint)
+    } == {
+        ("semantic_sha256",),
+        ("account_id", "account_sequence"),
+        ("account_id", "semantic_sha256"),
+        ("account_id", "account_sequence", "fact_id", "semantic_sha256"),
+        ("source_lookup_receipt_id",),
+        ("source_ingress_receipt_id",),
+    }
+    assert {
+        index.name: tuple(column.name for column in index.columns)
+        for index in phase4_broker_reconciliation_facts.indexes
+    } == {
+        "ix_phase4_broker_reconciliation_account_normalized": (
+            "account_id",
+            "normalized_at",
+        ),
+        "ix_phase4_broker_reconciliation_attempt": (
+            "account_id",
+            "attempt_id",
+            "account_sequence",
+        ),
+    }
+    assert tuple(phase4_broker_reconciliation_heads.c.keys()) == (
+        "account_id",
+        "last_account_sequence",
+        "last_fact_id",
+        "last_fact_sha256",
+        "last_normalized_at",
+    )
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_broker_reconciliation_heads.foreign_key_constraints
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        (
+            "phase4_broker_reconciliation_facts.account_id",
+            "phase4_broker_reconciliation_facts.account_sequence",
+            "phase4_broker_reconciliation_facts.fact_id",
+            "phase4_broker_reconciliation_facts.semantic_sha256",
+        ),
+    }
+
+
+def test_broker_inbox_schema_preserves_source_scoped_non_application_history() -> None:
+    assert tuple(phase4_broker_normalized_facts.c.keys()) == (
+        "request_id",
+        "observation_id",
+        "account_id",
+        "provider_id",
+        "environment",
+        "source_kind",
+        "identity_profile_id",
+        "identity_profile_sha256",
+        "identity_sha256",
+        "source_reconciliation_fact_id",
+        "source_reconciliation_fact_sha256",
+        "source_reconciliation_evidence_sha256",
+        "source_reconciliation_account_sequence",
+        "source_fact_normalized_at",
+        "source_lookup_receipt_id",
+        "source_lookup_receipt_sha256",
+        "source_ingress_receipt_id",
+        "source_ingress_receipt_sha256",
+        "source_observation_sha256",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert {
+        tuple(column.name for column in constraint.columns)
+        for constraint in phase4_broker_normalized_facts.constraints
+        if isinstance(constraint, sa.UniqueConstraint)
+    } == {
+        ("observation_id",),
+        ("identity_sha256",),
+        ("source_reconciliation_fact_id",),
+        ("source_lookup_receipt_id",),
+        ("source_ingress_receipt_id",),
+        ("semantic_sha256",),
+        ("request_id", "account_id", "observation_id", "semantic_sha256"),
+        (
+            "request_id",
+            "account_id",
+            "observation_id",
+            "source_reconciliation_fact_id",
+            "source_reconciliation_fact_sha256",
+            "source_ingress_receipt_id",
+            "source_ingress_receipt_sha256",
+            "semantic_sha256",
+        ),
+    }
+    assert {
+        index.name: tuple(column.name for column in index.columns)
+        for index in phase4_broker_normalized_facts.indexes
+    } == {
+        "ix_phase4_broker_normalized_account_source_time": (
+            "account_id",
+            "source_fact_normalized_at",
+        ),
+    }
+
+    assert tuple(phase4_broker_inbox_source_links.c.keys()) == (
+        "link_id",
+        "account_id",
+        "account_sequence",
+        "previous_link_sha256",
+        "request_id",
+        "request_sha256",
+        "observation_id",
+        "source_reconciliation_fact_id",
+        "source_reconciliation_fact_sha256",
+        "source_reconciliation_evidence_sha256",
+        "source_reconciliation_account_sequence",
+        "source_lookup_receipt_id",
+        "source_lookup_receipt_sha256",
+        "source_ingress_receipt_id",
+        "source_ingress_receipt_sha256",
+        "source_observation_sha256",
+        "linked_at",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_broker_inbox_source_links.foreign_key_constraints
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        (
+            "phase4_broker_inbox_source_links.account_id",
+            "phase4_broker_inbox_source_links.semantic_sha256",
+        ),
+        (
+            "phase4_broker_normalized_facts.request_id",
+            "phase4_broker_normalized_facts.account_id",
+            "phase4_broker_normalized_facts.observation_id",
+            "phase4_broker_normalized_facts.source_reconciliation_fact_id",
+            "phase4_broker_normalized_facts.source_reconciliation_fact_sha256",
+            "phase4_broker_normalized_facts.source_ingress_receipt_id",
+            "phase4_broker_normalized_facts.source_ingress_receipt_sha256",
+            "phase4_broker_normalized_facts.semantic_sha256",
+        ),
+        (
+            "phase4_broker_reconciliation_facts.account_id",
+            "phase4_broker_reconciliation_facts.account_sequence",
+            "phase4_broker_reconciliation_facts.fact_id",
+            "phase4_broker_reconciliation_facts.semantic_sha256",
+        ),
+        (
+            "phase4_broker_ingress_receipts.account_id",
+            "phase4_broker_ingress_receipts.receipt_id",
+            "phase4_broker_ingress_receipts.semantic_sha256",
+        ),
+    }
+    assert {
+        tuple(column.name for column in constraint.columns)
+        for constraint in phase4_broker_inbox_source_links.constraints
+        if isinstance(constraint, sa.UniqueConstraint)
+    } == {
+        ("request_id",),
+        ("observation_id",),
+        ("source_reconciliation_fact_id",),
+        ("source_lookup_receipt_id",),
+        ("source_ingress_receipt_id",),
+        ("semantic_sha256",),
+        ("account_id", "account_sequence"),
+        ("account_id", "semantic_sha256"),
+        ("account_id", "account_sequence", "link_id", "semantic_sha256"),
+        (
+            "account_id",
+            "account_sequence",
+            "link_id",
+            "request_id",
+            "semantic_sha256",
+        ),
+        ("link_id", "account_id", "request_id", "semantic_sha256"),
+    }
+    assert {
+        index.name: tuple(column.name for column in index.columns)
+        for index in phase4_broker_inbox_source_links.indexes
+    } == {
+        "ix_phase4_broker_inbox_link_account_time": (
+            "account_id",
+            "linked_at",
+        ),
+    }
+
+    assert tuple(phase4_broker_inbox_heads.c.keys()) == (
+        "account_id",
+        "last_account_sequence",
+        "last_link_id",
+        "last_link_sha256",
+        "last_linked_at",
+    )
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_broker_inbox_heads.foreign_key_constraints
+    } == {
+        ("phase2_account_lease_heads.account_id",),
+        (
+            "phase4_broker_inbox_source_links.account_id",
+            "phase4_broker_inbox_source_links.account_sequence",
+            "phase4_broker_inbox_source_links.link_id",
+            "phase4_broker_inbox_source_links.semantic_sha256",
+        ),
+    }
+
+    assert tuple(phase4_broker_inbox_application_receipts.c.keys()) == (
+        "decision_id",
+        "account_id",
+        "request_id",
+        "request_sha256",
+        "observation_id",
+        "source_link_id",
+        "source_link_sha256",
+        "disposition",
+        "policy_id",
+        "policy_sha256",
+        "decided_at",
+        "recorded_at",
+        "canonical_payload",
+        "semantic_sha256",
+    )
+    assert {
+        tuple(column.target_fullname for column in constraint.elements)
+        for constraint in phase4_broker_inbox_application_receipts.foreign_key_constraints
+    } == {
+        (
+            "phase4_broker_normalized_facts.request_id",
+            "phase4_broker_normalized_facts.account_id",
+            "phase4_broker_normalized_facts.observation_id",
+            "phase4_broker_normalized_facts.semantic_sha256",
+        ),
+        (
+            "phase4_broker_inbox_source_links.link_id",
+            "phase4_broker_inbox_source_links.account_id",
+            "phase4_broker_inbox_source_links.request_id",
+            "phase4_broker_inbox_source_links.semantic_sha256",
+        ),
+    }
+    assert {
+        tuple(column.name for column in constraint.columns)
+        for constraint in phase4_broker_inbox_application_receipts.constraints
+        if isinstance(constraint, sa.UniqueConstraint)
+    } == {
+        ("request_id",),
+        ("observation_id",),
+        ("source_link_id",),
+        ("semantic_sha256",),
+        ("decision_id", "account_id", "request_id", "semantic_sha256"),
     }
 
 
@@ -456,7 +2020,11 @@ def test_phase2_durability_migration_is_additive_and_reversible(tmp_path: Path) 
 
     upgraded_tables = set(inspect(engine).get_table_names())
     assert upgraded_tables == (
-        legacy_tables | PHASE2_TABLE_NAMES | PHASE3_TABLE_NAMES | PHASE4_TABLE_NAMES
+        legacy_tables
+        | PHASE2_TABLE_NAMES
+        | PHASE3_TABLE_NAMES
+        | PHASE4_TABLE_NAMES
+        | PHASE5_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
@@ -517,7 +2085,7 @@ def test_phase3_governance_migration_is_additive_and_reversible(tmp_path: Path) 
     command.upgrade(config, "head")
 
     assert set(inspect(engine).get_table_names()) == (
-        prior_tables | PHASE3_TABLE_NAMES | PHASE4_TABLE_NAMES
+        prior_tables | PHASE3_TABLE_NAMES | PHASE4_TABLE_NAMES | PHASE5_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
@@ -549,7 +2117,9 @@ def test_phase4_broker_ingress_migration_is_additive_and_reversible(
 
     command.upgrade(config, "head")
 
-    assert set(inspect(engine).get_table_names()) == prior_tables | PHASE4_TABLE_NAMES
+    assert set(inspect(engine).get_table_names()) == (
+        prior_tables | PHASE4_TABLE_NAMES | PHASE5_TABLE_NAMES
+    )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
         for table_name in prior_tables
@@ -560,6 +2130,93 @@ def test_phase4_broker_ingress_migration_is_additive_and_reversible(
     assert tuple(
         column["name"] for column in inspect(engine).get_columns("phase4_broker_ingress_heads")
     ) == tuple(phase4_broker_ingress_heads.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_broker_reconciliation_facts")
+    ) == tuple(phase4_broker_reconciliation_facts.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_broker_reconciliation_heads")
+    ) == tuple(phase4_broker_reconciliation_heads.c.keys())
+    assert tuple(
+        column["name"] for column in inspect(engine).get_columns("phase4_broker_normalized_facts")
+    ) == tuple(phase4_broker_normalized_facts.c.keys())
+    assert tuple(
+        column["name"] for column in inspect(engine).get_columns("phase4_broker_inbox_source_links")
+    ) == tuple(phase4_broker_inbox_source_links.c.keys())
+    assert tuple(
+        column["name"] for column in inspect(engine).get_columns("phase4_broker_inbox_heads")
+    ) == tuple(phase4_broker_inbox_heads.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_broker_inbox_application_receipts")
+    ) == tuple(phase4_broker_inbox_application_receipts.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_alpaca_paper_order_snapshot_plans")
+    ) == tuple(phase4_alpaca_paper_order_snapshot_plans.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_alpaca_paper_order_snapshot_pages")
+    ) == tuple(phase4_alpaca_paper_order_snapshot_pages.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_alpaca_paper_order_snapshot_heads")
+    ) == tuple(phase4_alpaca_paper_order_snapshot_heads.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_alpaca_paper_order_transition_members")
+    ) == tuple(phase4_alpaca_paper_order_transition_members.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_alpaca_paper_order_transition_claims")
+    ) == tuple(phase4_alpaca_paper_order_transition_claims.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns(
+            "phase4_alpaca_paper_order_transition_consumptions"
+        )
+    ) == tuple(phase4_alpaca_paper_order_transition_consumptions.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_alpaca_paper_order_view_comparisons")
+    ) == tuple(phase4_alpaca_paper_order_view_comparisons.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_alpaca_paper_order_view_comparison_heads")
+    ) == tuple(phase4_alpaca_paper_order_view_comparison_heads.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_alpaca_paper_position_snapshot_plans")
+    ) == tuple(phase4_alpaca_paper_position_snapshot_plans.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_alpaca_paper_position_snapshots")
+    ) == tuple(phase4_alpaca_paper_position_snapshots.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_alpaca_paper_position_transition_members")
+    ) == tuple(phase4_alpaca_paper_position_transition_members.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_alpaca_paper_position_transition_claims")
+    ) == tuple(phase4_alpaca_paper_position_transition_claims.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns(
+            "phase4_alpaca_paper_position_transition_consumptions"
+        )
+    ) == tuple(phase4_alpaca_paper_position_transition_consumptions.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase4_alpaca_paper_position_view_comparisons")
+    ) == tuple(phase4_alpaca_paper_position_view_comparisons.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns(
+            "phase4_alpaca_paper_position_view_comparison_heads"
+        )
+    ) == tuple(phase4_alpaca_paper_position_view_comparison_heads.c.keys())
     engine.dispose()
 
     command.downgrade(config, "0010_phase3_governance")
@@ -614,7 +2271,7 @@ def test_phase4_broker_ingress_migration_refuses_data_loss_on_downgrade(
     preserved_engine = create_engine(database_url)
     with preserved_engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            EXPECTED_SCHEMA_REVISION
+            "0011_phase4_broker_ingress"
         )
         assert (
             connection.scalar(
@@ -622,6 +2279,8 @@ def test_phase4_broker_ingress_migration_refuses_data_loss_on_downgrade(
             )
             == 1
         )
+        assert not inspect(preserved_engine).has_table("phase4_broker_request_permits")
+        assert not inspect(preserved_engine).has_table("phase4_broker_request_heads")
     preserved_engine.dispose()
 
 
@@ -688,6 +2347,80 @@ def test_operational_readiness_rejects_truncated_broker_ingress_tail(
     with pytest.raises(
         DatabaseSchemaNotReady,
         match="Phase 4 broker-ingress integrity verification failed",
+    ):
+        verify_operational_schema(engine, require_phase_zero_facts=False)
+    engine.dispose()
+
+
+def test_operational_readiness_rejects_corrupt_phase5_control_history(
+    tmp_path: Path,
+) -> None:
+    from packages.domain.operational_control import (
+        OperationalControlActor,
+        OperationalControlActorKind,
+        OperationalControlCommand,
+        OperationalControlCommandKind,
+        OperationalControlState,
+    )
+    from packages.persistence.operational_control import SqlOperationalControlRepository
+
+    database_path = tmp_path / "phase5-control-readiness.sqlite"
+    database_url = f"sqlite+pysqlite:///{database_path}"
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    instant = datetime(2026, 7, 28, 20, 30, tzinfo=UTC)
+    account_id = "phase5-readiness-account"
+    coordinator = SqlAccountCoordinator(
+        account_id=account_id,
+        authority=SqlAccountCoordinatorAuthority(
+            engine=engine,
+            policy=AccountLeasePolicy(
+                policy_id="phase5-readiness-coordinator",
+                policy_version="1.0.0",
+                lease_ttl=timedelta(minutes=5),
+                maximum_in_flight_duration=timedelta(seconds=5),
+                takeover_safety_interval=timedelta(seconds=10),
+            ),
+            clock=FixedClock(instant),
+        ),
+    )
+    coordinator.acquire("phase5-readiness-worker")
+    repository = SqlOperationalControlRepository(
+        engine=engine,
+        clock=FixedClock(instant),
+    )
+    initial = repository.apply(
+        OperationalControlCommand(
+            scope_id=account_id,
+            idempotency_key="initialize-0001",
+            kind=OperationalControlCommandKind.INITIALIZE_HALTED,
+            target_state=OperationalControlState.HALTED,
+            actor=OperationalControlActor(
+                actor_id="startup",
+                kind=OperationalControlActorKind.SYSTEM,
+                authority_sha256="a" * 64,
+                authenticated_at=None,
+            ),
+            reason_code="startup",
+            reason_evidence_sha256="b" * 64,
+            requested_at=instant,
+        )
+    )
+    verify_operational_schema(engine, require_phase_zero_facts=False)
+
+    with engine.begin() as connection:
+        connection.execute(
+            sa.update(phase5_operational_control_transitions)
+            .where(phase5_operational_control_transitions.c.transition_id == initial.transition_id)
+            .values(reason_code="tampered")
+        )
+
+    with pytest.raises(
+        DatabaseSchemaNotReady,
+        match="Phase 5 operational-control integrity verification failed",
     ):
         verify_operational_schema(engine, require_phase_zero_facts=False)
     engine.dispose()
@@ -1351,3 +3084,117 @@ def test_phase_zero_database_upgrades_to_point_in_time_catalog(tmp_path: Path) -
                 connection.scalar(text(f"SELECT content_hash_version FROM {table_name}"))
                 == "input-v1"
             )
+
+
+def test_phase5_operational_control_migration_is_additive_and_reversible(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "phase5-operational-control.sqlite"
+    database_url = f"sqlite+pysqlite:///{database_path}"
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "0024_phase4_order_transition")
+    engine = create_engine(database_url)
+    prior_tables = set(inspect(engine).get_table_names())
+    prior_columns = {
+        table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
+        for table_name in prior_tables
+    }
+
+    command.upgrade(config, "head")
+
+    assert set(inspect(engine).get_table_names()) == (
+        prior_tables | PHASE4_TABLE_NAMES | PHASE5_TABLE_NAMES
+    )
+    assert {
+        table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
+        for table_name in prior_tables
+    } == prior_columns
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase5_operational_control_transitions")
+    ) == tuple(phase5_operational_control_transitions.c.keys())
+    assert tuple(
+        column["name"] for column in inspect(engine).get_columns("phase5_operational_control_heads")
+    ) == tuple(phase5_operational_control_heads.c.keys())
+    assert tuple(
+        column["name"]
+        for column in inspect(engine).get_columns("phase5_operational_control_completions")
+    ) == tuple(phase5_operational_control_completions.c.keys())
+
+    engine.dispose()
+    command.downgrade(config, "0024_phase4_order_transition")
+    downgraded_engine = create_engine(database_url)
+    assert set(inspect(downgraded_engine).get_table_names()) == prior_tables
+    downgraded_engine.dispose()
+
+
+def test_phase5_operational_control_migration_refuses_nonempty_downgrade(
+    tmp_path: Path,
+) -> None:
+    from packages.domain.operational_control import (
+        OperationalControlActor,
+        OperationalControlActorKind,
+        OperationalControlCommand,
+        OperationalControlCommandKind,
+        OperationalControlState,
+        apply_operational_control_command,
+    )
+    from packages.persistence.operational_control import _transition_values
+
+    database_path = tmp_path / "phase5-operational-control-nonempty.sqlite"
+    database_url = f"sqlite+pysqlite:///{database_path}"
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    instant = datetime(2026, 7, 28, 20, 0, tzinfo=UTC)
+    initialization = OperationalControlCommand(
+        scope_id="phase5-downgrade-account",
+        idempotency_key="initialize-0001",
+        kind=OperationalControlCommandKind.INITIALIZE_HALTED,
+        target_state=OperationalControlState.HALTED,
+        actor=OperationalControlActor(
+            actor_id="startup",
+            kind=OperationalControlActorKind.SYSTEM,
+            authority_sha256="a" * 64,
+            authenticated_at=None,
+        ),
+        reason_code="startup",
+        reason_evidence_sha256="b" * 64,
+        requested_at=instant,
+    )
+    transition = apply_operational_control_command(
+        None,
+        initialization,
+        decided_at=instant,
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            sa.insert(phase2_account_lease_heads).values(
+                account_id="phase5-downgrade-account",
+                last_fencing_generation=0,
+                current_fencing_generation=None,
+                current_lease_sha256=None,
+                updated_at=instant,
+            )
+        )
+        connection.execute(
+            sa.insert(phase5_operational_control_transitions).values(
+                **_transition_values(
+                    command=initialization,
+                    transition=transition,
+                    previous=None,
+                )
+            )
+        )
+    engine.dispose()
+
+    with pytest.raises(
+        RuntimeError,
+        match="refusing to downgrade nonempty operational-control history",
+    ):
+        command.downgrade(config, "0024_phase4_order_transition")

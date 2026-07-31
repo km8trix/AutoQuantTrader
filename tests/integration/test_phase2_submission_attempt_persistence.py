@@ -288,6 +288,7 @@ def test_preparation_atomically_persists_order_consumption_attempt_and_pending(
         recorded_at=prepared_at + timedelta(milliseconds=1),
     )
 
+    assert system.repository.runtime_store_identity == id(system.engine)
     assert attempt.state is SubmissionAttemptState.PENDING
     assert attempt.attempt_number == 1
     assert system.repository.get(attempt.attempt_id) == attempt
@@ -468,6 +469,18 @@ def test_unknown_cannot_be_resolved_or_retried_without_authenticated_reconciliat
         recorded_at=EVALUATED_AT + timedelta(seconds=3),
         error_class="FirstTimeout",
     )
+    unknown_receipt = system.repository.authenticate_terminal_unknown(
+        first,
+        checked_at=EVALUATED_AT + timedelta(seconds=3),
+    )
+    assert unknown_receipt.account_id == first.preparation.account_id
+    assert unknown_receipt.attempt_id == first.attempt_id
+    assert unknown_receipt.attempt_sha256 == first.semantic_sha256
+    assert unknown_receipt.terminal_event_id == first.events[-1].event_id
+    assert unknown_receipt.terminal_event_sha256 == first.events[-1].semantic_sha256
+    assert unknown_receipt.terminal_sequence_number == len(first.events)
+    assert not unknown_receipt.unknown_resolution_authorized
+    assert not unknown_receipt.trading_effect_authorized
     with system.engine.connect() as connection:
         assert connection.scalar(sa.select(phase2_batch_reservations.c.state)) == "frozen"
         event_count = _count(connection, phase2_submission_attempt_events)

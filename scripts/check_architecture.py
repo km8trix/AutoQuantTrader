@@ -10,6 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+_STRATEGY_START_AUTHORIZATION_MODULE = "packages.domain.strategy_invocation_lifecycle"
+_STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorization"
+_STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
+
 
 @dataclass(frozen=True, slots=True)
 class Violation:
@@ -96,6 +100,29 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 Violation(relative_path, error.lineno or 1, f"cannot parse file: {error.msg}")
             )
             continue
+
+        if relative_path != _STRATEGY_START_AUTHORIZATION_ISSUER:
+            for node in ast.walk(tree):
+                imports_private_factory = (
+                    isinstance(node, ast.ImportFrom)
+                    and node.module == _STRATEGY_START_AUTHORIZATION_MODULE
+                    and any(
+                        alias.name == _STRATEGY_START_AUTHORIZATION_FACTORY for alias in node.names
+                    )
+                )
+                accesses_private_factory = (
+                    isinstance(node, ast.Attribute)
+                    and node.attr == _STRATEGY_START_AUTHORIZATION_FACTORY
+                )
+                if imports_private_factory or accesses_private_factory:
+                    violations.append(
+                        Violation(
+                            relative_path,
+                            node.lineno,
+                            "only the durable strategy lifecycle repository may "
+                            "issue sealed strategy start authorization",
+                        )
+                    )
 
         for line, module, is_relative in _imports(tree):
             if _is_below(resolved_path, package_roots) and _matches_namespace(

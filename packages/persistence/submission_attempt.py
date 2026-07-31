@@ -8,7 +8,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from itertools import pairwise
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import sqlalchemy as sa
 from sqlalchemy import Engine
@@ -64,6 +64,9 @@ from packages.persistence.account_coordinator import (
     account_lease_from_row,
     lock_account_capacity_serialization,
 )
+from packages.persistence.advanced_batch_risk import (
+    authenticate_advanced_risk_admission_for_dispatch_in_transaction,
+)
 from packages.persistence.batch_risk import (
     account_observation_watermark,
     load_batch_risk_decision,
@@ -84,6 +87,11 @@ from packages.persistence.schema import (
     phase2_submission_attempt_events,
     phase2_submission_attempts,
 )
+
+if TYPE_CHECKING:
+    from packages.adapters.broker.alpaca_paper_lookup_runtime import (
+        AlpacaPaperUnknownAttemptFreshnessReceipt,
+    )
 
 PHASE2_SUBMISSION_PERSISTENCE_VERSION = "phase2-durable-submission-v2"
 RECOVERY_ERROR_CLASS = "RecoveredInterruptedDispatch"
@@ -1508,6 +1516,64 @@ def _locked_parent_for_attempt(
     return reservation_row, attempts, matches[0], correction_frozen
 
 
+def _authenticate_terminal_unknown(
+    connection: Connection,
+    attempt: CanonicalSubmissionAttempt,
+    *,
+    checked_at: datetime,
+) -> AlpacaPaperUnknownAttemptFreshnessReceipt:
+    """Authenticate one exact current UNKNOWN head in a caller-owned transaction."""
+
+    from packages.adapters.broker.alpaca_paper_lookup_runtime import (
+        _alpaca_paper_unknown_attempt_freshness_receipt,
+    )
+
+    checked_at = _require_input_datetime(
+        checked_at,
+        "terminal UNKNOWN checked_at",
+    )
+    if type(attempt) is not CanonicalSubmissionAttempt:
+        raise SubmissionAttemptPersistenceError(
+            "terminal UNKNOWN authentication requires an exact canonical attempt"
+        )
+    try:
+        reconstructed = reduce_submission_attempt(
+            attempt.preparation,
+            attempt.events,
+        )
+    except SubmissionAttemptError as error:
+        raise SubmissionAttemptPersistenceError(
+            "terminal UNKNOWN authentication requires reducer-produced evidence"
+        ) from error
+    if reconstructed != attempt:
+        raise SubmissionAttemptPersistenceError(
+            "terminal UNKNOWN authentication attempt is not canonical"
+        )
+    _reservation, _siblings, current, _correction_frozen = _locked_parent_for_attempt(
+        connection,
+        attempt.attempt_id,
+    )
+    if current != attempt:
+        raise SubmissionAttemptPersistenceError(
+            "terminal UNKNOWN authentication conflicts with the exact durable head"
+        )
+    if (
+        current.state is not SubmissionAttemptState.UNKNOWN
+        or current.events[-1].state is not SubmissionAttemptState.UNKNOWN
+    ):
+        raise SubmissionAttemptPersistenceError(
+            "submission attempt is not the exact current terminal UNKNOWN head"
+        )
+    if checked_at < current.as_of:
+        raise SubmissionAttemptPersistenceError(
+            "terminal UNKNOWN authentication clock predates its durable head"
+        )
+    return _alpaca_paper_unknown_attempt_freshness_receipt(
+        current,
+        checked_at=checked_at,
+    )
+
+
 def _verify_existing_rows(
     connection: Connection,
     attempt: CanonicalSubmissionAttempt,
@@ -1630,6 +1696,12 @@ class SqlSubmissionAttemptRepository:
         self._engine = engine
         self._coordinator = coordinator
 
+    @property
+    def runtime_store_identity(self) -> int:
+        """Expose process-local SQL-store identity for fail-fast composition."""
+
+        return id(self._engine)
+
     def prepare(
         self,
         *,
@@ -1682,6 +1754,12 @@ class SqlSubmissionAttemptRepository:
                 raise SubmissionAttemptPersistenceError(
                     "submission risk decision differs from its exact durable facts"
                 )
+            authenticate_advanced_risk_admission_for_dispatch_in_transaction(
+                connection,
+                decision=risk_decision,
+                receipt=receipt,
+                checked_at=prepared_at,
+            )
             if risk_decision.reservation is None:
                 raise SubmissionAttemptError("submission requires an approved reservation")
             reservation_row = _locked_reservation(
@@ -1777,6 +1855,34 @@ class SqlSubmissionAttemptRepository:
                 _assert_freeze_consistency(connection, reservation_row, attempts)
             return attempts
 
+    def authenticate_terminal_unknown(
+        self,
+        attempt: CanonicalSubmissionAttempt,
+        checked_at: datetime,
+    ) -> AlpacaPaperUnknownAttemptFreshnessReceipt:
+        """Prove that an exact durable attempt remains the current UNKNOWN head."""
+
+        if type(attempt) is not CanonicalSubmissionAttempt:
+            raise SubmissionAttemptPersistenceError(
+                "terminal UNKNOWN authentication requires an exact canonical attempt"
+            )
+        with _write_transaction(self._engine) as connection:
+            account_id = connection.scalar(
+                sa.select(phase2_submission_attempts.c.account_id).where(
+                    phase2_submission_attempts.c.attempt_id == attempt.attempt_id
+                )
+            )
+            if type(account_id) is not str or account_id != attempt.preparation.account_id:
+                raise SubmissionAttemptPersistenceError(
+                    "terminal UNKNOWN authentication references a missing or conflicting attempt"
+                )
+            lock_account_capacity_serialization(connection, account_id)
+            return _authenticate_terminal_unknown(
+                connection,
+                attempt,
+                checked_at=checked_at,
+            )
+
     def mark_in_flight(
         self,
         attempt_id: str,
@@ -1819,6 +1925,12 @@ class SqlSubmissionAttemptRepository:
                 raise SubmissionAttemptPersistenceError(
                     "dispatch fence does not match the prepared stable fence"
                 )
+            authenticate_advanced_risk_admission_for_dispatch_in_transaction(
+                connection,
+                decision=current.preparation.risk_decision,
+                receipt=receipt,
+                checked_at=occurred_at,
+            )
             if reservation_row["state"] == "released":
                 raise SubmissionAttemptError("submission reservation is already released")
             if _unknown_attempt_ids(parent_attempts):
