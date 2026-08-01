@@ -69,6 +69,9 @@ from packages.persistence.schema import (
     phase4_alpaca_paper_order_snapshot_plans,
     phase4_alpaca_paper_order_snapshot_preparations,
 )
+from tests.integration.phase4_postgres_cleanup import (
+    delete_phase4_postgres_account_facts,
+)
 from tests.integration.test_phase4_alpaca_paper_account_binding_persistence import (
     ACCOUNT_ID,
     API_KEY_ID,
@@ -849,9 +852,11 @@ def phase4o_postgres_engine() -> Iterator[Engine]:
 
 def test_postgresql_concurrent_prepare_allows_only_the_claim_winner(
     phase4o_postgres_engine: Engine,
+    request: pytest.FixtureRequest,
 ) -> None:
     engine = phase4o_postgres_engine
     account_id = f"phase4o-pg-{uuid4()}"
+    request.addfinalizer(lambda: delete_phase4_postgres_account_facts(engine, account_id))
     instant = datetime.now(tz=UTC)
     coordinator = SqlAccountCoordinator(
         account_id=account_id,

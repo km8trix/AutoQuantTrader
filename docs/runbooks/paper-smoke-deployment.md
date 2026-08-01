@@ -196,24 +196,62 @@ stale-host watchdog are explicitly deferred owner actions.
 3. Record a logical export before migration where the Supabase Free project and
    local network path support it. Do not claim a backup or restore objective
    without verified evidence.
-4. In the owner-only environment file, confirm without printing the DSN that
-   `AQT_DATABASE_URL` names the intended runtime Supabase project and that
-   `AQT_TEST_POSTGRES_URL` names a different database. Query the current runtime
-   revision, then run the additive Alembic migration with that external file
-   explicitly loaded:
+4. Use only the purpose-built Phase 6 migration operator for the production
+   transition from exact revision `0034_phase6_trusted_time` to exact revision
+   `0035_phase6_time_uncertainty`. The owner environment must be an absolute,
+   non-symlinked, current-user-owned mode-`0400` or mode-`0600` file containing
+   distinct `AQT_DATABASE_URL` and `AQT_TEST_POSTGRES_URL` bindings. Create an
+   absolute, non-symlinked, mode-`0700` evidence directory outside the
+   repository; the operator creates each evidence file atomically at mode
+   `0600` and refuses to overwrite it.
+
+   Run the following sequence from the repository root, replacing every
+   placeholder with the exact reviewed owner path. Do not export either DSN to
+   the shell or pass it as a command argument:
 
    ```console
-   uv run --frozen --no-sync \
-     --env-file /absolute/path/to/owner/.env \
-     alembic current
-   uv run --frozen --no-sync \
-     --env-file /absolute/path/to/owner/.env \
-     alembic upgrade head
+   .venv/bin/python scripts/migrate_phase6_trusted_time_uncertainty.py \
+     check-bindings
+   .venv/bin/python scripts/migrate_phase6_trusted_time_uncertainty.py \
+     test-postgres \
+     --env-file /absolute/path/to/owner-only.env
+   .venv/bin/python scripts/migrate_phase6_trusted_time_uncertainty.py \
+     preflight-runtime \
+     --env-file /absolute/path/to/owner-only.env \
+     --artifact /absolute/path/to/owner-only-evidence/phase6-0035-preflight.json
+   .venv/bin/python scripts/migrate_phase6_trusted_time_uncertainty.py \
+     apply-runtime \
+     --env-file /absolute/path/to/owner-only.env \
+     --preflight-artifact \
+       /absolute/path/to/owner-only-evidence/phase6-0035-preflight.json \
+     --postflight-artifact \
+       /absolute/path/to/owner-only-evidence/phase6-0035-postflight.json
    ```
 
-   Do not use the bare `make migrate` command for this sequence: without
-   `AQT_DATABASE_URL` in the process environment, Alembic uses its transient
-   SQLite default. Never run the migration against `AQT_TEST_POSTGRES_URL`.
+   Require `check-bindings` to authenticate the pinned CA, exact migration
+   bytes, Alembic edge, and bound source files. Require `test-postgres` to pass
+   against only `AQT_TEST_POSTGRES_URL` with `runtime_target_untouched=true`.
+   Require `preflight-runtime` to report `status=ready`; its canonical artifact
+   must bind prior revision 0034, active TLS, the expected pre-0035 catalog,
+   and zero rows in all three trusted-time tables. The artifact expires after
+   15 minutes. Obtain explicit owner approval after reviewing that artifact and
+   immediately before `apply-runtime`.
+
+   `apply-runtime` revalidates the unchanged owner file, source bindings, live
+   catalog, empty histories, and preflight artifact under an advisory lock. It
+   can execute only migration 0035, then requires exact revision 0035, the new
+   uncertainty column and policy constraints, zero trusted-time rows, and the
+   full operational-schema gate before writing the postflight artifact. Stop
+   on any nonzero exit. If output says `migration_committed=true`, do not retry
+   merely because later verification or artifact publication failed; preserve
+   the evidence and review the runtime catalog first.
+
+   Never substitute raw `alembic current`, `alembic upgrade head`, or bare
+   `make migrate` in this production sequence, and never direct the migration
+   step at `AQT_TEST_POSTGRES_URL`. These commands are instructions, not
+   evidence. Runtime migration 0035 was applied on 2026-08-01 only through the
+   exact operator; its retained postflight artifact SHA-256 is
+   `73085244cad0c24f22a06b22e8cf106c26f9e69a3bf5b32b9a296e995e165e6a`.
 5. First run the unbound image admission verifier and require its expected
    nonzero internal preflight with every authority false. Replace the
    placeholder with the exact ID returned in step 2:

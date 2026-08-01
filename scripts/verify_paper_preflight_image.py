@@ -15,6 +15,7 @@ _RUNTIME_INPUT_PATHS = (
     "/workspace/strategy_artifacts/no_exposure_smoke_v1/strategy.py",
     "/workspace/strategy_artifacts/no_exposure_smoke_v1/manifest.json",
     "/workspace/apps/trader/main.py",
+    "/workspace/packages/persistence/certs/supabase-prod-ca-2021.crt",
 )
 _NON_AUTHORIZING_FLAGS = (
     "automatic_rearm_authorized",

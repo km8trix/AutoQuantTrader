@@ -72,6 +72,9 @@ from packages.persistence.schema import (
     phase4_alpaca_paper_position_snapshot_plans,
     phase4_alpaca_paper_position_snapshots,
 )
+from tests.integration.phase4_postgres_cleanup import (
+    delete_phase4_postgres_account_facts,
+)
 from tests.integration.test_phase4_alpaca_paper_account_binding_persistence import (
     ACCOUNT_ID,
     API_KEY_ID,
@@ -604,9 +607,11 @@ def test_integrity_verifier_rejects_direct_sql_orphan_receipt(
 
 def test_postgresql_concurrent_prepare_allows_only_one_claim(
     phase4u_postgres_engine: Engine,
+    request: pytest.FixtureRequest,
 ) -> None:
     engine = phase4u_postgres_engine
     account_id = f"phase4u-pg-position-{uuid4().hex[:20]}"
+    request.addfinalizer(lambda: delete_phase4_postgres_account_facts(engine, account_id))
     evidence, _ = _prepare_concurrent_postgres_evidence(engine, account_id)
     binding = SqlAlpacaPaperAccountBindingRepository(engine).record(evidence)
     reference = AlpacaPaperCredentialReference(

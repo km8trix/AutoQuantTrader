@@ -64,6 +64,31 @@ def canonical_persisted_decimal(value: Decimal, field_name: str) -> Decimal:
     return canonical
 
 
+def canonical_persisted_decimal_from_scaled_integer(
+    value: int,
+    *,
+    scale: int,
+    field_name: str,
+) -> Decimal:
+    """Construct an exact persisted decimal without consulting arithmetic context."""
+
+    if type(value) is not int:
+        raise TypeError(f"{field_name} scaled coefficient must be an integer")
+    if type(scale) is not int or scale < 0:
+        raise ValueError(f"{field_name} scale must be a non-negative integer")
+    if scale > PERSISTED_DECIMAL_SCALE:
+        raise ValueError(f"{field_name} must fit NUMERIC(28, 10) exactly")
+    absolute = str(abs(value))
+    result = Decimal(
+        (
+            1 if value < 0 else 0,
+            tuple(int(character) for character in absolute),
+            -scale,
+        )
+    )
+    return canonical_persisted_decimal(result, field_name)
+
+
 def _json_text(node: object) -> str:
     return json.dumps(
         node,

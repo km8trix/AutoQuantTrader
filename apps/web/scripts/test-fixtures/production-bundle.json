@@ -1,0 +1,175 @@
+{
+  "policy": {
+    "contract_version": "phase6b-production-bundle-admission-v1",
+    "entry_module": "index.html",
+    "route_modules": [
+      "src/routes/Route01.tsx",
+      "src/routes/Route02.tsx",
+      "src/routes/Route03.tsx",
+      "src/routes/Route04.tsx",
+      "src/routes/Route05.tsx",
+      "src/routes/Route06.tsx",
+      "src/routes/Route07.tsx",
+      "src/routes/Route08.tsx",
+      "src/routes/Route09.tsx",
+      "src/routes/Route10.tsx",
+      "src/routes/Route11.tsx"
+    ],
+    "required_shared_partitions": [
+      "react-runtime",
+      "mui-runtime",
+      "query-runtime",
+      "vendor-runtime"
+    ],
+    "max_asset_bytes": 50,
+    "max_initial_graph_bytes": 150
+  },
+  "manifest": {
+    "_react.js": {
+      "file": "assets/react.js",
+      "name": "react-runtime"
+    },
+    "_mui.js": {
+      "file": "assets/mui.js",
+      "name": "mui-runtime",
+      "imports": [
+        "_react.js",
+        "_vendor.js"
+      ]
+    },
+    "_query.js": {
+      "file": "assets/query.js",
+      "name": "query-runtime",
+      "imports": [
+        "_react.js"
+      ]
+    },
+    "_vendor.js": {
+      "file": "assets/vendor.js",
+      "name": "vendor-runtime",
+      "imports": [
+        "_react.js"
+      ]
+    },
+    "index.html": {
+      "file": "assets/entry.js",
+      "src": "index.html",
+      "name": "index",
+      "isEntry": true,
+      "imports": [
+        "_react.js",
+        "_mui.js",
+        "_query.js",
+        "_vendor.js"
+      ],
+      "dynamicImports": [
+        "src/routes/Route01.tsx",
+        "src/routes/Route02.tsx",
+        "src/routes/Route03.tsx",
+        "src/routes/Route04.tsx",
+        "src/routes/Route05.tsx",
+        "src/routes/Route06.tsx",
+        "src/routes/Route07.tsx",
+        "src/routes/Route08.tsx",
+        "src/routes/Route09.tsx",
+        "src/routes/Route10.tsx",
+        "src/routes/Route11.tsx"
+      ]
+    },
+    "src/routes/Route01.tsx": {
+      "file": "assets/route-01.js",
+      "src": "src/routes/Route01.tsx",
+      "name": "Route01",
+      "isDynamicEntry": true,
+      "imports": ["index.html", "_react.js"]
+    },
+    "src/routes/Route02.tsx": {
+      "file": "assets/route-02.js",
+      "src": "src/routes/Route02.tsx",
+      "name": "Route02",
+      "isDynamicEntry": true,
+      "imports": ["index.html", "_mui.js"]
+    },
+    "src/routes/Route03.tsx": {
+      "file": "assets/route-03.js",
+      "src": "src/routes/Route03.tsx",
+      "name": "Route03",
+      "isDynamicEntry": true,
+      "imports": ["index.html", "_query.js"]
+    },
+    "src/routes/Route04.tsx": {
+      "file": "assets/route-04.js",
+      "src": "src/routes/Route04.tsx",
+      "name": "Route04",
+      "isDynamicEntry": true,
+      "imports": ["index.html", "_vendor.js"]
+    },
+    "src/routes/Route05.tsx": {
+      "file": "assets/route-05.js",
+      "src": "src/routes/Route05.tsx",
+      "name": "Route05",
+      "isDynamicEntry": true,
+      "imports": ["index.html"]
+    },
+    "src/routes/Route06.tsx": {
+      "file": "assets/route-06.js",
+      "src": "src/routes/Route06.tsx",
+      "name": "Route06",
+      "isDynamicEntry": true,
+      "imports": ["index.html"]
+    },
+    "src/routes/Route07.tsx": {
+      "file": "assets/route-07.js",
+      "src": "src/routes/Route07.tsx",
+      "name": "Route07",
+      "isDynamicEntry": true,
+      "imports": ["index.html"]
+    },
+    "src/routes/Route08.tsx": {
+      "file": "assets/route-08.js",
+      "src": "src/routes/Route08.tsx",
+      "name": "Route08",
+      "isDynamicEntry": true,
+      "imports": ["index.html"]
+    },
+    "src/routes/Route09.tsx": {
+      "file": "assets/route-09.js",
+      "src": "src/routes/Route09.tsx",
+      "name": "Route09",
+      "isDynamicEntry": true,
+      "imports": ["index.html"]
+    },
+    "src/routes/Route10.tsx": {
+      "file": "assets/route-10.js",
+      "src": "src/routes/Route10.tsx",
+      "name": "Route10",
+      "isDynamicEntry": true,
+      "imports": ["index.html"]
+    },
+    "src/routes/Route11.tsx": {
+      "file": "assets/route-11.js",
+      "src": "src/routes/Route11.tsx",
+      "name": "Route11",
+      "isDynamicEntry": true,
+      "imports": ["index.html"]
+    }
+  },
+  "asset_sizes": {
+    "assets/entry.js": 10,
+    "assets/react.js": 20,
+    "assets/mui.js": 30,
+    "assets/query.js": 40,
+    "assets/vendor.js": 50,
+    "assets/route-01.js": 5,
+    "assets/route-02.js": 5,
+    "assets/route-03.js": 5,
+    "assets/route-04.js": 5,
+    "assets/route-05.js": 5,
+    "assets/route-06.js": 5,
+    "assets/route-07.js": 5,
+    "assets/route-08.js": 5,
+    "assets/route-09.js": 5,
+    "assets/route-10.js": 5,
+    "assets/route-11.js": 5
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "contract_version": "phase6c-local-chrony-nts-authority-v1",
+  "source_id": "chrony-nts-cloudflare-netnod-v1",
+  "host_id": "local-paper-docker-primary-v1",
+  "runtime": {
+    "base_image": "alpine:3.23.5@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40",
+    "chrony_version": "4.8",
+    "chrony_package": "chrony=4.8-r2",
+    "chrony_source_sha256": "33ea8eb2a4daeaa506e8fcafd5d6d89027ed6f2f0609645c6f149b560d301706",
+    "clock_adjustment_mode": "-x",
+    "daemon_user": "autoquant",
+    "runtime_uid": 10001,
+    "runtime_gid": 10001,
+    "chronyd_path": "/usr/sbin/chronyd",
+    "supervisor_chronyc_path": "/usr/local/bin/chronyc"
+  },
+  "chrony": {
+    "config_path": "/etc/autoquant/trusted-time/chrony.conf",
+    "config_sha256": "82791d1c6f38017d2552e8d012e0ebd26d7112dce71431d9cae39d7150f185f5",
+    "socket_path": "/run/chrony/chronyd.sock",
+    "socket_directory_mode": "0750",
+    "socket_volume": "ephemeral_tmpfs_read_write",
+    "command_transport": "unix_socket_only",
+    "ntp_server_port": 0,
+    "monitoring_udp_port": 0,
+    "minimum_selectable_sources": 2,
+    "minimum_poll_exponent": 4,
+    "maximum_poll_exponent": 4
+  },
+  "database_tls": {
+    "provider": "supabase",
+    "sslmode": "verify-full",
+    "ca_path": "/etc/autoquant/trusted-time/supabase-prod-ca-2021.crt",
+    "ca_sha256": "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7",
+    "certificate_role": "server_root_ca",
+    "not_after_utc": "2031-04-26T10:56:53Z"
+  },
+  "sources": [
+    {
+      "name": "time.cloudflare.com",
+      "protocol": "nts",
+      "nts_ke_port": 4460,
+      "ntp_port": 123,
+      "required": true
+    },
+    {
+      "name": "nts.netnod.se",
+      "protocol": "nts",
+      "nts_ke_port": 4460,
+      "ntp_port": 4123,
+      "required": true
+    }
+  ],
+  "admission": {
+    "exact_source_set_required": true,
+    "selected_source_count": 1,
+    "combined_source_count": 1,
+    "authentication_mode": "NTS",
+    "allowed_aead_algorithms": [15, 30],
+    "authenticated_ntp_packets_required": true,
+    "normal_leap_state_required": true,
+    "maximum_reference_age_seconds": 30,
+    "maximum_source_uncertainty_milliseconds": 100,
+    "uncertainty_formula": "root_dispersion_plus_half_absolute_root_delay_plus_inner_half_duration_plus_cross_clock_projection_plus_microsecond_rounding"
+  },
+  "supervision": {
+    "startup_probe_required": true,
+    "cadence_seconds": 20,
+    "probe_deadline_seconds": 1,
+    "deadline_clock": "linux_clock_boottime",
+    "same_tick_retries": 0,
+    "maximum_gap_seconds": 30,
+    "database_connect_timeout_seconds": 3,
+    "database_statement_timeout_milliseconds": 3000,
+    "database_lock_timeout_milliseconds": 1000,
+    "failover_enabled": false,
+    "epoch_rotation_enabled": false
+  },
+  "authority": {
+    "readiness": false,
+    "operational_control": false,
+    "new_exposure": false,
+    "alert_delivery": false,
+    "automatic_rearm": false,
+    "paper_trading": false,
+    "live_trading": false,
+    "external_head_anchor": false
+  }
+}

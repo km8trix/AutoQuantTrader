@@ -61,9 +61,21 @@ from packages.persistence.broker_request_budget import (
 from packages.persistence.database import create_database_engine, verify_operational_schema
 from packages.persistence.immutable import as_aware_utc
 from packages.persistence.schema import (
+    phase2_account_lease_heads,
+    phase2_account_lease_releases,
+    phase2_account_leases,
+    phase4_alpaca_paper_account_binding_heads,
+    phase4_alpaca_paper_account_bindings,
     phase4_alpaca_paper_order_snapshot_heads,
+    phase4_alpaca_paper_order_snapshot_pages,
+    phase4_alpaca_paper_order_snapshot_plans,
+    phase4_alpaca_paper_order_snapshot_preparations,
     phase4_alpaca_paper_order_view_comparison_heads,
     phase4_alpaca_paper_order_view_comparisons,
+    phase4_broker_ingress_heads,
+    phase4_broker_ingress_receipts,
+    phase4_broker_request_heads,
+    phase4_broker_request_permits,
 )
 from tests.integration.test_phase4_alpaca_paper_account_binding_persistence import (
     ACCOUNT_ID,
@@ -620,46 +632,76 @@ def _postgres_comparison_sources(
     return repository, coordinator, fence, evidence
 
 
+def _delete_postgres_account_facts(engine: Engine, account_id: str) -> None:
+    """Delete one test account's facts in reverse foreign-key order."""
+
+    tables = (
+        phase4_alpaca_paper_order_view_comparison_heads,
+        phase4_alpaca_paper_order_view_comparisons,
+        phase4_alpaca_paper_order_snapshot_heads,
+        phase4_alpaca_paper_order_snapshot_preparations,
+        phase4_alpaca_paper_order_snapshot_pages,
+        phase4_alpaca_paper_order_snapshot_plans,
+        phase4_alpaca_paper_account_binding_heads,
+        phase4_alpaca_paper_account_bindings,
+        phase4_broker_ingress_heads,
+        phase4_broker_request_heads,
+        phase4_broker_ingress_receipts,
+        phase4_broker_request_permits,
+        phase2_account_lease_releases,
+        phase2_account_lease_heads,
+        phase2_account_leases,
+    )
+    with engine.begin() as connection:
+        for table in tables:
+            connection.execute(sa.delete(table).where(table.c.account_id == account_id))
+
+
 def test_postgresql_concurrent_exact_retry_serializes_one_receipt_and_head(
     phase4p_postgres_engine: Engine,
 ) -> None:
     engine = phase4p_postgres_engine
     account_id = f"phase4p-pg-{uuid4()}"
-    _, coordinator, fence, value = _postgres_comparison_sources(
-        engine,
-        account_id,
-    )
+    try:
+        _, coordinator, fence, value = _postgres_comparison_sources(
+            engine,
+            account_id,
+        )
 
-    def record() -> object:
-        return SqlAlpacaPaperOrderViewComparisonRepository(
+        def record() -> object:
+            return SqlAlpacaPaperOrderViewComparisonRepository(
+                engine=engine,
+                coordinator=coordinator,
+            ).record(value, fence=fence)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = tuple(executor.map(lambda _: record(), range(2)))
+
+        assert results[0] == results[1]
+        history = SqlAlpacaPaperOrderViewComparisonRepository(
             engine=engine,
             coordinator=coordinator,
-        ).record(value, fence=fence)
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        results = tuple(executor.map(lambda _: record(), range(2)))
-
-    assert results[0] == results[1]
-    history = SqlAlpacaPaperOrderViewComparisonRepository(
-        engine=engine,
-        coordinator=coordinator,
-    ).history(account_id)
-    assert history == (results[0],)
-    assert history[0].account_sequence == 1
-    with engine.connect() as connection:
-        assert (
-            connection.scalar(
-                sa.select(sa.func.count())
-                .select_from(phase4_alpaca_paper_order_view_comparisons)
-                .where(phase4_alpaca_paper_order_view_comparisons.c.account_id == account_id)
+        ).history(account_id)
+        assert history == (results[0],)
+        assert history[0].account_sequence == 1
+        with engine.connect() as connection:
+            assert (
+                connection.scalar(
+                    sa.select(sa.func.count())
+                    .select_from(phase4_alpaca_paper_order_view_comparisons)
+                    .where(phase4_alpaca_paper_order_view_comparisons.c.account_id == account_id)
+                )
+                == 1
             )
-            == 1
-        )
-        assert (
-            connection.scalar(
-                sa.select(sa.func.count())
-                .select_from(phase4_alpaca_paper_order_view_comparison_heads)
-                .where(phase4_alpaca_paper_order_view_comparison_heads.c.account_id == account_id)
+            assert (
+                connection.scalar(
+                    sa.select(sa.func.count())
+                    .select_from(phase4_alpaca_paper_order_view_comparison_heads)
+                    .where(
+                        phase4_alpaca_paper_order_view_comparison_heads.c.account_id == account_id
+                    )
+                )
+                == 1
             )
-            == 1
-        )
+    finally:
+        _delete_postgres_account_facts(engine, account_id)

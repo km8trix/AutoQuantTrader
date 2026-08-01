@@ -22,7 +22,7 @@ from packages.application.trusted_time_monitor import (
 )
 from packages.domain.trusted_time import TrustedTimeState
 
-DURABLE_TRUSTED_TIME_MONITOR_CONTRACT_VERSION = "phase6a-durable-trusted-time-persistence-v1"
+DURABLE_TRUSTED_TIME_MONITOR_CONTRACT_VERSION = "phase6a-durable-trusted-time-persistence-v2"
 
 
 class DurableTrustedTimeMonitorError(RuntimeError):

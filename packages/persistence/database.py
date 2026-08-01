@@ -19,6 +19,7 @@ from packages.domain.replay_manifest import (
 )
 from packages.domain.risk import RiskAuthorizationError
 from packages.persistence.immutable import ImmutableFactConflict, as_aware_utc
+from packages.persistence.postgres_tls import pinned_verify_full_connect_args
 from packages.persistence.schema import (
     calendar_sessions,
     calendar_versions,
@@ -137,6 +138,8 @@ from packages.persistence.schema import (
     phase5_strategy_invocation_finalizations,
     phase5_strategy_supervision_results,
     phase6_trusted_time_epoch_registrations,
+    phase6_trusted_time_head_anchor_intents,
+    phase6_trusted_time_head_anchor_receipts,
     phase6_trusted_time_host_heads,
     phase6_trusted_time_probe_evaluations,
     replay_run_manifests,
@@ -149,7 +152,7 @@ from packages.persistence.schema import (
 )
 from packages.persistence.sqlite_config import enforce_sqlite_foreign_keys
 
-EXPECTED_SCHEMA_REVISION = "0034_phase6_trusted_time"
+EXPECTED_SCHEMA_REVISION = "0036_phase6_time_anchors"
 
 
 class DatabaseSchemaNotReady(RuntimeError):
@@ -1239,7 +1242,11 @@ def create_database_engine(database_url: str) -> Engine:
             poolclass=StaticPool,
         )
     else:
-        engine = create_engine(url, pool_pre_ping=True)
+        engine = create_engine(
+            url,
+            connect_args=pinned_verify_full_connect_args(database_url, required=False),
+            pool_pre_ping=True,
+        )
     return enforce_sqlite_foreign_keys(engine)
 
 
@@ -1272,17 +1279,23 @@ def verify_operational_schema(
     engine: Engine,
     *,
     require_phase_zero_facts: bool = True,
+    expected_revision: str = EXPECTED_SCHEMA_REVISION,
 ) -> None:
     """Fail closed unless migrations and every Phase 0 operational table are readable."""
 
+    if expected_revision not in {
+        "0035_phase6_time_uncertainty",
+        EXPECTED_SCHEMA_REVISION,
+    }:
+        raise DatabaseSchemaNotReady("requested database revision is not supported")
     try:
         with _repeatable_read_transaction(engine) as connection:
             revision = connection.scalar(sa.text("SELECT version_num FROM alembic_version"))
-            if revision != EXPECTED_SCHEMA_REVISION:
+            if revision != expected_revision:
                 raise DatabaseSchemaNotReady(
-                    f"database revision {revision!r} is not {EXPECTED_SCHEMA_REVISION!r}"
+                    f"database revision {revision!r} is not {expected_revision!r}"
                 )
-            required_tables = (
+            required_tables: tuple[sa.Table, ...] = (
                 risk_account_guards,
                 risk_decisions,
                 risk_reservations,
@@ -1410,6 +1423,11 @@ def verify_operational_schema(
                 phase6_trusted_time_probe_evaluations,
                 phase6_trusted_time_host_heads,
             )
+            if expected_revision == EXPECTED_SCHEMA_REVISION:
+                required_tables += (
+                    phase6_trusted_time_head_anchor_intents,
+                    phase6_trusted_time_head_anchor_receipts,
+                )
             for table in required_tables:
                 connection.execute(sa.select(table).limit(0))
             from packages.persistence.advanced_batch_risk import (

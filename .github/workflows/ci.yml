@@ -126,13 +126,16 @@ jobs:
       - name: Test components
         run: pnpm test --run
 
+      - name: Test production bundle admission
+        run: pnpm bundle:test
+
       - name: Build production browser bundle
         run: pnpm build
 
   containers:
     name: Container definitions and paper admission
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     needs:
       - backend
       - frontend
@@ -142,6 +145,9 @@ jobs:
 
       - name: Validate Compose model
         run: docker compose -f infra/compose/compose.yaml config --quiet
+
+      - name: Admit trusted-time Compose isolation
+        run: python scripts/verify_trusted_time_compose.py
 
       - name: Build development images
         run: docker compose -f infra/compose/compose.yaml build migrate web
@@ -158,3 +164,6 @@ jobs:
         run: >-
           python scripts/verify_paper_preflight_image.py
           autoquanttrader-runtime:paper-preflight-ci
+
+      - name: Build and admit trusted-time evidence images
+        run: python scripts/verify_trusted_time_images.py --build

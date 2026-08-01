@@ -1,0 +1,109 @@
+name: autoquanttrader-trusted-time
+
+services:
+  chrony-nts:
+    image: ${AQT_TRUSTED_TIME_SOURCE_IMAGE:?trusted-time source image is required}
+    build:
+      context: ../..
+      dockerfile: infra/docker/trusted-time.Dockerfile
+      target: chrony-source
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 32
+    cpus: 0.25
+    mem_limit: 64m
+    volumes:
+      - type: volume
+        source: chrony_command_socket
+        target: /run/chrony
+        volume:
+          nocopy: true
+      - chrony_state:/var/lib/chrony
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0700
+    healthcheck:
+      test:
+        - CMD
+        - /usr/bin/chronyc
+        - -h
+        - /run/chrony/chronyd.sock
+        - activity
+      interval: 2s
+      timeout: 1s
+      retries: 15
+      start_period: 2s
+    init: true
+    stop_grace_period: 10s
+    restart: unless-stopped
+
+  trusted-time-supervisor:
+    image: ${AQT_TRUSTED_TIME_SUPERVISOR_IMAGE:?trusted-time supervisor image is required}
+    build:
+      context: ../..
+      dockerfile: infra/docker/trusted-time.Dockerfile
+      target: trusted-time-supervisor
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    cpus: 0.5
+    mem_limit: 256m
+    environment:
+      AQT_TRUSTED_TIME_AUTHORITY_PATH: /etc/autoquant/trusted-time/source-authority.json
+      AQT_TRUSTED_TIME_CHRONY_CONFIG_PATH: /etc/autoquant/trusted-time/chrony.conf
+      AQT_TRUSTED_TIME_DATABASE_URL_FILE: /run/secrets/trusted_time_database_url
+      AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_PATH: /etc/autoquant/trusted-time/head-anchor-authority.json
+      AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_FILE: /run/secrets/trusted_time_head_anchor_auth
+      AQT_TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_FILE: /run/secrets/trusted_time_head_anchor_signing_key
+    configs:
+      - source: trusted_time_head_anchor_authority
+        target: /etc/autoquant/trusted-time/head-anchor-authority.json
+    secrets:
+      - source: trusted_time_database_url
+        target: /run/secrets/trusted_time_database_url
+      - source: trusted_time_head_anchor_auth
+        target: /run/secrets/trusted_time_head_anchor_auth
+      - source: trusted_time_head_anchor_signing_key
+        target: /run/secrets/trusted_time_head_anchor_signing_key
+    volumes:
+      - type: volume
+        source: chrony_command_socket
+        target: /run/chrony
+        volume:
+          nocopy: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001,mode=0700
+    depends_on:
+      chrony-nts:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 40s
+    restart: "no"
+
+secrets:
+  trusted_time_database_url:
+    file: ${AQT_TRUSTED_TIME_DATABASE_SECRET_SOURCE_FILE:?trusted-time database secret file is required}
+  trusted_time_head_anchor_auth:
+    file: ${AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_SOURCE_FILE:?trusted-time head-anchor Auth secret file is required}
+  trusted_time_head_anchor_signing_key:
+    file: ${AQT_TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_SECRET_SOURCE_FILE:?trusted-time head-anchor signing-key secret file is required}
+
+configs:
+  trusted_time_head_anchor_authority:
+    file: ${AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_SOURCE_FILE:?trusted-time head-anchor authority file is required}
+
+volumes:
+  chrony_command_socket:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=8m,uid=10001,gid=10001,mode=0750
+  chrony_state:

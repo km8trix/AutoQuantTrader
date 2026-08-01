@@ -221,6 +221,8 @@ PHASE5_TABLE_NAMES = frozenset(
 PHASE6_TABLE_NAMES = frozenset(
     {
         "phase6_trusted_time_epoch_registrations",
+        "phase6_trusted_time_head_anchor_intents",
+        "phase6_trusted_time_head_anchor_receipts",
         "phase6_trusted_time_host_heads",
         "phase6_trusted_time_probe_evaluations",
     }
@@ -421,6 +423,8 @@ def test_operational_schema_can_be_created_without_postgresql() -> None:
         "phase5_strategy_invocation_finalizations",
         "phase5_strategy_supervision_results",
         "phase6_trusted_time_epoch_registrations",
+        "phase6_trusted_time_head_anchor_intents",
+        "phase6_trusted_time_head_anchor_receipts",
         "phase6_trusted_time_host_heads",
         "phase6_trusted_time_probe_evaluations",
         "risk_account_guards",
