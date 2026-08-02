@@ -166,4 +166,4 @@ jobs:
           autoquanttrader-runtime:paper-preflight-ci
 
       - name: Build and admit trusted-time evidence images
-        run: python scripts/verify_trusted_time_images.py --build
+        run: python -m scripts.verify_trusted_time_images --build
