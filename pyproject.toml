@@ -9,6 +9,7 @@ description = "A safety-first quantitative algorithmic trading platform."
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.14,<2",
+  "cryptography>=49,<50",
   "fastapi>=0.115,<1",
   "httpx>=0.28,<1",
   "opentelemetry-api>=1.44,<2",
@@ -26,6 +27,7 @@ dependencies = [
 autoquant-api = "apps.api.main:run"
 autoquant-worker = "apps.worker.main:main"
 autoquant-trader = "apps.trader.main:main"
+autoquant-trusted-time-supervisor = "apps.trusted_time_supervisor.main:main"
 
 [dependency-groups]
 dev = [

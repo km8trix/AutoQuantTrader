@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import fields, replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -62,7 +63,10 @@ class Source:
         return TrustedTimeSourceReading(
             source_id="trusted-source-1",
             source_authority_sha256=AUTHORITY,
+            local_observed_at_utc=BASE + timedelta(milliseconds=10),
             trusted_at_utc=BASE + timedelta(milliseconds=10),
+            observed_at_monotonic_ns=10_000_100,
+            source_uncertainty_milliseconds=Decimal("1"),
             source_evidence_sha256="f" * 64,
         )
 
@@ -310,7 +314,7 @@ def test_repository_attribute_failure_is_sanitized_before_any_probe_effect() -> 
 
 def test_session_is_init_disabled_and_persisted_result_has_no_authority() -> None:
     assert DURABLE_TRUSTED_TIME_MONITOR_CONTRACT_VERSION == (
-        "phase6a-durable-trusted-time-persistence-v1"
+        "phase6a-durable-trusted-time-persistence-v2"
     )
     with pytest.raises(TypeError, match="issued by"):
         DurableTrustedTimeEpochSession()

@@ -62,6 +62,11 @@ from packages.persistence.database import (
     EXPECTED_SCHEMA_REVISION,
     verify_operational_schema,
 )
+from packages.persistence.postgres_tls import (
+    SUPABASE_DATABASE_CA_SHA256,
+    PostgresTLSConfigurationError,
+    pinned_verify_full_connect_args,
+)
 from packages.persistence.schema import metadata
 from scripts.credential_env import load_owner_only_environment
 from scripts.verify_paper_preflight_image import (
@@ -257,7 +262,7 @@ def validate_supabase_session_database_url(value: str) -> URL:
         or "." not in url.username
         or _SUPABASE_PROJECT_REF.fullmatch(url.username.rsplit(".", 1)[1]) is None
         or not url.password
-        or dict(url.query) != {"sslmode": "require"}
+        or dict(url.query) != {"sslmode": "verify-full"}
     ):
         raise LocalPaperSmokePreflightError("database_url_not_supabase_session_tls")
     return url
@@ -380,13 +385,14 @@ def _database_target_sha256(
             url.port,
             url.database,
             username.rsplit(".", 1)[1] if username is not None else None,
-            "sslmode=require",
+            "sslmode=verify-full",
         )
 
     return _nonsecret_identity_sha256(
         "supabase_runtime_test_targets",
         identity(runtime),
         identity(test),
+        SUPABASE_DATABASE_CA_SHA256,
     )
 
 
@@ -420,10 +426,16 @@ def _client_tls_active(connection: sa.Connection) -> bool:
 def create_bounded_supabase_runtime_engine(database_url: str) -> Engine:
     """Create the PostgreSQL verifier engine with bounded network and SQL waits."""
 
+    validate_supabase_session_database_url(database_url)
+    try:
+        tls_connect_args = pinned_verify_full_connect_args(database_url, required=True)
+    except PostgresTLSConfigurationError:
+        raise LocalPaperSmokePreflightError("database_ca_invalid") from None
     return sa.create_engine(
         make_url(database_url),
         connect_args={
             "connect_timeout": _DATABASE_CONNECT_TIMEOUT_SECONDS,
+            **tls_connect_args,
             "options": (
                 f"-c statement_timeout={_DATABASE_STATEMENT_TIMEOUT_MILLISECONDS} "
                 f"-c lock_timeout={_DATABASE_LOCK_TIMEOUT_MILLISECONDS}"

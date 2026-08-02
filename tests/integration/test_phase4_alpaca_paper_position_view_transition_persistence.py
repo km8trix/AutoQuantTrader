@@ -64,6 +64,9 @@ from packages.persistence.schema import (
     phase4_alpaca_paper_position_transition_consumptions,
     phase4_alpaca_paper_position_transition_members,
 )
+from tests.integration.phase4_postgres_cleanup import (
+    delete_phase4_postgres_account_facts,
+)
 from tests.integration.test_phase4_alpaca_paper_account_binding_persistence import (
     _prepare_concurrent_postgres_evidence,
 )
@@ -568,9 +571,11 @@ def test_nonempty_transition_history_refuses_0023_downgrade(
 
 def test_postgresql_direct_prepare_and_pair_claim_are_serialized(
     phase4u_postgres_engine: Engine,  # noqa: F811
+    request: pytest.FixtureRequest,
 ) -> None:
     engine = phase4u_postgres_engine
     account_id = f"phase4x-pg-race-{uuid4().hex[:20]}"
+    request.addfinalizer(lambda: delete_phase4_postgres_account_facts(engine, account_id))
     evidence, _ = _prepare_concurrent_postgres_evidence(engine, account_id)
     binding = SqlAlpacaPaperAccountBindingRepository(engine).record(evidence)
     reference = AlpacaPaperCredentialReference(

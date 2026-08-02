@@ -17,6 +17,7 @@ from packages.application.paper_account_enrollment import (
 )
 from packages.application.paper_deployment import PaperDeploymentBlocker
 from packages.persistence.database import EXPECTED_SCHEMA_REVISION
+from packages.persistence.postgres_tls import SUPABASE_DATABASE_CA_PATH
 from packages.persistence.schema import metadata
 from scripts import verify_local_paper_smoke_preflight as local_preflight
 from scripts.verify_local_paper_smoke_preflight import (
@@ -33,11 +34,11 @@ from scripts.verify_paper_preflight_image import (
 
 RUNTIME_URL = (
     "postgresql+psycopg://postgres.abcdefghijklmnopqrst:runtime-password"
-    "@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require"
+    "@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=verify-full"
 )
 TEST_URL = (
     "postgresql+psycopg://postgres.uvwxyzabcdefghijklmn:test-password"
-    "@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require"
+    "@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=verify-full"
 )
 IMAGE_SHA256 = "a" * 64
 DATABASE_BINDING_SHA256 = "b" * 64
@@ -402,6 +403,8 @@ def test_runtime_engine_bounds_connect_pool_statement_and_lock_waits(
     assert captured["pool_timeout"] == 10
     assert captured["connect_args"] == {
         "connect_timeout": 10,
+        "sslmode": "verify-full",
+        "sslrootcert": str(SUPABASE_DATABASE_CA_PATH),
         "options": "-c statement_timeout=30000 -c lock_timeout=5000",
     }
 
@@ -420,7 +423,7 @@ def test_runtime_engine_bounds_connect_pool_statement_and_lock_waits(
             "database_url_not_supabase_session_tls",
         ),
         (
-            RUNTIME_URL.replace("?sslmode=require", ""),
+            RUNTIME_URL.replace("?sslmode=verify-full", ""),
             TEST_URL,
             "database_url_not_supabase_session_tls",
         ),
@@ -594,7 +597,7 @@ def test_binding_rotation_changes_readiness_evidence_hash() -> None:
 
 def test_database_verification_projection_rejects_partial_or_false_evidence() -> None:
     verified = _database_verification()
-    assert verified.public_table_count == 127
+    assert verified.public_table_count == 129
     assert verified.operational_control_observation == "absent_fail_closed"
 
     with pytest.raises(LocalPaperSmokePreflightError, match="runtime_database_not_ready"):

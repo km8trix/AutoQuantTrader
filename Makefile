@@ -4,13 +4,17 @@ SHELL := /bin/bash
 UV ?= uv
 PNPM ?= pnpm
 COMPOSE ?= docker compose -f infra/compose/compose.yaml
+TRUSTED_TIME_COMPOSE ?= docker compose --env-file infra/compose/trusted-time.defaults.env -f infra/compose/trusted-time.compose.yaml
+TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT ?= $(CURDIR)/artifacts/trusted-time/image-admission.json
+TRUSTED_TIME_QUALIFICATION_ARTIFACT_DIR ?= $(CURDIR)/artifacts/trusted-time
 
 .PHONY: help bootstrap dev dev-detached db down logs ps api web worker trader migrate \
 	check backend-check frontend-check architecture-check test compose-check \
 	api-contracts api-contracts-check admission-evaluate market-data-probe \
 	sharadar-sfp-capture tiingo-eod-profile-inspect tiingo-eod-capture tiingo-eod-verify \
 	tiingo-eod-lineage tiingo-eod-fields-qualify tiingo-eod-identity-qualify \
-	tiingo-eod-semantics-qualify no-exposure-smoke-verify
+	tiingo-eod-semantics-qualify no-exposure-smoke-verify trusted-time-compose-check \
+	trusted-time-images trusted-time-start trusted-time-inspect trusted-time-stop
 
 help: ## List developer commands.
 	@awk 'BEGIN {FS = ":.*## "; printf "AutoQuantTrader developer commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -156,6 +160,7 @@ frontend-check: ## Check browser lint, types, tests, and production build.
 	$(PNPM) --dir apps/web lint
 	$(PNPM) --dir apps/web typecheck
 	$(PNPM) --dir apps/web test --run
+	$(PNPM) --dir apps/web bundle:test
 	$(PNPM) --dir apps/web build
 
 architecture-check: ## Enforce dependency direction between packages and apps.
@@ -172,3 +177,33 @@ test: ## Run backend tests.
 
 compose-check: ## Validate the Docker Compose model without starting services.
 	$(COMPOSE) config --quiet
+	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+		scripts/verify_trusted_time_compose.py
+
+trusted-time-compose-check: ## Verify the isolated evidence-only Compose contract.
+	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+		scripts/verify_trusted_time_compose.py
+
+trusted-time-images: ## Build and admit the local Chrony/source supervisor images.
+	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+		scripts/verify_trusted_time_images.py --build \
+		--artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)"
+
+trusted-time-start: ## Start approved trusted-time images; requires ENV_FILE=owner-only.env.
+	@test -n "$(ENV_FILE)" || (echo "ENV_FILE=path/to/owner-only.env is required" >&2; exit 2)
+	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+		scripts/start_trusted_time_supervisor.py \
+		--env-file "$(ENV_FILE)" \
+		--image-admission-artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)"
+
+trusted-time-inspect: ## Inspect the running trusted-time qualification window.
+	@test -n "$(ENV_FILE)" || (echo "ENV_FILE=path/to/owner-only.env is required" >&2; exit 2)
+	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+		scripts/inspect_trusted_time_qualification.py \
+		--env-file "$(ENV_FILE)" \
+		--image-admission-artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)" \
+		--artifact-dir "$(TRUSTED_TIME_QUALIFICATION_ARTIFACT_DIR)"
+
+trusted-time-stop: ## Stop the supervisor, then Chrony, preserving state volumes.
+	$(TRUSTED_TIME_COMPOSE) stop trusted-time-supervisor
+	$(TRUSTED_TIME_COMPOSE) stop chrony-nts

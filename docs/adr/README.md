@@ -96,5 +96,16 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   (historical enrollment projection amended by ADR 0089)
 - [ADR 0089: read-only paper-account enrollment attestation](0089-read-only-paper-account-enrollment-attestation.md)
 - [ADR 0090: durable trusted-time persistence and one-shot supervision](0090-durable-trusted-time-persistence-and-one-shot-supervision.md)
+- [ADR 0091: fail-closed production browser bundle admission](0091-fail-closed-production-browser-bundle-admission.md)
+- [ADR 0092: evidence-only local Chrony NTS trusted-time supervision](0092-evidence-only-local-chrony-nts-trusted-time-supervision.md)
+  (source authority amended by ADR 0093;
+  [archived v1 Netnod manifest](evidence/0092-source-authority-v1.json) and
+  retained `not_qualified` evidence remain historical)
+- [ADR 0093: System76 Virginia NTS authority rotation](0093-system76-virginia-nts-authority-rotation.md)
+  ([current v2 System76 manifest](../../infra/trusted-time/source-authority.json);
+  retained inspector-v5 result is qualified but non-authorizing)
+- [ADR 0094: Separate-Supabase signed sparse trusted-time head checkpoints](0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md)
+  (migration 0036 is applied; separate-project provisioning and first external
+  enrollment remain pending and separately approval-gated)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

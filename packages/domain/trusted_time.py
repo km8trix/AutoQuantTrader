@@ -18,9 +18,11 @@ from packages.domain.canonical import (
     canonical_json_bytes,
     canonical_json_text,
     canonical_persisted_decimal,
+    canonical_persisted_decimal_from_scaled_integer,
 )
+from packages.domain.decimal_math import exact_decimal_add
 
-TRUSTED_TIME_CONTRACT_VERSION = "phase6a-provider-neutral-trusted-time-v1"
+TRUSTED_TIME_CONTRACT_VERSION = "phase6a-provider-neutral-trusted-time-v2"
 
 
 class TrustedTimeError(ValueError):
@@ -85,9 +87,10 @@ def _require_monotonic_ns(value: int, field_name: str) -> None:
 
 def _timedelta_milliseconds(value: timedelta) -> Decimal:
     microseconds = (value.days * 86_400 + value.seconds) * 1_000_000 + value.microseconds
-    return canonical_persisted_decimal(
-        Decimal(microseconds) / Decimal(1_000),
-        "trusted-time offset milliseconds",
+    return canonical_persisted_decimal_from_scaled_integer(
+        microseconds,
+        scale=3,
+        field_name="trusted-time offset milliseconds",
     )
 
 
@@ -101,6 +104,7 @@ class TrustedTimePolicy:
 
     warning_offset_milliseconds: Decimal
     hard_offset_milliseconds: Decimal
+    maximum_source_uncertainty_milliseconds: Decimal
     maximum_probe_duration_ns: int
     maximum_sample_age_ns: int
     maximum_cadence_gap_ns: int
@@ -116,14 +120,26 @@ class TrustedTimePolicy:
                 self.hard_offset_milliseconds,
                 "trusted-time hard offset",
             )
+            maximum_uncertainty = canonical_persisted_decimal(
+                self.maximum_source_uncertainty_milliseconds,
+                "trusted-time maximum source uncertainty",
+            )
         except (TypeError, ValueError) as error:
             raise TrustedTimeError(str(error)) from error
         if warning != self.warning_offset_milliseconds:
             object.__setattr__(self, "warning_offset_milliseconds", warning)
         if hard != self.hard_offset_milliseconds:
             object.__setattr__(self, "hard_offset_milliseconds", hard)
+        if maximum_uncertainty != self.maximum_source_uncertainty_milliseconds:
+            object.__setattr__(
+                self,
+                "maximum_source_uncertainty_milliseconds",
+                maximum_uncertainty,
+            )
         if warning <= 0 or hard <= warning:
             raise TrustedTimeError("trusted-time offsets require 0 < warning < hard")
+        if maximum_uncertainty <= 0 or maximum_uncertainty >= warning:
+            raise TrustedTimeError("trusted-time source uncertainty requires 0 < maximum < warning")
         for value, field_name in (
             (self.maximum_probe_duration_ns, "maximum probe duration"),
             (self.maximum_sample_age_ns, "maximum sample age"),
@@ -147,12 +163,15 @@ class TrustedTimePolicy:
             "policy",
             self.warning_offset_milliseconds,
             self.hard_offset_milliseconds,
+            self.maximum_source_uncertainty_milliseconds,
             self.maximum_probe_duration_ns,
             self.maximum_sample_age_ns,
             self.maximum_cadence_gap_ns,
             self.healthy_recovery_window_ns,
             "offset_lt_warning_is_healthy",
+            "offset_magnitude_is_abs_point_offset_plus_source_uncertainty",
             "offset_equality_is_within_magnitude_limit",
+            "source_uncertainty_equality_is_within_limit",
             "probe_duration_equality_is_within_limit",
             "utc_monotonic_elapsed_delta_within_warning_offset",
             "sample_age_equality_is_stale",
@@ -169,6 +188,7 @@ class TrustedTimePolicy:
 TRUSTED_TIME_POLICY = TrustedTimePolicy(
     warning_offset_milliseconds=Decimal("250"),
     hard_offset_milliseconds=Decimal("1000"),
+    maximum_source_uncertainty_milliseconds=Decimal("100"),
     maximum_probe_duration_ns=1_000_000_000,
     maximum_sample_age_ns=30_000_000_000,
     maximum_cadence_gap_ns=30_000_000_000,
@@ -180,9 +200,11 @@ TRUSTED_TIME_POLICY = TrustedTimePolicy(
 class TrustedTimeSample:
     """One authenticated source reading correlated to host UTC and monotonic time.
 
-    ``trusted_at_utc`` is the source adapter's authenticated estimate for the
-    midpoint of the bounded local probe interval.  The signed offset is derived
-    rather than accepted as a caller-supplied scalar.
+    ``trusted_at_utc`` is the source adapter's authenticated estimate projected
+    to the midpoint of the bounded local probe interval.  The signed point
+    offset is derived rather than accepted as a caller-supplied scalar, and
+    ``source_uncertainty_milliseconds`` is the adapter uncertainty plus the
+    monitor's conservative cross-clock projection uncertainty.
     """
 
     source_id: str
@@ -194,6 +216,7 @@ class TrustedTimeSample:
     probe_started_at_utc: datetime
     probe_completed_at_utc: datetime
     trusted_at_utc: datetime
+    source_uncertainty_milliseconds: Decimal
     probe_started_monotonic_ns: int
     probe_completed_monotonic_ns: int
 
@@ -222,6 +245,28 @@ class TrustedTimeSample:
             _require_utc(instant, field_name)
         if self.probe_completed_at_utc < self.probe_started_at_utc:
             raise TrustedTimeError("trusted-time probe UTC interval regressed")
+        try:
+            source_uncertainty = canonical_persisted_decimal(
+                self.source_uncertainty_milliseconds,
+                "trusted-time source uncertainty",
+            )
+        except (TypeError, ValueError) as error:
+            raise TrustedTimeError(
+                f"trusted-time source uncertainty is invalid: {error}"
+            ) from error
+        if source_uncertainty != self.source_uncertainty_milliseconds:
+            object.__setattr__(
+                self,
+                "source_uncertainty_milliseconds",
+                source_uncertainty,
+            )
+        if (
+            source_uncertainty < 0
+            or source_uncertainty > TRUSTED_TIME_POLICY.maximum_source_uncertainty_milliseconds
+        ):
+            raise TrustedTimeError(
+                "trusted-time source uncertainty must be within the approved limit"
+            )
         _require_monotonic_ns(
             self.probe_started_monotonic_ns,
             "trusted-time probe started monotonic_ns",
@@ -248,6 +293,7 @@ class TrustedTimeSample:
             raise TrustedTimeError("trusted-time UTC and monotonic probe intervals diverged")
         # Force exact persisted-range validation during construction.
         _ = self.offset_milliseconds
+        _ = self.offset_magnitude_with_uncertainty_milliseconds
 
     @property
     def local_midpoint_at_utc(self) -> datetime:
@@ -259,6 +305,16 @@ class TrustedTimeSample:
     @property
     def offset_milliseconds(self) -> Decimal:
         return _timedelta_milliseconds(self.trusted_at_utc - self.local_midpoint_at_utc)
+
+    @property
+    def offset_magnitude_with_uncertainty_milliseconds(self) -> Decimal:
+        return canonical_persisted_decimal(
+            exact_decimal_add(
+                self.offset_milliseconds.copy_abs(),
+                self.source_uncertainty_milliseconds,
+            ),
+            "trusted-time offset magnitude with uncertainty",
+        )
 
     def _semantic_material(self) -> tuple[object, ...]:
         return (
@@ -275,6 +331,8 @@ class TrustedTimeSample:
             self.local_midpoint_at_utc,
             self.trusted_at_utc,
             self.offset_milliseconds,
+            self.source_uncertainty_milliseconds,
+            self.offset_magnitude_with_uncertainty_milliseconds,
             self.probe_started_monotonic_ns,
             self.probe_completed_monotonic_ns,
         )
@@ -505,7 +563,7 @@ class TrustedTimeEvaluation:
 
 
 def _sample_health(sample: TrustedTimeSample) -> TrustedTimeHealth:
-    magnitude = abs(sample.offset_milliseconds)
+    magnitude = sample.offset_magnitude_with_uncertainty_milliseconds
     if magnitude < TRUSTED_TIME_POLICY.warning_offset_milliseconds:
         return TrustedTimeHealth.HEALTHY
     if magnitude <= TRUSTED_TIME_POLICY.hard_offset_milliseconds:

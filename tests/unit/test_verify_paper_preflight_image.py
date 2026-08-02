@@ -77,16 +77,16 @@ def test_preflight_result_accepts_exact_non_authorizing_payload() -> None:
 
 
 def test_runtime_input_permissions_accept_root_owned_nonwritable_files() -> None:
-    validate_runtime_input_permissions("0:0:644\n0:0:444\n0:0:640\n")
+    validate_runtime_input_permissions("0:0:644\n0:0:444\n0:0:640\n0:0:644\n")
 
 
 @pytest.mark.parametrize(
     "permissions",
     (
-        "10001:10001:644\n0:0:644\n0:0:644\n",
-        "0:0:664\n0:0:644\n0:0:644\n",
-        "0:0:644\n0:0:644\n",
-        "0:0:invalid\n0:0:644\n0:0:644\n",
+        "10001:10001:644\n0:0:644\n0:0:644\n0:0:644\n",
+        "0:0:664\n0:0:644\n0:0:644\n0:0:644\n",
+        "0:0:644\n0:0:644\n0:0:644\n",
+        "0:0:invalid\n0:0:644\n0:0:644\n0:0:644\n",
     ),
 )
 def test_runtime_input_permissions_reject_ownership_or_mode_drift(

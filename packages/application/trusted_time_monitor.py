@@ -8,10 +8,16 @@ call a broker, or authorize arming/re-arm.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
 
+from packages.domain.canonical import (
+    canonical_persisted_decimal,
+    canonical_persisted_decimal_from_scaled_integer,
+)
+from packages.domain.decimal_math import exact_decimal_add
 from packages.domain.trusted_time import (
     TRUSTED_TIME_POLICY,
     TrustedTimeError,
@@ -82,11 +88,14 @@ class TrustedTimeMonitorBinding:
 
 @dataclass(frozen=True, slots=True)
 class TrustedTimeSourceReading:
-    """Authenticated source output for the local probe midpoint."""
+    """Authenticated source output correlated to one local observation."""
 
     source_id: str
     source_authority_sha256: str
+    local_observed_at_utc: datetime
     trusted_at_utc: datetime
+    observed_at_monotonic_ns: int
+    source_uncertainty_milliseconds: Decimal
     source_evidence_sha256: str
 
     def __post_init__(self) -> None:
@@ -95,7 +104,37 @@ class TrustedTimeSourceReading:
             self.source_authority_sha256,
             "trusted-time reading source authority_sha256",
         )
+        _require_utc(
+            self.local_observed_at_utc,
+            "trusted-time reading local observation",
+        )
         _require_utc(self.trusted_at_utc, "trusted-time reading source instant")
+        if type(self.observed_at_monotonic_ns) is not int or self.observed_at_monotonic_ns < 0:
+            raise TrustedTimeMonitorError(
+                "trusted-time reading observed monotonic_ns must be a non-negative integer"
+            )
+        try:
+            uncertainty = canonical_persisted_decimal(
+                self.source_uncertainty_milliseconds,
+                "trusted-time reading source uncertainty",
+            )
+        except (TypeError, ValueError) as error:
+            raise TrustedTimeMonitorError(
+                f"trusted-time reading source uncertainty is invalid: {error}"
+            ) from error
+        if uncertainty != self.source_uncertainty_milliseconds:
+            object.__setattr__(
+                self,
+                "source_uncertainty_milliseconds",
+                uncertainty,
+            )
+        if (
+            uncertainty < 0
+            or uncertainty > TRUSTED_TIME_POLICY.maximum_source_uncertainty_milliseconds
+        ):
+            raise TrustedTimeMonitorError(
+                "trusted-time reading source uncertainty exceeds the approved limit"
+            )
         _require_sha256(
             self.source_evidence_sha256,
             "trusted-time reading evidence_sha256",
@@ -203,6 +242,49 @@ def _require_binding_continuity(
         )
 
 
+def _timedelta_nanoseconds(value: timedelta) -> int:
+    return (value.days * 86_400 + value.seconds) * 1_000_000_000 + value.microseconds * 1_000
+
+
+def _project_reading_to_probe_midpoint(
+    reading: TrustedTimeSourceReading,
+    *,
+    started_at_utc: datetime,
+    completed_at_utc: datetime,
+    started_monotonic_ns: int,
+    completed_monotonic_ns: int,
+) -> tuple[datetime, Decimal]:
+    if not started_at_utc <= reading.local_observed_at_utc <= completed_at_utc:
+        raise TrustedTimeError("trusted-time reading UTC observation is outside the probe")
+    if not (started_monotonic_ns <= reading.observed_at_monotonic_ns <= completed_monotonic_ns):
+        raise TrustedTimeError("trusted-time reading monotonic observation is outside the probe")
+
+    local_midpoint_at_utc = started_at_utc + (completed_at_utc - started_at_utc) / 2
+    correction = reading.trusted_at_utc - reading.local_observed_at_utc
+    projected_trusted_at_utc = local_midpoint_at_utc + correction
+
+    utc_projection_ns = _timedelta_nanoseconds(
+        local_midpoint_at_utc - reading.local_observed_at_utc
+    )
+    monotonic_projection_twice_ns = (
+        started_monotonic_ns + completed_monotonic_ns - 2 * reading.observed_at_monotonic_ns
+    )
+    projection_disagreement_twice_ns = abs(2 * utc_projection_ns - monotonic_projection_twice_ns)
+    projection_uncertainty_milliseconds = canonical_persisted_decimal_from_scaled_integer(
+        projection_disagreement_twice_ns * 5,
+        scale=7,
+        field_name="trusted-time projection uncertainty",
+    )
+    total_uncertainty = canonical_persisted_decimal(
+        exact_decimal_add(
+            reading.source_uncertainty_milliseconds,
+            projection_uncertainty_milliseconds,
+        ),
+        "trusted-time projected source uncertainty",
+    )
+    return projected_trusted_at_utc, total_uncertainty
+
+
 def run_trusted_time_probe(
     prior: TrustedTimeState | None,
     *,
@@ -261,6 +343,15 @@ def run_trusted_time_probe(
             evaluated_at_utc=completed_at_utc,
             evaluated_at_monotonic_ns=completed_monotonic_ns,
         )
+    try:
+        reading.__post_init__()
+    except Exception:
+        return _unavailable(
+            prior=prior,
+            status=TrustedTimeProbeStatus.INVALID_READING,
+            evaluated_at_utc=completed_at_utc,
+            evaluated_at_monotonic_ns=completed_monotonic_ns,
+        )
     if (
         reading.source_id != binding.source_id
         or reading.source_authority_sha256 != binding.source_authority_sha256
@@ -275,6 +366,15 @@ def run_trusted_time_probe(
     latest = None if prior is None else prior.latest_sample
     sequence = 1 if latest is None else latest.sequence + 1
     try:
+        projected_trusted_at_utc, projected_uncertainty_milliseconds = (
+            _project_reading_to_probe_midpoint(
+                reading,
+                started_at_utc=started_at_utc,
+                completed_at_utc=completed_at_utc,
+                started_monotonic_ns=started_monotonic_ns,
+                completed_monotonic_ns=completed_monotonic_ns,
+            )
+        )
         sample = TrustedTimeSample(
             source_id=reading.source_id,
             source_authority_sha256=reading.source_authority_sha256,
@@ -284,7 +384,8 @@ def run_trusted_time_probe(
             source_evidence_sha256=reading.source_evidence_sha256,
             probe_started_at_utc=started_at_utc,
             probe_completed_at_utc=completed_at_utc,
-            trusted_at_utc=reading.trusted_at_utc,
+            trusted_at_utc=projected_trusted_at_utc,
+            source_uncertainty_milliseconds=projected_uncertainty_milliseconds,
             probe_started_monotonic_ns=started_monotonic_ns,
             probe_completed_monotonic_ns=completed_monotonic_ns,
         )
@@ -294,7 +395,7 @@ def run_trusted_time_probe(
             evaluated_at_utc=completed_at_utc,
             evaluated_at_monotonic_ns=completed_monotonic_ns,
         )
-    except TrustedTimeError:
+    except (ArithmeticError, TrustedTimeError, ValueError):
         return _unavailable(
             prior=prior,
             status=TrustedTimeProbeStatus.INVALID_READING,

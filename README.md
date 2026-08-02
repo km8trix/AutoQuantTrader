@@ -399,14 +399,105 @@ epoch; immutable attempt history records successes and sanitized failures, an
 exact host-head compare-and-swap fences stale processes and concurrent probe
 losers, and startup replay rebuilds state only through the public reducer. The
 history is tamper-evident rather than externally authenticated or rollback
-proof. No actual time source, watchdog, scheduler, reviewed source-uncertainty
-bound, readiness/control/exposure gate, alert, or re-arm authority is selected
-or deployed. On 2026-07-31, owner-approved migration 0034 was applied to the
+proof. At the Phase 6A boundary, no actual time source, watchdog, scheduler,
+reviewed source-uncertainty bound, readiness/control/exposure gate, alert, or
+re-arm authority was selected or deployed. On 2026-07-31, owner-approved
+migration 0034 was applied to the
 runtime Supabase database; the three new tables were present with empty
 histories and the full operational-schema integrity gate passed.
 Phase 6B lazy-loads implemented browser feature routes behind an accessible
-fallback, leaving the shared shell and the remaining production
-browser-security, performance, SSE, and multi-browser work open.
+fallback and now admits the production bundle against an exact offline policy.
+Only entry-static third-party modules enter the deterministic React, MUI,
+TanStack Query, and residual vendor partitions; the verifier proves all eleven
+implemented routes remain distinct dynamic entries, resolves every referenced
+asset below `dist`, and enforces inclusive 300,000-byte per-asset and
+625,000-byte initial-static-graph ceilings. The admitted build's largest asset
+is 277,872 bytes and its five-asset initial graph is 615,022 bytes. This is a
+cache/parsing and regression boundary, not a claim that partitioning reduces
+total startup bytes. CSP, production sessions, table virtualization,
+chart-downsampling, backend SSE, and multi-browser work remain open.
+Phase 6C initially selected an evidence-only local trusted-time topology pinned
+by the [archived v1 source-authority
+manifest](docs/adr/evidence/0092-source-authority-v1.json), SHA-256
+`356723c84e30478f18ad99f3cfef2ee65b3bdd3fc26936a7d5c9910fd1bcb3ab`:
+the profile fixed host identity `local-paper-docker-primary-v1`, configured
+Chrony 4.8 in `-x` mode for the exact Cloudflare/Netnod NTS composite, and
+scheduled a non-authorizing supervisor to probe immediately and then on an
+absolute 20-second monotonic grid. Strict source,
+NTS, leap, one-second deadline, 30-second gap, and 100-millisecond uncertainty
+rules fail closed; health uses point-offset magnitude plus uncertainty against
+the existing 250/1,000-millisecond bands. The source container exposes no
+port, has no `SYS_TIME`, cannot set the host clock, and uses bounded local
+CPU/RAM. Supabase clients require exact `sslmode=verify-full` and explicitly
+use the hash-pinned checked-in 2021 root CA rather than a default trust path.
+Migration 0035 is empty-history-only and was applied to runtime Supabase on
+2026-08-01 through the exact purpose-built operator. Its mode-`0600`
+postflight artifact (SHA-256
+`73085244cad0c24f22a06b22e8cf106c26f9e69a3bf5b32b9a296e995e165e6a`)
+proves the exact postflight catalog, full operational schema, pinned TLS
+binding, and zero trusted-time histories. A directly supervised live window on
+2026-08-01 passed image, topology, process/clock-domain, persistence, cadence,
+and clean-stop inspection, but was canonically `not_qualified`: all five
+current-epoch evaluations were `source_unavailable` because Netnod remained
+selectable but excluded from the required two-source combination. The retained
+qualification SHA-256 is
+`d65a1270b91865ef674af5ea91d23daa0872c392af6b6aa05de3708056c919ac`.
+That qualification artifact, its Cloudflare/Netnod identities, and the archived
+v1 manifest remain immutable historical evidence. The historical result records
+image-admission digest
+`2de1fa43994a3918b956ccc749da834ea0636f1983bf33207b0745b8bd3f9c12`,
+but those canonical bytes predated content-addressed retention and no old
+Netnod admission file is claimed. Every authority remained false.
+
+[ADR 0093](docs/adr/0093-system76-virginia-nts-authority-rotation.md) rotates
+the deployed [current v2 source-authority
+manifest](infra/trusted-time/source-authority.json) to `time.cloudflare.com`
+and `virginia.time.system76.com`, with source ID
+`chrony-nts-cloudflare-system76-virginia-v2`, authority contract
+`phase6c-local-chrony-nts-authority-v2`, and adapter contract
+`phase6-chrony-4.8-nts-evidence-v2`. Both providers remain mandatory over
+NTS-KE TCP 4460 and negotiated NTP UDP 123, with the same exact selected-plus-
+combined composite, 100-millisecond cap, and no fallback. System76 publishes
+no SLA, upstream ensemble, redundancy commitment, or leap-smear policy for the
+endpoint, so no such property is inferred and the topology remains evidence
+only. The admitted v2 authority manifest is
+`9b514dc25b0cd084aedf1841b305260f22b070b70e396defc9ecce2f9545506c`,
+the persisted authority-registry projection is
+`8e7a822503c5f73359cc18ee62dee4f56fb3e67f10b725374f8ef24c94344e9e`,
+the Chrony configuration is
+`5b59d843624fa3b1a923804e44df96a7fbce3848380bf0d5a4b888072310fa23`,
+and the reviewed source revision is
+`db81102def51115d85e9584ff8539aae1eede787939d0268e552dba40e8953b4`.
+The retained content-addressed canonical v2 image-admission artifact has the
+same semantic and file SHA-256:
+`b4519a60ae77987b1f2459c26b9ccd9782dd36946a46767a14531cf84807e76e`
+and admits source image
+`sha256:8d704f59e4b627e38035b8056f9a63037e610f635cac12a8bf76ec4eff3422f3`
+plus supervisor image
+`sha256:ca86611fc6177ec50d80ef0f4ed280bef93865d954c8aee0dceac403cf079d0c`.
+
+The retained `phase6c-live-trusted-time-qualification-inspection-v5` artifact is
+`qualified`: epoch sequence 8 contains eight current-epoch
+evaluations spanning 140.064973522 seconds, with seven recorded samples, a
+qualified 20-second cadence, a fresh 15.535495716-second-old terminal sample,
+and observed uncertainty from 11.034056 through 16.0458345 milliseconds. The
+terminal state was current-process-bound, `healthy`/`within_limit`, and clock-
+recovery-qualified. One intermittent observation showed System76 as Chrony `D`
+and was retained as
+`source_unavailable`; the following observations recovered without weakening
+the two-source rule. The qualification SHA-256 is
+`1eb6c9396d9c82a76a1b57ba0b3266b4a420905e3f29e33613693087f23a728c`,
+and its exact artifact bytes have SHA-256
+`0d0575adc139cc0ec2516d3d5011727986d17e0f856ca810da3bbe84ce0cdec2`.
+The project then stopped cleanly, supervisor before source: both containers and
+the project network were removed, secret staging was empty, and both named
+volumes were retained.
+This is point-in-time evidence for that local window, not an availability claim
+or a System76 SLA. Every authority flag remained false. An external head anchor,
+watchdog/alerting, and all readiness, control, new-exposure, re-arm, paper, and
+live authority remain absent. See the historical
+[ADR 0092](docs/adr/0092-evidence-only-local-chrony-nts-trusted-time-supervision.md)
+and the [trusted-time supervisor runbook](docs/runbooks/trusted-time-supervisor.md).
 
 These slices still cannot publish a general security master, prove an
 exchange-calendar binding, a quote collar, a current canonical position or

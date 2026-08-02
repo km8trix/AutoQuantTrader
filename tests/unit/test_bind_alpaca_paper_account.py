@@ -44,7 +44,7 @@ from tests.unit.test_alpaca_paper_account_runtime import FixedTransport
 
 RUNTIME_URL = (
     "postgresql+psycopg://postgres.abcdefghijklmnopqrst:runtime-password"
-    "@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require"
+    "@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=verify-full"
 )
 OPERATION_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 RECOVERY_OPERATION_ID = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"

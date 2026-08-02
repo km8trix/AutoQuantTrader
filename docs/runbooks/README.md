@@ -17,3 +17,8 @@ supplied and exercised before paper-soak readiness.
 - [Paper smoke deployment](paper-smoke-deployment.md) — supervised local Mac,
   Supabase Free, Sentry diagnostic preflight, explicit unavailable external
   notifications, and rollback
+- [Trusted-time supervisor](trusted-time-supervisor.md) — evidence-only local
+  Chrony 4.8 two-provider NTS composite, fixed-grid durable probes, secure
+  four-input launcher, applied signed sparse-head schema, bounded full audits,
+  pending external provisioning/enrollment, and qualification/shutdown
+  procedure

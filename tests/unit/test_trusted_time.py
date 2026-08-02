@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from inspect import signature
 
 import pytest
@@ -34,6 +34,7 @@ def _sample(
     evidence: str = "b" * 64,
     started_second: int | None = None,
     started_utc: datetime | None = None,
+    uncertainty_milliseconds: Decimal = Decimal("0"),
 ) -> TrustedTimeSample:
     completed_at = BASE + timedelta(seconds=second)
     selected_started_second = second if started_second is None else started_second
@@ -51,6 +52,7 @@ def _sample(
         probe_started_at_utc=probe_started_at,
         probe_completed_at_utc=completed_at,
         trusted_at_utc=midpoint + timedelta(microseconds=offset_microseconds),
+        source_uncertainty_milliseconds=uncertainty_milliseconds,
         probe_started_monotonic_ns=selected_started_second * SECOND_NS,
         probe_completed_monotonic_ns=second * SECOND_NS,
     )
@@ -140,6 +142,53 @@ def test_offset_beyond_hard_limit_blocks_and_latches(
     assert state.health is TrustedTimeHealth.BLOCKED
     assert state.reason is TrustedTimeReason.HARD_OFFSET
     assert state.hard_failure_latched is True
+
+
+@pytest.mark.parametrize(
+    ("offset_microseconds", "expected_health"),
+    [
+        (149_999, TrustedTimeHealth.HEALTHY),
+        (-149_999, TrustedTimeHealth.HEALTHY),
+        (150_000, TrustedTimeHealth.WARNING),
+        (-150_000, TrustedTimeHealth.WARNING),
+        (900_000, TrustedTimeHealth.WARNING),
+        (-900_000, TrustedTimeHealth.WARNING),
+        (900_001, TrustedTimeHealth.BLOCKED),
+        (-900_001, TrustedTimeHealth.BLOCKED),
+    ],
+)
+def test_health_uses_absolute_point_offset_plus_uncertainty(
+    offset_microseconds: int,
+    expected_health: TrustedTimeHealth,
+) -> None:
+    sample = _sample(
+        second=0,
+        offset_microseconds=offset_microseconds,
+        uncertainty_milliseconds=Decimal("100"),
+    )
+    state = _evaluate(None, sample, second=0)
+
+    assert sample.offset_magnitude_with_uncertainty_milliseconds == (
+        abs(Decimal(offset_microseconds) / Decimal(1_000)) + Decimal("100")
+    )
+    assert state.sample_health is expected_health
+
+
+def test_offset_magnitude_and_identity_ignore_low_precision_decimal_context() -> None:
+    sample = _sample(
+        second=0,
+        offset_microseconds=149_999,
+        uncertainty_milliseconds=Decimal("99.9999999999"),
+    )
+    expected_magnitude = Decimal("249.9989999999")
+    expected_identity = sample.semantic_sha256
+
+    with localcontext() as context:
+        context.prec = 3
+        assert sample.offset_milliseconds == Decimal("149.999")
+        assert sample.offset_magnitude_with_uncertainty_milliseconds == expected_magnitude
+        assert sample.semantic_sha256 == expected_identity
+        assert _evaluate(None, sample, second=0).sample_health is TrustedTimeHealth.HEALTHY
 
 
 def test_gap_free_t0_t30_t60_samples_complete_the_recovery_window() -> None:
@@ -354,6 +403,10 @@ def test_sample_and_evaluation_identity_are_deterministic_and_tamper_sensitive()
     sample = _sample(second=0)
     same = _sample(second=0)
     changed = replace(sample, source_evidence_sha256="c" * 64)
+    changed_uncertainty = replace(
+        sample,
+        source_uncertainty_milliseconds=Decimal("0.0000000001"),
+    )
     first = evaluate_trusted_time(
         None,
         sample,
@@ -370,6 +423,7 @@ def test_sample_and_evaluation_identity_are_deterministic_and_tamper_sensitive()
     assert sample.semantic_sha256 == same.semantic_sha256
     assert sample.canonical_json == same.canonical_json
     assert changed.semantic_sha256 != sample.semantic_sha256
+    assert changed_uncertainty.semantic_sha256 != sample.semantic_sha256
     assert first.semantic_sha256 == repeated.semantic_sha256
 
     with pytest.raises(TrustedTimeError, match="seal"):
@@ -435,6 +489,20 @@ def test_sample_rejects_non_utc_and_regressing_probe_intervals() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "uncertainty",
+    [Decimal("-0.0000000001"), Decimal("100.0000000001"), Decimal("NaN"), 0],
+)
+def test_sample_rejects_uncertainty_outside_exact_approved_decimal_contract(
+    uncertainty: object,
+) -> None:
+    with pytest.raises(TrustedTimeError, match=r"uncertainty|Decimal"):
+        replace(
+            _sample(second=0),
+            source_uncertainty_milliseconds=uncertainty,  # type: ignore[arg-type]
+        )
+
+
 def test_probe_duration_and_cross_clock_elapsed_limits_are_exact() -> None:
     exact_duration = _sample(
         second=1,
@@ -463,6 +531,7 @@ def test_probe_duration_and_cross_clock_elapsed_limits_are_exact() -> None:
 def test_policy_digest_pins_the_exact_budget_comparators() -> None:
     assert TRUSTED_TIME_POLICY.warning_offset_milliseconds == Decimal("250")
     assert TRUSTED_TIME_POLICY.hard_offset_milliseconds == Decimal("1000")
+    assert TRUSTED_TIME_POLICY.maximum_source_uncertainty_milliseconds == Decimal("100")
     assert TRUSTED_TIME_POLICY.maximum_probe_duration_ns == SECOND_NS
     assert TRUSTED_TIME_POLICY.maximum_sample_age_ns == 30 * SECOND_NS
     assert TRUSTED_TIME_POLICY.maximum_cadence_gap_ns == 30 * SECOND_NS

@@ -14,6 +14,7 @@ from packages.domain.canonical import (
     canonical_json_bytes,
     canonical_json_text,
     canonical_persisted_decimal,
+    canonical_persisted_decimal_from_scaled_integer,
 )
 from packages.domain.decimal_math import (
     DECIMAL_ARITHMETIC_EMAX,
@@ -65,6 +66,24 @@ def test_persisted_decimal_requires_exact_numeric_28_10_representation() -> None
         canonical_persisted_decimal(Decimal("1e18"), "amount")
     with pytest.raises(ValueError, match=r"NUMERIC\(28, 10\)"):
         canonical_persisted_decimal(Decimal("1e-11"), "amount")
+
+
+def test_scaled_persisted_decimal_construction_is_exact_and_context_free() -> None:
+    with localcontext() as context:
+        context.prec = 2
+        value = canonical_persisted_decimal_from_scaled_integer(
+            1_234_567,
+            scale=3,
+            field_name="amount",
+        )
+
+    assert value == Decimal("1234.567")
+    with pytest.raises(ValueError, match=r"NUMERIC\(28, 10\)"):
+        canonical_persisted_decimal_from_scaled_integer(
+            1,
+            scale=11,
+            field_name="amount",
+        )
 
 
 def test_decimal_arithmetic_has_literal_bounds_and_fails_closed() -> None:

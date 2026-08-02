@@ -1499,6 +1499,8 @@ Key tables and invariants:
 | `phase4_alpaca_paper_account_activity_plans` / `phase4_alpaca_paper_account_activity_preparations` | Immutable Phase 4AE traversal profile and single-use next-page preparation before credentials, request admission, or transport |
 | `phase4_alpaca_paper_account_activity_pages` / `phase4_alpaca_paper_account_activity_heads` | Contiguous authenticated Phase 4AE raw-backed page receipts and conservative active/exhausted/truncated/stalled traversal heads |
 | `phase4_alpaca_paper_account_activity_comparisons` / `phase4_alpaca_paper_account_activity_comparison_heads` | Immutable Phase 4AH source-authenticated recomputed comparisons and their account-local predecessor-chain anchor |
+| `phase6_trusted_time_head_anchor_intents` | Immutable intent-before-upload record binding one signed sparse checkpoint to the authenticated local head, external project/principal/bucket, key, reason, sequence, and predecessor |
+| `phase6_trusted_time_head_anchor_receipts` | Immutable exact-remote-readback confirmation for one anchor intent; a pending intent must be recovered before any successor |
 | `inbox` | Future provider-qualified event/execution identities for at-least-once stream and snapshot processing |
 | `fills` | Unique broker execution ID; price and quantity stored exactly |
 | `ledger_entries` | Balanced append-only cash/security/fee/dividend/split/settlement/P&L postings |
@@ -2937,7 +2939,8 @@ persistence and no startup/readiness integration, dashboard/API projection,
 alert, control trip, final dispatch gate, or authoritative re-arm verifier. The
 deterministic state seal is tamper detection rather than trusted-head
 authentication, and no reviewed source-uncertainty bound is yet represented.
-Those deployed boundaries and the clock-drift game day remain open. See
+Later compositions supply those deployment choices incrementally without
+changing the ADR 0086 authority boundary. See
 [ADR 0086](adr/0086-provider-neutral-trusted-time-monitor.md).
 
 ADR 0090 adds durable local provenance without changing that authority
@@ -2960,11 +2963,199 @@ mismatches fail closed. This makes the database history tamper-evident, not
 externally authenticated or rollback-proof. On 2026-07-31, the owner approved
 and applied migration 0034 to runtime Supabase. Post-migration verification
 found all three tables, empty trusted-time histories, revision 0034, and a
-passing operational-schema integrity gate. Selecting an authenticated source
-and uncertainty bound, choosing a deployed host/failover identity, starting a
-scheduler/watchdog, or wiring readiness, alerts, control, exposure, or re-arm
-remains owner-approved deployment work. See
+passing operational-schema integrity gate. At the ADR 0090 boundary, selecting
+an authenticated source and uncertainty bound, choosing a deployed host,
+starting a scheduler, or wiring readiness, alerts, control, exposure, or re-arm
+remained owner-approved deployment work. See
 [ADR 0090](adr/0090-durable-trusted-time-persistence-and-one-shot-supervision.md).
+
+ADR 0092 initially supplied the evidence-only local source and schedule. Its
+[archived v1 authority
+manifest](adr/evidence/0092-source-authority-v1.json), SHA-256
+`356723c84e30478f18ad99f3cfef2ee65b3bdd3fc26936a7d5c9910fd1bcb3ab`,
+fixed host `local-paper-docker-primary-v1` and one exact Chrony 4.8 composite:
+`time.cloudflare.com` plus `nts.netnod.se`, both over NTS, with exactly one
+selected and one combined source. Missing, extra,
+unauthenticated, stale, unselectable, or abnormal-leap evidence fails closed.
+Chrony runs with `-x`; its source container publishes no port, has no
+`SYS_TIME`, cannot adjust the shared host clock, and is bounded to local
+CPU/RAM. The supervisor can access only the dedicated ephemeral Unix command-
+socket scratch volume (read-write solely because `chronyc` creates its reply
+socket beside the daemon socket) and receives the Supabase DSN through a
+Compose secret. The DSN is accepted only with exact `sslmode=verify-full` TLS.
+Runtime, migration, and supervisor clients explicitly use the checked-in,
+hash-pinned Supabase 2021 root CA; a DSN-supplied or default CA path is not a
+fallback. The supervisor image copy is root-owned and read-only, and rotation
+is required before its 2031-04-26 expiry. Chrony's state volume remains
+source-only.
+
+Each source call has a one-second deadline and no retry. Conservative
+uncertainty combines Chrony root dispersion, half absolute root delay, half the
+inner observation duration, inner UTC/monotonic divergence, outer cross-clock
+projection, and microsecond rounding; the result must be at most 100
+milliseconds. The reducer now classifies
+`abs(point offset) + uncertainty` using the same strict-below-250 healthy,
+inclusive 250-through-1,000 warning, and above-1,000 blocked/latching bands.
+One probe runs immediately; later probes stay on an absolute 20-second
+monotonic grid, skip catch-up bursts, and let a gap above 30 seconds block on
+the next evaluation.
+
+Migration 0035 adds the exact persisted uncertainty and new policy identity,
+and upgrade and downgrade both refuse any nonempty trusted-time history. It
+was applied to runtime Supabase on 2026-08-01 through the exact purpose-built
+operator; the retained mode-`0600` postflight artifact has SHA-256
+`73085244cad0c24f22a06b22e8cf106c26f9e69a3bf5b32b9a296e995e165e6a`
+and proves the exact postflight catalog, full operational schema, pinned TLS
+binding, and zero histories. A directly supervised live window on 2026-08-01
+authenticated exact images, Docker hardening, PID1 lifecycles, shared boot ID,
+exact zero Linux time-namespace offsets, durable evidence, fixed cadence, and
+clean shutdown. Its canonical result was nevertheless `not_qualified`: every
+one of five current-epoch attempts was `source_unavailable` because the Netnod
+source was selectable but excluded from Chrony's required combination. That
+Cloudflare/Netnod authority, its image identities, its archived manifest, and
+its failed qualification artifact remain immutable historical evidence. The
+historical result records image-admission digest
+`2de1fa43994a3918b956ccc749da834ea0636f1983bf33207b0745b8bd3f9c12`,
+but its canonical bytes predated content-addressed retention and no old Netnod
+admission file is claimed.
+
+ADR 0093 rotates the [current v2 authority
+manifest](../infra/trusted-time/source-authority.json) to ordered sources
+`time.cloudflare.com` and `virginia.time.system76.com`, source ID
+`chrony-nts-cloudflare-system76-virginia-v2`, authority contract
+`phase6c-local-chrony-nts-authority-v2`, and adapter contract
+`phase6-chrony-4.8-nts-evidence-v2`. Both sources remain mandatory: each uses
+NTS-KE TCP 4460 and negotiates NTP UDP 123, and admission still requires one
+selected (`*`) plus one combined (`+`) source, the unchanged 100-millisecond
+cap, and no fallback or selection-rule relaxation. System76 publishes no SLA,
+upstream ensemble, redundancy commitment, or leap-smear policy for the
+Virginia endpoint. The architecture therefore infers none of those properties
+and remains evidence-only. The admitted authority manifest SHA-256 is
+`9b514dc25b0cd084aedf1841b305260f22b070b70e396defc9ecce2f9545506c`,
+the persisted authority-registry projection SHA-256 is
+`8e7a822503c5f73359cc18ee62dee4f56fb3e67f10b725374f8ef24c94344e9e`,
+the Chrony configuration SHA-256 is
+`5b59d843624fa3b1a923804e44df96a7fbce3848380bf0d5a4b888072310fa23`,
+and the reviewed source revision SHA-256 is
+`db81102def51115d85e9584ff8539aae1eede787939d0268e552dba40e8953b4`.
+The retained content-addressed canonical v2 image-admission artifact has the
+same semantic and file SHA-256:
+`b4519a60ae77987b1f2459c26b9ccd9782dd36946a46767a14531cf84807e76e`
+and binds source image
+`sha256:8d704f59e4b627e38035b8056f9a63037e610f635cac12a8bf76ec4eff3422f3`
+and supervisor image
+`sha256:ca86611fc6177ec50d80ef0f4ed280bef93865d954c8aee0dceac403cf079d0c`.
+
+The retained `phase6c-live-trusted-time-qualification-inspection-v5` artifact
+is `qualified`; epoch sequence 8 contains eight current-epoch
+evaluations over 140.064973522 seconds: seven were recorded, cadence remained
+qualified on the absolute 20-second grid, the terminal sample was fresh at
+15.535495716 seconds old, and uncertainty ranged from 11.034056 through
+16.0458345 milliseconds under the 100-millisecond bound. Its terminal state
+was current-process-bound, `healthy`/`within_limit`, and clock-recovery-
+qualified. One intermittent System76 `D` observation was retained as
+`source_unavailable`; subsequent
+observations recovered under the unchanged mandatory two-source rule. The
+qualification SHA-256 is
+`1eb6c9396d9c82a76a1b57ba0b3266b4a420905e3f29e33613693087f23a728c`,
+and its exact artifact bytes have SHA-256
+`0d0575adc139cc0ec2516d3d5011727986d17e0f856ca810da3bbe84ce0cdec2`.
+The project then stopped cleanly, supervisor before source: both containers and
+the project network were removed, secret staging was empty, and both named
+volumes were retained.
+This proves only the inspected local window; it does not establish endpoint
+availability, an SLA, an upstream ensemble, redundancy, or leap-smear behavior.
+All authority flags remained false.
+
+ADR 0094 implements the provider-neutral, Ed25519-signed sparse trusted-head
+checkpoint boundary and its separate-Supabase adapter. The external project
+must be distinct from both runtime and test database projects, and its exact
+private bucket is `aqt-trusted-time-anchors-v1`. The raw 32-byte Ed25519 private
+key remains outside Supabase; the admitted nonsecret authority binds its exact
+public key, the source/host/runtime/anchor identities, the least-privilege Auth
+principal, and the bucket. Writer policies admit exact-namespace list, read,
+and insert while denying normal update, overwrite, and delete. Supabase project
+administrators remain outside those writer constraints, so this is neither
+WORM storage nor an independent provider or administrative trust domain.
+
+The background worker uses an absolute 300-second checkpoint grid and marks
+anchor evidence stale at 360 seconds or greater. It runs separately from the
+20-second local probe grid. Startup and explicit on-demand work consume the
+complete local journal and durable intent/receipt history in bounded pages
+inside one repeatable-read SQL snapshot. The complete remote prefix is listed,
+downloaded, and authenticated in bounded pages without retaining it in memory;
+a second listing/hash pass rejects remote namespace drift. Provisional pages
+are released and the completed audit retains only a constant-size sealed proof
+and tip. Working memory is bounded, but full-audit time and provider requests
+remain linear in retained history and have no startup-time SLO at the maximum
+horizon.
+
+After that full audit, the compact tip permits incremental authentication of
+the exact terminal and exact next remote sequence plus the local suffix. That
+incremental path does not prove arbitrary middle-row retention; a startup or
+on-demand full audit detects middle-history deletion.
+
+Each remote write is preceded by an immutable local intent, followed by
+no-overwrite upload, authenticated provider readback, a second exact download,
+and an immutable receipt bound to that second readback. The second provider
+`GET` produces application-sealed, single-use evidence that binds its identity
+and exact bytes; persistence accepts only that evidence, so callers cannot
+construct it or substitute locally retained candidate bytes. A restart or
+ambiguous provider outcome must recover the one pending intent before a
+successor. A typed authenticated local-head compare-and-swap advance
+and a positively classified provider outage are the only retryable conditions;
+signature, fork, rollback, identity, persistence, and unknown failures are
+fatal. Enrollment is default-deny, requires a full audit and explicit runtime
+flag, and cannot be inferred from an existing local history. Production fixes
+`allow_enrollment=False` with no environment override; first enrollment is
+pending separate reviewed enablement and owner approval.
+
+The remote namespace is bounded at 250,000 objects: about 868 days or 2.38
+years at exactly one 300-second checkpoint, and less when event-driven
+checkpoints are present. This is an object-count safety horizon, not a startup-
+time SLO; full verification remains linear despite bounded memory and a
+constant retained proof. A separately approved and tested generation/handoff
+design is required before that bound is reached.
+
+Migration `0036_phase6_time_anchors`, file SHA-256
+`9928c457f2593c7b3b4d6f3520eec716bb63375edb1dba3226d44d88cddcdda4`,
+was applied transactionally to runtime Supabase on 2026-08-01 after the
+designated test-PostgreSQL proof passed. The preflight and postflight artifact-
+file SHA-256 values are respectively
+`6a0947293540dd6ef60b2a2cc95a52aa687f47b593ac54e28a0b1ea16b2802ed`
+and
+`92eb4d6afdac3a3725012668caf6e3df131505f028972be5f133d31b6c6c1fff`.
+Postflight recorded `migration_committed=true`, no restore, the exact catalog
+and operational-schema integrity, and zero anchor intents and receipts.
+
+The local secure launcher now stages the database value, nonsecret authority,
+Supabase Auth secret, and raw 32-byte signing key from one explicit owner-only
+environment/source-file boundary. It admits their exact Compose config/secret
+mount paths, metadata, sizes, and in-memory digests, waits until the supervisor
+has loaded all four, then retires the four owner-only staged leaves and
+revalidates their mount outcomes. Secret contents never become Compose
+interpolation values. The image-admission contract
+`phase6d-trusted-time-image-admission-v1` binds the exact migration 0036 bytes,
+schema head `0036_phase6_time_anchors`, and the exact intent/receipt catalog.
+The final launcher/Compose/image composition passed 103 focused tests and the
+actual Docker Compose verifier. Those are local implementation proofs, not
+separate-project provisioning or enrollment evidence.
+
+The separate anchor project, bucket/policy/Auth-principal provisioning,
+nonsecret authority, and owner-only runtime secrets have not yet produced
+retained deployment evidence. The first external enrollment has not been
+approved or performed. Therefore the deployed topology still has no
+authenticated external-head evidence or independent supervisor watchdog:
+after supervisor death, local evidence stops and a later evaluation is the
+first component that can recognize its cadence gap. Readiness, operational
+control, arming, exposure/new exposure, broker action, alert delivery,
+automatic re-arm/resume, paper trading, and live trading authority all remain
+false. See historical
+[ADR 0092](adr/0092-evidence-only-local-chrony-nts-trusted-time-supervision.md),
+[ADR 0093](adr/0093-system76-virginia-nts-authority-rotation.md),
+[ADR 0094](adr/0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md),
+and the
+[trusted-time supervisor runbook](runbooks/trusted-time-supervisor.md).
 
 ADR 0072 implements the local durable critical-alert boundary behind those
 budgets. A source-idempotent incident records only an alert code and evidence/
@@ -3224,10 +3415,22 @@ Phase 6B loads each implemented feature route through a distinct React lazy
 chunk behind one `aria-live` loading surface. Production builds retain separate
 data, research, operations, risk, audit, reconciliation, and settings route
 artifacts instead of placing every page in the startup graph. Placeholder-only
-trading routes stay synchronous. The shared React/MUI shell remains above
-Vite's default size advisory and still needs measured optimization; this local
-split alone is not CSP, production-session, table-virtualization,
-chart-downsampling, backend-SSE, or multi-browser end-to-end evidence.
+trading routes stay synchronous.
+
+ADR 0091 adds an offline production-bundle admission boundary. Vite partitions
+only third-party modules in the entry's static dependency graph into stable
+React/router, MUI/Emotion, TanStack Query, and residual vendor assets; lazy-only
+dependencies cannot be pulled into those eager partitions. The manifest
+verifier requires the exact eleven route modules as distinct dynamic entries,
+walks imports to prove none is folded into the startup graph, resolves every
+referenced regular non-symlink asset strictly below `dist`, and counts unique
+files against inclusive 300,000-byte per-asset and 625,000-byte initial-graph
+ceilings. The admitted build measures 277,872 bytes for its largest asset and
+615,022 bytes across the five initial JavaScript assets. The split establishes
+stable cache/parsing boundaries but does not claim lower total startup bytes.
+It is not CSP, production-session, table-virtualization, chart-downsampling,
+backend-SSE, or multi-browser end-to-end evidence. See
+[ADR 0091](adr/0091-fail-closed-production-browser-bundle-admission.md).
 
 The current Research group implements Strategies and Backtests for the local
 golden fixture plus read-only Experiments inspection. It displays exact

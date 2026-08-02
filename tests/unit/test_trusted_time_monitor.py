@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import fields
 from datetime import UTC, datetime, timedelta, timezone
+from decimal import Decimal, localcontext
 
 import pytest
 
@@ -77,11 +78,24 @@ def _reading(
     trusted_at: datetime = BASE,
     source_id: str = "trusted-source-1",
     authority: str = AUTHORITY,
+    local_observed_at: datetime | None = None,
+    observed_monotonic_ns: int | None = None,
+    uncertainty_milliseconds: Decimal = Decimal("0"),
 ) -> TrustedTimeSourceReading:
+    observation = trusted_at if local_observed_at is None else local_observed_at
+    elapsed = observation - BASE
+    default_monotonic_ns = (
+        elapsed.days * 86_400 + elapsed.seconds
+    ) * 1_000_000_000 + elapsed.microseconds * 1_000
     return TrustedTimeSourceReading(
         source_id=source_id,
         source_authority_sha256=authority,
+        local_observed_at_utc=observation,
         trusted_at_utc=trusted_at,
+        observed_at_monotonic_ns=(
+            default_monotonic_ns if observed_monotonic_ns is None else observed_monotonic_ns
+        ),
+        source_uncertainty_milliseconds=uncertainty_milliseconds,
         source_evidence_sha256="b" * 64,
     )
 
@@ -104,7 +118,14 @@ def _probe(
 
 
 def test_monitor_records_one_authenticated_midpoint_sample() -> None:
-    source = Source(_reading(trusted_at=BASE + timedelta(milliseconds=100)))
+    source = Source(
+        _reading(
+            trusted_at=BASE + timedelta(milliseconds=100),
+            local_observed_at=BASE + timedelta(milliseconds=10),
+            observed_monotonic_ns=10_001_000,
+            uncertainty_milliseconds=Decimal("5"),
+        )
+    )
 
     result = _probe(
         source,
@@ -117,6 +138,7 @@ def test_monitor_records_one_authenticated_midpoint_sample() -> None:
     assert result.status is TrustedTimeProbeStatus.RECORDED
     assert result.state.latest_sample is not None
     assert result.state.latest_sample.offset_milliseconds == 90
+    assert result.state.latest_sample.source_uncertainty_milliseconds == 5
     assert result.state.latest_sample.sequence == 1
     assert result.state.health is TrustedTimeHealth.HEALTHY
     assert result.state.reason is TrustedTimeReason.STARTUP_QUALIFYING
@@ -137,6 +159,118 @@ def test_monitor_derives_the_next_sequence_from_retained_state() -> None:
     assert second.state.latest_sample is not None
     assert second.state.latest_sample.sequence == 2
     assert second.state.previous_state_sha256 == first.semantic_sha256
+
+
+def test_monitor_projects_correction_and_adds_cross_clock_uncertainty() -> None:
+    source = Source(
+        _reading(
+            trusted_at=BASE + timedelta(milliseconds=110),
+            local_observed_at=BASE + timedelta(milliseconds=10),
+            observed_monotonic_ns=10_001_000,
+            uncertainty_milliseconds=Decimal("5"),
+        )
+    )
+
+    result = _probe(
+        source,
+        utc_values=(BASE, BASE + timedelta(milliseconds=20)),
+        monotonic_values=(1_000, 22_001_000),
+    )
+
+    assert result.status is TrustedTimeProbeStatus.RECORDED
+    sample = result.evaluation.sample
+    assert sample is not None
+    assert sample.trusted_at_utc == BASE + timedelta(milliseconds=110)
+    assert sample.offset_milliseconds == 100
+    assert sample.source_uncertainty_milliseconds == 6
+    assert sample.offset_magnitude_with_uncertainty_milliseconds == 106
+
+
+def test_cross_clock_projection_preserves_half_nanosecond_uncertainty() -> None:
+    result = _probe(
+        Source(_reading()),
+        utc_values=(BASE, BASE),
+        monotonic_values=(0, 1),
+    )
+
+    assert result.status is TrustedTimeProbeStatus.RECORDED
+    sample = result.evaluation.sample
+    assert sample is not None
+    assert sample.source_uncertainty_milliseconds == Decimal("0.0000005")
+
+
+@pytest.mark.parametrize(
+    "reading",
+    [
+        _reading(
+            local_observed_at=BASE - timedelta(microseconds=1),
+            observed_monotonic_ns=0,
+        ),
+        _reading(
+            local_observed_at=BASE,
+            observed_monotonic_ns=20_000_001,
+        ),
+    ],
+)
+def test_source_observation_must_be_inside_both_outer_intervals(
+    reading: TrustedTimeSourceReading,
+) -> None:
+    result = _probe(
+        Source(reading),
+        utc_values=(BASE, BASE + timedelta(milliseconds=20)),
+        monotonic_values=(0, 20_000_000),
+    )
+
+    assert result.status is TrustedTimeProbeStatus.INVALID_READING
+    assert result.evaluation.sample is None
+    assert result.state.health is TrustedTimeHealth.BLOCKED
+
+
+def test_projection_uncertainty_over_policy_cap_fails_closed() -> None:
+    result = _probe(
+        Source(
+            _reading(
+                local_observed_at=BASE,
+                observed_monotonic_ns=0,
+                uncertainty_milliseconds=Decimal("100"),
+            )
+        ),
+        utc_values=(BASE, BASE + timedelta(milliseconds=2)),
+        monotonic_values=(0, 4_000_000),
+    )
+
+    assert result.status is TrustedTimeProbeStatus.INVALID_READING
+    assert result.evaluation.sample is None
+
+
+def test_projection_uncertainty_over_cap_fails_closed_under_low_precision_context() -> None:
+    with localcontext() as context:
+        context.prec = 3
+        result = _probe(
+            Source(
+                _reading(
+                    local_observed_at=BASE,
+                    observed_monotonic_ns=0,
+                    uncertainty_milliseconds=Decimal("100"),
+                )
+            ),
+            utc_values=(BASE, BASE),
+            monotonic_values=(0, 1),
+        )
+
+    assert result.status is TrustedTimeProbeStatus.INVALID_READING
+    assert result.evaluation.sample is None
+
+
+@pytest.mark.parametrize(
+    "uncertainty",
+    [Decimal("-0.0000000001"), Decimal("100.0000000001"), Decimal("NaN"), 0],
+)
+def test_source_reading_requires_exact_bounded_decimal_uncertainty(
+    uncertainty: object,
+) -> None:
+    with pytest.raises(TrustedTimeMonitorError, match=r"uncertainty|Decimal"):
+        _reading(uncertainty_milliseconds=uncertainty)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(

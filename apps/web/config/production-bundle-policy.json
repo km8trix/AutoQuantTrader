@@ -1,0 +1,25 @@
+{
+  "contract_version": "phase6b-production-bundle-admission-v1",
+  "entry_module": "index.html",
+  "route_modules": [
+    "src/features/overview/OverviewPage.tsx",
+    "src/features/data/DataCatalogPage.tsx",
+    "src/features/data/DataQualityPage.tsx",
+    "src/features/research/StrategiesPage.tsx",
+    "src/features/research/BacktestsPage.tsx",
+    "src/features/research/ExperimentsPage.tsx",
+    "src/features/operations/OperationsDashboardPage.tsx",
+    "src/features/operations/RiskPage.tsx",
+    "src/features/operations/ReconciliationPage.tsx",
+    "src/features/operations/AuditPage.tsx",
+    "src/features/operations/SettingsPage.tsx"
+  ],
+  "required_shared_partitions": [
+    "react-runtime",
+    "mui-runtime",
+    "query-runtime",
+    "vendor-runtime"
+  ],
+  "max_asset_bytes": 300000,
+  "max_initial_graph_bytes": 625000
+}

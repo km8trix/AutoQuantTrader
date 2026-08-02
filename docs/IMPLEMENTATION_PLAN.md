@@ -1952,31 +1952,223 @@ or rollback-proof.
 `clock_recovery_qualified` remains evidence only and never automatically
 re-arms. On 2026-07-31, the owner approved and applied migration 0034 to
 runtime Supabase; revision, table presence, empty trusted-time histories, and
-the operational-schema integrity gate were verified. No source,
-source-uncertainty bound, watchdog, scheduler, readiness/control/exposure
-wiring, alert, API, deployed supervisor, or paper authority is implied. Those
-remaining deployment decisions still require owner approval. See
+the operational-schema integrity gate were verified. At the Phase 6A boundary,
+no source, source-uncertainty bound, watchdog, scheduler, readiness/control/
+exposure wiring, alert, API, deployed supervisor, or paper authority was
+implied. Those deployment choices required later composition. See
 [ADR 0086](adr/0086-provider-neutral-trusted-time-monitor.md) and [ADR 0090](adr/0090-durable-trusted-time-persistence-and-one-shot-supervision.md).
 
 Phase 6B begins desktop-browser bundle splitting. Feature routes now load
 through distinct React lazy chunks behind one accessible, polite loading
 fallback; the local placeholder-only trading routes remain synchronous. The
 production build proves separate data, research, operations, risk, audit,
-reconciliation, and settings route artifacts. The shared React/MUI application
-shell is still a reviewed follow-on optimization, and this slice adds no CSP,
-production session, table-virtualization, chart-downsampling, backend SSE, or
-multi-browser end-to-end claim.
+reconciliation, and settings route artifacts. An offline production-bundle
+admission contract now pins the exact eleven dynamic routes, graph-aware React,
+MUI, TanStack Query, and residual vendor partitions, strict `dist` asset
+resolution, and inclusive 300,000-byte per-asset and 625,000-byte initial-graph
+ceilings. The admitted build measures a 277,872-byte largest asset and 615,022
+bytes across its five-asset initial graph. This cache/parsing partition does not
+claim lower total startup bytes, CSP, production sessions, table virtualization,
+chart downsampling, backend SSE, or multi-browser end-to-end evidence. See
+[ADR 0091](adr/0091-fail-closed-production-browser-bundle-admission.md).
+
+Phase 6C initially selected the evidence-only local trusted-time source and
+cadence. The profile fixes host `local-paper-docker-primary-v1` and pins Chrony
+4.8 in `-x` mode to the exact Cloudflare/Netnod two-provider NTS composite
+recorded by the
+[archived v1 authority
+manifest](adr/evidence/0092-source-authority-v1.json), SHA-256
+`356723c84e30478f18ad99f3cfef2ee65b3bdd3fc26936a7d5c9910fd1bcb3ab`,
+with strict source/auth/leap admission, one-second deadlines, no retries, and
+conservative uncertainty capped at 100 milliseconds. Classification now uses
+absolute point offset plus uncertainty against the existing
+250/1,000-millisecond bands. One
+durable probe runs immediately and later probes stay on an absolute 20-second
+monotonic grid; a gap above 30 seconds blocks at the next evaluation. The source
+container has
+no port or `SYS_TIME`, cannot set the host clock, and uses bounded local
+CPU/RAM. Runtime, migration, and supervisor database clients require exact
+`verify-full` and explicitly bind the hash-pinned checked-in Supabase 2021 root
+CA; DSN/default-root substitution fails closed. Migration 0035 refuses
+nonempty trusted-time history and was applied to runtime Supabase on
+2026-08-01 through the exact purpose-built operator. The retained mode-`0600`
+postflight artifact has SHA-256
+`73085244cad0c24f22a06b22e8cf106c26f9e69a3bf5b32b9a296e995e165e6a`
+and verifies the exact postflight catalog, full operational schema, pinned TLS
+binding, and zero trusted-time histories. A directly supervised 2026-08-01
+window passed immutable-image, topology, kernel process/clock-domain,
+persistence, fixed-cadence, and clean-stop inspection, but its canonical
+artifact is `not_qualified`: five of five current-epoch evaluations were
+`source_unavailable`, with Netnod selectable but excluded from the required
+combination. The qualification SHA-256 is
+`d65a1270b91865ef674af5ea91d23daa0872c392af6b6aa05de3708056c919ac`.
+That Netnod result, its archived manifest, and its qualification hashes remain
+immutable historical evidence. It records image-admission digest
+`2de1fa43994a3918b956ccc749da834ea0636f1983bf33207b0745b8bd3f9c12`,
+but its canonical bytes predated content-addressed retention and no old Netnod
+admission file is claimed.
+
+ADR 0093 rotates the [current v2 authority
+manifest](../infra/trusted-time/source-authority.json) to
+`phase6c-local-chrony-nts-authority-v2`, source ID
+`chrony-nts-cloudflare-system76-virginia-v2`, and adapter
+`phase6-chrony-4.8-nts-evidence-v2`, using `time.cloudflare.com` and
+`virginia.time.system76.com`. Both sources remain mandatory over NTS-KE TCP
+4460 and negotiated NTP UDP 123, with the same strict selected-plus-combined
+composite, 100-millisecond cap, and no fallback. System76 publishes no SLA,
+upstream ensemble, redundancy commitment, or leap-smear policy for the
+endpoint, so none is assumed. Code/config implementation, immutable-image
+admission, and live qualification are complete for one retained local window.
+The authority manifest SHA-256 is
+`9b514dc25b0cd084aedf1841b305260f22b070b70e396defc9ecce2f9545506c`,
+the persisted authority-registry projection SHA-256 is
+`8e7a822503c5f73359cc18ee62dee4f56fb3e67f10b725374f8ef24c94344e9e`,
+the Chrony configuration SHA-256 is
+`5b59d843624fa3b1a923804e44df96a7fbce3848380bf0d5a4b888072310fa23`,
+and the reviewed source revision SHA-256 is
+`db81102def51115d85e9584ff8539aae1eede787939d0268e552dba40e8953b4`.
+The retained content-addressed canonical v2 image-admission artifact has the
+same semantic and file SHA-256:
+`b4519a60ae77987b1f2459c26b9ccd9782dd36946a46767a14531cf84807e76e`
+and binds source image
+`sha256:8d704f59e4b627e38035b8056f9a63037e610f635cac12a8bf76ec4eff3422f3`
+and supervisor image
+`sha256:ca86611fc6177ec50d80ef0f4ed280bef93865d954c8aee0dceac403cf079d0c`.
+The retained `phase6c-live-trusted-time-qualification-inspection-v5` artifact is
+`qualified`: epoch sequence 8 contains eight current-epoch evaluations
+spanning 140.064973522 seconds, with seven recorded samples, qualified cadence,
+a fresh 15.535495716-second-old terminal sample, and 11.034056-through-
+16.0458345-millisecond uncertainty. The terminal state was
+current-process-bound, `healthy`/`within_limit`, and recovery-qualified. One
+intermittent System76 `D` observation was retained as `source_unavailable`,
+then recovered without
+relaxing the mandatory two-source rule. The qualification SHA-256 is
+`1eb6c9396d9c82a76a1b57ba0b3266b4a420905e3f29e33613693087f23a728c`;
+its exact artifact bytes have SHA-256
+`0d0575adc139cc0ec2516d3d5011727986d17e0f856ca810da3bbe84ce0cdec2`.
+The project then stopped cleanly, supervisor before source: both containers and
+the project network were removed, secret staging was empty, and both named
+volumes were retained.
+The result is point-in-time evidence, not a System76 availability or SLA claim,
+and all authority flags remained false. An authenticated external head anchor,
+an independent watchdog,
+and every readiness, control, new-exposure, alert, re-arm, paper, and live
+consumer remain open. See historical
+[ADR 0092](adr/0092-evidence-only-local-chrony-nts-trusted-time-supervision.md),
+[ADR 0093](adr/0093-system76-virginia-nts-authority-rotation.md), and the
+[runbook](runbooks/trusted-time-supervisor.md).
+
+Phase 6D implements a sparse, signed external-head evidence boundary without
+changing any trading authority. Provider-neutral contract
+`phase6d-provider-neutral-external-trusted-head-anchor-v1` binds the exact
+authenticated local head to an Ed25519-signed canonical checkpoint. The raw
+32-byte private key remains outside Supabase; the admitted public key, source,
+host, runtime database, separate anchor project, least-privilege Auth
+principal, private bucket `aqt-trusted-time-anchors-v1`, and deployment
+identity are fixed by a nonsecret authority artifact. The separate project is
+still the same storage provider and may share the same owner/admin trust
+domain. Its row-level writer policy and no-overwrite client do not make
+Supabase Storage WORM or administratively independent.
+
+The Phase 6D worker is single-flight and stays off the 20-second local probe
+path. It uses an absolute 300-second checkpoint grid and classifies anchor
+evidence stale at 360 seconds or greater. Startup and explicit on-demand work
+consume the complete local journal and durable intent/receipt history in
+bounded pages inside one repeatable-read SQL snapshot. The complete remote
+prefix is listed, downloaded, and authenticated in bounded pages, including a
+second listing/hash pass that rejects namespace drift. Provisional pages are
+released and only a constant-size sealed proof/tip is retained. Full-audit
+memory is bounded, but time and provider requests remain linear in retained
+history and no startup-time SLO is claimed at the maximum horizon.
+
+Subsequent incremental work uses the compact authenticated tip and verifies
+the exact remote terminal and next sequence plus new local suffix rows. This
+bounded incremental check does not detect every arbitrary middle-row deletion
+while the process remains running; the full startup/on-demand audit does.
+
+The durable sequence is intent before provider I/O, no-overwrite upload,
+authenticated provider readback, a second exact provider `GET`, then receipt.
+The second `GET` produces application-sealed, single-use evidence bound to its
+identity and exact bytes. Persistence accepts only that evidence; callers
+cannot construct it or substitute locally retained candidate bytes. A restart
+or ambiguous remote response recovers the one persisted pending intent before
+any successor. Only a typed,
+authenticated local-head compare-and-swap advance and a positively classified
+provider outage are retryable; every integrity, identity, signature, fork,
+rollback, persistence, and unclassified error fails the worker fatally.
+Enrollment remains default-deny and requires both a full audit and an explicit
+runtime flag. Production fixes `allow_enrollment=False` with no environment
+override, so first enrollment requires a separately approved reviewed
+enablement and has not been performed.
+
+Migration `0036_phase6_time_anchors` was applied transactionally to runtime
+Supabase on 2026-08-01 after the designated test-PostgreSQL proof passed. Its
+file SHA-256 is
+`9928c457f2593c7b3b4d6f3520eec716bb63375edb1dba3226d44d88cddcdda4`.
+The retained preflight and postflight artifact-file SHA-256 values are
+`6a0947293540dd6ef60b2a2cc95a52aa687f47b593ac54e28a0b1ea16b2802ed`
+and
+`92eb4d6afdac3a3725012668caf6e3df131505f028972be5f133d31b6c6c1fff`.
+Postflight recorded `migration_committed=true`, no restore, the exact catalog
+and operational-schema integrity, and zero intents/receipts. Existing trusted-
+time history was not enrolled.
+
+The secure launcher now loads the database value plus absolute paths for the
+nonsecret authority, Auth secret, and raw 32-byte signing key from one explicit
+owner-only environment file. It validates and stages all four inputs as
+separate owner-only mode-`0400` config/secret mounts, admits their exact paths,
+metadata, sizes, and in-memory digests, waits until the supervisor has loaded
+all four, then retires the staged leaves and revalidates their mount outcomes.
+No secret content is passed through Compose interpolation. Image admission
+contract `phase6d-trusted-time-image-admission-v1` binds the exact migration
+0036 bytes, schema head `0036_phase6_time_anchors`, and intent/receipt catalog.
+The final launcher/Compose/image composition passed 103 focused tests and the
+actual Docker Compose verifier; that is local implementation evidence, not
+deployment, provisioning, or enrollment evidence.
+
+The adapter's remote-namespace cap is 250,000 objects, about 868 days or 2.38
+years at one checkpoint every 300 seconds and less when event checkpoints are
+included. It is an object-count horizon, not a startup-time SLO; full
+verification remains linear despite bounded memory and constant retained
+proof. A tested generation/handoff contract is required before that bound.
+Provisioning evidence for the separate project, private bucket and policies,
+Auth principal, nonsecret authority, and secrets is still pending. The first
+external enrollment has not been approved or performed. Until it is separately
+approved and retained, there is no deployed authenticated external-head
+evidence. Readiness, operational control, arming, exposure/new exposure,
+broker action, alert delivery, automatic re-arm/resume, paper trading, and live
+trading remain false. See
+[ADR 0094](adr/0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md).
 
 ## Phase 6 - deployment, browser security, and operational hardening (weeks 16-18)
 
 ### Build
 
-- Migration 0034 is applied to runtime Supabase. Compose ADR 0086/0090 with an
-  approved authenticated time source and uncertainty bound, an authenticated
-  external head anchor, startup and at-most-30-second in-session scheduling,
-  arming and final new-exposure gates, alerting, and exact-head manual re-arm
-  evidence. The checked-in durable provider-neutral probe and empty runtime
-  tables are non-authorizing and do not satisfy this deployment work.
+- Migration 0035 is applied and postflight-verified on runtime Supabase with
+  zero trusted-time histories. ADR 0092 locally composes ADR 0086/0090 with
+  the exact authenticated Cloudflare/Netnod source, reviewed uncertainty bound,
+  fixed host, and immediate/20-second schedule. Offline and live runtime
+  admission passed, but the retained live window is `not_qualified` because the
+  second source was not combined. Preserve that outcome. ADR 0093 approves the
+  exact Cloudflare/System76 Virginia v2 authority while retaining the strict
+  selected-plus-combined and 100-millisecond rules. Its exact bytes and images
+  are admitted, and its retained
+  `phase6c-live-trusted-time-qualification-inspection-v5` window is qualified
+  with seven of eight evaluations recorded; one intermittent System76 `D`/
+  `source_unavailable` observation recovered under the unchanged rule. Treat
+  this as point-in-time evidence without claiming unpublished System76
+  availability, SLA, upstream, redundancy, or leap-smear properties. ADR 0094
+  now implements the signed sparse-head contract, durable intent/readback/
+  sealed-second-`GET` receipt recovery, bounded separate-Supabase adapter,
+  paged full-audit worker, applied migration 0036, secure four-input launcher,
+  and exact 0036-head/catalog image admission. The final composition passed 103
+  focused tests and the actual Compose verifier. The separate project is not
+  yet provisioned and the first enrollment is still hard-disabled, unapproved,
+  and unperformed, so external-head deployment evidence remains open. Next,
+  retain the approved provisioning and enrollment evidence, then add an
+  independent watchdog, readiness, final new-exposure, alert, and exact-head
+  manual re-arm consumers. The local evidence composition is non-authorizing
+  and does not satisfy those deployment gates.
 - Separate worker/trader roles, pools, quotas, and service identities; managed
   PostgreSQL, secret manager, object storage, restricted network, and immutable
   images/configuration.
@@ -1990,10 +2182,10 @@ multi-browser end-to-end claim.
   partial/late fill, manual broker activity, mismatch, strategy crash, kill
   states, broker-dashboard intervention, and incomplete flatten.
 - Daily automated reconciliation, ledger integrity check, and signed report.
-- Production CSP/CSRF/session validation, remaining shared-runtime bundle
-  optimization, table virtualization, server-side chart downsampling, backend
-  SSE recovery, and Chromium/Firefox/WebKit end-to-end coverage at desktop
-  viewports. Route-level lazy splitting is implemented locally.
+- Production CSP/CSRF/session validation, table virtualization, server-side
+  chart downsampling, backend SSE recovery, and Chromium/Firefox/WebKit
+  end-to-end coverage at desktop viewports. Route-level lazy splitting and
+  fail-closed shared-runtime bundle admission are implemented locally.
 
 ### Exit gate for paper-trading MVP
 
