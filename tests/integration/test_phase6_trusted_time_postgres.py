@@ -368,7 +368,7 @@ def test_postgres_epoch_rotation_fences_prepared_old_epoch_and_enforces_tip_fk(
             host_id=host_id,
             recorded_at=BASE + timedelta(seconds=2),
         )
-        with pytest.raises(TrustedTimePersistenceConflict, match="head changed"):
+        with pytest.raises(TrustedTimePersistenceConflict, match="durable tip conflicts"):
             first_repository.append_probe(
                 first_session,
                 prepared=stale_preparation,
