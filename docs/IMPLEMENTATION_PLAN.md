@@ -2131,14 +2131,61 @@ years at one checkpoint every 300 seconds and less when event checkpoints are
 included. It is an object-count horizon, not a startup-time SLO; full
 verification remains linear despite bounded memory and constant retained
 proof. A tested generation/handoff contract is required before that bound.
-Provisioning evidence for the separate project, private bucket and policies,
-Auth principal, nonsecret authority, and secrets is still pending. The first
-external enrollment has not been approved or performed. Until it is separately
-approved and retained, there is no deployed authenticated external-head
-evidence. Readiness, operational control, arming, exposure/new exposure,
+Separate anchor project `pgplscpqsvyraleyaphm` is Healthy on Supabase's Free
+plan with its Data API disabled. Its exact private
+`aqt-trusted-time-anchors-v1` bucket has retained owner-only dashboard
+verification of the 4,096-byte limit and `application/json` restriction. That
+is partial provisioning evidence only. Exact SQL catalog preflight and the
+complete `storage.objects` policy set, a dedicated Auth writer, the behavioral
+Storage proof, offline signing/Auth/authority artifacts, and first external
+enrollment all remain `UNRUN`. Until enrollment is separately approved and
+retained, there is no deployed authenticated external-head evidence.
+Readiness, operational control, arming, exposure/new exposure,
 broker action, alert delivery, automatic re-arm/resume, paper trading, and live
 trading remain false. See
 [ADR 0094](adr/0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md).
+
+The provisioning renderer now admits the whole `storage.objects` policy
+catalog, not merely policies with the Phase 6D prefix: preflight accepts an
+empty set or the complete exact expected set, and postflight rejects every
+unrelated or missing policy. Offline artifact generator
+`scripts/generate_trusted_time_anchor_artifacts.py` exclusively creates the raw
+key, runtime Auth secret, and nonsecret authority outside the repository with
+`allow_enrollment=false` and enrollment `UNRUN`. Credential-safe proof operator
+`scripts/prove_trusted_time_anchor_storage.py` requires owner-only evidence for
+a real separate private control bucket, retains one synthetic canonical object
+in a proof-only deployment/host prefix outside the runtime's exact prefix,
+strictly proves the allowed and denied Storage operations, has no cleanup mode,
+and leaves enrollment `UNRUN`. Neither operator has been run against the anchor
+project.
+
+Phase 6E has a dormant, provider-neutral preparatory state contract,
+`phase6e-provider-neutral-trusted-head-watchdog-state-v1`. It treats raw signed
+checkpoint bytes and caller-supplied monotonic values as untrusted candidates.
+A signature and exact gap-free successor prove only submitted-record integrity,
+not provider origin, current terminality, remote advancement, stop state,
+freshness, or liveness. The reducer never reports `CURRENT` or `STOPPED` and
+never calculates staleness from a caller value. Every nonfatal result is
+`UNAVAILABLE` with `STARTUP_NO_BASELINE`, `BASELINE_ONLY`,
+`PROVIDER_TERMINAL_PROOF_ABSENT`, or `PROVIDER_UNAVAILABLE`; a signed successor
+or `clean_stop` advances only chain diagnostics. Malformed records, invalid
+signatures, identity mismatches, forks, rollbacks, gaps, and input-clock
+regression fail closed. The sealed output is bound to the contract and exact
+authority, but no consumer exists and every authority flag is false.
+
+This is pure dormant code, not a deployed watchdog. It adds no Supabase or
+provider adapter, runtime process/container, external failure domain, alert
+delivery, readiness/control/new-exposure/re-arm integration, deployment,
+drill, or Phase 6 exit evidence. The normative next steps are unchanged:
+complete and retain the remaining separate-project provisioning evidence, then
+separately approve and retain first-enrollment evidence. Only then may a sealed
+provider-terminal observer authenticate the complete new suffix, bind two
+stable namespace passes to their exact digest/count/terminal identity, prove
+that no higher sequence exists, and capture its own independent monotonic
+instant. That future deployed runtime, not dormant v1, must apply the
+360-second stale threshold with equality stale and every stale result
+unavailable before any watchdog consumer is designed or qualified. See
+[ADR 0095](adr/0095-dormant-provider-neutral-trusted-head-watchdog-state.md).
 
 ## Phase 6 - deployment, browser security, and operational hardening (weeks 16-18)
 
@@ -2162,13 +2209,22 @@ trading remain false. See
   sealed-second-`GET` receipt recovery, bounded separate-Supabase adapter,
   paged full-audit worker, applied migration 0036, secure four-input launcher,
   and exact 0036-head/catalog image admission. The final composition passed 103
-  focused tests and the actual Compose verifier. The separate project is not
-  yet provisioned and the first enrollment is still hard-disabled, unapproved,
-  and unperformed, so external-head deployment evidence remains open. Next,
-  retain the approved provisioning and enrollment evidence, then add an
+  focused tests and the actual Compose verifier. The separate Healthy Free-plan
+  project and its Data-API-disabled, exact private primary bucket now have
+  retained dashboard evidence, but exact catalog/policy application, Auth
+  writer, real-control-bucket behavioral proof, signing/Auth/authority artifact
+  generation, and first enrollment remain `UNRUN`. Enrollment is still
+  hard-disabled, unapproved, and unperformed, so external-head deployment
+  evidence remains open. Next, complete and retain the remaining provisioning
+  proofs, then separately approve and retain enrollment evidence before adding an
   independent watchdog, readiness, final new-exposure, alert, and exact-head
   manual re-arm consumers. The local evidence composition is non-authorizing
-  and does not satisfy those deployment gates.
+  and does not satisfy those deployment gates. ADR 0095 adds only the dormant
+  pure candidate reducer in preparation for that later observer. It never
+  reports current, stopped, or stale from raw caller inputs, does not reorder
+  provisioning or enrollment, and supplies no sealed provider-terminal issuer,
+  runtime, external failure domain, alert, consumer, deployment, drill, or exit
+  evidence.
 - Separate worker/trader roles, pools, quotas, and service identities; managed
   PostgreSQL, secret manager, object storage, restricted network, and immutable
   images/configuration.

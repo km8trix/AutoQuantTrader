@@ -499,6 +499,42 @@ live authority remain absent. See the historical
 [ADR 0092](docs/adr/0092-evidence-only-local-chrony-nts-trusted-time-supervision.md)
 and the [trusted-time supervisor runbook](docs/runbooks/trusted-time-supervisor.md).
 
+Phase 6D adds signed sparse trusted-time head checkpoints through a
+provider-neutral contract, durable intent/readback/receipt recovery, a bounded
+separate-Supabase adapter, and a single-flight background worker. Migration
+0036 is applied to runtime Supabase, and the secure launcher plus exact-image
+admission passed local verification. Production still fixes first enrollment
+off. Separate anchor project `pgplscpqsvyraleyaphm` is Healthy on Supabase's
+Free plan with its Data API disabled. Its exact private bucket
+`aqt-trusted-time-anchors-v1` is dashboard-verified with a 4,096-byte limit and
+only `application/json`; that owner-only retained evidence is not a catalog or
+policy proof. Exact SQL catalog preflight and the complete `storage.objects`
+policy set, the dedicated Auth writer, behavioral Storage proof, offline raw
+signing-key/Auth/authority artifact generation, and separately approved first
+enrollment all remain `UNRUN`. The implemented generator keeps artifacts
+outside the repository and fixes `allow_enrollment=false`; the proof operator
+requires a separately evidenced real control bucket and retains one synthetic
+object outside the runtime's exact deployment/host prefix without cleanup.
+There is still no deployed authenticated external head and no trading authority.
+See [ADR 0094](docs/adr/0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md).
+
+Phase 6E begins with dormant pure contract
+`phase6e-provider-neutral-trusted-head-watchdog-state-v1`. It authenticates
+caller-supplied signed checkpoint candidates and their submitted chain order,
+then seals the unavailable output to the exact contract and authority. Those
+inputs do not prove provider origin, the current remote terminal, remote
+advancement, stop state, freshness, liveness, or independent time. The reducer
+therefore never reports `CURRENT` or `STOPPED` and never derives staleness from
+caller time; even an exact successor or `clean_stop` remains unavailable.
+Signature, identity, fork, rollback, gap, predecessor, or input-clock failures
+close permanently, and all authority flags remain false. This library contract
+has no provider adapter, runtime, independent failure domain, alert route,
+consumer, deployment, or drill. Completion of the remaining separate-project
+provisioning and explicit first enrollment still precede a sealed terminal
+observer and the future
+360-second deployed stale policy. See
+[ADR 0095](docs/adr/0095-dormant-provider-neutral-trusted-head-watchdog-state.md).
+
 These slices still cannot publish a general security master, prove an
 exchange-calendar binding, a quote collar, a current canonical position or
 reduce-only behavior, reconciliation, or dispatch authority. The production

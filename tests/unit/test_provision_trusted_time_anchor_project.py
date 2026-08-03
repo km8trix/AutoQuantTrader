@@ -234,6 +234,8 @@ def test_sql_generation_is_deterministic_bound_and_does_not_emit_publishable_key
     assert first.endswith("COMMIT;\n")
     assert PUBLISHABLE_KEY not in first
     assert contract.publishable_key_sha256 in first
+    assert contract.runtime_project_identity_sha256 in first
+    assert contract.test_project_identity_sha256 in first
     assert ANCHOR_REF in first
     assert RUNTIME_REF not in first
     assert TEST_REF not in first
@@ -347,6 +349,8 @@ def test_preflight_requires_operation_helpers_and_complete_exact_policy_set() ->
     assert "anchor_storage_operation_helpers_missing" in sql
     assert "actual_policy_names IS DISTINCT FROM expected_policy_names" in sql
     assert "anchor_bucket_missing_create_via_storage_api" in sql
+    assert "left(p.polname" not in sql
+    assert sql.count("WHERE p.polrelid = 'storage.objects'::regclass;") == 2
 
     missing_helper = sql.replace("to_regproc('storage.allow_any_operation')", "true")
     with pytest.raises(AnchorProjectProvisioningError, match="anchor_provisioning_sql_drift"):
@@ -399,6 +403,8 @@ def test_sql_identity_changes_with_each_authority_input() -> None:
             anchor_project_ref="defghijklmnopqrstuvw",
             anchor_project_url="https://defghijklmnopqrstuvw.supabase.co",
         ),
+        replace(baseline, runtime_project_ref="defghijklmnopqrstuvw"),
+        replace(baseline, test_project_ref="efghijklmnopqrstuvwx"),
         replace(baseline, publishable_key=f"sb_publishable_{'C' * 22}_{'d' * 8}"),
         replace(baseline, writer_principal_id="33333333-3333-4333-8333-333333333333"),
         replace(baseline, reader_principal_id=None),

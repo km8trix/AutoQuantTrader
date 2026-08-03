@@ -8,6 +8,9 @@ and its completed System76 authority rotation in
 implemented but not yet externally enrolled sparse-head checkpoint boundary is
 defined by
 [ADR 0094](../adr/0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md).
+The dormant pure watchdog-state transition is defined by
+[ADR 0095](../adr/0095-dormant-provider-neutral-trusted-head-watchdog-state.md);
+it is not deployed and changes no procedure in this runbook.
 ADR 0092's exact Netnod authority is preserved as the
 [archived v1 manifest](../adr/evidence/0092-source-authority-v1.json), SHA-256
 `356723c84e30478f18ad99f3cfef2ee65b3bdd3fc26936a7d5c9910fd1bcb3ab`.
@@ -23,8 +26,10 @@ window was retained as immutable historical `not_qualified` evidence. The
 Cloudflare/System76 v2 implementation and immutable images were subsequently
 admitted, and a separate directly supervised inspector-v5 window qualified.
 Migration `0036_phase6_time_anchors` was then applied and postflight-verified
-on 2026-08-01 with zero anchor intents and receipts. Separate anchor-project
-provisioning evidence and the first external enrollment remain pending.
+on 2026-08-01 with zero anchor intents and receipts. The separate anchor
+project and exact primary bucket now have retained dashboard evidence, but SQL
+catalog/policy proof, the Auth writer, behavioral proof, runtime artifacts, and
+the first external enrollment remain `UNRUN`.
 Neither migration nor either inspected window grants readiness or any trading
 authority.
 
@@ -75,12 +80,17 @@ mode-0750 Chrony command-socket tmpfs is shared read-write: unmodified Chrony
 4.8 requires `chronyc` to create a short-lived reply socket beside the daemon
 socket. Chrony's state volume remains source-only.
 
-## Implemented Phase 6D contract; deployment pending
+## Implemented Phase 6D contract; external provisioning incomplete
 
-The Phase 6D code and runtime-database schema are implemented, but the
-separate external project has not yet produced reviewed provisioning evidence
-and no first enrollment has been approved or performed. Do not describe the
-current deployment as externally anchored.
+The Phase 6D code and runtime-database schema are implemented. Separate anchor
+project `pgplscpqsvyraleyaphm` is Healthy on Supabase's Free plan with its Data
+API disabled. Owner-only retained dashboard evidence records its exact private
+`aqt-trusted-time-anchors-v1` bucket, 4,096-byte size limit, and sole
+`application/json` MIME allowance. That does not prove the SQL catalog or
+policies. The exact catalog preflight/policy apply, dedicated Auth writer,
+behavioral proof, signing/Auth/authority artifact creation, and enrollment are
+all `UNRUN`. No first enrollment has been approved or performed. Do not
+describe the current deployment as externally anchored.
 
 The exact implemented identities and bounds are:
 
@@ -180,6 +190,47 @@ generation/handoff before the 250,000-object cap. Do not interpret bounded
 working memory or the object cap as a startup-time SLO; a complete audit remains
 linear and event checkpoints can consume the horizon sooner.
 
+## Dormant Phase 6E watchdog-state contract
+
+Contract `phase6e-provider-neutral-trusted-head-watchdog-state-v1` is a pure,
+preparatory state transition only. It is deliberately absent from the Compose
+profile and has no operator command. Raw signed checkpoint bytes and
+caller-supplied monotonic values remain untrusted candidates. Signature and
+chain authentication do not prove provider origin, the current remote terminal,
+absence of a higher sequence, remote advancement, stop state, freshness,
+liveness, or an independent observation instant.
+
+The reducer never reports `CURRENT` or `STOPPED` and never calculates
+staleness from caller input. Every nonfatal result is `UNAVAILABLE` with
+`STARTUP_NO_BASELINE`, `BASELINE_ONLY`, `PROVIDER_TERMINAL_PROOF_ABSENT`, or
+`PROVIDER_UNAVAILABLE`. An exact signed gap-free successor, including
+`clean_stop`, advances only chain diagnostics. Its sealed output is bound to
+the contract and exact authority, but no consumer exists.
+
+Malformed checkpoints, invalid signatures, identity mismatch, fork, rollback,
+gap, predecessor mismatch, and caller-clock regression fail closed. All
+authority flags remain false.
+
+Do not operate or describe this library contract as a watchdog deployment. It
+contains no Supabase/provider adapter, runtime process/container, independent
+failure domain, alert delivery, readiness/control/new-exposure/manual-re-arm
+integration, deployment, drill, or Phase 6 exit evidence. The required order
+is still:
+
+1. complete the separate Supabase anchor project's remaining provisioning and
+   retain reviewed catalog, policy, principal, artifact, and behavioral evidence;
+2. separately obtain approval for and retain the first enrollment evidence;
+3. only then implement a sealed provider-terminal issuer that authenticates a
+   complete new suffix, binds two stable namespace passes to their exact
+   digest/count/terminal identity, proves no higher sequence exists, and
+   captures its own independent monotonic instant; and
+4. only after that issuer is reviewed may a separate runtime apply the
+   360-second stale threshold, with equality stale and every stale result
+   unavailable, and qualify later consumers.
+
+Until those steps occur, the current operational instruction remains direct
+observation: a stopped supervisor is not independently detected or alerted.
+
 ## Qualification prerequisites
 
 Before any new approved qualification window:
@@ -208,7 +259,8 @@ Before any new approved qualification window:
    images are admitted; prior-authority or prior-epoch samples and failures
    cannot count toward its window.
 5. Confirm the local Mac is awake, connected to power, and directly observed.
-   There is no external alert, independent heartbeat, or stale-host watchdog.
+   There is no external alert, independent heartbeat, or deployed stale-host
+   watchdog. The dormant pure Phase 6E state contract does not change this.
 6. Confirm only the required outbound DNS, NTS-KE on TCP 4460, and negotiated
    provider NTP egress on UDP 123 for Cloudflare and System76 Virginia is
    permitted. Do not publish an inbound port.
@@ -323,38 +375,58 @@ anchor tables as permission to enroll.
 
 ## Separate anchor project provisioning gate
 
-This gate remains `UNRUN` until exact retained evidence exists. Provisioning
-the project does not approve enrollment.
+This gate is in progress and remains incomplete. Project
+`pgplscpqsvyraleyaphm` is Healthy on Supabase's Free plan with its Data API
+disabled. Owner-only retained dashboard evidence records the exact private
+primary bucket `aqt-trusted-time-anchors-v1`, its 4,096-byte file-size limit,
+and sole `application/json` MIME allowance. Dashboard evidence is not an exact
+SQL catalog or policy proof, and none of the remaining steps below has been
+run. Partial or complete provisioning does not approve enrollment.
 
-1. Use a new Supabase project ref distinct from both the runtime and destructive
-   test project refs. Record only identity digests and nonsecret project refs in
-   reviewed evidence.
-2. Through the supported Supabase Storage dashboard or API, create the exact
-   **private** bucket `aqt-trusted-time-anchors-v1` with a 4,096-byte file-size
-   limit and only `application/json`. Do not insert or update
-   `storage.buckets` directly.
-3. Create a dedicated Supabase Auth writer. Do not supply the service-role key
+1. The distinct anchor project and primary bucket creation are complete only at
+   the dashboard-evidence layer described above. Continue to record only
+   identity digests and nonsecret project refs in reviewed evidence. Never
+   insert or update `storage.buckets` directly.
+2. Create a dedicated Supabase Auth writer. Do not supply the service-role key
    to the runtime. If a separate reader is approved, bind its distinct Auth
    UUID explicitly; otherwise omit it.
-4. Use
+3. Use
    `scripts/provision_trusted_time_anchor_project.py` to validate the three
    distinct project refs, exact project URL, publishable key, and principal
    UUIDs and to render the deterministic
    `aqt-trusted-time-supabase-anchor-project-v1` SQL. Review its digest before
-   applying it to the separate project. The transaction must find the
-   pre-created exact bucket and install only the exact `aqt_tt_anchor_v1_*`
-   policy set.
-5. Prove through the supported Storage API that the writer can list/read and
-   insert only names matching
+   applying it to the separate project. The transaction must find the exact
+   pre-created bucket. Its catalog gate examines the entire policy set on
+   `storage.objects`: preflight accepts only no policies or the complete exact
+   expected set, and postflight requires the entire set to be exactly the
+   expected `aqt_tt_anchor_v1_*` policies. Any unrelated policy is drift. Retain
+   exact preflight, apply, and postflight evidence.
+4. Through the supported dashboard or API, create and retain independent
+   owner-only evidence for a real, distinct private control bucket in this same
+   project. It must not be `aqt-trusted-time-anchors-v1`, and it receives no
+   writer policy. This bucket exists only to prove cross-bucket denial; a
+   nonexistent name is not evidence of authorization behavior.
+5. Run `scripts/generate_trusted_time_anchor_artifacts.py` offline to create one
+   raw 32-byte Ed25519 private key, one exact runtime-compatible Auth-secret
+   JSON, and one nonsecret authority JSON. Use absolute, distinct owner-only
+   targets outside Supabase and outside the repository. The operator refuses
+   overwrite, validates all three against runtime contracts, emits only a
+   secret-free receipt, fixes `allow_enrollment=false`, and records enrollment
+   `UNRUN`. Never place the password, Auth secret, or signing key in reviewed
+   evidence.
+6. Run `scripts/prove_trusted_time_anchor_storage.py` with the owner-only Auth
+   secret and the retained real-control-bucket evidence. It authenticates the
+   exact writer and retains one synthetic canonical object under a proof-only
+   deployment/host prefix outside the runtime's exact prefix. It must prove the
+   writer can list/read and insert only names matching
    `v1/<deployment-sha256>/<host-sha256>/<20-digit-sequence>-<sha256>.json`.
-   Prove update, overwrite, delete, unrelated namespaces, other buckets, and
-   public/anonymous access are denied. Preserve sanitized results; never retain
-   access tokens or passwords.
-6. Generate one raw 32-byte Ed25519 private key outside Supabase and outside the
-   repository. Derive and review the public key/digest and key ID in the
-   nonsecret authority. Keep the private key and the Auth-secret JSON in
-   owner-only secret files; no signing key may be stored in either Supabase
-   project.
+   Require strict authorization denial for overwrite, upsert, update, delete,
+   unrelated namespaces, the evidenced real control bucket, and anonymous
+   insert, plus denial or provider masking for the positively established
+   private object's anonymous/public read routes. Preserve only its sanitized
+   result; never retain access tokens, passwords, or provider response bodies.
+   The operator has no cleanup mode: the synthetic proof object remains, while
+   enrollment stays `UNRUN`.
 7. Retain the parse-only Compose admission with all four runtime sources at
    `/dev/null`, then use only the implemented secure launcher to stage, admit,
    and retire the exact database, authority, Auth, and signing-key mounts
@@ -750,8 +822,9 @@ named volumes were retained.
   local-head compare-and-swap advance may also retry. Do not classify any
   other exception as transient. Anchor evidence is stale at 360 seconds or
   greater even while local probes continue.
-- Supervisor death has no independent watchdog. Evidence simply stops
+- Supervisor death has no deployed independent watchdog. Evidence simply stops
   advancing; the external bucket does not observe or alert on that absence.
+  The dormant pure Phase 6E state contract has no runtime or provider adapter.
   Staleness or the local cadence gap is recognized only by a later observation.
   End the directly observed window, record the failure, and do not infer an
   alert or control transition.

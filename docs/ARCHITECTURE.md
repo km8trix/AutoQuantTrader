@@ -3078,6 +3078,31 @@ and insert while denying normal update, overwrite, and delete. Supabase project
 administrators remain outside those writer constraints, so this is neither
 WORM storage nor an independent provider or administrative trust domain.
 
+The deterministic provisioning renderer treats every policy on
+`storage.objects` as part of the admitted catalog. Preflight accepts only a
+completely absent policy set or the complete exact expected set; postflight
+requires the entire set to equal the expected `aqt_tt_anchor_v1_*` policies.
+An unrelated policy, including one that could admit another bucket or
+principal, is drift rather than an ignorable provider-side object.
+
+Offline operator
+[`generate_trusted_time_anchor_artifacts.py`](../scripts/generate_trusted_time_anchor_artifacts.py)
+creates the raw 32-byte Ed25519 private key, runtime-compatible Supabase Auth
+secret, and nonsecret authority at exclusive owner-only paths outside the
+repository. It validates those artifacts against the runtime decoders, emits a
+secret-free receipt, fixes `allow_enrollment=false`, and reports enrollment
+`UNRUN`; generation neither provisions Storage nor enrolls history.
+
+Credential-safe operator
+[`prove_trusted_time_anchor_storage.py`](../scripts/prove_trusted_time_anchor_storage.py)
+requires retained owner-only evidence for a real, separate private control
+bucket in the same project. It authenticates the exact writer, inserts and
+retains one synthetic canonical object in a proof-only deployment/host prefix
+outside the admitted runtime prefix, and strictly verifies
+list/read plus denials for overwrite, upsert, update, delete, noncanonical
+namespace, the real control bucket, anonymous insertion/list/read, and the
+public route. It deliberately has no cleanup mode and keeps enrollment `UNRUN`.
+
 The background worker uses an absolute 300-second checkpoint grid and marks
 anchor evidence stale at 360 seconds or greater. It runs separately from the
 20-second local probe grid. Startup and explicit on-demand work consume the
@@ -3141,10 +3166,14 @@ The final launcher/Compose/image composition passed 103 focused tests and the
 actual Docker Compose verifier. Those are local implementation proofs, not
 separate-project provisioning or enrollment evidence.
 
-The separate anchor project, bucket/policy/Auth-principal provisioning,
-nonsecret authority, and owner-only runtime secrets have not yet produced
-retained deployment evidence. The first external enrollment has not been
-approved or performed. Therefore the deployed topology still has no
+Separate anchor project `pgplscpqsvyraleyaphm` is now Healthy on the Supabase
+Free plan with its Data API disabled. Retained owner-only dashboard evidence
+records the exact private `aqt-trusted-time-anchors-v1` bucket with a 4,096-byte
+limit and only `application/json`. That is partial provisioning evidence, not
+the exact SQL catalog preflight or policy proof. Those checks and policies, the
+dedicated Auth writer, real-control-bucket behavioral proof, offline signing/
+Auth/authority artifacts, and first external enrollment all remain `UNRUN`.
+Therefore the deployed topology still has no
 authenticated external-head evidence or independent supervisor watchdog:
 after supervisor death, local evidence stops and a later evaluation is the
 first component that can recognize its cadence gap. Readiness, operational
@@ -3156,6 +3185,38 @@ false. See historical
 [ADR 0094](adr/0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md),
 and the
 [trusted-time supervisor runbook](runbooks/trusted-time-supervisor.md).
+
+ADR 0095 adds dormant pure contract
+`phase6e-provider-neutral-trusted-head-watchdog-state-v1`. Raw signed record
+bytes and caller-supplied monotonic values remain untrusted candidates. The
+reducer authenticates canonical bytes, signature, authority, and submitted
+chain relationships, then seals output to the contract and exact authority.
+It cannot prove provider origin, current remote terminal, absence of a higher
+sequence, remote advancement, stop state, freshness, liveness, or independent
+time. It therefore never reports `CURRENT` or `STOPPED` and never derives
+staleness from a caller value. Every nonfatal state is `UNAVAILABLE` with one
+of `STARTUP_NO_BASELINE`, `BASELINE_ONLY`,
+`PROVIDER_TERMINAL_PROOF_ABSENT`, or `PROVIDER_UNAVAILABLE`. A signed successor,
+including `clean_stop`, advances only chain diagnostics. Malformed or
+incorrectly signed records, identity mismatch, fork, rollback, gap,
+predecessor mismatch, and caller-clock regression fail closed. All readiness,
+control, arming, exposure, broker, alert, re-arm, paper, and live authority
+flags remain false, and no consumer exists.
+
+This state contract is intentionally not composed into the topology. It has no
+Supabase/provider adapter, runtime process or container, independent external
+failure domain, alert route, readiness/control/new-exposure/re-arm consumer,
+deployment, drill, or Phase 6 exit evidence. Completion and retained review of
+the separate project's remaining provisioning, followed by separately approved
+and retained first enrollment, normatively precede a sealed provider-terminal
+observer. That
+future issuer must authenticate the complete new suffix, bind two stable
+namespace passes to their exact digest, count, and terminal identity, prove no
+higher sequence exists, and capture an independent monotonic instant inside
+the issuer. Only its later deployed runtime applies the 360-second stale policy
+with equality stale and every stale result unavailable; dormant v1 does not.
+See
+[ADR 0095](adr/0095-dormant-provider-neutral-trusted-head-watchdog-state.md).
 
 ADR 0072 implements the local durable critical-alert boundary behind those
 budgets. A source-idempotent incident records only an alert code and evidence/

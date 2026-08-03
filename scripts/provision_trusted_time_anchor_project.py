@@ -52,6 +52,7 @@ _PUBLISHABLE_KEY = re.compile(
 )
 _POLICY_PREFIX = "aqt_tt_anchor_v1_"
 _ADVISORY_LOCK_KEY = 6_483_515_921_681_925_897
+_PROJECT_IDENTITY_DOMAIN = "aqt-trusted-time-anchor-project-ref-identity-v1"
 
 
 class AnchorProjectProvisioningError(ValueError):
@@ -87,6 +88,24 @@ class AnchorProjectProvisioningContract:
 
         return hashlib.sha256(self.publishable_key.encode("ascii")).hexdigest()
 
+    @property
+    def runtime_project_identity_sha256(self) -> str:
+        """Bind the validated runtime ref without rendering that ref into SQL."""
+
+        return _project_ref_identity_sha256(
+            role="runtime_database",
+            project_ref=self.runtime_project_ref,
+        )
+
+    @property
+    def test_project_identity_sha256(self) -> str:
+        """Bind the validated destructive-test ref without rendering it into SQL."""
+
+        return _project_ref_identity_sha256(
+            role="destructive_test_database",
+            project_ref=self.test_project_ref,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class _PolicyContract:
@@ -104,6 +123,13 @@ def _require_exact_string(value: object, reason_code: str) -> str:
     if value != value.strip() or "\x00" in value:
         raise AnchorProjectProvisioningError(reason_code)
     return value
+
+
+def _project_ref_identity_sha256(*, role: str, project_ref: str) -> str:
+    """Return one unambiguous domain-separated project-reference binding."""
+
+    payload = "\x00".join((_PROJECT_IDENTITY_DOMAIN, role, project_ref)).encode("ascii")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def validate_project_ref(value: object, *, field_name: str = "project") -> str:
@@ -582,8 +608,7 @@ BEGIN
     SELECT coalesce(array_agg(p.polname::text ORDER BY p.polname::text), ARRAY[]::text[])
     INTO STRICT actual_policy_names
     FROM pg_catalog.pg_policy AS p
-    WHERE p.polrelid = 'storage.objects'::regclass
-      AND left(p.polname::text, length({_sql_text(_POLICY_PREFIX)})) = {_sql_text(_POLICY_PREFIX)};
+    WHERE p.polrelid = 'storage.objects'::regclass;
 
     IF bucket_match_count = 0 THEN
         RAISE EXCEPTION 'anchor_bucket_missing_create_via_storage_api';
@@ -643,8 +668,7 @@ BEGIN
     SELECT coalesce(array_agg(p.polname::text ORDER BY p.polname::text), ARRAY[]::text[])
     INTO STRICT actual_policy_names
     FROM pg_catalog.pg_policy AS p
-    WHERE p.polrelid = 'storage.objects'::regclass
-      AND left(p.polname::text, length({_sql_text(_POLICY_PREFIX)})) = {_sql_text(_POLICY_PREFIX)};
+    WHERE p.polrelid = 'storage.objects'::regclass;
     IF actual_policy_names IS DISTINCT FROM expected_policy_names THEN
         RAISE EXCEPTION 'anchor_policy_postflight_failed';
     END IF;
@@ -673,6 +697,8 @@ def generate_provisioning_sql(contract: object) -> str:
     audit_sections = "\n".join(_render_exact_policy_postflight(policy) for policy in policies)
     return f"""-- {CONTRACT_VERSION}
 -- Target Supabase project ref: {validated.anchor_project_ref}
+-- Runtime-project identity SHA-256: {validated.runtime_project_identity_sha256}
+-- Destructive-test-project identity SHA-256: {validated.test_project_identity_sha256}
 -- Publishable-key SHA-256: {validated.publishable_key_sha256}
 -- Create the exact private bucket through the Supabase Storage API first.
 -- This transaction never inserts, updates, or deletes any storage table row.

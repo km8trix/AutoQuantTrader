@@ -107,5 +107,9 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0094: Separate-Supabase signed sparse trusted-time head checkpoints](0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md)
   (migration 0036 is applied; separate-project provisioning and first external
   enrollment remain pending and separately approval-gated)
+- [ADR 0095: Dormant provider-neutral trusted-head watchdog state](0095-dormant-provider-neutral-trusted-head-watchdog-state.md)
+  (pure preparatory reducer only; raw observations remain unqualified, while
+  provisioning, first enrollment, a sealed terminal issuer, deployment, and
+  every consumer remain pending)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
