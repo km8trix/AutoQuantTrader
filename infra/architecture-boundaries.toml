@@ -90,6 +90,11 @@ side_effect_free_roots = [
   # port. It owns no ambient clock, scheduler, persistence, network, control,
   # broker, or re-arm authority.
   "packages/application/trusted_time_monitor.py",
+  # ADR 0095 authenticates caller-supplied checkpoint candidates and their
+  # input order but cannot establish provider terminality, currentness, stop,
+  # or staleness. The dormant reducer owns no ambient provider, clock, process,
+  # alert, control, or trading authority.
+  "packages/application/trusted_time_watchdog.py",
   # ADR 0090 composes an injected durable repository with the same injected
   # probe ports. It owns no concrete database, process identity, scheduler,
   # source adapter, control, exposure, alert, broker, or re-arm authority.

@@ -48,6 +48,10 @@ Strict deployment admission is in
 [`head_anchor_config.py`](../../apps/trusted_time_supervisor/head_anchor_config.py),
 while the separate-project policy renderer is
 [`provision_trusted_time_anchor_project.py`](../../scripts/provision_trusted_time_anchor_project.py).
+Offline credential/authority creation is implemented by
+[`generate_trusted_time_anchor_artifacts.py`](../../scripts/generate_trusted_time_anchor_artifacts.py),
+and the credential-safe Storage behavior operator is
+[`prove_trusted_time_anchor_storage.py`](../../scripts/prove_trusted_time_anchor_storage.py).
 
 The admitted deployment contract requires a Supabase project distinct from
 both the runtime and test database projects and the exact private Storage bucket
@@ -57,6 +61,25 @@ namespace. Normal writer update, overwrite, and delete operations are denied.
 The upload API also sets no-overwrite semantics. These controls constrain the
 runtime writer; they do not convert Supabase Storage into WORM storage or bind a
 Supabase administrator.
+
+The policy renderer admits the entire `storage.objects` policy catalog, not
+only names carrying the Phase 6D prefix. Preflight accepts a completely absent
+set or the complete exact expected set; postflight requires exact equality to
+the expected `aqt_tt_anchor_v1_*` policies. Any unrelated, missing, or changed
+policy is drift.
+
+The offline artifact generator exclusively creates one raw 32-byte Ed25519
+private key, one exact runtime Auth secret, and one nonsecret authority at
+owner-only paths outside the repository. It revalidates the runtime contracts,
+emits no secret content, fixes `allow_enrollment=false`, and records enrollment
+`UNRUN`.
+
+The behavioral proof requires retained owner-only evidence for a real separate
+private control bucket in the anchor project. It authenticates the exact Auth
+writer, retains one synthetic canonical object under a proof-only deployment/
+host prefix outside the runtime's exact prefix, proves exact list/read/insert
+behavior plus strict cross-namespace, cross-bucket, mutation, anonymous, and
+public denials, and performs no cleanup. The proof does not enroll history.
 
 Each canonical checkpoint is signed with Ed25519. The raw 32-byte private key
 is generated and retained outside Supabase and is supplied to the local
@@ -176,6 +199,16 @@ The postflight recorded `migration_committed=true`, no restore, the expected
 catalog and full operational-schema integrity, and zero intent and receipt
 rows. Do not downgrade or reinterpret that empty postflight as enrollment.
 
+## External project provisioning observation
+
+Separate anchor project `pgplscpqsvyraleyaphm` is Healthy on Supabase's Free
+plan with its Data API disabled. Owner-only retained dashboard evidence records
+the exact private `aqt-trusted-time-anchors-v1` bucket, its 4,096-byte file-size
+limit, and sole `application/json` MIME allowance. This observation proves only
+the visible project and bucket settings. It is not the exact SQL catalog
+preflight, policy application/postflight, Auth-writer proof, Storage behavioral
+proof, or runtime-artifact admission. Each of those remains `UNRUN`.
+
 ## Consequences
 
 A later explicitly enrolled, continuously retained remote checkpoint prefix
@@ -184,12 +217,13 @@ unexpected terminal head when the corresponding reconciliation runs. Durable
 intent-before-upload and exact readback receipts make ambiguous network results
 restart-safe without holding SQL locks over network I/O.
 
-The implementation and runtime schema are present, but provisioning evidence
-for the separate Supabase project, exact private bucket and policies, Auth
-principal, nonsecret authority artifact, and owner-only runtime secrets remains
-pending. The first external enrollment also remains pending separate owner
-approval. Until both provisioning and enrollment are completed and reviewed,
-the deployed topology still has no authenticated external-head evidence.
+The implementation and runtime schema are present, and the separate project
+and primary bucket have partial dashboard evidence. Exact catalog/policy
+evidence, the Auth principal, real-control-bucket behavioral proof, nonsecret
+authority artifact, and owner-only runtime secrets remain pending and `UNRUN`.
+The first external enrollment also remains pending separate owner approval.
+Until provisioning and enrollment are completed and reviewed, the deployed
+topology still has no authenticated external-head evidence.
 
 Even after enrollment, this remains same-provider, potentially same-admin
 evidence rather than independent or immutable custody. It narrows some rollback
