@@ -892,10 +892,18 @@ traceability, or reporting requirements below.
 - Reports label exploration, validation, and confirmation evidence and declare
   return, annualization, benchmark, cash-flow, cost, and uncertainty conventions.
 
-## Phase 4 - paper broker execution, recovery, and trading UI (weeks 10-12)
+## Phase 4 - broker execution qualification, recovery, and trading UI (weeks 10-12)
 
 ### Sequencing and current status
 
+- **E\*TRADE live-broker target — architecture selected, implementation
+  pending:** ADR 0096 selects E\*TRADE production as the intended live execution
+  venue. E\*TRADE sandbox is protocol-only stored sample data and cannot satisfy
+  paper-soak, lifecycle, reconciliation, timing, rejection, fill, slippage, or
+  economic gates. The selection grants no credential access, account binding,
+  broker call, or trading authority. Existing Alpaca Phase 4A-4AI artifacts
+  remain immutable historical, paper-provider-specific, and non-authorizing;
+  they must not be renamed or reinterpreted as E\*TRADE or live qualification.
 - **Phase 4A offline Alpaca paper contract — local slice implemented:** ADR 0038
   records the reviewed paper endpoint and authentication-header names,
   documented provider order/TIF breadth, the candidate DIA/IWM/QQQ/SPY
@@ -1274,6 +1282,46 @@ traceability, or reporting requirements below.
 
 ### Build
 
+- Add a distinct E\*TRADE provider track without changing historical Alpaca
+  schemas or evidence: fixed disjoint sandbox/production data/order REST origins
+  and secret scopes plus exact shared token/authorization origins and callback
+  policy; reviewed OAuth 1.0a session acquisition, renewal, expiry, and
+  revocation; exact numeric-account-ID plus opaque-`accountIdKey` binding; and
+  bounded raw-first Accounts, Balance, Portfolio, Orders, and Transactions
+  reads with strict pagination and status mapping. Start with conservative
+  account/operation budgets that reserve cancellation, token-control, and
+  reconciliation capacity; do not reuse Alpaca's request ceiling. Comet
+  streaming remains disabled until independently qualified.
+- Persist a separate deterministic, account-scoped E\*TRADE client-order ID that
+  is collision-checked, at most twenty characters, and alphanumeric, mapped
+  one-to-one to the unchanged canonical internal ID. Implement Preview then
+  Place as distinct raw-first calls: persist the exact request digest and
+  preview ID, use a local TTL shorter than three minutes, and immediately
+  revalidate fence, risk/reservation, control/kill state, session, quote/collar,
+  trusted time, OAuth session, account/instrument binding, and capacity before
+  one Place call. Add a closed versioned Preview/Place/Cancel message and
+  disclosure classifier: HTTP 2xx is never sufficient, unknown/review/
+  restriction/confirmation messages block Place, and acceptance requires the
+  exact account, preview/request, and provider order-confirmation identity. An
+  ambiguous Place becomes durable `UNKNOWN`, sets control to `HALTED`, and
+  permits no automatic retry, resubmission, or replacement. Reconcile through
+  paginated Orders/Transactions and
+  Balance/Portfolio evidence plus explicit broker-dashboard adoption; absence
+  never proves unsent and clean disposition still requires human re-arm. This
+  provider-specific rule amends ADR 0004's same-client-ID lookup assumption.
+  An ambiguous Cancel likewise retains the reservation and pending-cancel
+  uncertainty, blocks new exposure, and is never automatically reissued before
+  Orders/Transactions/Portfolio reconciliation and human disposition. A 2xx
+  message that cancellation is merely processing remains pending-cancel.
+- Qualify E\*TRADE in order: recorded offline contracts; sandbox OAuth,
+  transport, request shape, decoder, endpoint-isolation, and pagination field/
+  request/response shape checks only;
+  separately approved production read-only account/balance/portfolio/order/
+  transaction checks; separately approved preview-only checks; local shadow and
+  submission-boundary fault soak; then a separately approved directly
+  supervised minimum-size live canary. Each stage is non-promoting and live
+  remains disabled until every preceding implementation, evidence, security,
+  operational, and owner-approval gate passes.
 - The first offline Alpaca paper capability matrix, deterministic request
   translation, bounded client-order/account/asset response observations, and
   durable pre-decode raw receipt journal are implemented for the narrow v1
@@ -1387,9 +1435,12 @@ traceability, or reporting requirements below.
   automatic failover because the broker cannot enforce the fence; manual
   takeover uses lease expiry, an in-flight safety interval, prior-runtime stop
   confirmation where possible, and the reconciliation barrier.
-- Immutable submission attempts with payload hash and deterministic client order
-  ID. On ambiguous responses, enter `UNKNOWN`, perform bounded delayed lookup by
-  the same client ID, and never blindly resubmit. The offline result vocabulary,
+- Immutable submission attempts with payload hash and an authenticated provider-
+  constrained correlation mapping. On ambiguous responses, enter `UNKNOWN`,
+  use only that provider's qualified recovery path, and never blindly resubmit.
+  Historical Alpaca work performs bounded delayed lookup by the same client ID;
+  E\*TRADE cannot, so its Place attempt remains halted and manually reconciled.
+  The offline result vocabulary,
   durable raw delivery receipt, one authenticated exact-UNKNOWN historical
   lookup path, bounded durable local scheduling, and historical lookup
   normalization plus source-scoped inbox non-application accounting are
@@ -1458,6 +1509,13 @@ publication, canonical position state,
 UNKNOWN resolution, authoritative reconciliation result, or lifecycle
 application and satisfy none of the runtime/fault gates below.
 
+E\*TRADE sandbox results may satisfy only protocol-contract checks and cannot
+close any lifecycle, reconciliation, timing, paper-soak, fault, or economic
+item. E\*TRADE live eligibility additionally requires exact production account
+binding, raw-first read-only and preview-only evidence, the Preview/Place
+contract, conservative request budgets, manual ambiguous-Place recovery, and
+the complete promotion ladder above.
+
 - Paper lifecycle works for accepted, rejected, partial, filled, canceled,
   cancel-rejected, expired, late-fill, bust/correction, and provider-specific
   status events.
@@ -1465,7 +1523,9 @@ application and satisfy none of the runtime/fault gates below.
   authorized. Lease or database loss fails closed; forced/manual takeover is
   quarantined and reconciled before it may submit.
 - Killing the process at every submission boundary never creates an untracked
-  duplicate; delayed client-ID visibility and transient “not found” are safe.
+  duplicate. Historical delayed client-ID visibility and transient “not found”
+  cases are safe, while an E\*TRADE crash or ambiguous result after possible
+  Place remains `UNKNOWN`, halted, and never automatically resent.
 - Fill-during-cancel, stream/snapshot gaps, pagination, duplicate/out-of-order
   events, manual broker activity, and stale reconnect backlogs pass fault tests.
 - No reconciliation mismatch is silently tolerated to enable new exposure.
@@ -2135,11 +2195,37 @@ Separate anchor project `pgplscpqsvyraleyaphm` is Healthy on Supabase's Free
 plan with its Data API disabled. Its exact private
 `aqt-trusted-time-anchors-v1` bucket has retained owner-only dashboard
 verification of the 4,096-byte limit and `application/json` restriction. That
-is partial provisioning evidence only. Exact SQL catalog preflight and the
-complete `storage.objects` policy set, a dedicated Auth writer, the behavioral
-Storage proof, offline signing/Auth/authority artifacts, and first external
-enrollment all remain `UNRUN`. Until enrollment is separately approved and
-retained, there is no deployed authenticated external-head evidence.
+dashboard observation is partial provisioning evidence only. On 2026-08-04,
+approved provisioning SQL SHA-256
+`68be661f65b3f6b45d7732744790d8155aeb4aae75d6311d196d711e39321135`
+committed to the anchor project. Read-only postflight at
+`2026-08-04T05:35:35Z` proved the exact whole `storage.objects` catalog of six
+policies for the dedicated writer and restrictive guards, with no reader
+principal or reader policy. On 2026-08-05, the dedicated writer password was
+rotated and verified through a fresh Auth sign-in. The offline generator then
+exclusively created and runtime-decoder-validated the owner-only signing key,
+Auth secret, and nonsecret authority outside the repository. Its secret-free
+receipt-file SHA-256 is
+`c52cb3eccfefed713822fe797ac5f2f93c33565b60b41940faa93b2bb30bc264`,
+the authority SHA-256 is
+`9747c97be9cfabf51e524eef66120e8c7ec860be18e064416b17aa197eeb8f7c`,
+and the deployment-identity SHA-256 is
+`e1290de2b5b340dee07f327af42f18b6bba0ccba0ea003be37783abc7b4ae892`.
+The first behavioral Storage proof ran on 2026-08-05 with proof ID
+`0396c9fe-0a8f-4b17-8c71-faa8a8033bb0`. Authentication, one no-overwrite
+canonical insert, and authenticated listing succeeded, and the exact synthetic
+object remains retained. Authenticated canonical read then failed closed with
+`proof_canonical_object_changed`: the listed key returned the provider's
+outer-400/inner-404 `NoSuchKey` mask. Sanitized failure evidence has SHA-256
+`530a6ea5075ec787c16bdcbc1eb3a52e2900661e036e35ee24bb371c32f6d536` and
+records `UNKNOWN_REVIEW_REQUIRED`; no retry or enrollment followed. The v1
+SELECT policies omitted Storage operation `object.get_authenticated_info`,
+which the observed GET path requires in addition to
+`storage.object.get_authenticated`. Secure-launcher artifact admission and
+first external enrollment remain `UNRUN`, and `allow_enrollment` remains
+false. Until the behavioral proof is completed and enrollment is separately
+approved and retained, there is no deployed authenticated external-head
+evidence.
 Readiness, operational control, arming, exposure/new exposure,
 broker action, alert delivery, automatic re-arm/resume, paper trading, and live
 trading remain false. See
@@ -2148,7 +2234,33 @@ trading remain false. See
 The provisioning renderer now admits the whole `storage.objects` policy
 catalog, not merely policies with the Phase 6D prefix: preflight accepts an
 empty set or the complete exact expected set, and postflight rejects every
-unrelated or missing policy. Offline artifact generator
+unrelated or missing policy. Fresh installation creates final names directly;
+both fresh and existing modes create each equivalent audit policy in a
+rollback-only PL/pgSQL subtransaction, compare raw `pg_policy` trees, and catch
+a private rollback sentinel before raising any real definition drift outside
+that handler. A transaction-scoped relation lock excludes concurrent policy
+DDL. This preserves exact idempotent verification without owner-only policy
+rename or removal DDL. The current local v2 contract adds
+`object.get_authenticated_info` to both the permissive writer SELECT
+policy and restrictive SELECT guard. It also renders a fail-closed v1-to-v2
+operator: an exact-catalog rollback-only DROP-capability probe (SHA-256
+`73f7db8b16033848cbc9790310bd7a6d4e3c4537d6a694cac9fdf368d12eea18`)
+and an atomic two-policy upgrade (SHA-256
+`b35de9ae59438481a9f4e26bb9e18a6c3fd37eca2648f7f0ded3e6c87e0fee55`).
+The rollback-only probe passed under Supabase SQL Editor role `postgres` on
+2026-08-05 and reached its terminal rollback. Its owner-only evidence SHA-256
+is `706ddc3a7a9e9f656e42b037b7e92e0dd2acd90cdd68a97d2fa4ef653bd29e81`.
+The subsequent read-only postflight (SQL SHA-256
+`f9dff727a72661a3deafa84a7d711db73b4499427bb003b0687c58b8c96078ce`)
+proved the private bucket and complete six-policy v1 catalog byte-equivalent
+to the retained baseline while preserving the one failed-proof object. The
+atomic upgrade was then approved and committed under role `postgres`. Its
+owner-only applied evidence SHA-256 is
+`57a4ce0914d36b179adce7f40afda99bb7bd5d859a2a9f33cb2d40984bca62e3`.
+Locked read-only postflight proved only the two SELECT policies changed, both
+carry exact operation `object.get_authenticated_info`, the other four remain
+byte-equivalent to v1, the complete six-policy v2 catalog is exact, and the
+retained object plus disabled enrollment are unchanged. Offline artifact generator
 `scripts/generate_trusted_time_anchor_artifacts.py` exclusively creates the raw
 key, runtime Auth secret, and nonsecret authority outside the repository with
 `allow_enrollment=false` and enrollment `UNRUN`. Credential-safe proof operator
@@ -2156,8 +2268,10 @@ key, runtime Auth secret, and nonsecret authority outside the repository with
 a real separate private control bucket, retains one synthetic canonical object
 in a proof-only deployment/host prefix outside the runtime's exact prefix,
 strictly proves the allowed and denied Storage operations, has no cleanup mode,
-and leaves enrollment `UNRUN`. Neither operator has been run against the anchor
-project.
+and leaves enrollment `UNRUN`. The artifact generator was run successfully on
+2026-08-05. After an approved policy correction, the proof operator can resume
+the exact retained failure evidence and object without a second insert, then
+complete the remaining denial matrix.
 
 Phase 6E has a dormant, provider-neutral preparatory state contract,
 `phase6e-provider-neutral-trusted-head-watchdog-state-v1`. It treats raw signed
@@ -2176,9 +2290,12 @@ authority, but no consumer exists and every authority flag is false.
 This is pure dormant code, not a deployed watchdog. It adds no Supabase or
 provider adapter, runtime process/container, external failure domain, alert
 delivery, readiness/control/new-exposure/re-arm integration, deployment,
-drill, or Phase 6 exit evidence. The normative next steps are unchanged:
-complete and retain the remaining separate-project provisioning evidence, then
-separately approve and retain first-enrollment evidence. Only then may a sealed
+drill, or Phase 6 exit evidence. The rollback-only DROP-capability probe is now
+retained and passed, and the atomic v1-to-v2 policy upgrade is applied and
+postflight-verified. The normative next steps are: land the reviewed resume
+implementation, obtain fresh approval to resume the same behavioral proof
+object without another insert, complete secure-launcher admission, then separately
+approve and retain first-enrollment evidence. Only then may a sealed
 provider-terminal observer authenticate the complete new suffix, bind two
 stable namespace passes to their exact digest/count/terminal identity, prove
 that no higher sequence exists, and capture its own independent monotonic
@@ -2211,20 +2328,36 @@ unavailable before any watchdog consumer is designed or qualified. See
   and exact 0036-head/catalog image admission. The final composition passed 103
   focused tests and the actual Compose verifier. The separate Healthy Free-plan
   project and its Data-API-disabled, exact private primary bucket now have
-  retained dashboard evidence, but exact catalog/policy application, Auth
-  writer, real-control-bucket behavioral proof, signing/Auth/authority artifact
-  generation, and first enrollment remain `UNRUN`. Enrollment is still
+  retained dashboard evidence. On 2026-08-04, approved provisioning SQL SHA-256
+  `68be661f65b3f6b45d7732744790d8155aeb4aae75d6311d196d711e39321135`
+  committed; postflight proved the exact six-policy no-reader catalog and
+  dedicated writer. On 2026-08-05, the writer password was rotated and verified,
+  and the signing/Auth/authority artifacts were exclusively generated outside
+  the repository and runtime-decoder-validated. The first real-control-bucket
+  behavioral proof authenticated, inserted, and listed one retained synthetic
+  object, then failed closed at authenticated read because the deployed v1
+  SELECT contract omitted the Storage authenticated-info operation. Exact
+  rollback-only capability-probe passed and retained exact-catalog postflight;
+  the approved atomic v1-to-v2 upgrade is applied and postflight-verified.
+  Secure-launcher artifact admission and first
+  enrollment remain `UNRUN`. Enrollment is still
   hard-disabled, unapproved, and unperformed, so external-head deployment
-  evidence remains open. Next, complete and retain the remaining provisioning
-  proofs, then separately approve and retain enrollment evidence before adding an
-  independent watchdog, readiness, final new-exposure, alert, and exact-head
-  manual re-arm consumers. The local evidence composition is non-authorizing
-  and does not satisfy those deployment gates. ADR 0095 adds only the dormant
+  evidence remains open. Next, land the reviewed resume implementation, obtain
+  fresh approval to resume the same proof object without another insert, complete local
+  runtime admission, then
+  separately approve and retain enrollment evidence before adding an independent
+  watchdog, readiness, final new-exposure, alert, and exact-head manual re-arm
+  consumers. The local evidence composition is non-authorizing and does not
+  satisfy those deployment gates. ADR 0095 adds only the dormant
   pure candidate reducer in preparation for that later observer. It never
   reports current, stopped, or stale from raw caller inputs, does not reorder
   provisioning or enrollment, and supplies no sealed provider-terminal issuer,
   runtime, external failure domain, alert, consumer, deployment, drill, or exit
   evidence.
+- ADR 0096's E\*TRADE live-broker selection is orthogonal to this sequence. It
+  does not authorize reading local broker credentials, making a provider call,
+  or skipping the reviewed same-object resume, secure-launcher admission, first
+  enrollment, watchdog, readiness, alert, new-exposure, or re-arm gates.
 - Separate worker/trader roles, pools, quotas, and service identities; managed
   PostgreSQL, secret manager, object storage, restricted network, and immutable
   images/configuration.
@@ -2258,6 +2391,12 @@ unavailable before any watchdog consumer is designed or qualified. See
 
 ### Operate and measure
 
+- Keep two independent evidence lanes. Broker-neutral strategy and operational
+  soak evidence must come from a genuine stateful paper/simulated venue; the
+  existing Alpaca paper path may contribute only after its own Phase 4 gates
+  pass. E\*TRADE-specific readiness separately requires sandbox protocol
+  qualification, production read-only and preview-only qualification, and local
+  shadow/fault evidence. Neither lane substitutes for the other.
 - Run the exact signed candidate artifact/configuration during every intended
   session; strategy code remains frozen while execution defects are diagnosed.
 - Compare expected and observed batches, targets, reservations, orders, fills,
@@ -2267,11 +2406,17 @@ unavailable before any watchdog consumer is designed or qualified. See
   accepted/rejected/canceled/partial orders, reconnects, risk trips, and at least
   one controlled drill of each critical recovery path. If the strategy naturally
   does not generate an event, inject it in a drill rather than waiting forever.
+- Do not count E\*TRADE sandbox observations toward session, order, fill, reject,
+  reconnect, reconciliation, slippage, or execution-quality quotas; its stored
+  sample responses may not correspond to requests.
 - Continue across representative market conditions when practical; elapsed
   calendar time alone is insufficient.
 
 ### Operational promotion gate
 
+- Both evidence lanes are complete: broker-neutral soak/fault evidence and the
+  selected E\*TRADE production read-only/preview-only plus local shadow/fault
+  qualification. Sandbox success alone is never promotion evidence.
 - Zero unresolved order, fill, cash, position, ledger, or reconciliation
   discrepancies.
 - Every incident has a documented cause, corrective action, and regression test.
@@ -2293,6 +2438,12 @@ unavailable before any watchdog consumer is designed or qualified. See
 
 ### Preconditions
 
+- The canary venue is E\*TRADE production. Bind the exact numeric account ID and
+  opaque `accountIdKey`, deploy production credentials from a separate live-
+  scoped secret store, and pass the OAuth lifecycle, endpoint-isolation,
+  provider-ID, Preview/Place, production read-only/preview-only, request-budget,
+  reconciliation, and manual `UNKNOWN` recovery drills. Reported local `.env`
+  key presence is deliberately uninspected and is not admission evidence.
 - Confirm brokerage permissions, market-data licenses, tax implications, and
   legal/compliance obligations for the actual operating model.
 - Use the separate live environment, one strategy, the narrow allow-list, and
@@ -2302,11 +2453,18 @@ unavailable before any watchdog consumer is designed or qualified. See
 
 ### Rollout
 
-1. Live shadow mode: targets and risk decisions only.
-2. One-symbol, minimum-size canary with direct supervision.
-3. Fixed observation window and post-session reconciliation/report.
-4. Gradual universe/capital increases only after predeclared gates.
-5. Any unexplained divergence immediately halts new exposure; “rollback” means
+1. Reconfirm E\*TRADE production read-only and preview-only readiness without a
+   Place call.
+2. Live shadow mode: targets and risk decisions only.
+3. One-symbol, minimum-size Preview followed by immediate full revalidation and
+   one Place call under direct supervision.
+4. Reconcile paginated Orders and Transactions plus Balance/Portfolio evidence
+   and the independent broker dashboard within a fixed observation window.
+5. Gradual universe/capital increases only after predeclared gates.
+6. Any ambiguous Place becomes durable `UNKNOWN`, halts new exposure, is never
+   automatically retried/resubmitted, and requires manual disposition plus
+   human re-arm.
+7. Any unexplained divergence immediately halts new exposure; “rollback” means
    manage existing orders/positions safely, not blindly run an older binary.
 
 Live promotion is an operational decision, never a CI action.
@@ -2331,7 +2489,11 @@ Every change includes:
 2. Unit and property tests for domain, ledger, risk, and order reducers.
 3. Temporal leakage, batch/incremental differential, and semantic replay tests.
 4. PostgreSQL integration, migration compatibility, lease/fencing, and job tests.
-5. Broker/data recorded-contract tests plus optional sandbox tests.
+5. Broker/data recorded-contract tests plus optional sandbox tests. E\*TRADE
+   sandbox assertions are limited to OAuth/signing, endpoint isolation, request
+   shape, raw retention, pagination field/request/response shape, and decoding;
+   they never assert pagination traversal semantics, stateful lifecycle,
+   economics, reconciliation convergence, or live readiness.
 6. End-to-end tape -> target -> reservation -> attempt -> fill -> ledger replay.
 7. Web lint, typecheck, generated-contract drift, component tests, and production
    build from Phase 0 onward; Playwright desktop-browser workflows as routes land.
@@ -2361,11 +2523,15 @@ Every change includes:
     observation profile. ADR 0040 adds exact pre-decode raw receipt durability,
     but not provider-fact identity, authenticated provider fixtures, or runtime
     transport.**
-13. Account lease/fence and submission attempts are **implemented by ADR 0032**;
+13. Additive E\*TRADE contract, OAuth/session and account binding, raw-first
+    reads, provider-ID mapping, Preview/Place durability, provider-specific
+    `UNKNOWN` recovery, and the ADR 0096 qualification ladder. **Architecture
+    is selected; implementation and all provider calls remain pending.**
+14. Account lease/fence and submission attempts are **implemented by ADR 0032**;
     normalized broker inbox/application and the real reconciliation barrier
     remain Phase 4 work.
-14. Fault tests before enabling the first paper submission.
-15. Advanced breakers, alerts, operations UI, deployment, backups, and
+15. Fault tests before enabling the first paper submission.
+16. Advanced breakers, alerts, operations UI, deployment, backups, and
     runbooks. **Local risk/control, supervised-strategy, provider-neutral alert,
     tracing, authenticated operations, read-only dashboard, and control-runbook
     slices and atomic admission verification are locally implemented; approved
@@ -2382,7 +2548,7 @@ Every change includes:
 | Direction/quantity | Long-only, whole shares | Avoids short borrow/locate and fractional-order differences |
 | Orders | DAY market orders, next-event simulation | Smallest causally defensible execution slice |
 | Active strategies | One per brokerage account | Defers netting, virtual sleeves, internal crosses, and fill allocation |
-| Broker | Alpaca paper | Paper-first API; capability contract preserves future portability |
+| Broker | E\*TRADE production live target; Alpaca paper historical qualification lane | E\*TRADE sandbox is protocol-only and every live stage remains separately gated; existing Alpaca evidence stays provider-specific and non-authorizing |
 | Data | Daily-first: immutable Sharadar research capture plus Tiingo synthetic qualification, one bounded actual Tiingo capture verified and passed through the exact-retained field-contract boundary, and offline local-lineage, identity/lifecycle, and market-semantics/action-candidate contract mechanics implemented; no production identity/lifecycle or semantics/action artifact or real repeat evidence exists, and genuine raw semantics, `HistoricalBarSource`, and admission remain blocked; Massive intraday deferred | Adjustment basis, publication/vintage timing, venue/identity authorities, historical revisions/universes, licensed storage/use, and live quote scope drive validity |
 | Account model | Explicit cash or margin policy | Determines settlement, buying power, ledger, and risk semantics |
 | Hosting | One region, managed PostgreSQL, object storage | Reliable non-HFT footprint with separable operational/research I/O |

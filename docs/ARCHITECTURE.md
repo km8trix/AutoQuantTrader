@@ -24,7 +24,11 @@ AutoQuantTrader will let a single operator:
 - Operator model: one user and one brokerage account, with at most one active
   trade-enabled deployment. Multiple strategies may be researched and
   backtested; shared-account netting and virtual strategy sleeves are post-v1.
-- Broker: Alpaca paper trading first, behind a broker-neutral adapter.
+- Broker: E\*TRADE production is the intended live execution venue behind
+  broker-neutral ports. E\*TRADE sandbox is limited to OAuth, transport,
+  request-shape, endpoint-isolation, and decoder qualification; it is not
+  paper-trading or economic evidence. Existing Alpaca Phase 4 artifacts remain
+  historical, provider-bound, and non-authorizing.
 - Interfaces: Python strategy SDK, CLI for automation, and a desktop-oriented
   browser workspace for research, control, and observation.
 - Deployment: Docker Compose locally; one small cloud environment when paper
@@ -41,7 +45,10 @@ opaque pre-reveal holdout commitments, configuration-bound target-evaluation
 receipts, and read-only inspection. General segment workers and process
 isolation, queryable replay transcripts, performance evaluation, captured-tape,
 shadow, and broader research-UI work are not complete. The repository does not
-implement the target paper/live topology below. Phase 4A supplies an offline,
+implement the target paper/live topology below. ADR 0096 selects E\*TRADE
+production as the future live venue but adds no E\*TRADE runtime or authority;
+the Phase 4 chronology that follows describes immutable historical Alpaca paper
+evidence, not a live-adapter recommendation. Phase 4A supplies an offline,
 non-authorizing Alpaca paper capability contract and deterministic request
 translation for the narrow v1 subset. Phase 4B adds bounded offline decoding of
 a versioned local wire profile for synthetic client-order lookup responses,
@@ -140,8 +147,10 @@ source-authenticated comparisons, migration 0033 comparison history, and
 one-effect restart-safe supervision. No deployed resolver, general security
 master, stream, reconciliation, order effect, or dispatch authority exists.
 The trader remains `not_ready`, Phase 4's exit gate
-is open, and no network-capable broker or production market-data adapter is
-enabled. Phase 3's external gates remain open as well. Phase 5A now provides a
+is open, and no network-capable order transport or production market-data
+adapter is enabled. No E\*TRADE OAuth session manager, account binding,
+Preview/Place workflow, production reconciliation adapter, or live authority
+exists. Phase 3's external gates remain open as well. Phase 5A now provides a
 local durable operational-control contract and persistence spine. It freezes
 the five-state severity order, actor-bound exact retries, fail-closed absence,
 breaker trips, explicit drain/flatten results, and proof-bound manual re-arm
@@ -180,7 +189,9 @@ historically enrolled Alpaca paper account, the pinned no-exposure artifact,
 and Sentry diagnostic configuration. ADR 0089 authenticates that account's
 complete durable source lineage and exact terminal identity from four
 nonsecret pins in one repeatable-read snapshot, while treating the expired
-status window as historical only. Hosted or unattended compute, PagerDuty,
+status window as historical only. That historical preflight does not select
+Alpaca for live execution and supplies no E\*TRADE qualification. Hosted or
+unattended compute, PagerDuty,
 Twilio, paid Supabase capacity, and an external stale-heartbeat watchdog are
 deferred. The profile keeps the operations API/browser nonpublic, configures a
 non-authorizing `PAUSED` policy, rejects live credentials and automatic re-arm,
@@ -201,7 +212,8 @@ owner-only database/test/Sentry bindings, all-or-none nonsecret account pins,
 exact migrated schema, inspected image ID, artifact pins, exact historical
 terminal enrollment, and aggregate absence of `RUNNING` control heads. It
 neither executes a credential-bound image nor requests, returns, resolves, or
-uses Alpaca API credential variables, refreshes account status, or
+uses Alpaca API credentials or any E\*TRADE credential, OAuth-token, or verifier
+material, refreshes account status, or
 authenticates any account-specific control head. The shared dotenv parser does
 parse the owner-only file before filtering selected variables, so the preflight
 process remains inside that file's credential boundary. Local supervision and
@@ -257,9 +269,11 @@ asset class is a better foundation than shallow support for many markets.
    runnable processes. Split a boundary into a service only when scaling or
    failure isolation is demonstrated to require it.
 8. **Effect-idempotence, not exactly-once claims.** A database transaction and a
-   broker HTTP call cannot commit atomically. Durable attempts, deterministic
-   client IDs, broker lookup, deduplication, and reconciliation make retries
-   safe; unresolved submissions fail closed.
+   broker HTTP call cannot commit atomically. Durable attempts, provider-
+   constrained correlation IDs, raw-first response retention, provider-specific
+   recovery, deduplication, and reconciliation contain uncertainty. They do not
+   make automatic resubmission safe; unresolved effects fail closed as
+   `UNKNOWN`.
 9. **One writer per account.** An account-scoped lease with a monotonically
    increasing fencing generation is revalidated before every broker side effect.
    Losing ownership or database connectivity blocks new submissions. Because a
@@ -285,7 +299,7 @@ asset class is a better foundation than shallow support for many markets.
 | Observability | OpenTelemetry with Sentry for the paper diagnostic profile; structured JSON logs; Prometheus/Grafana deferred | Correlated diagnostics with a selected paper backend while PostgreSQL remains authoritative |
 | Packaging | `uv`, Ruff, mypy/pyright, pytest | Fast deterministic environments and strict automated checks |
 | Deployment | Docker Compose, then managed PostgreSQL and containers | Local parity with a modest production footprint |
-| Secrets | `.env` only for local development; cloud secret manager elsewhere | Keeps credentials out of code, images, logs, and database rows |
+| Secrets | `.env` only for non-live local development/sandbox; approved live-scoped secret manager for production on local or hosted compute | Keeps production credentials out of developer files, code, images, logs, and application database rows |
 
 PostgreSQL is the transactional source of truth for operational state and
 metadata, not the historical research lake. DuckDB/Polars scan immutable
@@ -459,10 +473,14 @@ class BrokerControlPort(Protocol):
     async def cancel(self, broker_order_id: str) -> None: ...
 
 class BrokerRecoveryPort(Protocol):
-    async def find_by_client_id(self, client_order_id: str) -> BrokerOrder | None: ...
     async def open_orders(self, cursor: str | None) -> BrokerOrderPage: ...
     async def account_snapshot(self) -> BrokerAccountSnapshot: ...
     async def fills_since(self, cursor: str | None) -> BrokerFillPage: ...
+
+class BrokerClientOrderLookupPort(Protocol):
+    async def find_by_client_id(self, client_order_id: str) -> BrokerOrder | None: ...
+
+class BrokerUpdateStreamPort(Protocol):
     async def updates(self) -> AsyncIterator[BrokerEvent]: ...
 
 class RiskRule(Protocol):
@@ -472,9 +490,12 @@ class RiskRule(Protocol):
 ```
 
 `BrokerPort` is the narrow authorized-submission capability implemented by the
-pure simulator. Future paper/live adapters compose it with the asynchronous
-control, recovery, reconciliation, and update-stream capabilities instead of
-granting every caller one broad broker authority object.
+pure simulator. Future paper/live adapters compose it with only their qualified
+asynchronous control, recovery, client-order lookup, reconciliation, and
+update-stream capabilities instead of granting every caller one broad broker
+authority object. Client-order lookup and streaming are optional capabilities;
+an E\*TRADE adapter must not simulate either before its provider contract is
+qualified.
 
 `MarketBatch` is a replay-proof-constructed decision slice for an `as_of`
 timestamp; callers cannot manufacture a strategy-eligible complete batch. It
@@ -577,22 +598,34 @@ immutable account/price snapshot and atomically creates cash/notional/exposure
 reservations. Reservations cover approved-unsent, `UNKNOWN`, working, partially
 filled, and pending-cancel orders; they have an expiry and are single-use.
 
-The fencing generation is embedded in attempts/client IDs for detection and
-audit, but the broker cannot reject a stale generation. Therefore v1 never
-performs automatic coordinator failover. A manual takeover quarantines the
-account for longer than the maximum in-flight request window, confirms the prior
-runtime is stopped where possible, then runs the full reconciliation barrier.
+The fencing generation is embedded in attempts and provider correlation
+mappings for detection and audit, but the broker cannot reject a stale
+generation. Therefore v1 never performs automatic coordinator failover. A
+manual takeover quarantines the account for longer than the maximum in-flight
+request window, confirms the prior runtime is stopped where possible, then runs
+the full reconciliation barrier. The canonical internal order ID is never
+shortened to satisfy a provider. Each adapter derives a separate, immutable,
+account-scoped provider ID under its own syntax, length, uniqueness, and
+observability rules. E\*TRADE's mapping is at most twenty alphanumeric
+characters and cannot be treated as a response or lookup key.
 
-The broker submission protocol is deliberately effect-idempotent:
+The broker submission protocol is deliberately effect-idempotent and exposes
+provider-specific steps. For E\*TRADE it is:
 
-1. atomically persist the order, payload hash, risk reservation, fencing
-   generation, deterministic client order ID, and pending attempt;
-2. recheck ownership, approval TTL, price freshness, and kill state;
-3. mark the immutable attempt in flight and call the broker once;
-4. on timeout/ambiguous response, enter `UNKNOWN` and query by client order ID;
-5. reconcile stream events and paginated REST snapshots through an inbox keyed
-   by provider event/execution ID;
-6. never create a replacement submission while `UNKNOWN` remains unresolved.
+1. atomically persist the internal order, provider correlation mapping, exact
+   payload hash, risk reservation, fencing generation, and pending attempt;
+2. recheck ownership, approval TTL, session, quote freshness/collar, trusted
+   time, OAuth session, and kill state;
+3. invoke Preview once and durably retain the raw request/response, exact
+   normalized-order digest, preview ID, and expiry before typed decoding;
+4. use a local TTL shorter than the provider's three-minute preview lifetime,
+   recheck every gate, and prove the Place parameters match the preview;
+5. mark the immutable attempt in flight and invoke Place once;
+6. on timeout or ambiguous completion, enter durable `UNKNOWN`, halt new account
+   exposure, and never retry or resubmit automatically;
+7. reconcile paginated Orders and Transactions plus Balance/Portfolio evidence
+   through the raw-first inbox and independent broker dashboard; absence never
+   proves that Place was unsent, and disposition plus re-arm require a human.
 
 The current Phase 2 SQL boundary implements durable preparation, transaction-
 time fence checks before preparation and `IN_FLIGHT`, a dispatch event carrying
@@ -602,17 +635,24 @@ replacement prohibition for deterministic simulation. A real broker inbox,
 bounded provider lookup, external reconciliation service, automatic or manual
 takeover barrier, and operator re-arm remain Phase 4 work.
 
-A transient “not found” is not enough to resubmit: the adapter applies a bounded
-lookup/reconciliation policy because broker read paths can lag write paths. A
-broker adapter is not eligible for live use unless deterministic lookup and
-recovery semantics are contract-tested.
+A transient “not found” or an empty page is not enough to resubmit: each adapter
+applies a bounded provider-specific recovery policy because broker read paths
+can lag write paths. A broker adapter is not eligible for live use unless its
+uncertainty and recovery semantics are contract-tested. Alpaca's historical
+path can look up the deterministic client ID; E\*TRADE does not return its
+client-order ID in order responses and exposes no client-ID list filter, so its
+ambiguous Place policy remains `UNKNOWN` with no automatic resubmission and
+manual reconciliation.
 
 Each adapter also publishes a capability matrix: order types, time-in-force,
-sessions, fractionality, tick/lot rules, client-ID constraints, lifecycle
-mappings, pagination/cursors, stream-resume behavior, and request budgets.
-Unsupported combinations are rejected locally before risk approval.
+sessions, fractionality, tick/lot rules, client-ID syntax/uniqueness/
+observability, Preview/Place coupling and TTL, lifecycle mappings, OAuth/token
+lifetime, closed business-message/disclosure classification, order/transaction
+pagination, separately qualified polling and streaming, and documented versus
+locally qualified request budgets. Unsupported combinations are rejected
+locally before risk approval.
 
-### Current Phase 4A-4AI Alpaca paper contracts
+### Historical Phase 4A-4AI Alpaca paper contracts
 
 The first Phase 4 slice freezes a reviewed Alpaca paper capability contract
 without granting any broker capability. It records the paper base URL and order
@@ -621,6 +661,9 @@ breadth, client-order-ID limit, order and account-activity pagination metadata,
 the documented request ceiling, and explicit readiness flags. Those metadata
 were reviewed on 2026-07-26 and are bound by a semantic digest; they cannot
 silently expand the enabled trading surface.
+
+These immutable provider-specific facts remain useful historical evidence, but
+must not be renamed, promoted, or reinterpreted as E\*TRADE qualification.
 
 The translation shape uses the candidate DIA, IWM, QQQ, and SPY
 instrument/symbol mapping, U.S. equities, whole shares, a simple market order,
@@ -1429,24 +1472,120 @@ economic-evaluation, and reporting gates are independently still open. See ADRs
 [0076](adr/0076-durable-authenticated-account-activity-traversals.md), and
 [0083](adr/0083-durable-authenticated-account-activity-comparisons.md).
 
+### E\*TRADE live-broker target and sandbox boundary
+
+[ADR 0096](adr/0096-etrade-live-broker-and-sandbox-qualification.md)
+selects provider ID `etrade` and E\*TRADE production as the intended live venue.
+The selection is additive and non-authorizing. No existing Alpaca contract,
+table, migration, fixture, digest, or observation becomes E\*TRADE evidence, and
+no current component can preview or place an E\*TRADE order.
+
+The production data/order API root is fixed to `https://api.etrade.com/v1`; the
+sandbox root is fixed to `https://apisb.etrade.com/v1`. The two environments
+have disjoint secret references, account bindings, request budgets, persistence
+scopes, audit identities, and UI banners. The sandbox returns stored sample
+data that may not correspond to a request, so it may qualify OAuth, signing,
+TLS/transport, endpoint isolation, request encoding, raw retention, pagination
+field/request/response shape, and strict decoding only. It cannot qualify
+pagination traversal ordering, completeness, termination, or convergence;
+stateful order behavior, fills, economics, visibility latency, production
+reconciliation, or a paper soak.
+
+OAuth 1.0a/HMAC-SHA1 is a supervised session state machine, not ambient
+configuration. Nonces and trusted timestamps are generated at the final
+transport boundary. Request/access token acquisition, authorization, renewal,
+inactivity, daily expiry, revocation, and interactive reauthorization are
+explicit fail-closed transitions. Secret values, verifier material,
+signatures, and authorization headers are neither persisted nor logged. A
+local account alias binds both the authenticated numeric account ID and opaque
+`accountIdKey`; display labels and account-list ordering are not identity.
+Both credential scopes use the shared, exact-allowlisted token origin beneath
+`https://api.etrade.com/oauth/` and interactive authorization page
+`https://us.etrade.com/e/t/etws/authorize`; sandbox tokens remain sandbox-
+scoped. Authorization URLs are secret-bearing and never logged or retained.
+Only the exact authorization page and an exact pre-registered callback
+origin/path, or the out-of-band verifier flow, may redirect; dynamic callbacks,
+open redirects, and verifier replay fail closed.
+
+The canonical order ID remains provider-neutral. A separate durable E\*TRADE
+client-order-ID mapping is deterministic, account-scoped, collision-checked,
+strictly alphanumeric, and at most twenty characters. The provider does not
+return that value in order responses or expose it as an order-list filter, so
+the mapping prevents local duplication and supports audit but cannot resolve an
+ambiguous Place.
+
+One E\*TRADE submission attempt consists of a raw-first Preview followed by at
+most one Place. Preview persistence binds the exact request digest, returned
+preview ID, provider messages/charges, and a local validity horizon shorter than
+the provider's three-minute limit. Immediately before Place, the runtime must
+reauthenticate the preview/request match, account identity, coordinator fence,
+risk reservation, operational state, exchange session, quote/collar, trusted
+time, OAuth session, and protected Place capacity. Any change or expiry forces
+a new attempt and preview; it cannot mutate or reuse prior evidence.
+
+HTTP status is transport evidence, never business success. A closed, versioned
+message/disclosure classifier must admit every Preview, Place, and Cancel code
+and type. Unknown, contradictory, restriction, review, timeout, unable-to-
+process, or confirmation-required Preview messages block Place; v1 never
+acknowledges a warning implicitly. Place acceptance additionally requires the
+expected account binding, exact preview/request match, and provider order-
+confirmation identity. An unrecognized Place HTTP 2xx is ambiguous, not
+accepted. A Cancel success response that says only that processing has begun
+remains pending-cancel until a separately observed terminal state.
+
+An ambiguous Place is permanently `UNKNOWN` until a human disposition. It
+freezes reservations, sets control to `HALTED`, and
+forbids automatic retry, resubmission, or replacement. Recovery collects
+bounded paginated Orders and Transactions plus Balance/Portfolio evidence and
+uses the independent broker dashboard. A potential match is retained as a
+candidate rather than automatically adopted, and absence never proves the
+request was unsent. Clean reconciliation and explicit human re-arm are both
+required before new exposure.
+
+An ambiguous Cancel retains the order and reservation in a pending-cancel
+uncertainty state, blocks new exposure, and is not automatically reissued.
+Orders/Transactions/Portfolio evidence and late fills must be reconciled before
+a human disposition. The independent dashboard remains the emergency control
+channel. Unknown or contradictory Cancel message codes fail closed.
+
+The first E\*TRADE runtime uses conservative bounded REST polling with protected
+capacity for cancellation, token control, and reconciliation. It inherits no
+Alpaca rate ceiling. Comet streaming remains disabled until a separate contract
+qualifies authentication, ordering, duplication, gaps, replay/resume, raw
+retention, and snapshot overlap. Order cumulative values are observations, not
+canonical fills; transaction identities/details require separate qualification
+for executions, corrections, and fees.
+
+Promotion proceeds only through recorded offline contracts, sandbox protocol
+qualification, separately approved production read-only Accounts/Balance/
+Portfolio/Orders/Transactions checks, production preview-only qualification,
+local shadow and fault soak without Place, and a separately approved directly
+supervised minimum-size live canary. Production key presence in a local file is
+uninspected configuration intent, not admission evidence; live credentials must
+move to a deployed live-scoped secret store before activation.
+
 ### Reconciliation barrier
 
-Startup and reconnect recovery use a race-aware barrier:
+Startup and reconnect recovery use a race-aware barrier. Streaming is used only
+when that provider's stream contract is independently qualified; the initial
+E\*TRADE path is bounded overlapping REST polling:
 
-1. enter `RECONCILING`, block new exposure, and connect while buffering broker
-   events;
-2. fetch paginated account, position, open/recent order, fill, and non-trade
-   activity snapshots with an overlap window;
-3. apply snapshots and buffered events through the same idempotent inbox/reducers;
+1. enter `RECONCILING`, block new exposure, and buffer broker events only when a
+   qualified stream exists;
+2. fetch paginated account/balance, portfolio, open/recent order, transaction,
+   fill, and non-trade activity views with an overlap window;
+3. apply raw-first pages and any qualified buffered events through the same
+   idempotent inbox/reducers;
 4. repeat from the last cursor until two economically equivalent views converge;
 5. classify any manual/foreign activity under the v1 exclusive-account policy;
 6. become `RUNNING` only when ledger/account projections agree and all unknown
    submissions are resolved.
 
 Expected provider lag is time-bounded and never permits new exposure while an
-economically relevant difference exists. Unresolved submission uncertainty
-halts new account exposure, while cancel and authenticated reduce-only recovery
-remain available.
+economically relevant difference exists. A single empty page never proves
+convergence or that an ambiguous effect was unsent. Unresolved submission
+uncertainty halts new account exposure, while cancel and authenticated
+reduce-only recovery remain available.
 
 ## 9. Persistence model
 
@@ -2880,15 +3019,21 @@ See [ADR 0073](adr/0073-authenticated-local-operations-api.md).
 
 ## 13. Security and operational controls
 
-- Separate paper and live broker credentials, accounts, databases/schemas, and
-  visual environment banners.
+- Keep historical paper, E\*TRADE sandbox, and E\*TRADE production credentials,
+  accounts, databases/schemas, service identities, request budgets, and visual
+  environment banners disjoint. An endpoint/credential/account mismatch fails
+  closed.
 - Use a separate live deployment project, service identity, secret scope, and
   preferably database instance. Promote signed immutable artifacts/configuration,
   never mutable paper database state.
 - No live secrets in developer `.env` files, CI logs, browser storage, or images.
+  Locally reported E\*TRADE key presence is uninspected configuration intent, not
+  readiness evidence; migrate production material to the live-scoped secret
+  store before any production activation.
 - Least-privilege service identities; operator actions require authentication.
 - Encrypt traffic and managed storage; redact credentials and account secrets
-  from structured logs.
+  from structured logs, including OAuth request/access tokens, token secrets,
+  verifier material, signatures, authorization headers, and account identifiers.
 - Dependency scanning, locked dependencies, protected branches, and signed or
   digest-addressed deployment images.
 - Database backups and tested point-in-time recovery before live trading.
@@ -2900,9 +3045,12 @@ See [ADR 0073](adr/0073-authenticated-local-operations-api.md).
 - Operational runbooks for startup, shutdown, broker outage, data outage,
   unknown order state, partial fill, position mismatch, and kill switch.
 
-Before paper execution, set measured budgets for per-symbol data age, market-
+Before any broker execution, set measured budgets for per-symbol data age, market-
 batch completion, strategy deadline, approval TTL, clock drift, submission
 latency, unknown-order duration, reconciliation duration, and alert delivery.
+E\*TRADE sandbox protocol calls, production read-only/preview calls, and future
+Place/Cancel/reconciliation calls use distinct budgets; no Alpaca ceiling is
+carried forward.
 Use monotonic time for local deadlines. Performance tests establish a reference
 universe/backtest throughput and fail CI on a material regression; optimization
 is profile-driven rather than achieved by adding services. The versioned initial
@@ -3074,7 +3222,11 @@ private bucket is `aqt-trusted-time-anchors-v1`. The raw 32-byte Ed25519 private
 key remains outside Supabase; the admitted nonsecret authority binds its exact
 public key, the source/host/runtime/anchor identities, the least-privilege Auth
 principal, and the bucket. Writer policies admit exact-namespace list, read,
-and insert while denying normal update, overwrite, and delete. Supabase project
+and insert while denying normal update, overwrite, and delete. Authenticated
+object download is operation-aware and requires both
+`storage.object.get_authenticated` and
+`object.get_authenticated_info`; list and upload RETURNING use their
+own admitted operations. Supabase project
 administrators remain outside those writer constraints, so this is neither
 WORM storage nor an independent provider or administrative trust domain.
 
@@ -3083,7 +3235,20 @@ The deterministic provisioning renderer treats every policy on
 completely absent policy set or the complete exact expected set; postflight
 requires the entire set to equal the expected `aqt_tt_anchor_v1_*` policies.
 An unrelated policy, including one that could admit another bucket or
-principal, is drift rather than an ignorable provider-side object.
+principal, is drift rather than an ignorable provider-side object. Fresh mode
+creates the final names directly, while existing mode leaves them untouched.
+Both modes create each equivalent audit policy in a rollback-only PL/pgSQL
+subtransaction, compare raw `pg_policy` parse trees, deliberately abort and
+catch a private sentinel to remove only that audit policy, and then run the
+whole-catalog postflight. A transaction-scoped relation lock prevents
+non-cooperating policy DDL from racing verification. The renderer therefore
+needs no owner-only policy rename or removal DDL on the provider-managed table.
+The deployed v1 catalog omitted `object.get_authenticated_info` from
+both the permissive writer SELECT policy and restrictive SELECT guard. The
+local v2 renderer corrects that pair and emits separately reviewable SQL for
+an exact-catalog rollback-only DROP-capability probe and an atomic replacement
+of only those two policies in the no-reader deployment. Neither artifact is
+executed by generation.
 
 Offline operator
 [`generate_trusted_time_anchor_artifacts.py`](../scripts/generate_trusted_time_anchor_artifacts.py)
@@ -3102,6 +3267,11 @@ outside the admitted runtime prefix, and strictly verifies
 list/read plus denials for overwrite, upsert, update, delete, noncanonical
 namespace, the real control bucket, anonymous insertion/list/read, and the
 public route. It deliberately has no cleanup mode and keeps enrollment `UNRUN`.
+If the first attempt retained a canonical object before failing at authenticated
+read, a separate resume contract accepts only the exact canonical owner-only
+failure evidence, proof ID, object name, and payload digest; it authenticates
+and reads that same object without another insert before continuing the denial
+matrix.
 
 The background worker uses an absolute 300-second checkpoint grid and marks
 anchor evidence stale at 360 seconds or greater. It runs separately from the
@@ -3170,9 +3340,49 @@ Separate anchor project `pgplscpqsvyraleyaphm` is now Healthy on the Supabase
 Free plan with its Data API disabled. Retained owner-only dashboard evidence
 records the exact private `aqt-trusted-time-anchors-v1` bucket with a 4,096-byte
 limit and only `application/json`. That is partial provisioning evidence, not
-the exact SQL catalog preflight or policy proof. Those checks and policies, the
-dedicated Auth writer, real-control-bucket behavioral proof, offline signing/
-Auth/authority artifacts, and first external enrollment all remain `UNRUN`.
+the exact SQL catalog preflight or policy proof. On 2026-08-04, approved
+provisioning SQL SHA-256
+`68be661f65b3f6b45d7732744790d8155aeb4aae75d6311d196d711e39321135`
+committed to the anchor project. Read-only postflight at
+`2026-08-04T05:35:35Z` proved the exact whole catalog of six policies for the
+dedicated writer and restrictive guards, with no reader principal or policy.
+On 2026-08-05, the dedicated writer password was rotated and verified by a
+fresh Auth sign-in. The offline generator then exclusively created the
+owner-only signing key, Auth secret, and nonsecret authority outside the
+repository, and the runtime decoders accepted their exact identity and key
+binding. The secret-free receipt-file SHA-256 is
+`c52cb3eccfefed713822fe797ac5f2f93c33565b60b41940faa93b2bb30bc264`;
+the authority and deployment-identity SHA-256 values are respectively
+`9747c97be9cfabf51e524eef66120e8c7ec860be18e064416b17aa197eeb8f7c`
+and
+`e1290de2b5b340dee07f327af42f18b6bba0ccba0ea003be37783abc7b4ae892`.
+Behavioral proof `0396c9fe-0a8f-4b17-8c71-faa8a8033bb0` is failed and
+incomplete, not `UNRUN`. Exact writer authentication, one no-overwrite insert,
+and authenticated listing succeeded, so the synthetic object remains; the
+authenticated read returned a masked `NoSuchKey`. The canonical owner-only
+failure evidence has SHA-256
+`530a6ea5075ec787c16bdcbc1eb3a52e2900661e036e35ee24bb371c32f6d536`.
+The rollback-only v1 capability probe (SHA-256
+`73f7db8b16033848cbc9790310bd7a6d4e3c4537d6a694cac9fdf368d12eea18`)
+passed and reached its terminal rollback under role `postgres` on 2026-08-05.
+Owner-only probe evidence SHA-256 is
+`706ddc3a7a9e9f656e42b037b7e92e0dd2acd90cdd68a97d2fa4ef653bd29e81`;
+the read-only postflight SQL SHA-256 is
+`f9dff727a72661a3deafa84a7d711db73b4499427bb003b0687c58b8c96078ce`,
+and its complete bucket and six-policy catalogs exactly equal the retained v1
+baseline. The atomic v1-to-v2 read-policy upgrade (SHA-256
+`b35de9ae59438481a9f4e26bb9e18a6c3fd37eca2648f7f0ded3e6c87e0fee55`)
+was approved, committed, and postflight-verified under role `postgres` on
+2026-08-05. Owner-only applied evidence SHA-256 is
+`57a4ce0914d36b179adce7f40afda99bb7bd5d859a2a9f33cb2d40984bca62e3`;
+the retained full v2 catalog SHA-256 is
+`18a597f6475eba9b78089e9c917087eaa7c964441d0bc22f44f9369b40079fd9`.
+Only the two SELECT policies differ from v1, both contain the exact unprefixed
+authenticated-info operation, and the other four policies remain byte-equivalent.
+Exact object bytes have not yet
+passed authenticated GET, and the denial matrix is incomplete. Secure-launcher
+artifact admission and first external enrollment remain `UNRUN`, with
+`allow_enrollment=false`.
 Therefore the deployed topology still has no
 authenticated external-head evidence or independent supervisor watchdog:
 after supervisor death, local evidence stops and a later evaluation is the
@@ -3206,9 +3416,11 @@ flags remain false, and no consumer exists.
 This state contract is intentionally not composed into the topology. It has no
 Supabase/provider adapter, runtime process or container, independent external
 failure domain, alert route, readiness/control/new-exposure/re-arm consumer,
-deployment, drill, or Phase 6 exit evidence. Completion and retained review of
-the separate project's remaining provisioning, followed by separately approved
-and retained first enrollment, normatively precede a sealed provider-terminal
+deployment, drill, or Phase 6 exit evidence. The retained passing rollback
+probe and applied atomic read-policy upgrade, followed by a separately approved
+same-object proof resume,
+and retained local admission, followed by separately approved and retained
+first enrollment, normatively precede a sealed provider-terminal
 observer. That
 future issuer must authenticate the complete new suffix, bind two stable
 namespace passes to their exact digest, count, and terminal identity, prove no
@@ -3574,17 +3786,25 @@ docs/
   numerical tolerances; run IDs and wall-clock telemetry are excluded.
 - **Differential:** batch and incremental features and target decisions agree on
   the same tape.
-- **Contract:** recorded broker/vendor fixtures and sandbox API tests.
+- **Contract:** recorded broker/vendor fixtures and sandbox API tests. E\*TRADE
+  sandbox tests prove only OAuth/signing, endpoint isolation, request encoding,
+  raw-response retention, pagination field/request/response shape, and decoder
+  behavior; stored sample data cannot prove pagination traversal semantics,
+  stateful lifecycle, or economics.
 - **Integration:** PostgreSQL migrations, transactional outbox, job leases, and
   restart recovery; import-boundary rules prevent architectural dependency drift.
 - **End-to-end:** data -> signal -> risk -> order -> fill -> position -> report.
 - **Fault injection:** disconnects, duplicate/out-of-order events, timeouts,
-  process death after submission, two coordinators/split brain, delayed client-ID
-  visibility, fill-during-cancel, stream/snapshot gaps, simultaneous buying-power
-  reservations, manual broker orders, database outage, stale intent/backlog, and
-  clock drift.
-- **Shadow/canary:** compute signals without orders, then minimum-size paper and
-  live deployments with automatic rollback/halt criteria.
+  process death after Preview or Place, two coordinators/split brain, delayed or
+  unavailable client-ID lookup, ambiguous Place without resubmission,
+  fill-during-cancel, polling/stream gaps, simultaneous buying-power
+  reservations, manual broker orders, OAuth expiry/renewal, database outage,
+  stale intent/backlog, and clock drift.
+- **Shadow/canary:** compute signals without orders, then progress through a
+  genuine broker-neutral paper soak, E\*TRADE production read-only and preview-
+  only qualification, local shadow/fault soak, and a separately approved
+  minimum-size live canary with halt criteria. E\*TRADE sandbox cannot satisfy
+  paper-soak, slippage, rejection-rate, fill, or economic gates.
 
 ### Current Phase 2 exit evidence
 
@@ -3638,18 +3858,39 @@ Create short ADRs as implementation begins:
 
 ## 19. External constraints and references
 
-- Alpaca exposes separate paper endpoints and streaming trade/order updates, so
-  the first adapter should treat streaming updates and REST reconciliation as
-  complementary rather than relying on either alone:
+- E\*TRADE documents OAuth 1.0a, distinct sandbox/production environments,
+  token lifecycle, and the sandbox's stored-data limitations. These define the
+  environment and session boundary, not live readiness:
+  <https://developer.etrade.com/getting-started/developer-guides>.
+- E\*TRADE's Order API requires Preview before Place, constrains client order IDs
+  to twenty alphanumeric characters, does not return them in API responses, and
+  limits preview-ID use to three minutes. The live design therefore uses a
+  separate provider-ID mapping and never retries an ambiguous Place:
+  <https://apisb.etrade.com/docs/api/order/api-order-v1.html>.
+- E\*TRADE account, portfolio, and transaction APIs are independent raw-first
+  reconciliation sources; none alone proves convergence or that an ambiguous
+  Place was unsent:
+  <https://apisb.etrade.com/docs/api/account/api-account-v1.html>,
+  <https://apisb.etrade.com/docs/api/account/api-portfolio-v1.html>, and
+  <https://apisb.etrade.com/docs/api/account/api-transaction-v1.html>.
+- E\*TRADE documents both REST and Comet interfaces, but availability of a
+  streaming interface is not qualification of its ordering, replay, gap, or
+  reconciliation behavior:
+  <https://developer.etrade.com/support/frequently-asked-questions>.
+- Historical Alpaca Phase 4 work uses separate paper endpoints and streaming
+  trade/order updates, so that provider-specific design treats streaming and
+  REST reconciliation as complementary rather than relying on either alone:
   <https://docs.alpaca.markets/us/docs/websocket-streaming>.
 - Alpaca documents that paper fills omit market impact, latency slippage, queue
   position, price improvement, regulatory fees, and dividends. Paper evidence
   therefore proves workflow resilience, not live execution quality or alpha:
   <https://docs.alpaca.markets/us/docs/paper-trading>.
-- Alpaca supports lookup by deterministic client order ID, which is mandatory in
-  the uncertain-submission recovery contract:
+- Alpaca supports lookup by deterministic client order ID; that historical
+  provider-specific recovery capability does not exist for the selected
+  E\*TRADE path:
   <https://docs.alpaca.markets/us/reference/getorderbyclientorderid>.
-- A future Interactive Brokers adapter needs a separate capability/recovery ADR
+- Any future Interactive Brokers adapter remains out of the selected v1 live
+  path and would need a separate capability/recovery ADR
   covering client ownership, pacing, reconnect behavior, and the operational
   dependency on TWS or IB Gateway. Use the current IBKR Campus documentation:
   <https://ibkrcampus.com/campus/ibkr-api-page/twsapi-doc/>.

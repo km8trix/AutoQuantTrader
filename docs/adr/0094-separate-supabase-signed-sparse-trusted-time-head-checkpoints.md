@@ -57,7 +57,10 @@ The admitted deployment contract requires a Supabase project distinct from
 both the runtime and test database projects and the exact private Storage bucket
 `aqt-trusted-time-anchors-v1`. A least-privilege Supabase Auth writer may list,
 read, and insert only canonical JSON objects in its admitted deployment/host
-namespace. Normal writer update, overwrite, and delete operations are denied.
+namespace. Authenticated object download admits both
+`storage.object.get_authenticated` and the legacy metadata operation
+`object.get_authenticated_info`. Normal writer update, overwrite, and delete
+operations are denied.
 The upload API also sets no-overwrite semantics. These controls constrain the
 runtime writer; they do not convert Supabase Storage into WORM storage or bind a
 Supabase administrator.
@@ -66,7 +69,19 @@ The policy renderer admits the entire `storage.objects` policy catalog, not
 only names carrying the Phase 6D prefix. Preflight accepts a completely absent
 set or the complete exact expected set; postflight requires exact equality to
 the expected `aqt_tt_anchor_v1_*` policies. Any unrelated, missing, or changed
-policy is drift.
+policy is drift. In fresh mode the transaction creates the final policy names
+directly; existing mode leaves the admitted catalog untouched. Both modes then
+create each equivalent audit policy in a rollback-only PL/pgSQL subtransaction,
+compare its raw `pg_policy` tree with the final policy, and deliberately abort
+and catch a private sentinel before the exact whole-catalog postflight. Real
+definition drift is raised outside that handler. A transaction-scoped relation
+lock excludes concurrent policy DDL. This removes audit policies without
+requiring owner-only rename or removal DDL on the provider-owned table. The
+deployed v1 catalog omitted `object.get_authenticated_info` from its writer and
+restrictive-guard SELECT operation sets. Local contract v2 corrects those two
+no-reader policies and renders an exact-catalog rollback-only DROP-capability
+probe followed, only if supported and separately approved, by one atomic
+v1-to-v2 replacement and whole-catalog postflight.
 
 The offline artifact generator exclusively creates one raw 32-byte Ed25519
 private key, one exact runtime Auth secret, and one nonsecret authority at
@@ -79,7 +94,11 @@ private control bucket in the anchor project. It authenticates the exact Auth
 writer, retains one synthetic canonical object under a proof-only deployment/
 host prefix outside the runtime's exact prefix, proves exact list/read/insert
 behavior plus strict cross-namespace, cross-bucket, mutation, anonymous, and
-public denials, and performs no cleanup. The proof does not enroll history.
+public denials, and performs no cleanup. The proof does not enroll history. If
+an attempt inserted its canonical object and then failed at authenticated read,
+resume is allowed only from the exact canonical owner-only failure evidence;
+it reuses the same proof ID, name, and payload digest and performs no fresh
+insert.
 
 Each canonical checkpoint is signed with Ed25519. The raw 32-byte private key
 is generated and retained outside Supabase and is supplied to the local
@@ -204,10 +223,43 @@ rows. Do not downgrade or reinterpret that empty postflight as enrollment.
 Separate anchor project `pgplscpqsvyraleyaphm` is Healthy on Supabase's Free
 plan with its Data API disabled. Owner-only retained dashboard evidence records
 the exact private `aqt-trusted-time-anchors-v1` bucket, its 4,096-byte file-size
-limit, and sole `application/json` MIME allowance. This observation proves only
-the visible project and bucket settings. It is not the exact SQL catalog
-preflight, policy application/postflight, Auth-writer proof, Storage behavioral
-proof, or runtime-artifact admission. Each of those remains `UNRUN`.
+limit, and sole `application/json` MIME allowance. On 2026-08-04, approved
+provisioning SQL SHA-256
+`68be661f65b3f6b45d7732744790d8155aeb4aae75d6311d196d711e39321135`
+committed to that project. Read-only postflight at `2026-08-04T05:35:35Z`
+proved the exact whole `storage.objects` catalog of six policies for the
+dedicated writer and restrictive guards, with no reader principal or reader
+policy. On 2026-08-05, the dedicated writer password was rotated and verified
+through a fresh Auth sign-in. The offline generator then exclusively created
+the owner-only signing key, runtime Auth secret, and nonsecret authority outside
+the repository. Runtime decoders accepted the exact writer, source, deployment,
+project, and private/public signing-key bindings. The secret-free receipt-file
+SHA-256 is
+`c52cb3eccfefed713822fe797ac5f2f93c33565b60b41940faa93b2bb30bc264`,
+the authority SHA-256 is
+`9747c97be9cfabf51e524eef66120e8c7ec860be18e064416b17aa197eeb8f7c`,
+and enrollment remains `UNRUN` with `allow_enrollment=false`. Behavioral proof
+`0396c9fe-0a8f-4b17-8c71-faa8a8033bb0` authenticated the writer, inserted one
+no-overwrite canonical object, and listed it, then failed closed at
+authenticated read with the provider's masked `NoSuchKey`; the object remains
+and its exact bytes have not passed authenticated GET. Canonical owner-only
+failure evidence has SHA-256
+`530a6ea5075ec787c16bdcbc1eb3a52e2900661e036e35ee24bb371c32f6d536`.
+The exact rollback-only capability probe has SHA-256
+`73f7db8b16033848cbc9790310bd7a6d4e3c4537d6a694cac9fdf368d12eea18`;
+the atomic v1-to-v2 upgrade has SHA-256
+`b35de9ae59438481a9f4e26bb9e18a6c3fd37eca2648f7f0ded3e6c87e0fee55`.
+The probe passed under role `postgres` on 2026-08-05 and reached its terminal
+rollback. Owner-only evidence SHA-256 is
+`706ddc3a7a9e9f656e42b037b7e92e0dd2acd90cdd68a97d2fa4ef653bd29e81`;
+its read-only postflight proved exact equality with the retained bucket and
+six-policy v1 catalogs. The atomic upgrade was then approved, committed, and
+postflight-verified. Owner-only applied evidence SHA-256 is
+`57a4ce0914d36b179adce7f40afda99bb7bd5d859a2a9f33cb2d40984bca62e3`;
+only the two SELECT policies changed, both include exact unprefixed operation
+`object.get_authenticated_info`, the other four remain byte-equivalent to v1,
+and the retained object and disabled enrollment state are unchanged.
+Secure-launcher artifact admission also remains `UNRUN`.
 
 ## Consequences
 
@@ -217,13 +269,17 @@ unexpected terminal head when the corresponding reconciliation runs. Durable
 intent-before-upload and exact readback receipts make ambiguous network results
 restart-safe without holding SQL locks over network I/O.
 
-The implementation and runtime schema are present, and the separate project
-and primary bucket have partial dashboard evidence. Exact catalog/policy
-evidence, the Auth principal, real-control-bucket behavioral proof, nonsecret
-authority artifact, and owner-only runtime secrets remain pending and `UNRUN`.
-The first external enrollment also remains pending separate owner approval.
-Until provisioning and enrollment are completed and reviewed, the deployed
-topology still has no authenticated external-head evidence.
+The implementation and runtime schema are present. The separate project,
+primary and real control buckets, exact catalog/policy evidence, and dedicated
+Auth principal are retained. The writer password has been rotated and verified,
+and the owner-only runtime artifacts plus nonsecret authority have been
+generated and decoder-validated. The real-control-bucket behavioral proof was
+attempted and remains failed/incomplete at authenticated read, with its one
+canonical object retained; policy correction and evidence-bound same-object
+resume remain pending. Secure-launcher artifact admission remains `UNRUN`. The first
+external enrollment also remains pending separate owner approval. Until the
+behavioral, admission, and enrollment gates are completed and reviewed, the
+deployed topology still has no authenticated external-head evidence.
 
 Even after enrollment, this remains same-provider, potentially same-admin
 evidence rather than independent or immutable custody. It narrows some rollback

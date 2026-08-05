@@ -7,17 +7,24 @@ from typing import Any, cast
 
 import pytest
 
+import scripts.provision_trusted_time_anchor_project as provisioning
 from scripts.provision_trusted_time_anchor_project import (
     ANCHOR_ALLOWED_MIME_TYPES,
     ANCHOR_BUCKET_ID,
     ANCHOR_FILE_SIZE_LIMIT_BYTES,
     ANCHOR_OBJECT_PATH_REGEX,
     ANCHOR_OBJECT_PREFIX,
+    READ_POLICY_DROP_CAPABILITY_PROBE_CONTRACT_VERSION,
+    READ_POLICY_UPGRADE_CONTRACT_VERSION,
     AnchorProjectProvisioningContract,
     AnchorProjectProvisioningError,
     audit_provisioning_sql,
+    audit_read_policy_drop_capability_probe_sql,
+    audit_read_policy_upgrade_sql,
     build_provisioning_contract,
     generate_provisioning_sql,
+    generate_read_policy_drop_capability_probe_sql,
+    generate_read_policy_upgrade_sql,
     main,
     provisioning_sql_sha256,
     validate_object_contract,
@@ -243,6 +250,118 @@ def test_sql_generation_is_deterministic_bound_and_does_not_emit_publishable_key
     assert audit_provisioning_sql(first, contract) == provisioning_sql_sha256(contract)
 
 
+def test_read_policy_upgrade_is_explicit_atomic_exact_and_capability_probed() -> None:
+    contract = _contract(reader=False)
+    probe = generate_read_policy_drop_capability_probe_sql(contract)
+    upgrade = generate_read_policy_upgrade_sql(contract)
+
+    assert probe.startswith(f"-- {READ_POLICY_DROP_CAPABILITY_PROBE_CONTRACT_VERSION}\n")
+    assert probe.endswith("ROLLBACK;\n")
+    assert "COMMIT;" not in probe
+    assert probe.count("BEGIN;") == 1
+    assert probe.count("ROLLBACK;") == 1
+    assert probe.count("DROP POLICY ") == 2
+    assert "object.get_authenticated_info" not in probe
+
+    assert upgrade.startswith(f"-- {READ_POLICY_UPGRADE_CONTRACT_VERSION}\n")
+    assert upgrade.endswith("COMMIT;\n")
+    assert upgrade.count("BEGIN;") == 1
+    assert upgrade.count("COMMIT;") == 1
+    assert upgrade.count("DROP POLICY ") == 2
+    assert "ALTER POLICY" not in upgrade
+    assert "DROP POLICY aqt_tt_anchor_v1_guard_select ON storage.objects;" in upgrade
+    assert "DROP POLICY aqt_tt_anchor_v1_writer_select ON storage.objects;" in upgrade
+    assert "DROP POLICY aqt_tt_anchor_v1_writer_insert" not in upgrade
+    assert "DROP POLICY aqt_tt_anchor_v1_guard_insert" not in upgrade
+    assert "DROP POLICY aqt_tt_anchor_v1_guard_update" not in upgrade
+    assert "DROP POLICY aqt_tt_anchor_v1_guard_delete" not in upgrade
+    assert "object.get_authenticated_info" in upgrade
+    assert "storage.object.get_authenticated_info" not in upgrade
+    assert upgrade.index("Prove every source policy") < upgrade.index(
+        "DROP POLICY aqt_tt_anchor_v1_guard_select"
+    )
+    assert upgrade.index("DROP POLICY aqt_tt_anchor_v1_writer_select") < upgrade.index(
+        "Prove the complete corrected catalog"
+    )
+    assert "LOCK TABLE storage.objects IN ACCESS EXCLUSIVE MODE;" in probe
+    assert "LOCK TABLE storage.objects IN ACCESS EXCLUSIVE MODE;" in upgrade
+    assert "INSERT INTO storage." not in probe
+    assert "UPDATE storage." not in probe
+    assert "DELETE FROM storage." not in probe
+    assert "INSERT INTO storage." not in upgrade
+    assert "UPDATE storage." not in upgrade
+    assert "DELETE FROM storage." not in upgrade
+    assert PUBLISHABLE_KEY not in probe
+    assert PUBLISHABLE_KEY not in upgrade
+    assert (
+        audit_read_policy_drop_capability_probe_sql(probe, contract)
+        == hashlib.sha256(probe.encode()).hexdigest()
+    )
+    assert (
+        audit_read_policy_upgrade_sql(upgrade, contract)
+        == hashlib.sha256(upgrade.encode()).hexdigest()
+    )
+
+    with pytest.raises(
+        AnchorProjectProvisioningError,
+        match="anchor_read_policy_drop_probe_sql_drift",
+    ):
+        audit_read_policy_drop_capability_probe_sql(probe + "-- drift\n", contract)
+    with pytest.raises(
+        AnchorProjectProvisioningError,
+        match="anchor_read_policy_upgrade_sql_drift",
+    ):
+        audit_read_policy_upgrade_sql(upgrade + "-- drift\n", contract)
+
+
+def test_read_policy_upgrade_also_replaces_reader_select_when_configured() -> None:
+    upgrade = generate_read_policy_upgrade_sql(_contract())
+
+    assert upgrade.count("DROP POLICY ") == 3
+    assert "DROP POLICY aqt_tt_anchor_v1_reader_select ON storage.objects;" in upgrade
+    assert "object.get_authenticated_info" in upgrade
+
+
+def test_read_policy_upgrade_rejects_unversioned_operation_widening(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        provisioning,
+        "WRITER_SELECT_OPERATIONS",
+        (*provisioning.WRITER_SELECT_OPERATIONS, "storage.object.get_public"),
+    )
+
+    with pytest.raises(
+        AnchorProjectProvisioningError,
+        match="anchor_read_policy_upgrade_invalid",
+    ):
+        generate_read_policy_upgrade_sql(_contract(reader=False))
+
+
+def test_read_policy_upgrade_rejects_any_other_policy_field_delta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = provisioning._anchor_policy_contracts
+
+    def widened(contract: AnchorProjectProvisioningContract) -> tuple[Any, ...]:
+        policies = list(original(contract))
+        index = next(
+            index
+            for index, policy in enumerate(policies)
+            if policy.name == "aqt_tt_anchor_v1_writer_select"
+        )
+        policies[index] = replace(policies[index], roles=("public",))
+        return tuple(policies)
+
+    monkeypatch.setattr(provisioning, "_anchor_policy_contracts", widened)
+
+    with pytest.raises(
+        AnchorProjectProvisioningError,
+        match="anchor_read_policy_upgrade_invalid",
+    ):
+        generate_read_policy_upgrade_sql(_contract(reader=False))
+
+
 def test_sql_pins_bucket_owner_path_size_mime_and_exact_principals() -> None:
     sql = generate_provisioning_sql(_contract())
 
@@ -257,13 +376,14 @@ def test_sql_pins_bucket_owner_path_size_mime_and_exact_principals() -> None:
     assert "(SELECT auth.uid()) = '22222222-2222-4222-8222-222222222222'::uuid" in sql
 
 
-def test_select_policies_are_operation_scoped_for_upload_get_list_and_list_v2() -> None:
+def test_select_policies_are_operation_scoped_for_upload_get_info_list_and_list_v2() -> None:
     sql = generate_provisioning_sql(_contract())
 
     assert "storage.allow_only_operation('storage.object.upload'::text)" in sql
     for operation in (
         "storage.object.upload",
         "storage.object.get_authenticated",
+        "object.get_authenticated_info",
         "storage.object.list",
         "storage.object.list_v2",
     ):
@@ -307,15 +427,78 @@ def test_sql_is_transactional_advisory_locked_and_fail_closed_on_drift() -> None
     assert sql.count("BEGIN;") == 1
     assert sql.count("COMMIT;") == 1
     assert "pg_catalog.pg_advisory_xact_lock" in sql
+    assert "LOCK TABLE storage.objects IN ACCESS SHARE MODE;" in sql
     assert "SET LOCAL lock_timeout" in sql
     assert "install_mode := 'fresh'" in sql
     assert "install_mode := 'existing'" in sql
     assert "anchor_bucket_definition_drift" in sql
     assert "anchor_policy_set_drift" in sql
     assert "anchor_policy_definition_drift" in sql
+    assert "\nSAVEPOINT " not in sql
+    assert "\nROLLBACK TO " not in sql
     assert "ON CONFLICT" not in sql
     assert "UPDATE storage.buckets" not in sql
     assert "DELETE FROM storage.buckets" not in sql
+
+
+def test_policy_install_and_audit_avoid_owner_only_policy_ddl() -> None:
+    sql = generate_provisioning_sql(_contract())
+
+    assert "ALTER POLICY" not in sql
+    assert "DROP POLICY" not in sql
+    assert "aqt_tt_anchor_v1_expected_" not in sql
+
+    created_names = re.findall(r"^CREATE POLICY (aqt_tt_anchor_v1_[a-z_]+)$", sql, re.MULTILINE)
+    final_names = [name for name in created_names if "_audit_" not in name]
+    audit_names = [name for name in created_names if "_audit_" in name]
+    assert len(final_names) == 7
+    assert len(audit_names) == 7
+    assert {
+        name.replace("aqt_tt_anchor_v1_audit_", "aqt_tt_anchor_v1_", 1) for name in audit_names
+    } == set(final_names)
+
+    final_create = sql.rindex("CREATE POLICY aqt_tt_anchor_v1_guard_delete")
+    audit_do = sql.index("DO $aqt_audit_aqt_tt_anchor_v1_writer_insert$")
+    audit_create = sql.index("CREATE POLICY aqt_tt_anchor_v1_audit_writer_insert")
+    postflight = sql.index("DO $aqt_anchor_postflight$")
+
+    assert final_create < audit_do < audit_create < postflight
+    assert "IF install_mode = 'fresh' THEN" in sql
+    assert "ELSIF install_mode <> 'existing' THEN" in sql
+
+
+def test_audit_uses_raw_policy_trees_and_cannot_swallow_definition_drift() -> None:
+    sql = generate_provisioning_sql(_contract())
+
+    audit_region = sql.split("DO $aqt_audit_aqt_tt_anchor_v1_writer_insert$", 1)[1].split(
+        "$aqt_audit_aqt_tt_anchor_v1_writer_insert$;",
+        1,
+    )[0]
+    assert "p.polqual::text AS polqual" in audit_region
+    assert "p.polwithcheck::text AS polwithcheck" in audit_region
+    assert "actual_policy.polroles IS NOT DISTINCT FROM expected_policy.polroles" in audit_region
+    assert "actual_policy.polqual IS NOT DISTINCT FROM expected_policy.polqual" in audit_region
+    assert (
+        "actual_policy.polwithcheck IS NOT DISTINCT FROM expected_policy.polwithcheck"
+        in audit_region
+    )
+
+    rollback_sentinel = audit_region.index("ERRCODE = 'AQT01'")
+    caught_sentinel = audit_region.index("WHEN SQLSTATE 'AQT01' THEN")
+    nested_block_end = audit_region.index("END;", caught_sentinel)
+    real_drift = audit_region.index("RAISE EXCEPTION 'anchor_policy_definition_drift'")
+    assert rollback_sentinel < caught_sentinel < nested_block_end < real_drift
+    assert sql.count("ERRCODE = 'AQT01'") == 7
+    assert sql.count("WHEN SQLSTATE 'AQT01' THEN") == 7
+
+
+def test_no_reader_contract_creates_exact_six_final_and_six_rollback_only_audits() -> None:
+    sql = generate_provisioning_sql(_contract(reader=False))
+
+    created_names = re.findall(r"^CREATE POLICY (aqt_tt_anchor_v1_[a-z_]+)$", sql, re.MULTILINE)
+    assert len([name for name in created_names if "_audit_" not in name]) == 6
+    assert len([name for name in created_names if "_audit_" in name]) == 6
+    assert sql.count("ERRCODE = 'AQT01'") == 6
 
 
 def test_sql_never_mutates_any_storage_table_rows() -> None:
@@ -371,7 +554,7 @@ def test_postflight_asserts_exact_bucket_and_pg_policy_parse_trees() -> None:
     assert "anchor_bucket_postflight_failed" in sql
     assert "anchor_policy_postflight_failed" in sql
     assert "anchor_mutation_policy_postflight_failed" in sql
-    assert "Audit policies are dropped before commit" in sql
+    assert "Recreate each expected policy in a rollback-only PL/pgSQL subtransaction" in sql
 
 
 @pytest.mark.parametrize(
@@ -437,7 +620,55 @@ def test_cli_renders_sql_without_echoing_key(capsys: pytest.CaptureFixture[str])
     captured = capsys.readouterr()
     assert result == 0
     assert captured.err == ""
-    assert captured.out.startswith("-- aqt-trusted-time-supabase-anchor-project-v1")
+    assert captured.out.startswith("-- aqt-trusted-time-supabase-anchor-project-v2")
+    assert PUBLISHABLE_KEY not in captured.out
+
+
+@pytest.mark.parametrize(
+    ("mode", "contract_version", "terminator"),
+    [
+        (
+            "read-policy-drop-probe",
+            READ_POLICY_DROP_CAPABILITY_PROBE_CONTRACT_VERSION,
+            "ROLLBACK;\n",
+        ),
+        (
+            "read-policy-upgrade",
+            READ_POLICY_UPGRADE_CONTRACT_VERSION,
+            "COMMIT;\n",
+        ),
+    ],
+)
+def test_cli_renders_explicit_read_policy_operator_modes(
+    capsys: pytest.CaptureFixture[str],
+    mode: str,
+    contract_version: str,
+    terminator: str,
+) -> None:
+    result = main(
+        [
+            "--anchor-project-url",
+            ANCHOR_URL,
+            "--anchor-project-ref",
+            ANCHOR_REF,
+            "--runtime-project-ref",
+            RUNTIME_REF,
+            "--test-project-ref",
+            TEST_REF,
+            "--publishable-key",
+            PUBLISHABLE_KEY,
+            "--writer-principal-id",
+            WRITER_ID,
+            "--mode",
+            mode,
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert captured.err == ""
+    assert captured.out.startswith(f"-- {contract_version}\n")
+    assert captured.out.endswith(terminator)
     assert PUBLISHABLE_KEY not in captured.out
 
 
