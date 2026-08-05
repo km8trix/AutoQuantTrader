@@ -7,6 +7,7 @@ COMPOSE ?= docker compose -f infra/compose/compose.yaml
 TRUSTED_TIME_COMPOSE ?= docker compose --env-file infra/compose/trusted-time.defaults.env -f infra/compose/trusted-time.compose.yaml
 TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT ?= $(CURDIR)/artifacts/trusted-time/image-admission.json
 TRUSTED_TIME_QUALIFICATION_ARTIFACT_DIR ?= $(CURDIR)/artifacts/trusted-time
+TRUSTED_TIME_UNENROLLED_ADMISSION_ARTIFACT_DIR ?= $(CURDIR)/artifacts/trusted-time
 
 .PHONY: help bootstrap dev dev-detached db down logs ps api web worker trader migrate \
 	check backend-check frontend-check architecture-check test compose-check \
@@ -14,7 +15,8 @@ TRUSTED_TIME_QUALIFICATION_ARTIFACT_DIR ?= $(CURDIR)/artifacts/trusted-time
 	sharadar-sfp-capture tiingo-eod-profile-inspect tiingo-eod-capture tiingo-eod-verify \
 	tiingo-eod-lineage tiingo-eod-fields-qualify tiingo-eod-identity-qualify \
 	tiingo-eod-semantics-qualify no-exposure-smoke-verify trusted-time-compose-check \
-	trusted-time-images trusted-time-start trusted-time-inspect trusted-time-stop
+	trusted-time-images trusted-time-start trusted-time-admit-unenrolled \
+	trusted-time-inspect trusted-time-stop
 
 help: ## List developer commands.
 	@awk 'BEGIN {FS = ":.*## "; printf "AutoQuantTrader developer commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -195,6 +197,15 @@ trusted-time-start: ## Start approved trusted-time images; requires ENV_FILE=own
 		scripts/start_trusted_time_supervisor.py \
 		--env-file "$(ENV_FILE)" \
 		--image-admission-artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)"
+
+trusted-time-admit-unenrolled: ## Observe an approved fail-closed startup expectation, then tear down.
+	@test -n "$(ENV_FILE)" || (echo "ENV_FILE=path/to/owner-only.env is required" >&2; exit 2)
+	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+		scripts/start_trusted_time_supervisor.py \
+		--env-file "$(ENV_FILE)" \
+		--image-admission-artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)" \
+		--artifact-dir "$(TRUSTED_TIME_UNENROLLED_ADMISSION_ARTIFACT_DIR)" \
+		--expect-unenrolled-fail-closed
 
 trusted-time-inspect: ## Inspect the running trusted-time qualification window.
 	@test -n "$(ENV_FILE)" || (echo "ENV_FILE=path/to/owner-only.env is required" >&2; exit 2)

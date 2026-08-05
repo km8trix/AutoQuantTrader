@@ -16,9 +16,11 @@ from apps.trusted_time_supervisor.head_anchor_config import (
 from packages.application.trusted_time_head_anchor import (
     TRUSTED_TIME_HEAD_ANCHOR_BUCKET_NAME,
     TrustedTimeHeadAnchorCheckpointReason,
+    TrustedTimeHeadAnchorEnrollmentNotApproved,
     TrustedTimeHeadAnchorProviderUnavailable,
 )
 from packages.application.trusted_time_head_anchor_worker import (
+    TrustedTimeHeadAnchorEnrollmentNotApprovedFailure,
     TrustedTimeHeadAnchorFatalFailure,
     TrustedTimeHeadAnchorTransientFailure,
     TrustedTimeHeadAnchorWorkRequest,
@@ -362,3 +364,28 @@ def test_only_typed_provider_outage_and_authenticated_snapshot_advance_retry() -
         pytest.raises(TrustedTimeHeadAnchorFatalFailure),
     ):
         attempt(_request(sequence=3))
+
+
+def test_absent_remote_without_enrollment_approval_translates_to_exact_typed_fatal() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    full = _snapshot(complete_replay=True)
+    anchor.load_head_anchor_startup_snapshot.return_value = full
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with (
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "prepare_bounded_trusted_time_head_anchor_reconciliation",
+            side_effect=TrustedTimeHeadAnchorEnrollmentNotApproved(
+                "secret provider response must not cross the attempt boundary"
+            ),
+        ),
+        pytest.raises(TrustedTimeHeadAnchorEnrollmentNotApprovedFailure) as captured,
+    ):
+        attempt(_request())
+
+    assert str(captured.value) == (
+        "trusted-time remote anchor history is absent and enrollment is not approved"
+    )
+    assert "secret" not in str(captured.value)

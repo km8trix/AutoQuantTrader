@@ -21,6 +21,7 @@ from packages.application.trusted_time_head_anchor import (
     TrustedTimeHeadAnchorCheckpointReason,
     TrustedTimeHeadAnchorEd25519Signer,
     TrustedTimeHeadAnchorEd25519Verifier,
+    TrustedTimeHeadAnchorEnrollmentNotApproved,
     TrustedTimeHeadAnchorProvider,
     TrustedTimeHeadAnchorProviderUnavailable,
     TrustedTimeHeadAnchorReconciliationResult,
@@ -32,6 +33,7 @@ from packages.application.trusted_time_head_anchor import (
 )
 from packages.application.trusted_time_head_anchor_worker import (
     TrustedTimeHeadAnchorAttemptResult,
+    TrustedTimeHeadAnchorEnrollmentNotApprovedFailure,
     TrustedTimeHeadAnchorFatalFailure,
     TrustedTimeHeadAnchorTransientFailure,
     TrustedTimeHeadAnchorWorkRequest,
@@ -441,6 +443,10 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
                 ) from None
             raise TrustedTimeHeadAnchorTransientFailure(
                 "trusted-time anchor provider is unavailable"
+            ) from None
+        except TrustedTimeHeadAnchorEnrollmentNotApproved:
+            raise TrustedTimeHeadAnchorEnrollmentNotApprovedFailure(
+                "trusted-time remote anchor history is absent and enrollment is not approved"
             ) from None
         except (TrustedTimeHeadAnchorFatalFailure, TrustedTimeHeadAnchorTransientFailure):
             raise

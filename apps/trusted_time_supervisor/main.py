@@ -45,6 +45,10 @@ from packages.application.durable_trusted_time_monitor import (
     PersistedTrustedTimeProbe,
     run_durable_trusted_time_probe_once,
 )
+from packages.application.trusted_time_head_anchor_worker import (
+    TrustedTimeHeadAnchorEnrollmentNotApprovedFailure,
+    TrustedTimeHeadAnchorFatalReason,
+)
 from packages.application.trusted_time_supervisor import (
     TRUSTED_TIME_SUPERVISOR_INTERVAL_NS,
     TrustedTimeSupervisorError,
@@ -275,6 +279,20 @@ def _restore_stop_handlers(previous: dict[signal.Signals, signal._HANDLER]) -> N
         signal.signal(signum, handler)
 
 
+def _raise_if_head_anchor_failed(
+    worker: TrustedTimeHeadAnchorBackgroundWorker,
+) -> None:
+    if not worker.fatal_error_latched:
+        return
+    if worker.fatal_reason is (
+        TrustedTimeHeadAnchorFatalReason.REMOTE_HISTORY_ABSENT_ENROLLMENT_NOT_APPROVED
+    ):
+        raise TrustedTimeHeadAnchorEnrollmentNotApprovedFailure(
+            "trusted-time remote anchor history is absent and enrollment is not approved"
+        )
+    raise TrustedTimeSupervisorError("trusted-time head-anchor worker failed closed")
+
+
 def run_service(
     *,
     authority: TrustedTimeDeploymentAuthority,
@@ -350,10 +368,7 @@ def run_service(
             )
             if head_anchor_worker is not None:
                 head_anchor_worker.notify_persisted_probe(persisted)
-                if head_anchor_worker.fatal_error_latched:
-                    raise TrustedTimeSupervisorError(
-                        "trusted-time head-anchor worker failed closed"
-                    )
+                _raise_if_head_anchor_failed(head_anchor_worker)
             return persisted
 
         result = run_trusted_time_supervisor(
@@ -363,10 +378,10 @@ def run_service(
             stop_requested=event.is_set,
         )
         if head_anchor_worker is not None:
-            if head_anchor_worker.fatal_error_latched:
-                raise TrustedTimeSupervisorError("trusted-time head-anchor worker failed closed")
+            _raise_if_head_anchor_failed(head_anchor_worker)
             clean_stop_confirmed = head_anchor_worker.close(clean_stop=True)
             worker_closed = True
+            _raise_if_head_anchor_failed(head_anchor_worker)
             if not clean_stop_confirmed:
                 raise TrustedTimeSupervisorError(
                     "trusted-time head-anchor clean stop was not confirmed"
@@ -530,6 +545,13 @@ def main() -> None:
         )
     except TrustedTimeSupervisorConfigurationError:
         _print_payload(_fatal_payload("configuration_rejected"))
+        raise SystemExit(2) from None
+    except TrustedTimeHeadAnchorEnrollmentNotApprovedFailure:
+        _print_payload(
+            _fatal_payload(
+                TrustedTimeHeadAnchorFatalReason.REMOTE_HISTORY_ABSENT_ENROLLMENT_NOT_APPROVED.value
+            )
+        )
         raise SystemExit(2) from None
     except Exception:
         _print_payload(_fatal_payload("supervision_failed"))

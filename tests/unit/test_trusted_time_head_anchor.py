@@ -19,6 +19,7 @@ from packages.application.trusted_time_head_anchor import (
     PreparedTrustedTimeHeadAnchorReconciliation,
     TrustedTimeHeadAnchorCheckpointReason,
     TrustedTimeHeadAnchorConflict,
+    TrustedTimeHeadAnchorEnrollmentNotApproved,
     TrustedTimeHeadAnchorError,
     TrustedTimeHeadAnchorProviderIdentity,
     TrustedTimeHeadAnchorProviderReadbackEvidence,
@@ -789,11 +790,64 @@ def test_incremental_prepare_cannot_enroll_or_bypass_pending_recovery() -> None:
 def test_empty_remote_history_requires_explicit_exact_enrollment_permission() -> None:
     provider = MemoryProvider()
 
-    with pytest.raises(TrustedTimeHeadAnchorConflict, match="enrollment is not approved"):
+    with pytest.raises(TrustedTimeHeadAnchorEnrollmentNotApproved):
         reconcile(local_chain(), provider, allow_enrollment=False)
     with pytest.raises(TrustedTimeHeadAnchorError, match="exact boolean"):
         reconcile(local_chain(), provider, allow_enrollment=1)  # type: ignore[arg-type]
     assert provider.objects == {}
+
+
+def test_incremental_reconciliation_cannot_classify_unconfirmed_remote_history_as_empty() -> None:
+    provider = MemoryProvider()
+    prefix = trusted_time_head_anchor_object_prefix(
+        deployment_identity_sha256=DEPLOYMENT_IDENTITY,
+        host_id=HOST,
+    )
+    provider.objects[(BUCKET, f"{prefix}{2:020d}-{'f' * 64}.json")] = b"unread"
+
+    with pytest.raises(
+        TrustedTimeHeadAnchorError,
+        match="incremental reconciliation requires confirmed anchor evidence",
+    ) as raised:
+        reconcile(
+            local_chain(),
+            provider,
+            allow_enrollment=False,
+            full_audit=False,
+        )
+
+    assert not isinstance(raised.value, TrustedTimeHeadAnchorEnrollmentNotApproved)
+    assert provider.list_calls == []
+    assert provider.sequence_list_calls == []
+    assert provider.download_calls == []
+
+
+def test_bounded_empty_remote_history_has_the_same_typed_owner_approval_failure() -> None:
+    chain = local_chain()
+    tip = anchor_contract._new_authenticated_trusted_time_head_journal_tip(
+        local_transitions=chain,
+        confirmed_anchor_records=(),
+    )
+    provider = MemoryProvider()
+    crypto = DeterministicEd25519TestDouble()
+
+    with pytest.raises(TrustedTimeHeadAnchorEnrollmentNotApproved):
+        prepare_bounded_trusted_time_head_anchor_reconciliation(
+            tip,
+            provider=provider,
+            signer=crypto,
+            verifier=crypto,
+            signing_key_id=KEY_ID,
+            signing_public_key_sha256=KEY_SHA256,
+            checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION,
+            checkpoint_interval_seconds=(TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS),
+            anchor_authority_sha256=ANCHOR_AUTHORITY_SHA256,
+            pending_anchor_intent=None,
+            allow_enrollment=False,
+        )
+
+    assert provider.objects == {}
+    assert provider.upload_calls == []
 
 
 def test_sparse_reconciliation_appends_only_the_new_current_checkpoint() -> None:

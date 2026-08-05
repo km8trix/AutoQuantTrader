@@ -588,10 +588,11 @@ Compose model that:
 - parse/build admission keeps all four host source files at `/dev/null` and
   cannot be mistaken for provisioned runtime admission.
 
-The final Phase 6D launcher/Compose/image composition passed 103 focused tests
-and the actual Docker Compose verifier. That is implementation evidence only;
-it is not a fresh immutable-image admission for another revision, separate-
-project provisioning evidence, or enrollment evidence.
+The pre-admission-hardening Phase 6D launcher/Compose/image baseline passed 103
+focused tests and the actual Docker Compose verifier. That historical result
+does not cover the later typed-terminal observer or receipt path. The admission
+hardening has local unit and static verification only; its actual Compose and
+current immutable-image admission remain `UNRUN`.
 
 On 2026-08-05, the fresh parse-only Compose verifier admitted the final reviewed
 model with zero inbound ports and no authority. Fresh immutable-image admission
@@ -651,9 +652,65 @@ their per-run directories, and proves each retired mount has an admitted
 outcome. Native Linux may retain the exact readable inode and digest; Docker
 Desktop instead makes reads fail with no output after host unlink. A successful
 read of changed bytes is rejected. The supervisor uses `restart: no`, so an
-exited process cannot re-read or restart from a retired mount. Any failure
-stops the attempted topology; cleanup failure is fatal. Do not place any
-secret on a command line or copy it into `trusted-time.defaults.env`.
+exited process cannot re-read or restart from a retired mount. Every failure
+path attempts exact current-input cleanup even if topology stop or teardown
+proof fails; cleanup failure is fatal. Do not place any secret on a command
+line or copy it into `trusted-time.defaults.env`.
+
+The separately approval-gated admission-only command is:
+
+```console
+make trusted-time-admit-unenrolled ENV_FILE=/absolute/path/to/owner-only.env
+```
+
+Before executing it, obtain fresh manual approval bound to the exact merged
+revision and its reviewed immutable image identities. The retained receipt
+then binds the exact image-admission SHA-256 created during that attempt. The
+CLI and receipt UUID do not encode or enforce the approval record.
+
+It first requires that the exact Compose project has no prior supervisor
+container, before opening the owner environment file. It never enables
+enrollment. The expected supervisor outcome is exit 2 with the exact typed
+reason `head_anchor_remote_history_absent_enrollment_not_approved`; generic
+`supervision_failed`, `configuration_rejected`, OOM, restart, replacement,
+malformed output, timeout, or any other reason fails admission. The observer
+uses only fixed Docker inspect/log/Compose commands, a full container ID, hard
+stdout/stderr limits, and one absolute deadline per observation: at most 60
+seconds on the normal post-validation path and two seconds in early-failure
+race paths. Each bounded child reserves up to 250 milliseconds inside its
+supplied lifecycle deadline to kill, wait for, and finally poll a failed
+subprocess. It forwards only the minimal Docker client environment, never
+application or broker variables.
+
+The expected terminal outcome is not sufficient by itself. A successful
+wrapper result is permitted only after the normal secure-launch topology,
+mount, input-consumption, staged-input retirement, retired-mount, daemon, and
+image checks have all passed, followed by verified topology removal and named-
+volume preservation. Topology removal includes all Compose project containers
+and the exact project network. Volume preservation compares stable creation,
+mount, driver, option, label, and scope identity captured after successful
+topology validation with the same two objects after teardown; matching names
+alone are insufficient. Only then does the wrapper exit zero and retain
+canonical owner-only contract `phase6d-unenrolled-secure-launch-admission-v1`
+below `artifacts/trusted-time`, named by the SHA-256 of its exact bytes. The receipt
+has a per-attempt UUIDv4 but no trusted timestamp; it is neither freshness nor
+anti-replay evidence. It contains no container ID, filesystem path, hostname,
+credential, provider body, enrollment permission, or trading authority.
+
+An expected terminal observed during Compose startup failure or the private
+supervisor-identity-disappearance race before all secure-launch checks complete
+is `secure_launch_incomplete`: the wrapper exits 2 and writes no admitted
+receipt. Unrelated topology or mount failures retain configuration rejection.
+Timeout, teardown failure, remaining containers, remaining project network,
+missing or replaced named volumes, current-attempt staging residue, receipt-
+publication failure, or canonical-output failure also override an otherwise
+expected terminal. Canonical-output failure rolls back the just-published
+receipt and fsyncs its removal. If unlink or removal durability cannot be
+confirmed, fixed stderr reason `admission_retention_unconfirmed` requires
+manual inspection of the artifact directory; the result remains non-admitted
+with exit 2. Preserve the exact admitted receipt
+and its file SHA-256 only after a zero exit. This command proves no enrollment;
+stop and request separate owner approval before any first-enrollment change.
 
 After retained separate-project provisioning evidence and a separately
 approved, reviewed first enrollment, the normal post-enrollment start is:
