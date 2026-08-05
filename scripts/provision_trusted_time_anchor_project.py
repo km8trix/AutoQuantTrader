@@ -12,7 +12,10 @@ The generated transaction is fail-closed on drift.  An absent or changed bucket
 is rejected.  A completely absent policy set is installed; an existing policy
 installation must match byte-for-byte at the parsed ``pg_policy`` expression
 level.  A partial or changed installation is rejected rather than repaired in
-place.
+place.  Fresh installs create the final policy names directly.  Verification
+creates each equivalent audit policy in a rollback-only PL/pgSQL subtransaction,
+compares its raw catalog tree, and deliberately aborts that subtransaction so the
+provider-owned table never needs owner-only policy rename or removal DDL.
 """
 
 from __future__ import annotations
@@ -22,9 +25,14 @@ import hashlib
 import re
 import sys
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
-CONTRACT_VERSION = "aqt-trusted-time-supabase-anchor-project-v1"
+DEPLOYED_CONTRACT_VERSION = "aqt-trusted-time-supabase-anchor-project-v1"
+CONTRACT_VERSION = "aqt-trusted-time-supabase-anchor-project-v2"
+READ_POLICY_DROP_CAPABILITY_PROBE_CONTRACT_VERSION = (
+    "aqt-trusted-time-anchor-read-policy-drop-capability-probe-v1"
+)
+READ_POLICY_UPGRADE_CONTRACT_VERSION = "aqt-trusted-time-anchor-read-policy-v1-to-v2-upgrade-v1"
 ANCHOR_BUCKET_ID = "aqt-trusted-time-anchors-v1"
 ANCHOR_BUCKET_PUBLIC = False
 ANCHOR_FILE_SIZE_LIMIT_BYTES = 4096
@@ -35,15 +43,29 @@ ANCHOR_OBJECT_PATH_REGEX = r"^v1/[0-9a-f]{64}/[0-9a-f]{64}/[0-9]{20}-[0-9a-f]{64
 WRITER_SELECT_OPERATIONS = (
     "storage.object.upload",
     "storage.object.get_authenticated",
+    "object.get_authenticated_info",
     "storage.object.list",
     "storage.object.list_v2",
 )
 READER_SELECT_OPERATIONS = (
     "storage.object.get_authenticated",
+    "object.get_authenticated_info",
     "storage.object.list",
     "storage.object.list_v2",
 )
 WRITER_INSERT_OPERATION = "storage.object.upload"
+
+_DEPLOYED_WRITER_SELECT_OPERATIONS = (
+    "storage.object.upload",
+    "storage.object.get_authenticated",
+    "storage.object.list",
+    "storage.object.list_v2",
+)
+_DEPLOYED_READER_SELECT_OPERATIONS = (
+    "storage.object.get_authenticated",
+    "storage.object.list",
+    "storage.object.list_v2",
+)
 
 _PROJECT_REF = re.compile(r"[a-z0-9]{20}\Z", re.ASCII)
 _PUBLISHABLE_KEY = re.compile(
@@ -328,13 +350,16 @@ def _reader_identity_expression(contract: AnchorProjectProvisioningContract) -> 
     return f"(SELECT auth.uid()) = {_sql_text(contract.reader_principal_id)}::uuid"
 
 
-def _anchor_policy_contracts(
+def _anchor_policy_contracts_with_select_operations(
     contract: AnchorProjectProvisioningContract,
+    *,
+    writer_select_operation_names: tuple[str, ...],
+    reader_select_operation_names: tuple[str, ...],
 ) -> tuple[_PolicyContract, ...]:
     object_expression = _object_expression(contract)
     writer_identity = _writer_identity_expression(contract)
     upload_operation = f"storage.allow_only_operation({_sql_text(WRITER_INSERT_OPERATION)}::text)"
-    writer_select_operations = _operation_expression(WRITER_SELECT_OPERATIONS)
+    writer_select_operations = _operation_expression(writer_select_operation_names)
 
     policies = [
         _PolicyContract(
@@ -368,7 +393,7 @@ def _anchor_policy_contracts(
                 using_expression=(
                     f"{object_expression}\n"
                     f"    AND {_reader_identity_expression(contract)}\n"
-                    f"    AND {_operation_expression(READER_SELECT_OPERATIONS)}"
+                    f"    AND {_operation_expression(reader_select_operation_names)}"
                 ),
             )
         )
@@ -379,7 +404,7 @@ def _anchor_policy_contracts(
         else (
             f"({writer_identity} AND {writer_select_operations})\n"
             f"        OR ({_reader_identity_expression(contract)} "
-            f"AND {_operation_expression(READER_SELECT_OPERATIONS)})"
+            f"AND {_operation_expression(reader_select_operation_names)})"
         )
     )
     outside_bucket = f"bucket_id IS DISTINCT FROM {_sql_text(contract.bucket_id)}::text"
@@ -434,6 +459,26 @@ def _anchor_policy_contracts(
     return tuple(policies)
 
 
+def _anchor_policy_contracts(
+    contract: AnchorProjectProvisioningContract,
+) -> tuple[_PolicyContract, ...]:
+    return _anchor_policy_contracts_with_select_operations(
+        contract,
+        writer_select_operation_names=WRITER_SELECT_OPERATIONS,
+        reader_select_operation_names=READER_SELECT_OPERATIONS,
+    )
+
+
+def _deployed_anchor_policy_contracts(
+    contract: AnchorProjectProvisioningContract,
+) -> tuple[_PolicyContract, ...]:
+    return _anchor_policy_contracts_with_select_operations(
+        contract,
+        writer_select_operation_names=_DEPLOYED_WRITER_SELECT_OPERATIONS,
+        reader_select_operation_names=_DEPLOYED_READER_SELECT_OPERATIONS,
+    )
+
+
 def _render_create_policy(policy: _PolicyContract, *, name: str) -> str:
     mode = "PERMISSIVE" if policy.permissive else "RESTRICTIVE"
     roles = ", ".join(policy.roles)
@@ -452,57 +497,18 @@ def _render_create_policy(policy: _PolicyContract, *, name: str) -> str:
 
 
 def _render_exact_policy_install(policy: _PolicyContract) -> str:
-    template_name = f"{_POLICY_PREFIX}expected_{policy.name.removeprefix(_POLICY_PREFIX)}"
-    create_template = _render_create_policy(policy, name=template_name)
-    return f"""{create_template}
-
-DO $aqt_install_{policy.name}$
+    create_policy = _render_create_policy(policy, name=policy.name)
+    create_tag = f"aqt_create_{policy.name}"
+    return f"""DO $aqt_install_{policy.name}$
 DECLARE
-    expected_policy record;
-    actual_policy record;
-    target_found boolean;
     install_mode text := current_setting('aqt.anchor_install_mode', true);
 BEGIN
-    SELECT
-        p.polpermissive,
-        p.polroles,
-        p.polcmd,
-        p.polqual::text AS polqual,
-        p.polwithcheck::text AS polwithcheck
-    INTO STRICT expected_policy
-    FROM pg_catalog.pg_policy AS p
-    WHERE p.polrelid = 'storage.objects'::regclass
-      AND p.polname = {_sql_text(template_name)};
-
-    SELECT
-        p.polpermissive,
-        p.polroles,
-        p.polcmd,
-        p.polqual::text AS polqual,
-        p.polwithcheck::text AS polwithcheck
-    INTO actual_policy
-    FROM pg_catalog.pg_policy AS p
-    WHERE p.polrelid = 'storage.objects'::regclass
-      AND p.polname = {_sql_text(policy.name)};
-    target_found := FOUND;
-
-    IF target_found THEN
-        IF install_mode <> 'existing' THEN
-            RAISE EXCEPTION 'anchor_policy_set_drift';
-        END IF;
-        IF actual_policy.polpermissive IS DISTINCT FROM expected_policy.polpermissive
-           OR actual_policy.polroles IS DISTINCT FROM expected_policy.polroles
-           OR actual_policy.polcmd IS DISTINCT FROM expected_policy.polcmd
-           OR actual_policy.polqual IS DISTINCT FROM expected_policy.polqual
-           OR actual_policy.polwithcheck IS DISTINCT FROM expected_policy.polwithcheck THEN
-            RAISE EXCEPTION 'anchor_policy_definition_drift';
-        END IF;
-        EXECUTE 'DROP POLICY {template_name} ON storage.objects';
-    ELSE
-        IF install_mode <> 'fresh' THEN
-            RAISE EXCEPTION 'anchor_policy_set_drift';
-        END IF;
-        EXECUTE 'ALTER POLICY {template_name} ON storage.objects RENAME TO {policy.name}';
+    IF install_mode = 'fresh' THEN
+        EXECUTE ${create_tag}$
+{create_policy}
+${create_tag}$;
+    ELSIF install_mode <> 'existing' THEN
+        RAISE EXCEPTION 'anchor_policy_set_drift';
     END IF;
 END
 $aqt_install_{policy.name}$;
@@ -512,43 +518,60 @@ $aqt_install_{policy.name}$;
 def _render_exact_policy_postflight(policy: _PolicyContract) -> str:
     audit_name = f"{_POLICY_PREFIX}audit_{policy.name.removeprefix(_POLICY_PREFIX)}"
     create_audit = _render_create_policy(policy, name=audit_name)
-    return f"""{create_audit}
-
-DO $aqt_audit_{policy.name}$
+    create_tag = f"aqt_create_{audit_name}"
+    return f"""DO $aqt_audit_{policy.name}$
 DECLARE
     expected_policy record;
     actual_policy record;
+    policy_matches boolean := false;
 BEGIN
-    SELECT
-        p.polpermissive,
-        p.polroles,
-        p.polcmd,
-        p.polqual::text AS polqual,
-        p.polwithcheck::text AS polwithcheck
-    INTO STRICT expected_policy
-    FROM pg_catalog.pg_policy AS p
-    WHERE p.polrelid = 'storage.objects'::regclass
-      AND p.polname = {_sql_text(audit_name)};
+    BEGIN
+        EXECUTE ${create_tag}$
+{create_audit}
+${create_tag}$;
 
-    SELECT
-        p.polpermissive,
-        p.polroles,
-        p.polcmd,
-        p.polqual::text AS polqual,
-        p.polwithcheck::text AS polwithcheck
-    INTO STRICT actual_policy
-    FROM pg_catalog.pg_policy AS p
-    WHERE p.polrelid = 'storage.objects'::regclass
-      AND p.polname = {_sql_text(policy.name)};
+        SELECT
+            p.polpermissive,
+            p.polroles,
+            p.polcmd,
+            p.polqual::text AS polqual,
+            p.polwithcheck::text AS polwithcheck
+        INTO STRICT expected_policy
+        FROM pg_catalog.pg_policy AS p
+        WHERE p.polrelid = 'storage.objects'::regclass
+          AND p.polname = {_sql_text(audit_name)};
 
-    IF actual_policy.polpermissive IS DISTINCT FROM expected_policy.polpermissive
-       OR actual_policy.polroles IS DISTINCT FROM expected_policy.polroles
-       OR actual_policy.polcmd IS DISTINCT FROM expected_policy.polcmd
-       OR actual_policy.polqual IS DISTINCT FROM expected_policy.polqual
-       OR actual_policy.polwithcheck IS DISTINCT FROM expected_policy.polwithcheck THEN
-        RAISE EXCEPTION 'anchor_policy_postflight_failed';
+        SELECT
+            p.polpermissive,
+            p.polroles,
+            p.polcmd,
+            p.polqual::text AS polqual,
+            p.polwithcheck::text AS polwithcheck
+        INTO STRICT actual_policy
+        FROM pg_catalog.pg_policy AS p
+        WHERE p.polrelid = 'storage.objects'::regclass
+          AND p.polname = {_sql_text(policy.name)};
+
+        policy_matches :=
+            actual_policy.polpermissive IS NOT DISTINCT FROM expected_policy.polpermissive
+            AND actual_policy.polroles IS NOT DISTINCT FROM expected_policy.polroles
+            AND actual_policy.polcmd IS NOT DISTINCT FROM expected_policy.polcmd
+            AND actual_policy.polqual IS NOT DISTINCT FROM expected_policy.polqual
+            AND actual_policy.polwithcheck IS NOT DISTINCT FROM expected_policy.polwithcheck;
+
+        -- A caught private SQLSTATE rolls back only the audit CREATE.  PL/pgSQL
+        -- retains policy_matches across that rollback.
+        RAISE EXCEPTION USING
+            ERRCODE = 'AQT01',
+            MESSAGE = 'aqt_anchor_policy_audit_rollback';
+    EXCEPTION
+        WHEN SQLSTATE 'AQT01' THEN
+            NULL;
+    END;
+
+    IF NOT policy_matches THEN
+        RAISE EXCEPTION 'anchor_policy_definition_drift';
     END IF;
-    EXECUTE 'DROP POLICY {audit_name} ON storage.objects';
 END
 $aqt_audit_{policy.name}$;
 """
@@ -688,6 +711,181 @@ $aqt_anchor_postflight$;
 """
 
 
+def _read_policy_upgrade_contracts(
+    contract: AnchorProjectProvisioningContract,
+) -> tuple[
+    tuple[_PolicyContract, ...],
+    tuple[_PolicyContract, ...],
+    tuple[_PolicyContract, ...],
+]:
+    if WRITER_SELECT_OPERATIONS != (
+        "storage.object.upload",
+        "storage.object.get_authenticated",
+        "object.get_authenticated_info",
+        "storage.object.list",
+        "storage.object.list_v2",
+    ) or READER_SELECT_OPERATIONS != (
+        "storage.object.get_authenticated",
+        "object.get_authenticated_info",
+        "storage.object.list",
+        "storage.object.list_v2",
+    ):
+        raise AnchorProjectProvisioningError("anchor_read_policy_upgrade_invalid")
+    deployed = _deployed_anchor_policy_contracts(contract)
+    corrected = _anchor_policy_contracts(contract)
+    deployed_by_name = {policy.name: policy for policy in deployed}
+    corrected_by_name = {policy.name: policy for policy in corrected}
+    if set(deployed_by_name) != set(corrected_by_name):
+        raise AnchorProjectProvisioningError("anchor_read_policy_upgrade_invalid")
+    changed = tuple(
+        corrected_by_name[name]
+        for name in sorted(corrected_by_name)
+        if corrected_by_name[name] != deployed_by_name[name]
+    )
+    expected_changed_names = {
+        f"{_POLICY_PREFIX}guard_select",
+        f"{_POLICY_PREFIX}writer_select",
+    }
+    if contract.reader_principal_id is not None:
+        expected_changed_names.add(f"{_POLICY_PREFIX}reader_select")
+    if {policy.name for policy in changed} != expected_changed_names:
+        raise AnchorProjectProvisioningError("anchor_read_policy_upgrade_invalid")
+
+    writer_source = _operation_expression(_DEPLOYED_WRITER_SELECT_OPERATIONS)
+    writer_target = _operation_expression(WRITER_SELECT_OPERATIONS)
+    reader_source = _operation_expression(_DEPLOYED_READER_SELECT_OPERATIONS)
+    reader_target = _operation_expression(READER_SELECT_OPERATIONS)
+    for name in sorted(expected_changed_names):
+        source_policy = deployed_by_name[name]
+        target_policy = corrected_by_name[name]
+        expected_using = source_policy.using_expression
+        if expected_using is None:
+            raise AnchorProjectProvisioningError("anchor_read_policy_upgrade_invalid")
+        if name.endswith("writer_select"):
+            if expected_using.count(writer_source) != 1:
+                raise AnchorProjectProvisioningError("anchor_read_policy_upgrade_invalid")
+            expected_using = expected_using.replace(writer_source, writer_target, 1)
+        elif name.endswith("reader_select"):
+            if expected_using.count(reader_source) != 1:
+                raise AnchorProjectProvisioningError("anchor_read_policy_upgrade_invalid")
+            expected_using = expected_using.replace(reader_source, reader_target, 1)
+        elif name.endswith("guard_select"):
+            if expected_using.count(writer_source) != 1:
+                raise AnchorProjectProvisioningError("anchor_read_policy_upgrade_invalid")
+            expected_using = expected_using.replace(writer_source, writer_target, 1)
+            if contract.reader_principal_id is not None:
+                if expected_using.count(reader_source) != 1:
+                    raise AnchorProjectProvisioningError("anchor_read_policy_upgrade_invalid")
+                expected_using = expected_using.replace(reader_source, reader_target, 1)
+        else:  # pragma: no cover - guarded by exact changed-name checks above
+            raise AnchorProjectProvisioningError("anchor_read_policy_upgrade_invalid")
+        if target_policy != replace(source_policy, using_expression=expected_using):
+            raise AnchorProjectProvisioningError("anchor_read_policy_upgrade_invalid")
+    return deployed, corrected, changed
+
+
+def _render_existing_catalog_requirement() -> str:
+    return """DO $aqt_require_existing_catalog$
+BEGIN
+    IF current_setting('aqt.anchor_install_mode', true) IS DISTINCT FROM 'existing' THEN
+        RAISE EXCEPTION 'anchor_read_policy_upgrade_requires_exact_deployed_catalog';
+    END IF;
+END
+$aqt_require_existing_catalog$;
+"""
+
+
+def _render_read_policy_upgrade_preamble(
+    contract: AnchorProjectProvisioningContract,
+    *,
+    artifact_contract_version: str,
+    deployed: tuple[_PolicyContract, ...],
+) -> str:
+    deployed_audits = "\n".join(_render_exact_policy_postflight(policy) for policy in deployed)
+    return f"""-- {artifact_contract_version}
+-- Source policy contract: {DEPLOYED_CONTRACT_VERSION}
+-- Target policy contract: {CONTRACT_VERSION}
+-- Target Supabase project ref: {contract.anchor_project_ref}
+-- Runtime-project identity SHA-256: {contract.runtime_project_identity_sha256}
+-- Destructive-test-project identity SHA-256: {contract.test_project_identity_sha256}
+-- Publishable-key SHA-256: {contract.publishable_key_sha256}
+-- This transaction never inserts, updates, or deletes any storage table row.
+-- It admits only the exact deployed whole catalog before touching policy DDL.
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '30s';
+SET LOCAL idle_in_transaction_session_timeout = '30s';
+SET LOCAL standard_conforming_strings = on;
+SELECT pg_catalog.pg_advisory_xact_lock({_ADVISORY_LOCK_KEY}::bigint);
+LOCK TABLE storage.objects IN ACCESS EXCLUSIVE MODE;
+
+{_render_preflight(contract, deployed)}
+{_render_existing_catalog_requirement()}
+-- Prove every source policy by raw pg_policy parse-tree equality before DDL.
+{deployed_audits}
+"""
+
+
+def generate_read_policy_drop_capability_probe_sql(contract: object) -> str:
+    """Return a rollback-only exact-catalog DROP POLICY capability probe."""
+
+    validated = validate_provisioning_contract(contract)
+    deployed, _, changed = _read_policy_upgrade_contracts(validated)
+    drops = "\n".join(f"DROP POLICY {policy.name} ON storage.objects;" for policy in changed)
+    return (
+        _render_read_policy_upgrade_preamble(
+            validated,
+            artifact_contract_version=(READ_POLICY_DROP_CAPABILITY_PROBE_CONTRACT_VERSION),
+            deployed=deployed,
+        )
+        + "-- Exercise only the exact required managed-table capability.\n"
+        + drops
+        + "\n-- The probe is deliberately rollback-only even when every DROP succeeds.\n"
+        + "ROLLBACK;\n"
+    )
+
+
+def generate_read_policy_upgrade_sql(contract: object) -> str:
+    """Return the atomic exact-catalog v1-to-v2 read-policy upgrade SQL."""
+
+    validated = validate_provisioning_contract(contract)
+    deployed, corrected, changed = _read_policy_upgrade_contracts(validated)
+    drops = "\n".join(f"DROP POLICY {policy.name} ON storage.objects;" for policy in changed)
+    creates = "\n\n".join(_render_create_policy(policy, name=policy.name) for policy in changed)
+    corrected_audits = "\n".join(_render_exact_policy_postflight(policy) for policy in corrected)
+    return (
+        _render_read_policy_upgrade_preamble(
+            validated,
+            artifact_contract_version=READ_POLICY_UPGRADE_CONTRACT_VERSION,
+            deployed=deployed,
+        )
+        + "-- Atomically replace only the operation-aware SELECT policies.\n"
+        + drops
+        + "\n\n"
+        + creates
+        + "\n\n-- Prove the complete corrected catalog by raw parse-tree equality.\n"
+        + corrected_audits
+        + _render_final_postflight(validated, corrected)
+        + "COMMIT;\n"
+    )
+
+
+def audit_read_policy_drop_capability_probe_sql(sql: object, contract: object) -> str:
+    """Require exact rollback-only probe bytes and return their SHA-256."""
+
+    if type(sql) is not str or sql != generate_read_policy_drop_capability_probe_sql(contract):
+        raise AnchorProjectProvisioningError("anchor_read_policy_drop_probe_sql_drift")
+    return hashlib.sha256(sql.encode("utf-8")).hexdigest()
+
+
+def audit_read_policy_upgrade_sql(sql: object, contract: object) -> str:
+    """Require exact atomic upgrade bytes and return their SHA-256."""
+
+    if type(sql) is not str or sql != generate_read_policy_upgrade_sql(contract):
+        raise AnchorProjectProvisioningError("anchor_read_policy_upgrade_sql_drift")
+    return hashlib.sha256(sql.encode("utf-8")).hexdigest()
+
+
 def generate_provisioning_sql(contract: object) -> str:
     """Return deterministic transaction-safe bucket and RLS provisioning SQL."""
 
@@ -702,18 +900,24 @@ def generate_provisioning_sql(contract: object) -> str:
 -- Publishable-key SHA-256: {validated.publishable_key_sha256}
 -- Create the exact private bucket through the Supabase Storage API first.
 -- This transaction never inserts, updates, or deletes any storage table row.
--- SELECT is limited to upload RETURNING, authenticated GET, list, and list_v2.
+-- SELECT is limited to upload RETURNING, authenticated GET/info, list, and list_v2.
+-- It avoids owner-only policy rename and removal DDL on storage.objects.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '30s';
 SET LOCAL idle_in_transaction_session_timeout = '30s';
 SET LOCAL standard_conforming_strings = on;
 SELECT pg_catalog.pg_advisory_xact_lock({_ADVISORY_LOCK_KEY}::bigint);
+-- Retain a relation lock outside the rollback-only audit subtransactions so
+-- non-cooperating policy DDL cannot race parser-tree verification.
+LOCK TABLE storage.objects IN ACCESS SHARE MODE;
 
 {_render_preflight(validated, policies)}
+-- Fresh mode creates the final policy names directly.  Existing mode leaves
+-- the exact admitted catalog untouched until parser-driven verification.
 {install_sections}
--- Recreate each expected policy under a transaction-local audit name and
--- compare pg_policy parse trees.  Audit policies are dropped before commit.
+-- Recreate each expected policy in a rollback-only PL/pgSQL subtransaction,
+-- compare raw pg_policy parse trees, and preserve only the comparison result.
 {audit_sections}
 {_render_final_postflight(validated, policies)}
 COMMIT;
@@ -748,6 +952,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--publishable-key", required=True)
     parser.add_argument("--writer-principal-id", required=True)
     parser.add_argument("--reader-principal-id")
+    parser.add_argument(
+        "--mode",
+        choices=("provision", "read-policy-drop-probe", "read-policy-upgrade"),
+        default="provision",
+    )
     return parser
 
 
@@ -765,7 +974,12 @@ def main(argv: list[str] | None = None) -> int:
             writer_principal_id=arguments.writer_principal_id,
             reader_principal_id=arguments.reader_principal_id,
         )
-        sql = generate_provisioning_sql(contract)
+        if arguments.mode == "read-policy-drop-probe":
+            sql = generate_read_policy_drop_capability_probe_sql(contract)
+        elif arguments.mode == "read-policy-upgrade":
+            sql = generate_read_policy_upgrade_sql(contract)
+        else:
+            sql = generate_provisioning_sql(contract)
     except AnchorProjectProvisioningError as exc:
         print(exc.reason_code, file=sys.stderr)
         return 2

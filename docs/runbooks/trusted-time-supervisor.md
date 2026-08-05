@@ -26,10 +26,17 @@ window was retained as immutable historical `not_qualified` evidence. The
 Cloudflare/System76 v2 implementation and immutable images were subsequently
 admitted, and a separate directly supervised inspector-v5 window qualified.
 Migration `0036_phase6_time_anchors` was then applied and postflight-verified
-on 2026-08-01 with zero anchor intents and receipts. The separate anchor
-project and exact primary bucket now have retained dashboard evidence, but SQL
-catalog/policy proof, the Auth writer, behavioral proof, runtime artifacts, and
-the first external enrollment remain `UNRUN`.
+on 2026-08-01 with zero anchor intents and receipts. On 2026-08-04, approved
+separate-project provisioning SQL SHA-256
+`68be661f65b3f6b45d7732744790d8155aeb4aae75d6311d196d711e39321135`
+committed; postflight proved the exact six-policy no-reader catalog and
+dedicated Auth writer. On 2026-08-05, the dedicated writer password was rotated
+and verified by a fresh Auth sign-in, and the owner-only runtime artifacts were
+generated and decoder-validated. The first behavioral proof retained one
+canonical object but failed closed at authenticated read; its policy-recovery
+probe passed and the approved atomic upgrade committed with exact-catalog
+postflight. Secure-launcher artifact admission
+and first external enrollment remain `UNRUN`.
 Neither migration nor either inspected window grants readiness or any trading
 authority.
 
@@ -80,17 +87,38 @@ mode-0750 Chrony command-socket tmpfs is shared read-write: unmodified Chrony
 4.8 requires `chronyc` to create a short-lived reply socket beside the daemon
 socket. Chrony's state volume remains source-only.
 
-## Implemented Phase 6D contract; external provisioning incomplete
+## Implemented Phase 6D contract; proof, admission, and enrollment incomplete
 
 The Phase 6D code and runtime-database schema are implemented. Separate anchor
 project `pgplscpqsvyraleyaphm` is Healthy on Supabase's Free plan with its Data
 API disabled. Owner-only retained dashboard evidence records its exact private
 `aqt-trusted-time-anchors-v1` bucket, 4,096-byte size limit, and sole
-`application/json` MIME allowance. That does not prove the SQL catalog or
-policies. The exact catalog preflight/policy apply, dedicated Auth writer,
-behavioral proof, signing/Auth/authority artifact creation, and enrollment are
-all `UNRUN`. No first enrollment has been approved or performed. Do not
-describe the current deployment as externally anchored.
+`application/json` MIME allowance. On 2026-08-04, approved provisioning SQL
+SHA-256
+`68be661f65b3f6b45d7732744790d8155aeb4aae75d6311d196d711e39321135`
+committed. Read-only postflight at `2026-08-04T05:35:35Z` proved the exact whole
+catalog of six policies, the dedicated writer, and no reader principal or
+policy. On 2026-08-05, the dedicated writer password was rotated through the
+Supabase Auth Admin boundary and verified by a fresh password sign-in for the
+exact retained UUID and email. The offline generator then exclusively created
+the raw signing key, Auth secret, and nonsecret authority outside the repository;
+its secret-free receipt-file SHA-256 is
+`c52cb3eccfefed713822fe797ac5f2f93c33565b60b41940faa93b2bb30bc264`,
+the authority SHA-256 is
+`9747c97be9cfabf51e524eef66120e8c7ec860be18e064416b17aa197eeb8f7c`,
+and the signing-public-key SHA-256 is
+`c86fec8a97a5630fb258e82b461336cc5ac053f7b2866a5694b5d571d0c92be7`.
+All source and evidence files are owner-only mode `0600`; the runtime decoders
+accepted their exact binding. Behavioral proof
+`0396c9fe-0a8f-4b17-8c71-faa8a8033bb0` authenticated, inserted one canonical
+object with no-overwrite semantics, and listed it, then failed closed at
+authenticated read with a provider-masked `NoSuchKey`. The object remains;
+exact bytes have not passed authenticated GET and the denial matrix is
+incomplete. Its owner-only canonical failure evidence has SHA-256
+`530a6ea5075ec787c16bdcbc1eb3a52e2900661e036e35ee24bb371c32f6d536`.
+Secure-launcher artifact admission and enrollment remain `UNRUN`,
+`allow_enrollment` remains false, and no first enrollment has been approved or
+performed. Do not describe the current deployment as externally anchored.
 
 The exact implemented identities and bounds are:
 
@@ -217,14 +245,17 @@ failure domain, alert delivery, readiness/control/new-exposure/manual-re-arm
 integration, deployment, drill, or Phase 6 exit evidence. The required order
 is still:
 
-1. complete the separate Supabase anchor project's remaining provisioning and
-   retain reviewed catalog, policy, principal, artifact, and behavioral evidence;
-2. separately obtain approval for and retain the first enrollment evidence;
-3. only then implement a sealed provider-terminal issuer that authenticates a
+1. preserve the retained passing rollback-only policy-capability probe and
+   applied exact-catalog v1-to-v2 upgrade evidence;
+2. land the reviewed resume implementation, then separately approve resuming
+   the same behavioral object without a fresh insert and retain local runtime
+   admission;
+3. separately obtain approval for and retain the first enrollment evidence;
+4. only then implement a sealed provider-terminal issuer that authenticates a
    complete new suffix, binds two stable namespace passes to their exact
    digest/count/terminal identity, proves no higher sequence exists, and
    captures its own independent monotonic instant; and
-4. only after that issuer is reviewed may a separate runtime apply the
+5. only after that issuer is reviewed may a separate runtime apply the
    360-second stale threshold, with equality stale and every stale result
    unavailable, and qualify later consumers.
 
@@ -379,54 +410,104 @@ This gate is in progress and remains incomplete. Project
 `pgplscpqsvyraleyaphm` is Healthy on Supabase's Free plan with its Data API
 disabled. Owner-only retained dashboard evidence records the exact private
 primary bucket `aqt-trusted-time-anchors-v1`, its 4,096-byte file-size limit,
-and sole `application/json` MIME allowance. Dashboard evidence is not an exact
-SQL catalog or policy proof, and none of the remaining steps below has been
-run. Partial or complete provisioning does not approve enrollment.
+and sole `application/json` MIME allowance. Steps 1-5 below are complete and
+retained; step 6 was attempted and remains failed/incomplete, and step 7 is
+pending. Partial or complete provisioning does not approve enrollment.
 
-1. The distinct anchor project and primary bucket creation are complete only at
-   the dashboard-evidence layer described above. Continue to record only
+1. **Complete.** The distinct anchor project and exact primary bucket have
+   retained dashboard evidence. Continue to record only
    identity digests and nonsecret project refs in reviewed evidence. Never
    insert or update `storage.buckets` directly.
-2. Create a dedicated Supabase Auth writer. Do not supply the service-role key
-   to the runtime. If a separate reader is approved, bind its distinct Auth
-   UUID explicitly; otherwise omit it.
-3. Use
-   `scripts/provision_trusted_time_anchor_project.py` to validate the three
-   distinct project refs, exact project URL, publishable key, and principal
-   UUIDs and to render the deterministic
-   `aqt-trusted-time-supabase-anchor-project-v1` SQL. Review its digest before
-   applying it to the separate project. The transaction must find the exact
+2. **Complete.** Dedicated Supabase Auth writer
+   `30876d87-2b57-4fb0-9488-20db3781ec04` is retained; no reader was admitted.
+   Its password was rotated and verified by a fresh Auth sign-in on 2026-08-05;
+   sanitized owner-only rotation evidence has SHA-256
+   `e5d24ece7d09135c03888fea60a866b5fea867e46a35d042fde3e84f45e7ab95`.
+   Do not supply the service-role key to the runtime.
+3. **Complete.** `scripts/provision_trusted_time_anchor_project.py` validated
+   the three distinct project refs, exact project URL, publishable key, and
+   principal UUIDs and rendered deterministic
+   `aqt-trusted-time-supabase-anchor-project-v1` SQL. Approved SHA-256
+   `68be661f65b3f6b45d7732744790d8155aeb4aae75d6311d196d711e39321135`
+   committed on 2026-08-04; postflight at `2026-08-04T05:35:35Z` proved the
+   exact six-policy no-reader catalog. The transaction found the exact
    pre-created bucket. Its catalog gate examines the entire policy set on
    `storage.objects`: preflight accepts only no policies or the complete exact
    expected set, and postflight requires the entire set to be exactly the
-   expected `aqt_tt_anchor_v1_*` policies. Any unrelated policy is drift. Retain
-   exact preflight, apply, and postflight evidence.
-4. Through the supported dashboard or API, create and retain independent
-   owner-only evidence for a real, distinct private control bucket in this same
-   project. It must not be `aqt-trusted-time-anchors-v1`, and it receives no
-   writer policy. This bucket exists only to prove cross-bucket denial; a
-   nonexistent name is not evidence of authorization behavior.
-5. Run `scripts/generate_trusted_time_anchor_artifacts.py` offline to create one
+   expected `aqt_tt_anchor_v1_*` policies. Fresh mode creates those final names;
+   both fresh and existing modes create each equivalent audit policy in a
+   rollback-only PL/pgSQL subtransaction, compare raw `pg_policy` trees, and
+   catch only a private rollback sentinel before postflight. Real definition
+   drift is raised outside that handler, and a transaction-scoped relation lock
+   excludes concurrent policy DDL. The transaction must contain no policy rename
+   or removal DDL against the provider-owned table. Any unrelated policy is
+   drift. Exact apply and postflight evidence is retained. This deployed v1
+   catalog omitted legacy metadata operation `object.get_authenticated_info`
+   from both the writer SELECT policy and restrictive SELECT guard. The local
+   v2 contract corrects exactly those policies; it is not yet deployed.
+4. **Complete.** Independent owner-only evidence retains the real private
+   control bucket `aqt-trusted-time-anchor-proof-other-v1` in this same project.
+   It is distinct from `aqt-trusted-time-anchors-v1` and receives no writer
+   policy. This bucket exists only to prove cross-bucket denial.
+5. **Complete.** On 2026-08-05,
+   `scripts/generate_trusted_time_anchor_artifacts.py` exclusively created one
    raw 32-byte Ed25519 private key, one exact runtime-compatible Auth-secret
-   JSON, and one nonsecret authority JSON. Use absolute, distinct owner-only
-   targets outside Supabase and outside the repository. The operator refuses
-   overwrite, validates all three against runtime contracts, emits only a
-   secret-free receipt, fixes `allow_enrollment=false`, and records enrollment
-   `UNRUN`. Never place the password, Auth secret, or signing key in reviewed
-   evidence.
-6. Run `scripts/prove_trusted_time_anchor_storage.py` with the owner-only Auth
-   secret and the retained real-control-bucket evidence. It authenticates the
-   exact writer and retains one synthetic canonical object under a proof-only
-   deployment/host prefix outside the runtime's exact prefix. It must prove the
-   writer can list/read and insert only names matching
-   `v1/<deployment-sha256>/<host-sha256>/<20-digit-sequence>-<sha256>.json`.
-   Require strict authorization denial for overwrite, upsert, update, delete,
-   unrelated namespaces, the evidenced real control bucket, and anonymous
-   insert, plus denial or provider masking for the positively established
-   private object's anonymous/public read routes. Preserve only its sanitized
-   result; never retain access tokens, passwords, or provider response bodies.
-   The operator has no cleanup mode: the synthetic proof object remains, while
-   enrollment stays `UNRUN`.
+   JSON, and one nonsecret authority JSON at absolute, distinct owner-only
+   targets outside Supabase and outside the repository. Runtime decoders
+   revalidated all three, including the private/public signing-key match, exact
+   writer binding, source/deployment identities, and bound publishable-key
+   digest. The secret-free receipt-file SHA-256 is
+   `c52cb3eccfefed713822fe797ac5f2f93c33565b60b41940faa93b2bb30bc264`;
+   the deployment-identity SHA-256 is
+   `e1290de2b5b340dee07f327af42f18b6bba0ccba0ea003be37783abc7b4ae892`.
+   The result retains `allow_enrollment=false` and enrollment `UNRUN`. Never
+   place the password, Auth secret, or signing key in reviewed evidence.
+6. **Failed/incomplete; recovery approval required.** The first execution of
+   `scripts/prove_trusted_time_anchor_storage.py` used proof ID
+   `0396c9fe-0a8f-4b17-8c71-faa8a8033bb0`. Exact writer authentication, the
+   no-overwrite canonical insert, and authenticated list passed. Authenticated
+   read then returned an outer-400/inner-404 `NoSuchKey`, so the command stopped
+   with `proof_canonical_object_changed`, `UNKNOWN_REVIEW_REQUIRED`, and no
+   denial-matrix completion. Preserve the retained object and owner-only
+   canonical failure evidence SHA-256
+   `530a6ea5075ec787c16bdcbc1eb3a52e2900661e036e35ee24bb371c32f6d536`;
+   never rerun in fresh-insert mode for that proof ID.
+
+   The exact owner-only rollback-only artifact
+   `phase6d-anchor-read-policy-drop-capability-probe.sql`, SHA-256
+   `73f7db8b16033848cbc9790310bd7a6d4e3c4537d6a694cac9fdf368d12eea18`,
+   passed under role `postgres` on 2026-08-05 and reached its terminal rollback.
+   It admitted and parse-tree-proved only the exact deployed six-policy v1 catalog,
+   attempts DROP only for `aqt_tt_anchor_v1_guard_select` and
+   `aqt_tt_anchor_v1_writer_select`, and always ends in `ROLLBACK`. Retain a
+   read-only postflight regardless of outcome. Owner-only pass evidence SHA-256
+   is `706ddc3a7a9e9f656e42b037b7e92e0dd2acd90cdd68a97d2fa4ef653bd29e81`.
+   The retained postflight SQL SHA-256
+   `f9dff727a72661a3deafa84a7d711db73b4499427bb003b0687c58b8c96078ce`
+   proved exact equality with the baseline bucket and complete policy catalogs;
+   its primary object count remained one and enrollment remained `UNRUN`.
+
+   The capability probe satisfied its gate. The separately approved exact
+   owner-only atomic artifact
+   `phase6d-anchor-read-policy-v1-to-v2-upgrade.sql`, SHA-256
+   `b35de9ae59438481a9f4e26bb9e18a6c3fd37eca2648f7f0ded3e6c87e0fee55`,
+   committed under role `postgres` on 2026-08-05. It locks and proves the exact
+   v1 catalog, atomically replaces only those two
+   SELECT policies to add `object.get_authenticated_info`, proves all six v2
+   definitions plus exact whole-catalog equality, and then commits. It performs
+   no `storage.*` row DML. Owner-only applied evidence SHA-256 is
+   `57a4ce0914d36b179adce7f40afda99bb7bd5d859a2a9f33cb2d40984bca62e3`.
+   The locked read-only postflight proves the complete v2 catalog, exact
+   two-policy delta, one retained object, and enrollment `UNRUN`.
+
+   After corrected postflight, resume the existing object with
+   `--proof-id 0396c9fe-0a8f-4b17-8c71-faa8a8033bb0` and
+   `--resume-failure-evidence-file` pointing to the exact retained evidence.
+   Resume must perform no fresh insert; it first authenticates, lists, and reads
+   the exact existing bytes, then completes overwrite/upsert/update/delete,
+   cross-namespace, real-control-bucket, anonymous, and public denials. Preserve
+   only sanitized results, never tokens, passwords, or response bodies.
+   Enrollment stays `UNRUN` throughout.
 7. Retain the parse-only Compose admission with all four runtime sources at
    `/dev/null`, then use only the implemented secure launcher to stage, admit,
    and retire the exact database, authority, Auth, and signing-key mounts
@@ -503,14 +584,16 @@ connection to the intended Supabase Session-pooler hostname before use.
 
 ## Approval-blocked supervised start
 
-This section remains approval-blocked because the separate-project
-provisioning gate is `UNRUN`, production composition fixes
-`allow_enrollment=False`, and no first enrollment has been approved or
-performed. The secure launcher is implemented; its presence does not provision
-the external project or approve enrollment. A start must fail closed when the
-exact authority/secrets are absent or the remote prefix is unenrolled. Do not
-run `make trusted-time-start` as a provisioning experiment and do not weaken
-that behavior to repeat the earlier source-only window.
+This section remains approval-blocked because the separate-project gate is
+incomplete: the behavioral proof failed at authenticated read and its recovery
+is unapproved, while local runtime admission and first enrollment remain
+`UNRUN`; production composition fixes `allow_enrollment=False`; and no first
+enrollment has been approved or performed. Owner-only runtime artifacts
+now exist, but the secure launcher's presence and those artifacts do not prove
+Storage behavior or approve enrollment. A start must fail closed when the exact
+authority/secrets are absent or the remote prefix is unenrolled. Do not run
+`make trusted-time-start` as a provisioning experiment and do not weaken that
+behavior to repeat the earlier source-only window.
 
 The launcher freshly builds and verifies both images, atomically replaces the
 canonical owner-only image-admission artifact, reloads its canonical bytes and

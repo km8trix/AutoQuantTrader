@@ -19,6 +19,7 @@ from scripts.prove_trusted_time_anchor_storage import (
     REAL_OTHER_BUCKET_EXISTENCE_EVIDENCE_CONTRACT_VERSION,
     STORAGE_BEHAVIORAL_PROOF_CONTRACT_VERSION,
     STORAGE_BEHAVIORAL_PROOF_ENVIRONMENT_VARIABLES,
+    STORAGE_BEHAVIORAL_PROOF_RESUME_CONTRACT_VERSION,
     StorageBehavioralProofConfiguration,
     StorageBehavioralProofError,
     _proof_object,
@@ -139,6 +140,7 @@ class _StorageHarness:
     allow_upsert: bool = False
     timeout_at_upsert: bool = False
     unavailable_at_auth: bool = False
+    fail_authenticated_read: bool = False
     denial_shape: str = "access_denied"
     noncanonical_denial_shape: str | None = None
     other_bucket_denial_shape: str | None = None
@@ -171,6 +173,30 @@ class _StorageHarness:
                     "error": "Unauthorized",
                     "message": "new row violates row-level security policy",
                     "statusCode": "403",
+                },
+            )
+        if selected in {
+            "wrapped_no_such_bucket",
+            "wrapped_no_such_key",
+            "wrapped_no_such_key_bad_status",
+            "wrapped_unexpected_code",
+        }:
+            code = "NoSuchBucket" if selected == "wrapped_no_such_bucket" else "NoSuchKey"
+            if selected == "wrapped_unexpected_code":
+                code = "InvalidRequest"
+            message = (
+                "Bucket not found" if selected == "wrapped_no_such_bucket" else "Object not found"
+            )
+            return httpx.Response(
+                400,
+                headers={"content-type": "application/json"},
+                json={
+                    "code": code,
+                    "error": "not_found",
+                    "message": message,
+                    "statusCode": (
+                        "403" if selected == "wrapped_no_such_key_bad_status" else "404"
+                    ),
                 },
             )
         values = {
@@ -257,6 +283,8 @@ class _StorageHarness:
             assert self.stored_name is not None
             if not authenticated:
                 return self._denial(self.known_resource_denial_shape)
+            if self.fail_authenticated_read:
+                return self._denial("wrapped_no_such_key")
             assert request.url.path == authenticated_path_prefix + self.stored_name
             assert self.stored_payload is not None
             return httpx.Response(
@@ -515,11 +543,202 @@ def test_real_other_bucket_rejects_no_such_bucket_but_known_key_may_be_hidden(
     ):
         execute_storage_behavioral_proof(configuration, transport=missing.transport)
 
+    wrapped_missing = _StorageHarness(other_bucket_denial_shape="wrapped_no_such_bucket")
+    with pytest.raises(
+        StorageBehavioralProofError,
+        match="proof_real_other_bucket_not_denied",
+    ):
+        execute_storage_behavioral_proof(
+            configuration,
+            transport=wrapped_missing.transport,
+        )
+
     hidden = execute_storage_behavioral_proof(
         configuration,
         transport=_StorageHarness(known_resource_denial_shape="no_such_key").transport,
     )
     assert hidden.public_payload["status"] == "passed"
+
+    wrapped_hidden = execute_storage_behavioral_proof(
+        configuration,
+        transport=_StorageHarness(known_resource_denial_shape="wrapped_no_such_key").transport,
+    )
+    assert wrapped_hidden.public_payload["status"] == "passed"
+
+    wrapped_bucket_hidden = execute_storage_behavioral_proof(
+        configuration,
+        transport=_StorageHarness(known_resource_denial_shape="wrapped_no_such_bucket").transport,
+    )
+    assert wrapped_bucket_hidden.public_payload["status"] == "passed"
+
+
+@pytest.mark.parametrize(
+    "shape",
+    ["wrapped_no_such_key_bad_status", "wrapped_unexpected_code"],
+)
+def test_known_resource_wrapped_not_found_requires_exact_inner_semantics(
+    tmp_path: Path,
+    shape: str,
+) -> None:
+    configuration = _load_env(_write_env(tmp_path))
+
+    with pytest.raises(
+        StorageBehavioralProofError,
+        match="proof_anonymous_read_not_denied",
+    ):
+        execute_storage_behavioral_proof(
+            configuration,
+            transport=_StorageHarness(known_resource_denial_shape=shape).transport,
+        )
+
+
+def test_failed_authenticated_read_can_resume_same_object_without_fresh_insert(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    environment = _write_env(tmp_path)
+    other_bucket_evidence = _write_other_bucket_evidence(tmp_path)
+    failure_harness = _StorageHarness(fail_authenticated_read=True)
+    arguments = [
+        "--env-file",
+        str(environment),
+        "--proof-id",
+        PROOF_ID,
+        "--real-other-bucket-evidence-file",
+        str(other_bucket_evidence),
+    ]
+
+    assert main(arguments, transport=failure_harness.transport) == 2
+    failure_output = capsys.readouterr().out
+    failure_payload = json.loads(failure_output)
+    assert failure_payload["failed_operation"] == "authenticated_canonical_read"
+    assert failure_payload["reason"] == "proof_canonical_object_changed"
+    failure_path = tmp_path / "failed-proof.json"
+    failure_path.write_text(failure_output, encoding="ascii")
+    failure_path.chmod(0o600)
+    assert failure_harness.stored_name is not None
+    assert failure_harness.stored_payload is not None
+
+    resume_harness = _StorageHarness(
+        stored_name=failure_harness.stored_name,
+        stored_payload=failure_harness.stored_payload,
+    )
+    resume_arguments = [
+        *arguments,
+        "--resume-failure-evidence-file",
+        str(failure_path),
+    ]
+
+    pre_read_failure_harness = _StorageHarness(
+        stored_name=failure_harness.stored_name,
+        stored_payload=failure_harness.stored_payload,
+        unavailable_at_auth=True,
+    )
+    assert main(resume_arguments, transport=pre_read_failure_harness.transport) == 2
+    pre_read_failure = json.loads(capsys.readouterr().out)
+    assert pre_read_failure["contract_version"] == (
+        STORAGE_BEHAVIORAL_PROOF_RESUME_CONTRACT_VERSION
+    )
+    assert pre_read_failure["fresh_object_insert_performed"] is False
+    assert pre_read_failure["object_creation_basis"] == (
+        "retained_failed_attempt_pending_exact_authenticated_read"
+    )
+    assert (
+        pre_read_failure["resume_failure_evidence_sha256"]
+        == hashlib.sha256(failure_path.read_bytes()).hexdigest()
+    )
+    assert pre_read_failure["failed_operation"] == "authenticated_principal_uuid"
+
+    changed_retained_bytes_harness = _StorageHarness(
+        stored_name=failure_harness.stored_name,
+        stored_payload=failure_harness.stored_payload + b"changed",
+    )
+    assert main(resume_arguments, transport=changed_retained_bytes_harness.transport) == 2
+    changed_retained_bytes_failure = json.loads(capsys.readouterr().out)
+    assert changed_retained_bytes_failure["contract_version"] == (
+        STORAGE_BEHAVIORAL_PROOF_RESUME_CONTRACT_VERSION
+    )
+    assert changed_retained_bytes_failure["fresh_object_insert_performed"] is False
+    assert changed_retained_bytes_failure["object_creation_basis"] == (
+        "retained_failed_attempt_pending_exact_authenticated_read"
+    )
+    assert changed_retained_bytes_failure["failed_operation"] == ("authenticated_canonical_read")
+    assert changed_retained_bytes_failure["reason"] == "proof_canonical_object_changed"
+    assert [call[0] for call in changed_retained_bytes_harness.calls] == ["POST", "GET"]
+
+    post_read_failure_harness = _StorageHarness(
+        stored_name=failure_harness.stored_name,
+        stored_payload=failure_harness.stored_payload,
+        timeout_at_upsert=True,
+    )
+    assert main(resume_arguments, transport=post_read_failure_harness.transport) == 2
+    post_read_failure = json.loads(capsys.readouterr().out)
+    assert post_read_failure["contract_version"] == (
+        STORAGE_BEHAVIORAL_PROOF_RESUME_CONTRACT_VERSION
+    )
+    assert post_read_failure["object_creation_basis"] == (
+        "retained_failed_attempt_plus_exact_authenticated_read"
+    )
+    assert post_read_failure["failed_operation"] == "upsert_x_upsert_true"
+    assert post_read_failure["reason"] == "proof_request_timed_out"
+    assert {
+        "name": "authenticated_canonical_read",
+        "result": "allowed",
+    } in post_read_failure["completed_operations"]
+
+    assert main(resume_arguments, transport=resume_harness.transport) == 0
+    resume_output = capsys.readouterr().out
+    resume_payload = json.loads(resume_output)
+
+    assert resume_payload["contract_version"] == (STORAGE_BEHAVIORAL_PROOF_RESUME_CONTRACT_VERSION)
+    assert resume_payload["fresh_object_insert_performed"] is False
+    assert resume_payload["object_creation_basis"] == (
+        "retained_failed_attempt_plus_exact_authenticated_read"
+    )
+    assert (
+        resume_payload["resume_failure_evidence_sha256"]
+        == hashlib.sha256(failure_path.read_bytes()).hexdigest()
+    )
+    assert resume_payload["object_name"] == failure_harness.stored_name
+    assert [operation["name"] for operation in resume_payload["operations"][:4]] == [
+        "authenticated_principal_uuid",
+        "retained_failure_evidence",
+        "authenticated_existing_canonical_list",
+        "authenticated_canonical_read",
+    ]
+    assert resume_harness.calls[0][1] == f"/storage/v1/object/list/{BUCKET}"
+    for secret in (EMAIL, PASSWORD, PUBLISHABLE_KEY, ACCESS_TOKEN):
+        assert secret not in resume_output
+
+    changed = json.loads(failure_output)
+    changed["proof_id"] = "52345678-1234-4234-9234-123456789abc"
+    failure_path.write_text(
+        json.dumps(changed, separators=(",", ":"), sort_keys=True) + "\n",
+        encoding="ascii",
+    )
+    invalid_harness = _StorageHarness(
+        stored_name=failure_harness.stored_name,
+        stored_payload=failure_harness.stored_payload,
+    )
+    assert main(resume_arguments, transport=invalid_harness.transport) == 2
+    invalid_payload = json.loads(capsys.readouterr().out)
+    assert invalid_payload["reason"] == "proof_resume_evidence_invalid"
+    assert invalid_harness.calls == []
+
+    direct_invalid_harness = _StorageHarness(
+        stored_name=failure_harness.stored_name,
+        stored_payload=failure_harness.stored_payload,
+    )
+    with pytest.raises(
+        StorageBehavioralProofError,
+        match="proof_resume_evidence_invalid",
+    ):
+        execute_storage_behavioral_proof(
+            _load_env(environment),
+            transport=direct_invalid_harness.transport,
+            resume_failure_evidence_file=failure_path,
+        )
+    assert direct_invalid_harness.calls == []
 
 
 def test_delete_probe_uses_single_object_not_ambiguous_bulk_delete(tmp_path: Path) -> None:

@@ -49,6 +49,9 @@ from scripts.provision_trusted_time_anchor_project import (
 )
 
 STORAGE_BEHAVIORAL_PROOF_CONTRACT_VERSION = "phase6-supabase-storage-anchor-behavioral-proof-v1"
+STORAGE_BEHAVIORAL_PROOF_RESUME_CONTRACT_VERSION = (
+    "phase6-supabase-storage-anchor-behavioral-proof-resume-v1"
+)
 STORAGE_BEHAVIORAL_PROOF_OBJECT_CONTRACT_VERSION = (
     "phase6-supabase-storage-anchor-behavioral-proof-object-v1"
 )
@@ -94,6 +97,26 @@ _AUTH_SECRET_KEYS = frozenset(
         "publishable_key",
     }
 )
+_RESUME_FAILURE_EVIDENCE_KEYS = frozenset(
+    {
+        "allow_enrollment",
+        "completed_operations",
+        "contract_version",
+        "enrollment",
+        "external_state_outcome",
+        "failed_operation",
+        "object_name",
+        "object_payload_sha256",
+        "proof_id",
+        "reason",
+        "status",
+    }
+)
+_RESUME_FAILURE_COMPLETED_OPERATIONS = (
+    {"name": "authenticated_principal_uuid", "result": "verified"},
+    {"name": "canonical_insert_x_upsert_false", "result": "allowed"},
+    {"name": "authenticated_canonical_list", "result": "allowed"},
+)
 
 
 class StorageBehavioralProofError(RuntimeError):
@@ -128,10 +151,18 @@ class StorageBehavioralProofFailureContext:
     completed_operations: tuple[tuple[str, str], ...]
     failed_operation: str
     external_state_outcome: str
+    resume_failure_evidence_sha256: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.resume_failure_evidence_sha256 is not None and (
+            type(self.resume_failure_evidence_sha256) is not str
+            or _SHA256.fullmatch(self.resume_failure_evidence_sha256) is None
+        ):
+            raise StorageBehavioralProofError("proof_resume_evidence_invalid")
 
     @property
     def public_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "completed_operations": [
                 {"name": name, "result": result} for name, result in self.completed_operations
             ],
@@ -141,6 +172,23 @@ class StorageBehavioralProofFailureContext:
             "object_payload_sha256": self.object_payload_sha256,
             "proof_id": self.proof_id,
         }
+        if self.resume_failure_evidence_sha256 is not None:
+            exact_read_completed = (
+                "authenticated_canonical_read",
+                "allowed",
+            ) in self.completed_operations
+            payload.update(
+                {
+                    "fresh_object_insert_performed": False,
+                    "object_creation_basis": (
+                        "retained_failed_attempt_plus_exact_authenticated_read"
+                        if exact_read_completed
+                        else "retained_failed_attempt_pending_exact_authenticated_read"
+                    ),
+                    "resume_failure_evidence_sha256": (self.resume_failure_evidence_sha256),
+                }
+            )
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,14 +255,26 @@ class StorageBehavioralProofEvidence:
     object_name: str
     object_payload_sha256: str
     operations: tuple[tuple[str, str], ...]
+    resume_failure_evidence_sha256: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.resume_failure_evidence_sha256 is not None and (
+            type(self.resume_failure_evidence_sha256) is not str
+            or _SHA256.fullmatch(self.resume_failure_evidence_sha256) is None
+        ):
+            raise StorageBehavioralProofError("proof_resume_evidence_invalid")
 
     @property
     def evidence_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "allow_enrollment": False,
             "anchor_project_ref": self.anchor_project_ref,
             "bucket_id": TRUSTED_TIME_HEAD_ANCHOR_BUCKET_NAME,
-            "contract_version": STORAGE_BEHAVIORAL_PROOF_CONTRACT_VERSION,
+            "contract_version": (
+                STORAGE_BEHAVIORAL_PROOF_CONTRACT_VERSION
+                if self.resume_failure_evidence_sha256 is None
+                else STORAGE_BEHAVIORAL_PROOF_RESUME_CONTRACT_VERSION
+            ),
             "enrollment": "UNRUN",
             "object_name": self.object_name,
             "object_payload_sha256": self.object_payload_sha256,
@@ -235,6 +295,17 @@ class StorageBehavioralProofEvidence:
             "real_other_bucket_verified_at_utc": self.real_other_bucket_verified_at_utc,
             "status": "passed",
         }
+        if self.resume_failure_evidence_sha256 is not None:
+            payload.update(
+                {
+                    "fresh_object_insert_performed": False,
+                    "object_creation_basis": (
+                        "retained_failed_attempt_plus_exact_authenticated_read"
+                    ),
+                    "resume_failure_evidence_sha256": (self.resume_failure_evidence_sha256),
+                }
+            )
+        return payload
 
     @property
     def public_payload(self) -> dict[str, object]:
@@ -770,6 +841,45 @@ def _proof_object(configuration: StorageBehavioralProofConfiguration) -> tuple[s
     return object_name, payload, payload_sha256
 
 
+def _load_resume_failure_evidence(
+    path: Path,
+    *,
+    configuration: StorageBehavioralProofConfiguration,
+) -> str:
+    """Admit the exact retained failed-at-read evidence for a no-insert resume."""
+
+    try:
+        payload = _read_owner_only_file(path, maximum_bytes=4_096)
+    except StorageBehavioralProofError:
+        raise StorageBehavioralProofError("proof_resume_evidence_invalid") from None
+    if not payload.endswith(b"\n") or payload.endswith(b"\n\n"):
+        raise StorageBehavioralProofError("proof_resume_evidence_invalid")
+    canonical_payload = payload[:-1]
+    decoded = _decode_json(
+        canonical_payload,
+        reason_code="proof_resume_evidence_invalid",
+    )
+    object_name, _, payload_sha256 = _proof_object(configuration)
+    if (
+        type(decoded) is not dict
+        or set(decoded) != _RESUME_FAILURE_EVIDENCE_KEYS
+        or _canonical_json_bytes(decoded) != canonical_payload
+        or decoded.get("allow_enrollment") is not False
+        or decoded.get("contract_version") != STORAGE_BEHAVIORAL_PROOF_CONTRACT_VERSION
+        or decoded.get("enrollment") != "UNRUN"
+        or decoded.get("external_state_outcome") != "UNKNOWN_REVIEW_REQUIRED"
+        or decoded.get("failed_operation") != "authenticated_canonical_read"
+        or decoded.get("object_name") != object_name
+        or decoded.get("object_payload_sha256") != payload_sha256
+        or decoded.get("proof_id") != configuration.proof_id
+        or decoded.get("reason") != "proof_canonical_object_changed"
+        or decoded.get("status") != "failed"
+        or decoded.get("completed_operations") != list(_RESUME_FAILURE_COMPLETED_OPERATIONS)
+    ):
+        raise StorageBehavioralProofError("proof_resume_evidence_invalid")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _storage_object_path(bucket: str, object_name: str, *, authenticated: bool) -> str:
     route = "authenticated/" if authenticated else ""
     return f"/storage/v1/object/{route}{quote(bucket, safe='')}/{quote(object_name, safe='/')}"
@@ -878,8 +988,13 @@ def _require_known_resource_hidden(
     """
 
     if response.status_code != 404:
-        _require_authorization_denied(response, reason_code=reason_code)
-        return
+        try:
+            _require_authorization_denied(response, reason_code=reason_code)
+        except StorageBehavioralProofError:
+            if response.status_code != 400:
+                raise
+        else:
+            return
     if response.media_type != "application/json" or not response.body:
         raise StorageBehavioralProofError(reason_code)
     decoded = _decode_json(response.body, reason_code=reason_code)
@@ -887,11 +1002,16 @@ def _require_known_resource_hidden(
         raise StorageBehavioralProofError(reason_code)
     code = decoded.get("code")
     message = decoded.get("message")
+    inner_status = decoded.get("statusCode", decoded.get("httpStatusCode"))
     if (
         code not in accepted_not_found_codes
         or type(message) is not str
         or not message
         or len(message) > 1_024
+        or (
+            response.status_code == 400
+            and not ((type(inner_status) is int and inner_status == 404) or inner_status == "404")
+        )
     ):
         raise StorageBehavioralProofError(reason_code)
 
@@ -938,12 +1058,19 @@ def execute_storage_behavioral_proof(
     configuration: StorageBehavioralProofConfiguration,
     *,
     transport: httpx.BaseTransport | None = None,
+    resume_failure_evidence_file: Path | None = None,
 ) -> StorageBehavioralProofEvidence:
     """Run one no-cleanup proof and return only deterministic sanitized evidence."""
 
     if type(configuration) is not StorageBehavioralProofConfiguration:
         raise StorageBehavioralProofError("proof_configuration_invalid")
     configuration.__post_init__()
+    resume_failure_evidence_sha256 = None
+    if resume_failure_evidence_file is not None:
+        resume_failure_evidence_sha256 = _load_resume_failure_evidence(
+            resume_failure_evidence_file,
+            configuration=configuration,
+        )
     object_name, payload, payload_sha256 = _proof_object(configuration)
     prefix, basename = object_name.rsplit("/", 1)
     prefix += "/"
@@ -968,35 +1095,40 @@ def execute_storage_behavioral_proof(
     )
     operations: list[tuple[str, str]] = []
     current_operation = "authenticated_principal_uuid"
-    storage_mutation_attempted = False
+    storage_mutation_attempted = resume_failure_evidence_sha256 is not None
     client = _StorageProofClient(configuration.credentials, transport=transport)
     try:
         client.authenticate_and_verify_principal()
         operations.append(("authenticated_principal_uuid", "verified"))
 
-        current_operation = "canonical_insert_x_upsert_false"
-        storage_mutation_attempted = True
         upload_path = _storage_object_path(
             TRUSTED_TIME_HEAD_ANCHOR_BUCKET_NAME,
             object_name,
             authenticated=False,
         )
-        response = client.request(
-            "POST",
-            upload_path,
-            authenticated=True,
-            headers={
-                "cache-control": "no-store",
-                "content-type": TRUSTED_TIME_HEAD_ANCHOR_CONTENT_TYPE,
-                "x-upsert": "false",
-            },
-            body=payload,
-        )
-        if response.status_code not in {200, 201}:
-            raise StorageBehavioralProofError("proof_canonical_insert_failed")
-        operations.append(("canonical_insert_x_upsert_false", "allowed"))
-
-        current_operation = "authenticated_canonical_list"
+        if resume_failure_evidence_sha256 is None:
+            current_operation = "canonical_insert_x_upsert_false"
+            storage_mutation_attempted = True
+            response = client.request(
+                "POST",
+                upload_path,
+                authenticated=True,
+                headers={
+                    "cache-control": "no-store",
+                    "content-type": TRUSTED_TIME_HEAD_ANCHOR_CONTENT_TYPE,
+                    "x-upsert": "false",
+                },
+                body=payload,
+            )
+            if response.status_code not in {200, 201}:
+                raise StorageBehavioralProofError("proof_canonical_insert_failed")
+            operations.append(("canonical_insert_x_upsert_false", "allowed"))
+            current_operation = "authenticated_canonical_list"
+            list_operation_name = "authenticated_canonical_list"
+        else:
+            operations.append(("retained_failure_evidence", "verified"))
+            current_operation = "authenticated_existing_canonical_list"
+            list_operation_name = "authenticated_existing_canonical_list"
         list_response = client.request(
             "POST",
             _list_path(TRUSTED_TIME_HEAD_ANCHOR_BUCKET_NAME),
@@ -1008,7 +1140,7 @@ def execute_storage_behavioral_proof(
             basename,
         ):
             raise StorageBehavioralProofError("proof_authenticated_list_failed")
-        operations.append(("authenticated_canonical_list", "allowed"))
+        operations.append((list_operation_name, "allowed"))
 
         current_operation = "authenticated_canonical_read"
         _require_exact_read(client, object_name=object_name, payload=payload)
@@ -1223,6 +1355,7 @@ def execute_storage_behavioral_proof(
                     if storage_mutation_attempted
                     else "NO_STORAGE_MUTATION_ATTEMPTED"
                 ),
+                resume_failure_evidence_sha256=resume_failure_evidence_sha256,
             )
         ) from None
     except Exception:
@@ -1239,6 +1372,7 @@ def execute_storage_behavioral_proof(
                     if storage_mutation_attempted
                     else "NO_STORAGE_MUTATION_ATTEMPTED"
                 ),
+                resume_failure_evidence_sha256=resume_failure_evidence_sha256,
             ),
         ) from None
     finally:
@@ -1260,6 +1394,7 @@ def execute_storage_behavioral_proof(
         object_name=object_name,
         object_payload_sha256=payload_sha256,
         operations=tuple(operations),
+        resume_failure_evidence_sha256=resume_failure_evidence_sha256,
     )
 
 
@@ -1271,7 +1406,11 @@ def _failure_payload(
     payload: dict[str, object] = {
         "allow_enrollment": False,
         "completed_operations": [],
-        "contract_version": STORAGE_BEHAVIORAL_PROOF_CONTRACT_VERSION,
+        "contract_version": (
+            STORAGE_BEHAVIORAL_PROOF_RESUME_CONTRACT_VERSION
+            if context is not None and context.resume_failure_evidence_sha256 is not None
+            else STORAGE_BEHAVIORAL_PROOF_CONTRACT_VERSION
+        ),
         "enrollment": "UNRUN",
         "external_state_outcome": "NO_STORAGE_MUTATION_ATTEMPTED",
         "failed_operation": "configuration",
@@ -1310,6 +1449,15 @@ def _parser() -> argparse.ArgumentParser:
             "verification that the separate private bucket exists"
         ),
     )
+    parser.add_argument(
+        "--resume-failure-evidence-file",
+        type=Path,
+        help=(
+            "owner-only exact prior failed-at-authenticated-read evidence; resumes "
+            "the same retained object without a fresh canonical-object insert; "
+            "expected-denied mutation probes still run after exact readback"
+        ),
+    )
     return parser
 
 
@@ -1332,7 +1480,11 @@ def main(
                 proof_id=arguments.proof_id,
                 real_other_bucket_evidence_file=arguments.real_other_bucket_evidence_file,
             )
-        evidence = execute_storage_behavioral_proof(configuration, transport=transport)
+        evidence = execute_storage_behavioral_proof(
+            configuration,
+            transport=transport,
+            resume_failure_evidence_file=arguments.resume_failure_evidence_file,
+        )
     except StorageBehavioralProofError as error:
         print(
             _canonical_json_bytes(
@@ -1359,6 +1511,7 @@ __all__ = [
     "STORAGE_BEHAVIORAL_PROOF_CONTRACT_VERSION",
     "STORAGE_BEHAVIORAL_PROOF_ENVIRONMENT_VARIABLES",
     "STORAGE_BEHAVIORAL_PROOF_OBJECT_CONTRACT_VERSION",
+    "STORAGE_BEHAVIORAL_PROOF_RESUME_CONTRACT_VERSION",
     "StorageBehavioralProofConfiguration",
     "StorageBehavioralProofError",
     "StorageBehavioralProofEvidence",

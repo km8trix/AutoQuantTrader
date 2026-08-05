@@ -7,6 +7,8 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0002: point-in-time data and storage](0002-point-in-time-data-and-storage.md)
 - [ADR 0003: ledger accounting and mandatory risk](0003-ledger-accounting-and-mandatory-risk.md)
 - [ADR 0004: broker submission and account ownership](0004-broker-submission-and-account-ownership.md)
+  (same-client-ID `UNKNOWN` recovery assumption amended for the E\*TRADE target
+  by ADR 0096)
 - [ADR 0005: desktop-browser control plane](0005-desktop-browser-control-plane.md)
 - [ADR 0006: canonical engine boundary and build strategy](0006-engine-boundary-and-build-strategy.md)
 - [ADR 0007: experiment governance and live authority](0007-experiment-governance-and-live-authority.md)
@@ -42,7 +44,8 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   (completion evidence superseded by ADR 0037)
 - [ADR 0037: configuration-bound governed segment evaluation](0037-configuration-bound-governed-segment-evaluation.md)
 - [ADR 0038: offline Alpaca paper contract boundary](0038-offline-alpaca-paper-contract-boundary.md)
-  (status vocabulary amended by ADR 0039)
+  (status vocabulary amended by ADR 0039; the Alpaca paper chain remains
+  historical/non-authorizing and is not the selected live broker; see ADR 0096)
 - [ADR 0039: offline Alpaca client-order lookup observations](0039-offline-alpaca-client-order-lookup-observations.md)
 - [ADR 0040: durable pre-decode broker ingress](0040-durable-pre-decode-broker-ingress.md)
 - [ADR 0041: durable broker request budget admission](0041-durable-broker-request-budget-admission.md)
@@ -105,11 +108,16 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   ([current v2 System76 manifest](../../infra/trusted-time/source-authority.json);
   retained inspector-v5 result is qualified but non-authorizing)
 - [ADR 0094: Separate-Supabase signed sparse trusted-time head checkpoints](0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md)
-  (migration 0036 is applied; separate-project provisioning and first external
-  enrollment remain pending and separately approval-gated)
+  (migration 0036, separate-project provisioning, and the v2 SELECT-policy
+  correction are applied; same-object proof resume and first external enrollment
+  remain separately approval-gated)
 - [ADR 0095: Dormant provider-neutral trusted-head watchdog state](0095-dormant-provider-neutral-trusted-head-watchdog-state.md)
   (pure preparatory reducer only; raw observations remain unqualified, while
   provisioning, first enrollment, a sealed terminal issuer, deployment, and
   every consumer remain pending)
+- [ADR 0096: E\*TRADE live broker and sandbox qualification boundary](0096-etrade-live-broker-and-sandbox-qualification.md)
+  (selects the future live venue only; sandbox is protocol-only, all Alpaca
+  artifacts remain historical, and implementation, credentials, and live
+  activation remain gated)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
