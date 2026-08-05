@@ -2221,10 +2221,27 @@ outer-400/inner-404 `NoSuchKey` mask. Sanitized failure evidence has SHA-256
 records `UNKNOWN_REVIEW_REQUIRED`; no retry or enrollment followed. The v1
 SELECT policies omitted Storage operation `object.get_authenticated_info`,
 which the observed GET path requires in addition to
-`storage.object.get_authenticated`. Secure-launcher artifact admission and
-first external enrollment remain `UNRUN`, and `allow_enrollment` remains
-false. Until the behavioral proof is completed and enrollment is separately
-approved and retained, there is no deployed authenticated external-head
+`storage.object.get_authenticated`. After the atomic v2 policy correction, the
+separately approved same-object resume passed on 2026-08-05 without a fresh
+canonical insert. It admitted the retained failure evidence, listed and read
+the exact object, denied overwrite, upsert, update, delete,
+noncanonical-namespace insert, real-control-bucket insert, anonymous
+insert/list/read, and public read, and verified the final object and namespace
+were unchanged. The owner-only pass file SHA-256 is
+`85b225f908efa87ce3c424a3bacf77023a4ed07aba18af0c19589613ab7f97c8`,
+and its internal `evidence_sha256` is
+`5072b832a6fa3ae01009aa5ff2f89c30e8c24593f87273377bb67dc2afda6171`.
+Enrollment remained `UNRUN` with `allow_enrollment=false`. Fresh parse-only
+Compose and immutable-image admission then passed on 2026-08-05. Owner-only
+image-admission artifact SHA-256
+`10e7feea32ed2ad093e59f7075e60147af5fa4835986e7772262a44f64a81b07`
+binds source image
+`sha256:c3d81b9e1fa19b1d8131c99554da2c8ee8e6b928f27444293e82b237a24371a0`
+and supervisor image
+`sha256:06944ec20029fca39db5e8069f3cb3d1397333304cd6ca70343bf2c6fff312ba`;
+it grants no authority or new exposure. Secure-launcher runtime admission and
+first external enrollment remain `UNRUN`; until those gates are separately
+completed and retained, there is no deployed authenticated external-head
 evidence.
 Readiness, operational control, arming, exposure/new exposure,
 broker action, alert delivery, automatic re-arm/resume, paper trading, and live
@@ -2269,9 +2286,13 @@ a real separate private control bucket, retains one synthetic canonical object
 in a proof-only deployment/host prefix outside the runtime's exact prefix,
 strictly proves the allowed and denied Storage operations, has no cleanup mode,
 and leaves enrollment `UNRUN`. The artifact generator was run successfully on
-2026-08-05. After an approved policy correction, the proof operator can resume
-the exact retained failure evidence and object without a second insert, then
-complete the remaining denial matrix.
+2026-08-05. After the approved policy correction, the proof operator resumed
+the exact retained failure evidence and object without a second canonical
+insert and completed the denial matrix. The retained pass file SHA-256 is
+`85b225f908efa87ce3c424a3bacf77023a4ed07aba18af0c19589613ab7f97c8`,
+with internal `evidence_sha256`
+`5072b832a6fa3ae01009aa5ff2f89c30e8c24593f87273377bb67dc2afda6171`;
+enrollment remained `UNRUN` and `allow_enrollment=false`.
 
 Phase 6E has a dormant, provider-neutral preparatory state contract,
 `phase6e-provider-neutral-trusted-head-watchdog-state-v1`. It treats raw signed
@@ -2292,9 +2313,10 @@ provider adapter, runtime process/container, external failure domain, alert
 delivery, readiness/control/new-exposure/re-arm integration, deployment,
 drill, or Phase 6 exit evidence. The rollback-only DROP-capability probe is now
 retained and passed, and the atomic v1-to-v2 policy upgrade is applied and
-postflight-verified. The normative next steps are: land the reviewed resume
-implementation, obtain fresh approval to resume the same behavioral proof
-object without another insert, complete secure-launcher admission, then separately
+postflight-verified. The reviewed, separately approved same-object resume is
+also complete and retained. Fresh parse-only Compose and immutable-image
+admission are complete and retained without granting authority. The normative
+next steps are: complete secure-launcher runtime admission, then separately
 approve and retain first-enrollment evidence. Only then may a sealed
 provider-terminal observer authenticate the complete new suffix, bind two
 stable namespace passes to their exact digest/count/terminal identity, prove
@@ -2339,12 +2361,26 @@ unavailable before any watchdog consumer is designed or qualified. See
   SELECT contract omitted the Storage authenticated-info operation. Exact
   rollback-only capability-probe passed and retained exact-catalog postflight;
   the approved atomic v1-to-v2 upgrade is applied and postflight-verified.
-  Secure-launcher artifact admission and first
-  enrollment remain `UNRUN`. Enrollment is still
+  The separately approved same-object resume then passed without a fresh
+  canonical insert: retained evidence, list, and read were exact; every
+  overwrite, upsert, update, delete, noncanonical-namespace insert,
+  real-control-bucket insert, anonymous insert/list/read, and public-read probes
+  were denied; and the final object and namespace were unchanged. Its owner-only
+  pass file SHA-256 is
+  `85b225f908efa87ce3c424a3bacf77023a4ed07aba18af0c19589613ab7f97c8`,
+  with internal `evidence_sha256`
+  `5072b832a6fa3ae01009aa5ff2f89c30e8c24593f87273377bb67dc2afda6171`.
+  Fresh parse-only Compose and immutable-image admission passed without granting
+  authority or new exposure. The owner-only admission artifact SHA-256 is
+  `10e7feea32ed2ad093e59f7075e60147af5fa4835986e7772262a44f64a81b07`,
+  binding immutable source image
+  `sha256:c3d81b9e1fa19b1d8131c99554da2c8ee8e6b928f27444293e82b237a24371a0`
+  and supervisor image
+  `sha256:06944ec20029fca39db5e8069f3cb3d1397333304cd6ca70343bf2c6fff312ba`.
+  Secure-launcher runtime admission and first enrollment remain `UNRUN`.
+  Enrollment is still
   hard-disabled, unapproved, and unperformed, so external-head deployment
-  evidence remains open. Next, land the reviewed resume implementation, obtain
-  fresh approval to resume the same proof object without another insert, complete local
-  runtime admission, then
+  evidence remains open. Next, complete secure-launcher runtime admission, then
   separately approve and retain enrollment evidence before adding an independent
   watchdog, readiness, final new-exposure, alert, and exact-head manual re-arm
   consumers. The local evidence composition is non-authorizing and does not
@@ -2356,8 +2392,9 @@ unavailable before any watchdog consumer is designed or qualified. See
   evidence.
 - ADR 0096's E\*TRADE live-broker selection is orthogonal to this sequence. It
   does not authorize reading local broker credentials, making a provider call,
-  or skipping the reviewed same-object resume, secure-launcher admission, first
-  enrollment, watchdog, readiness, alert, new-exposure, or re-arm gates.
+  or skipping secure-launcher admission, first enrollment, watchdog, readiness,
+  alert, new-exposure, or re-arm gates. It does not change the completed
+  same-object proof result.
 - Separate worker/trader roles, pools, quotas, and service identities; managed
   PostgreSQL, secret manager, object storage, restricted network, and immutable
   images/configuration.

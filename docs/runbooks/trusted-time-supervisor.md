@@ -35,8 +35,10 @@ and verified by a fresh Auth sign-in, and the owner-only runtime artifacts were
 generated and decoder-validated. The first behavioral proof retained one
 canonical object but failed closed at authenticated read; its policy-recovery
 probe passed and the approved atomic upgrade committed with exact-catalog
-postflight. Secure-launcher artifact admission
-and first external enrollment remain `UNRUN`.
+postflight. The approved same-object resume then passed without a fresh insert,
+and left the final object and namespace unchanged. Fresh parse-only Compose and
+immutable-image admission passed without granting authority or new exposure.
+Secure-launcher runtime admission and first external enrollment remain `UNRUN`.
 Neither migration nor either inspected window grants readiness or any trading
 authority.
 
@@ -87,7 +89,7 @@ mode-0750 Chrony command-socket tmpfs is shared read-write: unmodified Chrony
 4.8 requires `chronyc` to create a short-lived reply socket beside the daemon
 socket. Chrony's state volume remains source-only.
 
-## Implemented Phase 6D contract; proof, admission, and enrollment incomplete
+## Implemented Phase 6D contract; proof complete, admission and enrollment incomplete
 
 The Phase 6D code and runtime-database schema are implemented. Separate anchor
 project `pgplscpqsvyraleyaphm` is Healthy on Supabase's Free plan with its Data
@@ -112,11 +114,20 @@ All source and evidence files are owner-only mode `0600`; the runtime decoders
 accepted their exact binding. Behavioral proof
 `0396c9fe-0a8f-4b17-8c71-faa8a8033bb0` authenticated, inserted one canonical
 object with no-overwrite semantics, and listed it, then failed closed at
-authenticated read with a provider-masked `NoSuchKey`. The object remains;
-exact bytes have not passed authenticated GET and the denial matrix is
-incomplete. Its owner-only canonical failure evidence has SHA-256
+authenticated read with a provider-masked `NoSuchKey`. Its owner-only canonical
+failure evidence has SHA-256
 `530a6ea5075ec787c16bdcbc1eb3a52e2900661e036e35ee24bb371c32f6d536`.
-Secure-launcher artifact admission and enrollment remain `UNRUN`,
+After the exact policy correction, an approved same-object resume on 2026-08-05
+admitted that evidence, listed and read the exact retained object, performed no
+fresh canonical insert, and completed the denial matrix. The overwrite, upsert,
+update, delete, noncanonical-namespace insert, real-control-bucket insert,
+anonymous insert/list/read, and public-read probes were denied; the final object
+and namespace were unchanged. The owner-only pass-file SHA-256 is
+`85b225f908efa87ce3c424a3bacf77023a4ed07aba18af0c19589613ab7f97c8`,
+and its internal `evidence_sha256` is
+`5072b832a6fa3ae01009aa5ff2f89c30e8c24593f87273377bb67dc2afda6171`.
+Fresh parse-only Compose and immutable-image admission passed and are retained.
+Secure-launcher runtime admission and enrollment remain `UNRUN`,
 `allow_enrollment` remains false, and no first enrollment has been approved or
 performed. Do not describe the current deployment as externally anchored.
 
@@ -243,13 +254,13 @@ Do not operate or describe this library contract as a watchdog deployment. It
 contains no Supabase/provider adapter, runtime process/container, independent
 failure domain, alert delivery, readiness/control/new-exposure/manual-re-arm
 integration, deployment, drill, or Phase 6 exit evidence. The required order
-is still:
+is now:
 
 1. preserve the retained passing rollback-only policy-capability probe and
-   applied exact-catalog v1-to-v2 upgrade evidence;
-2. land the reviewed resume implementation, then separately approve resuming
-   the same behavioral object without a fresh insert and retain local runtime
-   admission;
+   applied exact-catalog v1-to-v2 upgrade evidence, plus the passing same-object
+   no-insert behavioral-proof evidence;
+2. preserve the final immutable-image admission, then complete and retain local
+   secure-launcher runtime admission;
 3. separately obtain approval for and retain the first enrollment evidence;
 4. only then implement a sealed provider-terminal issuer that authenticates a
    complete new suffix, binds two stable namespace passes to their exact
@@ -411,8 +422,9 @@ This gate is in progress and remains incomplete. Project
 disabled. Owner-only retained dashboard evidence records the exact private
 primary bucket `aqt-trusted-time-anchors-v1`, its 4,096-byte file-size limit,
 and sole `application/json` MIME allowance. Steps 1-5 below are complete and
-retained; step 6 was attempted and remains failed/incomplete, and step 7 is
-pending. Partial or complete provisioning does not approve enrollment.
+retained; step 6 also completed after the reviewed policy recovery and same-
+object resume, and step 7 is pending. Partial or complete provisioning does not
+approve enrollment.
 
 1. **Complete.** The distinct anchor project and exact primary bucket have
    retained dashboard evidence. Continue to record only
@@ -443,8 +455,8 @@ pending. Partial or complete provisioning does not approve enrollment.
    or removal DDL against the provider-owned table. Any unrelated policy is
    drift. Exact apply and postflight evidence is retained. This deployed v1
    catalog omitted legacy metadata operation `object.get_authenticated_info`
-   from both the writer SELECT policy and restrictive SELECT guard. The local
-   v2 contract corrects exactly those policies; it is not yet deployed.
+   from both the writer SELECT policy and restrictive SELECT guard. The applied
+   v2 contract corrects exactly those policies as documented in step 6.
 4. **Complete.** Independent owner-only evidence retains the real private
    control bucket `aqt-trusted-time-anchor-proof-other-v1` in this same project.
    It is distinct from `aqt-trusted-time-anchors-v1` and receives no writer
@@ -462,7 +474,7 @@ pending. Partial or complete provisioning does not approve enrollment.
    `e1290de2b5b340dee07f327af42f18b6bba0ccba0ea003be37783abc7b4ae892`.
    The result retains `allow_enrollment=false` and enrollment `UNRUN`. Never
    place the password, Auth secret, or signing key in reviewed evidence.
-6. **Failed/incomplete; recovery approval required.** The first execution of
+6. **Complete after approved recovery.** The first execution of
    `scripts/prove_trusted_time_anchor_storage.py` used proof ID
    `0396c9fe-0a8f-4b17-8c71-faa8a8033bb0`. Exact writer authentication, the
    no-overwrite canonical insert, and authenticated list passed. Authenticated
@@ -500,17 +512,23 @@ pending. Partial or complete provisioning does not approve enrollment.
    The locked read-only postflight proves the complete v2 catalog, exact
    two-policy delta, one retained object, and enrollment `UNRUN`.
 
-   After corrected postflight, resume the existing object with
-   `--proof-id 0396c9fe-0a8f-4b17-8c71-faa8a8033bb0` and
-   `--resume-failure-evidence-file` pointing to the exact retained evidence.
-   Resume must perform no fresh insert; it first authenticates, lists, and reads
-   the exact existing bytes, then completes overwrite/upsert/update/delete,
-   cross-namespace, real-control-bucket, anonymous, and public denials. Preserve
-   only sanitized results, never tokens, passwords, or response bodies.
-   Enrollment stays `UNRUN` throughout.
-7. Retain the parse-only Compose admission with all four runtime sources at
-   `/dev/null`, then use only the implemented secure launcher to stage, admit,
-   and retire the exact database, authority, Auth, and signing-key mounts
+   On 2026-08-05, the approved same-object resume used exact proof ID
+   `0396c9fe-0a8f-4b17-8c71-faa8a8033bb0` and the retained canonical failure
+   evidence. It performed no fresh canonical insert, admitted the retained
+   evidence, listed and read the exact existing object, and denied the
+   overwrite, upsert, update, delete, noncanonical-namespace insert,
+   real-control-bucket insert, anonymous insert/list/read, and public-read
+   probes. The final object and namespace were unchanged. The owner-only
+   pass-file SHA-256 is
+   `85b225f908efa87ce3c424a3bacf77023a4ed07aba18af0c19589613ab7f97c8`,
+   and its internal `evidence_sha256` is
+   `5072b832a6fa3ae01009aa5ff2f89c30e8c24593f87273377bb67dc2afda6171`.
+   Preserve only sanitized results, never tokens, passwords, or response
+   bodies. Enrollment stayed `UNRUN` with `allow_enrollment=false` throughout.
+7. **In progress.** Retain the passing parse-only Compose admission with all four
+   runtime sources at `/dev/null` and the final owner-only immutable-image
+   admission described below. Next, use only the implemented secure launcher to
+   stage, admit, and retire the exact database, authority, Auth, and signing-key mounts
    without exposing their contents. Confirm the production composition still
    fixes `allow_enrollment=False` with no environment override, then stop and
    request separate owner approval for any reviewed one-time enrollment
@@ -575,6 +593,20 @@ and the actual Docker Compose verifier. That is implementation evidence only;
 it is not a fresh immutable-image admission for another revision, separate-
 project provisioning evidence, or enrollment evidence.
 
+On 2026-08-05, the fresh parse-only Compose verifier admitted the final reviewed
+model with zero inbound ports and no authority. Fresh immutable-image admission
+then retained canonical and content-addressed owner-only artifacts with SHA-256
+`10e7feea32ed2ad093e59f7075e60147af5fa4835986e7772262a44f64a81b07`.
+The artifact binds reviewed-input SHA-256
+`05f2fa1a3c24fb7e7e1a5722f8117f652541dd14947d6dddd90c3dfa4fdde09a`,
+source image
+`sha256:c3d81b9e1fa19b1d8131c99554da2c8ee8e6b928f27444293e82b237a24371a0`,
+and supervisor image
+`sha256:06944ec20029fca39db5e8069f3cb3d1397333304cd6ca70343bf2c6fff312ba`.
+It records `authority_granted=false` and `new_exposure_authorized=false`.
+This completes image admission only; runtime secret staging, provider-connected
+secure launch, and first enrollment remain `UNRUN`.
+
 Any mismatch stops qualification. Do not retag or patch a running container to
 make it pass.
 
@@ -584,16 +616,15 @@ connection to the intended Supabase Session-pooler hostname before use.
 
 ## Approval-blocked supervised start
 
-This section remains approval-blocked because the separate-project gate is
-incomplete: the behavioral proof failed at authenticated read and its recovery
-is unapproved, while local runtime admission and first enrollment remain
+The separate-project Storage behavioral proof is complete, including the
+passing no-insert same-object recovery. This section remains approval-blocked
+because local secure-launcher runtime admission and first enrollment remain
 `UNRUN`; production composition fixes `allow_enrollment=False`; and no first
-enrollment has been approved or performed. Owner-only runtime artifacts
-now exist, but the secure launcher's presence and those artifacts do not prove
-Storage behavior or approve enrollment. A start must fail closed when the exact
-authority/secrets are absent or the remote prefix is unenrolled. Do not run
-`make trusted-time-start` as a provisioning experiment and do not weaken that
-behavior to repeat the earlier source-only window.
+enrollment has been approved or performed. Owner-only runtime artifacts and
+the passing Storage proof do not approve enrollment. A start must fail closed
+when the exact authority/secrets are absent or the remote prefix is unenrolled.
+Do not run `make trusted-time-start` as a provisioning experiment and do not
+weaken that behavior to repeat the earlier source-only window.
 
 The launcher freshly builds and verifies both images, atomically replaces the
 canonical owner-only image-admission artifact, reloads its canonical bytes and

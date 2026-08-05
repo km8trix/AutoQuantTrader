@@ -242,8 +242,8 @@ and enrollment remains `UNRUN` with `allow_enrollment=false`. Behavioral proof
 `0396c9fe-0a8f-4b17-8c71-faa8a8033bb0` authenticated the writer, inserted one
 no-overwrite canonical object, and listed it, then failed closed at
 authenticated read with the provider's masked `NoSuchKey`; the object remains
-and its exact bytes have not passed authenticated GET. Canonical owner-only
-failure evidence has SHA-256
+and, at that point, its exact bytes had not passed authenticated GET. Canonical
+owner-only failure evidence has SHA-256
 `530a6ea5075ec787c16bdcbc1eb3a52e2900661e036e35ee24bb371c32f6d536`.
 The exact rollback-only capability probe has SHA-256
 `73f7db8b16033848cbc9790310bd7a6d4e3c4537d6a694cac9fdf368d12eea18`;
@@ -259,7 +259,25 @@ postflight-verified. Owner-only applied evidence SHA-256 is
 only the two SELECT policies changed, both include exact unprefixed operation
 `object.get_authenticated_info`, the other four remain byte-equivalent to v1,
 and the retained object and disabled enrollment state are unchanged.
-Secure-launcher artifact admission also remains `UNRUN`.
+On 2026-08-05, the approved same-object resume reused that exact proof ID and
+canonical failure evidence. It performed no fresh canonical insert, admitted
+the retained evidence, listed and read the exact retained object, and denied
+the overwrite, upsert, update, delete, noncanonical-namespace insert,
+real-control-bucket insert, anonymous insert/list/read, and public-read probes.
+The final object and namespace were unchanged. The owner-only pass-file SHA-256
+is
+`85b225f908efa87ce3c424a3bacf77023a4ed07aba18af0c19589613ab7f97c8`,
+and its internal `evidence_sha256` is
+`5072b832a6fa3ae01009aa5ff2f89c30e8c24593f87273377bb67dc2afda6171`.
+Enrollment remained `UNRUN` with `allow_enrollment=false` throughout. Fresh
+parse-only Compose and immutable-image admission then passed without granting
+authority or new exposure. Owner-only admission artifact SHA-256
+`10e7feea32ed2ad093e59f7075e60147af5fa4835986e7772262a44f64a81b07`
+binds source image
+`sha256:c3d81b9e1fa19b1d8131c99554da2c8ee8e6b928f27444293e82b237a24371a0`
+and supervisor image
+`sha256:06944ec20029fca39db5e8069f3cb3d1397333304cd6ca70343bf2c6fff312ba`.
+Secure-launcher runtime admission remains `UNRUN`.
 
 ## Consequences
 
@@ -273,13 +291,15 @@ The implementation and runtime schema are present. The separate project,
 primary and real control buckets, exact catalog/policy evidence, and dedicated
 Auth principal are retained. The writer password has been rotated and verified,
 and the owner-only runtime artifacts plus nonsecret authority have been
-generated and decoder-validated. The real-control-bucket behavioral proof was
-attempted and remains failed/incomplete at authenticated read, with its one
-canonical object retained; policy correction and evidence-bound same-object
-resume remain pending. Secure-launcher artifact admission remains `UNRUN`. The first
-external enrollment also remains pending separate owner approval. Until the
-behavioral, admission, and enrollment gates are completed and reviewed, the
-deployed topology still has no authenticated external-head evidence.
+generated and decoder-validated. The real-control-bucket behavioral proof is
+complete: its retained initial authenticated-read failure led to the exact
+two-policy correction, and the evidence-bound same-object resume then passed
+without a fresh insert or namespace change. Fresh parse-only Compose and
+immutable-image admission are retained, but secure-launcher runtime admission
+remains `UNRUN`. The first external enrollment also remains pending separate
+owner approval. Until the runtime-admission and enrollment gates are completed
+and reviewed, the deployed topology still has no authenticated external-head
+evidence.
 
 Even after enrollment, this remains same-provider, potentially same-admin
 evidence rather than independent or immutable custody. It narrows some rollback

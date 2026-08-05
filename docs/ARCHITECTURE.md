@@ -3356,11 +3356,11 @@ the authority and deployment-identity SHA-256 values are respectively
 `9747c97be9cfabf51e524eef66120e8c7ec860be18e064416b17aa197eeb8f7c`
 and
 `e1290de2b5b340dee07f327af42f18b6bba0ccba0ea003be37783abc7b4ae892`.
-Behavioral proof `0396c9fe-0a8f-4b17-8c71-faa8a8033bb0` is failed and
-incomplete, not `UNRUN`. Exact writer authentication, one no-overwrite insert,
-and authenticated listing succeeded, so the synthetic object remains; the
-authenticated read returned a masked `NoSuchKey`. The canonical owner-only
-failure evidence has SHA-256
+The first attempt for behavioral proof
+`0396c9fe-0a8f-4b17-8c71-faa8a8033bb0` failed closed after exact writer
+authentication, one no-overwrite insert, and authenticated listing. The
+synthetic object remained when authenticated read returned a masked
+`NoSuchKey`; the canonical owner-only failure evidence has SHA-256
 `530a6ea5075ec787c16bdcbc1eb3a52e2900661e036e35ee24bb371c32f6d536`.
 The rollback-only v1 capability probe (SHA-256
 `73f7db8b16033848cbc9790310bd7a6d4e3c4537d6a694cac9fdf368d12eea18`)
@@ -3379,10 +3379,26 @@ the retained full v2 catalog SHA-256 is
 `18a597f6475eba9b78089e9c917087eaa7c964441d0bc22f44f9369b40079fd9`.
 Only the two SELECT policies differ from v1, both contain the exact unprefixed
 authenticated-info operation, and the other four policies remain byte-equivalent.
-Exact object bytes have not yet
-passed authenticated GET, and the denial matrix is incomplete. Secure-launcher
-artifact admission and first external enrollment remain `UNRUN`, with
-`allow_enrollment=false`.
+On 2026-08-05, the separately approved same-object resume passed without a
+fresh canonical insert. It admitted the exact retained failure evidence,
+authenticated the writer, listed and read the exact retained object, denied
+overwrite, upsert, update, delete, noncanonical-namespace insert,
+real-control-bucket insert, anonymous insert/list/read, and public read, and
+verified the final object and namespace were unchanged. The owner-only pass
+file SHA-256 is
+`85b225f908efa87ce3c424a3bacf77023a4ed07aba18af0c19589613ab7f97c8`,
+and its internal `evidence_sha256` is
+`5072b832a6fa3ae01009aa5ff2f89c30e8c24593f87273377bb67dc2afda6171`.
+Enrollment remained `UNRUN` with `allow_enrollment=false`. On 2026-08-05, fresh
+parse-only Compose and immutable-image admission passed on the final reviewed
+runtime inputs. The owner-only image-admission artifact SHA-256 is
+`10e7feea32ed2ad093e59f7075e60147af5fa4835986e7772262a44f64a81b07`,
+binding source image
+`sha256:c3d81b9e1fa19b1d8131c99554da2c8ee8e6b928f27444293e82b237a24371a0`
+and supervisor image
+`sha256:06944ec20029fca39db5e8069f3cb3d1397333304cd6ca70343bf2c6fff312ba`.
+It grants no authority or new exposure. Secure-launcher runtime admission and
+first external enrollment remain `UNRUN`.
 Therefore the deployed topology still has no
 authenticated external-head evidence or independent supervisor watchdog:
 after supervisor death, local evidence stops and a later evaluation is the
@@ -3417,11 +3433,10 @@ This state contract is intentionally not composed into the topology. It has no
 Supabase/provider adapter, runtime process or container, independent external
 failure domain, alert route, readiness/control/new-exposure/re-arm consumer,
 deployment, drill, or Phase 6 exit evidence. The retained passing rollback
-probe and applied atomic read-policy upgrade, followed by a separately approved
-same-object proof resume,
-and retained local admission, followed by separately approved and retained
-first enrollment, normatively precede a sealed provider-terminal
-observer. That
+probe, applied atomic read-policy upgrade, separately approved same-object proof
+resume, and final immutable-image admission are complete. Secure-launcher
+runtime admission, followed by separately approved and retained first
+enrollment, normatively precedes a sealed provider-terminal observer. That
 future issuer must authenticate the complete new suffix, bind two stable
 namespace passes to their exact digest, count, and terminal identity, prove no
 higher sequence exists, and capture an independent monotonic instant inside
