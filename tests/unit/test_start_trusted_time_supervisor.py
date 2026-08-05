@@ -6,6 +6,7 @@ import os
 import selectors
 import stat
 import subprocess
+from contextlib import ExitStack
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -2022,7 +2023,7 @@ def _invoke_mocked_unenrolled_admission(
     def cleanup_anchor(_: object) -> None:
         events.append("anchor-cleanup")
 
-    with (
+    patchers = (
         patch(
             "scripts.start_trusted_time_supervisor.build_verify_and_write_image_admission",
             return_value=admission,
@@ -2092,7 +2093,10 @@ def _invoke_mocked_unenrolled_admission(
             side_effect=fake_teardown,
         ),
         patch("scripts.start_trusted_time_supervisor._run_docker", side_effect=fake_run),
-    ):
+    )
+    with ExitStack() as stack:
+        for patcher in patchers:
+            stack.enter_context(patcher)
         return run_local_topology(
             env_file=env_file,
             expect_unenrolled_fail_closed=True,
