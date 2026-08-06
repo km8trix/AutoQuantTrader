@@ -1,15 +1,109 @@
 """Validate the Phase 6D Compose security and isolation contract."""
 
+# ruff: noqa: E402 -- the CLI bootstrap must run before first-party imports.
+
 from __future__ import annotations
 
 import json
 import os
-import subprocess
+import stat
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+
+def _require_isolated_cli_source_runtime(
+    *,
+    expected_relative_path: Path,
+    module_file: str = __file__,
+) -> Path:
+    """Fail closed unless this CLI is executing canonical source in an isolated runtime."""
+
+    try:
+        repository_root = Path.cwd()
+        expected_source = repository_root / expected_relative_path
+        actual_source = Path(os.path.abspath(module_file))
+        source_metadata = expected_source.lstat()
+        canonical_root = repository_root.resolve(strict=True)
+        canonical_source = expected_source.resolve(strict=True)
+        runtime_prefix = Path(sys.prefix).resolve(strict=True)
+        base_prefix = Path(sys.base_prefix).resolve(strict=True)
+        reusable_repository_venv = (canonical_root / ".venv").resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        raise RuntimeError("trusted-time CLI runtime attestation failed") from None
+    if (
+        repository_root != canonical_root
+        or expected_source != canonical_source
+        or actual_source != expected_source
+        or not stat.S_ISREG(source_metadata.st_mode)
+        or source_metadata.st_nlink != 1
+        or sys.flags.isolated != 1
+        or sys.flags.dont_write_bytecode != 1
+        or sys.pycache_prefix != "/dev/null"
+        or runtime_prefix in (base_prefix, reusable_repository_venv)
+        or runtime_prefix.is_relative_to(reusable_repository_venv)
+    ):
+        raise RuntimeError("trusted-time CLI runtime attestation failed")
+    for raw_path in sys.path:
+        if not raw_path:
+            continue
+        try:
+            candidate = Path(raw_path).resolve(strict=False)
+        except (OSError, RuntimeError, ValueError):
+            raise RuntimeError("trusted-time CLI runtime attestation failed") from None
+        if candidate == reusable_repository_venv or candidate.is_relative_to(
+            reusable_repository_venv
+        ):
+            raise RuntimeError("trusted-time CLI runtime attestation failed")
+    sys.path.insert(0, os.fspath(canonical_root))
+    return canonical_root
+
+
+def _require_repository_first_party_sources(repository_root: Path) -> None:
+    """Require every loaded first-party module to originate at its exact source path."""
+
+    for module_name, module in tuple(sys.modules.items()):
+        if module_name.split(".", 1)[0] not in {"apps", "packages", "scripts"}:
+            continue
+        origin = getattr(module, "__file__", None)
+        if type(origin) is not str:
+            raise RuntimeError("trusted-time first-party source attestation failed")
+        module_path = repository_root.joinpath(*module_name.split("."))
+        expected_sources = {
+            module_path.with_suffix(".py"),
+            module_path / "__init__.py",
+        }
+        try:
+            lexical_origin = Path(os.path.abspath(origin))
+            canonical_origin = lexical_origin.resolve(strict=True)
+            source_metadata = lexical_origin.lstat()
+        except (OSError, RuntimeError, ValueError):
+            raise RuntimeError("trusted-time first-party source attestation failed") from None
+        if (
+            lexical_origin != canonical_origin
+            or lexical_origin not in expected_sources
+            or lexical_origin.suffix != ".py"
+            or "__pycache__" in lexical_origin.parts
+            or not stat.S_ISREG(source_metadata.st_mode)
+            or source_metadata.st_nlink != 1
+        ):
+            raise RuntimeError("trusted-time first-party source attestation failed")
+
+
+_CLI_REPOSITORY_ROOT = (
+    _require_isolated_cli_source_runtime(
+        expected_relative_path=Path("scripts/verify_trusted_time_compose.py")
+    )
+    if __name__ == "__main__"
+    else None
+)
+
+from scripts.bounded_subprocess import BoundedSubprocessError, run_bounded_subprocess
+
+ROOT = _CLI_REPOSITORY_ROOT or Path(__file__).resolve().parents[1]
+if _CLI_REPOSITORY_ROOT is not None:
+    _require_repository_first_party_sources(ROOT)
 COMPOSE_PATH = ROOT / "infra" / "compose" / "trusted-time.compose.yaml"
 DEFAULTS_PATH = ROOT / "infra" / "compose" / "trusted-time.defaults.env"
 PLACEHOLDER_DATABASE_SECRET_FILE = Path("/dev/null")
@@ -20,6 +114,12 @@ SOURCE_IMAGE = "autoquanttrader-trusted-time-source:phase6d-v1"
 SUPERVISOR_IMAGE = "autoquanttrader-trusted-time-supervisor:phase6d-v1"
 _SENTINEL_SOURCE_IMAGE = "sha256:" + "0" * 64
 _SENTINEL_SUPERVISOR_IMAGE = "sha256:" + "f" * 64
+_MAXIMUM_COMPOSE_PAYLOAD_BYTES = 1_048_576
+_COMPOSE_RENDER_TIMEOUT_SECONDS = 15
+_MAXIMUM_DOCKER_ENVIRONMENT_VARIABLES = 64
+_MAXIMUM_DOCKER_ENVIRONMENT_BYTES = 131_072
+_MAXIMUM_COMPOSE_JSON_BYTES = 1_048_576
+_MAXIMUM_COMPOSE_STDERR_BYTES = 65_536
 _ROOT_KEYS = frozenset({"configs", "name", "networks", "secrets", "services", "volumes"})
 _COMMON_SERVICE_KEYS = frozenset(
     {
@@ -58,6 +158,7 @@ _PASSTHROUGH_ENVIRONMENT = frozenset(
         "DOCKER_TLS_VERIFY",
         "HOME",
         "LANG",
+        "LC_ALL",
         "NO_COLOR",
         "PATH",
         "TERM",
@@ -69,6 +170,101 @@ _PASSTHROUGH_ENVIRONMENT = frozenset(
 
 class TrustedTimeComposeVerificationError(RuntimeError):
     """The rendered deployment model is outside the approved contract."""
+
+
+def _trusted_time_substitutions(
+    *,
+    source_image: str,
+    supervisor_image: str,
+    database_secret_file: Path,
+    head_anchor_authority_file: Path,
+    head_anchor_auth_secret_file: Path,
+    head_anchor_signing_key_secret_file: Path,
+) -> dict[str, str]:
+    for path, label in (
+        (database_secret_file, "database secret"),
+        (head_anchor_authority_file, "head-anchor authority"),
+        (head_anchor_auth_secret_file, "head-anchor Auth secret"),
+        (head_anchor_signing_key_secret_file, "head-anchor signing-key secret"),
+    ):
+        if not isinstance(path, Path) or not path.is_absolute():
+            raise TrustedTimeComposeVerificationError(f"trusted-time {label} file path is invalid")
+    if type(source_image) is not str or type(supervisor_image) is not str:
+        raise TrustedTimeComposeVerificationError(
+            "trusted-time Compose image substitution is invalid"
+        )
+    return {
+        "AQT_TRUSTED_TIME_DATABASE_SECRET_SOURCE_FILE": str(database_secret_file),
+        "AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_SOURCE_FILE": str(head_anchor_authority_file),
+        "AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_SOURCE_FILE": str(head_anchor_auth_secret_file),
+        "AQT_TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_SECRET_SOURCE_FILE": str(
+            head_anchor_signing_key_secret_file
+        ),
+        "AQT_TRUSTED_TIME_SOURCE_IMAGE": source_image,
+        "AQT_TRUSTED_TIME_SUPERVISOR_IMAGE": supervisor_image,
+    }
+
+
+def _validate_frozen_compose_payload(payload: object) -> bytes:
+    if type(payload) is not bytes or not payload or len(payload) > _MAXIMUM_COMPOSE_PAYLOAD_BYTES:
+        raise TrustedTimeComposeVerificationError("trusted-time frozen Compose payload is invalid")
+    try:
+        decoded = payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        raise TrustedTimeComposeVerificationError(
+            "trusted-time frozen Compose payload is invalid"
+        ) from None
+    if "\x00" in decoded:
+        raise TrustedTimeComposeVerificationError("trusted-time frozen Compose payload is invalid")
+    return payload
+
+
+def _validate_frozen_docker_environment(
+    environment: object,
+) -> dict[str, str]:
+    if not isinstance(environment, Mapping):
+        raise TrustedTimeComposeVerificationError(
+            "trusted-time frozen Docker environment is invalid"
+        )
+    try:
+        entries = tuple(environment.items())
+    except (AttributeError, RuntimeError, TypeError):
+        raise TrustedTimeComposeVerificationError(
+            "trusted-time frozen Docker environment is invalid"
+        ) from None
+    if len(entries) > _MAXIMUM_DOCKER_ENVIRONMENT_VARIABLES:
+        raise TrustedTimeComposeVerificationError(
+            "trusted-time frozen Docker environment is invalid"
+        )
+    frozen: dict[str, str] = {}
+    total_bytes = 0
+    for key, value in entries:
+        if (
+            type(key) is not str
+            or type(value) is not str
+            or not key
+            or "=" in key
+            or "\x00" in key
+            or "\x00" in value
+            or key not in _PASSTHROUGH_ENVIRONMENT
+            or key in frozen
+        ):
+            raise TrustedTimeComposeVerificationError(
+                "trusted-time frozen Docker environment is invalid"
+            )
+        try:
+            total_bytes += len(key.encode("utf-8", errors="strict"))
+            total_bytes += len(value.encode("utf-8", errors="strict"))
+        except UnicodeEncodeError:
+            raise TrustedTimeComposeVerificationError(
+                "trusted-time frozen Docker environment is invalid"
+            ) from None
+        if total_bytes > _MAXIMUM_DOCKER_ENVIRONMENT_BYTES:
+            raise TrustedTimeComposeVerificationError(
+                "trusted-time frozen Docker environment is invalid"
+            )
+        frozen[key] = value
+    return frozen
 
 
 def _mapping(value: object, field_name: str) -> Mapping[str, object]:
@@ -358,54 +554,94 @@ def render_compose_model(
     head_anchor_authority_file: Path = PLACEHOLDER_HEAD_ANCHOR_AUTHORITY_FILE,
     head_anchor_auth_secret_file: Path = PLACEHOLDER_HEAD_ANCHOR_AUTH_SECRET_FILE,
     head_anchor_signing_key_secret_file: Path = (PLACEHOLDER_HEAD_ANCHOR_SIGNING_KEY_SECRET_FILE),
+    compose_payload: bytes | None = None,
+    docker_environment: Mapping[str, str] | None = None,
 ) -> object:
-    environment = {
-        key: value
-        for key, value in os.environ.items()
-        if key in _PASSTHROUGH_ENVIRONMENT or key.startswith("LC_")
-    }
-    for path, label in (
-        (database_secret_file, "database secret"),
-        (head_anchor_authority_file, "head-anchor authority"),
-        (head_anchor_auth_secret_file, "head-anchor Auth secret"),
-        (head_anchor_signing_key_secret_file, "head-anchor signing-key secret"),
-    ):
-        if not isinstance(path, Path) or not path.is_absolute():
-            raise TrustedTimeComposeVerificationError(f"trusted-time {label} file path is invalid")
-    environment["AQT_TRUSTED_TIME_DATABASE_SECRET_SOURCE_FILE"] = str(database_secret_file)
-    environment["AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_SOURCE_FILE"] = str(
-        head_anchor_authority_file
+    substitutions = _trusted_time_substitutions(
+        source_image=source_image,
+        supervisor_image=supervisor_image,
+        database_secret_file=database_secret_file,
+        head_anchor_authority_file=head_anchor_authority_file,
+        head_anchor_auth_secret_file=head_anchor_auth_secret_file,
+        head_anchor_signing_key_secret_file=head_anchor_signing_key_secret_file,
     )
-    environment["AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_SOURCE_FILE"] = str(
-        head_anchor_auth_secret_file
-    )
-    environment["AQT_TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_SECRET_SOURCE_FILE"] = str(
-        head_anchor_signing_key_secret_file
-    )
-    environment["AQT_TRUSTED_TIME_SOURCE_IMAGE"] = source_image
-    environment["AQT_TRUSTED_TIME_SUPERVISOR_IMAGE"] = supervisor_image
-    completed = subprocess.run(
-        [
-            "docker",
-            "compose",
-            "--env-file",
-            str(DEFAULTS_PATH),
-            "-f",
-            str(COMPOSE_PATH),
-            "config",
-            "--format",
-            "json",
-        ],
-        cwd=ROOT,
-        env=environment,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0 or completed.stderr:
-        raise TrustedTimeComposeVerificationError("Docker Compose validation failed")
+    if (compose_payload is None) != (docker_environment is None):
+        raise TrustedTimeComposeVerificationError(
+            "trusted-time frozen Compose inputs must be supplied together"
+        )
+    if compose_payload is None:
+        environment = {
+            key: value for key, value in os.environ.items() if key in _PASSTHROUGH_ENVIRONMENT
+        }
+        environment.update(substitutions)
+        try:
+            completed = run_bounded_subprocess(
+                (
+                    "docker",
+                    "compose",
+                    "--env-file",
+                    str(DEFAULTS_PATH),
+                    "-f",
+                    str(COMPOSE_PATH),
+                    "config",
+                    "--format",
+                    "json",
+                ),
+                cwd=ROOT,
+                environment=environment,
+                maximum_stdout_bytes=_MAXIMUM_COMPOSE_JSON_BYTES,
+                maximum_stderr_bytes=_MAXIMUM_COMPOSE_STDERR_BYTES,
+                timeout_seconds=_COMPOSE_RENDER_TIMEOUT_SECONDS,
+            )
+        except BoundedSubprocessError:
+            raise TrustedTimeComposeVerificationError("Docker Compose validation failed") from None
+        if completed.returncode != 0 or completed.stderr:
+            raise TrustedTimeComposeVerificationError("Docker Compose validation failed")
+        try:
+            rendered_json = completed.stdout.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            raise TrustedTimeComposeVerificationError(
+                "Docker Compose returned malformed JSON"
+            ) from None
+    else:
+        payload = _validate_frozen_compose_payload(compose_payload)
+        environment = _validate_frozen_docker_environment(docker_environment)
+        environment.update(substitutions)
+        try:
+            completed_bytes = run_bounded_subprocess(
+                (
+                    "docker",
+                    "compose",
+                    "--env-file",
+                    os.devnull,
+                    "--project-directory",
+                    str(COMPOSE_PATH.parent),
+                    "--file",
+                    "-",
+                    "config",
+                    "--format",
+                    "json",
+                ),
+                cwd=ROOT,
+                environment=environment,
+                stdin_bytes=payload,
+                maximum_stdin_bytes=_MAXIMUM_COMPOSE_PAYLOAD_BYTES,
+                maximum_stdout_bytes=_MAXIMUM_COMPOSE_JSON_BYTES,
+                maximum_stderr_bytes=_MAXIMUM_COMPOSE_STDERR_BYTES,
+                timeout_seconds=_COMPOSE_RENDER_TIMEOUT_SECONDS,
+            )
+        except BoundedSubprocessError:
+            raise TrustedTimeComposeVerificationError("Docker Compose validation failed") from None
+        if completed_bytes.returncode != 0 or completed_bytes.stderr:
+            raise TrustedTimeComposeVerificationError("Docker Compose validation failed")
+        try:
+            rendered_json = completed_bytes.stdout.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            raise TrustedTimeComposeVerificationError(
+                "Docker Compose returned malformed JSON"
+            ) from None
     try:
-        rendered: Any = json.loads(completed.stdout)
+        rendered: Any = json.loads(rendered_json)
     except json.JSONDecodeError:
         raise TrustedTimeComposeVerificationError(
             "Docker Compose returned malformed JSON"

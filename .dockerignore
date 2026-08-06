@@ -6,6 +6,9 @@
 **/.env
 **/.env.*
 !**/.env.example
+**/*.pem
+**/*.key
+**/*.p12
 **/.venv
 **/__pycache__
 **/*.pyc

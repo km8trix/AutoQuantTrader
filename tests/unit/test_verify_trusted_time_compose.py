@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
 
 import pytest
 
+import scripts.verify_trusted_time_compose as compose_verifier
+from scripts.bounded_subprocess import BoundedSubprocessError
 from scripts.verify_trusted_time_compose import (
     PLACEHOLDER_DATABASE_SECRET_FILE,
     PLACEHOLDER_HEAD_ANCHOR_AUTH_SECRET_FILE,
@@ -17,6 +21,160 @@ from scripts.verify_trusted_time_compose import (
     render_compose_model,
     validate_compose_model,
 )
+
+
+def test_compose_verifier_import_does_not_activate_cli_runtime_attestation() -> None:
+    assert compose_verifier._CLI_REPOSITORY_ROOT is None
+
+
+def test_compose_verifier_cli_runtime_attestation_accepts_isolated_source_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "repository"
+    source = root / "scripts" / "verify_trusted_time_compose.py"
+    runtime_prefix = tmp_path / "uv-isolated"
+    base_prefix = tmp_path / "uv-python"
+    source.parent.mkdir(parents=True)
+    source.write_text("# source\n", encoding="utf-8")
+    runtime_prefix.mkdir()
+    base_prefix.mkdir()
+    monkeypatch.chdir(root)
+    runtime_path = [os.fspath(base_prefix / "lib")]
+
+    with (
+        patch(
+            "scripts.verify_trusted_time_compose.sys.flags",
+            SimpleNamespace(isolated=1, dont_write_bytecode=1),
+        ),
+        patch("scripts.verify_trusted_time_compose.sys.pycache_prefix", "/dev/null"),
+        patch("scripts.verify_trusted_time_compose.sys.prefix", os.fspath(runtime_prefix)),
+        patch("scripts.verify_trusted_time_compose.sys.base_prefix", os.fspath(base_prefix)),
+        patch("scripts.verify_trusted_time_compose.sys.path", runtime_path),
+    ):
+        observed_root = compose_verifier._require_isolated_cli_source_runtime(
+            expected_relative_path=Path("scripts/verify_trusted_time_compose.py"),
+            module_file=os.fspath(source),
+        )
+
+        assert observed_root == root
+        assert runtime_path[0] == os.fspath(root)
+
+
+@pytest.mark.parametrize(
+    ("isolated", "dont_write_bytecode", "pycache_prefix"),
+    [
+        (0, 1, "/dev/null"),
+        (1, 0, "/dev/null"),
+        (1, 1, None),
+        (1, 1, "repository-cache"),
+    ],
+)
+def test_compose_verifier_cli_runtime_attestation_rejects_unsafe_interpreter_modes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    isolated: int,
+    dont_write_bytecode: int,
+    pycache_prefix: str | None,
+) -> None:
+    root = tmp_path / "repository"
+    source = root / "scripts" / "verify_trusted_time_compose.py"
+    runtime_prefix = tmp_path / "uv-isolated"
+    base_prefix = tmp_path / "uv-python"
+    source.parent.mkdir(parents=True)
+    source.write_text("# source\n", encoding="utf-8")
+    runtime_prefix.mkdir()
+    base_prefix.mkdir()
+    monkeypatch.chdir(root)
+
+    with (
+        patch(
+            "scripts.verify_trusted_time_compose.sys.flags",
+            SimpleNamespace(
+                isolated=isolated,
+                dont_write_bytecode=dont_write_bytecode,
+            ),
+        ),
+        patch("scripts.verify_trusted_time_compose.sys.pycache_prefix", pycache_prefix),
+        patch("scripts.verify_trusted_time_compose.sys.prefix", os.fspath(runtime_prefix)),
+        patch("scripts.verify_trusted_time_compose.sys.base_prefix", os.fspath(base_prefix)),
+        patch(
+            "scripts.verify_trusted_time_compose.sys.path",
+            [os.fspath(base_prefix / "lib")],
+        ),
+        pytest.raises(RuntimeError, match="runtime attestation failed"),
+    ):
+        compose_verifier._require_isolated_cli_source_runtime(
+            expected_relative_path=Path("scripts/verify_trusted_time_compose.py"),
+            module_file=os.fspath(source),
+        )
+
+
+def test_compose_verifier_cli_runtime_attestation_rejects_repository_virtual_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "repository"
+    source = root / "scripts" / "verify_trusted_time_compose.py"
+    runtime_prefix = root / ".venv"
+    base_prefix = tmp_path / "uv-python"
+    source.parent.mkdir(parents=True)
+    source.write_text("# source\n", encoding="utf-8")
+    runtime_prefix.mkdir()
+    base_prefix.mkdir()
+    monkeypatch.chdir(root)
+
+    with (
+        patch(
+            "scripts.verify_trusted_time_compose.sys.flags",
+            SimpleNamespace(isolated=1, dont_write_bytecode=1),
+        ),
+        patch("scripts.verify_trusted_time_compose.sys.pycache_prefix", "/dev/null"),
+        patch("scripts.verify_trusted_time_compose.sys.prefix", os.fspath(runtime_prefix)),
+        patch("scripts.verify_trusted_time_compose.sys.base_prefix", os.fspath(base_prefix)),
+        patch(
+            "scripts.verify_trusted_time_compose.sys.path",
+            [os.fspath(runtime_prefix / "lib")],
+        ),
+        pytest.raises(RuntimeError, match="runtime attestation failed"),
+    ):
+        compose_verifier._require_isolated_cli_source_runtime(
+            expected_relative_path=Path("scripts/verify_trusted_time_compose.py"),
+            module_file=os.fspath(source),
+        )
+
+
+def test_compose_verifier_first_party_attestation_accepts_exact_repository_source(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repository"
+    source = root / "scripts" / "bounded_subprocess.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("# source\n", encoding="utf-8")
+    isolated_sys = SimpleNamespace(
+        modules={"scripts.bounded_subprocess": SimpleNamespace(__file__=os.fspath(source))}
+    )
+
+    with patch("scripts.verify_trusted_time_compose.sys", isolated_sys):
+        compose_verifier._require_repository_first_party_sources(root)
+
+
+def test_compose_verifier_first_party_attestation_rejects_bytecode_origin(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repository"
+    bytecode = root / "scripts" / "__pycache__" / "bounded_subprocess.cpython-312.pyc"
+    bytecode.parent.mkdir(parents=True)
+    bytecode.write_bytes(b"poisoned")
+    isolated_sys = SimpleNamespace(
+        modules={"scripts.bounded_subprocess": SimpleNamespace(__file__=os.fspath(bytecode))}
+    )
+
+    with (
+        patch("scripts.verify_trusted_time_compose.sys", isolated_sys),
+        pytest.raises(RuntimeError, match="first-party source attestation failed"),
+    ):
+        compose_verifier._require_repository_first_party_sources(root)
 
 
 def _common() -> dict[str, object]:
@@ -198,11 +356,14 @@ def test_compose_renderer_uses_only_nonsecret_docker_environment(
     monkeypatch.setenv("AQT_DATABASE_URL", "must-not-be-forwarded")
     observed: dict[str, str] = {}
 
-    def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        observed.update(cast(dict[str, str], kwargs["env"]))
-        return subprocess.CompletedProcess(argv, 0, json.dumps(_model()), "")
+    def fake_run(argv: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed.update(cast(dict[str, str], kwargs["environment"]))
+        return subprocess.CompletedProcess(argv, 0, json.dumps(_model()).encode(), b"")
 
-    with patch("scripts.verify_trusted_time_compose.subprocess.run", side_effect=fake_run):
+    with patch(
+        "scripts.verify_trusted_time_compose.run_bounded_subprocess",
+        side_effect=fake_run,
+    ):
         assert render_compose_model() == _model()
 
     assert observed["AQT_TRUSTED_TIME_DATABASE_SECRET_SOURCE_FILE"] == str(
@@ -219,6 +380,176 @@ def test_compose_renderer_uses_only_nonsecret_docker_environment(
     )
     assert "ALPACA_PAPER_API_SECRET" not in observed
     assert "AQT_DATABASE_URL" not in observed
+
+
+def test_frozen_compose_renderer_uses_exact_payload_and_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    approved_payload = b"name: approved-before-live-file-drift\n"
+    live_compose_path = tmp_path / "trusted-time.compose.yaml"
+    live_defaults_path = tmp_path / "trusted-time.defaults.env"
+    live_compose_path.write_bytes(approved_payload)
+    live_defaults_path.write_text("MUTATED_DEFAULT=before-snapshot\n", encoding="utf-8")
+    live_compose_path.write_bytes(b"name: mutated-after-snapshot\n")
+    live_defaults_path.write_text("MUTATED_DEFAULT=after-snapshot\n", encoding="utf-8")
+    monkeypatch.setattr(compose_verifier, "COMPOSE_PATH", live_compose_path)
+    monkeypatch.setattr(compose_verifier, "DEFAULTS_PATH", live_defaults_path)
+    monkeypatch.setenv("DOCKER_CONTEXT", "ambient-context-must-not-be-forwarded")
+    monkeypatch.setenv("AQT_DATABASE_URL", "ambient-secret-must-not-be-forwarded")
+    exact_docker_environment = {
+        "DOCKER_HOST": "unix:///approved/docker.sock",
+        "LC_ALL": "C",
+    }
+    observed: dict[str, object] = {}
+
+    def fake_run(argv: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed["argv"] = argv
+        observed.update(kwargs)
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            json.dumps(_model()).encode("utf-8"),
+            b"",
+        )
+
+    with patch(
+        "scripts.verify_trusted_time_compose.run_bounded_subprocess",
+        side_effect=fake_run,
+    ):
+        assert (
+            render_compose_model(
+                compose_payload=approved_payload,
+                docker_environment=exact_docker_environment,
+            )
+            == _model()
+        )
+
+    assert observed["argv"] == (
+        "docker",
+        "compose",
+        "--env-file",
+        os.devnull,
+        "--project-directory",
+        str(live_compose_path.parent),
+        "--file",
+        "-",
+        "config",
+        "--format",
+        "json",
+    )
+    assert observed["stdin_bytes"] is approved_payload
+    assert observed["maximum_stdin_bytes"] == 1_048_576
+    assert observed["timeout_seconds"] == 15
+    environment = cast(dict[str, str], observed["environment"])
+    assert environment == {
+        **exact_docker_environment,
+        "AQT_TRUSTED_TIME_DATABASE_SECRET_SOURCE_FILE": str(PLACEHOLDER_DATABASE_SECRET_FILE),
+        "AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_SOURCE_FILE": str(
+            PLACEHOLDER_HEAD_ANCHOR_AUTHORITY_FILE
+        ),
+        "AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_SOURCE_FILE": str(
+            PLACEHOLDER_HEAD_ANCHOR_AUTH_SECRET_FILE
+        ),
+        "AQT_TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_SECRET_SOURCE_FILE": str(
+            PLACEHOLDER_HEAD_ANCHOR_SIGNING_KEY_SECRET_FILE
+        ),
+        "AQT_TRUSTED_TIME_SOURCE_IMAGE": ("autoquanttrader-trusted-time-source:phase6d-v1"),
+        "AQT_TRUSTED_TIME_SUPERVISOR_IMAGE": ("autoquanttrader-trusted-time-supervisor:phase6d-v1"),
+    }
+    assert live_compose_path.read_bytes() != cast(bytes, observed["stdin_bytes"])
+    assert "DOCKER_CONTEXT" not in environment
+    assert "AQT_DATABASE_URL" not in environment
+
+
+def test_frozen_compose_renderer_sanitizes_timeout() -> None:
+    with (
+        patch(
+            "scripts.verify_trusted_time_compose.run_bounded_subprocess",
+            side_effect=BoundedSubprocessError("bounded subprocess execution failed"),
+        ) as run,
+        pytest.raises(
+            TrustedTimeComposeVerificationError,
+            match="Docker Compose validation failed",
+        ),
+    ):
+        render_compose_model(
+            compose_payload=b"name: approved\n",
+            docker_environment={"DOCKER_HOST": "unix:///approved/docker.sock"},
+        )
+
+    run.assert_called_once()
+    assert run.call_args.kwargs["timeout_seconds"] == 15
+
+
+@pytest.mark.parametrize(
+    "compose_payload",
+    [
+        b"",
+        bytearray(b"name: mutable\n"),
+        b"\xff",
+        b"name: embedded\x00nul\n",
+        b"x" * 1_048_577,
+    ],
+)
+def test_frozen_compose_renderer_rejects_invalid_payload(
+    compose_payload: object,
+) -> None:
+    with (
+        patch("scripts.verify_trusted_time_compose.run_bounded_subprocess") as run,
+        pytest.raises(TrustedTimeComposeVerificationError, match="payload is invalid"),
+    ):
+        render_compose_model(  # type: ignore[arg-type]
+            compose_payload=compose_payload,
+            docker_environment={"DOCKER_HOST": "unix:///approved/docker.sock"},
+        )
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "docker_environment",
+    [
+        {"AQT_DATABASE_URL": "must-not-be-forwarded"},
+        {"LC_ETRADE_SECRET": "must-not-be-forwarded"},
+        {"DOCKER_HOST": 7},
+        {"DOCKER_HOST": "unix:///approved/docker.sock\x00suffix"},
+        {"LC_ALL": "\udcff"},
+    ],
+)
+def test_frozen_compose_renderer_rejects_invalid_environment(
+    docker_environment: object,
+) -> None:
+    with (
+        patch("scripts.verify_trusted_time_compose.run_bounded_subprocess") as run,
+        pytest.raises(TrustedTimeComposeVerificationError, match="environment is invalid"),
+    ):
+        render_compose_model(  # type: ignore[arg-type]
+            compose_payload=b"name: approved\n",
+            docker_environment=docker_environment,
+        )
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("compose_payload", "docker_environment"),
+    [
+        (b"name: approved\n", None),
+        (None, {"DOCKER_HOST": "unix:///approved/docker.sock"}),
+    ],
+)
+def test_frozen_compose_renderer_requires_payload_and_environment_together(
+    compose_payload: bytes | None,
+    docker_environment: dict[str, str] | None,
+) -> None:
+    with (
+        patch("scripts.verify_trusted_time_compose.run_bounded_subprocess") as run,
+        pytest.raises(TrustedTimeComposeVerificationError, match="supplied together"),
+    ):
+        render_compose_model(
+            compose_payload=compose_payload,
+            docker_environment=docker_environment,
+        )
+    run.assert_not_called()
 
 
 def test_compose_model_accepts_only_the_expected_parameterized_image_pair() -> None:

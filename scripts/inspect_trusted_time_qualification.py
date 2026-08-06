@@ -5,6 +5,8 @@ does not expose database coordinates, credentials, absolute observation times,
 or raw Chrony output, and it grants no trading or control authority.
 """
 
+# ruff: noqa: E402 -- the CLI bootstrap must run before third-party/first-party imports.
+
 from __future__ import annotations
 
 import argparse
@@ -26,6 +28,93 @@ from decimal import Decimal
 from itertools import pairwise
 from pathlib import Path
 from typing import Any, cast
+
+
+def _require_isolated_cli_source_runtime(
+    *,
+    expected_relative_path: Path,
+    module_file: str = __file__,
+) -> Path:
+    """Fail closed unless this CLI is executing canonical source in an isolated runtime."""
+
+    try:
+        repository_root = Path.cwd()
+        expected_source = repository_root / expected_relative_path
+        actual_source = Path(os.path.abspath(module_file))
+        source_metadata = expected_source.lstat()
+        canonical_root = repository_root.resolve(strict=True)
+        canonical_source = expected_source.resolve(strict=True)
+        runtime_prefix = Path(sys.prefix).resolve(strict=True)
+        base_prefix = Path(sys.base_prefix).resolve(strict=True)
+        reusable_repository_venv = (canonical_root / ".venv").resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        raise RuntimeError("trusted-time CLI runtime attestation failed") from None
+    if (
+        repository_root != canonical_root
+        or expected_source != canonical_source
+        or actual_source != expected_source
+        or not stat.S_ISREG(source_metadata.st_mode)
+        or source_metadata.st_nlink != 1
+        or sys.flags.isolated != 1
+        or sys.flags.dont_write_bytecode != 1
+        or sys.pycache_prefix != "/dev/null"
+        or runtime_prefix in (base_prefix, reusable_repository_venv)
+        or runtime_prefix.is_relative_to(reusable_repository_venv)
+    ):
+        raise RuntimeError("trusted-time CLI runtime attestation failed")
+    for raw_path in sys.path:
+        if not raw_path:
+            continue
+        try:
+            candidate = Path(raw_path).resolve(strict=False)
+        except (OSError, RuntimeError, ValueError):
+            raise RuntimeError("trusted-time CLI runtime attestation failed") from None
+        if candidate == reusable_repository_venv or candidate.is_relative_to(
+            reusable_repository_venv
+        ):
+            raise RuntimeError("trusted-time CLI runtime attestation failed")
+    sys.path.insert(0, os.fspath(canonical_root))
+    return canonical_root
+
+
+def _require_repository_first_party_sources(repository_root: Path) -> None:
+    """Require every loaded first-party module to originate at its exact source path."""
+
+    for module_name, module in tuple(sys.modules.items()):
+        if module_name.split(".", 1)[0] not in {"apps", "packages", "scripts"}:
+            continue
+        origin = getattr(module, "__file__", None)
+        if type(origin) is not str:
+            raise RuntimeError("trusted-time first-party source attestation failed")
+        module_path = repository_root.joinpath(*module_name.split("."))
+        expected_sources = {
+            module_path.with_suffix(".py"),
+            module_path / "__init__.py",
+        }
+        try:
+            lexical_origin = Path(os.path.abspath(origin))
+            canonical_origin = lexical_origin.resolve(strict=True)
+            source_metadata = lexical_origin.lstat()
+        except (OSError, RuntimeError, ValueError):
+            raise RuntimeError("trusted-time first-party source attestation failed") from None
+        if (
+            lexical_origin != canonical_origin
+            or lexical_origin not in expected_sources
+            or lexical_origin.suffix != ".py"
+            or "__pycache__" in lexical_origin.parts
+            or not stat.S_ISREG(source_metadata.st_mode)
+            or source_metadata.st_nlink != 1
+        ):
+            raise RuntimeError("trusted-time first-party source attestation failed")
+
+
+_CLI_REPOSITORY_ROOT = (
+    _require_isolated_cli_source_runtime(
+        expected_relative_path=Path("scripts/inspect_trusted_time_qualification.py")
+    )
+    if __name__ == "__main__"
+    else None
+)
 
 import sqlalchemy as sa
 from sqlalchemy import Connection, Engine, make_url
@@ -52,6 +141,7 @@ from packages.persistence.schema import (
     phase6_trusted_time_probe_evaluations,
 )
 from packages.persistence.trusted_time import verify_trusted_time_integrity
+from scripts.bounded_subprocess import BoundedSubprocessError, run_bounded_subprocess
 from scripts.credential_env import load_owner_only_environment
 from scripts.start_trusted_time_supervisor import (
     LocalDockerDaemonIdentity,
@@ -70,7 +160,9 @@ from scripts.verify_trusted_time_images import (
     verify_images,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = _CLI_REPOSITORY_ROOT or Path(__file__).resolve().parents[1]
+if _CLI_REPOSITORY_ROOT is not None:
+    _require_repository_first_party_sources(ROOT)
 AUTHORITY_PATH = ROOT / "infra" / "trusted-time" / "source-authority.json"
 CHRONY_CONFIG_PATH = ROOT / "infra" / "trusted-time" / "chrony.conf"
 DATABASE_CA_PATH = ROOT / "packages" / "persistence" / "certs" / "supabase-prod-ca-2021.crt"
@@ -78,6 +170,8 @@ IGNORED_ARTIFACT_ROOT = ROOT / "artifacts"
 HOST_ID = "local-paper-docker-primary-v1"
 CONTRACT_VERSION = "phase6c-live-trusted-time-qualification-inspection-v5"
 _CURRENT_SOURCE_ID = "chrony-nts-cloudflare-system76-virginia-v2"
+_MAXIMUM_DOCKER_STDOUT_BYTES = 2 * 1_024 * 1_024
+_MAXIMUM_DOCKER_STDERR_BYTES = 262_144
 _CURRENT_SOURCE_AUTHORITY_SHA256 = (
     "9b514dc25b0cd084aedf1841b305260f22b070b70e396defc9ecce2f9545506c"
 )
@@ -131,6 +225,7 @@ _DOCKER_ENVIRONMENT_ALLOWLIST = frozenset(
         "DOCKER_TLS_VERIFY",
         "HOME",
         "LANG",
+        "LC_ALL",
         "NO_COLOR",
         "PATH",
         "TERM",
@@ -410,16 +505,20 @@ def load_checked_in_authority() -> CheckedInAuthority:
 def load_runtime_database_url(env_file: Path) -> str:
     """Load only the runtime DSN through the hardened owner-file boundary."""
 
-    if not isinstance(env_file, Path) or not env_file.is_absolute():
+    if not isinstance(env_file, Path) or not env_file.is_absolute() or env_file.name == ".env":
         raise TrustedTimeQualificationInspectionError("owner_environment_invalid")
+    variables = ("AQT_DATABASE_URL",)
     try:
         environment = load_owner_only_environment(
             env_file,
-            variables=("AQT_DATABASE_URL",),
+            variables=variables,
+            allowed_variables=variables,
             maximum_bytes=MAXIMUM_OWNER_ENVIRONMENT_BYTES,
             reject_duplicate_variables=True,
             reject_symlinked_parents=True,
             require_current_user_owner=True,
+            require_secure_path=True,
+            required_mode=0o600,
         )
         database_url = environment.get("AQT_DATABASE_URL")
         if type(database_url) is not str or not database_url:
@@ -469,11 +568,7 @@ def _read_boottime_ns(clock: BoottimeClock, images: RunningImageIds) -> int:
 
 
 def _minimal_docker_environment() -> dict[str, str]:
-    return {
-        key: value
-        for key, value in os.environ.items()
-        if key in _DOCKER_ENVIRONMENT_ALLOWLIST or key.startswith("LC_")
-    }
+    return {key: value for key, value in os.environ.items() if key in _DOCKER_ENVIRONMENT_ALLOWLIST}
 
 
 def _qualified_local_docker_daemon() -> LocalDockerDaemonIdentity:
@@ -493,16 +588,21 @@ def _require_same_local_docker_daemon(expected: LocalDockerDaemonIdentity) -> No
 
 def _docker(*arguments: str) -> subprocess.CompletedProcess[str]:
     try:
-        return subprocess.run(
+        completed = run_bounded_subprocess(
             ("docker", *arguments),
             cwd=ROOT,
-            env=_minimal_docker_environment(),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=20,
+            environment=_minimal_docker_environment(),
+            maximum_stdout_bytes=_MAXIMUM_DOCKER_STDOUT_BYTES,
+            maximum_stderr_bytes=_MAXIMUM_DOCKER_STDERR_BYTES,
+            timeout_seconds=20,
         )
-    except (OSError, subprocess.TimeoutExpired):
+        return subprocess.CompletedProcess(
+            completed.args,
+            completed.returncode,
+            completed.stdout.decode("utf-8", errors="strict"),
+            completed.stderr.decode("utf-8", errors="strict"),
+        )
+    except (BoundedSubprocessError, UnicodeDecodeError):
         raise TrustedTimeQualificationInspectionError("runtime_images_unavailable") from None
 
 
@@ -1839,7 +1939,10 @@ def main() -> None:
         "--env-file",
         required=True,
         type=Path,
-        help="absolute owner-only dotenv containing AQT_DATABASE_URL",
+        help=(
+            "dedicated owner-only dotenv containing exactly AQT_DATABASE_URL; "
+            "never use the general repository .env"
+        ),
     )
     parser.add_argument(
         "--minimum-evaluations",
