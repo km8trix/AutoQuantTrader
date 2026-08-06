@@ -3186,13 +3186,15 @@ the Chrony configuration SHA-256 is
 `5b59d843624fa3b1a923804e44df96a7fbce3848380bf0d5a4b888072310fa23`,
 and the reviewed source revision SHA-256 is
 `db81102def51115d85e9584ff8539aae1eede787939d0268e552dba40e8953b4`.
-The retained content-addressed canonical v2 image-admission artifact has the
-same semantic and file SHA-256:
+The retained content-addressed authority-v2-era image-admission artifact uses
+the superseded `phase6c-trusted-time-image-admission-v1` schema and has the same
+semantic and file SHA-256:
 `b4519a60ae77987b1f2459c26b9ccd9782dd36946a46767a14531cf84807e76e`
 and binds source image
 `sha256:8d704f59e4b627e38035b8056f9a63037e610f635cac12a8bf76ec4eff3422f3`
 and supervisor image
 `sha256:ca86611fc6177ec50d80ef0f4ed280bef93865d954c8aee0dceac403cf079d0c`.
+It omits `git_revision` and the current v2 loader rejects it.
 
 The retained `phase6c-live-trusted-time-qualification-inspection-v5` artifact
 is `qualified`; epoch sequence 8 contains eight current-epoch
@@ -3323,20 +3325,92 @@ and
 Postflight recorded `migration_committed=true`, no restore, the exact catalog
 and operational-schema integrity, and zero anchor intents and receipts.
 
-The local secure launcher now stages the database value, nonsecret authority,
-Supabase Auth secret, and raw 32-byte signing key from one explicit owner-only
-environment/source-file boundary. It admits their exact Compose config/secret
-mount paths, metadata, sizes, and in-memory digests, waits until the supervisor
-has loaded all four, then retires the four owner-only staged leaves and
-revalidates their mount outcomes. Secret contents never become Compose
-interpolation values. The image-admission contract
-`phase6d-trusted-time-image-admission-v1` binds the exact migration 0036 bytes,
-schema head `0036_phase6_time_anchors`, and the exact intent/receipt catalog.
-The pre-admission-hardening launcher/Compose/image baseline passed 103 focused
-tests and the actual Docker Compose verifier. That historical result does not
-cover the later typed-terminal observer or receipt path. The admission
-hardening has local unit and static verification only; actual Compose and a
-current immutable-image admission remain `UNRUN` for that revision.
+The local secure launcher stages the database value, nonsecret authority,
+Supabase Auth secret, and raw 32-byte signing key from one dedicated
+current-user-owned, owner-only launch environment/source-file boundary. It
+parses exactly the four trusted-time assignments once and rejects missing,
+duplicate, valueless, malformed, or additional names. The general repository
+`.env`, and any environment containing application, broker, telemetry, or
+unrelated credentials, is forbidden; basename `.env` is rejected before
+opening. Descriptor-walk loading requires an absolute canonical path with no
+symlinked parent and a stable, current-user-owned, single-link mode-`0600`
+regular file. The read-only inspector uses a different owner-only environment
+under a non-`.env` basename containing exactly `AQT_DATABASE_URL`. The launcher
+admits the four inputs' exact Compose config/secret mount paths, metadata,
+sizes, and in-memory digests, waits until the supervisor has loaded all four,
+then retires the four owner-only staged leaves and revalidates their mount
+outcomes. Secret contents never become Compose interpolation values. The
+image-admission contract `phase6d-trusted-time-image-admission-v2` binds the
+exact migration 0036 bytes, schema head `0036_phase6_time_anchors`, and the
+exact intent/receipt catalog. Its reviewed-input manifest also binds `Makefile`,
+`scripts/bounded_subprocess.py`, and `scripts/credential_env.py`, while the
+artifact root binds the captured 40-character build revision and one nonsecret
+canonical OS boot-session ID.
+The loader requires that session to remain current before applying the
+15-minute monotonic freshness window, so reboot replay fails closed.
+
+Admission build is a secretless step on a clean exact merged revision before
+approval. A fixed, secretless Git environment disables global/system config,
+replacement objects, fsmonitor, and optional locking. Two worktree-status
+observations reject staged, unstaged, and nonignored untracked state; every
+index entry must also have ordinary flags, so `assume-unchanged` and
+`skip-worktree` cannot hide drift. For reviewed paths, bounded `ls-tree` and
+`cat-file` reads require the exact HEAD regular-file set and modes, then compare
+stable single-link checkout bytes to the HEAD bytes with SHA-256. Non-exempt
+ignored or info-excluded additions inside reviewed source directories therefore
+remain fatal.
+
+Supported trusted-time Make targets create a fresh locked, offline uv
+environment instead of reusing the repository `.venv`, run Python in isolated
+mode with bytecode writes disabled and cache lookup redirected below
+`/dev/null`, and attest canonical `.py` origins for loaded first-party modules
+before operational work. This removes repository bytecode and reusable-venv
+trust but does not independently authenticate uv, the base interpreter, or the
+global uv content cache. On 2026-08-05, the separately approved operator-local
+cache prewarm installed the exact lock graph and the isolated runtime reported
+`cryptography==49.0.0`. A clean host without those locked cache objects remains
+fail-closed offline.
+
+Docker never receives the live checkout as this build context. The builder
+creates one deterministic, bounded tar archive from the exact validated HEAD
+blobs selected by the trusted-time allowlist, validates the exact
+Dockerfile-specific deny-by-default `.dockerignore`, and feeds the same archive
+over stdin to two direct target-specific `docker build` commands under one
+frozen minimal Docker environment. The trusted-time Dockerfile requires the
+content-addressed frontend
+`docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e`;
+the verifier rejects a mutable or different directive. Each quiet build must return one exact
+immutable `sha256:` ID; verification and admission use those captured IDs, not
+the mutable tags, and any identity mismatch is fatal. The prebuild Compose
+check likewise reads the YAML from the exact Git object and supplies those
+bytes on stdin with `--file -`, `--env-file /dev/null`, a fixed project
+directory, and exact allowlisted substitutions; it cannot reread the checkout
+YAML or defaults file.
+
+The resulting content-addressed artifact exposes the immutable pair for
+review. Lexical validation rejects relative, noncanonical, root-equal, and
+outside-root artifact paths before Git or Docker work; descriptor loading and
+writing separately enforce owner-only parent/file metadata. Fresh manual
+approval binds one tuple: the exact 40-character lowercase
+merged Git revision, artifact SHA-256, source `sha256:` image ID, and supervisor
+`sha256:` image ID. Admission launch never builds or rewrites the artifact.
+Before opening the dedicated launch environment, it applies the same exact-HEAD
+gate, loads and validates the content-addressed artifact and current reviewed
+inputs, verifies exactly the tuple-bound installed images, fences the local
+Docker daemon, and validates the placeholder Compose model from the approved
+HEAD YAML bytes. It retains that payload and sends the same bytes to every
+runtime Compose `up`, `ps`, and `down`; the live Compose/default files cannot
+alter a command after validation. Direct Docker probes receive only the fixed
+finite Docker pass-through environment, with `LC_ALL` as the only admitted
+`LC_*` key. Runtime Compose payloads are capped at 4,096 bytes and Compose
+rendering has a 15-second timeout. Git, Docker, Compose, and macOS boot-identity
+commands stream through command-specific input/output caps and absolute
+deadlines; overflow or timeout kills and reaps the isolated process group. The
+launcher repeats the daemon and approval gates after staging and immediately
+before Compose. After the expected terminal
+and verified teardown it repeats the revision/artifact gate once more before a
+v2 receipt can be retained. Compose uses `--no-build --pull never`, image probes
+use `--pull=never`, and both operate only on the approved immutable IDs.
 
 The admission-only extension is fail-closed around that launcher rather than a
 second deployment path. It refuses a pre-existing supervisor before reading
@@ -3347,7 +3421,7 @@ remote audit under hard-wired `allow_enrollment=False` is carried across the
 worker boundary only as fixed reason
 `head_anchor_remote_history_absent_enrollment_not_approved`; generic provider,
 configuration, integrity, and unknown failures cannot be promoted into that
-classification. Contract `phase6d-unenrolled-secure-launch-admission-v1`
+classification. Contract `phase6d-unenrolled-secure-launch-admission-v2`
 admits only after topology/mount validation, the four-input consumption marker,
 staged-input retirement and retired-mount revalidation, the exact typed
 terminal, container/network removal, and same-identity named-volume
@@ -3356,13 +3430,19 @@ produce `secure_launch_incomplete` only when that exact expected terminal is
 positively observed during Compose startup failure or the private supervisor-
 identity-disappearance race. Missing or unqualified terminals and unrelated
 topology/configuration failures retain their narrower fatal outcomes and no
-ordinary failure path publishes an admitted receipt. A successful receipt is canonical,
-owner-only, content-addressed, non-authorizing, emitted exactly before its
-publication commits, and has a per-attempt UUIDv4 but no trusted-time or anti-
-replay claim. Output failure rolls back the just-linked receipt and fsyncs that
-removal. If unlink or removal durability cannot be confirmed, the wrapper exits
-2 with fixed stderr reason `admission_retention_unconfirmed`; that posture is
-not admission and requires manual artifact inspection before any later attempt.
+ordinary failure path publishes an admitted receipt. A successful receipt is
+canonical, owner-only, content-addressed, non-authorizing, emitted exactly
+before its publication commits, and binds the approved revision, artifact
+SHA-256, source image ID, and supervisor image ID. CLI validation proves only
+the tuple's shape and runtime correspondence; it does not prove that the
+revision was merged, prove who approved it, make it single-use, impose an
+approval TTL, or prevent replay. The manual record supplies merge provenance
+and approval evidence. The per-attempt UUIDv4 likewise makes no approval,
+trusted-time, freshness, or anti-replay claim. Output failure rolls back the
+just-linked receipt and fsyncs that removal. If unlink or removal durability
+cannot be confirmed, the wrapper exits 2 with fixed stderr reason
+`admission_retention_unconfirmed`; that posture is not admission and requires
+manual artifact inspection before any later attempt.
 
 Separate anchor project `pgplscpqsvyraleyaphm` is now Healthy on the Supabase
 Free plan with its Data API disabled. Retained owner-only dashboard evidence
@@ -3418,15 +3498,32 @@ file SHA-256 is
 and its internal `evidence_sha256` is
 `5072b832a6fa3ae01009aa5ff2f89c30e8c24593f87273377bb67dc2afda6171`.
 Enrollment remained `UNRUN` with `allow_enrollment=false`. On 2026-08-05, fresh
-parse-only Compose and immutable-image admission passed on the final reviewed
-runtime inputs. The owner-only image-admission artifact SHA-256 is
+parse-only Compose and immutable-image admission passed on reviewed historical
+runtime inputs. The earlier owner-only image-admission artifact SHA-256 is
 `10e7feea32ed2ad093e59f7075e60147af5fa4835986e7772262a44f64a81b07`,
 binding source image
 `sha256:c3d81b9e1fa19b1d8131c99554da2c8ee8e6b928f27444293e82b237a24371a0`
 and supervisor image
 `sha256:06944ec20029fca39db5e8069f3cb3d1397333304cd6ca70343bf2c6fff312ba`.
-It grants no authority or new exposure. Secure-launcher runtime admission and
-first external enrollment remain `UNRUN`.
+It grants no authority or new exposure. Two later builds from merged revision
+`377cb9bcc80dfeafde680097e483d2f3195f615b` and the same reviewed-input
+SHA-256 `d691523d732e29c59773411e145c6462e94505b1d5e7e92e523a152b64ac9a10`
+produced different immutable pairs under historical artifacts
+`b78bda0469077672beacbb746d0278db8b4f84dc5aead65d155c61b98ba4d0d7`
+and
+`a119b19699c4ce97a13c207d47a9c80c796194d71c99ace97489800838d1dabe`.
+These three, like every currently retained canonical or content-addressed
+`image-admission*.json` artifact, use a superseded v1 schema, omit the captured
+`git_revision`, and are historical evidence only; the current v2 loader rejects
+them.
+The exact pairs are retained in
+[ADR 0094](adr/0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md).
+That permitted drift makes each build a distinct approval boundary. The
+following secure launch did not admit and retained no v2 receipt;
+secure-launcher runtime admission is `ATTEMPTED_NOT_ADMITTED`, while first
+external enrollment remains `UNRUN`. Do not retry until the approval-binding
+hardening is merged, new images are built from that exact merge, and the owner
+approves the fresh revision/artifact/image tuple.
 Therefore the deployed topology still has no
 authenticated external-head evidence or independent supervisor watchdog:
 after supervisor death, local evidence stops and a later evaluation is the
@@ -3462,14 +3559,17 @@ Supabase/provider adapter, runtime process or container, independent external
 failure domain, alert route, readiness/control/new-exposure/re-arm consumer,
 deployment, drill, or Phase 6 exit evidence. The retained passing rollback
 probe, applied atomic read-policy upgrade, separately approved same-object proof
-resume, and final immutable-image admission are complete. Secure-launcher
-runtime admission, followed by separately approved and retained first
-enrollment, normatively precedes a sealed provider-terminal observer. That
-future issuer must authenticate the complete new suffix, bind two stable
-namespace passes to their exact digest, count, and terminal identity, prove no
-higher sequence exists, and capture an independent monotonic instant inside
-the issuer. Only its later deployed runtime applies the 360-second stale policy
-with equality stale and every stale result unavailable; dormant v1 does not.
+resume, and historical immutable-image admissions are complete. The next
+normative sequence is to merge the approval-binding hardening, build and review
+a new content-addressed admission on that exact merge, obtain fresh tuple
+approval, and complete secure-launcher runtime admission. Separately approved
+and retained first enrollment then precedes a sealed provider-terminal
+observer. That future issuer must authenticate the complete new suffix, bind
+two stable namespace passes to their exact digest, count, and terminal
+identity, prove no higher sequence exists, and capture an independent
+monotonic instant inside the issuer. Only its later deployed runtime applies
+the 360-second stale policy with equality stale and every stale result
+unavailable; dormant v1 does not.
 See
 [ADR 0095](adr/0095-dormant-provider-neutral-trusted-head-watchdog-state.md).
 

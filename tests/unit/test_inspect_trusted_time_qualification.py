@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import stat
 import subprocess
 import sys
@@ -12,6 +13,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
@@ -62,6 +64,195 @@ DATABASE_URL = (
 )
 
 
+def test_inspector_import_does_not_activate_cli_runtime_attestation() -> None:
+    assert inspector._CLI_REPOSITORY_ROOT is None
+
+
+def test_inspector_cli_runtime_attestation_accepts_isolated_source_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "repository"
+    source = root / "scripts" / "inspect_trusted_time_qualification.py"
+    runtime_prefix = tmp_path / "uv-isolated"
+    base_prefix = tmp_path / "uv-python"
+    source.parent.mkdir(parents=True)
+    source.write_text("# source\n", encoding="utf-8")
+    runtime_prefix.mkdir()
+    base_prefix.mkdir()
+    monkeypatch.chdir(root)
+    runtime_path = [os.fspath(base_prefix / "lib")]
+
+    with (
+        patch(
+            "scripts.inspect_trusted_time_qualification.sys.flags",
+            SimpleNamespace(isolated=1, dont_write_bytecode=1),
+        ),
+        patch("scripts.inspect_trusted_time_qualification.sys.pycache_prefix", "/dev/null"),
+        patch(
+            "scripts.inspect_trusted_time_qualification.sys.prefix",
+            os.fspath(runtime_prefix),
+        ),
+        patch(
+            "scripts.inspect_trusted_time_qualification.sys.base_prefix",
+            os.fspath(base_prefix),
+        ),
+        patch("scripts.inspect_trusted_time_qualification.sys.path", runtime_path),
+    ):
+        observed_root = inspector._require_isolated_cli_source_runtime(
+            expected_relative_path=Path("scripts/inspect_trusted_time_qualification.py"),
+            module_file=os.fspath(source),
+        )
+
+        assert observed_root == root
+        assert runtime_path[0] == os.fspath(root)
+
+
+@pytest.mark.parametrize(
+    ("isolated", "dont_write_bytecode", "pycache_prefix"),
+    [
+        (0, 1, "/dev/null"),
+        (1, 0, "/dev/null"),
+        (1, 1, None),
+        (1, 1, "repository-cache"),
+    ],
+)
+def test_inspector_cli_runtime_attestation_rejects_unsafe_interpreter_modes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    isolated: int,
+    dont_write_bytecode: int,
+    pycache_prefix: str | None,
+) -> None:
+    root = tmp_path / "repository"
+    source = root / "scripts" / "inspect_trusted_time_qualification.py"
+    runtime_prefix = tmp_path / "uv-isolated"
+    base_prefix = tmp_path / "uv-python"
+    source.parent.mkdir(parents=True)
+    source.write_text("# source\n", encoding="utf-8")
+    runtime_prefix.mkdir()
+    base_prefix.mkdir()
+    monkeypatch.chdir(root)
+
+    with (
+        patch(
+            "scripts.inspect_trusted_time_qualification.sys.flags",
+            SimpleNamespace(
+                isolated=isolated,
+                dont_write_bytecode=dont_write_bytecode,
+            ),
+        ),
+        patch(
+            "scripts.inspect_trusted_time_qualification.sys.pycache_prefix",
+            pycache_prefix,
+        ),
+        patch(
+            "scripts.inspect_trusted_time_qualification.sys.prefix",
+            os.fspath(runtime_prefix),
+        ),
+        patch(
+            "scripts.inspect_trusted_time_qualification.sys.base_prefix",
+            os.fspath(base_prefix),
+        ),
+        patch(
+            "scripts.inspect_trusted_time_qualification.sys.path",
+            [os.fspath(base_prefix / "lib")],
+        ),
+        pytest.raises(RuntimeError, match="runtime attestation failed"),
+    ):
+        inspector._require_isolated_cli_source_runtime(
+            expected_relative_path=Path("scripts/inspect_trusted_time_qualification.py"),
+            module_file=os.fspath(source),
+        )
+
+
+def test_inspector_cli_runtime_attestation_rejects_repository_virtual_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "repository"
+    source = root / "scripts" / "inspect_trusted_time_qualification.py"
+    runtime_prefix = root / ".venv"
+    base_prefix = tmp_path / "uv-python"
+    source.parent.mkdir(parents=True)
+    source.write_text("# source\n", encoding="utf-8")
+    runtime_prefix.mkdir()
+    base_prefix.mkdir()
+    monkeypatch.chdir(root)
+
+    with (
+        patch(
+            "scripts.inspect_trusted_time_qualification.sys.flags",
+            SimpleNamespace(isolated=1, dont_write_bytecode=1),
+        ),
+        patch("scripts.inspect_trusted_time_qualification.sys.pycache_prefix", "/dev/null"),
+        patch(
+            "scripts.inspect_trusted_time_qualification.sys.prefix",
+            os.fspath(runtime_prefix),
+        ),
+        patch(
+            "scripts.inspect_trusted_time_qualification.sys.base_prefix",
+            os.fspath(base_prefix),
+        ),
+        patch(
+            "scripts.inspect_trusted_time_qualification.sys.path",
+            [os.fspath(runtime_prefix / "lib")],
+        ),
+        pytest.raises(RuntimeError, match="runtime attestation failed"),
+    ):
+        inspector._require_isolated_cli_source_runtime(
+            expected_relative_path=Path("scripts/inspect_trusted_time_qualification.py"),
+            module_file=os.fspath(source),
+        )
+
+
+def test_inspector_first_party_attestation_accepts_exact_repository_source(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repository"
+    source = root / "packages" / "domain" / "trusted_time.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("# source\n", encoding="utf-8")
+    isolated_sys = SimpleNamespace(
+        modules={"packages.domain.trusted_time": SimpleNamespace(__file__=os.fspath(source))}
+    )
+
+    with patch("scripts.inspect_trusted_time_qualification.sys", isolated_sys):
+        inspector._require_repository_first_party_sources(root)
+
+
+def test_inspector_first_party_attestation_rejects_bytecode_origin(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repository"
+    bytecode = root / "packages" / "domain" / "__pycache__" / "trusted_time.cpython-312.pyc"
+    bytecode.parent.mkdir(parents=True)
+    bytecode.write_bytes(b"poisoned")
+    isolated_sys = SimpleNamespace(
+        modules={"packages.domain.trusted_time": SimpleNamespace(__file__=os.fspath(bytecode))}
+    )
+
+    with (
+        patch("scripts.inspect_trusted_time_qualification.sys", isolated_sys),
+        pytest.raises(RuntimeError, match="first-party source attestation failed"),
+    ):
+        inspector._require_repository_first_party_sources(root)
+
+
+def test_inspector_docker_environment_uses_finite_locale_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LC_ALL", "C")
+    monkeypatch.setenv("LC_ETRADE_SECRET", "must-not-be-forwarded")
+    monkeypatch.setenv("AQT_DATABASE_URL", "must-not-be-forwarded")
+
+    environment = inspector._minimal_docker_environment()
+
+    assert environment["LC_ALL"] == "C"
+    assert "LC_ETRADE_SECRET" not in environment
+    assert "AQT_DATABASE_URL" not in environment
+
+
 def _image_admission() -> TrustedTimeImageAdmission:
     return TrustedTimeImageAdmission(
         path=inspector.DEFAULT_IMAGE_ADMISSION_ARTIFACT,
@@ -69,6 +260,8 @@ def _image_admission() -> TrustedTimeImageAdmission:
             source_id=SOURCE_IMAGE_ID,
             supervisor_id=SUPERVISOR_IMAGE_ID,
         ),
+        boot_session_id=f"linux:{LINUX_BOOT_ID}",
+        git_revision="a" * 40,
         source_revision_sha256="1" * 64,
         artifact_sha256="2" * 64,
         created_at_utc="2026-07-31T18:00:00.000000Z",
@@ -773,13 +966,22 @@ def test_bad_cadence_and_unrecovered_terminal_state_are_not_qualified() -> None:
 
 def test_owner_loader_extracts_only_exact_runtime_database_url(tmp_path: Path) -> None:
     env_file = tmp_path / "runtime.env"
+    env_file.write_text(f"AQT_DATABASE_URL={DATABASE_URL}\n", encoding="utf-8")
+    env_file.chmod(0o600)
+
+    assert inspector.load_runtime_database_url(env_file) == DATABASE_URL
+
+
+def test_owner_loader_rejects_any_non_database_assignment(tmp_path: Path) -> None:
+    env_file = tmp_path / "runtime.env"
     env_file.write_text(
-        f"AQT_DATABASE_URL={DATABASE_URL}\nALPACA_PAPER_API_SECRET=not-loaded\n",
+        f"AQT_DATABASE_URL={DATABASE_URL}\nALPACA_PAPER_API_SECRET=canary\n",
         encoding="utf-8",
     )
     env_file.chmod(0o600)
 
-    assert inspector.load_runtime_database_url(env_file) == DATABASE_URL
+    with pytest.raises(inspector.TrustedTimeQualificationInspectionError):
+        inspector.load_runtime_database_url(env_file)
 
 
 def test_read_only_engine_is_bounded_and_uses_explicit_pinned_ca() -> None:
@@ -888,6 +1090,25 @@ def _boottime_reader_output(value: int, *, offsets: str | None = None) -> str:
         f"boottime-ns-v1\n{value}\nreader-offsets-v1\n"
         f"{offsets if offsets is not None else _zero_offsets()}"
     )
+
+
+def test_docker_runner_uses_bounded_secretless_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ETRADE_API_SECRET", "must-not-be-forwarded")
+    completed = subprocess.CompletedProcess(("docker", "info"), 0, b"exact\n", b"")
+    with patch.object(
+        inspector,
+        "run_bounded_subprocess",
+        return_value=completed,
+    ) as run:
+        observed = inspector._docker("info")
+
+    assert observed.stdout == "exact\n"
+    assert run.call_args.kwargs["maximum_stdout_bytes"] == 2 * 1_024 * 1_024
+    assert run.call_args.kwargs["maximum_stderr_bytes"] == 262_144
+    assert run.call_args.kwargs["timeout_seconds"] == 20
+    assert "ETRADE_API_SECRET" not in run.call_args.kwargs["environment"]
 
 
 def test_pid1_start_ticks_parses_exact_proc_field_22() -> None:

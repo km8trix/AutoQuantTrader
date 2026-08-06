@@ -1,5 +1,7 @@
 """Start the local trusted-time topology with owner-staged runtime inputs."""
 
+# ruff: noqa: E402 -- the CLI bootstrap must run before first-party imports.
+
 from __future__ import annotations
 
 import argparse
@@ -9,7 +11,6 @@ import math
 import os
 import re
 import secrets
-import selectors
 import stat
 import subprocess
 import sys
@@ -22,6 +23,93 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
+
+def _require_isolated_cli_source_runtime(
+    *,
+    expected_relative_path: Path,
+    module_file: str = __file__,
+) -> Path:
+    """Fail closed unless this CLI is executing canonical source in an isolated runtime."""
+
+    try:
+        repository_root = Path.cwd()
+        expected_source = repository_root / expected_relative_path
+        actual_source = Path(os.path.abspath(module_file))
+        source_metadata = expected_source.lstat()
+        canonical_root = repository_root.resolve(strict=True)
+        canonical_source = expected_source.resolve(strict=True)
+        runtime_prefix = Path(sys.prefix).resolve(strict=True)
+        base_prefix = Path(sys.base_prefix).resolve(strict=True)
+        reusable_repository_venv = (canonical_root / ".venv").resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        raise RuntimeError("trusted-time CLI runtime attestation failed") from None
+    if (
+        repository_root != canonical_root
+        or expected_source != canonical_source
+        or actual_source != expected_source
+        or not stat.S_ISREG(source_metadata.st_mode)
+        or source_metadata.st_nlink != 1
+        or sys.flags.isolated != 1
+        or sys.flags.dont_write_bytecode != 1
+        or sys.pycache_prefix != "/dev/null"
+        or runtime_prefix in (base_prefix, reusable_repository_venv)
+        or runtime_prefix.is_relative_to(reusable_repository_venv)
+    ):
+        raise RuntimeError("trusted-time CLI runtime attestation failed")
+    for raw_path in sys.path:
+        if not raw_path:
+            continue
+        try:
+            candidate = Path(raw_path).resolve(strict=False)
+        except (OSError, RuntimeError, ValueError):
+            raise RuntimeError("trusted-time CLI runtime attestation failed") from None
+        if candidate == reusable_repository_venv or candidate.is_relative_to(
+            reusable_repository_venv
+        ):
+            raise RuntimeError("trusted-time CLI runtime attestation failed")
+    sys.path.insert(0, os.fspath(canonical_root))
+    return canonical_root
+
+
+def _require_repository_first_party_sources(repository_root: Path) -> None:
+    """Require every loaded first-party module to originate at its exact source path."""
+
+    for module_name, module in tuple(sys.modules.items()):
+        if module_name.split(".", 1)[0] not in {"apps", "packages", "scripts"}:
+            continue
+        origin = getattr(module, "__file__", None)
+        if type(origin) is not str:
+            raise RuntimeError("trusted-time first-party source attestation failed")
+        module_path = repository_root.joinpath(*module_name.split("."))
+        expected_sources = {
+            module_path.with_suffix(".py"),
+            module_path / "__init__.py",
+        }
+        try:
+            lexical_origin = Path(os.path.abspath(origin))
+            canonical_origin = lexical_origin.resolve(strict=True)
+            source_metadata = lexical_origin.lstat()
+        except (OSError, RuntimeError, ValueError):
+            raise RuntimeError("trusted-time first-party source attestation failed") from None
+        if (
+            lexical_origin != canonical_origin
+            or lexical_origin not in expected_sources
+            or lexical_origin.suffix != ".py"
+            or "__pycache__" in lexical_origin.parts
+            or not stat.S_ISREG(source_metadata.st_mode)
+            or source_metadata.st_nlink != 1
+        ):
+            raise RuntimeError("trusted-time first-party source attestation failed")
+
+
+_CLI_REPOSITORY_ROOT = (
+    _require_isolated_cli_source_runtime(
+        expected_relative_path=Path("scripts/start_trusted_time_supervisor.py")
+    )
+    if __name__ == "__main__"
+    else None
+)
+
 from apps.trusted_time_supervisor.config import (
     TrustedTimeSupervisorConfigurationError,
     validate_database_url,
@@ -31,6 +119,7 @@ from apps.trusted_time_supervisor.head_anchor_config import (
     MAXIMUM_HEAD_ANCHOR_AUTH_SECRET_BYTES,
     MAXIMUM_HEAD_ANCHOR_AUTHORITY_BYTES,
 )
+from scripts.bounded_subprocess import BoundedSubprocessError, run_bounded_subprocess
 from scripts.credential_env import load_owner_only_environment
 from scripts.verify_trusted_time_compose import (
     PLACEHOLDER_DATABASE_SECRET_FILE,
@@ -47,25 +136,37 @@ from scripts.verify_trusted_time_images import (
     IGNORED_ARTIFACT_ROOT,
     SOURCE_IMAGE_ENVIRONMENT,
     SUPERVISOR_IMAGE_ENVIRONMENT,
+    TrustedTimeImageAdmission,
     TrustedTimeImageIdentities,
     TrustedTimeImageVerificationError,
+    _head_reviewed_input_payload,
     _open_owner_only_artifact_directory,
-    build_verify_and_write_image_admission,
+    _require_head_reviewed_inputs,
+    _require_ordinary_git_index_flags,
     load_image_admission_artifact,
     validate_socket_volume_inspection,
+    verify_images,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = _CLI_REPOSITORY_ROOT or Path(__file__).resolve().parents[1]
+if _CLI_REPOSITORY_ROOT is not None:
+    _require_repository_first_party_sources(ROOT)
 COMPOSE_PATH = ROOT / "infra" / "compose" / "trusted-time.compose.yaml"
 DEFAULTS_PATH = ROOT / "infra" / "compose" / "trusted-time.defaults.env"
 MAXIMUM_ENV_FILE_BYTES = 65_536
 COMPOSE_WAIT_TIMEOUT_SECONDS = 60
 UNENROLLED_TERMINAL_OBSERVATION_TIMEOUT_SECONDS = 60.0
 UNENROLLED_TERMINAL_OBSERVATION_POLL_SECONDS = 0.1
-DOCKER_OBSERVATION_REAP_TIMEOUT_SECONDS = 0.25
 MAXIMUM_SUPERVISOR_TERMINAL_LINE_BYTES = 4_096
+_MAXIMUM_BOUNDED_COMPOSE_PAYLOAD_BYTES = 4_096
+_MAXIMUM_GIT_REVISION_STDOUT_BYTES = 64
+_MAXIMUM_GIT_STATUS_STDOUT_BYTES = 65_536
+_MAXIMUM_GIT_STDERR_BYTES = 16_384
+_MAXIMUM_DOCKER_CONTROL_STDOUT_BYTES = 65_536
+_MAXIMUM_DOCKER_INSPECTION_STDOUT_BYTES = 4 * 1_024 * 1_024
+_MAXIMUM_DOCKER_STDERR_BYTES = 1_024 * 1_024
 MAXIMUM_UNENROLLED_ADMISSION_ARTIFACT_BYTES = 4_096
-UNENROLLED_ADMISSION_CONTRACT_VERSION = "phase6d-unenrolled-secure-launch-admission-v1"
+UNENROLLED_ADMISSION_CONTRACT_VERSION = "phase6d-unenrolled-secure-launch-admission-v2"
 DEFAULT_UNENROLLED_ADMISSION_ARTIFACT_DIR = IGNORED_ARTIFACT_ROOT / "trusted-time"
 COMPOSE_SOCKET_VOLUME_NAME = "autoquanttrader-trusted-time_chrony_command_socket"
 COMPOSE_STATE_VOLUME_NAME = "autoquanttrader-trusted-time_chrony_state"
@@ -103,6 +204,8 @@ _SUPERVISOR_RUNTIME_ENVIRONMENT = {
 _FULL_CONTAINER_ID_PATTERN = re.compile(r"[0-9a-f]{64}")
 _DAEMON_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9:._-]{0,255}")
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+_GIT_REVISION_PATTERN = re.compile(r"[0-9a-f]{40}")
+_IMAGE_ID_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 _UUID4_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 _EXPECTED_UNENROLLED_TERMINAL_REASON = "head_anchor_remote_history_absent_enrollment_not_approved"
 _SUPERVISOR_TERMINAL_REASONS = frozenset(
@@ -152,6 +255,7 @@ _PASSTHROUGH_ENVIRONMENT = frozenset(
         "DOCKER_TLS_VERIFY",
         "HOME",
         "LANG",
+        "LC_ALL",
         "NO_COLOR",
         "PATH",
         "TERM",
@@ -168,6 +272,39 @@ class LocalDockerDaemonIdentity:
     context_name: str
     endpoint: str
     daemon_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedTimeApprovedLaunch:
+    """Exact nonsecret values approved for one fail-closed launch attempt."""
+
+    git_revision: str
+    image_admission_sha256: str
+    source_image_id: str
+    supervisor_image_id: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.git_revision) is not str
+            or _GIT_REVISION_PATTERN.fullmatch(self.git_revision) is None
+            or type(self.image_admission_sha256) is not str
+            or _SHA256_PATTERN.fullmatch(self.image_admission_sha256) is None
+            or type(self.source_image_id) is not str
+            or _IMAGE_ID_PATTERN.fullmatch(self.source_image_id) is None
+            or type(self.supervisor_image_id) is not str
+            or _IMAGE_ID_PATTERN.fullmatch(self.supervisor_image_id) is None
+            or self.source_image_id == self.supervisor_image_id
+        ):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time approved launch binding is invalid"
+            )
+
+    @property
+    def identities(self) -> TrustedTimeImageIdentities:
+        return TrustedTimeImageIdentities(
+            source_id=self.source_image_id,
+            supervisor_id=self.supervisor_image_id,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,19 +367,19 @@ class TrustedTimeSupervisorTerminalObserved(RuntimeError):
         self,
         evidence: SupervisorTerminalEvidence,
         *,
-        image_admission_sha256: str,
+        approved_launch: TrustedTimeApprovedLaunch,
     ) -> None:
         evidence.__post_init__()
         if (
             evidence.reason != _EXPECTED_UNENROLLED_TERMINAL_REASON
-            or type(image_admission_sha256) is not str
-            or _SHA256_PATTERN.fullmatch(image_admission_sha256) is None
+            or type(approved_launch) is not TrustedTimeApprovedLaunch
         ):
             raise TrustedTimeSupervisorConfigurationError(
                 "trusted-time expected supervisor terminal reason was not observed"
             )
+        approved_launch.__post_init__()
         self.evidence = evidence
-        self.image_admission_sha256 = image_admission_sha256
+        self.approved_launch = approved_launch
         super().__init__("trusted-time supervisor failed closed")
 
 
@@ -302,6 +439,14 @@ class TrustedTimeHeadAnchorSourcePayloads:
     authority: bytes = field(repr=False)
     auth_secret: bytes = field(repr=False)
     signing_key: bytes = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedTimeRuntimeConfiguration:
+    """One exact launch-only environment projection and its owner-file payloads."""
+
+    database_url: str = field(repr=False)
+    head_anchor_payloads: TrustedTimeHeadAnchorSourcePayloads = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,12 +513,12 @@ def _safe_terminal_payload(evidence: SupervisorTerminalEvidence) -> str:
 def _terminal_outcome_error(
     evidence: SupervisorTerminalEvidence,
     *,
-    image_admission_sha256: str,
+    approved_launch: TrustedTimeApprovedLaunch,
 ) -> RuntimeError:
     if evidence.reason == _EXPECTED_UNENROLLED_TERMINAL_REASON:
         return TrustedTimeSupervisorTerminalObserved(
             evidence,
-            image_admission_sha256=image_admission_sha256,
+            approved_launch=approved_launch,
         )
     return TrustedTimeSupervisorTerminalUnqualified(evidence)
 
@@ -409,6 +554,7 @@ def _canonical_unenrolled_admission_bytes(payload: Mapping[str, object]) -> byte
 def _validate_unenrolled_admission_payload(payload: object) -> None:
     if type(payload) is not dict or set(payload) != {
         "admission_id",
+        "approved_git_revision",
         "authority_granted",
         "contract_version",
         "database_secret_disclosed",
@@ -417,8 +563,10 @@ def _validate_unenrolled_admission_payload(payload: object) -> None:
         "new_exposure_authorized",
         "reason",
         "service",
+        "source_image_id",
         "status",
         "supervisor",
+        "supervisor_image_id",
     }:
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time unenrolled admission evidence is invalid"
@@ -427,6 +575,8 @@ def _validate_unenrolled_admission_payload(payload: object) -> None:
     supervisor = payload.get("supervisor")
     if (
         not _valid_uuid4(payload.get("admission_id"))
+        or type(payload.get("approved_git_revision")) is not str
+        or _GIT_REVISION_PATTERN.fullmatch(payload["approved_git_revision"]) is None
         or payload.get("authority_granted") is not False
         or payload.get("contract_version") != UNENROLLED_ADMISSION_CONTRACT_VERSION
         or payload.get("database_secret_disclosed") is not False
@@ -444,6 +594,8 @@ def _validate_unenrolled_admission_payload(payload: object) -> None:
         or payload.get("new_exposure_authorized") is not False
         or payload.get("reason") != "expected_unenrolled_fail_closed_observed"
         or payload.get("service") != "trusted-time-local-launcher"
+        or type(payload.get("source_image_id")) is not str
+        or _IMAGE_ID_PATTERN.fullmatch(payload["source_image_id"]) is None
         or payload.get("status") != "admitted"
         or type(supervisor) is not dict
         or set(supervisor)
@@ -463,6 +615,9 @@ def _validate_unenrolled_admission_payload(payload: object) -> None:
         or supervisor.get("reason") != _EXPECTED_UNENROLLED_TERMINAL_REASON
         or supervisor.get("state") != "exited"
         or supervisor.get("status") != "fatal"
+        or type(payload.get("supervisor_image_id")) is not str
+        or _IMAGE_ID_PATTERN.fullmatch(payload["supervisor_image_id"]) is None
+        or payload.get("source_image_id") == payload.get("supervisor_image_id")
     ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time unenrolled admission evidence is invalid"
@@ -472,7 +627,7 @@ def _validate_unenrolled_admission_payload(payload: object) -> None:
 def build_unenrolled_admission_receipt(
     *,
     admission_id: str,
-    image_admission_sha256: str,
+    approved_launch: TrustedTimeApprovedLaunch,
     terminal_evidence: SupervisorTerminalEvidence,
 ) -> bytes:
     """Build one closed, nonsecret receipt for the expected fail-closed run."""
@@ -482,8 +637,14 @@ def build_unenrolled_admission_receipt(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time unenrolled admission terminal is unqualified"
         )
+    if type(approved_launch) is not TrustedTimeApprovedLaunch:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission approval is invalid"
+        )
+    approved_launch.__post_init__()
     payload: dict[str, object] = {
         "admission_id": admission_id,
+        "approved_git_revision": approved_launch.git_revision,
         "authority_granted": False,
         "contract_version": UNENROLLED_ADMISSION_CONTRACT_VERSION,
         "database_secret_disclosed": False,
@@ -493,10 +654,11 @@ def build_unenrolled_admission_receipt(
             "state_volumes_preserved": True,
             "topology_removed": True,
         },
-        "image_admission_sha256": image_admission_sha256,
+        "image_admission_sha256": approved_launch.image_admission_sha256,
         "new_exposure_authorized": False,
         "reason": "expected_unenrolled_fail_closed_observed",
         "service": "trusted-time-local-launcher",
+        "source_image_id": approved_launch.source_image_id,
         "status": "admitted",
         "supervisor": {
             "authorities_all_false": True,
@@ -506,6 +668,7 @@ def build_unenrolled_admission_receipt(
             "state": terminal_evidence.state,
             "status": terminal_evidence.status,
         },
+        "supervisor_image_id": approved_launch.supervisor_image_id,
     }
     _validate_unenrolled_admission_payload(payload)
     encoded = _canonical_unenrolled_admission_bytes(payload)
@@ -729,14 +892,22 @@ def write_unenrolled_admission_receipt(
 
 
 def load_runtime_database_url(env_file: Path) -> str:
+    variables = ("AQT_DATABASE_URL",)
+    if not isinstance(env_file, Path) or env_file.name == ".env":
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time requires a dedicated database-only env file"
+        )
     try:
         environment = load_owner_only_environment(
             env_file,
-            variables=("AQT_DATABASE_URL",),
+            variables=variables,
+            allowed_variables=variables,
             maximum_bytes=MAXIMUM_ENV_FILE_BYTES,
             reject_duplicate_variables=True,
             reject_symlinked_parents=True,
             require_current_user_owner=True,
+            require_secure_path=True,
+            required_mode=0o600,
         )
     except ValueError:
         raise TrustedTimeSupervisorConfigurationError(
@@ -761,7 +932,7 @@ def _read_owner_only_source_file(
             "trusted-time head-anchor source file was rejected"
         )
     path = Path(value)
-    if not path.is_absolute() or path.name in {"", ".", ".."}:
+    if not path.is_absolute() or os.path.abspath(value) != value or path.name in {"", ".", ".."}:
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time head-anchor source file was rejected"
         )
@@ -810,8 +981,12 @@ def _read_owner_only_source_file(
             len(payload) != before.st_size
             or before.st_dev != after.st_dev
             or before.st_ino != after.st_ino
+            or before.st_mode != after.st_mode
+            or before.st_uid != after.st_uid
+            or before.st_nlink != after.st_nlink
             or before.st_size != after.st_size
             or before.st_mtime_ns != after.st_mtime_ns
+            or before.st_ctime_ns != after.st_ctime_ns
             or (exact_bytes is not None and len(payload) != exact_bytes)
         ):
             raise OSError
@@ -832,6 +1007,10 @@ def load_trusted_time_head_anchor_source_payloads(
 ) -> TrustedTimeHeadAnchorSourcePayloads:
     """Load only three absolute source paths from the owner-only environment."""
 
+    if not isinstance(env_file, Path) or env_file.name == ".env":
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time requires a dedicated head-anchor env file"
+        )
     variables = (
         HEAD_ANCHOR_AUTHORITY_SOURCE_ENVIRONMENT,
         HEAD_ANCHOR_AUTH_SECRET_SOURCE_ENVIRONMENT,
@@ -841,10 +1020,13 @@ def load_trusted_time_head_anchor_source_payloads(
         environment = load_owner_only_environment(
             env_file,
             variables=variables,
+            allowed_variables=variables,
             maximum_bytes=MAXIMUM_ENV_FILE_BYTES,
             reject_duplicate_variables=True,
             reject_symlinked_parents=True,
             require_current_user_owner=True,
+            require_secure_path=True,
+            required_mode=0o600,
         )
     except ValueError:
         raise TrustedTimeSupervisorConfigurationError(
@@ -868,6 +1050,63 @@ def load_trusted_time_head_anchor_source_payloads(
             maximum_bytes=ED25519_PRIVATE_KEY_BYTES,
             exact_bytes=ED25519_PRIVATE_KEY_BYTES,
         ),
+    )
+
+
+def load_trusted_time_runtime_configuration(
+    env_file: Path,
+) -> TrustedTimeRuntimeConfiguration:
+    """Parse exactly four launch assignments once, then open their source files."""
+
+    if not isinstance(env_file, Path) or env_file.name == ".env":
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time requires a dedicated launch-only env file"
+        )
+    variables = (
+        "AQT_DATABASE_URL",
+        HEAD_ANCHOR_AUTHORITY_SOURCE_ENVIRONMENT,
+        HEAD_ANCHOR_AUTH_SECRET_SOURCE_ENVIRONMENT,
+        HEAD_ANCHOR_SIGNING_KEY_SOURCE_ENVIRONMENT,
+    )
+    try:
+        environment = load_owner_only_environment(
+            env_file,
+            variables=variables,
+            allowed_variables=variables,
+            maximum_bytes=MAXIMUM_ENV_FILE_BYTES,
+            reject_duplicate_variables=True,
+            reject_symlinked_parents=True,
+            require_current_user_owner=True,
+            require_secure_path=True,
+            required_mode=0o600,
+        )
+    except ValueError:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time launch-only env file was rejected"
+        ) from None
+    if set(environment) != set(variables):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time launch-only environment is incomplete"
+        )
+    database_url = validate_database_url(environment["AQT_DATABASE_URL"])
+    payloads = TrustedTimeHeadAnchorSourcePayloads(
+        authority=_read_owner_only_source_file(
+            environment[HEAD_ANCHOR_AUTHORITY_SOURCE_ENVIRONMENT],
+            maximum_bytes=MAXIMUM_HEAD_ANCHOR_AUTHORITY_BYTES,
+        ),
+        auth_secret=_read_owner_only_source_file(
+            environment[HEAD_ANCHOR_AUTH_SECRET_SOURCE_ENVIRONMENT],
+            maximum_bytes=MAXIMUM_HEAD_ANCHOR_AUTH_SECRET_BYTES,
+        ),
+        signing_key=_read_owner_only_source_file(
+            environment[HEAD_ANCHOR_SIGNING_KEY_SOURCE_ENVIRONMENT],
+            maximum_bytes=ED25519_PRIVATE_KEY_BYTES,
+            exact_bytes=ED25519_PRIVATE_KEY_BYTES,
+        ),
+    )
+    return TrustedTimeRuntimeConfiguration(
+        database_url=database_url,
+        head_anchor_payloads=payloads,
     )
 
 
@@ -1431,9 +1670,11 @@ def _compose_prefix() -> tuple[str, ...]:
         "docker",
         "compose",
         "--env-file",
-        str(DEFAULTS_PATH),
+        os.devnull,
+        "--project-directory",
+        str(COMPOSE_PATH.parent),
         "--file",
-        str(COMPOSE_PATH),
+        "-",
     )
 
 
@@ -1456,12 +1697,245 @@ def _compose_down_argv() -> tuple[str, ...]:
     return (*_compose_prefix(), "down", "--remove-orphans", "--timeout", "10")
 
 
+def _docker_environment_projection(environment: Mapping[str, str]) -> dict[str, str]:
+    return {key: value for key, value in environment.items() if key in _PASSTHROUGH_ENVIRONMENT}
+
+
 def _minimal_docker_environment() -> dict[str, str]:
+    return _docker_environment_projection(os.environ)
+
+
+def _minimal_git_environment() -> dict[str, str]:
+    """Return a fixed, secretless environment for the read-only revision check."""
+
     return {
-        key: value
-        for key, value in os.environ.items()
-        if key in _PASSTHROUGH_ENVIRONMENT or key.startswith("LC_")
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "LC_ALL": "C",
+        "PATH": os.defpath,
+        "TMPDIR": "/tmp",
     }
+
+
+def _decode_bounded_subprocess(
+    completed: subprocess.CompletedProcess[bytes],
+) -> subprocess.CompletedProcess[str]:
+    """Decode one bounded command without accepting replacement characters."""
+
+    return subprocess.CompletedProcess(
+        completed.args,
+        completed.returncode,
+        completed.stdout.decode("utf-8", errors="strict"),
+        completed.stderr.decode("utf-8", errors="strict"),
+    )
+
+
+def _current_git_revision() -> str:
+    """Resolve one stable commit with a clean tree and exact tracked inputs."""
+
+    environment = _minimal_git_environment()
+    revision_argv = (
+        "git",
+        "-c",
+        "core.fsmonitor=false",
+        "rev-parse",
+        "--verify",
+        "HEAD^{commit}",
+    )
+    status_argv = (
+        "git",
+        "-c",
+        "core.fsmonitor=false",
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=normal",
+        "--ignore-submodules=none",
+    )
+
+    def run_git(
+        argv: tuple[str, ...],
+        *,
+        maximum_stdout_bytes: int,
+    ) -> subprocess.CompletedProcess[str]:
+        return _decode_bounded_subprocess(
+            run_bounded_subprocess(
+                argv,
+                cwd=ROOT,
+                environment=environment,
+                timeout_seconds=2,
+                maximum_stdout_bytes=maximum_stdout_bytes,
+                maximum_stderr_bytes=_MAXIMUM_GIT_STDERR_BYTES,
+            )
+        )
+
+    try:
+        before = run_git(
+            revision_argv,
+            maximum_stdout_bytes=_MAXIMUM_GIT_REVISION_STDOUT_BYTES,
+        )
+        status_result = run_git(
+            status_argv,
+            maximum_stdout_bytes=_MAXIMUM_GIT_STATUS_STDOUT_BYTES,
+        )
+    except (BoundedSubprocessError, UnicodeError):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time Git revision is unavailable"
+        ) from None
+    revision = before.stdout.strip()
+    if (
+        before.returncode != 0
+        or before.stderr
+        or before.stdout != f"{revision}\n"
+        or _GIT_REVISION_PATTERN.fullmatch(revision) is None
+        or status_result.returncode != 0
+        or status_result.stdout
+        or status_result.stderr
+    ):
+        raise TrustedTimeSupervisorConfigurationError("trusted-time Git revision is unavailable")
+    try:
+        _require_ordinary_git_index_flags(environment=environment)
+        _require_head_reviewed_inputs(revision, environment=environment)
+        after_status_result = run_git(
+            status_argv,
+            maximum_stdout_bytes=_MAXIMUM_GIT_STATUS_STDOUT_BYTES,
+        )
+        after = run_git(
+            revision_argv,
+            maximum_stdout_bytes=_MAXIMUM_GIT_REVISION_STDOUT_BYTES,
+        )
+    except (
+        BoundedSubprocessError,
+        UnicodeError,
+        TrustedTimeImageVerificationError,
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time Git revision is unavailable"
+        ) from None
+    if (
+        after_status_result.returncode != 0
+        or after_status_result.stdout
+        or after_status_result.stderr
+        or after.returncode != 0
+        or after.stderr
+        or after.stdout != f"{revision}\n"
+    ):
+        raise TrustedTimeSupervisorConfigurationError("trusted-time Git revision is unavailable")
+    return revision
+
+
+def _require_approved_git_revision(approved_launch: TrustedTimeApprovedLaunch) -> None:
+    approved_launch.__post_init__()
+    if _current_git_revision() != approved_launch.git_revision:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time approved Git revision changed before launch"
+        )
+
+
+def _validate_image_admission_artifact_path(
+    image_admission_artifact: Path,
+    *,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+) -> Path:
+    if not isinstance(image_admission_artifact, Path) or not isinstance(ignored_root, Path):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time image admission artifact path is invalid"
+        )
+    absolute = Path(os.path.abspath(image_admission_artifact))
+    root = Path(os.path.abspath(ignored_root))
+    if (
+        not image_admission_artifact.is_absolute()
+        or absolute != image_admission_artifact
+        or not ignored_root.is_absolute()
+        or root != ignored_root
+        or absolute == root
+        or not absolute.is_relative_to(root)
+        or absolute.name in {"", ".", ".."}
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time image admission artifact path is invalid"
+        )
+    return absolute
+
+
+def _approved_image_admission_path(
+    image_admission_artifact: Path,
+    approved_launch: TrustedTimeApprovedLaunch,
+    *,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+) -> Path:
+    absolute = _validate_image_admission_artifact_path(
+        image_admission_artifact,
+        ignored_root=ignored_root,
+    )
+    try:
+        return absolute.with_name(f"image-admission-{approved_launch.image_admission_sha256}.json")
+    except (OSError, ValueError):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time image admission artifact path is invalid"
+        ) from None
+
+
+def _load_approved_image_admission(
+    image_admission_artifact: Path,
+    approved_launch: TrustedTimeApprovedLaunch,
+    *,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+) -> TrustedTimeImageAdmission:
+    approved_launch.__post_init__()
+    admission = load_image_admission_artifact(
+        _approved_image_admission_path(
+            image_admission_artifact,
+            approved_launch,
+            ignored_root=ignored_root,
+        ),
+        ignored_root=ignored_root,
+    )
+    if (
+        admission.artifact_sha256 != approved_launch.image_admission_sha256
+        or admission.git_revision != approved_launch.git_revision
+        or admission.identities != approved_launch.identities
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time image admission differs from the approved launch binding"
+        )
+    return admission
+
+
+def _validate_runtime_compose_payload(compose_payload: object) -> bytes:
+    if (
+        type(compose_payload) is not bytes
+        or not compose_payload
+        or len(compose_payload) > _MAXIMUM_BOUNDED_COMPOSE_PAYLOAD_BYTES
+        or b"\0" in compose_payload
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time immutable Compose payload is unavailable"
+        )
+    try:
+        compose_payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time immutable Compose payload is unavailable"
+        ) from None
+    return compose_payload
+
+
+def _require_approved_launch_state(
+    image_admission_artifact: Path,
+    approved_launch: TrustedTimeApprovedLaunch,
+    *,
+    expected_admission: TrustedTimeImageAdmission,
+) -> None:
+    _require_approved_git_revision(approved_launch)
+    if (
+        _load_approved_image_admission(image_admission_artifact, approved_launch)
+        != expected_admission
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time approved image admission changed before launch"
+        )
 
 
 def _run_docker(
@@ -1469,18 +1943,41 @@ def _run_docker(
     *,
     environment: Mapping[str, str],
     timeout_seconds: float = 120,
+    compose_payload: bytes | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    is_compose = argv[: len(_compose_prefix())] == _compose_prefix()
+    if is_compose:
+        stdin = _validate_runtime_compose_payload(compose_payload).decode("utf-8")
+    else:
+        if compose_payload is not None:
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time immutable Compose payload is invalid"
+            )
+        stdin = None
+    process_environment = (
+        dict(environment) if is_compose else _docker_environment_projection(environment)
+    )
+    maximum_stdout_bytes = (
+        _MAXIMUM_DOCKER_INSPECTION_STDOUT_BYTES
+        if "inspect" in argv
+        else _MAXIMUM_DOCKER_CONTROL_STDOUT_BYTES
+    )
     try:
-        return subprocess.run(
-            argv,
-            cwd=ROOT,
-            env=dict(environment),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
+        return _decode_bounded_subprocess(
+            run_bounded_subprocess(
+                argv,
+                cwd=ROOT,
+                environment=process_environment,
+                timeout_seconds=timeout_seconds,
+                maximum_stdout_bytes=maximum_stdout_bytes,
+                maximum_stderr_bytes=_MAXIMUM_DOCKER_STDERR_BYTES,
+                stdin_bytes=None if stdin is None else stdin.encode("utf-8"),
+                maximum_stdin_bytes=(
+                    0 if stdin is None else _MAXIMUM_BOUNDED_COMPOSE_PAYLOAD_BYTES
+                ),
+            )
         )
-    except (OSError, subprocess.TimeoutExpired, UnicodeError):
+    except (BoundedSubprocessError, UnicodeError):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time Docker Compose was unavailable"
         ) from None
@@ -1493,6 +1990,7 @@ def _run_docker_bounded(
     maximum_stdout_bytes: int,
     maximum_stderr_bytes: int,
     timeout_seconds: float,
+    compose_payload: bytes | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run one fixed Docker read with hard byte and absolute-time bounds."""
 
@@ -1529,6 +2027,7 @@ def _run_docker_bounded(
             f"name=^{COMPOSE_NETWORK_NAME}$",
         )
     )
+    is_compose = argv[: len(_compose_prefix())] == _compose_prefix()
     if (
         not exact_observation
         or type(maximum_stdout_bytes) is not int
@@ -1539,92 +2038,42 @@ def _run_docker_bounded(
         or isinstance(timeout_seconds, bool)
         or not math.isfinite(float(timeout_seconds))
         or not 0 < float(timeout_seconds) <= 2
+        or (is_compose and (type(compose_payload) is not bytes or not compose_payload))
+        or (not is_compose and compose_payload is not None)
+        or (
+            isinstance(compose_payload, bytes)
+            and len(compose_payload) > _MAXIMUM_BOUNDED_COMPOSE_PAYLOAD_BYTES
+        )
     ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time bounded Docker observation is invalid"
         )
-    process: subprocess.Popen[bytes] | None = None
-    selector = selectors.DefaultSelector()
-    stdout = bytearray()
-    stderr = bytearray()
-    started = time.monotonic()
-    lifecycle_deadline = started + float(timeout_seconds)
-    reap_reserve = min(
-        DOCKER_OBSERVATION_REAP_TIMEOUT_SECONDS,
-        float(timeout_seconds) / 2,
+    process_environment = (
+        dict(environment) if is_compose else _docker_environment_projection(environment)
     )
-    observation_deadline = lifecycle_deadline - reap_reserve
-
-    def stop_process() -> None:
-        if process is None:
-            return
-        with suppress(OSError):
-            process.kill()
-        remaining = max(0.0, lifecycle_deadline - time.monotonic())
-        with suppress(OSError, subprocess.TimeoutExpired):
-            process.wait(timeout=min(DOCKER_OBSERVATION_REAP_TIMEOUT_SECONDS, remaining))
-        with suppress(OSError):
-            process.poll()
-
     try:
-        process = subprocess.Popen(
+        completed = run_bounded_subprocess(
             argv,
             cwd=ROOT,
-            env=dict(environment),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=False,
-            close_fds=True,
+            environment=process_environment,
+            timeout_seconds=timeout_seconds,
+            maximum_stdout_bytes=maximum_stdout_bytes,
+            maximum_stderr_bytes=maximum_stderr_bytes,
+            stdin_bytes=compose_payload,
+            maximum_stdin_bytes=(
+                0 if compose_payload is None else _MAXIMUM_BOUNDED_COMPOSE_PAYLOAD_BYTES
+            ),
         )
-        if process.stdout is None or process.stderr is None:
-            raise OSError
-        selector.register(process.stdout, selectors.EVENT_READ, (stdout, maximum_stdout_bytes))
-        selector.register(process.stderr, selectors.EVENT_READ, (stderr, maximum_stderr_bytes))
-        while selector.get_map():
-            remaining = observation_deadline - time.monotonic()
-            if remaining <= 0:
-                raise subprocess.TimeoutExpired(argv, float(timeout_seconds))
-            events = selector.select(remaining)
-            if not events:
-                raise subprocess.TimeoutExpired(argv, float(timeout_seconds))
-            for key, _ in events:
-                buffer, maximum = key.data
-                chunk = os.read(key.fd, min(65_536, maximum + 1 - len(buffer)))
-                if not chunk:
-                    selector.unregister(key.fileobj)
-                    continue
-                buffer.extend(chunk)
-                if len(buffer) > maximum:
-                    raise TrustedTimeSupervisorConfigurationError(
-                        "trusted-time bounded Docker observation exceeded its bound"
-                    )
-        remaining = observation_deadline - time.monotonic()
-        if remaining <= 0:
-            raise subprocess.TimeoutExpired(argv, float(timeout_seconds))
-        return_code = process.wait(timeout=remaining)
-        if time.monotonic() > lifecycle_deadline:
-            raise subprocess.TimeoutExpired(argv, float(timeout_seconds))
         return subprocess.CompletedProcess(
-            argv,
-            return_code,
-            bytes(stdout).decode("ascii", errors="strict"),
-            bytes(stderr).decode("ascii", errors="strict"),
+            completed.args,
+            completed.returncode,
+            completed.stdout.decode("ascii", errors="strict"),
+            completed.stderr.decode("ascii", errors="strict"),
         )
-    except TrustedTimeSupervisorConfigurationError:
-        stop_process()
-        raise
-    except (OSError, subprocess.SubprocessError, UnicodeError):
-        stop_process()
+    except (BoundedSubprocessError, UnicodeError):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time bounded Docker observation is unavailable"
         ) from None
-    finally:
-        selector.close()
-        if process is not None:
-            for stream in (process.stdout, process.stderr):
-                if stream is not None and not stream.closed:
-                    stream.close()
 
 
 def _one_quiet_line(
@@ -1770,6 +2219,7 @@ def _compose_container_id(
     service_name: str,
     *,
     environment: Mapping[str, str],
+    compose_payload: bytes,
     include_stopped: bool = False,
     timeout_seconds: float = 120,
 ) -> str:
@@ -1786,12 +2236,14 @@ def _compose_container_id(
             maximum_stdout_bytes=128,
             maximum_stderr_bytes=1_024,
             timeout_seconds=timeout_seconds,
+            compose_payload=compose_payload,
         )
         if include_stopped
         else _run_docker(
             argv,
             environment=environment,
             timeout_seconds=timeout_seconds,
+            compose_payload=compose_payload,
         )
     )
     lines = completed.stdout.splitlines()
@@ -1813,6 +2265,7 @@ def _compose_container_id(
 def _optional_stopped_supervisor_container_id(
     *,
     environment: Mapping[str, str],
+    compose_payload: bytes,
     timeout_seconds: float = 2,
 ) -> str | None:
     """Return zero or one exact stopped/running Compose supervisor identity."""
@@ -1830,6 +2283,7 @@ def _optional_stopped_supervisor_container_id(
         maximum_stdout_bytes=128,
         maximum_stderr_bytes=1_024,
         timeout_seconds=timeout_seconds,
+        compose_payload=compose_payload,
     )
     lines = completed.stdout.splitlines()
     if (
@@ -2030,6 +2484,7 @@ def observe_unenrolled_supervisor_terminal(
     *,
     expected_image_id: str,
     environment: Mapping[str, str],
+    compose_payload: bytes,
     container_id: str | None = None,
     timeout_seconds: float = UNENROLLED_TERMINAL_OBSERVATION_TIMEOUT_SECONDS,
     monotonic_clock: Any = time.monotonic,
@@ -2046,14 +2501,14 @@ def observe_unenrolled_supervisor_terminal(
         or re.fullmatch(r"sha256:[0-9a-f]{64}", expected_image_id) is None
         or not callable(monotonic_clock)
         or not callable(sleeper)
+        or type(compose_payload) is not bytes
+        or not compose_payload
     ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time supervisor terminal observation bound is invalid"
         )
     observer_environment = {
-        key: value
-        for key, value in environment.items()
-        if key in _PASSTHROUGH_ENVIRONMENT or key.startswith("LC_")
+        key: value for key, value in environment.items() if key in _PASSTHROUGH_ENVIRONMENT
     }
     compose_observer_environment = dict(observer_environment)
     compose_observer_environment[SOURCE_IMAGE_ENVIRONMENT] = expected_image_id
@@ -2088,6 +2543,7 @@ def observe_unenrolled_supervisor_terminal(
         exact_container_id = _compose_container_id(
             "trusted-time-supervisor",
             environment=compose_observer_environment,
+            compose_payload=compose_payload,
             include_stopped=True,
             timeout_seconds=min(2.0, deadline - observed),
         )
@@ -2150,6 +2606,7 @@ def observe_unenrolled_supervisor_terminal(
             repeated_container_id = _compose_container_id(
                 "trusted-time-supervisor",
                 environment=compose_observer_environment,
+                compose_payload=compose_payload,
                 include_stopped=True,
                 timeout_seconds=min(2.0, deadline - observed),
             )
@@ -3229,21 +3686,27 @@ def _validate_created_topology(
     identities: TrustedTimeImageIdentities,
     *,
     environment: Mapping[str, str],
+    compose_payload: bytes,
     expected_database_secret_file: Path,
     expected_head_anchor_authority_file: Path,
     expected_head_anchor_auth_secret_file: Path,
     expected_head_anchor_signing_key_secret_file: Path,
 ) -> None:
-    source_container_id = _compose_container_id("chrony-nts", environment=environment)
+    source_container_id = _compose_container_id(
+        "chrony-nts",
+        environment=environment,
+        compose_payload=compose_payload,
+    )
     supervisor_container_id = _compose_container_id(
         "trusted-time-supervisor",
         environment=environment,
+        compose_payload=compose_payload,
     )
     validate_live_trusted_time_topology(
         identities,
         source_container_id=source_container_id,
         supervisor_container_id=supervisor_container_id,
-        environment=_minimal_docker_environment(),
+        environment=_docker_environment_projection(environment),
         expected_database_secret_file=expected_database_secret_file,
         expected_head_anchor_authority_file=expected_head_anchor_authority_file,
         expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
@@ -3251,12 +3714,17 @@ def _validate_created_topology(
     )
 
 
-def _stop_created_topology(environment: Mapping[str, str]) -> bool:
+def _stop_created_topology(
+    environment: Mapping[str, str],
+    *,
+    compose_payload: bytes,
+) -> bool:
     try:
         completed = _run_docker(
             _compose_down_argv(),
             environment=environment,
             timeout_seconds=60,
+            compose_payload=compose_payload,
         )
     except TrustedTimeSupervisorConfigurationError:
         return False
@@ -3280,6 +3748,7 @@ def _validate_unenrolled_admission_teardown(
     docker_environment: Mapping[str, str],
     daemon_identity: LocalDockerDaemonIdentity,
     expected_volume_identities: TrustedTimeVolumeIdentities | None,
+    compose_payload: bytes,
 ) -> None:
     """Prove the exact project is gone while both admitted volumes remain."""
 
@@ -3298,6 +3767,7 @@ def _validate_unenrolled_admission_teardown(
         maximum_stdout_bytes=128,
         maximum_stderr_bytes=1_024,
         timeout_seconds=2,
+        compose_payload=compose_payload,
     )
     if completed.returncode != 0 or completed.stdout or completed.stderr:
         raise TrustedTimeSupervisorConfigurationError(
@@ -3337,6 +3807,7 @@ def _validate_unenrolled_admission_teardown(
 def run_local_topology(
     *,
     env_file: Path,
+    approved_launch: TrustedTimeApprovedLaunch,
     image_admission_artifact: Path = DEFAULT_IMAGE_ADMISSION_ARTIFACT,
     expect_unenrolled_fail_closed: bool = False,
 ) -> int:
@@ -3344,15 +3815,42 @@ def run_local_topology(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time unenrolled admission mode is invalid"
         )
+    image_admission_artifact = _validate_image_admission_artifact_path(image_admission_artifact)
+    if type(approved_launch) is not TrustedTimeApprovedLaunch:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time launch requires an exact approved launch binding"
+        )
+    approved_launch.__post_init__()
+    _approved_image_admission_path(image_admission_artifact, approved_launch)
+    _require_approved_git_revision(approved_launch)
+    git_revision = approved_launch.git_revision
     docker_environment = _minimal_docker_environment()
     daemon_identity = qualify_local_docker_daemon(environment=docker_environment)
-    admission = build_verify_and_write_image_admission(image_admission_artifact)
-    repeated_admission = load_image_admission_artifact(image_admission_artifact)
-    if repeated_admission != admission:
+    admission = _load_approved_image_admission(
+        image_admission_artifact,
+        approved_launch,
+    )
+    verified_identities = verify_images(
+        approved_launch.source_image_id,
+        approved_launch.supervisor_image_id,
+        docker_environment=docker_environment,
+    )
+    if verified_identities != approved_launch.identities:
         raise TrustedTimeSupervisorConfigurationError(
-            "trusted-time image admission artifact changed before launch"
+            "trusted-time approved image identities changed during verification"
         )
+    _require_same_local_daemon(daemon_identity, environment=docker_environment)
     identities = admission.identities
+    try:
+        compose_payload = _head_reviewed_input_payload(
+            git_revision,
+            "infra/compose/trusted-time.compose.yaml",
+        )
+    except TrustedTimeImageVerificationError:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time immutable Compose payload is unavailable"
+        ) from None
+    compose_payload = _validate_runtime_compose_payload(compose_payload)
     compose_model = render_compose_model(
         source_image=identities.source_id,
         supervisor_image=identities.supervisor_id,
@@ -3360,6 +3858,8 @@ def run_local_topology(
         head_anchor_authority_file=PLACEHOLDER_HEAD_ANCHOR_AUTHORITY_FILE,
         head_anchor_auth_secret_file=PLACEHOLDER_HEAD_ANCHOR_AUTH_SECRET_FILE,
         head_anchor_signing_key_secret_file=(PLACEHOLDER_HEAD_ANCHOR_SIGNING_KEY_SECRET_FILE),
+        compose_payload=compose_payload,
+        docker_environment=docker_environment,
     )
     validate_compose_model(
         compose_model,
@@ -3373,10 +3873,11 @@ def run_local_topology(
         ),
     )
     _require_same_local_daemon(daemon_identity, environment=docker_environment)
-    if load_image_admission_artifact(image_admission_artifact) != admission:
-        raise TrustedTimeSupervisorConfigurationError(
-            "trusted-time image admission artifact changed before secret load"
-        )
+    _require_approved_launch_state(
+        image_admission_artifact,
+        approved_launch,
+        expected_admission=admission,
+    )
     control_environment = dict(docker_environment)
     control_environment[SOURCE_IMAGE_ENVIRONMENT] = identities.source_id
     control_environment[SUPERVISOR_IMAGE_ENVIRONMENT] = identities.supervisor_id
@@ -3398,7 +3899,10 @@ def run_local_topology(
         PLACEHOLDER_HEAD_ANCHOR_SIGNING_KEY_SECRET_FILE
     )
     if expect_unenrolled_fail_closed and (
-        _optional_stopped_supervisor_container_id(environment=admission_identity_environment)
+        _optional_stopped_supervisor_container_id(
+            environment=admission_identity_environment,
+            compose_payload=compose_payload,
+        )
         is not None
     ):
         raise TrustedTimeSupervisorConfigurationError(
@@ -3406,14 +3910,16 @@ def run_local_topology(
         )
     admission_volume_identities: TrustedTimeVolumeIdentities | None = None
     database_url = ""
+    runtime_configuration: TrustedTimeRuntimeConfiguration | None = None
     materialized_secret: MaterializedDatabaseSecret | None = None
     head_anchor_payloads: TrustedTimeHeadAnchorSourcePayloads | None = None
     materialized_head_anchor_inputs: MaterializedHeadAnchorInputs | None = None
     supervisor_container_id: str | None = None
     compose_attempted = False
     try:
-        database_url = load_runtime_database_url(env_file)
-        head_anchor_payloads = load_trusted_time_head_anchor_source_payloads(env_file)
+        runtime_configuration = load_trusted_time_runtime_configuration(env_file)
+        database_url = runtime_configuration.database_url
+        head_anchor_payloads = runtime_configuration.head_anchor_payloads
         materialized_secret = materialize_database_secret(database_url)
         materialized_head_anchor_inputs = materialize_trusted_time_head_anchor_inputs(
             head_anchor_payloads
@@ -3428,6 +3934,8 @@ def run_local_topology(
             head_anchor_authority_file=materialized_head_anchor_inputs.authority.path,
             head_anchor_auth_secret_file=(materialized_head_anchor_inputs.auth_secret.path),
             head_anchor_signing_key_secret_file=(materialized_head_anchor_inputs.signing_key.path),
+            compose_payload=compose_payload,
+            docker_environment=docker_environment,
         )
         validate_compose_model(
             compose_model,
@@ -3445,6 +3953,11 @@ def run_local_topology(
         validate_materialized_database_secret(materialized_secret)
         validate_materialized_trusted_time_head_anchor_inputs(materialized_head_anchor_inputs)
         _require_same_local_daemon(daemon_identity, environment=docker_environment)
+        _require_approved_launch_state(
+            image_admission_artifact,
+            approved_launch,
+            expected_admission=admission,
+        )
         control_environment[DATABASE_SECRET_FILE_ENVIRONMENT] = str(materialized_secret.path)
         control_environment[HEAD_ANCHOR_AUTHORITY_SOURCE_ENVIRONMENT] = str(
             materialized_head_anchor_inputs.authority.path
@@ -3460,12 +3973,14 @@ def run_local_topology(
             compose_argv(),
             environment=control_environment,
             timeout_seconds=COMPOSE_WAIT_TIMEOUT_SECONDS + 60,
+            compose_payload=compose_payload,
         )
         if completed.returncode != 0:
             terminal_evidence: SupervisorTerminalEvidence | None = None
             if expect_unenrolled_fail_closed:
                 current_supervisor_container_id = _optional_stopped_supervisor_container_id(
-                    environment=admission_identity_environment
+                    environment=admission_identity_environment,
+                    compose_payload=compose_payload,
                 )
                 if current_supervisor_container_id is None:
                     raise TrustedTimeSupervisorConfigurationError(
@@ -3475,10 +3990,14 @@ def run_local_topology(
                     terminal_evidence = _observe_unenrolled_supervisor_terminal_safely(
                         expected_image_id=identities.supervisor_id,
                         environment=docker_environment,
+                        compose_payload=compose_payload,
                         container_id=current_supervisor_container_id,
                         timeout_seconds=2,
                     )
-            if not _stop_created_topology(control_environment):
+            if not _stop_created_topology(
+                control_environment,
+                compose_payload=compose_payload,
+            ):
                 raise TrustedTimeSupervisorConfigurationError(
                     "trusted-time failed topology could not be stopped"
                 )
@@ -3488,6 +4007,7 @@ def run_local_topology(
                     docker_environment=docker_environment,
                     daemon_identity=daemon_identity,
                     expected_volume_identities=admission_volume_identities,
+                    compose_payload=compose_payload,
                 )
             compose_attempted = False
             _cleanup_materialized_runtime_inputs(
@@ -3511,6 +4031,7 @@ def run_local_topology(
         _validate_created_topology(
             identities,
             environment=control_environment,
+            compose_payload=compose_payload,
             expected_database_secret_file=materialized_secret.path,
             expected_head_anchor_authority_file=(materialized_head_anchor_inputs.authority.path),
             expected_head_anchor_auth_secret_file=(
@@ -3523,6 +4044,7 @@ def run_local_topology(
         supervisor_container_id = _compose_container_id(
             "trusted-time-supervisor",
             environment=control_environment,
+            compose_payload=compose_payload,
         )
         _validate_mounted_staged_inputs(
             supervisor_container_id,
@@ -3537,6 +4059,7 @@ def run_local_topology(
         _validate_created_topology(
             identities,
             environment=control_environment,
+            compose_payload=compose_payload,
             expected_database_secret_file=materialized_secret.path,
             expected_head_anchor_authority_file=(materialized_head_anchor_inputs.authority.path),
             expected_head_anchor_auth_secret_file=(
@@ -3571,6 +4094,7 @@ def run_local_topology(
         _validate_created_topology(
             identities,
             environment=control_environment,
+            compose_payload=compose_payload,
             expected_database_secret_file=retained_secret.path,
             expected_head_anchor_authority_file=(retained_head_anchor_inputs.authority.path),
             expected_head_anchor_auth_secret_file=(retained_head_anchor_inputs.auth_secret.path),
@@ -3584,7 +4108,8 @@ def run_local_topology(
                 environment=docker_environment
             )
             current_supervisor_container_id = _optional_stopped_supervisor_container_id(
-                environment=admission_identity_environment
+                environment=admission_identity_environment,
+                compose_payload=compose_payload,
             )
             if (
                 current_supervisor_container_id is None
@@ -3596,9 +4121,13 @@ def run_local_topology(
             terminal_evidence = _observe_unenrolled_supervisor_terminal_safely(
                 expected_image_id=identities.supervisor_id,
                 environment=docker_environment,
+                compose_payload=compose_payload,
                 container_id=current_supervisor_container_id,
             )
-            if not _stop_created_topology(control_environment):
+            if not _stop_created_topology(
+                control_environment,
+                compose_payload=compose_payload,
+            ):
                 raise TrustedTimeSupervisorConfigurationError(
                     "trusted-time admission topology could not be stopped"
                 )
@@ -3607,15 +4136,21 @@ def run_local_topology(
                 docker_environment=docker_environment,
                 daemon_identity=daemon_identity,
                 expected_volume_identities=admission_volume_identities,
+                compose_payload=compose_payload,
             )
             compose_attempted = False
             if terminal_evidence is None:
                 raise TrustedTimeSupervisorTerminalNotObserved(
                     "trusted-time unenrolled supervisor terminal was not observed"
                 )
+            _require_approved_launch_state(
+                image_admission_artifact,
+                approved_launch,
+                expected_admission=admission,
+            )
             raise _terminal_outcome_error(
                 terminal_evidence,
-                image_admission_sha256=admission.artifact_sha256,
+                approved_launch=approved_launch,
             )
         compose_attempted = False
         return 0
@@ -3629,7 +4164,8 @@ def run_local_topology(
         ):
             try:
                 current_supervisor_container_id = _optional_stopped_supervisor_container_id(
-                    environment=admission_identity_environment
+                    environment=admission_identity_environment,
+                    compose_payload=compose_payload,
                 )
                 if current_supervisor_container_id is None:
                     raise TrustedTimeSupervisorConfigurationError(
@@ -3638,6 +4174,7 @@ def run_local_topology(
                 terminal_evidence = _observe_unenrolled_supervisor_terminal_safely(
                     expected_image_id=identities.supervisor_id,
                     environment=docker_environment,
+                    compose_payload=compose_payload,
                     container_id=current_supervisor_container_id,
                     timeout_seconds=2,
                 )
@@ -3649,7 +4186,10 @@ def run_local_topology(
         teardown_error: BaseException | None = None
         if teardown_needed:
             try:
-                if not _stop_created_topology(control_environment):
+                if not _stop_created_topology(
+                    control_environment,
+                    compose_payload=compose_payload,
+                ):
                     raise TrustedTimeSupervisorConfigurationError(
                         "trusted-time unqualified topology could not be stopped"
                     )
@@ -3659,6 +4199,7 @@ def run_local_topology(
                         docker_environment=docker_environment,
                         daemon_identity=daemon_identity,
                         expected_volume_identities=admission_volume_identities,
+                        compose_payload=compose_payload,
                     )
                 compose_attempted = False
             except BaseException as error:
@@ -3705,6 +4246,7 @@ def run_local_topology(
         control_environment[SOURCE_IMAGE_ENVIRONMENT] = ""
         control_environment[SUPERVISOR_IMAGE_ENVIRONMENT] = ""
         head_anchor_payloads = None
+        runtime_configuration = None
         database_url = ""
 
 
@@ -3743,8 +4285,9 @@ def main() -> None:
         required=True,
         type=Path,
         help=(
-            "owner-only dotenv containing AQT_DATABASE_URL and the three absolute "
-            "owner-only head-anchor source-file paths"
+            "dedicated owner-only dotenv containing exactly AQT_DATABASE_URL and "
+            "the three absolute owner-only head-anchor source-file paths; never "
+            "use the general repository .env"
         ),
     )
     parser.add_argument(
@@ -3762,6 +4305,22 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--approved-git-revision",
+        help="exact 40-character lowercase merged Git revision approved for launch",
+    )
+    parser.add_argument(
+        "--approved-image-admission-sha256",
+        help="exact lowercase SHA-256 of the approved image-admission artifact",
+    )
+    parser.add_argument(
+        "--approved-source-image-id",
+        help="exact immutable sha256: source image ID approved for launch",
+    )
+    parser.add_argument(
+        "--approved-supervisor-image-id",
+        help="exact immutable sha256: supervisor image ID approved for launch",
+    )
+    parser.add_argument(
         "--artifact-dir",
         type=Path,
         default=DEFAULT_UNENROLLED_ADMISSION_ARTIFACT_DIR,
@@ -3772,6 +4331,22 @@ def main() -> None:
     )
     arguments = parser.parse_args()
     try:
+        approval_values = (
+            arguments.approved_git_revision,
+            arguments.approved_image_admission_sha256,
+            arguments.approved_source_image_id,
+            arguments.approved_supervisor_image_id,
+        )
+        if any(value is None for value in approval_values):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time launch approval is incomplete"
+            )
+        approved_launch = TrustedTimeApprovedLaunch(
+            git_revision=arguments.approved_git_revision,
+            image_admission_sha256=arguments.approved_image_admission_sha256,
+            source_image_id=arguments.approved_source_image_id,
+            supervisor_image_id=arguments.approved_supervisor_image_id,
+        )
         admission_id = (
             _new_unenrolled_admission_id() if arguments.expect_unenrolled_fail_closed else ""
         )
@@ -3779,12 +4354,13 @@ def main() -> None:
             env_file=arguments.env_file,
             image_admission_artifact=arguments.image_admission_artifact,
             expect_unenrolled_fail_closed=arguments.expect_unenrolled_fail_closed,
+            approved_launch=approved_launch,
         )
     except TrustedTimeSupervisorTerminalObserved as error:
         try:
             encoded = build_unenrolled_admission_receipt(
                 admission_id=admission_id,
-                image_admission_sha256=error.image_admission_sha256,
+                approved_launch=error.approved_launch,
                 terminal_evidence=error.evidence,
             )
             write_unenrolled_admission_receipt(

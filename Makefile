@@ -4,7 +4,8 @@ SHELL := /bin/bash
 UV ?= uv
 PNPM ?= pnpm
 COMPOSE ?= docker compose -f infra/compose/compose.yaml
-TRUSTED_TIME_COMPOSE ?= docker compose --env-file infra/compose/trusted-time.defaults.env -f infra/compose/trusted-time.compose.yaml
+override TRUSTED_TIME_PYTHON := $(UV) run --isolated --offline --locked --no-env-file \
+	python -I -B -X pycache_prefix=/dev/null
 TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT ?= $(CURDIR)/artifacts/trusted-time/image-admission.json
 TRUSTED_TIME_QUALIFICATION_ARTIFACT_DIR ?= $(CURDIR)/artifacts/trusted-time
 TRUSTED_TIME_UNENROLLED_ADMISSION_ARTIFACT_DIR ?= $(CURDIR)/artifacts/trusted-time
@@ -179,42 +180,58 @@ test: ## Run backend tests.
 
 compose-check: ## Validate the Docker Compose model without starting services.
 	$(COMPOSE) config --quiet
-	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+	$(TRUSTED_TIME_PYTHON) \
 		scripts/verify_trusted_time_compose.py
 
 trusted-time-compose-check: ## Verify the isolated evidence-only Compose contract.
-	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+	$(TRUSTED_TIME_PYTHON) \
 		scripts/verify_trusted_time_compose.py
 
 trusted-time-images: ## Build and admit the local Chrony/source supervisor images.
-	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+	$(TRUSTED_TIME_PYTHON) \
 		scripts/verify_trusted_time_images.py --build \
 		--artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)"
 
-trusted-time-start: ## Start approved trusted-time images; requires ENV_FILE=owner-only.env.
-	@test -n "$(ENV_FILE)" || (echo "ENV_FILE=path/to/owner-only.env is required" >&2; exit 2)
-	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+trusted-time-start: ## Start approved trusted-time images with an exact-four launch env.
+	@test -n "$(TRUSTED_TIME_LAUNCH_ENV_FILE)" || (echo "TRUSTED_TIME_LAUNCH_ENV_FILE=path/to/dedicated-owner-only.env is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_GIT_REVISION)" || (echo "TRUSTED_TIME_APPROVED_GIT_REVISION is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_IMAGE_ADMISSION_SHA256)" || (echo "TRUSTED_TIME_APPROVED_IMAGE_ADMISSION_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID)" || (echo "TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID)" || (echo "TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
 		scripts/start_trusted_time_supervisor.py \
-		--env-file "$(ENV_FILE)" \
-		--image-admission-artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)"
+		--env-file "$(TRUSTED_TIME_LAUNCH_ENV_FILE)" \
+		--image-admission-artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)" \
+		--approved-git-revision "$(TRUSTED_TIME_APPROVED_GIT_REVISION)" \
+		--approved-image-admission-sha256 "$(TRUSTED_TIME_APPROVED_IMAGE_ADMISSION_SHA256)" \
+		--approved-source-image-id "$(TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID)" \
+		--approved-supervisor-image-id "$(TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID)"
 
 trusted-time-admit-unenrolled: ## Observe an approved fail-closed startup expectation, then tear down.
-	@test -n "$(ENV_FILE)" || (echo "ENV_FILE=path/to/owner-only.env is required" >&2; exit 2)
-	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+	@test -n "$(TRUSTED_TIME_LAUNCH_ENV_FILE)" || (echo "TRUSTED_TIME_LAUNCH_ENV_FILE=path/to/dedicated-owner-only.env is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_GIT_REVISION)" || (echo "TRUSTED_TIME_APPROVED_GIT_REVISION is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_IMAGE_ADMISSION_SHA256)" || (echo "TRUSTED_TIME_APPROVED_IMAGE_ADMISSION_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID)" || (echo "TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID)" || (echo "TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
 		scripts/start_trusted_time_supervisor.py \
-		--env-file "$(ENV_FILE)" \
+		--env-file "$(TRUSTED_TIME_LAUNCH_ENV_FILE)" \
 		--image-admission-artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)" \
 		--artifact-dir "$(TRUSTED_TIME_UNENROLLED_ADMISSION_ARTIFACT_DIR)" \
+		--approved-git-revision "$(TRUSTED_TIME_APPROVED_GIT_REVISION)" \
+		--approved-image-admission-sha256 "$(TRUSTED_TIME_APPROVED_IMAGE_ADMISSION_SHA256)" \
+		--approved-source-image-id "$(TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID)" \
+		--approved-supervisor-image-id "$(TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID)" \
 		--expect-unenrolled-fail-closed
 
 trusted-time-inspect: ## Inspect the running trusted-time qualification window.
-	@test -n "$(ENV_FILE)" || (echo "ENV_FILE=path/to/owner-only.env is required" >&2; exit 2)
-	$(UV) run --offline --frozen --no-sync --no-env-file python -B \
+	@test -n "$(TRUSTED_TIME_INSPECT_ENV_FILE)" || (echo "TRUSTED_TIME_INSPECT_ENV_FILE=path/to/database-only-owner-only.env is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
 		scripts/inspect_trusted_time_qualification.py \
-		--env-file "$(ENV_FILE)" \
+		--env-file "$(TRUSTED_TIME_INSPECT_ENV_FILE)" \
 		--image-admission-artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)" \
 		--artifact-dir "$(TRUSTED_TIME_QUALIFICATION_ARTIFACT_DIR)"
 
-trusted-time-stop: ## Stop the supervisor, then Chrony, preserving state volumes.
-	$(TRUSTED_TIME_COMPOSE) stop trusted-time-supervisor
-	$(TRUSTED_TIME_COMPOSE) stop chrony-nts
+trusted-time-stop: ## Fail closed until an approval-bound frozen shutdown path is implemented.
+	@echo "trusted-time-stop is approval-blocked: no frozen approved shutdown path is implemented" >&2
+	@exit 2
