@@ -143,11 +143,33 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.12"
+          version: "0.11.28"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Prepare locked isolated dependencies
+        run: >-
+          uv run
+          --isolated
+          --locked
+          --no-env-file
+          python
+          -I
+          -B
+          -X
+          pycache_prefix=/dev/null
+          -c
+          pass
+
       - name: Validate Compose model
         run: docker compose -f infra/compose/compose.yaml config --quiet
 
       - name: Admit trusted-time Compose isolation
-        run: python scripts/verify_trusted_time_compose.py
+        run: make trusted-time-compose-check
 
       - name: Build development images
         run: docker compose -f infra/compose/compose.yaml build migrate web
@@ -166,4 +188,4 @@ jobs:
           autoquanttrader-runtime:paper-preflight-ci
 
       - name: Build and admit trusted-time evidence images
-        run: python -m scripts.verify_trusted_time_images --build
+        run: make trusted-time-images

@@ -47,6 +47,37 @@ def test_every_supported_trusted_time_python_target_uses_isolated_launcher() -> 
         assert script in makefile
 
 
+def test_container_ci_uses_supported_isolated_trusted_time_entrypoints() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    marker = "\n  containers:\n"
+    assert workflow.count(marker) == 1
+    container_job = workflow.partition(marker)[2]
+
+    setup = "uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b"
+    prewarm = "- name: Prepare locked isolated dependencies"
+    compose_admission = "run: make trusted-time-compose-check"
+    image_admission = "run: make trusted-time-images"
+
+    assert setup in container_job
+    assert 'python-version: "3.12"' in container_job
+    assert 'version: "0.11.28"' in container_job
+    assert prewarm in container_job
+    assert (
+        "uv run\n          --isolated\n          --locked\n          --no-env-file" in container_job
+    )
+    assert "pycache_prefix=/dev/null\n          -c\n          pass" in container_job
+    assert compose_admission in container_job
+    assert image_admission in container_job
+    assert (
+        container_job.index(setup)
+        < container_job.index(prewarm)
+        < container_job.index(compose_admission)
+        < container_job.index(image_admission)
+    )
+    assert "python scripts/verify_trusted_time_compose.py" not in container_job
+    assert "python -m scripts.verify_trusted_time_images --build" not in container_job
+
+
 def test_unenrolled_admission_make_target_passes_exact_approval_tuple() -> None:
     revision = "a" * 40
     artifact_sha256 = "b" * 64
