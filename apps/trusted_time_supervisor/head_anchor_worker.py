@@ -11,7 +11,9 @@ from packages.application.durable_trusted_time_monitor import PersistedTrustedTi
 from packages.application.trusted_time_head_anchor_worker import (
     TrustedTimeHeadAnchorAttempt,
     TrustedTimeHeadAnchorAttemptResult,
+    TrustedTimeHeadAnchorEnrollmentNotApprovedFailure,
     TrustedTimeHeadAnchorFatalFailure,
+    TrustedTimeHeadAnchorFatalReason,
     TrustedTimeHeadAnchorTransientFailure,
     TrustedTimeHeadAnchorWorkerCore,
     TrustedTimeHeadAnchorWorkerError,
@@ -45,6 +47,7 @@ class TrustedTimeHeadAnchorBackgroundWorker:
         "_condition",
         "_core",
         "_fatal_event",
+        "_fatal_reason",
         "_last_observed_monotonic_ns",
         "_monotonic_clock",
         "_on_fatal",
@@ -85,6 +88,7 @@ class TrustedTimeHeadAnchorBackgroundWorker:
         self._condition = threading.Condition(threading.Lock())
         self._started_event = threading.Event()
         self._fatal_event = threading.Event()
+        self._fatal_reason: TrustedTimeHeadAnchorFatalReason | None = None
         self._abort_requested = False
         self._runtime_fatal = False
         self._startup_primed = False
@@ -155,10 +159,15 @@ class TrustedTimeHeadAnchorBackgroundWorker:
             )
         return core
 
-    def _latch_runtime_fatal_locked(self) -> Callable[[], object] | None:
+    def _latch_runtime_fatal_locked(
+        self,
+        *,
+        reason: TrustedTimeHeadAnchorFatalReason | None = None,
+    ) -> Callable[[], object] | None:
         if self._runtime_fatal:
             return None
         self._runtime_fatal = True
+        self._fatal_reason = reason
         core = self._core
         if core is not None and not core.fatal_error_latched:
             with suppress(Exception):
@@ -254,6 +263,7 @@ class TrustedTimeHeadAnchorBackgroundWorker:
             result: TrustedTimeHeadAnchorAttemptResult | None = None
             transient = False
             fatal = False
+            fatal_reason: TrustedTimeHeadAnchorFatalReason | None = None
             try:
                 attempted = self._attempt(request)
                 if type(attempted) is not TrustedTimeHeadAnchorAttemptResult:
@@ -264,6 +274,11 @@ class TrustedTimeHeadAnchorBackgroundWorker:
                 result = attempted
             except TrustedTimeHeadAnchorTransientFailure:
                 transient = True
+            except TrustedTimeHeadAnchorEnrollmentNotApprovedFailure:
+                fatal = True
+                fatal_reason = (
+                    TrustedTimeHeadAnchorFatalReason.REMOTE_HISTORY_ABSENT_ENROLLMENT_NOT_APPROVED
+                )
             except TrustedTimeHeadAnchorFatalFailure:
                 fatal = True
             except Exception:
@@ -292,7 +307,7 @@ class TrustedTimeHeadAnchorBackgroundWorker:
                             request,
                             observed_at_monotonic_ns=completed,
                         )
-                        callback = self._latch_runtime_fatal_locked()
+                        callback = self._latch_runtime_fatal_locked(reason=fatal_reason)
                     else:  # pragma: no cover - defensive exhaustiveness
                         core.record_fatal_failure(
                             request,
@@ -362,6 +377,11 @@ class TrustedTimeHeadAnchorBackgroundWorker:
     @property
     def fatal_error_latched(self) -> bool:
         return self._fatal_event.is_set()
+
+    @property
+    def fatal_reason(self) -> TrustedTimeHeadAnchorFatalReason | None:
+        with self._condition:
+            return self._fatal_reason
 
     def close(
         self,

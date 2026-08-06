@@ -19,7 +19,9 @@ from packages.application.trusted_time_head_anchor_worker import (
     TRUSTED_TIME_HEAD_ANCHOR_WORKER_RETRY_INTERVAL_NS,
     TRUSTED_TIME_HEAD_ANCHOR_WORKER_STALE_AFTER_NS,
     TrustedTimeHeadAnchorAttemptResult,
+    TrustedTimeHeadAnchorEnrollmentNotApprovedFailure,
     TrustedTimeHeadAnchorFatalFailure,
+    TrustedTimeHeadAnchorFatalReason,
     TrustedTimeHeadAnchorTransientFailure,
     TrustedTimeHeadAnchorWorkerCore,
     TrustedTimeHeadAnchorWorkerStatus,
@@ -569,9 +571,36 @@ def test_background_integrity_or_unknown_failure_latches_fatal(
     worker.start()
     assert fatal.wait(timeout=1)
     assert worker.fatal_error_latched is True
+    assert worker.fatal_reason is None
     evidence = worker.evidence()
     assert evidence.status is TrustedTimeHeadAnchorWorkerStatus.FATAL
     assert evidence.external_head_anchor_evidence is False
+    assert worker.close(timeout_seconds=1) is False
+
+
+def test_background_retains_only_fixed_reason_for_unapproved_enrollment_failure() -> None:
+    clock = _Clock()
+    fatal = threading.Event()
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        del request
+        raise TrustedTimeHeadAnchorEnrollmentNotApprovedFailure(
+            "secret provider response must not be retained"
+        )
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=clock,
+        on_fatal=fatal.set,
+    )
+    worker.start()
+
+    assert fatal.wait(timeout=1)
+    assert worker.fatal_error_latched is True
+    assert worker.fatal_reason is (
+        TrustedTimeHeadAnchorFatalReason.REMOTE_HISTORY_ABSENT_ENROLLMENT_NOT_APPROVED
+    )
+    assert "secret" not in worker.fatal_reason.value
     assert worker.close(timeout_seconds=1) is False
 
 

@@ -2182,9 +2182,34 @@ all four, then retires the staged leaves and revalidates their mount outcomes.
 No secret content is passed through Compose interpolation. Image admission
 contract `phase6d-trusted-time-image-admission-v1` binds the exact migration
 0036 bytes, schema head `0036_phase6_time_anchors`, and intent/receipt catalog.
-The final launcher/Compose/image composition passed 103 focused tests and the
-actual Docker Compose verifier; that is local implementation evidence, not
-deployment, provisioning, or enrollment evidence.
+The pre-admission-hardening launcher/Compose/image baseline passed 103 focused
+tests and the actual Docker Compose verifier. That historical evidence does
+not cover the later typed-terminal observer or receipt path. The admission
+hardening has local unit and static verification only; actual Compose and a
+current immutable-image admission remain `UNRUN` for that revision.
+
+Admission-only contract `phase6d-unenrolled-secure-launch-admission-v1` now
+adds a secretless no-prior-supervisor-container preflight, full current-attempt
+container identity and zero-restart binding, byte/deadline-bounded terminal
+observation, and an exact typed worker failure for stable empty remote history while
+`allow_enrollment=False`:
+`head_anchor_remote_history_absent_enrollment_not_approved`. It cannot confuse
+that state with configuration, provider, integrity, or unknown failures. Only
+the post-validation path that has consumed and retired all four inputs,
+revalidated their mounts, observed the exact terminal, removed the topology,
+and proved the same stable creation/mount identity for both named volumes may
+atomically retain a canonical owner-only content-addressed receipt and exit
+successfully. Exact canonical-output failure rolls back the just-linked
+receipt and fsyncs its removal. Failure to confirm either operation exits 2
+with fixed stderr reason `admission_retention_unconfirmed` and requires manual
+artifact inspection; it never becomes a zero-exit admission. An early Compose failure or
+private supervisor-identity-disappearance race is `secure_launch_incomplete`
+only when it positively observes that exact expected terminal. Missing or
+unqualified terminals and unrelated failures retain their narrower nonzero
+outcomes and do not publish an admitted receipt. Receipt UUIDv4 values
+distinguish attempts but provide no trusted-time freshness or anti-replay
+guarantee. This implementation does not change the still-`UNRUN` runtime-
+admission or enrollment status.
 
 The adapter's remote-namespace cap is 250,000 objects, about 868 days or 2.38
 years at one checkpoint every 300 seconds and less when event checkpoints are
@@ -2347,8 +2372,11 @@ unavailable before any watchdog consumer is designed or qualified. See
   now implements the signed sparse-head contract, durable intent/readback/
   sealed-second-`GET` receipt recovery, bounded separate-Supabase adapter,
   paged full-audit worker, applied migration 0036, secure four-input launcher,
-  and exact 0036-head/catalog image admission. The final composition passed 103
-  focused tests and the actual Compose verifier. The separate Healthy Free-plan
+  and exact 0036-head/catalog image admission. The pre-admission-hardening
+  baseline passed 103 focused tests and the actual Compose verifier; that
+  historical result does not cover the later typed-terminal observer or
+  receipt path, whose actual Compose and current image admission remain
+  `UNRUN`. The separate Healthy Free-plan
   project and its Data-API-disabled, exact private primary bucket now have
   retained dashboard evidence. On 2026-08-04, approved provisioning SQL SHA-256
   `68be661f65b3f6b45d7732744790d8155aeb4aae75d6311d196d711e39321135`

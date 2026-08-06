@@ -41,6 +41,8 @@ from packages.application.trusted_time_head_anchor import (
 )
 from packages.application.trusted_time_head_anchor_worker import (
     TrustedTimeHeadAnchorAttemptResult,
+    TrustedTimeHeadAnchorEnrollmentNotApprovedFailure,
+    TrustedTimeHeadAnchorFatalReason,
     TrustedTimeHeadAnchorWorkRequest,
 )
 from packages.application.trusted_time_monitor import (
@@ -373,6 +375,127 @@ def test_service_cleans_partially_started_anchor_worker_when_start_raises() -> N
     engine.dispose.assert_called_once_with()
 
 
+def test_service_surfaces_only_typed_unapproved_enrollment_failure() -> None:
+    authority = _authority()
+    engine = Mock()
+    repository = Mock()
+    repository.register_new_epoch.return_value = SimpleNamespace(
+        binding=SimpleNamespace(monitor_epoch_id="fresh-runtime-epoch")
+    )
+    fatal = threading.Event()
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        del request
+        raise TrustedTimeHeadAnchorEnrollmentNotApprovedFailure(
+            "secret provider response must not cross the service boundary"
+        )
+
+    anchor_worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=lambda: 10,
+        on_fatal=fatal.set,
+    )
+
+    def fake_scheduler(**dependencies: object) -> TrustedTimeSupervisorResult:
+        del dependencies
+        assert fatal.wait(timeout=1)
+        return TrustedTimeSupervisorResult(probe_count=0, last_event=None)
+
+    with (
+        patch("apps.trusted_time_supervisor.main.verify_operational_schema"),
+        patch(
+            "apps.trusted_time_supervisor.main.SqlTrustedTimeRepository",
+            return_value=repository,
+        ),
+        patch("apps.trusted_time_supervisor.main.ChronyNtsTrustedTimeSource"),
+        patch(
+            "apps.trusted_time_supervisor.main.run_trusted_time_supervisor",
+            side_effect=fake_scheduler,
+        ),
+        pytest.raises(TrustedTimeHeadAnchorEnrollmentNotApprovedFailure) as captured,
+    ):
+        run_service(
+            authority=authority,
+            database_url="postgresql+psycopg://user:secret@db.invalid/autoquant",
+            utc_clock=lambda: BASE,
+            monotonic_clock=lambda: 10,
+            stop_event=threading.Event(),
+            emit=lambda _: None,
+            engine_factory=lambda _: engine,
+            head_anchor_worker=anchor_worker,
+        )
+
+    assert str(captured.value) == (
+        "trusted-time remote anchor history is absent and enrollment is not approved"
+    )
+    assert "provider response" not in str(captured.value)
+    assert anchor_worker.fatal_reason is (
+        TrustedTimeHeadAnchorFatalReason.REMOTE_HISTORY_ABSENT_ENROLLMENT_NOT_APPROVED
+    )
+    engine.dispose.assert_called_once_with()
+
+
+def test_service_preserves_typed_failure_that_latches_during_clean_close() -> None:
+    authority = _authority()
+    engine = Mock()
+    repository = Mock()
+    repository.register_new_epoch.return_value = SimpleNamespace(
+        binding=SimpleNamespace(monitor_epoch_id="fresh-runtime-epoch")
+    )
+
+    def unused_attempt(
+        request: TrustedTimeHeadAnchorWorkRequest,
+    ) -> TrustedTimeHeadAnchorAttemptResult:
+        raise AssertionError(request)
+
+    anchor_worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=unused_attempt,
+        monotonic_clock=lambda: 10,
+        on_fatal=lambda: None,
+    )
+
+    def latch_during_close(*_: object, **__: object) -> bool:
+        anchor_worker._fatal_reason = (
+            TrustedTimeHeadAnchorFatalReason.REMOTE_HISTORY_ABSENT_ENROLLMENT_NOT_APPROVED
+        )
+        anchor_worker._fatal_event.set()
+        return False
+
+    with (
+        patch("apps.trusted_time_supervisor.main.verify_operational_schema"),
+        patch(
+            "apps.trusted_time_supervisor.main.SqlTrustedTimeRepository",
+            return_value=repository,
+        ),
+        patch("apps.trusted_time_supervisor.main.ChronyNtsTrustedTimeSource"),
+        patch(
+            "apps.trusted_time_supervisor.main.run_trusted_time_supervisor",
+            return_value=TrustedTimeSupervisorResult(probe_count=0, last_event=None),
+        ),
+        patch.object(TrustedTimeHeadAnchorBackgroundWorker, "prime_startup"),
+        patch.object(TrustedTimeHeadAnchorBackgroundWorker, "start"),
+        patch.object(
+            TrustedTimeHeadAnchorBackgroundWorker,
+            "close",
+            side_effect=latch_during_close,
+        ) as close,
+        pytest.raises(TrustedTimeHeadAnchorEnrollmentNotApprovedFailure),
+    ):
+        run_service(
+            authority=authority,
+            database_url="postgresql+psycopg://user:secret@db.invalid/autoquant",
+            utc_clock=lambda: BASE,
+            monotonic_clock=lambda: 10,
+            stop_event=threading.Event(),
+            emit=lambda _: None,
+            engine_factory=lambda _: engine,
+            head_anchor_worker=anchor_worker,
+        )
+
+    close.assert_called_once_with(clean_stop=True)
+    engine.dispose.assert_called_once_with()
+
+
 def test_production_head_anchor_uses_separate_resources_and_closes_after_join() -> None:
     authority = _authority()
     anchor_authority = SimpleNamespace(
@@ -490,6 +613,61 @@ def test_main_sanitizes_configuration_failure_without_echoing_detail(
     payload = json.loads(output.out)
     assert payload["status"] == "fatal"
     assert payload["reason"] == "configuration_rejected"
+    assert "secret" not in output.out
+    assert output.err == ""
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_reason"),
+    [
+        (
+            TrustedTimeHeadAnchorEnrollmentNotApprovedFailure(
+                "secret provider response must not reach the terminal payload"
+            ),
+            "head_anchor_remote_history_absent_enrollment_not_approved",
+        ),
+        (RuntimeError("secret unclassified runtime detail"), "supervision_failed"),
+    ],
+)
+def test_main_emits_only_fixed_supervision_failure_reasons(
+    failure: Exception,
+    expected_reason: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    authority = _authority()
+    configuration = object.__new__(TrustedTimeHeadAnchorRuntimeConfiguration)
+    with (
+        patch("apps.trusted_time_supervisor.main._require_fixed_runtime_paths"),
+        patch(
+            "apps.trusted_time_supervisor.main.load_trusted_time_authority",
+            return_value=authority,
+        ),
+        patch(
+            "apps.trusted_time_supervisor.main.load_database_url_secret",
+            return_value="postgresql+psycopg://runtime.example/database",
+        ),
+        patch(
+            "apps.trusted_time_supervisor.main.load_trusted_time_head_anchor_runtime_configuration",
+            return_value=configuration,
+        ),
+        patch("apps.trusted_time_supervisor.main._record_database_secret_consumed"),
+        patch("apps.trusted_time_supervisor.main._install_stop_handlers", return_value={}),
+        patch(
+            "apps.trusted_time_supervisor.main.run_service_with_production_head_anchor",
+            side_effect=failure,
+        ),
+        pytest.raises(SystemExit) as captured,
+    ):
+        main()
+
+    assert captured.value.code == 2
+    output = capsys.readouterr()
+    payload = json.loads(output.out)
+    assert payload["status"] == "fatal"
+    assert payload["reason"] == expected_reason
+    assert payload["operational_control_authorized"] is False
+    assert payload["new_exposure_authorized"] is False
+    assert payload["live_trading_authorized"] is False
     assert "secret" not in output.out
     assert output.err == ""
 

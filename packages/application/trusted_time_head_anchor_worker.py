@@ -48,6 +48,18 @@ class TrustedTimeHeadAnchorFatalFailure(RuntimeError):
     """Configuration, integrity, fork, or durable-state failure is terminal."""
 
 
+class TrustedTimeHeadAnchorEnrollmentNotApprovedFailure(TrustedTimeHeadAnchorFatalFailure):
+    """Remote history is absent and first enrollment remains owner-blocked."""
+
+
+class TrustedTimeHeadAnchorFatalReason(StrEnum):
+    """Fixed nonsecret classifications retained across the background boundary."""
+
+    REMOTE_HISTORY_ABSENT_ENROLLMENT_NOT_APPROVED = (
+        "head_anchor_remote_history_absent_enrollment_not_approved"
+    )
+
+
 class TrustedTimeHeadAnchorWorkerStatus(StrEnum):
     STARTING = "starting"
     CURRENT = "current"
@@ -814,7 +826,9 @@ __all__ = [
     "TRUSTED_TIME_HEAD_ANCHOR_WORKER_STALE_AFTER_NS",
     "TrustedTimeHeadAnchorAttempt",
     "TrustedTimeHeadAnchorAttemptResult",
+    "TrustedTimeHeadAnchorEnrollmentNotApprovedFailure",
     "TrustedTimeHeadAnchorFatalFailure",
+    "TrustedTimeHeadAnchorFatalReason",
     "TrustedTimeHeadAnchorTransientFailure",
     "TrustedTimeHeadAnchorWorkRequest",
     "TrustedTimeHeadAnchorWorkerCore",

@@ -451,20 +451,27 @@ def _open_owner_only_artifact_directory(
                 os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
                 dir_fd=descriptor,
             )
+            try:
+                metadata = os.fstat(next_descriptor)
+                if created:
+                    os.fchmod(next_descriptor, 0o700)
+                    metadata = os.fstat(next_descriptor)
+                if protected and (
+                    metadata.st_uid != os.geteuid()
+                    or stat.S_IMODE(metadata.st_mode) != 0o700
+                    or not stat.S_ISDIR(metadata.st_mode)
+                ):
+                    raise TrustedTimeImageVerificationError(
+                        "trusted-time image admission artifact directory is invalid"
+                    )
+                if created:
+                    os.fsync(next_descriptor)
+                    os.fsync(descriptor)
+            except (OSError, TrustedTimeImageVerificationError):
+                os.close(next_descriptor)
+                raise
             os.close(descriptor)
             descriptor = next_descriptor
-            metadata = os.fstat(descriptor)
-            if created:
-                os.fchmod(descriptor, 0o700)
-                metadata = os.fstat(descriptor)
-            if protected and (
-                metadata.st_uid != os.geteuid()
-                or stat.S_IMODE(metadata.st_mode) != 0o700
-                or not stat.S_ISDIR(metadata.st_mode)
-            ):
-                raise TrustedTimeImageVerificationError(
-                    "trusted-time image admission artifact directory is invalid"
-                )
         return descriptor
     except (OSError, TrustedTimeImageVerificationError):
         os.close(descriptor)

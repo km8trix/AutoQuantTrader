@@ -5,13 +5,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
+import selectors
 import stat
 import subprocess
+import sys
 import time
-from collections.abc import Mapping
+import uuid
+from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -56,6 +60,13 @@ COMPOSE_PATH = ROOT / "infra" / "compose" / "trusted-time.compose.yaml"
 DEFAULTS_PATH = ROOT / "infra" / "compose" / "trusted-time.defaults.env"
 MAXIMUM_ENV_FILE_BYTES = 65_536
 COMPOSE_WAIT_TIMEOUT_SECONDS = 60
+UNENROLLED_TERMINAL_OBSERVATION_TIMEOUT_SECONDS = 60.0
+UNENROLLED_TERMINAL_OBSERVATION_POLL_SECONDS = 0.1
+DOCKER_OBSERVATION_REAP_TIMEOUT_SECONDS = 0.25
+MAXIMUM_SUPERVISOR_TERMINAL_LINE_BYTES = 4_096
+MAXIMUM_UNENROLLED_ADMISSION_ARTIFACT_BYTES = 4_096
+UNENROLLED_ADMISSION_CONTRACT_VERSION = "phase6d-unenrolled-secure-launch-admission-v1"
+DEFAULT_UNENROLLED_ADMISSION_ARTIFACT_DIR = IGNORED_ARTIFACT_ROOT / "trusted-time"
 COMPOSE_SOCKET_VOLUME_NAME = "autoquanttrader-trusted-time_chrony_command_socket"
 COMPOSE_STATE_VOLUME_NAME = "autoquanttrader-trusted-time_chrony_state"
 COMPOSE_NETWORK_NAME = "autoquanttrader-trusted-time_default"
@@ -89,8 +100,49 @@ _SUPERVISOR_RUNTIME_ENVIRONMENT = {
     "AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_FILE": HEAD_ANCHOR_AUTH_SECRET_RUNTIME_PATH,
     "AQT_TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_FILE": HEAD_ANCHOR_SIGNING_KEY_RUNTIME_PATH,
 }
-_CONTAINER_ID_PATTERN = re.compile(r"[0-9a-f]{12,64}")
+_FULL_CONTAINER_ID_PATTERN = re.compile(r"[0-9a-f]{64}")
 _DAEMON_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9:._-]{0,255}")
+_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+_UUID4_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
+_EXPECTED_UNENROLLED_TERMINAL_REASON = "head_anchor_remote_history_absent_enrollment_not_approved"
+_SUPERVISOR_TERMINAL_REASONS = frozenset(
+    {
+        "configuration_rejected",
+        "supervision_failed",
+        _EXPECTED_UNENROLLED_TERMINAL_REASON,
+    }
+)
+_SUPERVISOR_AUTHORITY_FIELDS = frozenset(
+    {
+        "alert_delivery_authorized",
+        "arming_authorized",
+        "automatic_rearm_authorized",
+        "automatic_resume_authorized",
+        "broker_action_authorized",
+        "exposure_authorized",
+        "live_trading_authorized",
+        "new_exposure_authorized",
+        "operational_control_authorized",
+        "paper_trading_authorized",
+        "readiness_authorized",
+        "rearm_authorized",
+    }
+)
+_SUPERVISOR_NARROW_STATE_FORMAT = "\t".join(
+    (
+        "{{json .Id}}",
+        "{{json .Image}}",
+        '{{json (index .Config.Labels "com.docker.compose.project")}}',
+        '{{json (index .Config.Labels "com.docker.compose.service")}}',
+        "{{json .RestartCount}}",
+        "{{json .State.Status}}",
+        "{{json .State.Running}}",
+        "{{json .State.ExitCode}}",
+        "{{json .State.OOMKilled}}",
+        "{{json .State.Dead}}",
+        "{{json .State.Error}}",
+    )
+)
 _PASSTHROUGH_ENVIRONMENT = frozenset(
     {
         "DOCKER_CERT_PATH",
@@ -116,6 +168,115 @@ class LocalDockerDaemonIdentity:
     context_name: str
     endpoint: str
     daemon_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedTimeVolumeIdentities:
+    """Stable nonsecret identities for the two admitted named volumes."""
+
+    socket_sha256: str
+    state_sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.socket_sha256) is not str
+            or _SHA256_PATTERN.fullmatch(self.socket_sha256) is None
+            or type(self.state_sha256) is not str
+            or _SHA256_PATTERN.fullmatch(self.state_sha256) is None
+        ):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time volume identities are invalid"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class SupervisorTerminalEvidence:
+    """Closed, nonsecret projection of one admitted supervisor terminal line."""
+
+    state: str
+    exit_code: int
+    status: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.state) is not str
+            or self.state != "exited"
+            or type(self.exit_code) is not int
+            or isinstance(self.exit_code, bool)
+            or self.exit_code != 2
+            or type(self.status) is not str
+            or self.status != "fatal"
+            or type(self.reason) is not str
+            or self.reason not in _SUPERVISOR_TERMINAL_REASONS
+        ):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time supervisor terminal evidence is invalid"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class _SupervisorNarrowState:
+    status: str
+    running: bool
+    exit_code: int
+    oom_killed: bool
+
+
+class TrustedTimeSupervisorTerminalObserved(RuntimeError):
+    """Carry one fully validated, torn-down expected terminal to the CLI."""
+
+    def __init__(
+        self,
+        evidence: SupervisorTerminalEvidence,
+        *,
+        image_admission_sha256: str,
+    ) -> None:
+        evidence.__post_init__()
+        if (
+            evidence.reason != _EXPECTED_UNENROLLED_TERMINAL_REASON
+            or type(image_admission_sha256) is not str
+            or _SHA256_PATTERN.fullmatch(image_admission_sha256) is None
+        ):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time expected supervisor terminal reason was not observed"
+            )
+        self.evidence = evidence
+        self.image_admission_sha256 = image_admission_sha256
+        super().__init__("trusted-time supervisor failed closed")
+
+
+class TrustedTimeSupervisorTerminalUnqualified(RuntimeError):
+    """Carry one valid but unexpected terminal projection to the CLI."""
+
+    def __init__(self, evidence: SupervisorTerminalEvidence) -> None:
+        evidence.__post_init__()
+        if evidence.reason == _EXPECTED_UNENROLLED_TERMINAL_REASON:
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time unqualified supervisor terminal reason is invalid"
+            )
+        self.evidence = evidence
+        super().__init__("trusted-time supervisor terminal was unqualified")
+
+
+class TrustedTimeSupervisorTerminalNotObserved(RuntimeError):
+    """The admission-only observation window ended without qualified evidence."""
+
+
+class TrustedTimeSupervisorSecureLaunchIncomplete(RuntimeError):
+    """An expected terminal occurred before every secure-launch gate completed."""
+
+
+class TrustedTimeSupervisorAdmissionOutputError(RuntimeError):
+    """Canonical receipt output failed after its publication began."""
+
+
+class TrustedTimeSupervisorAdmissionRetentionUnconfirmed(RuntimeError):
+    """Receipt cleanup or its directory durability could not be confirmed."""
+
+
+class _TrustedTimeSupervisorContainerIdentityUnavailable(TrustedTimeSupervisorConfigurationError):
+    """The admitted supervisor disappeared before exact running-state validation."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +341,391 @@ def _safe_payload(status: str, reason: str) -> str:
         },
         sort_keys=True,
     )
+
+
+def _safe_terminal_payload(evidence: SupervisorTerminalEvidence) -> str:
+    evidence.__post_init__()
+    return json.dumps(
+        {
+            "database_secret_disclosed": False,
+            "new_exposure_authorized": False,
+            "reason": (
+                "secure_launch_incomplete"
+                if evidence.reason == _EXPECTED_UNENROLLED_TERMINAL_REASON
+                else "supervisor_terminal_unqualified"
+            ),
+            "service": "trusted-time-local-launcher",
+            "status": "fatal",
+            "supervisor_exit_code": evidence.exit_code,
+            "supervisor_reason": evidence.reason,
+            "supervisor_state": evidence.state,
+            "supervisor_status": evidence.status,
+        },
+        sort_keys=True,
+    )
+
+
+def _terminal_outcome_error(
+    evidence: SupervisorTerminalEvidence,
+    *,
+    image_admission_sha256: str,
+) -> RuntimeError:
+    if evidence.reason == _EXPECTED_UNENROLLED_TERMINAL_REASON:
+        return TrustedTimeSupervisorTerminalObserved(
+            evidence,
+            image_admission_sha256=image_admission_sha256,
+        )
+    return TrustedTimeSupervisorTerminalUnqualified(evidence)
+
+
+def _valid_uuid4(value: object) -> bool:
+    if type(value) is not str or _UUID4_PATTERN.fullmatch(value) is None:
+        return False
+    try:
+        parsed = uuid.UUID(value)
+    except (AttributeError, ValueError):
+        return False
+    return parsed.version == 4 and str(parsed) == value
+
+
+def _canonical_unenrolled_admission_bytes(payload: Mapping[str, object]) -> bytes:
+    try:
+        return (
+            json.dumps(
+                payload,
+                allow_nan=False,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("ascii", errors="strict")
+    except (TypeError, UnicodeError, ValueError):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission evidence is invalid"
+        ) from None
+
+
+def _validate_unenrolled_admission_payload(payload: object) -> None:
+    if type(payload) is not dict or set(payload) != {
+        "admission_id",
+        "authority_granted",
+        "contract_version",
+        "database_secret_disclosed",
+        "gates",
+        "image_admission_sha256",
+        "new_exposure_authorized",
+        "reason",
+        "service",
+        "status",
+        "supervisor",
+    }:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission evidence is invalid"
+        )
+    gates = payload.get("gates")
+    supervisor = payload.get("supervisor")
+    if (
+        not _valid_uuid4(payload.get("admission_id"))
+        or payload.get("authority_granted") is not False
+        or payload.get("contract_version") != UNENROLLED_ADMISSION_CONTRACT_VERSION
+        or payload.get("database_secret_disclosed") is not False
+        or type(gates) is not dict
+        or set(gates)
+        != {
+            "runtime_inputs_retired",
+            "secure_launch_validated",
+            "state_volumes_preserved",
+            "topology_removed",
+        }
+        or any(value is not True for value in gates.values())
+        or type(payload.get("image_admission_sha256")) is not str
+        or _SHA256_PATTERN.fullmatch(payload["image_admission_sha256"]) is None
+        or payload.get("new_exposure_authorized") is not False
+        or payload.get("reason") != "expected_unenrolled_fail_closed_observed"
+        or payload.get("service") != "trusted-time-local-launcher"
+        or payload.get("status") != "admitted"
+        or type(supervisor) is not dict
+        or set(supervisor)
+        != {
+            "authorities_all_false",
+            "exit_code",
+            "oom_killed",
+            "reason",
+            "state",
+            "status",
+        }
+        or supervisor.get("authorities_all_false") is not True
+        or type(supervisor.get("exit_code")) is not int
+        or isinstance(supervisor.get("exit_code"), bool)
+        or supervisor.get("exit_code") != 2
+        or supervisor.get("oom_killed") is not False
+        or supervisor.get("reason") != _EXPECTED_UNENROLLED_TERMINAL_REASON
+        or supervisor.get("state") != "exited"
+        or supervisor.get("status") != "fatal"
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission evidence is invalid"
+        )
+
+
+def build_unenrolled_admission_receipt(
+    *,
+    admission_id: str,
+    image_admission_sha256: str,
+    terminal_evidence: SupervisorTerminalEvidence,
+) -> bytes:
+    """Build one closed, nonsecret receipt for the expected fail-closed run."""
+
+    terminal_evidence.__post_init__()
+    if terminal_evidence.reason != _EXPECTED_UNENROLLED_TERMINAL_REASON:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission terminal is unqualified"
+        )
+    payload: dict[str, object] = {
+        "admission_id": admission_id,
+        "authority_granted": False,
+        "contract_version": UNENROLLED_ADMISSION_CONTRACT_VERSION,
+        "database_secret_disclosed": False,
+        "gates": {
+            "runtime_inputs_retired": True,
+            "secure_launch_validated": True,
+            "state_volumes_preserved": True,
+            "topology_removed": True,
+        },
+        "image_admission_sha256": image_admission_sha256,
+        "new_exposure_authorized": False,
+        "reason": "expected_unenrolled_fail_closed_observed",
+        "service": "trusted-time-local-launcher",
+        "status": "admitted",
+        "supervisor": {
+            "authorities_all_false": True,
+            "exit_code": terminal_evidence.exit_code,
+            "oom_killed": False,
+            "reason": terminal_evidence.reason,
+            "state": terminal_evidence.state,
+            "status": terminal_evidence.status,
+        },
+    }
+    _validate_unenrolled_admission_payload(payload)
+    encoded = _canonical_unenrolled_admission_bytes(payload)
+    if not encoded or len(encoded) > MAXIMUM_UNENROLLED_ADMISSION_ARTIFACT_BYTES:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission evidence is invalid"
+        )
+    return encoded
+
+
+def write_unenrolled_admission_receipt(
+    artifact_dir: Path,
+    encoded: bytes,
+    *,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+    emit: Callable[[bytes], None] | None = None,
+) -> Path:
+    """Exclusively retain one owner-only content-addressed admission receipt."""
+
+    if (
+        not isinstance(artifact_dir, Path)
+        or not isinstance(ignored_root, Path)
+        or type(encoded) is not bytes
+        or not encoded
+        or len(encoded) > MAXIMUM_UNENROLLED_ADMISSION_ARTIFACT_BYTES
+        or (emit is not None and not callable(emit))
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission artifact is invalid"
+        )
+    absolute_directory = Path(os.path.abspath(artifact_dir))
+    absolute_ignored_root = Path(os.path.abspath(ignored_root))
+    trusted_time_root = absolute_ignored_root / "trusted-time"
+    if (
+        not artifact_dir.is_absolute()
+        or absolute_directory != artifact_dir
+        or not ignored_root.is_absolute()
+        or absolute_ignored_root != ignored_root
+        or (
+            absolute_directory != trusted_time_root
+            and not absolute_directory.is_relative_to(trusted_time_root)
+        )
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission artifact path is invalid"
+        )
+    try:
+        payload: Any = json.loads(
+            encoded.decode("ascii", errors="strict"),
+            object_pairs_hook=_unique_terminal_payload,
+            parse_constant=lambda _: (_ for _ in ()).throw(ValueError()),
+        )
+    except (UnicodeError, json.JSONDecodeError, RecursionError, TypeError, ValueError):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission artifact is invalid"
+        ) from None
+    _validate_unenrolled_admission_payload(payload)
+    if _canonical_unenrolled_admission_bytes(payload) != encoded:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission artifact is invalid"
+        )
+
+    artifact_sha256 = hashlib.sha256(encoded).hexdigest()
+    file_name = f"trusted-time-unenrolled-launch-admission-{artifact_sha256}.json"
+    temporary_name = f".{file_name}.{os.getpid()}.{secrets.token_hex(16)}.tmp"
+    directory_descriptor: int | None = None
+    file_descriptor: int | None = None
+    verification_descriptor: int | None = None
+    temporary_created = False
+    final_linked = False
+    published = False
+    written_identity: tuple[int, int] | None = None
+    try:
+        directory_descriptor = _open_owner_only_artifact_directory(
+            absolute_directory,
+            ignored_root=absolute_ignored_root,
+            create=True,
+        )
+        file_descriptor = os.open(
+            temporary_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=directory_descriptor,
+        )
+        temporary_created = True
+        view = memoryview(encoded)
+        while view:
+            written = os.write(file_descriptor, view)
+            if written <= 0:
+                raise OSError
+            view = view[written:]
+        os.fchmod(file_descriptor, 0o600)
+        os.fsync(file_descriptor)
+        written_metadata = os.fstat(file_descriptor)
+        if (
+            not stat.S_ISREG(written_metadata.st_mode)
+            or written_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(written_metadata.st_mode) != 0o600
+            or written_metadata.st_nlink != 1
+            or written_metadata.st_size != len(encoded)
+        ):
+            raise OSError
+        written_identity = (written_metadata.st_dev, written_metadata.st_ino)
+        os.close(file_descriptor)
+        file_descriptor = None
+        os.link(
+            temporary_name,
+            file_name,
+            src_dir_fd=directory_descriptor,
+            dst_dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        final_linked = True
+        os.unlink(temporary_name, dir_fd=directory_descriptor)
+        temporary_created = False
+        os.fsync(directory_descriptor)
+
+        verification_descriptor = os.open(
+            file_name,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=directory_descriptor,
+        )
+        final_metadata = os.fstat(verification_descriptor)
+        if (
+            not stat.S_ISREG(final_metadata.st_mode)
+            or final_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(final_metadata.st_mode) != 0o600
+            or final_metadata.st_nlink != 1
+            or final_metadata.st_size != len(encoded)
+            or written_identity != (final_metadata.st_dev, final_metadata.st_ino)
+        ):
+            raise OSError
+        retained = bytearray()
+        while len(retained) <= MAXIMUM_UNENROLLED_ADMISSION_ARTIFACT_BYTES:
+            chunk = os.read(
+                verification_descriptor,
+                min(
+                    65_536,
+                    MAXIMUM_UNENROLLED_ADMISSION_ARTIFACT_BYTES + 1 - len(retained),
+                ),
+            )
+            if not chunk:
+                break
+            retained.extend(chunk)
+        repeated_metadata = os.fstat(verification_descriptor)
+        stable_metadata = (
+            final_metadata.st_dev,
+            final_metadata.st_ino,
+            final_metadata.st_mode,
+            final_metadata.st_uid,
+            final_metadata.st_gid,
+            final_metadata.st_nlink,
+            final_metadata.st_size,
+            final_metadata.st_mtime_ns,
+            final_metadata.st_ctime_ns,
+        )
+        repeated_stable_metadata = (
+            repeated_metadata.st_dev,
+            repeated_metadata.st_ino,
+            repeated_metadata.st_mode,
+            repeated_metadata.st_uid,
+            repeated_metadata.st_gid,
+            repeated_metadata.st_nlink,
+            repeated_metadata.st_size,
+            repeated_metadata.st_mtime_ns,
+            repeated_metadata.st_ctime_ns,
+        )
+        if (
+            repeated_stable_metadata != stable_metadata
+            or bytes(retained) != encoded
+            or hashlib.sha256(retained).hexdigest() != artifact_sha256
+        ):
+            raise OSError
+        os.close(verification_descriptor)
+        verification_descriptor = None
+        if emit is not None:
+            emit(encoded)
+        published = True
+        return absolute_directory / file_name
+    except FileExistsError:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission artifact already exists"
+        ) from None
+    except (OSError, TrustedTimeImageVerificationError, ValueError):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission artifact write failed"
+        ) from None
+    finally:
+        retention_unconfirmed = False
+        if verification_descriptor is not None:
+            with suppress(OSError):
+                os.close(verification_descriptor)
+        if file_descriptor is not None:
+            with suppress(OSError):
+                os.close(file_descriptor)
+        if directory_descriptor is not None:
+            rollback_attempted = False
+            if temporary_created:
+                rollback_attempted = True
+                try:
+                    os.unlink(temporary_name, dir_fd=directory_descriptor)
+                except OSError:
+                    retention_unconfirmed = True
+            if final_linked and not published:
+                rollback_attempted = True
+                try:
+                    os.unlink(file_name, dir_fd=directory_descriptor)
+                except OSError:
+                    retention_unconfirmed = True
+            if rollback_attempted:
+                try:
+                    os.fsync(directory_descriptor)
+                except OSError:
+                    retention_unconfirmed = True
+            with suppress(OSError):
+                os.close(directory_descriptor)
+        if retention_unconfirmed:
+            raise TrustedTimeSupervisorAdmissionRetentionUnconfirmed(
+                "trusted-time unenrolled admission retention is unconfirmed"
+            ) from None
 
 
 def load_runtime_database_url(env_file: Path) -> str:
@@ -934,10 +1480,151 @@ def _run_docker(
             text=True,
             timeout=timeout_seconds,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired, UnicodeError):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time Docker Compose was unavailable"
         ) from None
+
+
+def _run_docker_bounded(
+    argv: tuple[str, ...],
+    *,
+    environment: Mapping[str, str],
+    maximum_stdout_bytes: int,
+    maximum_stderr_bytes: int,
+    timeout_seconds: float,
+) -> subprocess.CompletedProcess[str]:
+    """Run one fixed Docker read with hard byte and absolute-time bounds."""
+
+    exact_observation = (
+        (
+            len(argv) == 6
+            and argv[:4] == ("docker", "container", "inspect", "--format")
+            and argv[4] == _SUPERVISOR_NARROW_STATE_FORMAT
+            and _FULL_CONTAINER_ID_PATTERN.fullmatch(argv[5]) is not None
+        )
+        or (
+            len(argv) == 6
+            and argv[:5] == ("docker", "container", "logs", "--tail", "1")
+            and _FULL_CONTAINER_ID_PATTERN.fullmatch(argv[5]) is not None
+        )
+        or (
+            argv
+            == (
+                *_compose_prefix(),
+                "ps",
+                "--all",
+                "--quiet",
+                "trusted-time-supervisor",
+            )
+        )
+        or argv == (*_compose_prefix(), "ps", "--all", "--quiet")
+        or argv
+        == (
+            "docker",
+            "network",
+            "ls",
+            "--quiet",
+            "--filter",
+            f"name=^{COMPOSE_NETWORK_NAME}$",
+        )
+    )
+    if (
+        not exact_observation
+        or type(maximum_stdout_bytes) is not int
+        or not 0 < maximum_stdout_bytes <= MAXIMUM_SUPERVISOR_TERMINAL_LINE_BYTES
+        or type(maximum_stderr_bytes) is not int
+        or not 0 < maximum_stderr_bytes <= MAXIMUM_SUPERVISOR_TERMINAL_LINE_BYTES
+        or type(timeout_seconds) not in {int, float}
+        or isinstance(timeout_seconds, bool)
+        or not math.isfinite(float(timeout_seconds))
+        or not 0 < float(timeout_seconds) <= 2
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time bounded Docker observation is invalid"
+        )
+    process: subprocess.Popen[bytes] | None = None
+    selector = selectors.DefaultSelector()
+    stdout = bytearray()
+    stderr = bytearray()
+    started = time.monotonic()
+    lifecycle_deadline = started + float(timeout_seconds)
+    reap_reserve = min(
+        DOCKER_OBSERVATION_REAP_TIMEOUT_SECONDS,
+        float(timeout_seconds) / 2,
+    )
+    observation_deadline = lifecycle_deadline - reap_reserve
+
+    def stop_process() -> None:
+        if process is None:
+            return
+        with suppress(OSError):
+            process.kill()
+        remaining = max(0.0, lifecycle_deadline - time.monotonic())
+        with suppress(OSError, subprocess.TimeoutExpired):
+            process.wait(timeout=min(DOCKER_OBSERVATION_REAP_TIMEOUT_SECONDS, remaining))
+        with suppress(OSError):
+            process.poll()
+
+    try:
+        process = subprocess.Popen(
+            argv,
+            cwd=ROOT,
+            env=dict(environment),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+            close_fds=True,
+        )
+        if process.stdout is None or process.stderr is None:
+            raise OSError
+        selector.register(process.stdout, selectors.EVENT_READ, (stdout, maximum_stdout_bytes))
+        selector.register(process.stderr, selectors.EVENT_READ, (stderr, maximum_stderr_bytes))
+        while selector.get_map():
+            remaining = observation_deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(argv, float(timeout_seconds))
+            events = selector.select(remaining)
+            if not events:
+                raise subprocess.TimeoutExpired(argv, float(timeout_seconds))
+            for key, _ in events:
+                buffer, maximum = key.data
+                chunk = os.read(key.fd, min(65_536, maximum + 1 - len(buffer)))
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                buffer.extend(chunk)
+                if len(buffer) > maximum:
+                    raise TrustedTimeSupervisorConfigurationError(
+                        "trusted-time bounded Docker observation exceeded its bound"
+                    )
+        remaining = observation_deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(argv, float(timeout_seconds))
+        return_code = process.wait(timeout=remaining)
+        if time.monotonic() > lifecycle_deadline:
+            raise subprocess.TimeoutExpired(argv, float(timeout_seconds))
+        return subprocess.CompletedProcess(
+            argv,
+            return_code,
+            bytes(stdout).decode("ascii", errors="strict"),
+            bytes(stderr).decode("ascii", errors="strict"),
+        )
+    except TrustedTimeSupervisorConfigurationError:
+        stop_process()
+        raise
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        stop_process()
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time bounded Docker observation is unavailable"
+        ) from None
+    finally:
+        selector.close()
+        if process is not None:
+            for stream in (process.stdout, process.stderr):
+                if stream is not None and not stream.closed:
+                    stream.close()
 
 
 def _one_quiet_line(
@@ -1083,22 +1770,435 @@ def _compose_container_id(
     service_name: str,
     *,
     environment: Mapping[str, str],
+    include_stopped: bool = False,
+    timeout_seconds: float = 120,
 ) -> str:
-    completed = _run_docker(
-        (*_compose_prefix(), "ps", "--quiet", service_name),
-        environment=environment,
+    if type(include_stopped) is not bool:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time container identity selection is invalid"
+        )
+    selection = ("--all",) if include_stopped else ()
+    argv = (*_compose_prefix(), "ps", *selection, "--quiet", service_name)
+    completed = (
+        _run_docker_bounded(
+            argv,
+            environment=environment,
+            maximum_stdout_bytes=128,
+            maximum_stderr_bytes=1_024,
+            timeout_seconds=timeout_seconds,
+        )
+        if include_stopped
+        else _run_docker(
+            argv,
+            environment=environment,
+            timeout_seconds=timeout_seconds,
+        )
     )
     lines = completed.stdout.splitlines()
     if (
         completed.returncode != 0
         or completed.stderr
         or len(lines) != 1
-        or _CONTAINER_ID_PATTERN.fullmatch(lines[0]) is None
+        or _FULL_CONTAINER_ID_PATTERN.fullmatch(lines[0]) is None
+    ):
+        error_type: type[TrustedTimeSupervisorConfigurationError] = (
+            _TrustedTimeSupervisorContainerIdentityUnavailable
+            if not include_stopped and service_name == "trusted-time-supervisor"
+            else TrustedTimeSupervisorConfigurationError
+        )
+        raise error_type("trusted-time created container identity is unavailable")
+    return lines[0]
+
+
+def _optional_stopped_supervisor_container_id(
+    *,
+    environment: Mapping[str, str],
+    timeout_seconds: float = 2,
+) -> str | None:
+    """Return zero or one exact stopped/running Compose supervisor identity."""
+
+    argv = (
+        *_compose_prefix(),
+        "ps",
+        "--all",
+        "--quiet",
+        "trusted-time-supervisor",
+    )
+    completed = _run_docker_bounded(
+        argv,
+        environment=environment,
+        maximum_stdout_bytes=128,
+        maximum_stderr_bytes=1_024,
+        timeout_seconds=timeout_seconds,
+    )
+    lines = completed.stdout.splitlines()
+    if (
+        completed.returncode != 0
+        or completed.stderr
+        or len(lines) > 1
+        or (lines and _FULL_CONTAINER_ID_PATTERN.fullmatch(lines[0]) is None)
     ):
         raise TrustedTimeSupervisorConfigurationError(
-            "trusted-time created container identity is unavailable"
+            "trusted-time prior supervisor identity is unavailable"
         )
-    return lines[0]
+    return lines[0] if lines else None
+
+
+def _inspect_supervisor_narrow_state(
+    container_id: str,
+    *,
+    expected_image_id: str,
+    environment: Mapping[str, str],
+    timeout_seconds: float = 2,
+) -> _SupervisorNarrowState:
+    if (
+        _FULL_CONTAINER_ID_PATTERN.fullmatch(container_id) is None
+        or type(expected_image_id) is not str
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", expected_image_id) is None
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time supervisor terminal identity is invalid"
+        )
+    completed = _run_docker_bounded(
+        (
+            "docker",
+            "container",
+            "inspect",
+            "--format",
+            _SUPERVISOR_NARROW_STATE_FORMAT,
+            container_id,
+        ),
+        environment=environment,
+        maximum_stdout_bytes=2_048,
+        maximum_stderr_bytes=1_024,
+        timeout_seconds=timeout_seconds,
+    )
+    try:
+        encoded = completed.stdout.encode("ascii", errors="strict")
+    except UnicodeEncodeError:
+        encoded = b""
+    lines = completed.stdout.splitlines()
+    if (
+        completed.returncode != 0
+        or completed.stderr
+        or not encoded
+        or len(encoded) > 2_048
+        or len(lines) != 1
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time supervisor terminal state is unavailable"
+        )
+    fields = lines[0].split("\t")
+    if len(fields) != 11:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time supervisor terminal state is malformed"
+        )
+    try:
+        (
+            inspected_container_id,
+            image_id,
+            project,
+            service,
+            restart_count,
+            status,
+            running,
+            exit_code,
+            oom_killed,
+            dead,
+            state_error,
+        ) = (json.loads(field) for field in fields)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time supervisor terminal state is malformed"
+        ) from None
+    if (
+        inspected_container_id != container_id
+        or image_id != expected_image_id
+        or project != "autoquanttrader-trusted-time"
+        or service != "trusted-time-supervisor"
+        or type(restart_count) is not int
+        or isinstance(restart_count, bool)
+        or restart_count != 0
+        or type(status) is not str
+        or type(running) is not bool
+        or type(exit_code) is not int
+        or isinstance(exit_code, bool)
+        or type(oom_killed) is not bool
+        or type(dead) is not bool
+        or dead
+        or type(state_error) is not str
+        or state_error
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time supervisor terminal identity or state drifted"
+        )
+    state = _SupervisorNarrowState(
+        status=status,
+        running=running,
+        exit_code=exit_code,
+        oom_killed=oom_killed,
+    )
+    if state == _SupervisorNarrowState(
+        status="running",
+        running=True,
+        exit_code=0,
+        oom_killed=False,
+    ) or state == _SupervisorNarrowState(
+        status="exited",
+        running=False,
+        exit_code=2,
+        oom_killed=False,
+    ):
+        return state
+    raise TrustedTimeSupervisorConfigurationError(
+        "trusted-time supervisor terminal state is unqualified"
+    )
+
+
+def _unique_terminal_payload(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError
+        result[key] = value
+    return result
+
+
+def _read_supervisor_terminal_evidence(
+    container_id: str,
+    *,
+    environment: Mapping[str, str],
+    timeout_seconds: float = 2,
+) -> SupervisorTerminalEvidence:
+    completed = _run_docker_bounded(
+        ("docker", "container", "logs", "--tail", "1", container_id),
+        environment=environment,
+        maximum_stdout_bytes=MAXIMUM_SUPERVISOR_TERMINAL_LINE_BYTES,
+        maximum_stderr_bytes=1_024,
+        timeout_seconds=timeout_seconds,
+    )
+    try:
+        encoded = completed.stdout.encode("ascii", errors="strict")
+    except UnicodeEncodeError:
+        encoded = b""
+    if (
+        completed.returncode != 0
+        or completed.stderr
+        or not encoded
+        or len(encoded) > MAXIMUM_SUPERVISOR_TERMINAL_LINE_BYTES
+        or not completed.stdout.endswith("\n")
+        or completed.stdout.count("\n") != 1
+        or "\r" in completed.stdout
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time supervisor terminal line is unavailable"
+        )
+    try:
+        payload: Any = json.loads(
+            completed.stdout,
+            object_pairs_hook=_unique_terminal_payload,
+            parse_constant=lambda _: (_ for _ in ()).throw(ValueError()),
+        )
+    except (json.JSONDecodeError, RecursionError, TypeError, ValueError):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time supervisor terminal line is malformed"
+        ) from None
+    if (
+        type(payload) is not dict
+        or set(payload) != _SUPERVISOR_AUTHORITY_FIELDS | {"reason", "service", "status"}
+        or any(payload.get(field_name) is not False for field_name in _SUPERVISOR_AUTHORITY_FIELDS)
+        or type(payload.get("reason")) is not str
+        or payload.get("reason") not in _SUPERVISOR_TERMINAL_REASONS
+        or type(payload.get("service")) is not str
+        or payload.get("service") != "trusted-time-supervisor"
+        or type(payload.get("status")) is not str
+        or payload.get("status") != "fatal"
+        or json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n" != completed.stdout
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time supervisor terminal line is unqualified"
+        )
+    return SupervisorTerminalEvidence(
+        state="exited",
+        exit_code=2,
+        status="fatal",
+        reason=payload["reason"],
+    )
+
+
+def observe_unenrolled_supervisor_terminal(
+    *,
+    expected_image_id: str,
+    environment: Mapping[str, str],
+    container_id: str | None = None,
+    timeout_seconds: float = UNENROLLED_TERMINAL_OBSERVATION_TIMEOUT_SECONDS,
+    monotonic_clock: Any = time.monotonic,
+    sleeper: Any = time.sleep,
+) -> SupervisorTerminalEvidence | None:
+    """Observe one terminal line without retaining raw logs or broad inspection."""
+
+    if (
+        type(timeout_seconds) not in {int, float}
+        or isinstance(timeout_seconds, bool)
+        or not math.isfinite(float(timeout_seconds))
+        or not 0 <= float(timeout_seconds) <= UNENROLLED_TERMINAL_OBSERVATION_TIMEOUT_SECONDS
+        or type(expected_image_id) is not str
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", expected_image_id) is None
+        or not callable(monotonic_clock)
+        or not callable(sleeper)
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time supervisor terminal observation bound is invalid"
+        )
+    observer_environment = {
+        key: value
+        for key, value in environment.items()
+        if key in _PASSTHROUGH_ENVIRONMENT or key.startswith("LC_")
+    }
+    compose_observer_environment = dict(observer_environment)
+    compose_observer_environment[SOURCE_IMAGE_ENVIRONMENT] = expected_image_id
+    compose_observer_environment[SUPERVISOR_IMAGE_ENVIRONMENT] = expected_image_id
+    compose_observer_environment[DATABASE_SECRET_FILE_ENVIRONMENT] = str(
+        PLACEHOLDER_DATABASE_SECRET_FILE
+    )
+    compose_observer_environment[HEAD_ANCHOR_AUTHORITY_SOURCE_ENVIRONMENT] = str(
+        PLACEHOLDER_HEAD_ANCHOR_AUTHORITY_FILE
+    )
+    compose_observer_environment[HEAD_ANCHOR_AUTH_SECRET_SOURCE_ENVIRONMENT] = str(
+        PLACEHOLDER_HEAD_ANCHOR_AUTH_SECRET_FILE
+    )
+    compose_observer_environment[HEAD_ANCHOR_SIGNING_KEY_SOURCE_ENVIRONMENT] = str(
+        PLACEHOLDER_HEAD_ANCHOR_SIGNING_KEY_SECRET_FILE
+    )
+    started = monotonic_clock()
+    if (
+        type(started) not in {int, float}
+        or isinstance(started, bool)
+        or not math.isfinite(float(started))
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time supervisor terminal observation clock is invalid"
+        )
+    observed = float(started)
+    deadline = observed + float(timeout_seconds)
+    exact_container_id = container_id
+    if exact_container_id is None:
+        if observed >= deadline:
+            return None
+        exact_container_id = _compose_container_id(
+            "trusted-time-supervisor",
+            environment=compose_observer_environment,
+            include_stopped=True,
+            timeout_seconds=min(2.0, deadline - observed),
+        )
+    while True:
+        current = monotonic_clock()
+        if (
+            type(current) not in {int, float}
+            or isinstance(current, bool)
+            or not math.isfinite(float(current))
+            or float(current) < observed
+        ):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time supervisor terminal observation clock is invalid"
+            )
+        observed = float(current)
+        if observed >= deadline:
+            return None
+        state = _inspect_supervisor_narrow_state(
+            exact_container_id,
+            expected_image_id=expected_image_id,
+            environment=observer_environment,
+            timeout_seconds=min(2.0, deadline - observed),
+        )
+        if state.status == "exited":
+            current = monotonic_clock()
+            if (
+                type(current) not in {int, float}
+                or isinstance(current, bool)
+                or not math.isfinite(float(current))
+                or float(current) < observed
+            ):
+                raise TrustedTimeSupervisorConfigurationError(
+                    "trusted-time supervisor terminal observation clock is invalid"
+                )
+            observed = float(current)
+            if observed >= deadline:
+                return None
+            evidence = _read_supervisor_terminal_evidence(
+                exact_container_id,
+                environment=observer_environment,
+                timeout_seconds=min(2.0, deadline - observed),
+            )
+            if evidence.exit_code != state.exit_code:
+                raise TrustedTimeSupervisorConfigurationError(
+                    "trusted-time supervisor terminal line conflicts with state"
+                )
+            current = monotonic_clock()
+            if (
+                type(current) not in {int, float}
+                or isinstance(current, bool)
+                or not math.isfinite(float(current))
+                or float(current) < observed
+            ):
+                raise TrustedTimeSupervisorConfigurationError(
+                    "trusted-time supervisor terminal observation clock is invalid"
+                )
+            observed = float(current)
+            if observed >= deadline:
+                return None
+            repeated_container_id = _compose_container_id(
+                "trusted-time-supervisor",
+                environment=compose_observer_environment,
+                include_stopped=True,
+                timeout_seconds=min(2.0, deadline - observed),
+            )
+            current = monotonic_clock()
+            if (
+                type(current) not in {int, float}
+                or isinstance(current, bool)
+                or not math.isfinite(float(current))
+                or float(current) < observed
+            ):
+                raise TrustedTimeSupervisorConfigurationError(
+                    "trusted-time supervisor terminal observation clock is invalid"
+                )
+            if float(current) >= deadline:
+                return None
+            if repeated_container_id != exact_container_id:
+                raise TrustedTimeSupervisorConfigurationError(
+                    "trusted-time supervisor terminal identity changed during observation"
+                )
+            return evidence
+        current = monotonic_clock()
+        if (
+            type(current) not in {int, float}
+            or isinstance(current, bool)
+            or not math.isfinite(float(current))
+            or float(current) < observed
+        ):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time supervisor terminal observation clock is invalid"
+            )
+        observed = float(current)
+        if observed >= deadline:
+            return None
+        sleeper(min(UNENROLLED_TERMINAL_OBSERVATION_POLL_SECONDS, deadline - observed))
+
+
+def _observe_unenrolled_supervisor_terminal_safely(
+    **kwargs: Any,
+) -> SupervisorTerminalEvidence | None:
+    """Keep unexpected observer failures inside the launcher's safe error boundary."""
+
+    try:
+        return observe_unenrolled_supervisor_terminal(**kwargs)
+    except TrustedTimeSupervisorConfigurationError:
+        raise
+    except Exception:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time supervisor terminal observation failed"
+        ) from None
 
 
 def _inspect_container(
@@ -1194,6 +2294,87 @@ def validate_chrony_state_volume_inspection(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time state volume identity or driver drifted"
         )
+
+
+def _stable_volume_identity_sha256(
+    inspection: object,
+    *,
+    expected_name: str,
+) -> str:
+    if type(inspection) is not list or len(inspection) != 1:
+        raise TrustedTimeSupervisorConfigurationError("trusted-time volume identity is malformed")
+    volume = _mapping(inspection[0], "trusted-time volume identity")
+    created_at = volume.get("CreatedAt")
+    mountpoint = volume.get("Mountpoint")
+    labels = volume.get("Labels")
+    options = volume.get("Options")
+    if (
+        volume.get("Name") != expected_name
+        or volume.get("Driver") != "local"
+        or volume.get("Scope") != "local"
+        or type(created_at) is not str
+        or not created_at
+        or len(created_at) > 128
+        or any(character in created_at for character in "\x00\r\n")
+        or type(mountpoint) is not str
+        or not mountpoint
+        or len(mountpoint) > 4_096
+        or not Path(mountpoint).is_absolute()
+        or type(labels) is not dict
+        or any(type(key) is not str or type(value) is not str for key, value in labels.items())
+        or (options is not None and type(options) is not dict)
+        or (
+            type(options) is dict
+            and any(
+                type(key) is not str or type(value) is not str for key, value in options.items()
+            )
+        )
+    ):
+        raise TrustedTimeSupervisorConfigurationError("trusted-time volume identity is malformed")
+    try:
+        encoded = json.dumps(
+            {
+                "created_at": created_at,
+                "driver": volume.get("Driver"),
+                "labels": labels,
+                "mountpoint": mountpoint,
+                "name": expected_name,
+                "options": options,
+                "scope": volume.get("Scope"),
+            },
+            allow_nan=False,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("ascii", errors="strict")
+    except (TypeError, UnicodeError, ValueError):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time volume identity is malformed"
+        ) from None
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _capture_trusted_time_volume_identities(
+    *,
+    environment: Mapping[str, str],
+) -> TrustedTimeVolumeIdentities:
+    socket_inspection = _inspect_volume(COMPOSE_SOCKET_VOLUME_NAME, environment=environment)
+    validate_socket_volume_inspection(
+        socket_inspection,
+        expected_name=COMPOSE_SOCKET_VOLUME_NAME,
+    )
+    state_inspection = _inspect_volume(COMPOSE_STATE_VOLUME_NAME, environment=environment)
+    validate_chrony_state_volume_inspection(state_inspection)
+    return TrustedTimeVolumeIdentities(
+        socket_sha256=_stable_volume_identity_sha256(
+            socket_inspection,
+            expected_name=COMPOSE_SOCKET_VOLUME_NAME,
+        ),
+        state_sha256=_stable_volume_identity_sha256(
+            state_inspection,
+            expected_name=COMPOSE_STATE_VOLUME_NAME,
+        ),
+    )
 
 
 def _string_sequence(value: object, field_name: str) -> list[str]:
@@ -1968,8 +3149,8 @@ def validate_live_trusted_time_topology(
 
     if (
         type(identities) is not TrustedTimeImageIdentities
-        or _CONTAINER_ID_PATTERN.fullmatch(source_container_id) is None
-        or _CONTAINER_ID_PATTERN.fullmatch(supervisor_container_id) is None
+        or _FULL_CONTAINER_ID_PATTERN.fullmatch(source_container_id) is None
+        or _FULL_CONTAINER_ID_PATTERN.fullmatch(supervisor_container_id) is None
         or source_container_id == supervisor_container_id
     ):
         raise TrustedTimeSupervisorConfigurationError(
@@ -2093,11 +3274,76 @@ def _require_same_local_daemon(
         )
 
 
+def _validate_unenrolled_admission_teardown(
+    *,
+    compose_environment: Mapping[str, str],
+    docker_environment: Mapping[str, str],
+    daemon_identity: LocalDockerDaemonIdentity,
+    expected_volume_identities: TrustedTimeVolumeIdentities | None,
+) -> None:
+    """Prove the exact project is gone while both admitted volumes remain."""
+
+    if expected_volume_identities is not None and type(expected_volume_identities) is not (
+        TrustedTimeVolumeIdentities
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time admission volume identities are unavailable"
+        )
+    if expected_volume_identities is not None:
+        expected_volume_identities.__post_init__()
+    _require_same_local_daemon(daemon_identity, environment=docker_environment)
+    completed = _run_docker_bounded(
+        (*_compose_prefix(), "ps", "--all", "--quiet"),
+        environment=compose_environment,
+        maximum_stdout_bytes=128,
+        maximum_stderr_bytes=1_024,
+        timeout_seconds=2,
+    )
+    if completed.returncode != 0 or completed.stdout or completed.stderr:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time admission topology removal is unconfirmed"
+        )
+    network = _run_docker_bounded(
+        (
+            "docker",
+            "network",
+            "ls",
+            "--quiet",
+            "--filter",
+            f"name=^{COMPOSE_NETWORK_NAME}$",
+        ),
+        environment=docker_environment,
+        maximum_stdout_bytes=128,
+        maximum_stderr_bytes=1_024,
+        timeout_seconds=2,
+    )
+    if network.returncode != 0 or network.stdout or network.stderr:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time admission network removal is unconfirmed"
+        )
+    observed_volume_identities = _capture_trusted_time_volume_identities(
+        environment=docker_environment
+    )
+    if (
+        expected_volume_identities is not None
+        and observed_volume_identities != expected_volume_identities
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time admission volume preservation is unconfirmed"
+        )
+    _require_same_local_daemon(daemon_identity, environment=docker_environment)
+
+
 def run_local_topology(
     *,
     env_file: Path,
     image_admission_artifact: Path = DEFAULT_IMAGE_ADMISSION_ARTIFACT,
+    expect_unenrolled_fail_closed: bool = False,
 ) -> int:
+    if type(expect_unenrolled_fail_closed) is not bool:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission mode is invalid"
+        )
     docker_environment = _minimal_docker_environment()
     daemon_identity = qualify_local_docker_daemon(environment=docker_environment)
     admission = build_verify_and_write_image_admission(image_admission_artifact)
@@ -2131,10 +3377,6 @@ def run_local_topology(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time image admission artifact changed before secret load"
         )
-    database_url = ""
-    materialized_secret: MaterializedDatabaseSecret | None = None
-    head_anchor_payloads: TrustedTimeHeadAnchorSourcePayloads | None = None
-    materialized_head_anchor_inputs: MaterializedHeadAnchorInputs | None = None
     control_environment = dict(docker_environment)
     control_environment[SOURCE_IMAGE_ENVIRONMENT] = identities.source_id
     control_environment[SUPERVISOR_IMAGE_ENVIRONMENT] = identities.supervisor_id
@@ -2142,6 +3384,32 @@ def run_local_topology(
     control_environment[HEAD_ANCHOR_AUTHORITY_SOURCE_ENVIRONMENT] = ""
     control_environment[HEAD_ANCHOR_AUTH_SECRET_SOURCE_ENVIRONMENT] = ""
     control_environment[HEAD_ANCHOR_SIGNING_KEY_SOURCE_ENVIRONMENT] = ""
+    admission_identity_environment = dict(control_environment)
+    admission_identity_environment[DATABASE_SECRET_FILE_ENVIRONMENT] = str(
+        PLACEHOLDER_DATABASE_SECRET_FILE
+    )
+    admission_identity_environment[HEAD_ANCHOR_AUTHORITY_SOURCE_ENVIRONMENT] = str(
+        PLACEHOLDER_HEAD_ANCHOR_AUTHORITY_FILE
+    )
+    admission_identity_environment[HEAD_ANCHOR_AUTH_SECRET_SOURCE_ENVIRONMENT] = str(
+        PLACEHOLDER_HEAD_ANCHOR_AUTH_SECRET_FILE
+    )
+    admission_identity_environment[HEAD_ANCHOR_SIGNING_KEY_SOURCE_ENVIRONMENT] = str(
+        PLACEHOLDER_HEAD_ANCHOR_SIGNING_KEY_SECRET_FILE
+    )
+    if expect_unenrolled_fail_closed and (
+        _optional_stopped_supervisor_container_id(environment=admission_identity_environment)
+        is not None
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time admission requires no prior supervisor container"
+        )
+    admission_volume_identities: TrustedTimeVolumeIdentities | None = None
+    database_url = ""
+    materialized_secret: MaterializedDatabaseSecret | None = None
+    head_anchor_payloads: TrustedTimeHeadAnchorSourcePayloads | None = None
+    materialized_head_anchor_inputs: MaterializedHeadAnchorInputs | None = None
+    supervisor_container_id: str | None = None
     compose_attempted = False
     try:
         database_url = load_runtime_database_url(env_file)
@@ -2194,9 +3462,32 @@ def run_local_topology(
             timeout_seconds=COMPOSE_WAIT_TIMEOUT_SECONDS + 60,
         )
         if completed.returncode != 0:
+            terminal_evidence: SupervisorTerminalEvidence | None = None
+            if expect_unenrolled_fail_closed:
+                current_supervisor_container_id = _optional_stopped_supervisor_container_id(
+                    environment=admission_identity_environment
+                )
+                if current_supervisor_container_id is None:
+                    raise TrustedTimeSupervisorConfigurationError(
+                        "trusted-time current-attempt supervisor identity is unavailable"
+                    )
+                with suppress(TrustedTimeSupervisorConfigurationError):
+                    terminal_evidence = _observe_unenrolled_supervisor_terminal_safely(
+                        expected_image_id=identities.supervisor_id,
+                        environment=docker_environment,
+                        container_id=current_supervisor_container_id,
+                        timeout_seconds=2,
+                    )
             if not _stop_created_topology(control_environment):
                 raise TrustedTimeSupervisorConfigurationError(
                     "trusted-time failed topology could not be stopped"
+                )
+            if expect_unenrolled_fail_closed:
+                _validate_unenrolled_admission_teardown(
+                    compose_environment=admission_identity_environment,
+                    docker_environment=docker_environment,
+                    daemon_identity=daemon_identity,
+                    expected_volume_identities=admission_volume_identities,
                 )
             compose_attempted = False
             _cleanup_materialized_runtime_inputs(
@@ -2205,6 +3496,16 @@ def run_local_topology(
             )
             materialized_head_anchor_inputs = None
             materialized_secret = None
+            if expect_unenrolled_fail_closed:
+                if terminal_evidence is not None:
+                    if terminal_evidence.reason == _EXPECTED_UNENROLLED_TERMINAL_REASON:
+                        raise TrustedTimeSupervisorSecureLaunchIncomplete(
+                            "trusted-time expected terminal preceded secure launch validation"
+                        )
+                    raise TrustedTimeSupervisorTerminalUnqualified(terminal_evidence)
+                raise TrustedTimeSupervisorTerminalNotObserved(
+                    "trusted-time unenrolled supervisor terminal was not observed"
+                )
             return completed.returncode
         _require_same_local_daemon(daemon_identity, environment=docker_environment)
         _validate_created_topology(
@@ -2278,22 +3579,123 @@ def run_local_topology(
             ),
         )
         _require_same_local_daemon(daemon_identity, environment=docker_environment)
+        if expect_unenrolled_fail_closed:
+            admission_volume_identities = _capture_trusted_time_volume_identities(
+                environment=docker_environment
+            )
+            current_supervisor_container_id = _optional_stopped_supervisor_container_id(
+                environment=admission_identity_environment
+            )
+            if (
+                current_supervisor_container_id is None
+                or current_supervisor_container_id != supervisor_container_id
+            ):
+                raise TrustedTimeSupervisorConfigurationError(
+                    "trusted-time current-attempt supervisor identity is unavailable"
+                )
+            terminal_evidence = _observe_unenrolled_supervisor_terminal_safely(
+                expected_image_id=identities.supervisor_id,
+                environment=docker_environment,
+                container_id=current_supervisor_container_id,
+            )
+            if not _stop_created_topology(control_environment):
+                raise TrustedTimeSupervisorConfigurationError(
+                    "trusted-time admission topology could not be stopped"
+                )
+            _validate_unenrolled_admission_teardown(
+                compose_environment=admission_identity_environment,
+                docker_environment=docker_environment,
+                daemon_identity=daemon_identity,
+                expected_volume_identities=admission_volume_identities,
+            )
+            compose_attempted = False
+            if terminal_evidence is None:
+                raise TrustedTimeSupervisorTerminalNotObserved(
+                    "trusted-time unenrolled supervisor terminal was not observed"
+                )
+            raise _terminal_outcome_error(
+                terminal_evidence,
+                image_admission_sha256=admission.artifact_sha256,
+            )
         compose_attempted = False
         return 0
     except BaseException as primary_error:
-        if compose_attempted and not _stop_created_topology(control_environment):
-            raise TrustedTimeSupervisorConfigurationError(
-                "trusted-time unqualified topology could not be stopped"
-            ) from primary_error
+        terminal_evidence = None
+        terminal_observation_error: BaseException | None = None
+        if (
+            compose_attempted
+            and expect_unenrolled_fail_closed
+            and type(primary_error) is _TrustedTimeSupervisorContainerIdentityUnavailable
+        ):
+            try:
+                current_supervisor_container_id = _optional_stopped_supervisor_container_id(
+                    environment=admission_identity_environment
+                )
+                if current_supervisor_container_id is None:
+                    raise TrustedTimeSupervisorConfigurationError(
+                        "trusted-time current-attempt supervisor identity is unavailable"
+                    )
+                terminal_evidence = _observe_unenrolled_supervisor_terminal_safely(
+                    expected_image_id=identities.supervisor_id,
+                    environment=docker_environment,
+                    container_id=current_supervisor_container_id,
+                    timeout_seconds=2,
+                )
+            except TrustedTimeSupervisorConfigurationError:
+                terminal_evidence = None
+            except BaseException as observation_error:
+                terminal_observation_error = observation_error
+        teardown_needed = compose_attempted
+        teardown_error: BaseException | None = None
+        if teardown_needed:
+            try:
+                if not _stop_created_topology(control_environment):
+                    raise TrustedTimeSupervisorConfigurationError(
+                        "trusted-time unqualified topology could not be stopped"
+                    )
+                if expect_unenrolled_fail_closed:
+                    _validate_unenrolled_admission_teardown(
+                        compose_environment=admission_identity_environment,
+                        docker_environment=docker_environment,
+                        daemon_identity=daemon_identity,
+                        expected_volume_identities=admission_volume_identities,
+                    )
+                compose_attempted = False
+            except BaseException as error:
+                teardown_error = error
+        cleanup_error: BaseException | None = None
         try:
             _cleanup_materialized_runtime_inputs(
                 database_secret=materialized_secret,
                 head_anchor_inputs=materialized_head_anchor_inputs,
             )
-        except Exception as cleanup_error:
-            raise cleanup_error from primary_error
-        materialized_secret = None
-        materialized_head_anchor_inputs = None
+        except BaseException as error:
+            cleanup_error = error
+        else:
+            materialized_secret = None
+            materialized_head_anchor_inputs = None
+        if cleanup_error is not None:
+            raise cleanup_error from (teardown_error or primary_error)
+        if teardown_error is not None:
+            if isinstance(
+                teardown_error,
+                (
+                    TrustedTimeSupervisorConfigurationError,
+                    TrustedTimeImageVerificationError,
+                ),
+            ):
+                raise TrustedTimeSupervisorConfigurationError(
+                    "trusted-time unqualified topology teardown is unconfirmed"
+                ) from teardown_error
+            raise teardown_error from primary_error
+        if terminal_observation_error is not None:
+            raise terminal_observation_error from primary_error
+        if terminal_evidence is not None:
+            if terminal_evidence.reason == _EXPECTED_UNENROLLED_TERMINAL_REASON:
+                raise TrustedTimeSupervisorSecureLaunchIncomplete(
+                    "trusted-time expected terminal preceded secure launch validation"
+                ) from None
+            raise TrustedTimeSupervisorTerminalUnqualified(terminal_evidence) from None
         raise
     finally:
         control_environment[DATABASE_SECRET_FILE_ENVIRONMENT] = ""
@@ -2304,6 +3706,34 @@ def run_local_topology(
         control_environment[SUPERVISOR_IMAGE_ENVIRONMENT] = ""
         head_anchor_payloads = None
         database_url = ""
+
+
+def _new_unenrolled_admission_id() -> str:
+    try:
+        admission_id = str(uuid.uuid4())
+    except Exception:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission identity is unavailable"
+        ) from None
+    if not _valid_uuid4(admission_id):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission identity is invalid"
+        )
+    return admission_id
+
+
+def _emit_unenrolled_admission_receipt(encoded: bytes) -> None:
+    """Emit exact admitted bytes or raise a closed, nonsecret output failure."""
+
+    try:
+        rendered = encoded.decode("ascii", errors="strict")
+        if sys.stdout.write(rendered) != len(rendered):
+            raise OSError
+        sys.stdout.flush()
+    except Exception:
+        raise TrustedTimeSupervisorAdmissionOutputError(
+            "trusted-time unenrolled admission output failed"
+        ) from None
 
 
 def main() -> None:
@@ -2323,12 +3753,68 @@ def main() -> None:
         default=DEFAULT_IMAGE_ADMISSION_ARTIFACT,
         help="absolute owner-only image admission artifact below repository artifacts/",
     )
+    parser.add_argument(
+        "--expect-unenrolled-fail-closed",
+        action="store_true",
+        help=(
+            "observe one bounded expected terminal result, always tear down, "
+            "and never start a persistent topology"
+        ),
+    )
+    parser.add_argument(
+        "--artifact-dir",
+        type=Path,
+        default=DEFAULT_UNENROLLED_ADMISSION_ARTIFACT_DIR,
+        help=(
+            "absolute owner-only directory below repository artifacts/trusted-time "
+            "for an admitted unenrolled-launch receipt"
+        ),
+    )
     arguments = parser.parse_args()
     try:
+        admission_id = (
+            _new_unenrolled_admission_id() if arguments.expect_unenrolled_fail_closed else ""
+        )
         return_code = run_local_topology(
             env_file=arguments.env_file,
             image_admission_artifact=arguments.image_admission_artifact,
+            expect_unenrolled_fail_closed=arguments.expect_unenrolled_fail_closed,
         )
+    except TrustedTimeSupervisorTerminalObserved as error:
+        try:
+            encoded = build_unenrolled_admission_receipt(
+                admission_id=admission_id,
+                image_admission_sha256=error.image_admission_sha256,
+                terminal_evidence=error.evidence,
+            )
+            write_unenrolled_admission_receipt(
+                arguments.artifact_dir,
+                encoded,
+                emit=_emit_unenrolled_admission_receipt,
+            )
+        except TrustedTimeSupervisorAdmissionRetentionUnconfirmed:
+            with suppress(Exception):
+                print(
+                    _safe_payload("fatal", "admission_retention_unconfirmed"),
+                    file=sys.stderr,
+                    flush=True,
+                )
+            raise SystemExit(2) from None
+        except TrustedTimeSupervisorAdmissionOutputError:
+            raise SystemExit(2) from None
+        except Exception:
+            print(_safe_payload("fatal", "admission_artifact_rejected"), flush=True)
+            raise SystemExit(2) from None
+        return
+    except TrustedTimeSupervisorTerminalUnqualified as error:
+        print(_safe_terminal_payload(error.evidence), flush=True)
+        raise SystemExit(2) from None
+    except TrustedTimeSupervisorSecureLaunchIncomplete:
+        print(_safe_payload("fatal", "secure_launch_incomplete"), flush=True)
+        raise SystemExit(2) from None
+    except TrustedTimeSupervisorTerminalNotObserved:
+        print(_safe_payload("fatal", "expected_terminal_not_observed"), flush=True)
+        raise SystemExit(2) from None
     except (
         TrustedTimeComposeVerificationError,
         TrustedTimeSupervisorConfigurationError,

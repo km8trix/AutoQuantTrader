@@ -76,6 +76,10 @@ class TrustedTimeHeadAnchorConflict(TrustedTimeHeadAnchorError):
     """Remote evidence conflicts with the complete authenticated local chain."""
 
 
+class TrustedTimeHeadAnchorEnrollmentNotApproved(TrustedTimeHeadAnchorConflict):
+    """Stable empty remote history cannot be enrolled without explicit approval."""
+
+
 class TrustedTimeHeadAnchorProviderUnavailable(TrustedTimeHeadAnchorError):
     """A provider explicitly classified a retryable availability failure."""
 
@@ -3235,6 +3239,10 @@ def prepare_trusted_time_head_anchor_reconciliation(
         anchor_authority_sha256=authority_sha256,
         verifier=verifier,
     )
+    if not full_audit and not confirmed:
+        raise TrustedTimeHeadAnchorError(
+            "trusted-time incremental reconciliation requires confirmed anchor evidence"
+        )
     if full_audit:
         remote = _list_remote_records(
             provider,
@@ -3260,7 +3268,7 @@ def prepare_trusted_time_head_anchor_reconciliation(
             verifier=verifier,
         )
     if not confirmed and not allow_enrollment:
-        raise TrustedTimeHeadAnchorConflict(
+        raise TrustedTimeHeadAnchorEnrollmentNotApproved(
             "trusted-time remote anchor history is absent and enrollment is not approved"
         )
     if (not confirmed) != (checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.ENROLLMENT):
@@ -3385,7 +3393,7 @@ def prepare_bounded_trusted_time_head_anchor_reconciliation(
                 "trusted-time durable confirmed terminal crosses admitted authority"
             )
     if terminal is None and not allow_enrollment:
-        raise TrustedTimeHeadAnchorConflict(
+        raise TrustedTimeHeadAnchorEnrollmentNotApproved(
             "trusted-time remote anchor history is absent and enrollment is not approved"
         )
     if (terminal is None) != (

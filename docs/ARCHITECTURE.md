@@ -3332,9 +3332,37 @@ revalidates their mount outcomes. Secret contents never become Compose
 interpolation values. The image-admission contract
 `phase6d-trusted-time-image-admission-v1` binds the exact migration 0036 bytes,
 schema head `0036_phase6_time_anchors`, and the exact intent/receipt catalog.
-The final launcher/Compose/image composition passed 103 focused tests and the
-actual Docker Compose verifier. Those are local implementation proofs, not
-separate-project provisioning or enrollment evidence.
+The pre-admission-hardening launcher/Compose/image baseline passed 103 focused
+tests and the actual Docker Compose verifier. That historical result does not
+cover the later typed-terminal observer or receipt path. The admission
+hardening has local unit and static verification only; actual Compose and a
+current immutable-image admission remain `UNRUN` for that revision.
+
+The admission-only extension is fail-closed around that launcher rather than a
+second deployment path. It refuses a pre-existing supervisor before reading
+owner inputs, binds one new full container ID and immutable image with zero
+restarts, and observes terminal state through fixed byte- and deadline-bounded
+Docker reads that receive no application or broker environment. A stable empty
+remote audit under hard-wired `allow_enrollment=False` is carried across the
+worker boundary only as fixed reason
+`head_anchor_remote_history_absent_enrollment_not_approved`; generic provider,
+configuration, integrity, and unknown failures cannot be promoted into that
+classification. Contract `phase6d-unenrolled-secure-launch-admission-v1`
+admits only after topology/mount validation, the four-input consumption marker,
+staged-input retirement and retired-mount revalidation, the exact typed
+terminal, container/network removal, and same-identity named-volume
+preservation across teardown. Earlier exit races
+produce `secure_launch_incomplete` only when that exact expected terminal is
+positively observed during Compose startup failure or the private supervisor-
+identity-disappearance race. Missing or unqualified terminals and unrelated
+topology/configuration failures retain their narrower fatal outcomes and no
+ordinary failure path publishes an admitted receipt. A successful receipt is canonical,
+owner-only, content-addressed, non-authorizing, emitted exactly before its
+publication commits, and has a per-attempt UUIDv4 but no trusted-time or anti-
+replay claim. Output failure rolls back the just-linked receipt and fsyncs that
+removal. If unlink or removal durability cannot be confirmed, the wrapper exits
+2 with fixed stderr reason `admission_retention_unconfirmed`; that posture is
+not admission and requires manual artifact inspection before any later attempt.
 
 Separate anchor project `pgplscpqsvyraleyaphm` is now Healthy on the Supabase
 Free plan with its Data API disabled. Retained owner-only dashboard evidence
