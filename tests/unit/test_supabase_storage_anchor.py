@@ -2,16 +2,29 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 
 import httpx
 import pytest
 
 import packages.adapters.trusted_time.supabase_storage_anchor as adapter
 from packages.adapters.trusted_time.supabase_storage_anchor import (
+    SUPABASE_STORAGE_ANCHOR_MAX_SESSION_EXPIRY_SECONDS,
+    SupabaseStorageAnchorAuthenticationError,
+    SupabaseStorageAnchorAuthenticationResponseError,
+    SupabaseStorageAnchorAuthPasswordTokenRequestTargetError,
+    SupabaseStorageAnchorAuthPasswordTokenResponseBoundError,
+    SupabaseStorageAnchorAuthPasswordTokenResponseEncodingError,
+    SupabaseStorageAnchorAuthPasswordTokenResponseEnvelopeError,
+    SupabaseStorageAnchorAuthPasswordTokenResponseError,
+    SupabaseStorageAnchorAuthPasswordTokenSessionSchemaError,
+    SupabaseStorageAnchorAuthUserVerificationResponseError,
+    SupabaseStorageAnchorBoundedListResponseError,
     SupabaseStorageAnchorConflict,
     SupabaseStorageAnchorCredentials,
     SupabaseStorageAnchorError,
+    SupabaseStorageAnchorResponseError,
+    SupabaseStorageAnchorStorageAccessError,
     SupabaseStorageAnchorUnavailable,
     SupabaseStorageTrustedTimeAnchorProvider,
 )
@@ -29,6 +42,7 @@ FIRST_NAME = f"{PREFIX}{1:020d}-{'3' * 64}.json"
 SECOND_NAME = f"{PREFIX}{2:020d}-{'4' * 64}.json"
 THIRD_NAME = f"{PREFIX}{3:020d}-{'5' * 64}.json"
 PAYLOAD = b'{"signed":"anchor"}'
+SECRET_PROVIDER_RESPONSE = "secret-provider-response-sentinel"
 
 
 class _SlowTrickleStream(httpx.AsyncByteStream):
@@ -36,6 +50,22 @@ class _SlowTrickleStream(httpx.AsyncByteStream):
         yield b"{"
         await asyncio.sleep(0.05)
         yield b"}"
+
+
+class _SingleChunkStream(httpx.AsyncByteStream):
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    async def __aiter__(self):  # type: ignore[no-untyped-def]
+        yield self._payload
+
+
+class _NeverReadStream(httpx.AsyncByteStream):
+    def __aiter__(self) -> AsyncIterator[bytes]:
+        return self
+
+    async def __anext__(self) -> bytes:
+        raise AssertionError("non-collision error body must not be read")
 
 
 def _credentials(**changes: str) -> SupabaseStorageAnchorCredentials:
@@ -51,16 +81,24 @@ def _credentials(**changes: str) -> SupabaseStorageAnchorCredentials:
     return SupabaseStorageAnchorCredentials(**values)
 
 
-def _session_response() -> httpx.Response:
+def _session_response(
+    *,
+    access_token: object = ACCESS_TOKEN,
+    expires_in: int = 3_600,
+    include_user_id: bool = True,
+    refresh_token: object = REFRESH_TOKEN,
+    user_id: object = PRINCIPAL_ID,
+) -> httpx.Response:
+    user = {"id": user_id} if include_user_id else {}
     return httpx.Response(
         200,
         headers={"content-type": "application/json"},
         json={
-            "access_token": ACCESS_TOKEN,
-            "expires_in": 3600,
-            "refresh_token": REFRESH_TOKEN,
+            "access_token": access_token,
+            "expires_in": expires_in,
+            "refresh_token": refresh_token,
             "token_type": "bearer",
-            "user": {"id": PRINCIPAL_ID},
+            "user": user,
         },
     )
 
@@ -100,6 +138,22 @@ def test_credentials_reject_elevated_keys_and_unsafe_project_targets() -> None:
             _credentials(project_url=url)
     with pytest.raises(SupabaseStorageAnchorError, match="project identity"):
         _credentials(anchor_project_identity_sha256="not-a-digest")
+
+
+@pytest.mark.parametrize(
+    "leaf_type",
+    [
+        SupabaseStorageAnchorAuthPasswordTokenRequestTargetError,
+        SupabaseStorageAnchorAuthPasswordTokenResponseEncodingError,
+        SupabaseStorageAnchorAuthPasswordTokenResponseBoundError,
+        SupabaseStorageAnchorAuthPasswordTokenResponseEnvelopeError,
+        SupabaseStorageAnchorAuthPasswordTokenSessionSchemaError,
+    ],
+)
+def test_password_token_response_taxonomy_uses_direct_backward_compatible_leaves(
+    leaf_type: type[SupabaseStorageAnchorAuthPasswordTokenResponseError],
+) -> None:
+    assert leaf_type.__bases__ == (SupabaseStorageAnchorAuthPasswordTokenResponseError,)
 
 
 def test_provider_attests_exact_physical_project_principal_and_bucket() -> None:
@@ -203,6 +257,604 @@ def test_bounded_list_returns_exactly_one_sorted_page() -> None:
         ) == (SECOND_NAME, THIRD_NAME)
 
     assert calls == 1
+
+
+def test_bounded_list_retypes_auth_denial_without_disclosing_response() -> None:
+    def denied(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            401,
+            headers={
+                "content-encoding": "gzip",
+                "content-type": "application/json",
+            },
+            stream=_SingleChunkStream(SECRET_PROVIDER_RESPONSE.encode("ascii")),
+        )
+
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=httpx.MockTransport(denied),
+        ) as provider,
+        pytest.raises(SupabaseStorageAnchorAuthenticationError) as raised,
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+    assert type(raised.value) is SupabaseStorageAnchorAuthenticationError
+    assert isinstance(raised.value, SupabaseStorageAnchorError)
+    assert SECRET_PROVIDER_RESPONSE not in str(raised.value)
+    assert SECRET_PROVIDER_RESPONSE not in repr(raised.value)
+
+
+@pytest.mark.parametrize("status_code", [200, 204])
+def test_bounded_list_retypes_malformed_auth_success_as_response_error(
+    status_code: int,
+) -> None:
+    def malformed_auth(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code,
+            headers={"content-type": "text/plain"},
+            content=SECRET_PROVIDER_RESPONSE.encode("ascii"),
+        )
+
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=httpx.MockTransport(malformed_auth),
+        ) as provider,
+        pytest.raises(SupabaseStorageAnchorAuthPasswordTokenResponseEnvelopeError) as raised,
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+    assert isinstance(raised.value, SupabaseStorageAnchorError)
+    assert SECRET_PROVIDER_RESPONSE not in str(raised.value)
+    assert SECRET_PROVIDER_RESPONSE not in repr(raised.value)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        SECRET_PROVIDER_RESPONSE.encode("ascii"),
+        json.dumps([SECRET_PROVIDER_RESPONSE]).encode("ascii"),
+    ],
+)
+def test_password_token_invalid_json_or_root_is_envelope_typed(body: bytes) -> None:
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(
+                    200,
+                    headers={"content-type": "application/json"},
+                    content=body,
+                )
+            ),
+        ) as provider,
+        pytest.raises(SupabaseStorageAnchorAuthPasswordTokenResponseEnvelopeError) as raised,
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+    assert SECRET_PROVIDER_RESPONSE not in str(raised.value)
+    assert SECRET_PROVIDER_RESPONSE not in repr(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("protocol_error", "expected_type"),
+    [
+        ("redirect", SupabaseStorageAnchorAuthPasswordTokenRequestTargetError),
+        ("encoding", SupabaseStorageAnchorAuthPasswordTokenResponseEncodingError),
+        ("oversize", SupabaseStorageAnchorAuthPasswordTokenResponseBoundError),
+    ],
+)
+def test_auth_protocol_error_is_stage_typed_without_disclosing_response(
+    monkeypatch: pytest.MonkeyPatch,
+    protocol_error: str,
+    expected_type: type[SupabaseStorageAnchorAuthPasswordTokenResponseError],
+) -> None:
+    monkeypatch.setattr(adapter, "SUPABASE_STORAGE_ANCHOR_MAX_AUTH_RESPONSE_BYTES", 8)
+
+    def malformed(_: httpx.Request) -> httpx.Response:
+        if protocol_error == "redirect":
+            return httpx.Response(
+                302,
+                headers={"location": f"{PROJECT_URL}/redirected"},
+                content=SECRET_PROVIDER_RESPONSE.encode("ascii"),
+            )
+        if protocol_error == "encoding":
+            return httpx.Response(
+                200,
+                headers={
+                    "content-encoding": "gzip",
+                    "content-type": "application/json",
+                },
+                content=SECRET_PROVIDER_RESPONSE.encode("ascii"),
+            )
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            content=SECRET_PROVIDER_RESPONSE.encode("ascii"),
+        )
+
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=httpx.MockTransport(malformed),
+        ) as provider,
+        pytest.raises(expected_type) as raised,
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+    assert type(raised.value) is expected_type
+    assert isinstance(raised.value, SupabaseStorageAnchorResponseError)
+    assert SECRET_PROVIDER_RESPONSE not in str(raised.value)
+    assert SECRET_PROVIDER_RESPONSE not in repr(raised.value)
+
+
+@pytest.mark.parametrize(
+    "expires_in",
+    [1, SUPABASE_STORAGE_ANCHOR_MAX_SESSION_EXPIRY_SECONDS],
+)
+def test_auth_session_expiry_accepts_official_bounds(expires_in: int) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/v1/token":
+            return _session_response(expires_in=expires_in)
+        if request.url.path == "/auth/v1/user":
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                json={"id": PRINCIPAL_ID},
+            )
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json=[],
+        )
+
+    with SupabaseStorageTrustedTimeAnchorProvider(
+        credentials=_credentials(),
+        transport=httpx.MockTransport(handler),
+    ) as provider:
+        assert (
+            provider.list_object_names_page(
+                bucket_name="aqt-trusted-time-anchors-v1",
+                prefix=PREFIX,
+                offset=0,
+                limit=1,
+            )
+            == ()
+        )
+
+
+@pytest.mark.parametrize(
+    "expires_in",
+    [0, SUPABASE_STORAGE_ANCHOR_MAX_SESSION_EXPIRY_SECONDS + 1],
+)
+def test_auth_session_expiry_rejects_outside_official_bounds(expires_in: int) -> None:
+    def excessive(_: httpx.Request) -> httpx.Response:
+        return _session_response(expires_in=expires_in)
+
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=httpx.MockTransport(excessive),
+        ) as provider,
+        pytest.raises(SupabaseStorageAnchorAuthPasswordTokenSessionSchemaError),
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+
+def test_long_access_and_refresh_tokens_are_accepted_within_response_bound() -> None:
+    access_token = "a" * 10_000
+    refresh_token = "r" * 10_000
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/v1/token":
+            return _session_response(
+                access_token=access_token,
+                refresh_token=refresh_token,
+            )
+        if request.url.path == "/auth/v1/user":
+            assert request.headers["authorization"] == f"Bearer {access_token}"
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                json={"id": PRINCIPAL_ID},
+            )
+        assert request.headers["authorization"] == f"Bearer {access_token}"
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json=[],
+        )
+
+    with SupabaseStorageTrustedTimeAnchorProvider(
+        credentials=_credentials(),
+        transport=httpx.MockTransport(handler),
+    ) as provider:
+        assert (
+            provider.list_object_names_page(
+                bucket_name="aqt-trusted-time-anchors-v1",
+                prefix=PREFIX,
+                offset=0,
+                limit=1,
+            )
+            == ()
+        )
+
+
+@pytest.mark.parametrize(
+    ("access_token", "refresh_token"),
+    [
+        ("", REFRESH_TOKEN),
+        ("visible-prefix\ncontrol", REFRESH_TOKEN),
+        (ACCESS_TOKEN, ""),
+    ],
+)
+def test_empty_or_control_session_tokens_are_schema_failures(
+    access_token: str,
+    refresh_token: str,
+) -> None:
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=httpx.MockTransport(
+                lambda _: _session_response(
+                    access_token=access_token,
+                    refresh_token=refresh_token,
+                )
+            ),
+        ) as provider,
+        pytest.raises(SupabaseStorageAnchorAuthPasswordTokenSessionSchemaError),
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+
+@pytest.mark.parametrize(
+    ("include_user_id", "user_id"),
+    [(False, None), (True, 7), (True, SECRET_PROVIDER_RESPONSE)],
+)
+def test_password_token_user_id_shape_failure_is_endpoint_typed(
+    include_user_id: bool,
+    user_id: object,
+) -> None:
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=httpx.MockTransport(
+                lambda _: _session_response(
+                    include_user_id=include_user_id,
+                    user_id=user_id,
+                )
+            ),
+        ) as provider,
+        pytest.raises(SupabaseStorageAnchorAuthPasswordTokenSessionSchemaError) as raised,
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+    assert type(raised.value) is SupabaseStorageAnchorAuthPasswordTokenSessionSchemaError
+    assert SECRET_PROVIDER_RESPONSE not in str(raised.value)
+    assert SECRET_PROVIDER_RESPONSE not in repr(raised.value)
+
+
+def test_bounded_list_retypes_auth_user_principal_mismatch_without_disclosure() -> None:
+    def mismatched_user(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/v1/token":
+            return _session_response()
+        if request.url.path == "/auth/v1/user":
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                json={
+                    "id": "87654321-4321-4321-8321-cba987654321",
+                    "unexpected_secret": SECRET_PROVIDER_RESPONSE,
+                },
+            )
+        raise AssertionError(request.url)
+
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=httpx.MockTransport(mismatched_user),
+        ) as provider,
+        pytest.raises(SupabaseStorageAnchorAuthenticationError) as raised,
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+    assert SECRET_PROVIDER_RESPONSE not in str(raised.value)
+    assert SECRET_PROVIDER_RESPONSE not in repr(raised.value)
+
+
+@pytest.mark.parametrize(
+    "user_payload",
+    [
+        {"unexpected_secret": SECRET_PROVIDER_RESPONSE},
+        {"id": 7, "unexpected_secret": SECRET_PROVIDER_RESPONSE},
+        {"id": SECRET_PROVIDER_RESPONSE},
+    ],
+)
+def test_auth_user_verification_id_shape_failure_is_endpoint_typed(
+    user_payload: dict[str, object],
+) -> None:
+    def malformed_user(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/v1/token":
+            return _session_response()
+        if request.url.path == "/auth/v1/user":
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                json=user_payload,
+            )
+        raise AssertionError(request.url)
+
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=httpx.MockTransport(malformed_user),
+        ) as provider,
+        pytest.raises(SupabaseStorageAnchorAuthUserVerificationResponseError) as raised,
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+    assert type(raised.value) is SupabaseStorageAnchorAuthUserVerificationResponseError
+    assert SECRET_PROVIDER_RESPONSE not in str(raised.value)
+    assert SECRET_PROVIDER_RESPONSE not in repr(raised.value)
+
+
+@pytest.mark.parametrize("protocol_error", ["redirect", "encoding", "oversize"])
+def test_auth_user_verification_protocol_error_is_endpoint_typed(
+    protocol_error: str,
+) -> None:
+    def malformed_user(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/v1/token":
+            return _session_response()
+        if request.url.path != "/auth/v1/user":
+            raise AssertionError(request.url)
+        if protocol_error == "redirect":
+            return httpx.Response(
+                302,
+                headers={"location": f"{PROJECT_URL}/redirected"},
+                content=SECRET_PROVIDER_RESPONSE.encode("ascii"),
+            )
+        if protocol_error == "encoding":
+            return httpx.Response(
+                200,
+                headers={
+                    "content-encoding": "gzip",
+                    "content-type": "application/json",
+                },
+                content=SECRET_PROVIDER_RESPONSE.encode("ascii"),
+            )
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            content=SECRET_PROVIDER_RESPONSE.encode("ascii") * 2_000,
+        )
+
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=httpx.MockTransport(malformed_user),
+        ) as provider,
+        pytest.raises(SupabaseStorageAnchorAuthUserVerificationResponseError) as raised,
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+    assert type(raised.value) is SupabaseStorageAnchorAuthUserVerificationResponseError
+    assert SECRET_PROVIDER_RESPONSE not in str(raised.value)
+    assert SECRET_PROVIDER_RESPONSE not in repr(raised.value)
+
+
+def test_bounded_list_retypes_storage_denial_without_disclosing_response() -> None:
+    auth_attempts = 0
+
+    def denied(request: httpx.Request) -> httpx.Response:
+        nonlocal auth_attempts
+        if request.url.path == "/auth/v1/token":
+            auth_attempts += 1
+            return _session_response()
+        if request.url.path == "/auth/v1/user":
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                json={"id": PRINCIPAL_ID},
+            )
+        return httpx.Response(
+            403,
+            headers={
+                "content-encoding": "gzip",
+                "content-type": "application/json",
+            },
+            stream=_SingleChunkStream(SECRET_PROVIDER_RESPONSE.encode("ascii")),
+        )
+
+    with SupabaseStorageTrustedTimeAnchorProvider(
+        credentials=_credentials(),
+        transport=httpx.MockTransport(denied),
+    ) as provider:
+        for _ in range(2):
+            with pytest.raises(SupabaseStorageAnchorStorageAccessError) as raised:
+                provider.list_object_names_page(
+                    bucket_name="aqt-trusted-time-anchors-v1",
+                    prefix=PREFIX,
+                    offset=0,
+                    limit=1,
+                )
+
+    assert auth_attempts == 2
+    assert type(raised.value) is SupabaseStorageAnchorStorageAccessError
+    assert isinstance(raised.value, SupabaseStorageAnchorError)
+    assert SECRET_PROVIDER_RESPONSE not in str(raised.value)
+    assert SECRET_PROVIDER_RESPONSE not in repr(raised.value)
+
+
+def test_bounded_list_retypes_malformed_storage_success_as_response_error() -> None:
+    def malformed(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json={"unexpected_secret": SECRET_PROVIDER_RESPONSE},
+        )
+
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=_auth_or(malformed),
+        ) as provider,
+        pytest.raises(SupabaseStorageAnchorBoundedListResponseError) as raised,
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+    assert SECRET_PROVIDER_RESPONSE not in str(raised.value)
+    assert SECRET_PROVIDER_RESPONSE not in repr(raised.value)
+
+
+def test_bounded_list_retypes_no_content_as_response_error() -> None:
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=_auth_or(lambda _: httpx.Response(204)),
+        ) as provider,
+        pytest.raises(SupabaseStorageAnchorBoundedListResponseError),
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+
+@pytest.mark.parametrize("protocol_error", ["redirect", "encoding", "oversize"])
+def test_bounded_list_protocol_error_is_stage_typed_without_disclosure(
+    monkeypatch: pytest.MonkeyPatch,
+    protocol_error: str,
+) -> None:
+    monkeypatch.setattr(adapter, "SUPABASE_STORAGE_ANCHOR_MAX_RESPONSE_BYTES", 8)
+
+    def malformed(_: httpx.Request) -> httpx.Response:
+        if protocol_error == "redirect":
+            return httpx.Response(
+                302,
+                headers={"location": f"{PROJECT_URL}/redirected"},
+                content=SECRET_PROVIDER_RESPONSE.encode("ascii"),
+            )
+        if protocol_error == "encoding":
+            return httpx.Response(
+                200,
+                headers={
+                    "content-encoding": "gzip",
+                    "content-type": "application/json",
+                },
+                content=SECRET_PROVIDER_RESPONSE.encode("ascii"),
+            )
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            content=SECRET_PROVIDER_RESPONSE.encode("ascii"),
+        )
+
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=_auth_or(malformed),
+        ) as provider,
+        pytest.raises(SupabaseStorageAnchorBoundedListResponseError) as raised,
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+    assert type(raised.value) is SupabaseStorageAnchorBoundedListResponseError
+    assert isinstance(raised.value, SupabaseStorageAnchorResponseError)
+    assert SECRET_PROVIDER_RESPONSE not in str(raised.value)
+    assert SECRET_PROVIDER_RESPONSE not in repr(raised.value)
+
+
+def test_bounded_list_preserves_explicit_provider_unavailable_semantics() -> None:
+    def unavailable(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            503,
+            headers={
+                "content-encoding": "gzip",
+                "content-type": "application/json",
+            },
+            stream=_SingleChunkStream(SECRET_PROVIDER_RESPONSE.encode("ascii")),
+        )
+
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=_auth_or(unavailable),
+        ) as provider,
+        pytest.raises(SupabaseStorageAnchorUnavailable) as raised,
+    ):
+        provider.list_object_names_page(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            prefix=PREFIX,
+            offset=0,
+            limit=1,
+        )
+
+    assert type(raised.value) is SupabaseStorageAnchorUnavailable
+    assert SECRET_PROVIDER_RESPONSE not in str(raised.value)
+    assert SECRET_PROVIDER_RESPONSE not in repr(raised.value)
 
 
 def test_sequence_list_uses_exact_storage_search_without_history_traversal() -> None:
@@ -437,6 +1089,45 @@ def test_upload_recognizes_only_structured_no_overwrite_collision() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("status_code", "expected_error"),
+    [
+        (401, SupabaseStorageAnchorStorageAccessError),
+        (403, SupabaseStorageAnchorStorageAccessError),
+        (503, SupabaseStorageAnchorUnavailable),
+    ],
+)
+def test_upload_does_not_read_non_collision_error_bodies(
+    status_code: int,
+    expected_error: type[Exception],
+) -> None:
+    def rejected(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code,
+            headers={
+                "content-encoding": "gzip",
+                "content-type": "application/json",
+            },
+            stream=_NeverReadStream(),
+        )
+
+    with (
+        SupabaseStorageTrustedTimeAnchorProvider(
+            credentials=_credentials(),
+            transport=_auth_or(rejected),
+        ) as provider,
+        pytest.raises(expected_error) as raised,
+    ):
+        provider.upload_object_no_overwrite(
+            bucket_name="aqt-trusted-time-anchors-v1",
+            object_name=FIRST_NAME,
+            payload=PAYLOAD,
+            content_type="application/json",
+        )
+
+    assert type(raised.value) is expected_error
+
+
 def test_redirects_oversized_responses_and_unsafe_names_fail_closed() -> None:
     with (
         SupabaseStorageTrustedTimeAnchorProvider(
@@ -542,6 +1233,59 @@ def test_expiring_session_refreshes_once_without_password_resubmission() -> None
             )
 
     assert grants == ["password", "refresh_token"]
+
+
+def test_refresh_response_failure_retains_generic_auth_response_type() -> None:
+    clock = iter((0.0, 3_600.0, 3_600.0))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/v1/token":
+            if request.url.params["grant_type"] == "password":
+                return _session_response()
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/plain"},
+                content=SECRET_PROVIDER_RESPONSE.encode("ascii"),
+            )
+        if request.url.path == "/auth/v1/user":
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                json={"id": PRINCIPAL_ID},
+            )
+        if request.url.path.startswith("/storage/v1/object/list/"):
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                json=[],
+            )
+        raise AssertionError(request.url)
+
+    with SupabaseStorageTrustedTimeAnchorProvider(
+        credentials=_credentials(),
+        monotonic_clock=lambda: next(clock),
+        transport=httpx.MockTransport(handler),
+    ) as provider:
+        assert (
+            provider.list_object_names_page(
+                bucket_name="aqt-trusted-time-anchors-v1",
+                prefix=PREFIX,
+                offset=0,
+                limit=1,
+            )
+            == ()
+        )
+        with pytest.raises(SupabaseStorageAnchorAuthenticationResponseError) as raised:
+            provider.list_object_names_page(
+                bucket_name="aqt-trusted-time-anchors-v1",
+                prefix=PREFIX,
+                offset=0,
+                limit=1,
+            )
+
+    assert type(raised.value) is SupabaseStorageAnchorAuthenticationResponseError
+    assert SECRET_PROVIDER_RESPONSE not in str(raised.value)
+    assert SECRET_PROVIDER_RESPONSE not in repr(raised.value)
 
 
 @pytest.mark.parametrize("status_code", [408, 425, 429, 500, 503, 599])

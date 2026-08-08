@@ -37,14 +37,55 @@ def test_trusted_time_python_launcher_is_isolated_and_cannot_be_overridden() -> 
 def test_every_supported_trusted_time_python_target_uses_isolated_launcher() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert makefile.count("$(TRUSTED_TIME_PYTHON)") == 6
+    assert makefile.count("$(TRUSTED_TIME_PYTHON)") == 7
     for script in (
+        "diagnose_trusted_time_runtime.py",
         "inspect_trusted_time_qualification.py",
         "start_trusted_time_supervisor.py",
         "verify_trusted_time_compose.py",
         "verify_trusted_time_images.py",
     ):
         assert script in makefile
+
+
+def test_runtime_diagnostic_make_target_emits_only_child_output(tmp_path: Path) -> None:
+    fake_uv = tmp_path / "fake-uv"
+    expected = '{"outcome_code":"test-only","status":"failed"}\n'
+    fake_uv.write_text(
+        f"#!/bin/sh\nprintf '%s\\n' '{expected.rstrip()}'\n",
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o700)
+    launch_path = "/private/operator/secret-launch-path.env"
+
+    completed = subprocess.run(
+        (
+            "make",
+            "trusted-time-runtime-diagnostic",
+            f"UV={fake_uv}",
+            f"TRUSTED_TIME_LAUNCH_ENV_FILE={launch_path}",
+        ),
+        cwd=ROOT,
+        env={"LC_ALL": "C", "PATH": os.defpath},
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+    assert completed.returncode == 0
+    assert completed.stdout == expected
+    assert launch_path not in completed.stdout
+    assert launch_path not in completed.stderr
+
+
+def test_runtime_diagnostic_make_target_is_pinned_to_v5_contract() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    target = makefile.partition("\ntrusted-time-runtime-diagnostic:")[2].partition("\n\n")[0]
+    diagnostic = (ROOT / "scripts" / "diagnose_trusted_time_runtime.py").read_text(encoding="utf-8")
+
+    assert "scripts/diagnose_trusted_time_runtime.py" in target
+    assert 'CONTRACT_VERSION = "phase6d-bounded-read-only-runtime-diagnostic-v5"' in diagnostic
 
 
 def test_container_ci_uses_supported_isolated_trusted_time_entrypoints() -> None:

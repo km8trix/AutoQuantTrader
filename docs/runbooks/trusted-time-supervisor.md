@@ -268,10 +268,11 @@ is now:
 1. preserve the retained passing rollback-only policy-capability probe and
    applied exact-catalog v1-to-v2 upgrade evidence, plus the passing same-object
    no-insert behavioral-proof evidence;
-2. merge the approval-binding hardening, create and review a new secretless
-   content-addressed image admission on that exact merge, obtain fresh approval
-   for its revision/artifact/image tuple, then complete and retain local
-   secure-launcher runtime admission without rebuilding;
+2. create and review a new secretless content-addressed image admission from
+   the exact merged revision containing the approval-binding hardening and
+   bounded runtime diagnostic, obtain fresh approval for its
+   revision/artifact/image tuple, then complete and retain local secure-launcher
+   runtime admission without rebuilding;
 3. separately obtain approval for and retain the first enrollment evidence;
 4. only then implement a sealed provider-terminal issuer that authenticates a
    complete new suffix, binds two stable namespace passes to their exact
@@ -540,11 +541,12 @@ approve enrollment.
    bodies. Enrollment stayed `UNRUN` with `allow_enrollment=false` throughout.
 7. **In progress.** Preserve the passing parse-only Compose and historical
    immutable-image evidence described below. Do not reuse either drifted tuple.
-   Merge the approval-binding hardening, build and review a new secretless
-   content-addressed admission on that exact merge, obtain fresh tuple approval,
-   then use the no-build admission launcher to stage, admit, and retire the exact
-   database, authority, Auth, and signing-key mounts without exposing their
-   contents. Confirm the production composition still fixes
+   Build and review a new secretless content-addressed admission from the exact
+   merged revision containing the approval-binding hardening and bounded runtime
+   diagnostic, obtain fresh tuple approval, then use the no-build admission
+   launcher to stage, admit, and retire the exact database, authority, Auth, and
+   signing-key mounts without exposing their contents. Confirm the production
+   composition still fixes
    `allow_enrollment=False` with no environment override, then stop and request
    separate owner approval for any reviewed one-time enrollment enablement and
    operation.
@@ -658,8 +660,10 @@ Compose model that:
 The pre-admission-hardening Phase 6D launcher/Compose/image baseline passed 103
 focused tests and the actual Docker Compose verifier. That historical result
 does not cover the later typed-terminal observer, approval tuple, or v2 receipt
-path. The approval-binding hardening has local verification only; build and
-runtime evidence for it must be produced from its exact merged revision.
+path. The approval-binding hardening is merged at
+`2fcd3cdcf343bf4ef0630b2923190df7556c630d`; its bounded V5 diagnostic and
+isolated Compose verifier pass locally. Build and runtime evidence must still be
+produced from the exact final merged revision containing those changes.
 
 On 2026-08-05, an earlier parse-only Compose verifier admitted a reviewed model
 with zero inbound ports and no authority. Historical immutable-image artifact
@@ -690,16 +694,19 @@ retained different immutable pairs:
   and supervisor image
   `sha256:fa22b4b58474204f25e10281e224bdb5fdc184cce52ccc730948685a3fad04db`.
 
-These three, like every currently retained canonical or content-addressed
-`image-admission*.json` artifact, use a superseded v1 image-admission schema,
-omit the captured `git_revision`, and are rejected by the current v2 loader.
+At the 2026-08-07 pre-build review, these three were the retained canonical or
+content-addressed `image-admission*.json` artifacts. They use a superseded v1
+image-admission schema, omit the captured `git_revision`, and are rejected by
+the current v2 loader.
 They are historical evidence of permitted build-identity drift, not an approval
-for the current hardening revision. The following secure-launch attempt did not
+for the next exact merged revision. The following secure-launch attempt did not
 admit and retained no v2 receipt, so secure-launch status is
-`ATTEMPTED_NOT_ADMITTED`; first enrollment remains `UNRUN`. Do not retry until
-the hardening is merged, new images and a new content-addressed admission are
-created from that exact merge, and the owner grants fresh approval for the new
-tuple.
+`ATTEMPTED_NOT_ADMITTED`; first enrollment remains `UNRUN`. The approval-binding
+hardening is merged in revision
+`2fcd3cdcf343bf4ef0630b2923190df7556c630d`. Do not retry until new images and a
+new content-addressed v2 admission are created from the exact merged revision
+containing the bounded runtime diagnostic, and the owner grants fresh approval
+for the new tuple.
 
 Any mismatch stops qualification. Do not retag or patch a running container to
 make it pass.
@@ -707,6 +714,46 @@ make it pass.
 Plan and complete CA rotation before `2031-04-26T10:56:53Z`. Treat rotation as
 a new reviewed authority/image pair and prove one real `verify-full`
 connection to the intended Supabase Session-pooler hostname before use.
+
+## Bounded read-only runtime diagnostic
+
+Use the V5 diagnostic before building or launching a fresh tuple. It consumes
+the same dedicated exact-four launch environment as the secure launcher; the
+file must satisfy the canonical owner-only mode-`0600` contract described
+below. The general repository `.env` is forbidden. Run:
+
+```console
+make trusted-time-runtime-diagnostic \
+  TRUSTED_TIME_LAUNCH_ENV_FILE=/absolute/path/to/trusted-time-launch.env
+```
+
+The command creates a fresh locked offline isolated Python runtime. It opens the
+exact-four file once, makes read-only database transactions, authenticates the
+configured Supabase user, and performs two bounded one-item lists of only the
+exact deployment prefix. It never registers an epoch, writes database rows,
+uploads or changes a Storage object, enrolls the prefix, starts Compose, or
+grants operational authority. Supabase password sign-in may update provider-side
+Auth session or audit metadata even though application data remains read-only.
+
+Standard output is exactly one canonical ASCII JSON object under contract
+`phase6d-bounded-read-only-runtime-diagnostic-v5`. Failure output contains only
+a fixed allowlisted `outcome_code`, `status=failed`, the contract version, and
+false authority flags. The fixed taxonomy covers launch/database/local-history
+gates; provider identity, authentication, availability, and Storage-list gates;
+and password-token request-target, encoding, response-bound, envelope, and
+session-schema guards. It never renders credentials, DSNs, paths, URLs, IDs,
+object names, headers, byte counts, response bodies, or exception text. A pass
+adds bounded aggregate counts and fixed booleans only; it does not approve image
+admission, enrollment, readiness, re-arm, paper trading, or live trading.
+
+On 2026-08-07, the owner-approved V5 diagnostic returned
+`outcome_code=diagnostic_passed`. It verified the current database schema and
+integrity, an authenticated startup snapshot, zero local anchor intents and
+receipts, the exact provider identity, and two stable empty-prefix observations.
+The bounded aggregates were nine epochs, one evaluation in the latest epoch,
+and 112 local transitions. That stdout was operator-observed and was not
+retained as an image-admission or secure-launch receipt; every authority flag
+remained false.
 
 ## Approval-blocked supervised start
 

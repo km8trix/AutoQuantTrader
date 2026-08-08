@@ -17,7 +17,7 @@ TRUSTED_TIME_UNENROLLED_ADMISSION_ARTIFACT_DIR ?= $(CURDIR)/artifacts/trusted-ti
 	tiingo-eod-lineage tiingo-eod-fields-qualify tiingo-eod-identity-qualify \
 	tiingo-eod-semantics-qualify no-exposure-smoke-verify trusted-time-compose-check \
 	trusted-time-images trusted-time-start trusted-time-admit-unenrolled \
-	trusted-time-inspect trusted-time-stop
+	trusted-time-runtime-diagnostic trusted-time-inspect trusted-time-stop
 
 help: ## List developer commands.
 	@awk 'BEGIN {FS = ":.*## "; printf "AutoQuantTrader developer commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -223,6 +223,12 @@ trusted-time-admit-unenrolled: ## Observe an approved fail-closed startup expect
 		--approved-source-image-id "$(TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID)" \
 		--approved-supervisor-image-id "$(TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID)" \
 		--expect-unenrolled-fail-closed
+
+trusted-time-runtime-diagnostic: ## Run the bounded read-only trusted-time runtime diagnostic.
+	@test -n "$(TRUSTED_TIME_LAUNCH_ENV_FILE)" || (echo "TRUSTED_TIME_LAUNCH_ENV_FILE=path/to/dedicated-owner-only.env is required" >&2; exit 2)
+	@$(TRUSTED_TIME_PYTHON) \
+		scripts/diagnose_trusted_time_runtime.py \
+		--env-file "$(TRUSTED_TIME_LAUNCH_ENV_FILE)"
 
 trusted-time-inspect: ## Inspect the running trusted-time qualification window.
 	@test -n "$(TRUSTED_TIME_INSPECT_ENV_FILE)" || (echo "TRUSTED_TIME_INSPECT_ENV_FILE=path/to/database-only-owner-only.env is required" >&2; exit 2)
