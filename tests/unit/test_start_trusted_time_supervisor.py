@@ -2759,10 +2759,7 @@ def test_compose_runner_rejects_over_observer_capacity_before_spawn() -> None:
 
 def test_reviewed_compose_payload_fits_bounded_runtime_contract() -> None:
     payload = (
-        Path(__file__).resolve().parents[2]
-        / "infra"
-        / "compose"
-        / "trusted-time.compose.yaml"
+        Path(__file__).resolve().parents[2] / "infra" / "compose" / "trusted-time.compose.yaml"
     ).read_bytes()
 
     assert len(payload) > 4_096
