@@ -31,6 +31,7 @@ SUPABASE_STORAGE_ANCHOR_LIST_PAGE_SIZE = 1_000
 SUPABASE_STORAGE_ANCHOR_MAX_OBJECTS = 250_000
 SUPABASE_STORAGE_ANCHOR_MAX_RESPONSE_BYTES = 2_097_152
 SUPABASE_STORAGE_ANCHOR_MAX_AUTH_RESPONSE_BYTES = 32_768
+SUPABASE_STORAGE_ANCHOR_MAX_SESSION_EXPIRY_SECONDS = 604_800
 SUPABASE_STORAGE_ANCHOR_TIMEOUT_SECONDS = 5.0
 
 _PROJECT_HOST = re.compile(r"([a-z0-9]{20})[.]supabase[.]co\Z")
@@ -39,10 +40,73 @@ _EMAIL = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]{1,190}\Z")
 _OBJECT_PREFIX = re.compile(r"v1/[0-9a-f]{64}/[0-9a-f]{64}/\Z")
 _OBJECT_BASENAME = re.compile(r"[0-9]{20}-[0-9a-f]{64}[.]json\Z")
 _OBJECT_NAME = re.compile(r"v1/[0-9a-f]{64}/[0-9a-f]{64}/[0-9]{20}-[0-9a-f]{64}[.]json\Z")
+_UPLOAD_COLLISION_RESPONSE_STATUSES = frozenset({400, 409})
 
 
 class SupabaseStorageAnchorError(RuntimeError):
     """A sanitized anchor-provider configuration or operation failure."""
+
+
+class SupabaseStorageAnchorAuthenticationError(SupabaseStorageAnchorError):
+    """Supabase Auth rejected the configured principal or credential."""
+
+
+class SupabaseStorageAnchorStorageAccessError(SupabaseStorageAnchorError):
+    """Supabase Storage rejected access to the exact anchor namespace."""
+
+
+class SupabaseStorageAnchorResponseError(SupabaseStorageAnchorError):
+    """A bounded provider response failed structural validation."""
+
+
+class SupabaseStorageAnchorAuthenticationResponseError(SupabaseStorageAnchorResponseError):
+    """A bounded Supabase Auth response failed structural validation."""
+
+
+class SupabaseStorageAnchorAuthPasswordTokenResponseError(
+    SupabaseStorageAnchorAuthenticationResponseError
+):
+    """The password-token endpoint returned an invalid bounded response."""
+
+
+class SupabaseStorageAnchorAuthPasswordTokenRequestTargetError(
+    SupabaseStorageAnchorAuthPasswordTokenResponseError
+):
+    """The password-token response violated the exact request target."""
+
+
+class SupabaseStorageAnchorAuthPasswordTokenResponseEncodingError(
+    SupabaseStorageAnchorAuthPasswordTokenResponseError
+):
+    """The password-token response used an unsupported encoding."""
+
+
+class SupabaseStorageAnchorAuthPasswordTokenResponseBoundError(
+    SupabaseStorageAnchorAuthPasswordTokenResponseError
+):
+    """The password-token response exceeded its byte bound."""
+
+
+class SupabaseStorageAnchorAuthPasswordTokenResponseEnvelopeError(
+    SupabaseStorageAnchorAuthPasswordTokenResponseError
+):
+    """The password-token response envelope was invalid."""
+
+
+class SupabaseStorageAnchorAuthPasswordTokenSessionSchemaError(
+    SupabaseStorageAnchorAuthPasswordTokenResponseError
+):
+    """The password-token session payload failed schema validation."""
+
+
+class SupabaseStorageAnchorAuthUserVerificationResponseError(
+    SupabaseStorageAnchorAuthenticationResponseError
+):
+    """The Auth user-verification endpoint returned an invalid bounded response."""
+
+
+class SupabaseStorageAnchorBoundedListResponseError(SupabaseStorageAnchorResponseError):
+    """A bounded Supabase Storage list response failed structural validation."""
 
 
 class SupabaseStorageAnchorConflict(SupabaseStorageAnchorError):
@@ -134,6 +198,13 @@ class _Response:
     status_code: int
     media_type: str | None
     body: bytes = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class _ResponseFailureTypes:
+    request_target: type[SupabaseStorageAnchorResponseError]
+    response_encoding: type[SupabaseStorageAnchorResponseError]
+    response_bound: type[SupabaseStorageAnchorResponseError]
 
 
 def _validate_project_url(value: object) -> str:
@@ -302,7 +373,15 @@ class SupabaseStorageTrustedTimeAnchorProvider:
         headers: Mapping[str, str],
         body: bytes | None,
         maximum_response_bytes: int,
+        non_success_body_statuses: frozenset[int],
+        response_error_type: type[SupabaseStorageAnchorResponseError],
+        response_failure_types: _ResponseFailureTypes | None,
     ) -> _Response:
+        failure_types = response_failure_types or _ResponseFailureTypes(
+            request_target=response_error_type,
+            response_encoding=response_error_type,
+            response_bound=response_error_type,
+        )
         url = f"{self._credentials.project_url}{path}"
         timeout = httpx.Timeout(
             connect=self._timeout_seconds,
@@ -325,16 +404,25 @@ class SupabaseStorageTrustedTimeAnchorProvider:
                     content=body,
                 ) as response:
                     if response.request.method != method or str(response.request.url) != url:
-                        raise SupabaseStorageAnchorError(
+                        raise failure_types.request_target(
                             "trusted-time anchor provider changed the fixed request target"
                         )
                     if response.is_redirect:
-                        raise SupabaseStorageAnchorError(
+                        raise failure_types.request_target(
                             "trusted-time anchor provider returned a redirect"
                         )
+                    content_type = response.headers.get("content-type")
+                    media_type = None
+                    if content_type is not None and len(content_type) <= 128:
+                        media_type = content_type.partition(";")[0].strip().lower()
+                    if (
+                        not 200 <= response.status_code <= 299
+                        and response.status_code not in non_success_body_statuses
+                    ):
+                        return _Response(response.status_code, media_type, b"")
                     encoding = response.headers.get("content-encoding")
                     if encoding is not None and encoding.strip().lower() != "identity":
-                        raise SupabaseStorageAnchorError(
+                        raise failure_types.response_encoding(
                             "trusted-time anchor provider response encoding is unsupported"
                         )
                     payload = bytearray()
@@ -342,21 +430,17 @@ class SupabaseStorageTrustedTimeAnchorProvider:
                         chunks = (response.content,)
                         for chunk in chunks:
                             if len(payload) + len(chunk) > maximum_response_bytes:
-                                raise SupabaseStorageAnchorError(
+                                raise failure_types.response_bound(
                                     "trusted-time anchor provider response exceeded its bound"
                                 )
                             payload.extend(chunk)
                     else:
                         async for chunk in response.aiter_raw():
                             if len(payload) + len(chunk) > maximum_response_bytes:
-                                raise SupabaseStorageAnchorError(
+                                raise failure_types.response_bound(
                                     "trusted-time anchor provider response exceeded its bound"
                                 )
                             payload.extend(chunk)
-                    content_type = response.headers.get("content-type")
-                    media_type = None
-                    if content_type is not None and len(content_type) <= 128:
-                        media_type = content_type.partition(";")[0].strip().lower()
                     return _Response(response.status_code, media_type, bytes(payload))
 
     def _request(
@@ -367,6 +451,11 @@ class SupabaseStorageTrustedTimeAnchorProvider:
         headers: Mapping[str, str],
         body: bytes | None,
         maximum_response_bytes: int,
+        non_success_body_statuses: frozenset[int] = frozenset(),
+        response_error_type: type[
+            SupabaseStorageAnchorResponseError
+        ] = SupabaseStorageAnchorResponseError,
+        response_failure_types: _ResponseFailureTypes | None = None,
     ) -> _Response:
         if self._closed:
             raise SupabaseStorageAnchorError("trusted-time anchor provider is closed")
@@ -386,6 +475,9 @@ class SupabaseStorageTrustedTimeAnchorProvider:
                     headers=headers,
                     body=body,
                     maximum_response_bytes=maximum_response_bytes,
+                    non_success_body_statuses=non_success_body_statuses,
+                    response_error_type=response_error_type,
+                    response_failure_types=response_failure_types,
                 )
             )
         except SupabaseStorageAnchorError:
@@ -393,6 +485,15 @@ class SupabaseStorageTrustedTimeAnchorProvider:
         except (TimeoutError, httpx.TimeoutException):
             raise SupabaseStorageAnchorUnavailable(
                 "trusted-time anchor provider request timed out"
+            ) from None
+        except httpx.DecodingError:
+            error_type = (
+                response_error_type
+                if response_failure_types is None
+                else response_failure_types.response_encoding
+            )
+            raise error_type(
+                "trusted-time anchor provider response encoding is unsupported"
             ) from None
         except httpx.TransportError:
             raise SupabaseStorageAnchorUnavailable(
@@ -419,10 +520,28 @@ class SupabaseStorageTrustedTimeAnchorProvider:
             headers["authorization"] = f"Bearer {access_token}"
         return headers
 
-    def _decode_session(self, response: _Response, *, observed_monotonic: float) -> _Session:
-        if response.status_code != 200 or response.media_type != "application/json":
-            raise SupabaseStorageAnchorError("trusted-time anchor authentication failed")
-        payload = _json_object(response.body)
+    def _decode_session(
+        self,
+        response: _Response,
+        *,
+        observed_monotonic: float,
+        envelope_error_type: type[SupabaseStorageAnchorAuthenticationResponseError],
+        schema_error_type: type[SupabaseStorageAnchorAuthenticationResponseError],
+    ) -> _Session:
+        if response.status_code != 200:
+            if 200 <= response.status_code <= 299:
+                raise envelope_error_type("trusted-time anchor authentication response is invalid")
+            raise SupabaseStorageAnchorAuthenticationError(
+                "trusted-time anchor authentication failed"
+            )
+        if response.media_type != "application/json":
+            raise envelope_error_type("trusted-time anchor authentication response is invalid")
+        try:
+            payload = _json_object(response.body)
+        except SupabaseStorageAnchorError:
+            raise envelope_error_type(
+                "trusted-time anchor authentication response is invalid"
+            ) from None
         access_token = payload.get("access_token")
         refresh_token = payload.get("refresh_token")
         expires_in = payload.get("expires_in")
@@ -430,17 +549,28 @@ class SupabaseStorageTrustedTimeAnchorProvider:
         user = payload.get("user")
         if (
             type(access_token) is not str
-            or not 64 <= len(access_token) <= 8_192
+            or not access_token
+            or any(not 33 <= ord(character) <= 126 for character in access_token)
             or type(refresh_token) is not str
-            or not 16 <= len(refresh_token) <= 2_048
+            or not refresh_token
             or type(expires_in) is not int
-            or not 60 <= expires_in <= 86_400
+            or not 1 <= expires_in <= SUPABASE_STORAGE_ANCHOR_MAX_SESSION_EXPIRY_SECONDS
             or token_type != "bearer"
             or type(user) is not dict
-            or user.get("id") != self._credentials.principal_id
         ):
-            raise SupabaseStorageAnchorError(
+            raise schema_error_type("trusted-time anchor authentication response is invalid")
+        user_id = user.get("id")
+        if type(user_id) is not str:
+            raise schema_error_type("trusted-time anchor authentication response is invalid")
+        try:
+            _validate_uuid(user_id)
+        except SupabaseStorageAnchorError:
+            raise schema_error_type(
                 "trusted-time anchor authentication response is invalid"
+            ) from None
+        if user_id != self._credentials.principal_id:
+            raise SupabaseStorageAnchorAuthenticationError(
+                "trusted-time anchor authentication identity conflicts"
             )
         refresh_margin = min(60, max(1, expires_in // 10))
         return _Session(
@@ -456,11 +586,41 @@ class SupabaseStorageTrustedTimeAnchorProvider:
             headers=self._auth_headers(session.access_token),
             body=None,
             maximum_response_bytes=SUPABASE_STORAGE_ANCHOR_MAX_AUTH_RESPONSE_BYTES,
+            response_error_type=SupabaseStorageAnchorAuthUserVerificationResponseError,
         )
-        if response.status_code != 200 or response.media_type != "application/json":
-            raise SupabaseStorageAnchorError("trusted-time anchor Auth user verification failed")
-        if _json_object(response.body).get("id") != self._credentials.principal_id:
-            raise SupabaseStorageAnchorError("trusted-time anchor Auth user identity conflicts")
+        if response.status_code != 200:
+            if 200 <= response.status_code <= 299:
+                raise SupabaseStorageAnchorAuthUserVerificationResponseError(
+                    "trusted-time anchor Auth user verification response is invalid"
+                )
+            raise SupabaseStorageAnchorAuthenticationError(
+                "trusted-time anchor Auth user verification failed"
+            )
+        if response.media_type != "application/json":
+            raise SupabaseStorageAnchorAuthUserVerificationResponseError(
+                "trusted-time anchor Auth user verification response is invalid"
+            )
+        try:
+            payload = _json_object(response.body)
+        except SupabaseStorageAnchorError:
+            raise SupabaseStorageAnchorAuthUserVerificationResponseError(
+                "trusted-time anchor Auth user verification response is invalid"
+            ) from None
+        user_id = payload.get("id")
+        if type(user_id) is not str:
+            raise SupabaseStorageAnchorAuthUserVerificationResponseError(
+                "trusted-time anchor Auth user verification response is invalid"
+            )
+        try:
+            _validate_uuid(user_id)
+        except SupabaseStorageAnchorError:
+            raise SupabaseStorageAnchorAuthUserVerificationResponseError(
+                "trusted-time anchor Auth user verification response is invalid"
+            ) from None
+        if user_id != self._credentials.principal_id:
+            raise SupabaseStorageAnchorAuthenticationError(
+                "trusted-time anchor Auth user identity conflicts"
+            )
 
     def _sign_in(self) -> _Session:
         observed = self._now()
@@ -472,8 +632,19 @@ class SupabaseStorageTrustedTimeAnchorProvider:
                 {"email": self._credentials.email, "password": self._credentials.password}
             ),
             maximum_response_bytes=SUPABASE_STORAGE_ANCHOR_MAX_AUTH_RESPONSE_BYTES,
+            response_error_type=SupabaseStorageAnchorAuthPasswordTokenResponseError,
+            response_failure_types=_ResponseFailureTypes(
+                request_target=SupabaseStorageAnchorAuthPasswordTokenRequestTargetError,
+                response_encoding=SupabaseStorageAnchorAuthPasswordTokenResponseEncodingError,
+                response_bound=SupabaseStorageAnchorAuthPasswordTokenResponseBoundError,
+            ),
         )
-        session = self._decode_session(response, observed_monotonic=observed)
+        session = self._decode_session(
+            response,
+            observed_monotonic=observed,
+            envelope_error_type=SupabaseStorageAnchorAuthPasswordTokenResponseEnvelopeError,
+            schema_error_type=SupabaseStorageAnchorAuthPasswordTokenSessionSchemaError,
+        )
         self._verify_user(session)
         self._session = session
         return session
@@ -486,9 +657,15 @@ class SupabaseStorageTrustedTimeAnchorProvider:
             headers={**self._auth_headers(), "content-type": "application/json"},
             body=_json_bytes({"refresh_token": previous.refresh_token}),
             maximum_response_bytes=SUPABASE_STORAGE_ANCHOR_MAX_AUTH_RESPONSE_BYTES,
+            response_error_type=SupabaseStorageAnchorAuthenticationResponseError,
         )
         try:
-            session = self._decode_session(response, observed_monotonic=observed)
+            session = self._decode_session(
+                response,
+                observed_monotonic=observed,
+                envelope_error_type=SupabaseStorageAnchorAuthenticationResponseError,
+                schema_error_type=SupabaseStorageAnchorAuthenticationResponseError,
+            )
             self._verify_user(session)
         except Exception:
             self._session = None
@@ -644,9 +821,22 @@ class SupabaseStorageTrustedTimeAnchorProvider:
                 }
             ),
             maximum_response_bytes=SUPABASE_STORAGE_ANCHOR_MAX_RESPONSE_BYTES,
+            response_error_type=SupabaseStorageAnchorBoundedListResponseError,
         )
-        if response.status_code != 200 or response.media_type != "application/json":
-            raise SupabaseStorageAnchorError("trusted-time anchor bounded object listing failed")
+        if response.status_code != 200:
+            if 200 <= response.status_code <= 299:
+                raise SupabaseStorageAnchorBoundedListResponseError(
+                    "trusted-time anchor bounded object listing response is invalid"
+                )
+            if response.status_code in {401, 403}:
+                self._session = None
+            raise SupabaseStorageAnchorStorageAccessError(
+                "trusted-time anchor bounded object listing access failed"
+            )
+        if response.media_type != "application/json":
+            raise SupabaseStorageAnchorBoundedListResponseError(
+                "trusted-time anchor bounded object listing response is invalid"
+            )
         try:
             raw_page = json.loads(
                 response.body.decode("utf-8", errors="strict"),
@@ -660,23 +850,23 @@ class SupabaseStorageTrustedTimeAnchorProvider:
             RecursionError,
             ValueError,
         ):
-            raise SupabaseStorageAnchorError(
+            raise SupabaseStorageAnchorBoundedListResponseError(
                 "trusted-time anchor bounded object listing is invalid"
             ) from None
         if type(raw_page) is not list or len(raw_page) > limit:
-            raise SupabaseStorageAnchorError(
+            raise SupabaseStorageAnchorBoundedListResponseError(
                 "trusted-time anchor bounded object listing is invalid"
             )
         names: list[str] = []
         for item in raw_page:
             basename = item.get("name") if type(item) is dict else None
             if type(basename) is not str or _OBJECT_BASENAME.fullmatch(basename) is None:
-                raise SupabaseStorageAnchorError(
+                raise SupabaseStorageAnchorBoundedListResponseError(
                     "trusted-time anchor bounded object listing contains contamination"
                 )
             names.append(f"{prefix}{basename}")
         if len(set(names)) != len(names) or tuple(sorted(names)) != tuple(names):
-            raise SupabaseStorageAnchorError(
+            raise SupabaseStorageAnchorBoundedListResponseError(
                 "trusted-time anchor bounded object listing is duplicated or unordered"
             )
         return tuple(names)
@@ -743,6 +933,7 @@ class SupabaseStorageTrustedTimeAnchorProvider:
             },
             body=payload,
             maximum_response_bytes=SUPABASE_STORAGE_ANCHOR_MAX_AUTH_RESPONSE_BYTES,
+            non_success_body_statuses=_UPLOAD_COLLISION_RESPONSE_STATUSES,
         )
         if response.status_code in {200, 201}:
             return None
@@ -750,7 +941,9 @@ class SupabaseStorageTrustedTimeAnchorProvider:
             raise SupabaseStorageAnchorConflict("trusted-time anchor object already exists")
         if response.status_code in {401, 403}:
             self._session = None
-            raise SupabaseStorageAnchorError("trusted-time anchor Storage authorization failed")
+            raise SupabaseStorageAnchorStorageAccessError(
+                "trusted-time anchor Storage authorization failed"
+            )
         raise SupabaseStorageAnchorError("trusted-time anchor object upload failed")
 
 
@@ -788,10 +981,23 @@ __all__ = [
     "SUPABASE_STORAGE_ANCHOR_ADAPTER_CONTRACT_VERSION",
     "SUPABASE_STORAGE_ANCHOR_LIST_PAGE_SIZE",
     "SUPABASE_STORAGE_ANCHOR_MAX_OBJECTS",
+    "SUPABASE_STORAGE_ANCHOR_MAX_SESSION_EXPIRY_SECONDS",
     "SUPABASE_STORAGE_ANCHOR_TIMEOUT_SECONDS",
+    "SupabaseStorageAnchorAuthPasswordTokenRequestTargetError",
+    "SupabaseStorageAnchorAuthPasswordTokenResponseBoundError",
+    "SupabaseStorageAnchorAuthPasswordTokenResponseEncodingError",
+    "SupabaseStorageAnchorAuthPasswordTokenResponseEnvelopeError",
+    "SupabaseStorageAnchorAuthPasswordTokenResponseError",
+    "SupabaseStorageAnchorAuthPasswordTokenSessionSchemaError",
+    "SupabaseStorageAnchorAuthUserVerificationResponseError",
+    "SupabaseStorageAnchorAuthenticationError",
+    "SupabaseStorageAnchorAuthenticationResponseError",
+    "SupabaseStorageAnchorBoundedListResponseError",
     "SupabaseStorageAnchorConflict",
     "SupabaseStorageAnchorCredentials",
     "SupabaseStorageAnchorError",
+    "SupabaseStorageAnchorResponseError",
+    "SupabaseStorageAnchorStorageAccessError",
     "SupabaseStorageAnchorUnavailable",
     "SupabaseStorageTrustedTimeAnchorProvider",
 ]

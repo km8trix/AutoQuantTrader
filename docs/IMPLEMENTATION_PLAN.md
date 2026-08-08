@@ -2341,18 +2341,32 @@ and
 `a119b19699c4ce97a13c207d47a9c80c796194d71c99ace97489800838d1dabe`
 with the different immutable image pairs recorded in
 [ADR 0094](adr/0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md).
-These three, like every currently retained canonical or content-addressed
-`image-admission*.json` artifact, use a superseded v1 schema, omit the captured
-`git_revision`, and are historical evidence only; the current v2 loader rejects
-them.
+At the 2026-08-07 pre-build review, these three were the retained canonical or
+content-addressed `image-admission*.json` artifacts. They use a superseded v1
+schema, omit the captured `git_revision`, and are historical evidence only; the
+current v2 loader rejects them.
 This permitted drift means neither tuple can approve a later rebuild. The
 following secure launch did not admit and retained no v2 receipt;
 secure-launcher runtime admission is
 `ATTEMPTED_NOT_ADMITTED`, while first external enrollment remains `UNRUN`.
-Do not retry until the approval-binding hardening is merged, new images are
-built from that exact merge, and the owner approves the fresh
-revision/artifact/image tuple. Until those gates are completed and retained,
-there is no deployed authenticated external-head evidence.
+The approval-binding hardening is merged in revision
+`2fcd3cdcf343bf4ef0630b2923190df7556c630d`. Do not retry until new images are
+built from the exact merged revision containing the bounded runtime diagnostic,
+and the owner approves the fresh revision/artifact/image tuple. Until those
+gates are completed and retained, there is no deployed authenticated
+external-head evidence.
+
+On 2026-08-07, the separately owner-approved bounded read-only runtime
+diagnostic V5 returned `diagnostic_passed`. It authenticated the exact runtime
+and anchor-project binding; verified the current database schema, trusted-time
+integrity, and startup snapshot; found zero local anchor intents and receipts;
+and observed the exact remote deployment prefix empty and stable across two
+bounded one-item lists. It reported nine retained epochs, one evaluation in the
+latest epoch, and 112 local transitions. Supabase sign-in may have updated Auth
+session/audit metadata, but the diagnostic made no application-database or
+Storage-object write. Its stdout was operator-observed, not retained as a v2
+image-admission or secure-launch receipt, and every readiness, control,
+exposure, alert, re-arm, paper, and live authority remained false.
 Readiness, operational control, arming, exposure/new exposure,
 broker action, alert delivery, automatic re-arm/resume, paper trading, and live
 trading remain false. See
@@ -2426,10 +2440,12 @@ retained and passed, and the atomic v1-to-v2 policy upgrade is applied and
 postflight-verified. The reviewed, separately approved same-object resume is
 also complete and retained. Fresh parse-only Compose and historical
 immutable-image admissions are retained without granting authority. The
-normative next steps are: merge the approval-binding hardening, build and
-review a new content-addressed image admission from that exact merge, obtain
-fresh tuple approval, complete secure-launcher runtime admission, then
-separately approve and retain first-enrollment evidence. Only then may a sealed
+approval-binding hardening is merged and the bounded V5 runtime diagnostic has
+passed without granting authority. The normative next steps are: build and
+review a new content-addressed image admission from the exact merged revision
+containing this diagnostic change, obtain fresh tuple approval, complete
+secure-launcher runtime admission, then separately approve and retain
+first-enrollment evidence. Only then may a sealed
 provider-terminal observer authenticate the complete new suffix, bind two
 stable namespace passes to their exact digest/count/terminal identity, prove
 that no higher sequence exists, and capture its own independent monotonic
@@ -2462,8 +2478,10 @@ unavailable before any watchdog consumer is designed or qualified. See
   and exact 0036-head/catalog image admission. The pre-admission-hardening
   baseline passed 103 focused tests and the actual Compose verifier; that
   historical result does not cover the later typed-terminal observer or
-  approval-bound v2 receipt path. That hardening has local verification only;
-  its new image admission must be built from the exact merged revision before
+  approval-bound v2 receipt path. The hardening is merged at
+  `2fcd3cdcf343bf4ef0630b2923190df7556c630d`, has local verification, and the
+  bounded V5 runtime diagnostic passed on 2026-08-07. Its new image admission
+  must be built from the exact final merge containing that diagnostic before
   fresh approval or launch. The separate Healthy Free-plan
   project and its Data-API-disabled, exact private primary bucket now have
   retained dashboard evidence. On 2026-08-04, approved provisioning SQL SHA-256
@@ -2497,18 +2515,20 @@ unavailable before any watchdog consumer is designed or qualified. See
   The later drifted artifacts `b78bda0469077672beacbb746d0278db8b4f84dc5aead65d155c61b98ba4d0d7`
   and `a119b19699c4ce97a13c207d47a9c80c796194d71c99ace97489800838d1dabe`
   and their ADR-0094-recorded image pairs are also historical and authorize no
-  retry. These three, like every currently retained canonical or content-
-  addressed `image-admission*.json` artifact, use a superseded v1 schema, omit
-  the captured `git_revision`, and are rejected by the current v2 loader.
+  retry. At the 2026-08-07 pre-build review, these three were the retained
+  content-addressed `image-admission*.json` artifacts. They use a superseded v1
+  schema, omit the captured `git_revision`, and are rejected by the current v2
+  loader.
   Secure-launcher
   runtime admission is `ATTEMPTED_NOT_ADMITTED`; first
   enrollment remains `UNRUN`.
   Enrollment is still
   hard-disabled, unapproved, and unperformed, so external-head deployment
-  evidence remains open. Next, merge the approval-binding hardening, build and
-  review new images on that exact merge, obtain fresh tuple approval, and
-  complete secure-launcher runtime admission. Then separately approve and
-  retain enrollment evidence before adding an independent watchdog, readiness,
+  evidence remains open. Next, build and review new images on the exact merged
+  revision containing the bounded runtime diagnostic, obtain fresh tuple
+  approval, and complete secure-launcher runtime admission. Then separately
+  approve and retain enrollment evidence before adding an independent watchdog,
+  readiness,
   final new-exposure, alert, and exact-head manual re-arm consumers. The local
   evidence composition is non-authorizing and does not satisfy those deployment
   gates. ADR 0095 adds only the dormant
