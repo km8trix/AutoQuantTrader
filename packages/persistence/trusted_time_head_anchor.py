@@ -1016,6 +1016,7 @@ class TrustedTimeHeadAnchorPersistenceSnapshot:
 
     local_transitions: tuple[AuthenticatedTrustedTimeHeadTransition, ...]
     confirmed_anchor_records: tuple[TrustedTimeHeadAnchorRecord, ...]
+    confirmed_anchor_receipt: PersistedTrustedTimeHeadAnchorReceipt | None
     pending_intent: PersistedTrustedTimeHeadAnchorIntent | None
     pending_intent_local_transition_ordinal: int | None
     committed_pending_evidence: CommittedTrustedTimeHeadAnchorIntentEvidence | None
@@ -1045,6 +1046,7 @@ def _new_head_anchor_persistence_snapshot(
     *,
     local_transitions: tuple[AuthenticatedTrustedTimeHeadTransition, ...],
     confirmed_anchor_records: tuple[TrustedTimeHeadAnchorRecord, ...],
+    confirmed_anchor_receipt: PersistedTrustedTimeHeadAnchorReceipt | None,
     pending_intent: PersistedTrustedTimeHeadAnchorIntent | None,
     pending_intent_local_transition_ordinal: int | None,
     authenticated_journal_tip: AuthenticatedTrustedTimeHeadJournalTip,
@@ -1057,6 +1059,21 @@ def _new_head_anchor_persistence_snapshot(
         "confirmed_anchor_records",
         confirmed_anchor_records,
     )
+    if confirmed_anchor_receipt is not None:
+        confirmed_anchor_receipt.__post_init__()
+        if (
+            authenticated_journal_tip.confirmed_anchor_count == 0
+            or confirmed_anchor_receipt.intent.record
+            != authenticated_journal_tip.confirmed_anchor_tip
+        ):
+            raise TrustedTimeHeadAnchorPersistenceConflict(
+                "trusted-time anchor snapshot receipt conflicts with its confirmed tip"
+            )
+    elif authenticated_journal_tip.confirmed_anchor_count != 0:
+        raise TrustedTimeHeadAnchorPersistenceConflict(
+            "trusted-time anchor snapshot confirmed receipt is absent"
+        )
+    object.__setattr__(snapshot, "confirmed_anchor_receipt", confirmed_anchor_receipt)
     object.__setattr__(snapshot, "pending_intent", pending_intent)
     object.__setattr__(
         snapshot,
@@ -2019,6 +2036,7 @@ class SqlTrustedTimeHeadAnchorRepository:
         snapshot = _new_head_anchor_persistence_snapshot(
             local_transitions=local_transitions,
             confirmed_anchor_records=confirmed_anchor_records,
+            confirmed_anchor_receipt=terminal_receipt,
             pending_intent=pending,
             pending_intent_local_transition_ordinal=(
                 None if pending is None else terminal_intent_local_transition_ordinal

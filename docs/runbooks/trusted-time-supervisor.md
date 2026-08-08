@@ -8,6 +8,10 @@ and its completed System76 authority rotation in
 implemented but not yet externally enrolled sparse-head checkpoint boundary is
 defined by
 [ADR 0094](../adr/0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md).
+The dedicated approval-bound sequence-1 operator is defined by
+[ADR 0097](../adr/0097-approval-bound-first-trusted-time-enrollment.md); its
+implementation is dormant and `UNRUN`, and it does not change the normal
+supervisor's enrollment deny boundary.
 The dormant pure watchdog-state transition is defined by
 [ADR 0095](../adr/0095-dormant-provider-neutral-trusted-head-watchdog-state.md);
 it is not deployed and changes no procedure in this runbook.
@@ -226,8 +230,10 @@ provider response, and every unclassified failure as fatal.
 Production composition currently passes `allow_enrollment=False`; there is no
 environment toggle that can weaken it. Sequence 1 requires reason
 `enrollment`, a complete audit, separately reviewed runtime enablement, and
-explicit owner approval. Do not use epoch rotation, a manual database insert,
-an object upload, or a policy change to bypass that gate.
+explicit owner approval. The separate one-shot operator described below does
+not alter this normal-runtime setting and has not been run. Do not use epoch
+rotation, a manual database insert, an object upload, or a policy change to
+bypass that gate.
 
 Even after enrollment, this is separate-project evidence on the same provider
 and potentially under the same administrator. Supabase Storage is not WORM,
@@ -269,16 +275,20 @@ is now:
    applied exact-catalog v1-to-v2 upgrade evidence, plus the passing same-object
    no-insert behavioral-proof evidence;
 2. create and review a new secretless content-addressed image admission from
-   the exact merged revision containing the approval-binding hardening and
-   bounded runtime diagnostic, obtain fresh approval for its
-   revision/artifact/image tuple, then complete and retain local secure-launcher
-   runtime admission without rebuilding;
-3. separately obtain approval for and retain the first enrollment evidence;
-4. only then implement a sealed provider-terminal issuer that authenticates a
+   the exact merged revision containing the dormant first-enrollment operator,
+   obtain fresh approval for its revision/artifact/image tuple, then complete
+   and retain a fresh local fail-closed unenrolled admission without rebuilding;
+3. separately approve one exact single-use `new` operation and retain its
+   claim and confirmed first-enrollment outcome; if that attempt becomes
+   ambiguous, stop and request a different `recover_pending` approval rather
+   than rerunning it;
+4. separately implement and review an exact-claim-and-outcome-bound normal
+   start change before allowing the worker to recover or create sequence 2;
+5. only then implement a sealed provider-terminal issuer that authenticates a
    complete new suffix, binds two stable namespace passes to their exact
    digest/count/terminal identity, proves no higher sequence exists, and
    captures its own independent monotonic instant; and
-5. only after that issuer is reviewed may a separate runtime apply the
+6. only after that issuer is reviewed may a separate runtime apply the
    360-second stale threshold, with equality stale and every stale result
    unavailable, and qualify later consumers.
 
@@ -542,14 +552,14 @@ approve enrollment.
 7. **In progress.** Preserve the passing parse-only Compose and historical
    immutable-image evidence described below. Do not reuse either drifted tuple.
    Build and review a new secretless content-addressed admission from the exact
-   merged revision containing the approval-binding hardening and bounded runtime
-   diagnostic, obtain fresh tuple approval, then use the no-build admission
-   launcher to stage, admit, and retire the exact database, authority, Auth, and
-   signing-key mounts without exposing their contents. Confirm the production
-   composition still fixes
-   `allow_enrollment=False` with no environment override, then stop and request
-   separate owner approval for any reviewed one-time enrollment enablement and
-   operation.
+   merged revision containing the first-enrollment operator, obtain fresh tuple
+   approval, then use the no-build admission launcher to stage, admit, and retire
+   the exact database, authority, Auth, and signing-key mounts without exposing
+   their contents. Retain its fresh canonical unenrolled receipt and confirm the
+   production supervisor still fixes `allow_enrollment=False` with no
+   environment override. Then stop and request a separate exact single-use
+   approval for the dormant `new` operation. A pending-intent recovery is a
+   different later approval, never an automatic retry.
 
 Administrator/provider access can bypass these writer policies. Record that
 the result is same-provider and potentially same-admin evidence, not WORM or
@@ -768,6 +778,18 @@ authority/secrets are absent or the remote prefix is unenrolled. Do not run
 `make trusted-time-start` as a provisioning experiment and do not weaken that
 behavior to repeat the earlier source-only window.
 
+Before the one-shot release, unenrolled admission is used only to produce the
+exact pre-mutation receipt described below. After any first-enrollment claim is
+retained, both this admission mode and normal start are quarantined and must
+reject; they are not inspection or recovery paths.
+
+Persistent start is also unconditionally closed in the current implementation,
+even when no retained claim can be found. `make trusted-time-start` rejects
+before the launcher lock, claim scan, Git checks, Docker access, or owner launch-
+environment access. Claim quarantine is an additional admission/future-start
+fence, not the sole persistent-start control, so deleting or losing a local
+claim cannot make persistent supervision eligible.
+
 Image preparation and admission launch are deliberately separate. Run
 `make trusted-time-images` secretlessly on the clean exact merged revision
 before requesting approval. Review its content-addressed artifact, exact
@@ -896,28 +918,254 @@ with exit 2. Preserve the exact admitted receipt
 and its file SHA-256 only after a zero exit. This command proves no enrollment;
 stop and request separate owner approval before any first-enrollment change.
 
-After retained separate-project provisioning evidence and a separately
-approved, reviewed first enrollment, the normal post-enrollment start is:
+### Dormant first-enrollment and recovery operator
+
+The dedicated first-enrollment implementation exists but has not been run.
+Enrollment status remains `UNRUN`; this section is a review checklist, not an
+approval or an instruction to reuse the current historical images or receipts.
+After the implementation merges, first build new images from that exact clean
+merged revision, retain and review their new content-addressed image admission,
+and obtain a fresh successful fail-closed unenrolled admission receipt named
+`trusted-time-unenrolled-launch-admission-<sha256>.json` for that same tuple.
+Every earlier image tuple and unenrolled receipt is ineligible for the
+post-merge operator tuple.
+
+The launcher is
+[`scripts/enroll_trusted_time_head_anchor.py`](../../scripts/enroll_trusted_time_head_anchor.py).
+Its distinct Make entry points are `trusted-time-enroll-first` for an exact
+empty history and `trusted-time-recover-first-enrollment` for a separately
+approved pending sequence-1 intent or ambiguous prior completion. Never use
+the recovery target as an automatic retry, and never use the new-enrollment
+target after an intent may have committed. The normal
+`trusted-time-start` target remains hard-wired to
+`allow_enrollment=False` and cannot replace either operation.
+
+Before either target may be released, one fresh approval record must bind:
+
+- one operation UUIDv4 and exactly one mode, `new` or `recover_pending`;
+- the exact merged Git revision, image-admission artifact SHA-256, immutable
+  source image ID, and immutable supervisor image ID;
+- for `new`, the SHA-256 of the fresh canonical unenrolled admission receipt
+  for that exact post-merge tuple; for `recover_pending`, the SHA-256 of the
+  original receipt, the prior `new` operation UUIDv4, and the exact SHA-256 of
+  that operation's retained canonical claim; and
+- the exact anchor-authority, deployment-identity,
+  runtime-database-identity, anchor-project-identity, source-authority,
+  signing-public-key, host-identity, principal-identity, and bucket-identity
+  SHA-256 values.
+
+Do not put raw host, project, principal, or bucket values, credentials, secret
+paths, or secret digests in the approval, claim, outcome, command output, or
+shell history. The host/principal/bucket approval fields use the operator's
+domain-separated identity digests. Preserve the separate human approval record;
+value-shape checks do not prove who approved the operation.
+
+Do not run either target now. Only after the post-merge image/admission gates
+above and a later fresh exact `new` approval are retained, populate every value
+from that one approval record:
 
 ```console
-make trusted-time-start \
+make trusted-time-enroll-first \
   TRUSTED_TIME_LAUNCH_ENV_FILE=/absolute/path/to/trusted-time-launch.env \
+  TRUSTED_TIME_FIRST_ENROLLMENT_OPERATION_ID="$APPROVED_OPERATION_ID" \
   TRUSTED_TIME_APPROVED_GIT_REVISION="$APPROVED_GIT_REVISION" \
   TRUSTED_TIME_APPROVED_IMAGE_ADMISSION_SHA256="$APPROVED_IMAGE_ADMISSION_SHA256" \
   TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID="$APPROVED_SOURCE_IMAGE_ID" \
-  TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID="$APPROVED_SUPERVISOR_IMAGE_ID"
+  TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID="$APPROVED_SUPERVISOR_IMAGE_ID" \
+  TRUSTED_TIME_APPROVED_UNENROLLED_ADMISSION_SHA256="$APPROVED_UNENROLLED_ADMISSION_SHA256" \
+  TRUSTED_TIME_APPROVED_ANCHOR_AUTHORITY_SHA256="$APPROVED_ANCHOR_AUTHORITY_SHA256" \
+  TRUSTED_TIME_APPROVED_DEPLOYMENT_IDENTITY_SHA256="$APPROVED_DEPLOYMENT_IDENTITY_SHA256" \
+  TRUSTED_TIME_APPROVED_RUNTIME_DATABASE_IDENTITY_SHA256="$APPROVED_RUNTIME_DATABASE_IDENTITY_SHA256" \
+  TRUSTED_TIME_APPROVED_ANCHOR_PROJECT_IDENTITY_SHA256="$APPROVED_ANCHOR_PROJECT_IDENTITY_SHA256" \
+  TRUSTED_TIME_APPROVED_SOURCE_AUTHORITY_SHA256="$APPROVED_SOURCE_AUTHORITY_SHA256" \
+  TRUSTED_TIME_APPROVED_SIGNING_PUBLIC_KEY_SHA256="$APPROVED_SIGNING_PUBLIC_KEY_SHA256" \
+  TRUSTED_TIME_APPROVED_HOST_IDENTITY_SHA256="$APPROVED_HOST_IDENTITY_SHA256" \
+  TRUSTED_TIME_APPROVED_PRINCIPAL_IDENTITY_SHA256="$APPROVED_PRINCIPAL_IDENTITY_SHA256" \
+  TRUSTED_TIME_APPROVED_BUCKET_IDENTITY_SHA256="$APPROVED_BUCKET_IDENTITY_SHA256"
 ```
 
-The persistent path requires the same exact revision/artifact/image tuple and
-never rebuilds. The first enrollment needs its own reviewed enablement because
-production is hard-wired to deny it; the normal command above cannot create
-sequence 1.
+The launcher rejects every omitted or malformed approval value. For a later
+ambiguous completion, do not edit or rerun that command: obtain a distinct
+`recover_pending` approval with a new UUIDv4 and invoke
+`make trusted-time-recover-first-enrollment` with the complete newly approved
+variable set. In addition to the common fields above, that exact recovery
+approval must provide:
+
+```console
+TRUSTED_TIME_PRIOR_NEW_OPERATION_ID="$APPROVED_PRIOR_NEW_OPERATION_ID"
+TRUSTED_TIME_PRIOR_NEW_CLAIM_SHA256="$APPROVED_PRIOR_NEW_CLAIM_SHA256"
+```
+
+Pass both variables to `make trusted-time-recover-first-enrollment`; the target
+rejects either omission and alone adds the fixed `--recover-pending` mode.
+
+Recovery loads the original pre-mutation receipt and the exact owner-only prior
+`new` claim named by the approved prior operation UUIDv4. It verifies the
+claim's content hash, canonical bytes, embedded approval hash, `new` mode,
+receipt SHA, Git revision, immutable image IDs, and every authority/identity
+digest. It also requires the original image-admission SHA in the claim to match
+the receipt. If image admission needs a fresh current reissue, only the current
+image-admission SHA may differ. A different revision, image ID, receipt, or
+identity digest is not a recoverable tuple; stop for a separately reviewed
+recovery or generation-handoff design. “Reissued admission” here means the
+current image-admission artifact, not a second fail-closed unenrolled admission
+run; `trusted-time-admit-unenrolled` remains quarantined.
+
+For that narrowly scoped recovery preparation, the secretless
+`trusted-time-readmit-images` target verifies the exact already-installed image
+pair and writes a fresh current image admission without rebuilding either
+image:
+
+```console
+make trusted-time-readmit-images \
+  TRUSTED_TIME_EXISTING_SOURCE_IMAGE_ID="$ORIGINAL_SOURCE_IMAGE_ID" \
+  TRUSTED_TIME_EXISTING_SUPERVISOR_IMAGE_ID="$ORIGINAL_SUPERVISOR_IMAGE_ID"
+```
+
+Run it only from the exact clean Git revision bound by the original receipt and
+claim. Review its new content-addressed admission SHA-256 and bind that SHA in
+the separate recovery approval while retaining the original unenrolled receipt
+SHA. The target performs image verification/admission only; it creates no
+Compose topology and is not unenrolled runtime admission or recovery itself.
+
+The approval projection uses
+`phase6d-first-enrollment-exact-operation-approval-v2`. The pre-release
+single-use claim uses `phase6d-first-enrollment-single-use-claim-v2` and exact
+name `trusted-time-first-enrollment-claim-<operation-uuidv4>.json`. The
+post-release content-addressed outcome uses
+`phase6d-first-enrollment-host-outcome-v1` and exact name
+`trusted-time-first-enrollment-outcome-<sha256>.json`. Both are owner-only mode
+`0600` below the ignored `artifacts/trusted-time` directory. Never remove a
+claim to make an approval reusable.
+
+Any retained first-enrollment claim quarantines the normal launcher. From that
+point, both `make trusted-time-start` and
+`make trusted-time-admit-unenrolled` reject before creating topology, even when
+the one-shot outcome is confirmed. This prevents the normal worker from
+recovering the pending sequence-1 intent or creating a periodic, transition,
+or clean-stop successor after an ambiguous or confirmed operation. Only the
+dedicated `trusted-time-recover-first-enrollment` target is implemented after a
+claim, and only under its separate exact approval.
+
+The launcher takes the global trusted-time launcher lock shared by normal
+start, unenrolled admission, enrollment, and recovery before it creates
+topology, and holds it through outcome retention. Those host launchers cannot
+overlap. It starts only the profile-gated `trusted-time-first-enrollment`
+one-shot service from the approved supervisor image. This service has no
+Chrony dependency or exposed port and does not run the normal background
+worker. It loads the exact four inputs and writes their nonsecret consumption
+marker, but it performs no database or provider work until the launcher
+retires and revalidates those staged inputs, repeats the exact
+revision/admission/daemon/image/container/topology/mount and identity gates,
+and writes one exclusive release marker.
+
+Under that lock and before opening the owner launch environment, the launcher
+performs bounded crash cleanup. With no project containers it issues exact
+profile teardown, proves the project/network absent and both named volume
+identities unchanged, then removes only recognized staged-input directory/file
+shapes without opening or reading their contents. With one stranded one-shot it
+requires the exact container ID, admitted supervisor image, first-enrollment
+service and command, approved security/lifecycle state, and exactly four read-
+only staged sources, accepting either Docker's structured `Mounts` form or its
+equivalent legacy `Binds` strings. It re-inspects that exact identity, never
+executes the release command, tears down the project, proves volume preservation,
+and removes only those exact sources. More than one container, any unknown
+orphan entry, or any identity, mount, target, or path drift fails closed. A
+`new` operation may clean only pre-claim residue: any retained claim blocks it
+before Docker inspection or teardown. `recover_pending` remains bound to its
+exact prior `new` claim.
+
+Immediately before that irreversible release, the launcher must retain the
+owner-only immutable single-use claim and reserve sufficient monotonic
+image-admission lifetime. An existing claim rejects replay. The claim is never
+removed, including on a crash or failed operation; a new attempt therefore
+needs a new operation UUIDv4 and fresh exact approval. Admission expiry or any
+binding mismatch before release must leave SQL and Storage untouched. After
+release, the outcome records separate gates: `final_approval_state_validated`
+rechecks the immutable approval bindings, receipt, images, and daemon identity
+without applying the TTL, while `final_image_admission_fresh` observes current
+monotonic freshness. Expiry makes the latter false and prevents confirmation,
+but it cannot suppress outcome retention or erase evidence about a possibly
+completed operation.
+
+The `new` mode requires authenticated empty SQL and remote histories. It
+rejects a pending intent as `first_enrollment_recovery_required` and a confirmed
+receipt as `first_enrollment_already_completed`. The `recover_pending` mode may
+only reconcile the exact authenticated sequence-1 pending intent, or reobserve
+its already-confirmed sequence-1 receipt after an ambiguous completion. It
+cannot sign a replacement or successor.
+
+Once the sequence-1 intent commit begins, treat every ambiguous result as
+`first_enrollment_recovery_required`. If sequence 1 and its receipt may be
+durable but final SQL/remote postconditions, cleanup, or observation cannot be
+confirmed, retain
+`first_enrollment_completed_postconditions_unconfirmed` and treat enrollment
+as possibly complete. Do not retry `new`, delete an object, delete or edit an
+intent/receipt, or attempt to restore an empty namespace. Before the commit
+boundary, only a positively classified provider outage may report
+`provider_unavailable_before_commit`; configuration, precondition, and unknown
+failures retain their narrower fatal classifications.
+
+Host-layer pre-release failures are distinct. A reused operation UUIDv4 is
+`approval_already_consumed`, and a typed gate rejection is
+`first_enrollment_launch_configuration_rejected`; neither permits a release or
+reuse of that UUIDv4. `first_enrollment_outcome_retention_unconfirmed` is a
+host fallback rather than a runtime terminal reason. After release it means a
+mutation may have occurred but the canonical outcome could not be confirmed
+durable. Exit 2, preserve the immutable claim and all SQL/remote evidence, and
+perform manual review; do not infer an empty history.
+If global launcher-lock release is unconfirmed after an outcome is retained,
+the sanitized host fallback is
+`first_enrollment_launch_lock_release_unconfirmed`; it exits 2 and never
+reports operational success, even if the retained outcome is confirmed. It
+does not remove, rewrite, or downgrade that retained outcome; inspect the
+retained outcome plus SQL/remote evidence before any recovery decision.
+
+Only `first_enrollment_confirmed` is success. It must prove reason
+`enrollment`, sequence 1, exactly one durable intent and receipt, one stable
+authenticated remote object and no sequence 2, the exact approved identity
+digests, a bounded full remote namespace digest, and all authority flags false.
+The service exits immediately after that proof. It never prepares a periodic,
+transition, or `clean_stop` successor.
+
+After release, the host must attempt to retain an owner-only immutable outcome
+for success and every failure or ambiguous result, including missing/malformed
+terminal output, post-release admission expiry, immutable-binding final-gate
+failure, cleanup failure, or teardown failure. It then removes the exact
+one-shot container and Compose project network, proves no project container
+remains, and preserves the captured named-volume identities; never use
+`down --volumes`. Teardown remains nonzero in the retained outcome. If outcome
+retention itself is unconfirmed, use the fixed fallback above; the operation
+cannot qualify as successful. Canonical stdout is emitted only after outcome
+retention; an output failure exits 2 and does not unlink the retained file.
+
+No enrollment operation is authorized now. Request a new exact approval only
+after the post-merge image build, fresh image review, and fresh unenrolled
+admission are all retained. A recovery request is a later, separate approval
+made only after inspecting the retained claim, outcome, SQL state, and remote
+state from the uncertain attempt.
+
+No normal post-enrollment start is implemented. A retained claim blocks
+`trusted-time-start` even after a canonical confirmed outcome, so do not invoke
+the normal target after either one-shot mode. Reopening persistent supervision
+requires a later separately reviewed change that binds the exact retained
+claim and confirmed outcome, reauthenticates the resulting sequence-1 state,
+and explicitly defines when the normal worker may create a successor. Until
+that outcome-bound start contract is implemented and separately approved,
+normal recovery, sequence 2, periodic/transition checkpoints, and anchor
+`clean_stop` remain prohibited.
+
+The hard closure is unconditional in this phase: persistent start is rejected
+even before claim lookup. The retained-claim check remains defense in depth,
+not a recoverable switch, and local artifact deletion cannot reopen the gate.
 
 ### Requirements after the start gate is reopened
 
-The following source/probe checks become current only after retained Phase 6D
-provisioning and enrollment evidence reopens the start gate. They also describe
-the already retained historical Phase 6C windows.
+The following source/probe checks become current only after the future exact-
+outcome-bound start change separately reopens the start gate. Retained Phase 6D
+provisioning and a confirmed first-enrollment outcome are necessary but no
+longer sufficient. These checks also describe the already retained historical
+Phase 6C windows.
 
 Keep the terminal and Docker runtime directly observed. The Chrony healthcheck
 only proves that its local command socket responds; it is not NTS/source
@@ -1214,11 +1462,14 @@ composed by this profile.
 No approval-bound frozen persistent-shutdown path is implemented yet.
 `make trusted-time-stop` intentionally exits 2 and must not be replaced with a
 live-checkout Compose command. Unenrolled admission mode performs and verifies
-its own container/network teardown. Before the persistent-start gate is
-reopened, implement and separately review a graceful shutdown that uses the
-approved HEAD Compose bytes and tuple, requests the supervisor stop first,
-waits for its bounded clean-stop result, then stops the source and verifies
-topology removal without deleting named volumes.
+its own container/network teardown. The dormant one-shot enrollment launcher
+likewise owns teardown and durable outcome retention for its profile-only
+container; it has not been run and cannot substitute for persistent shutdown.
+Before the persistent-start gate is reopened, implement and separately review
+a graceful shutdown that uses the approved HEAD Compose bytes and tuple,
+requests the supervisor stop first, waits for its bounded clean-stop result,
+then stops the source and verifies topology removal without deleting named
+volumes.
 
 The following read-only command may confirm that no project container remains
 after launcher-managed admission teardown:
@@ -1251,8 +1502,9 @@ probe timing and persistence evidence, injected source/deadline/process-failure
 results, the inspector's canonical qualified or not-qualified artifact, and
 the clean-stop result. For a future enrolled anchor, additionally retain the
 sanitized project/bucket/policy/principal admission, nonsecret authority and
-public-key digests, full startup/on-demand audit result, exact current
-intent/receipt/object digests, staleness state, and confirmed anchor clean stop.
+public-key digests, exact first-enrollment approval and immutable claim/outcome,
+full startup/on-demand audit result, exact current intent/receipt/object digests,
+staleness state, and confirmed anchor clean stop.
 Mark Docker build, live source qualification, migration application, anchor
 provisioning/enrollment, or drills `UNRUN` unless the corresponding retained
 evidence exists.

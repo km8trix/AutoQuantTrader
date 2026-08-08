@@ -16,7 +16,8 @@ TRUSTED_TIME_UNENROLLED_ADMISSION_ARTIFACT_DIR ?= $(CURDIR)/artifacts/trusted-ti
 	sharadar-sfp-capture tiingo-eod-profile-inspect tiingo-eod-capture tiingo-eod-verify \
 	tiingo-eod-lineage tiingo-eod-fields-qualify tiingo-eod-identity-qualify \
 	tiingo-eod-semantics-qualify no-exposure-smoke-verify trusted-time-compose-check \
-	trusted-time-images trusted-time-start trusted-time-admit-unenrolled \
+	trusted-time-images trusted-time-readmit-images trusted-time-start trusted-time-admit-unenrolled \
+	trusted-time-enroll-first trusted-time-recover-first-enrollment \
 	trusted-time-runtime-diagnostic trusted-time-inspect trusted-time-stop
 
 help: ## List developer commands.
@@ -192,6 +193,15 @@ trusted-time-images: ## Build and admit the local Chrony/source supervisor image
 		scripts/verify_trusted_time_images.py --build \
 		--artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)"
 
+trusted-time-readmit-images: ## Freshly admit an exact existing immutable image pair without rebuilding.
+	@test -n "$(TRUSTED_TIME_EXISTING_SOURCE_IMAGE_ID)" || (echo "TRUSTED_TIME_EXISTING_SOURCE_IMAGE_ID is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_EXISTING_SUPERVISOR_IMAGE_ID)" || (echo "TRUSTED_TIME_EXISTING_SUPERVISOR_IMAGE_ID is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
+		scripts/verify_trusted_time_images.py --admit-existing \
+		--artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)" \
+		"$(TRUSTED_TIME_EXISTING_SOURCE_IMAGE_ID)" \
+		"$(TRUSTED_TIME_EXISTING_SUPERVISOR_IMAGE_ID)"
+
 trusted-time-start: ## Start approved trusted-time images with an exact-four launch env.
 	@test -n "$(TRUSTED_TIME_LAUNCH_ENV_FILE)" || (echo "TRUSTED_TIME_LAUNCH_ENV_FILE=path/to/dedicated-owner-only.env is required" >&2; exit 2)
 	@test -n "$(TRUSTED_TIME_APPROVED_GIT_REVISION)" || (echo "TRUSTED_TIME_APPROVED_GIT_REVISION is required" >&2; exit 2)
@@ -223,6 +233,87 @@ trusted-time-admit-unenrolled: ## Observe an approved fail-closed startup expect
 		--approved-source-image-id "$(TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID)" \
 		--approved-supervisor-image-id "$(TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID)" \
 		--expect-unenrolled-fail-closed
+
+trusted-time-enroll-first: ## Consume one exact approval for a fresh sequence-one enrollment.
+	@test -n "$(TRUSTED_TIME_LAUNCH_ENV_FILE)" || (echo "TRUSTED_TIME_LAUNCH_ENV_FILE=path/to/dedicated-owner-only.env is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_FIRST_ENROLLMENT_OPERATION_ID)" || (echo "TRUSTED_TIME_FIRST_ENROLLMENT_OPERATION_ID is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_GIT_REVISION)" || (echo "TRUSTED_TIME_APPROVED_GIT_REVISION is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_IMAGE_ADMISSION_SHA256)" || (echo "TRUSTED_TIME_APPROVED_IMAGE_ADMISSION_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID)" || (echo "TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID)" || (echo "TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_UNENROLLED_ADMISSION_SHA256)" || (echo "TRUSTED_TIME_APPROVED_UNENROLLED_ADMISSION_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_ANCHOR_AUTHORITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_ANCHOR_AUTHORITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_DEPLOYMENT_IDENTITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_DEPLOYMENT_IDENTITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_RUNTIME_DATABASE_IDENTITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_RUNTIME_DATABASE_IDENTITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_ANCHOR_PROJECT_IDENTITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_ANCHOR_PROJECT_IDENTITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_SOURCE_AUTHORITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_SOURCE_AUTHORITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_SIGNING_PUBLIC_KEY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_SIGNING_PUBLIC_KEY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_HOST_IDENTITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_HOST_IDENTITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_PRINCIPAL_IDENTITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_PRINCIPAL_IDENTITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_BUCKET_IDENTITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_BUCKET_IDENTITY_SHA256 is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
+		scripts/enroll_trusted_time_head_anchor.py \
+		--env-file "$(TRUSTED_TIME_LAUNCH_ENV_FILE)" \
+		--image-admission-artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)" \
+		--artifact-dir "$(TRUSTED_TIME_UNENROLLED_ADMISSION_ARTIFACT_DIR)" \
+		--operation-id "$(TRUSTED_TIME_FIRST_ENROLLMENT_OPERATION_ID)" \
+		--approved-git-revision "$(TRUSTED_TIME_APPROVED_GIT_REVISION)" \
+		--approved-image-admission-sha256 "$(TRUSTED_TIME_APPROVED_IMAGE_ADMISSION_SHA256)" \
+		--approved-source-image-id "$(TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID)" \
+		--approved-supervisor-image-id "$(TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID)" \
+		--unenrolled-admission-sha256 "$(TRUSTED_TIME_APPROVED_UNENROLLED_ADMISSION_SHA256)" \
+		--anchor-authority-sha256 "$(TRUSTED_TIME_APPROVED_ANCHOR_AUTHORITY_SHA256)" \
+		--deployment-identity-sha256 "$(TRUSTED_TIME_APPROVED_DEPLOYMENT_IDENTITY_SHA256)" \
+		--runtime-database-identity-sha256 "$(TRUSTED_TIME_APPROVED_RUNTIME_DATABASE_IDENTITY_SHA256)" \
+		--anchor-project-identity-sha256 "$(TRUSTED_TIME_APPROVED_ANCHOR_PROJECT_IDENTITY_SHA256)" \
+		--source-authority-sha256 "$(TRUSTED_TIME_APPROVED_SOURCE_AUTHORITY_SHA256)" \
+		--signing-public-key-sha256 "$(TRUSTED_TIME_APPROVED_SIGNING_PUBLIC_KEY_SHA256)" \
+		--host-identity-sha256 "$(TRUSTED_TIME_APPROVED_HOST_IDENTITY_SHA256)" \
+		--principal-identity-sha256 "$(TRUSTED_TIME_APPROVED_PRINCIPAL_IDENTITY_SHA256)" \
+		--bucket-identity-sha256 "$(TRUSTED_TIME_APPROVED_BUCKET_IDENTITY_SHA256)"
+
+trusted-time-recover-first-enrollment: ## Consume a separate approval for sequence-one recovery.
+	@test -n "$(TRUSTED_TIME_LAUNCH_ENV_FILE)" || (echo "TRUSTED_TIME_LAUNCH_ENV_FILE=path/to/dedicated-owner-only.env is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_FIRST_ENROLLMENT_OPERATION_ID)" || (echo "TRUSTED_TIME_FIRST_ENROLLMENT_OPERATION_ID is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_PRIOR_NEW_OPERATION_ID)" || (echo "TRUSTED_TIME_PRIOR_NEW_OPERATION_ID is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_PRIOR_NEW_CLAIM_SHA256)" || (echo "TRUSTED_TIME_PRIOR_NEW_CLAIM_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_GIT_REVISION)" || (echo "TRUSTED_TIME_APPROVED_GIT_REVISION is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_IMAGE_ADMISSION_SHA256)" || (echo "TRUSTED_TIME_APPROVED_IMAGE_ADMISSION_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID)" || (echo "TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID)" || (echo "TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_UNENROLLED_ADMISSION_SHA256)" || (echo "TRUSTED_TIME_APPROVED_UNENROLLED_ADMISSION_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_ANCHOR_AUTHORITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_ANCHOR_AUTHORITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_DEPLOYMENT_IDENTITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_DEPLOYMENT_IDENTITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_RUNTIME_DATABASE_IDENTITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_RUNTIME_DATABASE_IDENTITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_ANCHOR_PROJECT_IDENTITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_ANCHOR_PROJECT_IDENTITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_SOURCE_AUTHORITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_SOURCE_AUTHORITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_SIGNING_PUBLIC_KEY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_SIGNING_PUBLIC_KEY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_HOST_IDENTITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_HOST_IDENTITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_PRINCIPAL_IDENTITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_PRINCIPAL_IDENTITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_APPROVED_BUCKET_IDENTITY_SHA256)" || (echo "TRUSTED_TIME_APPROVED_BUCKET_IDENTITY_SHA256 is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
+		scripts/enroll_trusted_time_head_anchor.py \
+		--env-file "$(TRUSTED_TIME_LAUNCH_ENV_FILE)" \
+		--image-admission-artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)" \
+		--artifact-dir "$(TRUSTED_TIME_UNENROLLED_ADMISSION_ARTIFACT_DIR)" \
+		--operation-id "$(TRUSTED_TIME_FIRST_ENROLLMENT_OPERATION_ID)" \
+		--prior-new-operation-id "$(TRUSTED_TIME_PRIOR_NEW_OPERATION_ID)" \
+		--prior-new-claim-sha256 "$(TRUSTED_TIME_PRIOR_NEW_CLAIM_SHA256)" \
+		--approved-git-revision "$(TRUSTED_TIME_APPROVED_GIT_REVISION)" \
+		--approved-image-admission-sha256 "$(TRUSTED_TIME_APPROVED_IMAGE_ADMISSION_SHA256)" \
+		--approved-source-image-id "$(TRUSTED_TIME_APPROVED_SOURCE_IMAGE_ID)" \
+		--approved-supervisor-image-id "$(TRUSTED_TIME_APPROVED_SUPERVISOR_IMAGE_ID)" \
+		--unenrolled-admission-sha256 "$(TRUSTED_TIME_APPROVED_UNENROLLED_ADMISSION_SHA256)" \
+		--anchor-authority-sha256 "$(TRUSTED_TIME_APPROVED_ANCHOR_AUTHORITY_SHA256)" \
+		--deployment-identity-sha256 "$(TRUSTED_TIME_APPROVED_DEPLOYMENT_IDENTITY_SHA256)" \
+		--runtime-database-identity-sha256 "$(TRUSTED_TIME_APPROVED_RUNTIME_DATABASE_IDENTITY_SHA256)" \
+		--anchor-project-identity-sha256 "$(TRUSTED_TIME_APPROVED_ANCHOR_PROJECT_IDENTITY_SHA256)" \
+		--source-authority-sha256 "$(TRUSTED_TIME_APPROVED_SOURCE_AUTHORITY_SHA256)" \
+		--signing-public-key-sha256 "$(TRUSTED_TIME_APPROVED_SIGNING_PUBLIC_KEY_SHA256)" \
+		--host-identity-sha256 "$(TRUSTED_TIME_APPROVED_HOST_IDENTITY_SHA256)" \
+		--principal-identity-sha256 "$(TRUSTED_TIME_APPROVED_PRINCIPAL_IDENTITY_SHA256)" \
+		--bucket-identity-sha256 "$(TRUSTED_TIME_APPROVED_BUCKET_IDENTITY_SHA256)" \
+		--recover-pending
 
 trusted-time-runtime-diagnostic: ## Run the bounded read-only trusted-time runtime diagnostic.
 	@test -n "$(TRUSTED_TIME_LAUNCH_ENV_FILE)" || (echo "TRUSTED_TIME_LAUNCH_ENV_FILE=path/to/dedicated-owner-only.env is required" >&2; exit 2)

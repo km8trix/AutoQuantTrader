@@ -58,6 +58,7 @@ from scripts.verify_trusted_time_images import (
     validate_source_inspection,
     validate_static_chronyc,
     validate_supervisor_inspection,
+    verify_and_write_existing_image_admission,
     verify_images,
     write_image_admission_artifact,
 )
@@ -359,6 +360,7 @@ def test_reviewed_inputs_bind_launch_entrypoint_and_strict_environment_loader() 
     assert ROOT / "Makefile" in reviewed
     assert ROOT / "infra" / "docker" / "trusted-time.Dockerfile.dockerignore" in reviewed
     assert ROOT / "scripts" / "credential_env.py" in reviewed
+    assert ROOT / "scripts" / "enroll_trusted_time_head_anchor.py" in reviewed
     assert ROOT / "scripts" / "start_trusted_time_supervisor.py" in reviewed
 
 
@@ -1176,6 +1178,112 @@ def test_image_admission_rejects_drift_from_captured_build_ids_before_write(
     verify.assert_called_once()
     assert verify.call_args.args == (SOURCE_ID, SUPERVISOR_ID)
     assert "docker_environment" in verify.call_args.kwargs
+    write.assert_not_called()
+
+
+def test_existing_image_readmission_reverifies_exact_ids_without_building(
+    tmp_path: Path,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    artifact_path = ignored_root / "trusted-time" / "image-admission.json"
+    bindings = reviewed_input_bindings()
+    identities = TrustedTimeImageIdentities(
+        source_id=SOURCE_ID,
+        supervisor_id=SUPERVISOR_ID,
+    )
+    retained = object()
+    exact_environment = {"PATH": "/fixed/docker/path"}
+    with (
+        patch(
+            "scripts.verify_trusted_time_images._current_clean_git_revision",
+            return_value="a" * 40,
+        ) as clean_revision,
+        patch(
+            "scripts.verify_trusted_time_images._minimal_docker_environment",
+            return_value=exact_environment,
+        ),
+        patch(
+            "scripts.verify_trusted_time_images.reviewed_input_bindings",
+            return_value=bindings,
+        ) as reviewed,
+        patch("scripts.verify_trusted_time_images.validate_prebuild_compose_contract") as compose,
+        patch(
+            "scripts.verify_trusted_time_images.verify_images",
+            return_value=identities,
+        ) as verify,
+        patch(
+            "scripts.verify_trusted_time_images.write_image_admission_artifact",
+            return_value=retained,
+        ) as write,
+        patch("scripts.verify_trusted_time_images.build_trusted_time_images") as build,
+    ):
+        result = verify_and_write_existing_image_admission(
+            artifact_path,
+            SOURCE_ID,
+            SUPERVISOR_ID,
+            ignored_root=ignored_root,
+        )
+
+    assert result is retained
+    build.assert_not_called()
+    compose.assert_called_once_with(
+        git_revision="a" * 40,
+        docker_environment=exact_environment,
+    )
+    verify.assert_called_once_with(
+        SOURCE_ID,
+        SUPERVISOR_ID,
+        docker_environment=exact_environment,
+    )
+    write.assert_called_once_with(
+        artifact_path,
+        identities,
+        git_revision="a" * 40,
+        bindings=bindings,
+        ignored_root=ignored_root,
+    )
+    assert clean_revision.call_count == 3
+    assert reviewed.call_count == 4
+
+
+def test_existing_image_readmission_rejects_identity_drift_before_write(
+    tmp_path: Path,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    artifact_path = ignored_root / "trusted-time" / "image-admission.json"
+    bindings = reviewed_input_bindings()
+    requested = TrustedTimeImageIdentities(
+        source_id=SOURCE_ID,
+        supervisor_id=SUPERVISOR_ID,
+    )
+    drifted = replace(requested, supervisor_id="sha256:" + "9" * 64)
+    with (
+        patch(
+            "scripts.verify_trusted_time_images._current_clean_git_revision",
+            return_value="a" * 40,
+        ),
+        patch(
+            "scripts.verify_trusted_time_images.reviewed_input_bindings",
+            return_value=bindings,
+        ),
+        patch("scripts.verify_trusted_time_images.validate_prebuild_compose_contract"),
+        patch(
+            "scripts.verify_trusted_time_images.verify_images",
+            return_value=drifted,
+        ),
+        patch("scripts.verify_trusted_time_images.write_image_admission_artifact") as write,
+        pytest.raises(
+            TrustedTimeImageVerificationError,
+            match="existing image identities changed before admission",
+        ),
+    ):
+        verify_and_write_existing_image_admission(
+            artifact_path,
+            SOURCE_ID,
+            SUPERVISOR_ID,
+            ignored_root=ignored_root,
+        )
+
     write.assert_not_called()
 
 

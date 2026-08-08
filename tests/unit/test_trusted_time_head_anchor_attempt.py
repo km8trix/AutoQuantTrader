@@ -9,6 +9,9 @@ import pytest
 
 from apps.trusted_time_supervisor.head_anchor_attempt import (
     RepositoryBackedTrustedTimeHeadAnchorAttempt,
+    TrustedTimeHeadAnchorFirstEnrollmentAlreadyCompleted,
+    TrustedTimeHeadAnchorFirstEnrollmentRecoveryRequired,
+    TrustedTimeHeadAnchorFirstEnrollmentStateConflict,
 )
 from apps.trusted_time_supervisor.head_anchor_config import (
     TrustedTimeHeadAnchorAuthority,
@@ -16,6 +19,7 @@ from apps.trusted_time_supervisor.head_anchor_config import (
 from packages.application.trusted_time_head_anchor import (
     TRUSTED_TIME_HEAD_ANCHOR_BUCKET_NAME,
     TrustedTimeHeadAnchorCheckpointReason,
+    TrustedTimeHeadAnchorConflict,
     TrustedTimeHeadAnchorEnrollmentNotApproved,
     TrustedTimeHeadAnchorProviderUnavailable,
 )
@@ -61,10 +65,17 @@ def _snapshot(
     pending: object | None = None,
     evidence: object | None = None,
     complete_replay: bool,
+    confirmed_anchor_count: int = 1,
+    confirmed_anchor_receipt: object | None = None,
 ) -> TrustedTimeHeadAnchorPersistenceSnapshot:
     snapshot = object.__new__(TrustedTimeHeadAnchorPersistenceSnapshot)
     object.__setattr__(snapshot, "local_transitions", ("local-transition",))
-    object.__setattr__(snapshot, "confirmed_anchor_records", ("confirmed-anchor",))
+    object.__setattr__(
+        snapshot,
+        "confirmed_anchor_records",
+        () if confirmed_anchor_count == 0 else ("confirmed-anchor",),
+    )
+    object.__setattr__(snapshot, "confirmed_anchor_receipt", confirmed_anchor_receipt)
     object.__setattr__(snapshot, "pending_intent", pending)
     object.__setattr__(
         snapshot,
@@ -74,7 +85,7 @@ def _snapshot(
     object.__setattr__(snapshot, "committed_pending_evidence", evidence)
     object.__setattr__(snapshot, "authenticated_journal_tip", object())
     object.__setattr__(snapshot, "local_transition_count", 1)
-    object.__setattr__(snapshot, "confirmed_anchor_count", 1)
+    object.__setattr__(snapshot, "confirmed_anchor_count", confirmed_anchor_count)
     object.__setattr__(snapshot, "current_host_head_sha256", "1" * 64)
     object.__setattr__(snapshot, "complete_replay", complete_replay)
     return snapshot
@@ -95,6 +106,34 @@ def _application_result(host: str = "4") -> SimpleNamespace:
         current_host_head_sha256=host * 64,
         current_anchor_sha256="5" * 64,
         current_anchor_semantic_sha256="6" * 64,
+        uploaded_anchor_count=1,
+        idempotent_duplicate_count=0,
+        __post_init__=lambda: None,
+    )
+
+
+def _enrollment_candidate() -> SimpleNamespace:
+    return SimpleNamespace(
+        anchor_sequence=1,
+        bucket_name=TRUSTED_TIME_HEAD_ANCHOR_BUCKET_NAME,
+        checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.ENROLLMENT,
+        current_host_head_sha256="4" * 64,
+        byte_sha256="5" * 64,
+        semantic_sha256="6" * 64,
+        __post_init__=lambda: None,
+    )
+
+
+def _enrollment_receipt(candidate: SimpleNamespace) -> SimpleNamespace:
+    return SimpleNamespace(
+        intent=SimpleNamespace(
+            record=candidate,
+            semantic_sha256="9" * 64,
+        ),
+        readback_bytes_sha256="5" * 64,
+        observed_at_utc=BASE,
+        semantic_sha256="8" * 64,
+        __post_init__=lambda: None,
     )
 
 
@@ -141,6 +180,7 @@ def test_attempt_commits_before_upload_then_confirms_a_second_exact_readback() -
         signed_envelope_bytes=b"signed-object",
         semantic_sha256="9" * 64,
         anchor_intent_id="11111111-1111-4111-8111-111111111111",
+        __post_init__=lambda: None,
     )
     pending = _snapshot(
         pending=intent,
@@ -389,3 +429,266 @@ def test_absent_remote_without_enrollment_approval_translates_to_exact_typed_fat
         "trusted-time remote anchor history is absent and enrollment is not approved"
     )
     assert "secret" not in str(captured.value)
+
+
+def test_first_enrollment_creates_and_confirms_only_sequence_one() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    initial = _snapshot(complete_replay=True, confirmed_anchor_count=0)
+    candidate = _enrollment_candidate()
+    evidence = object()
+    intent = SimpleNamespace(
+        record=candidate,
+        object_name="v1/object.json",
+        signed_envelope_bytes=b"signed-object",
+        semantic_sha256="9" * 64,
+        anchor_intent_id="11111111-1111-4111-8111-111111111111",
+    )
+    pending = _snapshot(
+        pending=intent,
+        evidence=evidence,
+        complete_replay=False,
+        confirmed_anchor_count=0,
+    )
+    receipt = _enrollment_receipt(candidate)
+    confirmed = _snapshot(
+        complete_replay=False,
+        confirmed_anchor_count=1,
+        confirmed_anchor_receipt=receipt,
+    )
+    prepared = SimpleNamespace(candidate_record=candidate, full_audit=True)
+    anchor.load_head_anchor_startup_snapshot.return_value = initial
+    anchor.commit_prepared_intent.return_value = (pending, evidence)
+    anchor.confirm_remote_readback_from_snapshot.return_value = (confirmed, receipt)
+
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+    with (
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "prepare_bounded_trusted_time_head_anchor_reconciliation",
+            return_value=prepared,
+        ) as prepare,
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "prepare_incremental_trusted_time_head_anchor_reconciliation"
+        ) as prepare_incremental,
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "complete_trusted_time_head_anchor_reconciliation",
+            return_value=_application_result(),
+        ),
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "verify_trusted_time_head_anchor_provider_readback",
+            return_value=object(),
+        ),
+    ):
+        result = attempt.perform_first_enrollment()
+
+    assert prepare.call_args.kwargs["checkpoint_reason"] is (
+        TrustedTimeHeadAnchorCheckpointReason.ENROLLMENT
+    )
+    assert prepare.call_args.kwargs["allow_enrollment"] is True
+    anchor.commit_prepared_intent.assert_called_once_with(
+        initial,
+        prepared=prepared,
+        created_at_utc=BASE,
+        allow_enrollment=True,
+    )
+    prepare_incremental.assert_not_called()
+    assert result.anchor_sequence == 1
+    assert result.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.ENROLLMENT
+    assert result.pending_intent_recovered is False
+    assert result.full_audit_completed is True
+    assert result.candidate_remote_readback_sha256 == "5" * 64
+    assert result.receipt_semantic_sha256 == "8" * 64
+
+
+def test_first_enrollment_commit_snapshot_advance_is_a_precommit_state_conflict() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    initial = _snapshot(complete_replay=True, confirmed_anchor_count=0)
+    refreshed = _snapshot(complete_replay=False, confirmed_anchor_count=0)
+    prepared = SimpleNamespace(
+        candidate_record=_enrollment_candidate(),
+        full_audit=True,
+    )
+    anchor.load_head_anchor_startup_snapshot.return_value = initial
+    anchor.commit_prepared_intent.side_effect = TrustedTimeHeadAnchorSnapshotAdvanced(
+        "authenticated concurrent advance",
+        refreshed_snapshot=refreshed,
+    )
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with (
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "prepare_bounded_trusted_time_head_anchor_reconciliation",
+            return_value=prepared,
+        ),
+        pytest.raises(TrustedTimeHeadAnchorFirstEnrollmentStateConflict),
+    ):
+        attempt.perform_first_enrollment()
+
+    anchor.compact_head_anchor_snapshot.assert_called_with(refreshed)
+    provider.put_if_absent.assert_not_called()
+
+
+def test_first_enrollment_precommit_audit_conflict_is_a_state_conflict() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    initial = _snapshot(complete_replay=True, confirmed_anchor_count=0)
+    anchor.load_head_anchor_startup_snapshot.return_value = initial
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with (
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "prepare_bounded_trusted_time_head_anchor_reconciliation",
+            side_effect=TrustedTimeHeadAnchorConflict("authenticated state conflict"),
+        ),
+        pytest.raises(TrustedTimeHeadAnchorFirstEnrollmentStateConflict),
+    ):
+        attempt.perform_first_enrollment()
+
+    anchor.commit_prepared_intent.assert_not_called()
+    provider.put_if_absent.assert_not_called()
+
+
+def test_first_enrollment_recovers_sequence_one_and_never_prepares_a_successor() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    candidate = _enrollment_candidate()
+    evidence = object()
+    intent = SimpleNamespace(
+        record=candidate,
+        object_name="v1/object.json",
+        signed_envelope_bytes=b"signed-object",
+        semantic_sha256="9" * 64,
+        anchor_intent_id="11111111-1111-4111-8111-111111111111",
+        __post_init__=lambda: None,
+    )
+    pending = _snapshot(
+        pending=intent,
+        evidence=evidence,
+        complete_replay=True,
+        confirmed_anchor_count=0,
+    )
+    receipt = _enrollment_receipt(candidate)
+    confirmed = _snapshot(
+        complete_replay=False,
+        confirmed_anchor_count=1,
+        confirmed_anchor_receipt=receipt,
+    )
+    prepared = SimpleNamespace(candidate_record=candidate, full_audit=True)
+    anchor.load_head_anchor_startup_snapshot.return_value = pending
+    anchor.confirm_remote_readback_from_snapshot.return_value = (confirmed, receipt)
+
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+    with (
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "prepare_bounded_persisted_trusted_time_head_anchor_intent_recovery",
+            return_value=prepared,
+        ) as recover,
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "prepare_bounded_trusted_time_head_anchor_reconciliation"
+        ) as prepare_current,
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "prepare_incremental_trusted_time_head_anchor_reconciliation"
+        ) as prepare_incremental,
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "complete_trusted_time_head_anchor_reconciliation",
+            return_value=_application_result(),
+        ),
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "verify_trusted_time_head_anchor_provider_readback",
+            return_value=object(),
+        ),
+    ):
+        result = attempt.recover_first_enrollment()
+
+    assert recover.call_args.kwargs["full_audit"] is True
+    prepare_current.assert_not_called()
+    prepare_incremental.assert_not_called()
+    anchor.commit_prepared_intent.assert_not_called()
+    assert result.pending_intent_recovered is True
+    assert result.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.ENROLLMENT
+
+
+def test_first_enrollment_refuses_confirmed_history_before_provider_or_signer_use() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    confirmed = _snapshot(complete_replay=True, confirmed_anchor_count=1)
+    anchor.load_head_anchor_startup_snapshot.return_value = confirmed
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with pytest.raises(TrustedTimeHeadAnchorFirstEnrollmentAlreadyCompleted):
+        attempt.perform_first_enrollment()
+
+    signer.sign_ed25519.assert_not_called()
+    provider.attest_identity.assert_not_called()
+    anchor.commit_prepared_intent.assert_not_called()
+
+
+def test_new_first_enrollment_requires_separate_recovery_for_pending_intent() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    candidate = _enrollment_candidate()
+    intent = SimpleNamespace(
+        record=candidate,
+        __post_init__=lambda: None,
+    )
+    pending = _snapshot(
+        pending=intent,
+        evidence=object(),
+        complete_replay=True,
+        confirmed_anchor_count=0,
+    )
+    anchor.load_head_anchor_startup_snapshot.return_value = pending
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with pytest.raises(TrustedTimeHeadAnchorFirstEnrollmentRecoveryRequired):
+        attempt.perform_first_enrollment()
+
+    provider.attest_identity.assert_not_called()
+    anchor.commit_prepared_intent.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("sequence", "reason"),
+    [
+        (2, TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION),
+        (1, TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP),
+    ],
+)
+def test_first_enrollment_refuses_non_enrollment_pending_state(
+    sequence: int,
+    reason: TrustedTimeHeadAnchorCheckpointReason,
+) -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    candidate = SimpleNamespace(
+        anchor_sequence=sequence,
+        checkpoint_reason=reason,
+        __post_init__=lambda: None,
+    )
+    intent = SimpleNamespace(record=candidate, __post_init__=lambda: None)
+    pending = _snapshot(
+        pending=intent,
+        evidence=object(),
+        complete_replay=True,
+        confirmed_anchor_count=0,
+    )
+    anchor.load_head_anchor_startup_snapshot.return_value = pending
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with pytest.raises(TrustedTimeHeadAnchorFirstEnrollmentStateConflict):
+        attempt.recover_first_enrollment()
+
+    provider.attest_identity.assert_not_called()
+    anchor.commit_prepared_intent.assert_not_called()
