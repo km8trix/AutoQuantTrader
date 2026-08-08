@@ -165,6 +165,7 @@ _REVIEWED_FIXED_RELATIVE_PATHS = (
     "infra/trusted-time/chrony.conf",
     "infra/trusted-time/source-authority.json",
     "migrations/versions/0036_phase6_trusted_time_head_anchors.py",
+    "packages/persistence/certs/supabase-prod-ca-2021.crt",
     "pyproject.toml",
     "scripts/bounded_subprocess.py",
     "scripts/credential_env.py",

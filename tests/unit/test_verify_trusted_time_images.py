@@ -32,6 +32,7 @@ from scripts.verify_trusted_time_images import (
     _current_boot_session_id,
     _current_clean_git_revision,
     _decode_admission_payload,
+    _head_reviewed_input_payload,
     _minimal_git_environment,
     _probe_runtime_topology,
     _require_head_reviewed_inputs,
@@ -362,6 +363,27 @@ def test_reviewed_inputs_bind_launch_entrypoint_and_strict_environment_loader() 
     assert ROOT / "scripts" / "credential_env.py" in reviewed
     assert ROOT / "scripts" / "enroll_trusted_time_head_anchor.py" in reviewed
     assert ROOT / "scripts" / "start_trusted_time_supervisor.py" in reviewed
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "infra/trusted-time/source-authority.json",
+        "infra/trusted-time/chrony.conf",
+        "packages/persistence/certs/supabase-prod-ca-2021.crt",
+    ),
+)
+def test_first_enrollment_authority_inputs_are_directly_head_readable(
+    relative_path: str,
+) -> None:
+    payload = b"reviewed authority input\n"
+    snapshot = {ROOT / relative_path: (0o100644, payload)}
+
+    with patch(
+        "scripts.verify_trusted_time_images._head_reviewed_input_snapshot",
+        return_value=snapshot,
+    ):
+        assert _head_reviewed_input_payload("a" * 40, relative_path, environment={}) == payload
 
 
 def test_trusted_time_dockerignore_is_exact_deny_by_default_allowlist() -> None:
