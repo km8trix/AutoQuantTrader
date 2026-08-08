@@ -2237,7 +2237,7 @@ Compose model from the approved HEAD bytes. The identical frozen YAML payload
 is then used for every Compose `up`, `ps`, and `down`; live Compose/default-file
 changes cannot influence consumption after validation. Direct Docker probes
 receive only the finite minimal pass-through environment, with `LC_ALL` as the
-only admitted `LC_*` key. Runtime Compose payloads are capped at 4,096 bytes and
+only admitted `LC_*` key. Runtime Compose payloads are capped at 8,192 bytes and
 rendering has a 15-second timeout. Git, Docker, Compose, and macOS boot-identity
 commands use command-specific streaming input/output caps and absolute
 deadlines; overflow or timeout kills and reaps the isolated process group. The

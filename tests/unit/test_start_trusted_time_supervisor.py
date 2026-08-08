@@ -18,6 +18,7 @@ from apps.trusted_time_supervisor.config import TrustedTimeSupervisorConfigurati
 from scripts.bounded_subprocess import BoundedSubprocessError
 from scripts.credential_env import load_owner_only_environment
 from scripts.start_trusted_time_supervisor import (
+    _MAXIMUM_BOUNDED_COMPOSE_PAYLOAD_BYTES,
     COMPOSE_NETWORK_NAME,
     COMPOSE_SOCKET_VOLUME_NAME,
     COMPOSE_STATE_VOLUME_NAME,
@@ -73,6 +74,7 @@ from scripts.start_trusted_time_supervisor import (
     _validate_chrony_state_directory,
     _validate_created_topology,
     _validate_mounted_database_secret,
+    _validate_runtime_compose_payload,
     _validate_unenrolled_admission_teardown,
     build_unenrolled_admission_receipt,
     cleanup_materialized_database_secret,
@@ -2328,7 +2330,7 @@ def test_bounded_compose_observer_rejects_over_pipe_capacity_before_spawn() -> N
             maximum_stdout_bytes=128,
             maximum_stderr_bytes=128,
             timeout_seconds=1,
-            compose_payload=b"x" * 4_097,
+            compose_payload=b"x" * (_MAXIMUM_BOUNDED_COMPOSE_PAYLOAD_BYTES + 1),
         )
 
     bounded.assert_not_called()
@@ -2731,7 +2733,10 @@ def test_docker_runner_strips_staged_inputs_except_for_frozen_compose_stdin() ->
     assert run.call_args_list[0].kwargs["maximum_stderr_bytes"] == 1_024 * 1_024
     assert run.call_args_list[1].kwargs["environment"] == compose_environment
     assert run.call_args_list[1].kwargs["stdin_bytes"] == COMPOSE_PAYLOAD
-    assert run.call_args_list[1].kwargs["maximum_stdin_bytes"] == 4_096
+    assert (
+        run.call_args_list[1].kwargs["maximum_stdin_bytes"]
+        == _MAXIMUM_BOUNDED_COMPOSE_PAYLOAD_BYTES
+    )
     assert run.call_args_list[1].kwargs["maximum_stdout_bytes"] == 65_536
 
 
@@ -2746,10 +2751,29 @@ def test_compose_runner_rejects_over_observer_capacity_before_spawn() -> None:
         _run_docker(
             compose_argv(),
             environment={"PATH": "/approved/bin"},
-            compose_payload=b"x" * 4_097,
+            compose_payload=b"x" * (_MAXIMUM_BOUNDED_COMPOSE_PAYLOAD_BYTES + 1),
         )
 
     run.assert_not_called()
+
+
+def test_reviewed_compose_payload_fits_bounded_runtime_contract() -> None:
+    payload = (
+        Path(__file__).resolve().parents[2]
+        / "infra"
+        / "compose"
+        / "trusted-time.compose.yaml"
+    ).read_bytes()
+
+    assert len(payload) > 4_096
+    assert len(payload) <= _MAXIMUM_BOUNDED_COMPOSE_PAYLOAD_BYTES
+    assert _validate_runtime_compose_payload(payload) == payload
+
+
+def test_runtime_compose_payload_accepts_exact_bounded_capacity() -> None:
+    payload = b"x" * _MAXIMUM_BOUNDED_COMPOSE_PAYLOAD_BYTES
+
+    assert _validate_runtime_compose_payload(payload) == payload
 
 
 def test_launcher_qualifies_before_secret_and_starts_only_admitted_ids(

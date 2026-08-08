@@ -245,7 +245,7 @@ revision/artifact gate. The approved HEAD Compose bytes are retained and used
 unchanged for all runtime `up`, `ps`, and `down` commands, while non-Compose
 Docker probes receive only the finite minimal pass-through environment, with
 `LC_ALL` as the only admitted `LC_*` key. Runtime Compose payloads are capped
-at 4,096 bytes and rendering has a 15-second timeout. Git, Docker, Compose, and
+at 8,192 bytes and rendering has a 15-second timeout. Git, Docker, Compose, and
 macOS boot-identity commands use command-specific streaming input/output caps
 and absolute deadlines; overflow or timeout kills and reaps the isolated
 process group. After staging the four inputs and immediately before Compose,

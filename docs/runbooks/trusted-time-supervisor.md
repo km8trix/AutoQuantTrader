@@ -818,7 +818,7 @@ and the approved immutable IDs. Non-Compose Docker probes receive only the
 finite minimal pass-through environment; only `LC_ALL`, not arbitrary `LC_*`
 names, is locale-eligible. Alpaca, E\*TRADE, Sentry, and other application
 credentials are neither accepted in the launch file nor forwarded. Runtime
-Compose YAML is capped at 4,096 bytes so bounded observers cannot block while
+Compose YAML is capped at 8,192 bytes so bounded observers cannot block while
 writing stdin, and each Compose render has a 15-second timeout.
 
 All image-verification `docker run` probes also use `--pull=never`. After the
