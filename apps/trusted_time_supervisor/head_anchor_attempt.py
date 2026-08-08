@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from apps.trusted_time_supervisor.head_anchor_config import (
     TrustedTimeHeadAnchorAuthority,
@@ -19,6 +21,7 @@ from packages.application.trusted_time_head_anchor import (
     TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS,
     PreparedTrustedTimeHeadAnchorReconciliation,
     TrustedTimeHeadAnchorCheckpointReason,
+    TrustedTimeHeadAnchorConflict,
     TrustedTimeHeadAnchorEd25519Signer,
     TrustedTimeHeadAnchorEd25519Verifier,
     TrustedTimeHeadAnchorEnrollmentNotApproved,
@@ -29,6 +32,7 @@ from packages.application.trusted_time_head_anchor import (
     prepare_bounded_persisted_trusted_time_head_anchor_intent_recovery,
     prepare_bounded_trusted_time_head_anchor_reconciliation,
     prepare_incremental_trusted_time_head_anchor_reconciliation,
+    verify_bounded_first_enrollment_remote_postcondition,
     verify_trusted_time_head_anchor_provider_readback,
 )
 from packages.application.trusted_time_head_anchor_worker import (
@@ -52,6 +56,126 @@ TRUSTED_TIME_HEAD_ANCHOR_ATTEMPT_CONTRACT_VERSION = (
 
 def _authority_is_never_granted(_: object) -> bool:
     return False
+
+
+class TrustedTimeHeadAnchorFirstEnrollmentAlreadyCompleted(TrustedTimeHeadAnchorFatalFailure):
+    """A one-shot enrollment was invoked after durable enrollment existed."""
+
+
+class TrustedTimeHeadAnchorFirstEnrollmentStateConflict(TrustedTimeHeadAnchorFatalFailure):
+    """Durable state cannot represent exactly one recoverable first enrollment."""
+
+
+class TrustedTimeHeadAnchorFirstEnrollmentRecoveryRequired(TrustedTimeHeadAnchorFatalFailure):
+    """A durable intent or remote effect may exist and needs separate recovery."""
+
+
+class TrustedTimeHeadAnchorFirstEnrollmentDisposition(StrEnum):
+    NEW_INTENT_COMPLETED = "new_intent_completed"
+    PENDING_INTENT_RECOVERED = "pending_intent_recovered"
+    CONFIRMED_RECEIPT_REOBSERVED = "confirmed_receipt_reobserved"
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedTimeHeadAnchorFirstEnrollmentResult:
+    """Sanitized durable sequence-one evidence; never an authority grant."""
+
+    anchor_sequence: int
+    checkpoint_reason: TrustedTimeHeadAnchorCheckpointReason
+    current_host_head_sha256: str
+    current_anchor_sha256: str
+    current_anchor_semantic_sha256: str
+    completed_at_utc: datetime
+    full_audit_completed: bool
+    completion_disposition: TrustedTimeHeadAnchorFirstEnrollmentDisposition
+    uploaded_anchor_count: int | None
+    idempotent_duplicate_count: int | None
+    anchor_intent_semantic_sha256: str
+    candidate_remote_readback_sha256: str
+    receipt_semantic_sha256: str
+
+    def __post_init__(self) -> None:
+        digests = (
+            self.current_host_head_sha256,
+            self.current_anchor_sha256,
+            self.current_anchor_semantic_sha256,
+            self.anchor_intent_semantic_sha256,
+            self.candidate_remote_readback_sha256,
+            self.receipt_semantic_sha256,
+        )
+        if (
+            self.anchor_sequence != 1
+            or self.checkpoint_reason is not TrustedTimeHeadAnchorCheckpointReason.ENROLLMENT
+            or any(
+                type(value) is not str
+                or len(value) != 64
+                or any(character not in "0123456789abcdef" for character in value)
+                for value in digests
+            )
+            or self.candidate_remote_readback_sha256 != self.current_anchor_sha256
+            or type(self.completed_at_utc) is not datetime
+            or self.completed_at_utc.tzinfo is None
+            or self.completed_at_utc.utcoffset() is None
+            or self.completed_at_utc.utcoffset() != UTC.utcoffset(self.completed_at_utc)
+            or self.full_audit_completed is not True
+            or type(self.completion_disposition)
+            is not TrustedTimeHeadAnchorFirstEnrollmentDisposition
+        ):
+            raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                "trusted-time first enrollment result is invalid"
+            )
+        counts = (self.uploaded_anchor_count, self.idempotent_duplicate_count)
+        if self.completion_disposition is (
+            TrustedTimeHeadAnchorFirstEnrollmentDisposition.CONFIRMED_RECEIPT_REOBSERVED
+        ):
+            if counts != (None, None):
+                raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                    "trusted-time first enrollment reobservation counts are invalid"
+                )
+        elif (
+            any(type(value) is not int or value not in (0, 1) for value in counts)
+            or sum(value for value in counts if value is not None) != 1
+        ):
+            raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                "trusted-time first enrollment completion counts are invalid"
+            )
+
+    @property
+    def pending_intent_recovered(self) -> bool:
+        return self.completion_disposition is (
+            TrustedTimeHeadAnchorFirstEnrollmentDisposition.PENDING_INTENT_RECOVERED
+        )
+
+    operational_control_authorized = property(_authority_is_never_granted)
+    readiness_authorized = property(_authority_is_never_granted)
+    arming_authorized = property(_authority_is_never_granted)
+    new_exposure_authorized = property(_authority_is_never_granted)
+    broker_action_authorized = property(_authority_is_never_granted)
+    automatic_rearm_authorized = property(_authority_is_never_granted)
+    automatic_resume_authorized = property(_authority_is_never_granted)
+    alert_delivery_authorized = property(_authority_is_never_granted)
+    exposure_authorized = property(_authority_is_never_granted)
+    paper_trading_authorized = property(_authority_is_never_granted)
+    live_trading_authorized = property(_authority_is_never_granted)
+
+
+class TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(
+    TrustedTimeHeadAnchorFatalFailure
+):
+    """A sequence-one receipt exists but later in-process checks did not finish."""
+
+    def __init__(
+        self,
+        evidence: TrustedTimeHeadAnchorFirstEnrollmentResult | None,
+    ) -> None:
+        if evidence is not None and type(evidence) is not (
+            TrustedTimeHeadAnchorFirstEnrollmentResult
+        ):
+            raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                "trusted-time first enrollment uncertain evidence is invalid"
+            )
+        self.evidence = evidence
+        super().__init__("trusted-time first enrollment postconditions are unconfirmed")
 
 
 class RepositoryBackedTrustedTimeHeadAnchorAttempt:
@@ -415,6 +539,317 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
             receipt_semantic_sha256=(None if receipt is None else receipt.semantic_sha256),
         )
 
+    @staticmethod
+    def _validate_first_enrollment_pending(
+        snapshot: TrustedTimeHeadAnchorPersistenceSnapshot,
+    ) -> None:
+        pending = snapshot.pending_intent
+        if pending is None or snapshot.confirmed_anchor_count != 0:
+            raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                "trusted-time first enrollment pending state is absent"
+            )
+        try:
+            pending.__post_init__()
+        except Exception:
+            raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                "trusted-time first enrollment pending state is invalid"
+            ) from None
+        if (
+            pending.record.anchor_sequence != 1
+            or pending.record.checkpoint_reason
+            is not TrustedTimeHeadAnchorCheckpointReason.ENROLLMENT
+        ):
+            raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                "trusted-time first enrollment pending state conflicts"
+            )
+
+    @staticmethod
+    def _first_enrollment_result(
+        *,
+        receipt: PersistedTrustedTimeHeadAnchorReceipt,
+        reconciliation: TrustedTimeHeadAnchorReconciliationResult | None,
+        disposition: TrustedTimeHeadAnchorFirstEnrollmentDisposition,
+    ) -> TrustedTimeHeadAnchorFirstEnrollmentResult:
+        try:
+            receipt.__post_init__()
+            record = receipt.intent.record
+            if reconciliation is not None:
+                reconciliation.__post_init__()
+                if (
+                    reconciliation.current_host_head_sha256 != record.current_host_head_sha256
+                    or reconciliation.current_anchor_sha256 != record.byte_sha256
+                    or reconciliation.current_anchor_semantic_sha256 != record.semantic_sha256
+                ):
+                    raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                        "trusted-time first enrollment result conflicts with its receipt"
+                    )
+            return TrustedTimeHeadAnchorFirstEnrollmentResult(
+                anchor_sequence=record.anchor_sequence,
+                checkpoint_reason=record.checkpoint_reason,
+                current_host_head_sha256=record.current_host_head_sha256,
+                current_anchor_sha256=record.byte_sha256,
+                current_anchor_semantic_sha256=record.semantic_sha256,
+                completed_at_utc=receipt.observed_at_utc,
+                full_audit_completed=True,
+                completion_disposition=disposition,
+                uploaded_anchor_count=(
+                    None if reconciliation is None else reconciliation.uploaded_anchor_count
+                ),
+                idempotent_duplicate_count=(
+                    None if reconciliation is None else reconciliation.idempotent_duplicate_count
+                ),
+                anchor_intent_semantic_sha256=receipt.intent.semantic_sha256,
+                candidate_remote_readback_sha256=receipt.readback_bytes_sha256,
+                receipt_semantic_sha256=receipt.semantic_sha256,
+            )
+        except TrustedTimeHeadAnchorFirstEnrollmentStateConflict:
+            raise
+        except Exception:
+            raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                "trusted-time first enrollment result is invalid"
+            ) from None
+
+    def _complete_first_enrollment_pending(
+        self,
+        prepared: PreparedTrustedTimeHeadAnchorReconciliation,
+        *,
+        disposition: TrustedTimeHeadAnchorFirstEnrollmentDisposition,
+    ) -> TrustedTimeHeadAnchorFirstEnrollmentResult:
+        snapshot = self._require_snapshot()
+        intent = snapshot.pending_intent
+        evidence = snapshot.committed_pending_evidence
+        if intent is None or evidence is None or prepared.candidate_record != intent.record:
+            raise TrustedTimeHeadAnchorFirstEnrollmentRecoveryRequired(
+                "trusted-time first enrollment pending completion conflicts"
+            )
+        result = complete_trusted_time_head_anchor_reconciliation(
+            prepared,
+            provider=self._provider,
+            committed_intent=evidence,
+        )
+        provider_readback = verify_trusted_time_head_anchor_provider_readback(
+            provider=self._provider,
+            verifier=self._verifier,
+            anchor_intent_id=intent.anchor_intent_id,
+            anchor_intent_semantic_sha256=intent.semantic_sha256,
+            record=intent.record,
+            object_name=intent.object_name,
+        )
+        confirmed, receipt = self._anchor_repository.confirm_remote_readback_from_snapshot(
+            snapshot,
+            intent=intent,
+            provider_readback=provider_readback,
+            observed_at_utc=self._now(),
+        )
+        self._snapshot = confirmed
+        enrollment_result: TrustedTimeHeadAnchorFirstEnrollmentResult | None = None
+        try:
+            enrollment_result = self._first_enrollment_result(
+                receipt=receipt,
+                reconciliation=result,
+                disposition=disposition,
+            )
+            if confirmed.confirmed_anchor_count != 1 or confirmed.pending_intent is not None:
+                raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                    "trusted-time first enrollment durable confirmation conflicts"
+                )
+            self._compact_snapshot()
+            compact = self._require_snapshot()
+            if (
+                compact.confirmed_anchor_count != 1
+                or compact.pending_intent is not None
+                or compact.confirmed_anchor_receipt != receipt
+            ):
+                raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                    "trusted-time first enrollment compact confirmation conflicts"
+                )
+        except Exception:
+            raise TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(
+                enrollment_result
+            ) from None
+        return enrollment_result
+
+    def _run_new_first_enrollment(self) -> TrustedTimeHeadAnchorFirstEnrollmentResult:
+        snapshot = self._require_snapshot()
+        if snapshot.confirmed_anchor_count != 0:
+            raise TrustedTimeHeadAnchorFirstEnrollmentAlreadyCompleted(
+                "trusted-time first enrollment is already complete"
+            )
+        if snapshot.pending_intent is not None:
+            raise TrustedTimeHeadAnchorFirstEnrollmentRecoveryRequired(
+                "trusted-time first enrollment has a durable pending intent"
+            )
+        prepared = self._prepare_current(
+            checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.ENROLLMENT,
+            full_audit=True,
+            allow_enrollment=True,
+        )
+        candidate = prepared.candidate_record
+        if (
+            prepared.full_audit is not True
+            or candidate is None
+            or candidate.anchor_sequence != 1
+            or candidate.checkpoint_reason is not TrustedTimeHeadAnchorCheckpointReason.ENROLLMENT
+        ):
+            raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                "trusted-time first enrollment candidate is invalid"
+            )
+        try:
+            pending, evidence = self._anchor_repository.commit_prepared_intent(
+                self._require_snapshot(),
+                prepared=prepared,
+                created_at_utc=self._now(),
+                allow_enrollment=True,
+            )
+            self._snapshot = pending
+            if pending.committed_pending_evidence != evidence:
+                raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                    "trusted-time first enrollment committed intent conflicts"
+                )
+        except TrustedTimeHeadAnchorSnapshotAdvanced:
+            raise
+        except Exception:
+            raise TrustedTimeHeadAnchorFirstEnrollmentRecoveryRequired(
+                "trusted-time first enrollment intent outcome is unconfirmed"
+            ) from None
+        try:
+            return self._complete_first_enrollment_pending(
+                prepared,
+                disposition=(TrustedTimeHeadAnchorFirstEnrollmentDisposition.NEW_INTENT_COMPLETED),
+            )
+        except TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed:
+            raise
+        except Exception:
+            raise TrustedTimeHeadAnchorFirstEnrollmentRecoveryRequired(
+                "trusted-time first enrollment remote outcome is unconfirmed"
+            ) from None
+
+    def perform_first_enrollment(self) -> TrustedTimeHeadAnchorFirstEnrollmentResult:
+        """Create sequence one once; an existing pending intent always needs recovery."""
+
+        try:
+            return self._run_new_first_enrollment()
+        except TrustedTimeHeadAnchorSnapshotAdvanced as error:
+            try:
+                self._adopt_snapshot_advance(error)
+            except Exception:
+                raise TrustedTimeHeadAnchorFatalFailure(
+                    "trusted-time anchor advanced snapshot recovery failed"
+                ) from None
+            raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                "trusted-time anchor local head advanced before enrollment commit"
+            ) from None
+        except TrustedTimeHeadAnchorProviderUnavailable:
+            try:
+                self._compact_snapshot()
+            except Exception:
+                raise TrustedTimeHeadAnchorFatalFailure(
+                    "trusted-time anchor provider failure cleanup failed"
+                ) from None
+            raise TrustedTimeHeadAnchorTransientFailure(
+                "trusted-time anchor provider is unavailable before enrollment commit"
+            ) from None
+        except TrustedTimeHeadAnchorEnrollmentNotApproved:
+            raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                "trusted-time first enrollment permission was not applied"
+            ) from None
+        except TrustedTimeHeadAnchorConflict:
+            raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                "trusted-time first enrollment pre-commit state conflicts"
+            ) from None
+        except (TrustedTimeHeadAnchorFatalFailure, TrustedTimeHeadAnchorTransientFailure):
+            raise
+        except Exception:
+            raise TrustedTimeHeadAnchorFatalFailure(
+                "trusted-time first enrollment reconciliation failed"
+            ) from None
+
+    def recover_first_enrollment(self) -> TrustedTimeHeadAnchorFirstEnrollmentResult:
+        """Recover only a separately approved sequence-one pending/confirmed outcome."""
+
+        snapshot = self._require_snapshot()
+        if snapshot.confirmed_anchor_count == 1 and snapshot.pending_intent is None:
+            receipt = snapshot.confirmed_anchor_receipt
+            if receipt is None:
+                raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                    "trusted-time first enrollment confirmed receipt is absent"
+                )
+            return self._first_enrollment_result(
+                receipt=receipt,
+                reconciliation=None,
+                disposition=(
+                    TrustedTimeHeadAnchorFirstEnrollmentDisposition.CONFIRMED_RECEIPT_REOBSERVED
+                ),
+            )
+        self._validate_first_enrollment_pending(snapshot)
+        try:
+            prepared = self._prepare_recovery(full_audit=True)
+            if prepared.full_audit is not True:
+                raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                    "trusted-time first enrollment recovery omitted its full audit"
+                )
+            return self._complete_first_enrollment_pending(
+                prepared,
+                disposition=(
+                    TrustedTimeHeadAnchorFirstEnrollmentDisposition.PENDING_INTENT_RECOVERED
+                ),
+            )
+        except TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed:
+            raise
+        except Exception:
+            raise TrustedTimeHeadAnchorFirstEnrollmentRecoveryRequired(
+                "trusted-time first enrollment recovery outcome is unconfirmed"
+            ) from None
+
+    def verify_first_enrollment_remote_postcondition(self) -> str:
+        """Prove the remote namespace is exactly stable sequence one without signing."""
+
+        prior = self._require_snapshot()
+        prior_receipt = prior.confirmed_anchor_receipt
+        if prior_receipt is None:
+            raise TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(None)
+        prior_evidence = self._first_enrollment_result(
+            receipt=prior_receipt,
+            reconciliation=None,
+            disposition=(
+                TrustedTimeHeadAnchorFirstEnrollmentDisposition.CONFIRMED_RECEIPT_REOBSERVED
+            ),
+        )
+        try:
+            snapshot = self._replace_with_full_snapshot()
+        except Exception:
+            raise TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(
+                prior_evidence
+            ) from None
+        receipt = snapshot.confirmed_anchor_receipt
+        if (
+            snapshot.confirmed_anchor_count != 1
+            or snapshot.pending_intent is not None
+            or receipt is None
+            or receipt != prior_receipt
+        ):
+            raise TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(
+                prior_evidence
+            )
+        authority = self._authority
+        try:
+            namespace_sha256 = verify_bounded_first_enrollment_remote_postcondition(
+                snapshot.authenticated_journal_tip,
+                provider=self._provider,
+                verifier=self._verifier,
+                signing_key_id=authority.signing_key_id,
+                signing_public_key_sha256=authority.signing_public_key_sha256,
+                checkpoint_interval_seconds=(TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS),
+                anchor_authority_sha256=authority.anchor_authority_sha256,
+            )
+        except Exception:
+            raise TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(
+                prior_evidence
+            ) from None
+        if type(namespace_sha256) is not str or len(namespace_sha256) != 64:
+            raise TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(None)
+        return namespace_sha256
+
     def __call__(
         self,
         request: TrustedTimeHeadAnchorWorkRequest,
@@ -483,4 +918,10 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
 __all__ = [
     "TRUSTED_TIME_HEAD_ANCHOR_ATTEMPT_CONTRACT_VERSION",
     "RepositoryBackedTrustedTimeHeadAnchorAttempt",
+    "TrustedTimeHeadAnchorFirstEnrollmentAlreadyCompleted",
+    "TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed",
+    "TrustedTimeHeadAnchorFirstEnrollmentDisposition",
+    "TrustedTimeHeadAnchorFirstEnrollmentRecoveryRequired",
+    "TrustedTimeHeadAnchorFirstEnrollmentResult",
+    "TrustedTimeHeadAnchorFirstEnrollmentStateConflict",
 ]

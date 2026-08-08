@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import math
@@ -168,6 +169,11 @@ _MAXIMUM_DOCKER_STDERR_BYTES = 1_024 * 1_024
 MAXIMUM_UNENROLLED_ADMISSION_ARTIFACT_BYTES = 4_096
 UNENROLLED_ADMISSION_CONTRACT_VERSION = "phase6d-unenrolled-secure-launch-admission-v2"
 DEFAULT_UNENROLLED_ADMISSION_ARTIFACT_DIR = IGNORED_ARTIFACT_ROOT / "trusted-time"
+TRUSTED_TIME_LAUNCH_LOCK_PATH = (
+    DEFAULT_UNENROLLED_ADMISSION_ARTIFACT_DIR / "trusted-time-launch.lock"
+)
+FIRST_ENROLLMENT_CLAIM_FILE_PREFIX = "trusted-time-first-enrollment-claim-"
+FIRST_ENROLLMENT_CLAIM_FILE_SUFFIX = ".json"
 COMPOSE_SOCKET_VOLUME_NAME = "autoquanttrader-trusted-time_chrony_command_socket"
 COMPOSE_STATE_VOLUME_NAME = "autoquanttrader-trusted-time_chrony_state"
 COMPOSE_NETWORK_NAME = "autoquanttrader-trusted-time_default"
@@ -196,6 +202,14 @@ HEAD_ANCHOR_SIGNING_KEY_RUNTIME_PATH = "/run/secrets/trusted_time_head_anchor_si
 _SUPERVISOR_RUNTIME_ENVIRONMENT = {
     "AQT_TRUSTED_TIME_AUTHORITY_PATH": "/etc/autoquant/trusted-time/source-authority.json",
     "AQT_TRUSTED_TIME_CHRONY_CONFIG_PATH": "/etc/autoquant/trusted-time/chrony.conf",
+    "AQT_TRUSTED_TIME_DATABASE_URL_FILE": DATABASE_SECRET_RUNTIME_PATH,
+    "AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_PATH": HEAD_ANCHOR_AUTHORITY_RUNTIME_PATH,
+    "AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_FILE": HEAD_ANCHOR_AUTH_SECRET_RUNTIME_PATH,
+    "AQT_TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_FILE": HEAD_ANCHOR_SIGNING_KEY_RUNTIME_PATH,
+}
+FIRST_ENROLLMENT_SERVICE = "trusted-time-first-enrollment"
+FIRST_ENROLLMENT_COMMAND = "/opt/venv/bin/autoquant-trusted-time-first-enrollment"
+_FIRST_ENROLLMENT_RUNTIME_ENVIRONMENT = {
     "AQT_TRUSTED_TIME_DATABASE_URL_FILE": DATABASE_SECRET_RUNTIME_PATH,
     "AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_PATH": HEAD_ANCHOR_AUTHORITY_RUNTIME_PATH,
     "AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_FILE": HEAD_ANCHOR_AUTH_SECRET_RUNTIME_PATH,
@@ -1665,6 +1679,118 @@ def _cleanup_materialized_runtime_inputs(
         raise cleanup_error
 
 
+def _acquire_trusted_time_launch_lock(
+    *,
+    path: Path = TRUSTED_TIME_LAUNCH_LOCK_PATH,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+) -> int:
+    """Acquire the shared nonblocking lock for every trusted-time launcher."""
+
+    if (
+        not isinstance(path, Path)
+        or not isinstance(ignored_root, Path)
+        or not path.is_absolute()
+        or Path(os.path.abspath(path)) != path
+        or path.parent != Path(os.path.abspath(ignored_root)) / "trusted-time"
+        or path.name != TRUSTED_TIME_LAUNCH_LOCK_PATH.name
+    ):
+        raise TrustedTimeSupervisorConfigurationError("trusted-time launcher lock path is invalid")
+    directory_descriptor: int | None = None
+    lock_descriptor: int | None = None
+    try:
+        directory_descriptor = _open_owner_only_artifact_directory(
+            path.parent,
+            ignored_root=ignored_root,
+            create=True,
+        )
+        lock_descriptor = os.open(
+            path.name,
+            os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=directory_descriptor,
+        )
+        metadata = os.fstat(lock_descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_nlink != 1
+            or metadata.st_size != 0
+        ):
+            raise OSError
+        fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.fsync(directory_descriptor)
+        return lock_descriptor
+    except (OSError, BlockingIOError):
+        if lock_descriptor is not None:
+            with suppress(OSError):
+                os.close(lock_descriptor)
+        raise TrustedTimeSupervisorConfigurationError(
+            "another trusted-time launcher is active"
+        ) from None
+    finally:
+        if directory_descriptor is not None:
+            with suppress(OSError):
+                os.close(directory_descriptor)
+
+
+def _release_trusted_time_launch_lock(lock_descriptor: int) -> None:
+    """Release one shared launcher lock descriptor without deleting its inode."""
+
+    try:
+        fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
+        os.close(lock_descriptor)
+    except OSError:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time launcher lock release failed"
+        ) from None
+
+
+def _require_no_retained_first_enrollment_claim(
+    *,
+    artifact_dir: Path = DEFAULT_UNENROLLED_ADMISSION_ARTIFACT_DIR,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+) -> None:
+    """Keep normal supervision closed after any one-shot approval is consumed."""
+
+    if (
+        not isinstance(artifact_dir, Path)
+        or not isinstance(ignored_root, Path)
+        or artifact_dir != Path(os.path.abspath(ignored_root)) / "trusted-time"
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time first enrollment claim boundary is invalid"
+        )
+    directory_descriptor: int | None = None
+    try:
+        directory_descriptor = _open_owner_only_artifact_directory(
+            artifact_dir,
+            ignored_root=ignored_root,
+            create=False,
+        )
+        entries = os.listdir(directory_descriptor)
+    except (OSError, TrustedTimeImageVerificationError):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time first enrollment claim state is unavailable"
+        ) from None
+    finally:
+        if directory_descriptor is not None:
+            with suppress(OSError):
+                os.close(directory_descriptor)
+    if (
+        len(entries) > 4_096
+        or any(type(entry) is not str or len(entry) > 255 for entry in entries)
+        or any(
+            entry.startswith(FIRST_ENROLLMENT_CLAIM_FILE_PREFIX)
+            and entry.endswith(FIRST_ENROLLMENT_CLAIM_FILE_SUFFIX)
+            for entry in entries
+        )
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time normal launch is blocked by a first enrollment claim"
+        )
+
+
 def _compose_prefix() -> tuple[str, ...]:
     return (
         "docker",
@@ -3005,22 +3131,39 @@ def _validate_host_mount_requests(
             "trusted-time runtime mount request type drifted"
         )
     source = expected_service == "chrony-nts"
+    first_enrollment = expected_service == FIRST_ENROLLMENT_SERVICE
+    if expected_service not in {
+        "chrony-nts",
+        "trusted-time-supervisor",
+        FIRST_ENROLLMENT_SERVICE,
+    }:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time runtime service identity drifted"
+        )
     source_state_is_legacy_bind = source and len(volume_requests) == 1
-    if len(volume_requests) != (1 if source_state_is_legacy_bind else (2 if source else 1)):
+    expected_volume_count = (
+        0 if first_enrollment else (1 if source_state_is_legacy_bind else (2 if source else 1))
+    )
+    if len(volume_requests) != expected_volume_count:
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time runtime volume request set drifted"
         )
     by_target = {request.get("Target"): request for request in volume_requests}
-    if len(by_target) != len(volume_requests) or "/run/chrony" not in by_target:
+    if (
+        len(by_target) != len(volume_requests)
+        or (first_enrollment and by_target)
+        or (not first_enrollment and "/run/chrony" not in by_target)
+    ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time runtime volume request set drifted"
         )
-    _validate_mount_request(
-        by_target["/run/chrony"],
-        expected_source=COMPOSE_SOCKET_VOLUME_NAME,
-        expected_target="/run/chrony",
-        expected_nocopy=True,
-    )
+    if not first_enrollment:
+        _validate_mount_request(
+            by_target["/run/chrony"],
+            expected_source=COMPOSE_SOCKET_VOLUME_NAME,
+            expected_target="/run/chrony",
+            expected_nocopy=True,
+        )
     if source:
         if bind_requests:
             raise TrustedTimeSupervisorConfigurationError(
@@ -3044,7 +3187,9 @@ def _validate_host_mount_requests(
             expected_nocopy=False,
         )
         return
-    if set(by_target) != {"/run/chrony"}:
+    if (first_enrollment and by_target) or (
+        not first_enrollment and set(by_target) != {"/run/chrony"}
+    ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time supervisor volume request set drifted"
         )
@@ -3105,17 +3250,27 @@ def _validate_runtime_mounts(
     expected_service: str,
 ) -> None:
     mounts = _sequence(value, "trusted-time runtime mounts")
-    expected_targets = (
-        {"/run/chrony", "/var/lib/chrony"}
-        if expected_service == "chrony-nts"
-        else {
+    if expected_service == "chrony-nts":
+        expected_targets = {"/run/chrony", "/var/lib/chrony"}
+    elif expected_service == FIRST_ENROLLMENT_SERVICE:
+        expected_targets = {
+            DATABASE_SECRET_RUNTIME_PATH,
+            HEAD_ANCHOR_AUTHORITY_RUNTIME_PATH,
+            HEAD_ANCHOR_AUTH_SECRET_RUNTIME_PATH,
+            HEAD_ANCHOR_SIGNING_KEY_RUNTIME_PATH,
+        }
+    elif expected_service == "trusted-time-supervisor":
+        expected_targets = {
             "/run/chrony",
             DATABASE_SECRET_RUNTIME_PATH,
             HEAD_ANCHOR_AUTHORITY_RUNTIME_PATH,
             HEAD_ANCHOR_AUTH_SECRET_RUNTIME_PATH,
             HEAD_ANCHOR_SIGNING_KEY_RUNTIME_PATH,
         }
-    )
+    else:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time runtime service identity drifted"
+        )
     by_target: dict[str, Mapping[str, object]] = {}
     for raw_mount in mounts:
         mount = _mapping(raw_mount, "trusted-time runtime mount")
@@ -3125,13 +3280,16 @@ def _validate_runtime_mounts(
         by_target[target] = mount
     if set(by_target) != expected_targets or len(by_target) != len(mounts):
         raise TrustedTimeSupervisorConfigurationError("trusted-time runtime mount set drifted")
-    socket_mount = by_target["/run/chrony"]
-    if (
-        socket_mount.get("Type") != "volume"
-        or socket_mount.get("Name") != COMPOSE_SOCKET_VOLUME_NAME
-        or socket_mount.get("RW") is not True
-    ):
-        raise TrustedTimeSupervisorConfigurationError("trusted-time runtime socket mount drifted")
+    if expected_service != FIRST_ENROLLMENT_SERVICE:
+        socket_mount = by_target["/run/chrony"]
+        if (
+            socket_mount.get("Type") != "volume"
+            or socket_mount.get("Name") != COMPOSE_SOCKET_VOLUME_NAME
+            or socket_mount.get("RW") is not True
+        ):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time runtime socket mount drifted"
+            )
     if expected_service == "chrony-nts":
         state_mount = by_target["/var/lib/chrony"]
         if (
@@ -3247,6 +3405,7 @@ def validate_created_container(
     expected_image_configuration: Mapping[str, object],
     expected_service: str,
     require_healthy: bool,
+    allow_stopped: bool = False,
     expected_database_secret_file: Path | None = None,
     expected_head_anchor_authority_file: Path | None = None,
     expected_head_anchor_auth_secret_file: Path | None = None,
@@ -3269,35 +3428,69 @@ def validate_created_container(
     )
     labels = _mapping(configuration.get("Labels"), "trusted-time container labels")
     state = _mapping(container.get("State"), "trusted-time container state")
+    running_state = state.get("Running") is True and state.get("Status") == "running"
+    removable_one_shot_state = (
+        allow_stopped
+        and expected_service == FIRST_ENROLLMENT_SERVICE
+        and require_healthy is False
+        and type(state.get("Running")) is bool
+        and state.get("Status")
+        in {"created", "running", "restarting", "removing", "paused", "exited", "dead"}
+        and type(state.get("ExitCode")) is int
+        and type(state.get("OOMKilled")) is bool
+        and type(state.get("Dead")) is bool
+        and type(state.get("Error")) is str
+        and container.get("RestartCount") == 0
+    )
     if (
-        container.get("Image") != expected_image_id
+        type(allow_stopped) is not bool
+        or container.get("Image") != expected_image_id
         or labels.get("com.docker.compose.project") != "autoquanttrader-trusted-time"
         or labels.get("com.docker.compose.service") != expected_service
-        or state.get("Running") is not True
-        or state.get("Status") != "running"
+        or not (running_state or removable_one_shot_state)
     ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time created container identity or state drifted"
         )
-    if set(networks) != {COMPOSE_NETWORK_NAME}:
+    allowed_networks = (
+        ({COMPOSE_NETWORK_NAME}, set())
+        if allow_stopped and expected_service == FIRST_ENROLLMENT_SERVICE
+        else ({COMPOSE_NETWORK_NAME},)
+    )
+    if set(networks) not in allowed_networks:
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time created container network attachment drifted"
         )
-    if expected_service not in {"chrony-nts", "trusted-time-supervisor"}:
+    if expected_service not in {
+        "chrony-nts",
+        "trusted-time-supervisor",
+        FIRST_ENROLLMENT_SERVICE,
+    }:
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time created container service identity drifted"
         )
-    for field_name in ("User", "Entrypoint", "Cmd", "WorkingDir", "ExposedPorts"):
+    for field_name in ("User", "Entrypoint", "WorkingDir", "ExposedPorts"):
         if configuration.get(field_name) != expected_image_configuration.get(field_name):
             raise TrustedTimeSupervisorConfigurationError(
                 "trusted-time created container command or image configuration drifted"
             )
+    expected_command = (
+        [FIRST_ENROLLMENT_COMMAND]
+        if expected_service == FIRST_ENROLLMENT_SERVICE
+        else expected_image_configuration.get("Cmd")
+    )
+    if configuration.get("Cmd") != expected_command:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time created container command or image configuration drifted"
+        )
     expected_environment = _environment_mapping(
         expected_image_configuration.get("Env"),
         "trusted-time admitted image environment",
     )
     if expected_service == "trusted-time-supervisor":
         expected_environment.update(_SUPERVISOR_RUNTIME_ENVIRONMENT)
+    elif expected_service == FIRST_ENROLLMENT_SERVICE:
+        expected_environment.update(_FIRST_ENROLLMENT_RUNTIME_ENVIRONMENT)
     runtime_environment = _environment_mapping(
         configuration.get("Env"),
         "trusted-time runtime environment",
@@ -3804,7 +3997,7 @@ def _validate_unenrolled_admission_teardown(
     _require_same_local_daemon(daemon_identity, environment=docker_environment)
 
 
-def run_local_topology(
+def _run_local_topology_under_lock(
     *,
     env_file: Path,
     approved_launch: TrustedTimeApprovedLaunch,
@@ -3815,6 +4008,11 @@ def run_local_topology(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time unenrolled admission mode is invalid"
         )
+    if not expect_unenrolled_fail_closed:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time persistent supervision remains approval-blocked"
+        )
+    _require_no_retained_first_enrollment_claim()
     image_admission_artifact = _validate_image_admission_artifact_path(image_admission_artifact)
     if type(approved_launch) is not TrustedTimeApprovedLaunch:
         raise TrustedTimeSupervisorConfigurationError(
@@ -4026,7 +4224,6 @@ def run_local_topology(
                 raise TrustedTimeSupervisorTerminalNotObserved(
                     "trusted-time unenrolled supervisor terminal was not observed"
                 )
-            return completed.returncode
         _require_same_local_daemon(daemon_identity, environment=docker_environment)
         _validate_created_topology(
             identities,
@@ -4152,8 +4349,6 @@ def run_local_topology(
                 terminal_evidence,
                 approved_launch=approved_launch,
             )
-        compose_attempted = False
-        return 0
     except BaseException as primary_error:
         terminal_evidence = None
         terminal_observation_error: BaseException | None = None
@@ -4248,6 +4443,44 @@ def run_local_topology(
         head_anchor_payloads = None
         runtime_configuration = None
         database_url = ""
+
+
+def run_local_topology(
+    *,
+    env_file: Path,
+    approved_launch: TrustedTimeApprovedLaunch,
+    image_admission_artifact: Path = DEFAULT_IMAGE_ADMISSION_ARTIFACT,
+    expect_unenrolled_fail_closed: bool = False,
+) -> int:
+    """Run one normal/admission launcher while excluding every enrollment launcher."""
+
+    if type(expect_unenrolled_fail_closed) is not bool:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time unenrolled admission mode is invalid"
+        )
+    if not expect_unenrolled_fail_closed:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time persistent supervision remains approval-blocked"
+        )
+
+    lock_descriptor = _acquire_trusted_time_launch_lock()
+    primary_error: BaseException | None = None
+    try:
+        return _run_local_topology_under_lock(
+            env_file=env_file,
+            approved_launch=approved_launch,
+            image_admission_artifact=image_admission_artifact,
+            expect_unenrolled_fail_closed=expect_unenrolled_fail_closed,
+        )
+    except BaseException as error:
+        primary_error = error
+        raise
+    finally:
+        try:
+            _release_trusted_time_launch_lock(lock_descriptor)
+        except TrustedTimeSupervisorConfigurationError:
+            if primary_error is None:
+                raise
 
 
 def _new_unenrolled_admission_id() -> str:

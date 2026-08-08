@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import call, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 
@@ -51,6 +51,7 @@ from scripts.start_trusted_time_supervisor import (
     TrustedTimeSupervisorTerminalObserved,
     TrustedTimeSupervisorTerminalUnqualified,
     TrustedTimeVolumeIdentities,
+    _acquire_trusted_time_launch_lock,
     _approved_database_secret_source_path,
     _capture_trusted_time_volume_identities,
     _compose_container_id,
@@ -61,10 +62,13 @@ from scripts.start_trusted_time_supervisor import (
     _load_approved_image_admission,
     _read_owner_only_source_file,
     _read_supervisor_terminal_evidence,
+    _release_trusted_time_launch_lock,
     _require_isolated_cli_source_runtime,
+    _require_no_retained_first_enrollment_claim,
     _require_repository_first_party_sources,
     _run_docker,
     _run_docker_bounded,
+    _run_local_topology_under_lock,
     _TrustedTimeSupervisorContainerIdentityUnavailable,
     _validate_chrony_state_directory,
     _validate_created_topology,
@@ -98,6 +102,116 @@ from scripts.verify_trusted_time_images import (
     _ReviewedInputBindings,
     write_image_admission_artifact,
 )
+
+
+def test_global_launcher_lock_excludes_concurrent_open_descriptions(
+    tmp_path: Path,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    lock_path = ignored_root / "trusted-time" / "trusted-time-launch.lock"
+    first = _acquire_trusted_time_launch_lock(
+        path=lock_path,
+        ignored_root=ignored_root,
+    )
+    try:
+        with pytest.raises(
+            TrustedTimeSupervisorConfigurationError,
+            match="another trusted-time launcher is active",
+        ):
+            _acquire_trusted_time_launch_lock(
+                path=lock_path,
+                ignored_root=ignored_root,
+            )
+    finally:
+        _release_trusted_time_launch_lock(first)
+
+    second = _acquire_trusted_time_launch_lock(
+        path=lock_path,
+        ignored_root=ignored_root,
+    )
+    _release_trusted_time_launch_lock(second)
+
+
+def test_normal_launcher_is_blocked_after_any_first_enrollment_claim(
+    tmp_path: Path,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    artifact_dir = ignored_root / "trusted-time"
+    lock_path = artifact_dir / "trusted-time-launch.lock"
+    descriptor = _acquire_trusted_time_launch_lock(
+        path=lock_path,
+        ignored_root=ignored_root,
+    )
+    _release_trusted_time_launch_lock(descriptor)
+    _require_no_retained_first_enrollment_claim(
+        artifact_dir=artifact_dir,
+        ignored_root=ignored_root,
+    )
+    claim = artifact_dir / (
+        "trusted-time-first-enrollment-claim-123e4567-e89b-42d3-a456-426614174000.json"
+    )
+    claim.write_text("{}\n", encoding="ascii")
+    claim.chmod(0o600)
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="normal launch is blocked by a first enrollment claim",
+    ):
+        _require_no_retained_first_enrollment_claim(
+            artifact_dir=artifact_dir,
+            ignored_root=ignored_root,
+        )
+
+
+def test_current_phase_persistent_start_rejects_without_consulting_deletable_claim_state() -> None:
+    with (
+        patch("scripts.start_trusted_time_supervisor._require_no_retained_first_enrollment_claim"),
+        patch(
+            "scripts.start_trusted_time_supervisor._require_approved_git_revision",
+            side_effect=AssertionError("Git boundary was reached"),
+        ) as git,
+        patch("scripts.start_trusted_time_supervisor.qualify_local_docker_daemon") as docker,
+        patch(
+            "scripts.start_trusted_time_supervisor.load_trusted_time_runtime_configuration"
+        ) as load_configuration,
+        pytest.raises(TrustedTimeSupervisorConfigurationError),
+    ):
+        _run_local_topology_under_lock(
+            env_file=Path("/owner-env-must-not-open"),
+            approved_launch=_approved_launch(),
+            expect_unenrolled_fail_closed=False,
+        )
+
+    git.assert_not_called()
+    docker.assert_not_called()
+    load_configuration.assert_not_called()
+
+
+def test_current_phase_explicit_unenrolled_admission_remains_eligible_before_claims() -> None:
+    reached_git = RuntimeError("approved unenrolled admission reached Git")
+    with (
+        patch("scripts.start_trusted_time_supervisor._require_no_retained_first_enrollment_claim"),
+        patch(
+            "scripts.start_trusted_time_supervisor._require_approved_git_revision",
+            side_effect=reached_git,
+        ) as git,
+        patch("scripts.start_trusted_time_supervisor.qualify_local_docker_daemon") as docker,
+        patch(
+            "scripts.start_trusted_time_supervisor.load_trusted_time_runtime_configuration"
+        ) as load_configuration,
+        pytest.raises(RuntimeError) as captured,
+    ):
+        _run_local_topology_under_lock(
+            env_file=Path("/owner-env-must-not-open"),
+            approved_launch=_approved_launch(),
+            expect_unenrolled_fail_closed=True,
+        )
+
+    assert captured.value is reached_git
+    git.assert_called_once_with(_approved_launch())
+    docker.assert_not_called()
+    load_configuration.assert_not_called()
+
 
 DATABASE_URL = (
     "postgresql+psycopg://postgres.abcdefghijklmnopqrst:secret"
@@ -778,8 +892,8 @@ def test_current_git_revision_rejects_worktree_drift_after_head_input_check() ->
 @pytest.mark.parametrize(
     ("expect_unenrolled_fail_closed", "approved_launch", "message"),
     [
-        (False, None, "requires an exact approved launch binding"),
-        (False, object(), "requires an exact approved launch binding"),
+        (False, None, "persistent supervision remains approval-blocked"),
+        (False, object(), "persistent supervision remains approval-blocked"),
         (True, None, "requires an exact approved launch binding"),
         (True, object(), "requires an exact approved launch binding"),
     ],
@@ -969,6 +1083,7 @@ def test_launcher_rejects_outside_root_artifact_before_git_or_docker() -> None:
             env_file=Path("/owner-env-must-not-open"),
             image_admission_artifact=Path("/tmp/image-admission.json"),
             approved_launch=_approved_launch(),
+            expect_unenrolled_fail_closed=True,
         )
 
     git_revision.assert_not_called()
@@ -1012,6 +1127,7 @@ def test_launcher_rejects_revision_change_during_approved_verification_before_ow
         run_local_topology(
             env_file=Path("/owner-env-must-not-open"),
             approved_launch=_approved_launch(),
+            expect_unenrolled_fail_closed=True,
         )
 
     load.assert_called_once()
@@ -2647,6 +2763,12 @@ def test_launcher_qualifies_before_secret_and_starts_only_admitted_ids(
     secret = _materialized_secret()
     head_anchor_payloads = _head_anchor_payloads()
     head_anchor_inputs = _materialized_head_anchor_inputs()
+    terminal_evidence = SupervisorTerminalEvidence(
+        state="exited",
+        exit_code=2,
+        status="fatal",
+        reason=EXPECTED_TERMINAL_REASON,
+    )
     events: list[str] = []
     observed: list[tuple[tuple[str, ...], dict[str, str]]] = []
 
@@ -2782,27 +2904,36 @@ def test_launcher_qualifies_before_secret_and_starts_only_admitted_ids(
         patch(
             "scripts.start_trusted_time_supervisor.cleanup_materialized_trusted_time_head_anchor_inputs"
         ) as cleanup_head_anchor,
-        patch(
-            "scripts.start_trusted_time_supervisor._compose_container_id",
-            return_value=SUPERVISOR_CONTAINER_ID,
+        patch.multiple(
+            "scripts.start_trusted_time_supervisor",
+            _compose_container_id=Mock(return_value=SUPERVISOR_CONTAINER_ID),
+            _wait_for_database_secret_consumption=Mock(),
+            _optional_stopped_supervisor_container_id=Mock(
+                side_effect=(None, SUPERVISOR_CONTAINER_ID)
+            ),
+            _capture_trusted_time_volume_identities=Mock(return_value=VOLUME_IDENTITIES),
+            _stop_created_topology=Mock(return_value=True),
+            _validate_unenrolled_admission_teardown=Mock(),
         ),
         patch(
             "scripts.start_trusted_time_supervisor._validate_mounted_staged_inputs"
         ) as validate_mounted,
-        patch("scripts.start_trusted_time_supervisor._wait_for_database_secret_consumption"),
         patch(
-            "scripts.start_trusted_time_supervisor.observe_unenrolled_supervisor_terminal"
+            "scripts.start_trusted_time_supervisor.observe_unenrolled_supervisor_terminal",
+            return_value=terminal_evidence,
         ) as observe_terminal,
         patch("scripts.start_trusted_time_supervisor._run_docker", side_effect=fake_run),
+        pytest.raises(TrustedTimeSupervisorTerminalObserved) as captured,
     ):
-        return_code = run_local_topology(
+        run_local_topology(
             env_file=env_file,
             approved_launch=_approved_launch(),
+            expect_unenrolled_fail_closed=True,
         )
 
-    assert return_code == 0
+    assert captured.value.evidence == terminal_evidence
     assert events.index("artifact-loaded") < events.index("runtime-configuration-loaded")
-    assert events.count("artifact-loaded") == 3
+    assert events.count("artifact-loaded") == 4
     load_configuration.assert_called_once_with(env_file)
     assert events.count("runtime-qualified") == 3
     assert events.count("compose-up") == 1
@@ -2812,7 +2943,7 @@ def test_launcher_qualifies_before_secret_and_starts_only_admitted_ids(
     assert validate_head_anchor.call_count == 2
     assert validate_mounted.call_count == 3
     assert validate_mounted.call_args_list[-1].kwargs["allow_retired_unreadable"] is True
-    observe_terminal.assert_not_called()
+    observe_terminal.assert_called_once()
     cleanup_secret.assert_called_once_with(secret)
     cleanup_head_anchor.assert_called_once_with(head_anchor_inputs)
     up_environment = next(environment for argv, environment in observed if argv == compose_argv())
@@ -3583,12 +3714,18 @@ def test_stale_socket_volume_stops_and_removes_unqualified_topology(tmp_path: Pa
                 "trusted-time socket volume is not the exact tmpfs contract"
             ),
         ),
+        patch(
+            "scripts.start_trusted_time_supervisor._optional_stopped_supervisor_container_id",
+            return_value=None,
+        ),
+        patch("scripts.start_trusted_time_supervisor._validate_unenrolled_admission_teardown"),
         patch("scripts.start_trusted_time_supervisor._run_docker", side_effect=fake_run),
         pytest.raises(TrustedTimeImageVerificationError, match="exact tmpfs contract"),
     ):
         run_local_topology(
             env_file=env_file,
             approved_launch=_approved_launch(),
+            expect_unenrolled_fail_closed=True,
         )
 
     assert "down" in calls[-1]
@@ -3679,6 +3816,7 @@ def test_daemon_identity_change_is_rejected_before_secret_load(tmp_path: Path) -
         run_local_topology(
             env_file=env_file,
             approved_launch=_approved_launch(),
+            expect_unenrolled_fail_closed=True,
         )
 
     load_configuration.assert_not_called()
@@ -3717,6 +3855,7 @@ def test_image_admission_swap_is_rejected_before_secret_load(tmp_path: Path) -> 
         run_local_topology(
             env_file=env_file,
             approved_launch=_approved_launch(),
+            expect_unenrolled_fail_closed=True,
         )
 
     load_configuration.assert_not_called()

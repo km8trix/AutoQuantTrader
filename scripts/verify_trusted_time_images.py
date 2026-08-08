@@ -168,6 +168,7 @@ _REVIEWED_FIXED_RELATIVE_PATHS = (
     "pyproject.toml",
     "scripts/bounded_subprocess.py",
     "scripts/credential_env.py",
+    "scripts/enroll_trusted_time_head_anchor.py",
     "scripts/inspect_trusted_time_qualification.py",
     "scripts/start_trusted_time_supervisor.py",
     "scripts/verify_trusted_time_compose.py",
@@ -2761,12 +2762,70 @@ def build_verify_and_write_image_admission(
     return admission
 
 
+def verify_and_write_existing_image_admission(
+    path: Path,
+    source_image_id: str,
+    supervisor_image_id: str,
+    *,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+) -> TrustedTimeImageAdmission:
+    """Freshly admit an already immutable pair without rebuilding either image."""
+
+    _absolute_artifact_path(path, ignored_root=ignored_root)
+    requested = TrustedTimeImageIdentities(
+        source_id=source_image_id,
+        supervisor_id=supervisor_image_id,
+    )
+    git_revision = _current_clean_git_revision()
+    docker_environment = _minimal_docker_environment()
+    before = reviewed_input_bindings()
+    validate_prebuild_compose_contract(
+        git_revision=git_revision,
+        docker_environment=docker_environment,
+    )
+    if reviewed_input_bindings() != before:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time reviewed input changed before existing-image admission"
+        )
+    verified = verify_images(
+        requested.source_id,
+        requested.supervisor_id,
+        docker_environment=docker_environment,
+    )
+    if verified != requested:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time existing image identities changed before admission"
+        )
+    if reviewed_input_bindings() != before or _current_clean_git_revision() != git_revision:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time reviewed input changed during existing-image admission"
+        )
+    admission = write_image_admission_artifact(
+        path,
+        verified,
+        git_revision=git_revision,
+        bindings=before,
+        ignored_root=ignored_root,
+    )
+    if reviewed_input_bindings() != before or _current_clean_git_revision() != git_revision:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time reviewed input changed during existing-image admission"
+        )
+    return admission
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--build",
         action="store_true",
         help="build and admit the fixed nonsecret targets",
+    )
+    mode.add_argument(
+        "--admit-existing",
+        action="store_true",
+        help="verify and freshly admit an exact existing immutable image pair",
     )
     parser.add_argument(
         "--artifact",
@@ -2774,7 +2833,7 @@ def main() -> None:
         default=DEFAULT_IMAGE_ADMISSION_ARTIFACT,
         help=(
             "absolute owner-only artifact path below the repository artifacts root; "
-            "used only with --build"
+            "used only with --build or --admit-existing"
         ),
     )
     parser.add_argument("source_image", nargs="?", default=SOURCE_IMAGE)
@@ -2784,14 +2843,33 @@ def main() -> None:
         arguments.source_image != SOURCE_IMAGE or arguments.supervisor_image != SUPERVISOR_IMAGE
     ):
         parser.error("--build is limited to the fixed Phase 6D build tags")
-    if not arguments.build and arguments.artifact != DEFAULT_IMAGE_ADMISSION_ARTIFACT:
-        parser.error("--artifact requires --build")
+    if arguments.admit_existing and (
+        _IMAGE_ID_PATTERN.fullmatch(arguments.source_image) is None
+        or _IMAGE_ID_PATTERN.fullmatch(arguments.supervisor_image) is None
+    ):
+        parser.error("--admit-existing requires two exact immutable image IDs")
+    if (
+        not arguments.build
+        and not arguments.admit_existing
+        and arguments.artifact != DEFAULT_IMAGE_ADMISSION_ARTIFACT
+    ):
+        parser.error("--artifact requires --build or --admit-existing")
     if arguments.build:
         admission = build_verify_and_write_image_admission(arguments.artifact)
         identities = admission.identities
         artifact_sha256: str | None = admission.artifact_sha256
         boot_session_id: str | None = admission.boot_session_id
         git_revision: str | None = admission.git_revision
+    elif arguments.admit_existing:
+        admission = verify_and_write_existing_image_admission(
+            arguments.artifact,
+            arguments.source_image,
+            arguments.supervisor_image,
+        )
+        identities = admission.identities
+        artifact_sha256 = admission.artifact_sha256
+        boot_session_id = admission.boot_session_id
+        git_revision = admission.git_revision
     else:
         identities = verify_images(arguments.source_image, arguments.supervisor_image)
         artifact_sha256 = None

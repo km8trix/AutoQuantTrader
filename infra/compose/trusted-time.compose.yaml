@@ -87,6 +87,46 @@ services:
     stop_grace_period: 40s
     restart: "no"
 
+  trusted-time-first-enrollment:
+    profiles:
+      - trusted-time-first-enrollment
+    image: ${AQT_TRUSTED_TIME_SUPERVISOR_IMAGE:?trusted-time supervisor image is required}
+    build:
+      context: ../..
+      dockerfile: infra/docker/trusted-time.Dockerfile
+      target: trusted-time-supervisor
+    command:
+      - /opt/venv/bin/autoquant-trusted-time-first-enrollment
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    cpus: 0.5
+    mem_limit: 256m
+    environment:
+      AQT_TRUSTED_TIME_DATABASE_URL_FILE: /run/secrets/trusted_time_database_url
+      AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_PATH: /etc/autoquant/trusted-time/head-anchor-authority.json
+      AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_FILE: /run/secrets/trusted_time_head_anchor_auth
+      AQT_TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_FILE: /run/secrets/trusted_time_head_anchor_signing_key
+    configs:
+      - source: trusted_time_head_anchor_authority
+        target: /etc/autoquant/trusted-time/head-anchor-authority.json
+    secrets:
+      - source: trusted_time_database_url
+        target: /run/secrets/trusted_time_database_url
+      - source: trusted_time_head_anchor_auth
+        target: /run/secrets/trusted_time_head_anchor_auth
+      - source: trusted_time_head_anchor_signing_key
+        target: /run/secrets/trusted_time_head_anchor_signing_key
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001,mode=0700
+    init: true
+    stop_grace_period: 40s
+    restart: "no"
+
 secrets:
   trusted_time_database_url:
     file: ${AQT_TRUSTED_TIME_DATABASE_SECRET_SOURCE_FILE:?trusted-time database secret file is required}

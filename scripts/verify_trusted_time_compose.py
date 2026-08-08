@@ -114,6 +114,8 @@ SOURCE_IMAGE = "autoquanttrader-trusted-time-source:phase6d-v1"
 SUPERVISOR_IMAGE = "autoquanttrader-trusted-time-supervisor:phase6d-v1"
 _SENTINEL_SOURCE_IMAGE = "sha256:" + "0" * 64
 _SENTINEL_SUPERVISOR_IMAGE = "sha256:" + "f" * 64
+_FIRST_ENROLLMENT_PROFILE = "trusted-time-first-enrollment"
+_FIRST_ENROLLMENT_COMMAND = "/opt/venv/bin/autoquant-trusted-time-first-enrollment"
 _MAXIMUM_COMPOSE_PAYLOAD_BYTES = 1_048_576
 _COMPOSE_RENDER_TIMEOUT_SECONDS = 15
 _MAXIMUM_DOCKER_ENVIRONMENT_VARIABLES = 64
@@ -147,6 +149,12 @@ _SUPERVISOR_SERVICE_KEYS = _COMMON_SERVICE_KEYS | {
     "configs",
     "depends_on",
     "environment",
+    "secrets",
+}
+_FIRST_ENROLLMENT_SERVICE_KEYS = (_COMMON_SERVICE_KEYS - {"volumes"}) | {
+    "configs",
+    "environment",
+    "profiles",
     "secrets",
 }
 _PASSTHROUGH_ENVIRONMENT = frozenset(
@@ -292,6 +300,7 @@ def _validate_common_service(
     *,
     expected_keys: frozenset[str],
     expected_stop_grace_period: str,
+    expected_command: list[str] | None = None,
 ) -> None:
     if set(service) != expected_keys:
         raise TrustedTimeComposeVerificationError("trusted-time service field allowlist drifted")
@@ -307,7 +316,7 @@ def _validate_common_service(
         raise TrustedTimeComposeVerificationError("trusted-time init wrapper is required")
     if service.get("stop_grace_period") != expected_stop_grace_period:
         raise TrustedTimeComposeVerificationError("trusted-time stop grace period drifted")
-    if service.get("command") is not None or service.get("entrypoint") is not None:
+    if service.get("command") != expected_command or service.get("entrypoint") is not None:
         raise TrustedTimeComposeVerificationError(
             "trusted-time image command and entrypoint cannot be overridden"
         )
@@ -356,9 +365,17 @@ def validate_compose_model(
     }:
         raise TrustedTimeComposeVerificationError("trusted-time network definition drifted")
     services = _mapping(root.get("services"), "Compose services")
-    if set(services) != {"chrony-nts", "trusted-time-supervisor"}:
+    if set(services) != {
+        "chrony-nts",
+        "trusted-time-first-enrollment",
+        "trusted-time-supervisor",
+    }:
         raise TrustedTimeComposeVerificationError("trusted-time service set drifted")
     source = _mapping(services["chrony-nts"], "Chrony service")
+    first_enrollment = _mapping(
+        services["trusted-time-first-enrollment"],
+        "first-enrollment service",
+    )
     supervisor = _mapping(services["trusted-time-supervisor"], "supervisor service")
     _validate_common_service(
         source,
@@ -370,42 +387,81 @@ def validate_compose_model(
         expected_keys=_SUPERVISOR_SERVICE_KEYS,
         expected_stop_grace_period="40s",
     )
+    _validate_common_service(
+        first_enrollment,
+        expected_keys=_FIRST_ENROLLMENT_SERVICE_KEYS,
+        expected_stop_grace_period="40s",
+        expected_command=[_FIRST_ENROLLMENT_COMMAND],
+    )
 
     if source.get("image") != expected_source_image:
         raise TrustedTimeComposeVerificationError("Chrony source image identity drifted")
-    if supervisor.get("image") != expected_supervisor_image:
+    if (
+        supervisor.get("image") != expected_supervisor_image
+        or first_enrollment.get("image") != expected_supervisor_image
+    ):
         raise TrustedTimeComposeVerificationError("supervisor image identity drifted")
-    if source.get("restart") != "unless-stopped" or supervisor.get("restart") != "no":
+    if (
+        source.get("restart") != "unless-stopped"
+        or supervisor.get("restart") != "no"
+        or first_enrollment.get("restart") != "no"
+    ):
         raise TrustedTimeComposeVerificationError("trusted-time restart policy drifted")
-    if source.get("pids_limit") != 32 or supervisor.get("pids_limit") != 64:
+    if (
+        source.get("pids_limit") != 32
+        or supervisor.get("pids_limit") != 64
+        or first_enrollment.get("pids_limit") != 64
+    ):
         raise TrustedTimeComposeVerificationError("trusted-time process limit drifted")
-    if source.get("mem_limit") not in {"67108864", 67_108_864} or supervisor.get(
-        "mem_limit"
-    ) not in {"268435456", 268_435_456}:
+    if (
+        source.get("mem_limit") not in {"67108864", 67_108_864}
+        or supervisor.get("mem_limit") not in {"268435456", 268_435_456}
+        or first_enrollment.get("mem_limit") not in {"268435456", 268_435_456}
+    ):
         raise TrustedTimeComposeVerificationError("trusted-time memory limit drifted")
-    if source.get("cpus") != 0.25 or supervisor.get("cpus") != 0.5:
+    if (
+        source.get("cpus") != 0.25
+        or supervisor.get("cpus") != 0.5
+        or first_enrollment.get("cpus") != 0.5
+    ):
         raise TrustedTimeComposeVerificationError("trusted-time CPU limit drifted")
-    if source.get("tmpfs") != [
-        "/tmp:rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0700"
-    ] or supervisor.get("tmpfs") != [
-        "/tmp:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001,mode=0700"
-    ]:
+    if (
+        source.get("tmpfs") != ["/tmp:rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0700"]
+        or supervisor.get("tmpfs")
+        != ["/tmp:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001,mode=0700"]
+        or first_enrollment.get("tmpfs")
+        != ["/tmp:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001,mode=0700"]
+    ):
         raise TrustedTimeComposeVerificationError("trusted-time temporary filesystem drifted")
 
     source_build = _mapping(source.get("build"), "Chrony build")
     supervisor_build = _mapping(supervisor.get("build"), "supervisor build")
+    first_enrollment_build = _mapping(
+        first_enrollment.get("build"),
+        "first-enrollment build",
+    )
     if source_build != {
         "context": str(ROOT),
         "dockerfile": "infra/docker/trusted-time.Dockerfile",
         "target": "chrony-source",
     }:
         raise TrustedTimeComposeVerificationError("Chrony build target drifted")
-    if supervisor_build != {
+    expected_supervisor_build = {
         "context": str(ROOT),
         "dockerfile": "infra/docker/trusted-time.Dockerfile",
         "target": "trusted-time-supervisor",
-    }:
+    }
+    if (
+        supervisor_build != expected_supervisor_build
+        or first_enrollment_build != expected_supervisor_build
+    ):
         raise TrustedTimeComposeVerificationError("supervisor build target drifted")
+
+    if first_enrollment.get("profiles") != [_FIRST_ENROLLMENT_PROFILE]:
+        raise TrustedTimeComposeVerificationError(
+            "first-enrollment service must remain disabled by default"
+        )
+    _require_absent(first_enrollment, "depends_on", "healthcheck", "ports", "volumes")
 
     healthcheck = _mapping(source.get("healthcheck"), "Chrony healthcheck")
     if healthcheck.get("test") != [
@@ -469,9 +525,7 @@ def validate_compose_model(
         raise TrustedTimeComposeVerificationError("Chrony state volume identity drifted")
 
     environment = _mapping(supervisor.get("environment"), "supervisor environment")
-    if environment != {
-        "AQT_TRUSTED_TIME_AUTHORITY_PATH": ("/etc/autoquant/trusted-time/source-authority.json"),
-        "AQT_TRUSTED_TIME_CHRONY_CONFIG_PATH": "/etc/autoquant/trusted-time/chrony.conf",
+    head_anchor_environment = {
         "AQT_TRUSTED_TIME_DATABASE_URL_FILE": "/run/secrets/trusted_time_database_url",
         "AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_PATH": (
             "/etc/autoquant/trusted-time/head-anchor-authority.json"
@@ -482,8 +536,19 @@ def validate_compose_model(
         "AQT_TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_FILE": (
             "/run/secrets/trusted_time_head_anchor_signing_key"
         ),
+    }
+    if environment != {
+        "AQT_TRUSTED_TIME_AUTHORITY_PATH": ("/etc/autoquant/trusted-time/source-authority.json"),
+        "AQT_TRUSTED_TIME_CHRONY_CONFIG_PATH": "/etc/autoquant/trusted-time/chrony.conf",
+        **head_anchor_environment,
     }:
         raise TrustedTimeComposeVerificationError("supervisor environment allowlist drifted")
+    first_enrollment_environment = _mapping(
+        first_enrollment.get("environment"),
+        "first-enrollment environment",
+    )
+    if first_enrollment_environment != head_anchor_environment:
+        raise TrustedTimeComposeVerificationError("first-enrollment environment allowlist drifted")
     _require_absent(source, "environment", "secrets")
 
     secrets = _mapping(root.get("secrets"), "Compose secrets")
@@ -502,8 +567,7 @@ def validate_compose_model(
         },
     }:
         raise TrustedTimeComposeVerificationError("database secret source drifted")
-    supervisor_secrets = _sequence(supervisor.get("secrets"), "supervisor secrets")
-    if supervisor_secrets != [
+    expected_head_anchor_secrets = [
         {
             "source": "trusted_time_database_url",
             "target": "/run/secrets/trusted_time_database_url",
@@ -516,7 +580,16 @@ def validate_compose_model(
             "source": "trusted_time_head_anchor_signing_key",
             "target": "/run/secrets/trusted_time_head_anchor_signing_key",
         },
-    ]:
+    ]
+    supervisor_secrets = _sequence(supervisor.get("secrets"), "supervisor secrets")
+    first_enrollment_secrets = _sequence(
+        first_enrollment.get("secrets"),
+        "first-enrollment secrets",
+    )
+    if (
+        supervisor_secrets != expected_head_anchor_secrets
+        or first_enrollment_secrets != expected_head_anchor_secrets
+    ):
         raise TrustedTimeComposeVerificationError("supervisor secret mount drifted")
 
     configs = _mapping(root.get("configs"), "Compose configs")
@@ -529,16 +602,24 @@ def validate_compose_model(
         raise TrustedTimeComposeVerificationError(
             "trusted-time head-anchor authority source drifted"
         )
-    supervisor_configs = _sequence(
-        supervisor.get("configs"),
-        "supervisor configs",
-    )
-    if supervisor_configs != [
+    expected_head_anchor_configs = [
         {
             "source": "trusted_time_head_anchor_authority",
             "target": ("/etc/autoquant/trusted-time/head-anchor-authority.json"),
         }
-    ]:
+    ]
+    supervisor_configs = _sequence(
+        supervisor.get("configs"),
+        "supervisor configs",
+    )
+    first_enrollment_configs = _sequence(
+        first_enrollment.get("configs"),
+        "first-enrollment configs",
+    )
+    if (
+        supervisor_configs != expected_head_anchor_configs
+        or first_enrollment_configs != expected_head_anchor_configs
+    ):
         raise TrustedTimeComposeVerificationError("supervisor head-anchor authority mount drifted")
 
     depends_on = _mapping(supervisor.get("depends_on"), "supervisor dependencies")
@@ -579,6 +660,8 @@ def render_compose_model(
                 (
                     "docker",
                     "compose",
+                    "--profile",
+                    _FIRST_ENROLLMENT_PROFILE,
                     "--env-file",
                     str(DEFAULTS_PATH),
                     "-f",
@@ -612,6 +695,8 @@ def render_compose_model(
                 (
                     "docker",
                     "compose",
+                    "--profile",
+                    _FIRST_ENROLLMENT_PROFILE,
                     "--env-file",
                     os.devnull,
                     "--project-directory",

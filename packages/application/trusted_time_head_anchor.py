@@ -3441,6 +3441,80 @@ def prepare_bounded_trusted_time_head_anchor_reconciliation(
     )
 
 
+def verify_bounded_first_enrollment_remote_postcondition(
+    authenticated_journal_tip: AuthenticatedTrustedTimeHeadJournalTip,
+    *,
+    provider: TrustedTimeHeadAnchorProvider,
+    verifier: TrustedTimeHeadAnchorEd25519Verifier,
+    signing_key_id: str,
+    signing_public_key_sha256: str,
+    checkpoint_interval_seconds: int,
+    anchor_authority_sha256: str,
+) -> str:
+    """Reauthenticate an exact one-object enrollment namespace without signing."""
+
+    if type(authenticated_journal_tip) is not AuthenticatedTrustedTimeHeadJournalTip:
+        raise TrustedTimeHeadAnchorError(
+            "trusted-time enrollment postcondition requires an authenticated journal tip"
+        )
+    authenticated_journal_tip.__post_init__()
+    tip = authenticated_journal_tip
+    terminal = tip.confirmed_anchor_tip
+    if tip.confirmed_anchor_count != 1 or terminal is None or terminal.anchor_sequence != 1:
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time enrollment postcondition requires exactly sequence one"
+        )
+    if terminal.checkpoint_reason is not TrustedTimeHeadAnchorCheckpointReason.ENROLLMENT:
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time enrollment postcondition reason conflicts"
+        )
+    authority_sha256 = _require_sha256(
+        anchor_authority_sha256,
+        "trusted-time anchor authority SHA-256",
+    )
+    key_id = _require_text(signing_key_id, "trusted-time anchor signing-key ID")
+    public_key_sha256 = _require_sha256(
+        signing_public_key_sha256,
+        "trusted-time anchor signing public-key SHA-256",
+    )
+    if (
+        type(checkpoint_interval_seconds) is not int
+        or checkpoint_interval_seconds != TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS
+        or terminal.signing_key_id != key_id
+        or terminal.signing_public_key_sha256 != public_key_sha256
+        or terminal.checkpoint_interval_seconds != checkpoint_interval_seconds
+        or terminal.anchor_authority_sha256 != authority_sha256
+    ):
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time enrollment postcondition crosses admitted authority"
+        )
+    current = tip.current_transition
+    _attest_provider_identity(provider, transition=current)
+    prefix = trusted_time_head_anchor_object_prefix(
+        deployment_identity_sha256=current.deployment_identity_sha256,
+        host_id=current.host_id,
+    )
+    remote = _audit_remote_records_bounded(
+        provider,
+        current_transition=current,
+        prefix=prefix,
+        signing_key_id=key_id,
+        signing_public_key_sha256=public_key_sha256,
+        checkpoint_interval_seconds=checkpoint_interval_seconds,
+        anchor_authority_sha256=authority_sha256,
+        verifier=verifier,
+    )
+    if (
+        remote.record_count != 1
+        or remote.first_record != terminal
+        or remote.terminal_record != terminal
+    ):
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time enrollment postcondition conflicts with exact remote sequence one"
+        )
+    return remote.namespace_sha256
+
+
 def prepare_incremental_trusted_time_head_anchor_reconciliation(
     authenticated_journal_tip: AuthenticatedTrustedTimeHeadJournalTip,
     *,

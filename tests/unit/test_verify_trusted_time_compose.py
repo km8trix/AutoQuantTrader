@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -293,6 +294,55 @@ def _model() -> dict[str, object]:
         ],
         "depends_on": {"chrony-nts": {"condition": "service_healthy", "required": True}},
     }
+    first_enrollment = {
+        **_common(),
+        "image": "autoquanttrader-trusted-time-supervisor:phase6d-v1",
+        "restart": "no",
+        "stop_grace_period": "40s",
+        "pids_limit": 64,
+        "mem_limit": "268435456",
+        "cpus": 0.5,
+        "tmpfs": ["/tmp:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001,mode=0700"],
+        "build": {
+            "context": str(Path(__file__).resolve().parents[2]),
+            "dockerfile": "infra/docker/trusted-time.Dockerfile",
+            "target": "trusted-time-supervisor",
+        },
+        "command": ["/opt/venv/bin/autoquant-trusted-time-first-enrollment"],
+        "profiles": ["trusted-time-first-enrollment"],
+        "environment": {
+            "AQT_TRUSTED_TIME_DATABASE_URL_FILE": "/run/secrets/trusted_time_database_url",
+            "AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_PATH": (
+                "/etc/autoquant/trusted-time/head-anchor-authority.json"
+            ),
+            "AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_FILE": (
+                "/run/secrets/trusted_time_head_anchor_auth"
+            ),
+            "AQT_TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_FILE": (
+                "/run/secrets/trusted_time_head_anchor_signing_key"
+            ),
+        },
+        "configs": [
+            {
+                "source": "trusted_time_head_anchor_authority",
+                "target": "/etc/autoquant/trusted-time/head-anchor-authority.json",
+            }
+        ],
+        "secrets": [
+            {
+                "source": "trusted_time_database_url",
+                "target": "/run/secrets/trusted_time_database_url",
+            },
+            {
+                "source": "trusted_time_head_anchor_auth",
+                "target": "/run/secrets/trusted_time_head_anchor_auth",
+            },
+            {
+                "source": "trusted_time_head_anchor_signing_key",
+                "target": "/run/secrets/trusted_time_head_anchor_signing_key",
+            },
+        ],
+    }
     return {
         "name": "autoquanttrader-trusted-time",
         "networks": {
@@ -303,6 +353,7 @@ def _model() -> dict[str, object]:
         },
         "services": {
             "chrony-nts": source,
+            "trusted-time-first-enrollment": first_enrollment,
             "trusted-time-supervisor": supervisor,
         },
         "secrets": {
@@ -347,6 +398,62 @@ def _service(model: dict[str, object], service_name: str) -> dict[str, object]:
 
 def test_compose_model_accepts_exact_isolated_local_contract() -> None:
     validate_compose_model(_model())
+
+
+def test_first_enrollment_service_requires_explicit_profile_and_no_chrony_dependency() -> None:
+    model = _model()
+    first_enrollment = _service(model, "trusted-time-first-enrollment")
+
+    assert first_enrollment["profiles"] == ["trusted-time-first-enrollment"]
+    assert first_enrollment["command"] == ["/opt/venv/bin/autoquant-trusted-time-first-enrollment"]
+    assert "depends_on" not in first_enrollment
+    assert "volumes" not in first_enrollment
+    validate_compose_model(model)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("profiles", []),
+        ("profiles", ["other-profile"]),
+        ("command", None),
+        ("command", ["autoquant-trusted-time-supervisor"]),
+        ("depends_on", {"chrony-nts": {"condition": "service_healthy"}}),
+        (
+            "volumes",
+            [
+                {
+                    "type": "volume",
+                    "source": "chrony_command_socket",
+                    "target": "/run/chrony",
+                    "volume": {"nocopy": True},
+                }
+            ],
+        ),
+    ],
+)
+def test_compose_model_rejects_first_enrollment_activation_or_chrony_drift(
+    field_name: str,
+    value: object,
+) -> None:
+    model = _model()
+    _service(model, "trusted-time-first-enrollment")[field_name] = value
+
+    with pytest.raises(TrustedTimeComposeVerificationError):
+        validate_compose_model(model)
+
+
+def test_first_enrollment_console_scripts_use_dedicated_entry_points() -> None:
+    project = tomllib.loads(
+        (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]
+
+    assert project["scripts"]["autoquant-trusted-time-first-enrollment"] == (
+        "apps.trusted_time_supervisor.first_enrollment:main"
+    )
+    assert project["scripts"]["autoquant-trusted-time-first-enrollment-release"] == (
+        "apps.trusted_time_supervisor.first_enrollment:release_main"
+    )
 
 
 def test_compose_renderer_uses_only_nonsecret_docker_environment(
@@ -428,6 +535,8 @@ def test_frozen_compose_renderer_uses_exact_payload_and_environment(
     assert observed["argv"] == (
         "docker",
         "compose",
+        "--profile",
+        "trusted-time-first-enrollment",
         "--env-file",
         os.devnull,
         "--project-directory",
@@ -558,6 +667,7 @@ def test_compose_model_accepts_only_the_expected_parameterized_image_pair() -> N
     supervisor_id = "sha256:" + "2" * 64
     _service(model, "chrony-nts")["image"] = source_id
     _service(model, "trusted-time-supervisor")["image"] = supervisor_id
+    _service(model, "trusted-time-first-enrollment")["image"] = supervisor_id
 
     validate_compose_model(
         model,
@@ -584,6 +694,12 @@ def test_compose_model_accepts_only_the_expected_parameterized_image_pair() -> N
         ("trusted-time-supervisor", "privileged", True),
         ("trusted-time-supervisor", "entrypoint", ["/bin/sh"]),
         ("trusted-time-supervisor", "pre_stop", [{"command": "/bin/true"}]),
+        ("trusted-time-first-enrollment", "user", "0:0"),
+        ("trusted-time-first-enrollment", "read_only", False),
+        ("trusted-time-first-enrollment", "restart", "on-failure"),
+        ("trusted-time-first-enrollment", "privileged", True),
+        ("trusted-time-first-enrollment", "ports", ["8080:8080"]),
+        ("trusted-time-first-enrollment", "entrypoint", ["/bin/sh"]),
     ],
 )
 def test_compose_model_rejects_privilege_or_isolation_drift(
@@ -627,6 +743,32 @@ def test_compose_model_rejects_database_secret_or_environment_expansion() -> Non
     mounted = cast(list[dict[str, object]], supervisor["secrets"])[0]
     mounted["mode"] = "0444"
     with pytest.raises(TrustedTimeComposeVerificationError, match="secret mount"):
+        validate_compose_model(model)
+
+
+def test_compose_model_rejects_first_enrollment_input_expansion_or_mount_drift() -> None:
+    model = _model()
+    first_enrollment = _service(model, "trusted-time-first-enrollment")
+    environment = cast(dict[str, object], first_enrollment["environment"])
+    environment["AQT_TRUSTED_TIME_CHRONY_CONFIG_PATH"] = "/etc/autoquant/trusted-time/chrony.conf"
+
+    with pytest.raises(TrustedTimeComposeVerificationError, match="environment allowlist"):
+        validate_compose_model(model)
+
+    model = _model()
+    first_enrollment = _service(model, "trusted-time-first-enrollment")
+    mounted_secret = cast(list[dict[str, object]], first_enrollment["secrets"])[0]
+    mounted_secret["target"] = "/tmp/database-url"
+
+    with pytest.raises(TrustedTimeComposeVerificationError, match="secret mount"):
+        validate_compose_model(model)
+
+    model = _model()
+    first_enrollment = _service(model, "trusted-time-first-enrollment")
+    mounted_config = cast(list[dict[str, object]], first_enrollment["configs"])[0]
+    mounted_config["target"] = "/tmp/head-anchor-authority.json"
+
+    with pytest.raises(TrustedTimeComposeVerificationError, match="authority mount"):
         validate_compose_model(model)
 
 

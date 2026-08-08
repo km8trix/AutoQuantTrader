@@ -110,7 +110,8 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0094: Separate-Supabase signed sparse trusted-time head checkpoints](0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md)
   (migration 0036, separate-project provisioning, and the v2 SELECT-policy
   correction are applied; same-object proof resume and first external enrollment
-  remain separately approval-gated)
+  remain separately approval-gated, with the dormant one-shot enrollment and
+  recovery boundary defined by ADR 0097)
 - [ADR 0095: Dormant provider-neutral trusted-head watchdog state](0095-dormant-provider-neutral-trusted-head-watchdog-state.md)
   (pure preparatory reducer only; raw observations remain unqualified, while
   provisioning, first enrollment, a sealed terminal issuer, deployment, and
@@ -119,5 +120,11 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   (selects the future live venue only; sandbox is protocol-only, all Alpaca
   artifacts remain historical, and implementation, credentials, and live
   activation remain gated)
+- [ADR 0097: Approval-bound first trusted-time enrollment and recovery](0097-approval-bound-first-trusted-time-enrollment.md)
+  (dedicated profile-only one-shot operator; implementation is dormant and
+  `UNRUN`, normal supervision still denies enrollment, and execution requires
+  new post-merge images, fresh unenrolled admission, and a fresh exact
+  single-use approval; any retained claim quarantines normal start/admission
+  until a later exact-outcome-bound start change is separately reviewed)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
