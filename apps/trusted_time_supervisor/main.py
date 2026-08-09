@@ -36,6 +36,9 @@ from apps.trusted_time_supervisor.head_anchor_config import (
 from apps.trusted_time_supervisor.head_anchor_worker import (
     TrustedTimeHeadAnchorBackgroundWorker,
 )
+from apps.trusted_time_supervisor.post_enrollment_release import (
+    wait_for_post_enrollment_start_release,
+)
 from packages.adapters.trusted_time import (
     ChronyNtsAuthority,
     ChronyNtsTrustedTimeSource,
@@ -517,6 +520,7 @@ def main() -> None:
             secret_owner_uid=os.geteuid(),
         )
         _record_database_secret_consumed()
+        wait_for_post_enrollment_start_release()
         previous_handlers = _install_stop_handlers(stop_event)
         result = run_service_with_production_head_anchor(
             authority=authority,

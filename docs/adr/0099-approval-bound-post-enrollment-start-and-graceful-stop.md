@@ -1,6 +1,7 @@
 # ADR 0099: Approval-bound post-enrollment start and graceful stop
 
-- Status: Accepted (contract and read-only reauthentication only; execution blocked)
+- Status: Accepted (contract, dormant durable claim, and in-container barrier only;
+  host execution blocked)
 - Date: 2026-08-08
 - Extends: [ADR 0098](0098-canonical-post-enrollment-start-evidence-review.md)
 
@@ -85,24 +86,34 @@ volumes. It must never use `down --volumes`. Any uncertain clean-stop or
 teardown result is retained as nonconfirmed evidence and requires review, not
 an automatic stop retry.
 
-This change implements only dependency-neutral, non-authorizing approval,
-claim, reauthentication, successor-candidate, and unconfirmed-outcome
-projections plus the reusable read-only sequence-1 observation path. The pure
-projections do not attest an approver, prove durable retention, or seal runtime
-provenance; a later release consumer must require those separately implemented
-facts. This slice exposes no
-start or stop CLI, writes no start/stop claim or outcome, creates no release
-marker, and does not access an environment, database, provider, Docker daemon,
-or retained production artifact. `trusted-time-start` and shutdown remain hard
-closed. Building and executing the staged protocol requires a later exact
+The implementation now contains the dependency-neutral, non-authorizing
+approval, claim, reauthentication, successor-candidate, and unconfirmed-outcome
+projections plus the reusable read-only sequence-1 observation path. It also
+contains two independently fail-closed primitives:
+
+- a dormant owner-only mode-`0600`, `O_EXCL`, fsync-confirmed retained-claim
+  writer that preserves the exact claim bytes and inode identity without
+  granting release, sequence-2, shutdown, control, or trading authority; and
+- an atomically published, fixed in-container release-marker writer/reader and
+  bounded waiter. The normal supervisor waits after staged inputs are loaded
+  and marked consumed, but before signal-handler installation, SQL engine or
+  provider composition, epoch registration, signing, or provider access.
+
+No supported host launcher calls the claim writer or publishes the release
+marker. There is no staged-topology controller, retained-evidence/approval
+wiring, `docker exec` release, confirmed start outcome, or graceful-stop
+operator. `trusted-time-start` and shutdown remain hard closed. Building and
+executing the remaining protocol requires a later exact
 revision/image/admission tuple and separate operational approval.
 
 ## Consequences
 
-The next runtime implementation has an explicit mutation point and crash
-classification instead of treating container creation as authorization or
-success. The already-retained enrollment evidence remains historical proof;
-it is never rewritten, deleted, or used as an implicit start permit.
+The runtime now has an explicit pre-mutation barrier, and the dormant claim
+writer freezes the required exclusive durability semantics. Neither primitive
+connects approval to a staged container, so container creation and marker
+capability still are not authorization or success. The already-retained
+enrollment evidence remains historical proof; it is never rewritten, deleted,
+or used as an implicit start permit.
 
 No sequence 2, persistent topology, `clean_stop`, provider-terminal observer,
 watchdog deployment, readiness, alert delivery, new-exposure gate, trading

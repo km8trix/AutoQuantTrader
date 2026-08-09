@@ -56,6 +56,16 @@ ROOT = Path(__file__).resolve().parents[2]
 BASE = datetime(2026, 7, 31, 18, 0, tzinfo=UTC)
 
 
+@pytest.fixture(autouse=True)
+def _released_post_enrollment_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep existing service tests focused beyond the separately tested barrier."""
+
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.wait_for_post_enrollment_start_release",
+        lambda: None,
+    )
+
+
 def _authority() -> TrustedTimeDeploymentAuthority:
     return decode_trusted_time_authority(
         (ROOT / "infra" / "trusted-time" / "source-authority.json").read_bytes(),
@@ -613,6 +623,112 @@ def test_main_sanitizes_configuration_failure_without_echoing_detail(
     payload = json.loads(output.out)
     assert payload["status"] == "fatal"
     assert payload["reason"] == "configuration_rejected"
+    assert "secret" not in output.out
+    assert output.err == ""
+
+
+def test_main_waits_after_input_consumption_and_before_runtime_composition(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    authority = _authority()
+    configuration = object.__new__(TrustedTimeHeadAnchorRuntimeConfiguration)
+    events: list[str] = []
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main._require_fixed_runtime_paths",
+        lambda: events.append("fixed_paths"),
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.load_trusted_time_authority",
+        lambda: events.append("authority") or authority,
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.load_database_url_secret",
+        lambda: events.append("database_secret") or "postgresql+psycopg://db/runtime",
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.load_trusted_time_head_anchor_runtime_configuration",
+        lambda **_: events.append("anchor_inputs") or configuration,
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main._record_database_secret_consumed",
+        lambda: events.append("inputs_consumed"),
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.wait_for_post_enrollment_start_release",
+        lambda: events.append("release"),
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main._install_stop_handlers",
+        lambda _: events.append("handlers") or {},
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.run_service_with_production_head_anchor",
+        lambda **_: (
+            events.append("runtime") or TrustedTimeSupervisorResult(probe_count=0, last_event=None)
+        ),
+    )
+
+    main()
+
+    assert events == [
+        "fixed_paths",
+        "authority",
+        "database_secret",
+        "anchor_inputs",
+        "inputs_consumed",
+        "release",
+        "handlers",
+        "runtime",
+    ]
+    assert json.loads(capsys.readouterr().out)["status"] == "stopped"
+
+
+def test_release_failure_prevents_every_runtime_mutation_and_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    authority = _authority()
+    configuration = object.__new__(TrustedTimeHeadAnchorRuntimeConfiguration)
+    consumed = Mock()
+    runtime = Mock(side_effect=AssertionError("runtime crossed release barrier"))
+    handlers = Mock(side_effect=AssertionError("handlers installed before release"))
+    monkeypatch.setattr("apps.trusted_time_supervisor.main._require_fixed_runtime_paths", Mock())
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.load_trusted_time_authority",
+        Mock(return_value=authority),
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.load_database_url_secret",
+        Mock(return_value="postgresql+psycopg://db/runtime"),
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.load_trusted_time_head_anchor_runtime_configuration",
+        Mock(return_value=configuration),
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main._record_database_secret_consumed",
+        consumed,
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.wait_for_post_enrollment_start_release",
+        Mock(side_effect=TrustedTimeSupervisorConfigurationError("secret marker tamper detail")),
+    )
+    monkeypatch.setattr("apps.trusted_time_supervisor.main._install_stop_handlers", handlers)
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.run_service_with_production_head_anchor",
+        runtime,
+    )
+
+    with pytest.raises(SystemExit) as captured:
+        main()
+
+    assert captured.value.code == 2
+    consumed.assert_called_once_with()
+    handlers.assert_not_called()
+    runtime.assert_not_called()
+    output = capsys.readouterr()
+    assert json.loads(output.out)["reason"] == "configuration_rejected"
     assert "secret" not in output.out
     assert output.err == ""
 

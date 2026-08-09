@@ -559,10 +559,13 @@ normal supervision or sequence 2.
 8. **In progress.** Use ADR 0098's pure exact claim/outcome decoder and
    non-authorizing old-evidence/new-target review projection with ADR 0099's
    single-use start/graceful-stop contract and read-only sequence-1
-   reauthentication. No staged release, claim writer, confirmed start outcome,
-   or shutdown operator exists yet. Do not run normal supervision or create
-   sequence 2 until the exact later boundary is implemented, admitted, and
-   approved.
+   reauthentication. The code-only boundary now includes a dormant durable
+   owner-only start-claim writer and an atomically published, fixed in-container
+   pre-mutation release barrier. No supported host launcher invokes either
+   primitive; no staged host
+   orchestration, confirmed start outcome, or shutdown operator exists yet. Do
+   not run normal supervision or create sequence 2 until the remaining exact
+   boundary is implemented, admitted, and approved.
 
 Administrator/provider access can bypass these writer policies. Record that
 the result is same-provider and potentially same-admin evidence, not WORM or
@@ -580,6 +583,18 @@ is not an offline operation:
 make trusted-time-compose-check
 make trusted-time-images
 ```
+
+The 2026-08-09 secretless run from exact merged revision
+`0fc52b17ef50d597ed40bd8dd6b5ca4fdf6c3523` passed and retained artifact
+SHA-256 `1187b1f46357aa2074a71c3654faca82bc77f6d5941464c86a91fdc144f146de`,
+source image
+`sha256:a1e8f25e76874b092c863b41a4bc11187b623885fc51260dd23cf6d6acf604e9`,
+and supervisor image
+`sha256:4954613be6d192cc315bfae614ee3944003c7124fc48d1d3408b3dcb41c8547c`.
+That tuple records `authority_granted=false` and
+`new_exposure_authorized=false` and predates the staged-release code. Treat it
+only as historical build evidence. Rebuild after the barrier revision is
+merged before requesting any operational approval.
 
 These targets use a fresh locked, offline uv environment rather than the
 repository `.venv`, then require isolated Python, disabled bytecode writes, a
@@ -1164,9 +1179,12 @@ runtime environment nor satisfies the separately approved runtime boundary.
 
 ADR 0099 freezes that later boundary's single-use approval/claim/outcome,
 fresh SQL and bounded full-remote sequence-1 reauthentication, exact sequence-2
-`epoch_rotation`, crash, and supervisor-first `clean_stop` rules. Only its pure
-and read-only components exist. It publishes no release marker, writes no
-start/stop claim, and does not authorize the current lifecycle commands.
+`epoch_rotation`, crash, and supervisor-first `clean_stop` rules. Its current
+code-only implementation includes a dormant `O_EXCL`/fsync retained-start-claim
+writer and an atomically published exact in-container release-marker barrier.
+The supervisor cannot compose SQL/provider runtime state until that marker is
+present, but no supported host command can retain the claim or publish the
+marker. The current lifecycle commands remain hard closed.
 
 The hard closure is unconditional in this phase: persistent start is rejected
 even before claim lookup. The retained-claim check remains defense in depth,

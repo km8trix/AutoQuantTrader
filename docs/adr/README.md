@@ -130,7 +130,8 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0099: Approval-bound post-enrollment start and graceful stop](0099-approval-bound-post-enrollment-start-and-graceful-stop.md)
   (freezes the single-use start/claim/outcome, fresh sequence-1
   reauthentication, sequence-2, crash, and supervisor-first stop contracts;
-  only pure/read-only pieces are implemented and both lifecycle commands stay
-  hard-closed)
+  the dormant durable claim primitive and in-container pre-mutation barrier are
+  implemented, while host orchestration and both lifecycle commands remain
+  hard closed)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

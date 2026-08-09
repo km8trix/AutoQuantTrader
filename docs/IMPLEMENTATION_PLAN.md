@@ -2561,11 +2561,13 @@ proposed later start tuple. Persistent start, sequence 2, and shutdown remain
 hard-closed pending the separately reviewed runtime binding. ADR 0099 freezes
 the single-use operation, fresh sequence-1 reauthentication, exact sequence-2
 `epoch_rotation`, crash, confirmed-outcome, and supervisor-first `clean_stop`
-contracts. Its current implementation is limited to dependency-neutral
-evidence types and a reusable read-only SQL/remote postcondition; it writes no
-claim, creates no topology, and releases no runtime. Only after that
-boundary is implemented and approved may a sealed
-provider-terminal observer authenticate the complete new suffix, bind two
+contracts. Its current code-only implementation also adds a dormant durable
+owner-only retained-claim primitive and a fixed, bounded in-container
+pre-mutation release barrier. No supported host launcher invokes either
+primitive: it creates no staged topology, publishes no release marker, confirms
+no sequence 2, and leaves persistent start and shutdown hard closed. Only after
+the remaining boundary is implemented, admitted, and separately approved may
+a sealed provider-terminal observer authenticate the complete new suffix, bind two
 stable namespace passes to their exact digest/count/terminal identity, prove
 that no higher sequence exists, and capture its own independent monotonic
 instant. That future deployed runtime, not dormant v1, must apply the
@@ -2644,14 +2646,26 @@ unavailable before any watchdog consumer is designed or qualified. See
   fail-closed unenrolled receipt, exact single-use approval, and confirmed
   ADR-0097 `new` enrollment on 2026-08-08. The retained owner-only evidence
   proves sequence 1 and no sequence 2; normal-supervisor enrollment remains
-  hard-disabled. ADR 0098 implements only the pure canonical decoder,
-  unambiguous owner-only loader, and non-authorizing old-evidence/new-target
-  review projection. ADR 0099 defines the exact single-use start and graceful-
-  stop lifecycle and adds only pure/read-only reauthentication components.
-  Any retained enrollment claim still blocks normal start and
+  hard-disabled. A fresh secretless image build/admission from exact merged
+  revision `0fc52b17ef50d597ed40bd8dd6b5ca4fdf6c3523` passed on 2026-08-09.
+  Its non-authorizing artifact SHA-256
+  `1187b1f46357aa2074a71c3654faca82bc77f6d5941464c86a91fdc144f146de`
+  binds source image
+  `sha256:a1e8f25e76874b092c863b41a4bc11187b623885fc51260dd23cf6d6acf604e9`
+  and supervisor image
+  `sha256:4954613be6d192cc315bfae614ee3944003c7124fc48d1d3408b3dcb41c8547c`.
+  That tuple predates the staged-release code and is historical build evidence,
+  not an approval or usable admission for a later revision. ADR 0098 implements
+  only the pure canonical decoder, unambiguous owner-only loader, and non-
+  authorizing old-evidence/new-target review projection. ADR 0099 defines the
+  exact single-use start and graceful-stop lifecycle and now adds the dormant
+  durable retained-claim primitive and the in-container pre-mutation release
+  barrier in addition to its pure/read-only components. Any retained enrollment
+  claim still blocks normal start and
   unenrolled admission; the confirmed outcome requires a later exact-outcome-
-  bound staged-release implementation, fresh image admission, and exact
-  operational approval before the normal worker may create sequence 2.
+  bound host orchestration implementation, a fresh image admission built from
+  the merged barrier revision, and exact operational approval before the normal
+  worker may create sequence 2.
   Complete that boundary before adding an
   independent watchdog, readiness,
   final new-exposure, alert, and exact-head manual re-arm consumers. The local

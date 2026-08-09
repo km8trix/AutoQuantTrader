@@ -454,6 +454,9 @@ def test_first_enrollment_console_scripts_use_dedicated_entry_points() -> None:
     assert project["scripts"]["autoquant-trusted-time-first-enrollment-release"] == (
         "apps.trusted_time_supervisor.first_enrollment:release_main"
     )
+    assert project["scripts"]["autoquant-trusted-time-post-enrollment-release"] == (
+        "apps.trusted_time_supervisor.post_enrollment_release:release_main"
+    )
 
 
 def test_compose_renderer_uses_only_nonsecret_docker_environment(
