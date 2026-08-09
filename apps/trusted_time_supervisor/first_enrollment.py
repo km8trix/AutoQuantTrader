@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -11,7 +10,6 @@ import stat
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import StrEnum
 
 from sqlalchemy import Engine
 
@@ -44,20 +42,20 @@ from packages.application.trusted_time_head_anchor_worker import (
     TrustedTimeHeadAnchorFatalFailure,
     TrustedTimeHeadAnchorTransientFailure,
 )
+from packages.domain.trusted_time_enrollment_evidence import (
+    TRUSTED_TIME_FIRST_ENROLLMENT_CONTRACT_VERSION,
+    TrustedTimeEnrollmentEvidenceError,
+    TrustedTimeFirstEnrollmentOperationMode,
+    trusted_time_first_enrollment_identity_sha256,
+)
 from packages.persistence.database import verify_operational_schema
 from packages.persistence.trusted_time_head_anchor import SqlTrustedTimeHeadAnchorRepository
 
-TRUSTED_TIME_FIRST_ENROLLMENT_CONTRACT_VERSION = "phase6d-one-shot-trusted-time-first-enrollment-v1"
 FIRST_ENROLLMENT_RELEASE_PATH = "/tmp/first-enrollment-release"
 FIRST_ENROLLMENT_RELEASE_WAIT_SECONDS = 120.0
 FIRST_ENROLLMENT_RELEASE_POLL_SECONDS = 0.1
 _NEW_RELEASE_BYTES = b"phase6d-one-shot-first-enrollment-release-new-v1\n"
 _RECOVERY_RELEASE_BYTES = b"phase6d-one-shot-first-enrollment-release-recovery-v1\n"
-
-
-class TrustedTimeFirstEnrollmentOperationMode(StrEnum):
-    NEW = "new"
-    RECOVER_PENDING = "recover_pending"
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,28 +101,15 @@ _AUTHORITY_FIELDS = (
 def first_enrollment_identity_sha256(*, kind: str, value: str) -> str:
     """Hash one nonsecret identity with an exact domain-separated label."""
 
-    if (
-        type(kind) is not str
-        or kind not in {"bucket", "host", "principal"}
-        or type(value) is not str
-        or not value
-        or value != value.strip()
-        or any(ord(character) < 32 or ord(character) == 127 for character in value)
-    ):
+    try:
+        return trusted_time_first_enrollment_identity_sha256(
+            kind=kind,
+            value=value,
+        )
+    except TrustedTimeEnrollmentEvidenceError:
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time first enrollment identity binding is invalid"
-        )
-    digest = hashlib.sha256()
-    for item in (
-        TRUSTED_TIME_FIRST_ENROLLMENT_CONTRACT_VERSION,
-        "trusted_time_first_enrollment_identity",
-        kind,
-        value,
-    ):
-        encoded = item.encode("utf-8", errors="strict")
-        digest.update(len(encoded).to_bytes(8, "big"))
-        digest.update(encoded)
-    return digest.hexdigest()
+        ) from None
 
 
 def _release_bytes(mode: TrustedTimeFirstEnrollmentOperationMode) -> bytes:

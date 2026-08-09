@@ -1,6 +1,6 @@
 # ADR 0097: Approval-bound first trusted-time enrollment and recovery
 
-- Status: Accepted (implemented, dormant, and unrun)
+- Status: Accepted (implemented; first `new` enrollment confirmed 2026-08-08)
 - Date: 2026-08-08
 - Extends: [ADR 0094](0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md)
 
@@ -235,14 +235,13 @@ the only sequence-1 mutation is isolated behind a single-use, exact-identity,
 one-shot contract. Fresh enrollment and ambiguous-completion recovery cannot be
 confused, and the operator cannot run long enough to create sequence 2.
 
-The implementation is dormant and `UNRUN`. This ADR, its local tests, the
-Compose profile, launcher, and Make targets are not enrollment evidence and do
-not authorize execution. After these changes merge, operators must build new
-images from that exact merged revision, retain and review a new
-content-addressed image admission, obtain a fresh fail-closed unenrolled
-admission receipt for that exact tuple, and then obtain a new exact approval
-for one operation mode. Every earlier image or unenrolled-admission receipt is
-ineligible for this post-merge implementation tuple.
+The implementation landed and its first separately approved `new` operation
+confirmed on 2026-08-08. The owner-only immutable claim and content-addressed
+outcome are retained locally; the result proves sequence 1 with reason
+`enrollment`, one authenticated remote object, no sequence 2, all host gates
+true, and every authority flag false. This sanitized status statement is not a
+substitute for the exact retained artifacts and does not authorize another
+enrollment or recovery operation.
 
 Only a retained, confirmed sequence-1 outcome may change enrollment status
 from `UNRUN`. Even that outcome does not reopen normal supervision: the
@@ -253,3 +252,9 @@ The confirmed outcome also grants no trading authority and does not deploy ADR
 0095's watchdog, a sealed terminal-observation issuer, readiness, alerts, new-
 exposure gating, or manual re-arm. Those remain later separately reviewed Phase
 6 work.
+
+[ADR 0098](0098-canonical-post-enrollment-start-evidence-review.md) implements
+the first secretless part of that later boundary: an exact claim/outcome codec,
+owner-only unambiguous loader, and non-authorizing review projection that keeps
+the historical enrollment tuple separate from a proposed later launch tuple.
+It does not reopen normal start, authorize sequence 2, or implement shutdown.

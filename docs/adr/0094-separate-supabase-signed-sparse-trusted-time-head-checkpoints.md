@@ -162,9 +162,10 @@ Enrollment remains default-deny. The first remote object must have sequence 1
 and reason `enrollment`, and requires a full audit plus an explicit runtime
 enrollment flag. Normal startup uses epoch rotation and cannot create an
 enrollment object. Production fixes `allow_enrollment=False` with no
-environment override. The first external enrollment has not been approved or
-performed, and this decision does not supply the required reviewed enablement
-or owner approval.
+environment override. The first external enrollment had not been approved or
+performed at this ADR's acceptance, and this decision does not itself supply
+the required reviewed enablement or owner approval. See the current-status
+amendment below for the later confirmed ADR 0097 operation.
 
 The remote namespace contract caps one generation at 250,000 objects. At
 exactly one checkpoint every 300 seconds, that is about 868 days, or 2.38
@@ -419,6 +420,17 @@ Enrollment remains `UNRUN`. No retry is permitted until this hardening is
 merged, new images are built from that exact merge, and the owner approves the
 new revision/artifact/image tuple.
 
+### Current-status amendment (2026-08-08)
+
+The preceding observations are historical. The hardening was merged, fresh
+immutable images and fail-closed admission were retained, and ADR 0097's one
+separately approved `new` operation confirmed the first external checkpoint at
+sequence 1. Its owner-only claim and confirmed outcome are retained, and no
+sequence 2 exists. ADR 0098 now authenticates that exact historical evidence
+without granting authority. Persistent start and graceful shutdown remain
+quarantined pending the separately reviewed outcome-bound runtime contract; no
+repeat enrollment or automatic recovery is authorized.
+
 ## Consequences
 
 A later explicitly enrolled, continuously retained remote checkpoint prefix
@@ -435,13 +447,11 @@ generated and decoder-validated. The real-control-bucket behavioral proof is
 complete: its retained initial authenticated-read failure led to the exact
 two-policy correction, and the evidence-bound same-object resume then passed
 without a fresh insert or namespace change. Fresh parse-only Compose and
-historical immutable-image admissions are retained, but secure-launcher
-runtime admission is `ATTEMPTED_NOT_ADMITTED`. The approval-binding changes
-must merge before a new secretless build and fresh tuple approval; no automatic
-retry is allowed. The first external enrollment remains `UNRUN` and pending
-separate owner approval. Until the runtime-admission and enrollment gates are
-completed and reviewed, the deployed topology still has no authenticated
-external-head evidence.
+historical immutable-image admissions are retained. The later ADR 0097
+operation confirmed the first external checkpoint and ADR 0098 authenticates
+its retained evidence. The system therefore has historical authenticated
+external-head evidence at sequence 1, but no approved persistent runtime,
+sequence 2, graceful-stop successor, or independent terminal observer.
 
 Even after enrollment, this remains same-provider, potentially same-admin
 evidence rather than independent or immutable custody. It narrows some rollback

@@ -153,6 +153,12 @@ side_effect_free_roots = [
   # Phase 6A trusted-time policy, samples, and state reduction are immutable
   # pure-domain evidence with no source adapter or ambient clock authority.
   "packages/domain/trusted_time.py",
+  # Phase 6D authenticates already-retained digest-only enrollment evidence and
+  # projects a non-authorizing post-enrollment start review without ambient I/O.
+  "packages/domain/trusted_time_enrollment_evidence.py",
+  # ADR 0099 binds exact start, reauthentication, claim, and outcome projections
+  # but owns no runtime, release, persistence, provider, or lifecycle authority.
+  "packages/domain/trusted_time_post_enrollment_start.py",
   "packages/domain/unknown_submission_recovery.py",
 ]
 forbidden_side_effect_imports = [

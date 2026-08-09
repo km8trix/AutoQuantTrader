@@ -20,6 +20,9 @@ from apps.trusted_time_supervisor.config import (
 from apps.trusted_time_supervisor.first_enrollment import (
     TrustedTimeFirstEnrollmentOperationMode,
 )
+from packages.domain.trusted_time_enrollment_evidence import (
+    decode_confirmed_first_enrollment,
+)
 from scripts.start_trusted_time_supervisor import (
     FIRST_ENROLLMENT_COMMAND,
     FIRST_ENROLLMENT_SERVICE,
@@ -1490,6 +1493,14 @@ def test_terminal_success_and_fatal_evidence_are_closed_and_secretless() -> None
         )
     assert SECRET_CANARY not in str(captured.value)
 
+    boolean_sequence = dict(success_payload)
+    boolean_sequence["anchor_sequence"] = True
+    with pytest.raises(TrustedTimeSupervisorConfigurationError):
+        launcher.TrustedTimeFirstEnrollmentTerminalEvidence(
+            exit_code=0,
+            payload=boolean_sequence,
+        )
+
 
 @pytest.mark.parametrize(
     ("observed_mode", "disposition"),
@@ -1679,6 +1690,42 @@ def test_host_outcome_retains_exact_gates_canonical_evidence_and_no_authority(
     assert retained["file_name"] == (
         f"trusted-time-first-enrollment-outcome-{hashlib.sha256(outcome.encoded).hexdigest()}.json"
     )
+
+
+def test_confirmed_writer_bytes_round_trip_through_post_enrollment_codec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    approval = _approval()
+    claim_encoded = launcher._canonical_json_bytes(launcher._claim_payload(approval))
+    claim_sha256 = hashlib.sha256(claim_encoded).hexdigest()
+    terminal = launcher.TrustedTimeFirstEnrollmentTerminalEvidence(
+        exit_code=0,
+        payload=_terminal_payload(approval),
+    )
+    monkeypatch.setattr(
+        launcher,
+        "_write_exclusive_retained_artifact",
+        lambda artifact_dir, *, file_name, encoded: artifact_dir / file_name,
+    )
+    outcome = launcher._retain_host_outcome(
+        approval=approval,
+        claim_sha256=claim_sha256,
+        terminal_evidence=terminal,
+        gates=_all_gates(),
+        artifact_dir=Path("/retained/trusted-time"),
+    )
+
+    decoded = decode_confirmed_first_enrollment(
+        claim_encoded=claim_encoded,
+        outcome_encoded=outcome.encoded,
+        expected_operation_id=approval.operation_id,
+        expected_claim_sha256=claim_sha256,
+        expected_outcome_sha256=hashlib.sha256(outcome.encoded).hexdigest(),
+    )
+
+    assert decoded.operation_id == approval.operation_id
+    assert decoded.approval_sha256 == approval.approval_sha256
+    assert decoded.sequence_one.remote_namespace_sha256 == "8" * 64
 
 
 def test_host_outcome_retention_failure_has_dedicated_secretless_classification(
