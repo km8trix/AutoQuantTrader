@@ -1,9 +1,10 @@
-"""Pure composition of fresh sequence-1 evidence for a future normal start."""
+"""Pure composition of fresh sequence-1 and sequence-2 start evidence."""
 
 from __future__ import annotations
 
 from apps.trusted_time_supervisor.head_anchor_attempt import (
     TrustedTimeHeadAnchorFirstEnrollmentPostcondition,
+    TrustedTimeHeadAnchorPostEnrollmentStartPostcondition,
 )
 from packages.domain.trusted_time_enrollment_evidence import (
     TrustedTimeFirstEnrollmentIdentities,
@@ -11,6 +12,8 @@ from packages.domain.trusted_time_enrollment_evidence import (
 from packages.domain.trusted_time_post_enrollment_start import (
     TrustedTimePostEnrollmentRuntimeReauthentication,
     TrustedTimePostEnrollmentStartApproval,
+    TrustedTimePostEnrollmentStartClaim,
+    TrustedTimePostEnrollmentStartSuccessor,
     require_matching_post_enrollment_runtime_reauthentication,
 )
 
@@ -80,7 +83,65 @@ def bind_post_enrollment_start_reauthentication(
         ) from None
 
 
+def bind_post_enrollment_start_successor(
+    *,
+    claim: TrustedTimePostEnrollmentStartClaim,
+    observed: TrustedTimeHeadAnchorPostEnrollmentStartPostcondition,
+) -> TrustedTimePostEnrollmentStartSuccessor:
+    """Reduce one fresh sequence-2 proof to a non-authorizing candidate."""
+
+    if (
+        type(claim) is not TrustedTimePostEnrollmentStartClaim
+        or type(observed) is not TrustedTimeHeadAnchorPostEnrollmentStartPostcondition
+    ):
+        raise TrustedTimePostEnrollmentStartCompositionError(
+            "trusted-time post-enrollment start successor is unavailable"
+        )
+    try:
+        claim.__post_init__()
+        observed.__post_init__()
+        identities = claim.reauthentication.identities
+        if (
+            observed.predecessor_anchor_sha256 != claim.reauthentication.current_anchor_sha256
+            or observed.anchor_authority_sha256 != identities.anchor_authority_sha256
+            or observed.anchor_project_identity_sha256 != identities.anchor_project_identity_sha256
+            or observed.bucket_identity_sha256 != identities.bucket_identity_sha256
+            or observed.deployment_identity_sha256 != identities.deployment_identity_sha256
+            or observed.host_identity_sha256 != identities.host_identity_sha256
+            or observed.principal_identity_sha256 != identities.principal_identity_sha256
+            or observed.runtime_database_identity_sha256
+            != identities.runtime_database_identity_sha256
+            or observed.signing_public_key_sha256 != identities.signing_public_key_sha256
+            or observed.source_authority_sha256 != identities.source_authority_sha256
+        ):
+            raise ValueError
+        return TrustedTimePostEnrollmentStartSuccessor(
+            anchor_sequence=observed.anchor_sequence,
+            checkpoint_reason=observed.checkpoint_reason.value,
+            predecessor_anchor_sha256=observed.predecessor_anchor_sha256,
+            anchor_intent_semantic_sha256=observed.anchor_intent_semantic_sha256,
+            candidate_remote_readback_sha256=observed.candidate_remote_readback_sha256,
+            current_anchor_semantic_sha256=observed.current_anchor_semantic_sha256,
+            current_anchor_sha256=observed.current_anchor_sha256,
+            current_host_head_sha256=observed.current_host_head_sha256,
+            receipt_semantic_sha256=observed.receipt_semantic_sha256,
+            remote_namespace_sha256=observed.remote_namespace_sha256,
+            confirmed_anchor_count=observed.confirmed_anchor_count,
+            remote_object_count=observed.remote_object_count,
+            local_highest_anchor_sequence=observed.anchor_sequence,
+            remote_highest_anchor_sequence=observed.anchor_sequence,
+            full_audit_completed=observed.full_audit_completed,
+            pending_intent_present=observed.pending_intent_present,
+            higher_sequence_present=False,
+        )
+    except Exception:
+        raise TrustedTimePostEnrollmentStartCompositionError(
+            "trusted-time post-enrollment start successor is unavailable"
+        ) from None
+
+
 __all__ = [
     "TrustedTimePostEnrollmentStartCompositionError",
     "bind_post_enrollment_start_reauthentication",
+    "bind_post_enrollment_start_successor",
 ]

@@ -15,6 +15,8 @@ from apps.trusted_time_supervisor.head_anchor_attempt import (
     TrustedTimeHeadAnchorFirstEnrollmentPostcondition,
     TrustedTimeHeadAnchorFirstEnrollmentRecoveryRequired,
     TrustedTimeHeadAnchorFirstEnrollmentStateConflict,
+    TrustedTimeHeadAnchorPostEnrollmentStartPostcondition,
+    TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed,
 )
 from apps.trusted_time_supervisor.head_anchor_config import (
     TrustedTimeHeadAnchorAuthority,
@@ -189,6 +191,153 @@ def _postcondition() -> TrustedTimeHeadAnchorFirstEnrollmentPostcondition:
         candidate_remote_readback_sha256="5" * 64,
         receipt_semantic_sha256="8" * 64,
         remote_namespace_sha256="7" * 64,
+        anchor_authority_sha256=authority.anchor_authority_sha256,
+        deployment_identity_sha256=authority.deployment_identity_sha256,
+        runtime_database_identity_sha256=authority.runtime_database_identity_sha256,
+        anchor_project_identity_sha256=authority.anchor_project_identity_sha256,
+        source_authority_sha256=authority.source_authority_sha256,
+        signing_public_key_sha256=authority.signing_public_key_sha256,
+        host_identity_sha256=trusted_time_first_enrollment_identity_sha256(
+            kind="host",
+            value=authority.host_id,
+        ),
+        principal_identity_sha256=trusted_time_first_enrollment_identity_sha256(
+            kind="principal",
+            value=authority.principal_id,
+        ),
+        bucket_identity_sha256=trusted_time_first_enrollment_identity_sha256(
+            kind="bucket",
+            value=authority.bucket_name,
+        ),
+        full_audit_completed=True,
+        pending_intent_present=False,
+    )
+
+
+def _post_enrollment_record() -> SimpleNamespace:
+    authority = _authority()
+    return SimpleNamespace(
+        anchor_sequence=2,
+        checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION,
+        checkpoint_interval_seconds=TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS,
+        anchor_authority_sha256=authority.anchor_authority_sha256,
+        deployment_identity_sha256=authority.deployment_identity_sha256,
+        runtime_database_identity_sha256=authority.runtime_database_identity_sha256,
+        anchor_project_identity_sha256=authority.anchor_project_identity_sha256,
+        anchor_project_ref=authority.anchor_project_ref,
+        source_id="chrony-nts-system76-virginia-v2",
+        source_authority_sha256=authority.source_authority_sha256,
+        policy_sha256="d" * 64,
+        persistence_contract_version="phase6a-durable-trusted-time-persistence-v1",
+        epoch_sequence=2,
+        monitor_epoch_id="22345678-1234-4234-9234-123456789abc",
+        epoch_sha256="e" * 64,
+        evaluation_sequence=0,
+        signing_key_id=authority.signing_key_id,
+        signing_public_key_sha256=authority.signing_public_key_sha256,
+        host_id=authority.host_id,
+        principal_id=authority.principal_id,
+        bucket_name=authority.bucket_name,
+        previous_anchor_sha256="5" * 64,
+        current_host_head_sha256="4" * 64,
+        byte_sha256="6" * 64,
+        semantic_sha256="7" * 64,
+        __post_init__=lambda: None,
+    )
+
+
+def _post_enrollment_receipt(
+    record: SimpleNamespace,
+    *,
+    intent_semantic_sha256: str = "8" * 64,
+    receipt_semantic_sha256: str = "9" * 64,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        intent=SimpleNamespace(
+            record=record,
+            semantic_sha256=intent_semantic_sha256,
+        ),
+        readback_bytes_sha256=record.byte_sha256,
+        semantic_sha256=receipt_semantic_sha256,
+        __post_init__=lambda: None,
+    )
+
+
+def _post_enrollment_snapshot(
+    receipt: SimpleNamespace,
+    *,
+    local_transition_count: int = 2,
+    terminal_ordinal: int = 2,
+    current_local_host_head_sha256: str | None = None,
+    confirmed_anchor_count: int = 2,
+    pending: object | None = None,
+    current_transition_overrides: dict[str, object] | None = None,
+) -> TrustedTimeHeadAnchorPersistenceSnapshot:
+    current_head = (
+        receipt.intent.record.current_host_head_sha256
+        if current_local_host_head_sha256 is None
+        else current_local_host_head_sha256
+    )
+    snapshot = _snapshot(
+        pending=pending,
+        complete_replay=True,
+        confirmed_anchor_count=confirmed_anchor_count,
+        confirmed_anchor_receipt=receipt,
+    )
+    # A complete startup replay authenticates the entire durable history into
+    # the sealed tip but intentionally returns no replay tuple to its caller.
+    object.__setattr__(snapshot, "confirmed_anchor_records", ())
+    object.__setattr__(snapshot, "local_transition_count", local_transition_count)
+    object.__setattr__(snapshot, "current_host_head_sha256", current_head)
+    record = receipt.intent.record
+    transition_fields: dict[str, object] = {
+        "source_id": record.source_id,
+        "source_authority_sha256": record.source_authority_sha256,
+        "policy_sha256": record.policy_sha256,
+        "persistence_contract_version": record.persistence_contract_version,
+        "epoch_sequence": record.epoch_sequence,
+        "monitor_epoch_id": record.monitor_epoch_id,
+        "epoch_sha256": record.epoch_sha256,
+        "evaluation_sequence": (
+            record.evaluation_sequence + local_transition_count - terminal_ordinal
+        ),
+    }
+    transition_fields.update(current_transition_overrides or {})
+    object.__setattr__(
+        snapshot,
+        "authenticated_journal_tip",
+        SimpleNamespace(
+            confirmed_anchor_count=confirmed_anchor_count,
+            confirmed_anchor_tip=receipt.intent.record,
+            confirmed_anchor_local_transition_ordinal=terminal_ordinal,
+            local_transition_count=local_transition_count,
+            current_local_host_head_sha256=current_head,
+            current_transition=SimpleNamespace(**transition_fields),
+        ),
+    )
+    return snapshot
+
+
+def _post_enrollment_postcondition(
+    *,
+    local_transition_count: int = 2,
+) -> TrustedTimeHeadAnchorPostEnrollmentStartPostcondition:
+    authority = _authority()
+    return TrustedTimeHeadAnchorPostEnrollmentStartPostcondition(
+        anchor_sequence=2,
+        checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION,
+        confirmed_anchor_count=2,
+        local_transition_count=local_transition_count,
+        confirmed_anchor_local_transition_ordinal=2,
+        remote_object_count=2,
+        predecessor_anchor_sha256="5" * 64,
+        current_host_head_sha256="4" * 64,
+        current_anchor_sha256="6" * 64,
+        current_anchor_semantic_sha256="7" * 64,
+        anchor_intent_semantic_sha256="8" * 64,
+        candidate_remote_readback_sha256="6" * 64,
+        receipt_semantic_sha256="9" * 64,
+        remote_namespace_sha256="0" * 64,
         anchor_authority_sha256=authority.anchor_authority_sha256,
         deployment_identity_sha256=authority.deployment_identity_sha256,
         runtime_database_identity_sha256=authority.runtime_database_identity_sha256,
@@ -987,3 +1136,276 @@ def test_first_enrollment_postcondition_rejects_local_advance_during_remote_audi
     signer.sign_ed25519.assert_not_called()
     provider.upload_object_no_overwrite.assert_not_called()
     anchor.commit_prepared_intent.assert_not_called()
+
+
+def test_post_enrollment_successor_allows_authenticated_probe_suffixes() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    record = _post_enrollment_record()
+    receipt = _post_enrollment_receipt(record)
+    primed = _post_enrollment_snapshot(receipt)
+    before_remote = _post_enrollment_snapshot(
+        receipt,
+        local_transition_count=3,
+        current_local_host_head_sha256="a" * 64,
+    )
+    after_remote = _post_enrollment_snapshot(
+        receipt,
+        local_transition_count=4,
+        current_local_host_head_sha256="b" * 64,
+    )
+    anchor.load_head_anchor_startup_snapshot.side_effect = (
+        primed,
+        before_remote,
+        after_remote,
+    )
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    assert before_remote.complete_replay is True
+    assert before_remote.confirmed_anchor_records == ()
+
+    with patch(
+        "apps.trusted_time_supervisor.head_anchor_attempt."
+        "verify_bounded_post_enrollment_start_remote_postcondition",
+        return_value="0" * 64,
+    ) as verify_remote:
+        observed = attempt.reauthenticate_post_enrollment_start_successor()
+
+    assert observed == _post_enrollment_postcondition(local_transition_count=4)
+    assert observed.current_host_head_sha256 == record.current_host_head_sha256
+    assert observed.current_host_head_sha256 != after_remote.current_host_head_sha256
+    verify_remote.assert_called_once_with(
+        before_remote.authenticated_journal_tip,
+        provider=provider,
+        verifier=verifier,
+        signing_key_id=_authority().signing_key_id,
+        signing_public_key_sha256=_authority().signing_public_key_sha256,
+        checkpoint_interval_seconds=TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS,
+        anchor_authority_sha256=_authority().anchor_authority_sha256,
+    )
+    signer.sign_ed25519.assert_not_called()
+    provider.upload_object_no_overwrite.assert_not_called()
+    anchor.commit_prepared_intent.assert_not_called()
+    anchor.confirm_remote_readback_from_snapshot.assert_not_called()
+    for field_name in (
+        "alert_delivery_authorized",
+        "arming_authorized",
+        "automatic_rearm_authorized",
+        "automatic_resume_authorized",
+        "broker_action_authorized",
+        "exposure_authorized",
+        "live_trading_authorized",
+        "new_exposure_authorized",
+        "operational_control_authorized",
+        "paper_trading_authorized",
+        "readiness_authorized",
+        "rearm_authorized",
+    ):
+        assert getattr(observed, field_name) is False
+    for raw_identity_field in ("host_id", "principal_id", "bucket_name"):
+        assert not hasattr(observed, raw_identity_field)
+
+
+def test_post_enrollment_start_successor_converts_provider_outage_to_fixed_fatal_recovery() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    receipt = _post_enrollment_receipt(_post_enrollment_record())
+    primed = _post_enrollment_snapshot(receipt)
+    before_remote = _post_enrollment_snapshot(receipt)
+    anchor.load_head_anchor_startup_snapshot.side_effect = (primed, before_remote)
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with (
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "verify_bounded_post_enrollment_start_remote_postcondition",
+            side_effect=TrustedTimeHeadAnchorProviderUnavailable("secret provider detail"),
+        ),
+        pytest.raises(
+            TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed
+        ) as captured,
+    ):
+        attempt.reauthenticate_post_enrollment_start_successor()
+
+    assert type(captured.value) is (
+        TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed
+    )
+    assert isinstance(captured.value, TrustedTimeHeadAnchorFatalFailure)
+    assert not isinstance(captured.value, TrustedTimeHeadAnchorTransientFailure)
+    assert str(captured.value) == (
+        "trusted-time post-enrollment start postconditions are unconfirmed"
+    )
+    assert "secret" not in str(captured.value)
+    assert anchor.load_head_anchor_startup_snapshot.call_count == 2
+    anchor.compact_head_anchor_snapshot.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        "sequence_three",
+        "local_count_rollback",
+        "terminal_receipt_drift",
+        "terminal_ordinal_drift",
+        "same_count_head_drift",
+        "epoch_rotated",
+    ),
+)
+def test_post_enrollment_start_successor_rejects_terminal_or_monotonicity_drift(
+    case: str,
+) -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    record = _post_enrollment_record()
+    receipt = _post_enrollment_receipt(record)
+    primed = _post_enrollment_snapshot(receipt)
+    before_remote = _post_enrollment_snapshot(
+        receipt,
+        local_transition_count=3,
+        current_local_host_head_sha256="a" * 64,
+    )
+    if case == "sequence_three":
+        final_snapshot = _post_enrollment_snapshot(
+            receipt,
+            local_transition_count=3,
+            current_local_host_head_sha256="a" * 64,
+            confirmed_anchor_count=3,
+        )
+    elif case == "local_count_rollback":
+        final_snapshot = _post_enrollment_snapshot(receipt, local_transition_count=2)
+    elif case == "terminal_receipt_drift":
+        final_snapshot = _post_enrollment_snapshot(
+            _post_enrollment_receipt(
+                record,
+                receipt_semantic_sha256="c" * 64,
+            ),
+            local_transition_count=3,
+            current_local_host_head_sha256="a" * 64,
+        )
+    elif case == "terminal_ordinal_drift":
+        final_snapshot = _post_enrollment_snapshot(
+            receipt,
+            local_transition_count=3,
+            terminal_ordinal=3,
+            current_local_host_head_sha256="a" * 64,
+        )
+    elif case == "epoch_rotated":
+        final_snapshot = _post_enrollment_snapshot(
+            receipt,
+            local_transition_count=4,
+            current_local_host_head_sha256="b" * 64,
+            current_transition_overrides={
+                "epoch_sequence": 3,
+                "monitor_epoch_id": "32345678-1234-4234-9234-123456789abc",
+                "epoch_sha256": "f" * 64,
+                "evaluation_sequence": 0,
+            },
+        )
+    else:
+        assert case == "same_count_head_drift"
+        final_snapshot = _post_enrollment_snapshot(
+            receipt,
+            local_transition_count=3,
+            current_local_host_head_sha256="b" * 64,
+        )
+    anchor.load_head_anchor_startup_snapshot.side_effect = (
+        primed,
+        before_remote,
+        final_snapshot,
+    )
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with (
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "verify_bounded_post_enrollment_start_remote_postcondition",
+            return_value="0" * 64,
+        ) as verify_remote,
+        pytest.raises(TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed),
+    ):
+        attempt.reauthenticate_post_enrollment_start_successor()
+
+    verify_remote.assert_called_once()
+    signer.sign_ed25519.assert_not_called()
+    provider.upload_object_no_overwrite.assert_not_called()
+    anchor.commit_prepared_intent.assert_not_called()
+
+
+def test_post_enrollment_start_successor_rejects_a_preexisting_new_epoch_before_remote_io() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    receipt = _post_enrollment_receipt(_post_enrollment_record())
+    primed = _post_enrollment_snapshot(receipt)
+    next_epoch = _post_enrollment_snapshot(
+        receipt,
+        local_transition_count=3,
+        current_local_host_head_sha256="a" * 64,
+        current_transition_overrides={
+            "epoch_sequence": 3,
+            "monitor_epoch_id": "32345678-1234-4234-9234-123456789abc",
+            "epoch_sha256": "f" * 64,
+            "evaluation_sequence": 0,
+        },
+    )
+    anchor.load_head_anchor_startup_snapshot.side_effect = (primed, next_epoch)
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with (
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "verify_bounded_post_enrollment_start_remote_postcondition"
+        ) as verify_remote,
+        pytest.raises(TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed),
+    ):
+        attempt.reauthenticate_post_enrollment_start_successor()
+
+    verify_remote.assert_not_called()
+    signer.sign_ed25519.assert_not_called()
+    provider.upload_object_no_overwrite.assert_not_called()
+
+
+def test_post_enrollment_start_successor_rejects_pending_intent_before_remote_io() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    receipt = _post_enrollment_receipt(_post_enrollment_record())
+    primed = _post_enrollment_snapshot(receipt)
+    pending = _post_enrollment_snapshot(receipt, pending=object())
+    anchor.load_head_anchor_startup_snapshot.side_effect = (primed, pending)
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with (
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "verify_bounded_post_enrollment_start_remote_postcondition"
+        ) as verify_remote,
+        pytest.raises(TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed),
+    ):
+        attempt.reauthenticate_post_enrollment_start_successor()
+
+    verify_remote.assert_not_called()
+    signer.sign_ed25519.assert_not_called()
+    provider.upload_object_no_overwrite.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("anchor_sequence", True),
+        ("confirmed_anchor_count", True),
+        ("local_transition_count", True),
+        ("confirmed_anchor_local_transition_ordinal", 5),
+        ("remote_object_count", True),
+        ("candidate_remote_readback_sha256", "f" * 64),
+        ("full_audit_completed", 1),
+        ("pending_intent_present", 0),
+    ],
+)
+def test_post_enrollment_start_postcondition_rejects_nonexact_projection(
+    field_name: str,
+    value: object,
+) -> None:
+    with pytest.raises(
+        TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed,
+        match="post-enrollment start postconditions are unconfirmed",
+    ):
+        replace(_post_enrollment_postcondition(), **{field_name: value})

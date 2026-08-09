@@ -34,6 +34,7 @@ from packages.application.trusted_time_head_anchor import (
     reconcile_trusted_time_head_anchors,
     trusted_time_head_anchor_object_name,
     trusted_time_head_anchor_object_prefix,
+    verify_bounded_post_enrollment_start_remote_postcondition,
     verify_trusted_time_head_anchor_provider_readback,
 )
 from packages.application.trusted_time_monitor import TrustedTimeProbeStatus
@@ -553,11 +554,34 @@ def bounded_tip_and_provider(
     tip = anchor_contract._issue_authenticated_trusted_time_head_journal_tip(
         current_transition=transition,
         local_transition_count=count,
-        first_local_host_head_sha256=local_chain()[0].current_host_head_sha256,
+        first_local_host_head_sha256=(
+            transition.current_host_head_sha256
+            if count == 1
+            else local_chain()[0].current_host_head_sha256
+        ),
         confirmed_anchor_count=count,
         confirmed_anchor_tip=previous,
         first_anchored_local_transition_ordinal=1,
         confirmed_anchor_local_transition_ordinal=count,
+    )
+    return tip, provider
+
+
+def post_enrollment_start_tip_and_provider() -> tuple[
+    anchor_contract.AuthenticatedTrustedTimeHeadJournalTip, MemoryProvider
+]:
+    chain = local_chain()
+    provider = MemoryProvider()
+    reconcile(chain[:3], provider, allow_enrollment=True)
+    rotated = reconcile(
+        chain[:4],
+        provider,
+        allow_enrollment=False,
+        checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION,
+    )
+    tip = anchor_contract._new_authenticated_trusted_time_head_journal_tip(
+        local_transitions=chain[:4],
+        confirmed_anchor_records=rotated.anchor_records,
     )
     return tip, provider
 
@@ -848,6 +872,153 @@ def test_bounded_empty_remote_history_has_the_same_typed_owner_approval_failure(
 
     assert provider.objects == {}
     assert provider.upload_calls == []
+
+
+def test_post_enrollment_start_postcondition_reauthenticates_exact_sequence_two_read_only() -> None:
+    tip, provider = post_enrollment_start_tip_and_provider()
+    prefix = trusted_time_head_anchor_object_prefix(
+        deployment_identity_sha256=DEPLOYMENT_IDENTITY,
+        host_id=HOST,
+    )
+    expected_namespace = hashlib.sha256()
+    for bucket_and_name in sorted(provider.objects):
+        assert bucket_and_name[0] == BUCKET
+        expected_namespace.update(bucket_and_name[1].encode("ascii"))
+        expected_namespace.update(b"\0")
+    provider.attestation_calls = 0
+    provider.page_calls.clear()
+    provider.sequence_list_calls.clear()
+    provider.download_calls.clear()
+    provider.upload_calls.clear()
+    verifier = DeterministicEd25519TestDouble()
+
+    namespace_sha256 = verify_bounded_post_enrollment_start_remote_postcondition(
+        tip,
+        provider=provider,
+        verifier=verifier,
+        signing_key_id=KEY_ID,
+        signing_public_key_sha256=KEY_SHA256,
+        checkpoint_interval_seconds=TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS,
+        anchor_authority_sha256=ANCHOR_AUTHORITY_SHA256,
+    )
+
+    assert namespace_sha256 == expected_namespace.hexdigest()
+    assert provider.attestation_calls == 1
+    assert len(provider.page_calls) == 2
+    assert provider.page_calls[0] == provider.page_calls[1]
+    assert [call[1] for call in provider.page_calls] == [prefix, prefix]
+    assert [call[2] for call in provider.sequence_list_calls] == [1, 2, 3]
+    assert len(provider.download_calls) == 2
+    assert provider.upload_calls == []
+    assert verifier.sign_calls == 0
+
+
+@pytest.mark.parametrize("confirmed_count", [1, 3])
+def test_post_enrollment_start_postcondition_requires_exact_durable_sequence_two(
+    confirmed_count: int,
+) -> None:
+    tip, provider = bounded_tip_and_provider(confirmed_count)
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match="exactly sequence two"):
+        verify_bounded_post_enrollment_start_remote_postcondition(
+            tip,
+            provider=provider,
+            verifier=DeterministicEd25519TestDouble(),
+            signing_key_id=KEY_ID,
+            signing_public_key_sha256=KEY_SHA256,
+            checkpoint_interval_seconds=(TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS),
+            anchor_authority_sha256=ANCHOR_AUTHORITY_SHA256,
+        )
+
+    assert provider.attestation_calls == 0
+    assert provider.page_calls == []
+    assert provider.download_calls == []
+
+
+def test_post_enrollment_start_postcondition_requires_epoch_rotation_reason() -> None:
+    tip, provider = bounded_tip_and_provider(2)
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match="reason conflicts"):
+        verify_bounded_post_enrollment_start_remote_postcondition(
+            tip,
+            provider=provider,
+            verifier=DeterministicEd25519TestDouble(),
+            signing_key_id=KEY_ID,
+            signing_public_key_sha256=KEY_SHA256,
+            checkpoint_interval_seconds=(TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS),
+            anchor_authority_sha256=ANCHOR_AUTHORITY_SHA256,
+        )
+
+    assert provider.attestation_calls == 0
+    assert provider.page_calls == []
+
+
+def test_post_enrollment_start_postcondition_rejects_a_different_remote_sequence_two() -> None:
+    tip, provider = post_enrollment_start_tip_and_provider()
+    first, terminal = provider.confirmed_records
+    crypto = DeterministicEd25519TestDouble()
+    alternate = anchor_contract._sign_record(
+        local_chain()[4],
+        anchor_sequence=2,
+        previous=first,
+        checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION,
+        checkpoint_interval_seconds=TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS,
+        anchor_authority_sha256=ANCHOR_AUTHORITY_SHA256,
+        signing_key_id=KEY_ID,
+        signing_public_key_sha256=KEY_SHA256,
+        signer=crypto,
+        verifier=crypto,
+    )
+    prefix = trusted_time_head_anchor_object_prefix(
+        deployment_identity_sha256=DEPLOYMENT_IDENTITY,
+        host_id=HOST,
+    )
+    terminal_name = trusted_time_head_anchor_object_name(
+        prefix=prefix,
+        anchor_sequence=2,
+        signed_envelope_sha256=terminal.byte_sha256,
+    )
+    alternate_name = trusted_time_head_anchor_object_name(
+        prefix=prefix,
+        anchor_sequence=2,
+        signed_envelope_sha256=alternate.byte_sha256,
+    )
+    del provider.objects[(BUCKET, terminal_name)]
+    provider.objects[(BUCKET, alternate_name)] = alternate.canonical_bytes
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match="exact remote sequence two"):
+        verify_bounded_post_enrollment_start_remote_postcondition(
+            tip,
+            provider=provider,
+            verifier=DeterministicEd25519TestDouble(),
+            signing_key_id=KEY_ID,
+            signing_public_key_sha256=KEY_SHA256,
+            checkpoint_interval_seconds=(TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS),
+            anchor_authority_sha256=ANCHOR_AUTHORITY_SHA256,
+        )
+
+
+def test_post_enrollment_start_postcondition_rejects_sequence_three() -> None:
+    tip, provider = post_enrollment_start_tip_and_provider()
+    reconcile(
+        local_chain(),
+        provider,
+        allow_enrollment=False,
+        checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.PERIODIC,
+    )
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match="exact remote sequence two"):
+        verify_bounded_post_enrollment_start_remote_postcondition(
+            tip,
+            provider=provider,
+            verifier=DeterministicEd25519TestDouble(),
+            signing_key_id=KEY_ID,
+            signing_public_key_sha256=KEY_SHA256,
+            checkpoint_interval_seconds=(TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS),
+            anchor_authority_sha256=ANCHOR_AUTHORITY_SHA256,
+        )
+
+    assert len(provider.objects) == 3
 
 
 def test_sparse_reconciliation_appends_only_the_new_current_checkpoint() -> None:

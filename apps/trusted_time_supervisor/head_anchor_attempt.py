@@ -28,11 +28,13 @@ from packages.application.trusted_time_head_anchor import (
     TrustedTimeHeadAnchorProvider,
     TrustedTimeHeadAnchorProviderUnavailable,
     TrustedTimeHeadAnchorReconciliationResult,
+    TrustedTimeHeadAnchorRecord,
     complete_trusted_time_head_anchor_reconciliation,
     prepare_bounded_persisted_trusted_time_head_anchor_intent_recovery,
     prepare_bounded_trusted_time_head_anchor_reconciliation,
     prepare_incremental_trusted_time_head_anchor_reconciliation,
     verify_bounded_first_enrollment_remote_postcondition,
+    verify_bounded_post_enrollment_start_remote_postcondition,
     verify_trusted_time_head_anchor_provider_readback,
 )
 from packages.application.trusted_time_head_anchor_worker import (
@@ -274,6 +276,105 @@ class TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(
             )
         self.evidence = evidence
         super().__init__("trusted-time first enrollment postconditions are unconfirmed")
+
+
+class TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed(
+    TrustedTimeHeadAnchorFatalFailure
+):
+    """A sequence-two effect cannot be qualified without separate recovery."""
+
+    def __init__(self) -> None:
+        super().__init__("trusted-time post-enrollment start postconditions are unconfirmed")
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedTimeHeadAnchorPostEnrollmentStartPostcondition:
+    """Digest-only sequence-two observation that grants no runtime authority."""
+
+    anchor_sequence: int
+    checkpoint_reason: TrustedTimeHeadAnchorCheckpointReason
+    confirmed_anchor_count: int
+    local_transition_count: int
+    confirmed_anchor_local_transition_ordinal: int
+    remote_object_count: int
+    predecessor_anchor_sha256: str
+    current_host_head_sha256: str
+    current_anchor_sha256: str
+    current_anchor_semantic_sha256: str
+    anchor_intent_semantic_sha256: str
+    candidate_remote_readback_sha256: str
+    receipt_semantic_sha256: str
+    remote_namespace_sha256: str
+    anchor_authority_sha256: str
+    deployment_identity_sha256: str
+    runtime_database_identity_sha256: str
+    anchor_project_identity_sha256: str
+    source_authority_sha256: str
+    signing_public_key_sha256: str
+    host_identity_sha256: str
+    principal_identity_sha256: str
+    bucket_identity_sha256: str
+    full_audit_completed: bool
+    pending_intent_present: bool
+
+    def __post_init__(self) -> None:
+        digests = (
+            self.predecessor_anchor_sha256,
+            self.current_host_head_sha256,
+            self.current_anchor_sha256,
+            self.current_anchor_semantic_sha256,
+            self.anchor_intent_semantic_sha256,
+            self.candidate_remote_readback_sha256,
+            self.receipt_semantic_sha256,
+            self.remote_namespace_sha256,
+            self.anchor_authority_sha256,
+            self.deployment_identity_sha256,
+            self.runtime_database_identity_sha256,
+            self.anchor_project_identity_sha256,
+            self.source_authority_sha256,
+            self.signing_public_key_sha256,
+            self.host_identity_sha256,
+            self.principal_identity_sha256,
+            self.bucket_identity_sha256,
+        )
+        if (
+            type(self.anchor_sequence) is not int
+            or self.anchor_sequence != 2
+            or self.checkpoint_reason is not TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION
+            or type(self.confirmed_anchor_count) is not int
+            or self.confirmed_anchor_count != 2
+            or type(self.local_transition_count) is not int
+            or self.local_transition_count < 2
+            or type(self.confirmed_anchor_local_transition_ordinal) is not int
+            or self.confirmed_anchor_local_transition_ordinal < 2
+            or self.confirmed_anchor_local_transition_ordinal > self.local_transition_count
+            or type(self.remote_object_count) is not int
+            or self.remote_object_count != 2
+            or any(
+                type(value) is not str
+                or len(value) != 64
+                or any(character not in "0123456789abcdef" for character in value)
+                for value in digests
+            )
+            or self.predecessor_anchor_sha256 == self.current_anchor_sha256
+            or self.candidate_remote_readback_sha256 != self.current_anchor_sha256
+            or self.full_audit_completed is not True
+            or self.pending_intent_present is not False
+        ):
+            raise TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed()
+
+    operational_control_authorized = property(_authority_is_never_granted)
+    readiness_authorized = property(_authority_is_never_granted)
+    arming_authorized = property(_authority_is_never_granted)
+    new_exposure_authorized = property(_authority_is_never_granted)
+    broker_action_authorized = property(_authority_is_never_granted)
+    automatic_rearm_authorized = property(_authority_is_never_granted)
+    rearm_authorized = property(_authority_is_never_granted)
+    automatic_resume_authorized = property(_authority_is_never_granted)
+    alert_delivery_authorized = property(_authority_is_never_granted)
+    exposure_authorized = property(_authority_is_never_granted)
+    paper_trading_authorized = property(_authority_is_never_granted)
+    live_trading_authorized = property(_authority_is_never_granted)
 
 
 class RepositoryBackedTrustedTimeHeadAnchorAttempt:
@@ -1036,6 +1137,203 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
                 prior_evidence
             ) from None
 
+    @staticmethod
+    def _require_post_enrollment_start_terminal(
+        snapshot: TrustedTimeHeadAnchorPersistenceSnapshot,
+    ) -> tuple[
+        PersistedTrustedTimeHeadAnchorReceipt,
+        TrustedTimeHeadAnchorRecord,
+        int,
+    ]:
+        receipt = snapshot.confirmed_anchor_receipt
+        tip = snapshot.authenticated_journal_tip
+        terminal_ordinal = getattr(
+            tip,
+            "confirmed_anchor_local_transition_ordinal",
+            None,
+        )
+        if (
+            snapshot.complete_replay is not True
+            or type(snapshot.confirmed_anchor_count) is not int
+            or snapshot.confirmed_anchor_count != 2
+            or snapshot.pending_intent is not None
+            or receipt is None
+            or type(snapshot.local_transition_count) is not int
+            or snapshot.local_transition_count < 2
+            or type(terminal_ordinal) is not int
+            or terminal_ordinal < 2
+            or terminal_ordinal > snapshot.local_transition_count
+            or getattr(tip, "confirmed_anchor_count", None) != 2
+            or getattr(tip, "confirmed_anchor_tip", None) != receipt.intent.record
+            or getattr(tip, "local_transition_count", None) != snapshot.local_transition_count
+            or getattr(tip, "current_local_host_head_sha256", None)
+            != snapshot.current_host_head_sha256
+        ):
+            raise TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed()
+        try:
+            receipt.__post_init__()
+            record = receipt.intent.record
+            record.__post_init__()
+        except Exception:
+            raise TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed() from None
+        if (
+            record.anchor_sequence != 2
+            or record.checkpoint_reason is not TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION
+        ):
+            raise TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed()
+        return receipt, record, terminal_ordinal
+
+    @staticmethod
+    def _require_post_enrollment_start_probe_suffix(
+        snapshot: TrustedTimeHeadAnchorPersistenceSnapshot,
+        *,
+        record: TrustedTimeHeadAnchorRecord,
+        terminal_ordinal: int,
+    ) -> None:
+        """Require every local transition after sequence two to be a same-epoch probe."""
+
+        transition = getattr(snapshot.authenticated_journal_tip, "current_transition", None)
+        suffix_count = snapshot.local_transition_count - terminal_ordinal
+        transition_evaluation_sequence = getattr(transition, "evaluation_sequence", None)
+        record_epoch = (
+            record.source_id,
+            record.source_authority_sha256,
+            record.policy_sha256,
+            record.persistence_contract_version,
+            record.epoch_sequence,
+            record.monitor_epoch_id,
+            record.epoch_sha256,
+        )
+        transition_epoch = tuple(
+            getattr(transition, field_name, None)
+            for field_name in (
+                "source_id",
+                "source_authority_sha256",
+                "policy_sha256",
+                "persistence_contract_version",
+                "epoch_sequence",
+                "monitor_epoch_id",
+                "epoch_sha256",
+            )
+        )
+        if (
+            suffix_count < 0
+            or transition_epoch != record_epoch
+            or type(transition_evaluation_sequence) is not int
+            or transition_evaluation_sequence != record.evaluation_sequence + suffix_count
+        ):
+            raise TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed()
+
+    def reauthenticate_post_enrollment_start_successor(
+        self,
+    ) -> TrustedTimeHeadAnchorPostEnrollmentStartPostcondition:
+        """Observe an exact sequence-two successor without signing or uploading."""
+
+        try:
+            self._require_snapshot()
+            snapshot = self._replace_with_full_snapshot()
+            receipt, record, terminal_ordinal = self._require_post_enrollment_start_terminal(
+                snapshot
+            )
+            self._require_post_enrollment_start_probe_suffix(
+                snapshot,
+                record=record,
+                terminal_ordinal=terminal_ordinal,
+            )
+            authority = self._authority
+            if (
+                record.anchor_authority_sha256 != authority.anchor_authority_sha256
+                or record.deployment_identity_sha256 != authority.deployment_identity_sha256
+                or record.runtime_database_identity_sha256
+                != authority.runtime_database_identity_sha256
+                or record.anchor_project_identity_sha256 != authority.anchor_project_identity_sha256
+                or record.anchor_project_ref != authority.anchor_project_ref
+                or record.source_authority_sha256 != authority.source_authority_sha256
+                or record.signing_key_id != authority.signing_key_id
+                or record.signing_public_key_sha256 != authority.signing_public_key_sha256
+                or record.host_id != authority.host_id
+                or record.principal_id != authority.principal_id
+                or record.bucket_name != authority.bucket_name
+                or record.checkpoint_interval_seconds
+                != TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS
+            ):
+                raise TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed()
+            predecessor_anchor_sha256 = record.previous_anchor_sha256
+            if type(predecessor_anchor_sha256) is not str:
+                raise TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed()
+            initial_local_transition_count = snapshot.local_transition_count
+            initial_local_host_head_sha256 = snapshot.current_host_head_sha256
+            namespace_sha256 = verify_bounded_post_enrollment_start_remote_postcondition(
+                snapshot.authenticated_journal_tip,
+                provider=self._provider,
+                verifier=self._verifier,
+                signing_key_id=authority.signing_key_id,
+                signing_public_key_sha256=authority.signing_public_key_sha256,
+                checkpoint_interval_seconds=(TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS),
+                anchor_authority_sha256=authority.anchor_authority_sha256,
+            )
+            final_snapshot = self._replace_with_full_snapshot()
+            final_receipt, final_record, final_terminal_ordinal = (
+                self._require_post_enrollment_start_terminal(final_snapshot)
+            )
+            self._require_post_enrollment_start_probe_suffix(
+                final_snapshot,
+                record=final_record,
+                terminal_ordinal=final_terminal_ordinal,
+            )
+            if (
+                final_receipt != receipt
+                or final_receipt.intent != receipt.intent
+                or final_record != record
+                or final_terminal_ordinal != terminal_ordinal
+                or final_snapshot.local_transition_count < initial_local_transition_count
+                or (
+                    final_snapshot.local_transition_count == initial_local_transition_count
+                    and final_snapshot.current_host_head_sha256 != initial_local_host_head_sha256
+                )
+            ):
+                raise TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed()
+            return TrustedTimeHeadAnchorPostEnrollmentStartPostcondition(
+                anchor_sequence=record.anchor_sequence,
+                checkpoint_reason=record.checkpoint_reason,
+                confirmed_anchor_count=final_snapshot.confirmed_anchor_count,
+                local_transition_count=final_snapshot.local_transition_count,
+                confirmed_anchor_local_transition_ordinal=final_terminal_ordinal,
+                remote_object_count=2,
+                predecessor_anchor_sha256=predecessor_anchor_sha256,
+                current_host_head_sha256=record.current_host_head_sha256,
+                current_anchor_sha256=record.byte_sha256,
+                current_anchor_semantic_sha256=record.semantic_sha256,
+                anchor_intent_semantic_sha256=receipt.intent.semantic_sha256,
+                candidate_remote_readback_sha256=receipt.readback_bytes_sha256,
+                receipt_semantic_sha256=receipt.semantic_sha256,
+                remote_namespace_sha256=namespace_sha256,
+                anchor_authority_sha256=authority.anchor_authority_sha256,
+                deployment_identity_sha256=authority.deployment_identity_sha256,
+                runtime_database_identity_sha256=(authority.runtime_database_identity_sha256),
+                anchor_project_identity_sha256=(authority.anchor_project_identity_sha256),
+                source_authority_sha256=authority.source_authority_sha256,
+                signing_public_key_sha256=authority.signing_public_key_sha256,
+                host_identity_sha256=trusted_time_first_enrollment_identity_sha256(
+                    kind="host",
+                    value=authority.host_id,
+                ),
+                principal_identity_sha256=trusted_time_first_enrollment_identity_sha256(
+                    kind="principal",
+                    value=authority.principal_id,
+                ),
+                bucket_identity_sha256=trusted_time_first_enrollment_identity_sha256(
+                    kind="bucket",
+                    value=authority.bucket_name,
+                ),
+                full_audit_completed=True,
+                pending_intent_present=False,
+            )
+        except TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed:
+            raise
+        except Exception:
+            raise TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed() from None
+
     def verify_first_enrollment_remote_postcondition(self) -> str:
         """Compatibility wrapper for the exact read-only sequence-one proof."""
 
@@ -1116,4 +1414,6 @@ __all__ = [
     "TrustedTimeHeadAnchorFirstEnrollmentRecoveryRequired",
     "TrustedTimeHeadAnchorFirstEnrollmentResult",
     "TrustedTimeHeadAnchorFirstEnrollmentStateConflict",
+    "TrustedTimeHeadAnchorPostEnrollmentStartPostcondition",
+    "TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed",
 ]

@@ -364,6 +364,8 @@ def test_reviewed_inputs_bind_launch_entrypoint_and_strict_environment_loader() 
     assert ROOT / "scripts" / "enroll_trusted_time_head_anchor.py" in reviewed
     assert ROOT / "scripts" / "start_trusted_time_supervisor.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_evidence.py" in reviewed
+    assert ROOT / "scripts" / "trusted_time_post_enrollment_staging.py" in reviewed
+    assert ROOT / "scripts" / "trusted_time_post_enrollment_start.py" in reviewed
 
 
 @pytest.mark.parametrize(
