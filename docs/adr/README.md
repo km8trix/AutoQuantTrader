@@ -109,22 +109,28 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   retained inspector-v5 result is qualified but non-authorizing)
 - [ADR 0094: Separate-Supabase signed sparse trusted-time head checkpoints](0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md)
   (migration 0036, separate-project provisioning, and the v2 SELECT-policy
-  correction are applied; same-object proof resume and first external enrollment
-  remain separately approval-gated, with the dormant one-shot enrollment and
-  recovery boundary defined by ADR 0097)
+  correction are applied; the same-object proof and first external enrollment
+  completed, with normal start still quarantined by ADRs 0097 and 0098)
 - [ADR 0095: Dormant provider-neutral trusted-head watchdog state](0095-dormant-provider-neutral-trusted-head-watchdog-state.md)
   (pure preparatory reducer only; raw observations remain unqualified, while
-  provisioning, first enrollment, a sealed terminal issuer, deployment, and
-  every consumer remain pending)
+  the ADR-0098 start boundary, a sealed terminal issuer, deployment, and every
+  consumer remain pending)
 - [ADR 0096: E\*TRADE live broker and sandbox qualification boundary](0096-etrade-live-broker-and-sandbox-qualification.md)
   (selects the future live venue only; sandbox is protocol-only, all Alpaca
   artifacts remain historical, and implementation, credentials, and live
   activation remain gated)
 - [ADR 0097: Approval-bound first trusted-time enrollment and recovery](0097-approval-bound-first-trusted-time-enrollment.md)
-  (dedicated profile-only one-shot operator; implementation is dormant and
-  `UNRUN`, normal supervision still denies enrollment, and execution requires
-  new post-merge images, fresh unenrolled admission, and a fresh exact
-  single-use approval; any retained claim quarantines normal start/admission
-  until a later exact-outcome-bound start change is separately reviewed)
+  (dedicated profile-only one-shot operator; the first `new` enrollment is
+  confirmed with no sequence 2 or authority grant, while its retained claim
+  continues to quarantine normal start/admission)
+- [ADR 0098: Canonical post-enrollment start evidence review](0098-canonical-post-enrollment-start-evidence-review.md)
+  (pure exact claim/outcome decoder, owner-only unambiguous loader, and
+  non-authorizing old-evidence/new-target review projection; persistent start,
+  sequence 2, and shutdown remain separately approval-blocked)
+- [ADR 0099: Approval-bound post-enrollment start and graceful stop](0099-approval-bound-post-enrollment-start-and-graceful-stop.md)
+  (freezes the single-use start/claim/outcome, fresh sequence-1
+  reauthentication, sequence-2, crash, and supervisor-first stop contracts;
+  only pure/read-only pieces are implemented and both lifecycle commands stay
+  hard-closed)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

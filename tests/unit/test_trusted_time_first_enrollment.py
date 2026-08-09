@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import stat
 import sys
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -66,6 +67,14 @@ def _result(
         candidate_remote_readback_sha256="2" * 64,
         receipt_semantic_sha256="5" * 64,
     )
+
+
+def test_first_enrollment_result_rejects_boolean_sequence_one() -> None:
+    with pytest.raises(
+        TrustedTimeHeadAnchorFirstEnrollmentStateConflict,
+        match="first enrollment result is invalid",
+    ):
+        replace(_result(), anchor_sequence=True)
 
 
 def _authorities() -> tuple[SimpleNamespace, SimpleNamespace]:

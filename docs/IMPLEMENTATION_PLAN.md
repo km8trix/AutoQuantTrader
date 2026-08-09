@@ -2161,7 +2161,9 @@ rollback, persistence, and unclassified error fails the worker fatally.
 Enrollment remains default-deny and requires both a full audit and an explicit
 runtime flag. Production fixes `allow_enrollment=False` with no environment
 override, so first enrollment requires a separately approved reviewed
-enablement and has not been performed.
+enablement. This paragraph records the pre-enrollment design state; ADR 0097's
+separately approved `new` operation subsequently confirmed sequence 1 on
+2026-08-08, as recorded in the current Phase 6 status below.
 
 Migration `0036_phase6_time_anchors` was applied transactionally to runtime
 Supabase on 2026-08-01 after the designated test-PostgreSQL proof passed. Its
@@ -2276,10 +2278,11 @@ prove that the revision was merged, prove who approved the tuple, make it
 single-use, impose an approval TTL, or prevent replay. The manual approval
 record supplies merge provenance and approval evidence. Receipt UUIDv4 values
 likewise provide no approval, trusted-time freshness, or anti-replay guarantee.
-Secure-launcher runtime admission is `ATTEMPTED_NOT_ADMITTED`; enrollment
-remains `UNRUN`.
+That historical secure-launcher attempt was `ATTEMPTED_NOT_ADMITTED`. A later
+fresh admission and separately approved one-shot operation confirmed sequence 1;
+normal persistent supervision remains blocked.
 
-Phase 6D now also implements the dormant approval-bound first-enrollment
+Phase 6D now also implements the approval-bound first-enrollment
 operator from
 [ADR 0097](adr/0097-approval-bound-first-trusted-time-enrollment.md). It does
 not weaken the normal supervisor: production still fixes
@@ -2380,12 +2383,10 @@ An unconfirmed global lock release after outcome retention instead emits
 reports operational success. It does not remove, rewrite, or downgrade the
 already-retained canonical outcome.
 
-This implementation is dormant and `UNRUN`. It has not enrolled the external
-prefix and its tests are not enrollment evidence. After merge, build and review
-new images from that exact merged revision, obtain a fresh successful
-fail-closed unenrolled admission receipt for that exact tuple, and request a
-new exact single-use approval for one operation mode. Existing images,
-admission receipts, and earlier approvals cannot authorize it.
+The first separately approved `new` operation confirmed on 2026-08-08 and its
+exact owner-only claim/outcome evidence is retained. This does not authorize a
+repeat, recovery, persistent start, or sequence 2. ADR 0098 authenticates that
+retained evidence for secretless review while leaving runtime execution closed.
 
 The adapter's remote-namespace cap is 250,000 objects, about 868 days or 2.38
 years at one checkpoint every 300 seconds and less when event checkpoints are
@@ -2455,14 +2456,13 @@ schema, omit the captured `git_revision`, and are historical evidence only; the
 current v2 loader rejects them.
 This permitted drift means neither tuple can approve a later rebuild. The
 following secure launch did not admit and retained no v2 receipt;
-secure-launcher runtime admission is
-`ATTEMPTED_NOT_ADMITTED`, while first external enrollment remains `UNRUN`.
+that historical `ATTEMPTED_NOT_ADMITTED` result was followed by a fresh
+admission and confirmed first external enrollment.
 The approval-binding hardening is merged in revision
-`2fcd3cdcf343bf4ef0630b2923190df7556c630d`. Do not retry until new images are
-built from the exact merged revision containing the bounded runtime diagnostic,
-and the owner approves the fresh revision/artifact/image tuple. Until those
-gates are completed and retained, there is no deployed authenticated
-external-head evidence.
+`2fcd3cdcf343bf4ef0630b2923190df7556c630d`. The historical retry boundary was
+later satisfied by fresh images, a new admission, and exact approvals. The
+resulting authenticated sequence-1 evidence remains non-authorizing and does
+not qualify persistent supervision.
 
 On 2026-08-07, the separately owner-approved bounded read-only runtime
 diagnostic V5 returned `diagnostic_passed`. It authenticated the exact runtime
@@ -2549,19 +2549,22 @@ postflight-verified. The reviewed, separately approved same-object resume is
 also complete and retained. Fresh parse-only Compose and historical
 immutable-image admissions are retained without granting authority. The
 approval-binding hardening is merged and the bounded V5 runtime diagnostic has
-passed without granting authority. The dedicated first-enrollment operator is
-implemented but dormant and `UNRUN`; no post-merge image or unenrolled
-admission receipt qualifies it. The normative next steps are: build and review
-a new content-addressed image admission from the exact merged revision
-containing the first-enrollment operator; obtain fresh approval for that tuple;
-complete and retain a fresh fail-closed unenrolled admission against those
-images; and only then obtain a separate exact single-use approval for either a
-new enrollment or, after an ambiguous attempt, pending-intent recovery. Retain
-the claim and outcome and require confirmed sequence-1 evidence before changing
-enrollment status from `UNRUN`. Any retained claim blocks normal start and
-unenrolled admission, including after confirmation; separately implement and
-review an exact-claim-and-outcome-bound start change before allowing the normal
-worker to recover or create a successor. Only then may a sealed
+passed without granting authority. On 2026-08-08 the dedicated first-enrollment
+operator completed one separately approved `new` operation. Its owner-only
+claim and outcome confirm sequence 1 with reason `enrollment`, one stable
+authenticated remote object, no sequence 2, all eight host gates true, and all
+authority flags false. Enrollment is `CONFIRMED`, but the retained claim still
+blocks normal start and unenrolled admission. ADR 0098 adds a pure exact
+claim/outcome decoder, an owner-only unambiguous loader, and a non-authorizing
+review projection that keeps the historical enrollment tuple separate from a
+proposed later start tuple. Persistent start, sequence 2, and shutdown remain
+hard-closed pending the separately reviewed runtime binding. ADR 0099 freezes
+the single-use operation, fresh sequence-1 reauthentication, exact sequence-2
+`epoch_rotation`, crash, confirmed-outcome, and supervisor-first `clean_stop`
+contracts. Its current implementation is limited to dependency-neutral
+evidence types and a reusable read-only SQL/remote postcondition; it writes no
+claim, creates no topology, and releases no runtime. Only after that
+boundary is implemented and approved may a sealed
 provider-terminal observer authenticate the complete new suffix, bind two
 stable namespace passes to their exact digest/count/terminal identity, prove
 that no higher sequence exists, and capture its own independent monotonic
@@ -2596,9 +2599,10 @@ unavailable before any watchdog consumer is designed or qualified. See
   historical result does not cover the later typed-terminal observer or
   approval-bound v2 receipt path. The hardening is merged at
   `2fcd3cdcf343bf4ef0630b2923190df7556c630d`, has local verification, and the
-  bounded V5 runtime diagnostic passed on 2026-08-07. Its new image admission
-  must be built from the exact final merge containing that diagnostic before
-  fresh approval or launch. The separate Healthy Free-plan
+  bounded V5 runtime diagnostic passed on 2026-08-07. The then-required fresh
+  image build/admission and exact approval subsequently completed for the
+  confirmed first-enrollment operation; that tuple is consumed and historical.
+  The separate Healthy Free-plan
   project and its Data-API-disabled, exact private primary bucket now have
   retained dashboard evidence. On 2026-08-04, approved provisioning SQL SHA-256
   `68be661f65b3f6b45d7732744790d8155aeb4aae75d6311d196d711e39321135`
@@ -2635,23 +2639,20 @@ unavailable before any watchdog consumer is designed or qualified. See
   content-addressed `image-admission*.json` artifacts. They use a superseded v1
   schema, omit the captured `git_revision`, and are rejected by the current v2
   loader.
-  Secure-launcher
-  runtime admission is `ATTEMPTED_NOT_ADMITTED`; first
-  enrollment remains `UNRUN`.
-  Normal-supervisor enrollment is still hard-disabled and no enrollment has
-  been performed, so external-head deployment evidence remains open. ADR 0097
-  adds only a dormant profile-only one-shot operator, distinct new and pending-
-  recovery approvals, immutable single-use claims, stage-aware outcomes, and
-  exact sequence-1/no-sequence-2 postconditions; it has not been run. Next,
-  build and review new images on the exact merged revision containing that
-  operator, obtain fresh tuple approval, complete and retain a fresh fail-closed
-  unenrolled admission on those images, and request a new exact single-use
-  approval for the `new` operation. Any later pending-intent recovery requires
-  another approval after evidence review. Retain a confirmed sequence-1 outcome
-  before changing enrollment status. Any retained claim blocks normal start
-  and unenrolled admission; a confirmed outcome still requires a later exact-
-  outcome-bound start implementation and review before the normal worker may
-  recover or create sequence 2. Complete that boundary before adding an
+  The historical secure-launcher runtime admission was
+  `ATTEMPTED_NOT_ADMITTED`. It was followed by a fresh image admission,
+  fail-closed unenrolled receipt, exact single-use approval, and confirmed
+  ADR-0097 `new` enrollment on 2026-08-08. The retained owner-only evidence
+  proves sequence 1 and no sequence 2; normal-supervisor enrollment remains
+  hard-disabled. ADR 0098 implements only the pure canonical decoder,
+  unambiguous owner-only loader, and non-authorizing old-evidence/new-target
+  review projection. ADR 0099 defines the exact single-use start and graceful-
+  stop lifecycle and adds only pure/read-only reauthentication components.
+  Any retained enrollment claim still blocks normal start and
+  unenrolled admission; the confirmed outcome requires a later exact-outcome-
+  bound staged-release implementation, fresh image admission, and exact
+  operational approval before the normal worker may create sequence 2.
+  Complete that boundary before adding an
   independent watchdog, readiness,
   final new-exposure, alert, and exact-head manual re-arm consumers. The local
   evidence composition is non-authorizing and does not satisfy those deployment

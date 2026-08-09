@@ -256,6 +256,18 @@ SUPERVISOR_AUTHORITY_FIELDS = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _isolate_runtime_tests_from_retained_enrollment_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unit tests use injected claim state, never the operator's local artifacts."""
+
+    monkeypatch.setattr(
+        "scripts.start_trusted_time_supervisor._require_no_retained_first_enrollment_claim",
+        Mock(),
+    )
+
+
 def test_launcher_cli_runtime_attestation_accepts_isolated_source_execution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -918,6 +930,35 @@ def test_launcher_rejects_missing_or_malformed_approval_before_side_effects(
             approved_launch=cast(TrustedTimeApprovedLaunch, approved_launch),
         )
 
+    daemon.assert_not_called()
+    load_configuration.assert_not_called()
+
+
+def test_persistent_start_stays_closed_before_lock_artifacts_git_docker_or_environment() -> None:
+    with (
+        patch("scripts.start_trusted_time_supervisor._acquire_trusted_time_launch_lock") as lock,
+        patch(
+            "scripts.start_trusted_time_supervisor._require_no_retained_first_enrollment_claim"
+        ) as enrollment_artifacts,
+        patch("scripts.start_trusted_time_supervisor._current_git_revision") as git_revision,
+        patch("scripts.start_trusted_time_supervisor.qualify_local_docker_daemon") as daemon,
+        patch(
+            "scripts.start_trusted_time_supervisor.load_trusted_time_runtime_configuration"
+        ) as load_configuration,
+        pytest.raises(
+            TrustedTimeSupervisorConfigurationError,
+            match="persistent supervision remains approval-blocked",
+        ),
+    ):
+        run_local_topology(
+            env_file=Path("/owner-env-must-not-open"),
+            expect_unenrolled_fail_closed=False,
+            approved_launch=_approved_launch(),
+        )
+
+    lock.assert_not_called()
+    enrollment_artifacts.assert_not_called()
+    git_revision.assert_not_called()
     daemon.assert_not_called()
     load_configuration.assert_not_called()
 

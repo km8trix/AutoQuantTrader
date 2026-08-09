@@ -111,13 +111,24 @@ from apps.trusted_time_supervisor.config import (
     decode_trusted_time_authority,
 )
 from apps.trusted_time_supervisor.first_enrollment import (
-    TRUSTED_TIME_FIRST_ENROLLMENT_CONTRACT_VERSION,
-    TrustedTimeFirstEnrollmentOperationMode,
     first_enrollment_identity_sha256,
 )
 from apps.trusted_time_supervisor.head_anchor_config import (
     TrustedTimeHeadAnchorAuthority,
     decode_trusted_time_head_anchor_authority,
+)
+from packages.domain.trusted_time_enrollment_evidence import (
+    FIRST_ENROLLMENT_APPROVAL_CONTRACT_VERSION,
+    FIRST_ENROLLMENT_AUTHORITY_FIELDS,
+    FIRST_ENROLLMENT_CLAIM_CONTRACT_VERSION,
+    FIRST_ENROLLMENT_IDENTITY_FIELDS,
+    FIRST_ENROLLMENT_OUTCOME_CONTRACT_VERSION,
+    FIRST_ENROLLMENT_RESULT_DIGEST_FIELDS,
+    MAXIMUM_FIRST_ENROLLMENT_ARTIFACT_BYTES,
+    TRUSTED_TIME_FIRST_ENROLLMENT_CONTRACT_VERSION,
+    TrustedTimeEnrollmentEvidenceError,
+    TrustedTimeFirstEnrollmentOperationMode,
+    canonical_first_enrollment_json_bytes,
 )
 from scripts.start_trusted_time_supervisor import (
     DATABASE_SECRET_DIRECTORY_PATTERN,
@@ -202,56 +213,16 @@ ROOT = _CLI_REPOSITORY_ROOT or Path(__file__).resolve().parents[1]
 if _CLI_REPOSITORY_ROOT is not None:
     _require_repository_first_party_sources(ROOT)
 
-FIRST_ENROLLMENT_APPROVAL_CONTRACT_VERSION = "phase6d-first-enrollment-exact-operation-approval-v2"
-FIRST_ENROLLMENT_CLAIM_CONTRACT_VERSION = "phase6d-first-enrollment-single-use-claim-v2"
-FIRST_ENROLLMENT_OUTCOME_CONTRACT_VERSION = "phase6d-first-enrollment-host-outcome-v1"
 FIRST_ENROLLMENT_PROFILE = "trusted-time-first-enrollment"
 FIRST_ENROLLMENT_RELEASE_COMMAND = "/opt/venv/bin/autoquant-trusted-time-first-enrollment-release"
 FIRST_ENROLLMENT_MINIMUM_IMAGE_ADMISSION_RESERVE_SECONDS = 300
 FIRST_ENROLLMENT_TERMINAL_TIMEOUT_SECONDS = 180.0
 FIRST_ENROLLMENT_TERMINAL_POLL_SECONDS = 0.1
 MAXIMUM_FIRST_ENROLLMENT_TERMINAL_BYTES = 4_096
-MAXIMUM_FIRST_ENROLLMENT_ARTIFACT_BYTES = 16_384
 _SHA256_CHARACTERS = frozenset("0123456789abcdef")
-_AUTHORITY_FIELDS = frozenset(
-    {
-        "alert_delivery_authorized",
-        "arming_authorized",
-        "automatic_rearm_authorized",
-        "automatic_resume_authorized",
-        "broker_action_authorized",
-        "exposure_authorized",
-        "live_trading_authorized",
-        "new_exposure_authorized",
-        "operational_control_authorized",
-        "paper_trading_authorized",
-        "readiness_authorized",
-        "rearm_authorized",
-    }
-)
-_IDENTITY_FIELDS = frozenset(
-    {
-        "anchor_authority_sha256",
-        "anchor_project_identity_sha256",
-        "bucket_identity_sha256",
-        "deployment_identity_sha256",
-        "host_identity_sha256",
-        "principal_identity_sha256",
-        "runtime_database_identity_sha256",
-        "signing_public_key_sha256",
-        "source_authority_sha256",
-    }
-)
-_RESULT_DIGEST_FIELDS = frozenset(
-    {
-        "anchor_intent_semantic_sha256",
-        "candidate_remote_readback_sha256",
-        "current_anchor_semantic_sha256",
-        "current_anchor_sha256",
-        "current_host_head_sha256",
-        "receipt_semantic_sha256",
-    }
-)
+_AUTHORITY_FIELDS = FIRST_ENROLLMENT_AUTHORITY_FIELDS
+_IDENTITY_FIELDS = FIRST_ENROLLMENT_IDENTITY_FIELDS
+_RESULT_DIGEST_FIELDS = FIRST_ENROLLMENT_RESULT_DIGEST_FIELDS
 _TERMINAL_FIELDS = (
     _AUTHORITY_FIELDS
     | _IDENTITY_FIELDS
@@ -324,17 +295,8 @@ def _required_string(value: Mapping[str, object], field_name: str) -> str:
 
 def _canonical_json_bytes(value: object) -> bytes:
     try:
-        return (
-            json.dumps(
-                value,
-                allow_nan=False,
-                ensure_ascii=True,
-                separators=(",", ":"),
-                sort_keys=True,
-            )
-            + "\n"
-        ).encode("ascii", errors="strict")
-    except (TypeError, UnicodeError, ValueError):
+        return canonical_first_enrollment_json_bytes(value)
+    except TrustedTimeEnrollmentEvidenceError:
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time first enrollment evidence is invalid"
         ) from None
@@ -541,6 +503,7 @@ def _validate_terminal_payload(payload: object, *, exit_code: int) -> None:
         if (
             payload.get("status") != "confirmed"
             or payload.get("reason") != "first_enrollment_confirmed"
+            or type(payload.get("anchor_sequence")) is not int
             or payload.get("anchor_sequence") != 1
             or payload.get("checkpoint_reason") != "enrollment"
             or payload.get("full_audit_completed") is not True
@@ -592,6 +555,7 @@ def _validate_terminal_payload(payload: object, *, exit_code: int) -> None:
     duplicate_count = payload.get("idempotent_duplicate_count")
     completed_projection = (
         payload.get("reason") == "first_enrollment_completed_postconditions_unconfirmed"
+        and type(payload.get("anchor_sequence")) is int
         and payload.get("anchor_sequence") == 1
         and payload.get("checkpoint_reason") == "enrollment"
         and payload.get("completion_disposition")

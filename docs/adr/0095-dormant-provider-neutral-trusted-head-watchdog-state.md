@@ -7,11 +7,12 @@
 ## Context
 
 ADR 0094 defines signed, gap-free trusted-time head checkpoints in a separate
-Supabase project. That Healthy project and its exact private primary bucket
-have dashboard-level evidence, but the remaining catalog, policy, identity,
-artifact, and behavioral provisioning evidence is incomplete, and the first
-external enrollment has not been approved or performed. The local supervisor
-also cannot prove its own continued operation after it dies.
+Supabase project. At this ADR's acceptance, project provisioning and first
+external enrollment were incomplete. They subsequently completed: ADR 0097's
+approved `new` operation confirmed sequence 1, and ADR 0098 authenticates the
+retained claim/outcome while keeping persistent start and sequence 2 blocked.
+The local supervisor also cannot prove its own continued operation after it
+dies.
 
 A valid checkpoint signature proves that the admitted private-key holder signed
 those exact record bytes. It does not prove that a caller read the bytes from
@@ -23,10 +24,10 @@ A later watchdog therefore needs an external issuer/provider adapter that
 seals those remote and timing facts rather than accepting them as arguments.
 
 That future runtime needs a small deterministic state contract. Implementing
-the pure state transition now makes its failure semantics reviewable without
-claiming that the remaining project provisioning is complete or that the
-enrollment, observer, alert path, or trading consumer exists. The
-implementation order remains normative:
+the pure state transition makes its failure semantics reviewable without
+claiming that the observer, alert path, or trading consumer exists. The first
+two steps of this normative order are now complete; step 3 must wait for the
+ADR-0098 outcome-bound start and graceful-stop boundary:
 
 1. complete and retain reviewed evidence for the separate anchor project;
 2. separately approve and perform the first external enrollment, retaining
@@ -98,10 +99,11 @@ malformed or contradictory submitted chains without converting a valid chain,
 a caller clock, or sealed reducer evidence into provider-terminal or liveness
 evidence.
 
-The current deployed topology still has no independent watchdog. Until the
-remaining separate-project provisioning is completed, first enrollment is
-explicitly approved and retained, and the separate sealed terminal-observation
-issuer/provider adapter and independent runtime are implemented, deployed, and
-qualified, this contract remains dormant library code. Local implementation or
-unit-test results are not provider observation, deployment, drill,
-alert-delivery, consumer, or Phase 6 exit evidence.
+The current deployment still has no persistent trusted-time topology or
+independent watchdog. Although separate-project provisioning and first
+enrollment are complete, the ADR-0098 outcome-bound start/graceful-stop
+boundary, separate sealed terminal-observation issuer/provider adapter, and
+independent runtime are not implemented, deployed, or qualified. This contract
+therefore remains dormant library code. Local implementation or unit-test
+results are not provider observation, deployment, drill, alert delivery,
+consumer, or Phase 6 exit evidence.

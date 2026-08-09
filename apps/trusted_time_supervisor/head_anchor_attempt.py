@@ -42,6 +42,9 @@ from packages.application.trusted_time_head_anchor_worker import (
     TrustedTimeHeadAnchorTransientFailure,
     TrustedTimeHeadAnchorWorkRequest,
 )
+from packages.domain.trusted_time_enrollment_evidence import (
+    trusted_time_first_enrollment_identity_sha256,
+)
 from packages.persistence.trusted_time_head_anchor import (
     PersistedTrustedTimeHeadAnchorReceipt,
     SqlTrustedTimeHeadAnchorRepository,
@@ -104,7 +107,8 @@ class TrustedTimeHeadAnchorFirstEnrollmentResult:
             self.receipt_semantic_sha256,
         )
         if (
-            self.anchor_sequence != 1
+            type(self.anchor_sequence) is not int
+            or self.anchor_sequence != 1
             or self.checkpoint_reason is not TrustedTimeHeadAnchorCheckpointReason.ENROLLMENT
             or any(
                 type(value) is not str
@@ -152,6 +156,100 @@ class TrustedTimeHeadAnchorFirstEnrollmentResult:
     new_exposure_authorized = property(_authority_is_never_granted)
     broker_action_authorized = property(_authority_is_never_granted)
     automatic_rearm_authorized = property(_authority_is_never_granted)
+    rearm_authorized = property(_authority_is_never_granted)
+    automatic_resume_authorized = property(_authority_is_never_granted)
+    alert_delivery_authorized = property(_authority_is_never_granted)
+    exposure_authorized = property(_authority_is_never_granted)
+    paper_trading_authorized = property(_authority_is_never_granted)
+    live_trading_authorized = property(_authority_is_never_granted)
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedTimeHeadAnchorFirstEnrollmentPostcondition:
+    """Fresh read-only proof that sequence one is still the complete head.
+
+    The proof contains only digest and count projections.  Constructing it
+    never grants permission to prepare a successor, register an epoch, or
+    invoke the signer or provider upload port.
+    """
+
+    anchor_sequence: int
+    checkpoint_reason: TrustedTimeHeadAnchorCheckpointReason
+    confirmed_anchor_count: int
+    local_transition_count: int
+    confirmed_anchor_local_transition_ordinal: int
+    remote_object_count: int
+    current_host_head_sha256: str
+    current_anchor_sha256: str
+    current_anchor_semantic_sha256: str
+    anchor_intent_semantic_sha256: str
+    candidate_remote_readback_sha256: str
+    receipt_semantic_sha256: str
+    remote_namespace_sha256: str
+    anchor_authority_sha256: str
+    deployment_identity_sha256: str
+    runtime_database_identity_sha256: str
+    anchor_project_identity_sha256: str
+    source_authority_sha256: str
+    signing_public_key_sha256: str
+    host_identity_sha256: str
+    principal_identity_sha256: str
+    bucket_identity_sha256: str
+    full_audit_completed: bool
+    pending_intent_present: bool
+
+    def __post_init__(self) -> None:
+        digests = (
+            self.current_host_head_sha256,
+            self.current_anchor_sha256,
+            self.current_anchor_semantic_sha256,
+            self.anchor_intent_semantic_sha256,
+            self.candidate_remote_readback_sha256,
+            self.receipt_semantic_sha256,
+            self.remote_namespace_sha256,
+            self.anchor_authority_sha256,
+            self.deployment_identity_sha256,
+            self.runtime_database_identity_sha256,
+            self.anchor_project_identity_sha256,
+            self.source_authority_sha256,
+            self.signing_public_key_sha256,
+            self.host_identity_sha256,
+            self.principal_identity_sha256,
+            self.bucket_identity_sha256,
+        )
+        if (
+            type(self.anchor_sequence) is not int
+            or self.anchor_sequence != 1
+            or self.checkpoint_reason is not TrustedTimeHeadAnchorCheckpointReason.ENROLLMENT
+            or type(self.confirmed_anchor_count) is not int
+            or self.confirmed_anchor_count != 1
+            or type(self.local_transition_count) is not int
+            or self.local_transition_count < 1
+            or type(self.confirmed_anchor_local_transition_ordinal) is not int
+            or self.confirmed_anchor_local_transition_ordinal != self.local_transition_count
+            or type(self.remote_object_count) is not int
+            or self.remote_object_count != 1
+            or any(
+                type(value) is not str
+                or len(value) != 64
+                or any(character not in "0123456789abcdef" for character in value)
+                for value in digests
+            )
+            or self.candidate_remote_readback_sha256 != self.current_anchor_sha256
+            or self.full_audit_completed is not True
+            or self.pending_intent_present is not False
+        ):
+            raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
+                "trusted-time first enrollment postcondition is invalid"
+            )
+
+    operational_control_authorized = property(_authority_is_never_granted)
+    readiness_authorized = property(_authority_is_never_granted)
+    arming_authorized = property(_authority_is_never_granted)
+    new_exposure_authorized = property(_authority_is_never_granted)
+    broker_action_authorized = property(_authority_is_never_granted)
+    automatic_rearm_authorized = property(_authority_is_never_granted)
+    rearm_authorized = property(_authority_is_never_granted)
     automatic_resume_authorized = property(_authority_is_never_granted)
     alert_delivery_authorized = property(_authority_is_never_granted)
     exposure_authorized = property(_authority_is_never_granted)
@@ -801,8 +899,10 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
                 "trusted-time first enrollment recovery outcome is unconfirmed"
             ) from None
 
-    def verify_first_enrollment_remote_postcondition(self) -> str:
-        """Prove the remote namespace is exactly stable sequence one without signing."""
+    def reauthenticate_first_enrollment_postcondition(
+        self,
+    ) -> TrustedTimeHeadAnchorFirstEnrollmentPostcondition:
+        """Reauthenticate exact local and remote sequence one without mutation."""
 
         prior = self._require_snapshot()
         prior_receipt = prior.confirmed_anchor_receipt
@@ -822,12 +922,31 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
                 prior_evidence
             ) from None
         receipt = snapshot.confirmed_anchor_receipt
+        tip = snapshot.authenticated_journal_tip
+        terminal_ordinal = getattr(tip, "confirmed_anchor_local_transition_ordinal", None)
         if (
-            snapshot.confirmed_anchor_count != 1
+            snapshot.complete_replay is not True
+            or type(snapshot.confirmed_anchor_count) is not int
+            or snapshot.confirmed_anchor_count != 1
             or snapshot.pending_intent is not None
             or receipt is None
             or receipt != prior_receipt
+            or type(snapshot.local_transition_count) is not int
+            or snapshot.local_transition_count < 1
+            or type(terminal_ordinal) is not int
+            or terminal_ordinal != snapshot.local_transition_count
         ):
+            raise TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(
+                prior_evidence
+            )
+        fresh_evidence = self._first_enrollment_result(
+            receipt=receipt,
+            reconciliation=None,
+            disposition=(
+                TrustedTimeHeadAnchorFirstEnrollmentDisposition.CONFIRMED_RECEIPT_REOBSERVED
+            ),
+        )
+        if snapshot.current_host_head_sha256 != fresh_evidence.current_host_head_sha256:
             raise TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(
                 prior_evidence
             )
@@ -846,9 +965,81 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
             raise TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(
                 prior_evidence
             ) from None
-        if type(namespace_sha256) is not str or len(namespace_sha256) != 64:
-            raise TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(None)
-        return namespace_sha256
+        try:
+            final_snapshot = self._replace_with_full_snapshot()
+        except Exception:
+            raise TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(
+                prior_evidence
+            ) from None
+        final_receipt = final_snapshot.confirmed_anchor_receipt
+        final_tip = final_snapshot.authenticated_journal_tip
+        final_terminal_ordinal = getattr(
+            final_tip,
+            "confirmed_anchor_local_transition_ordinal",
+            None,
+        )
+        if (
+            final_snapshot.complete_replay is not True
+            or type(final_snapshot.confirmed_anchor_count) is not int
+            or final_snapshot.confirmed_anchor_count != 1
+            or final_snapshot.pending_intent is not None
+            or final_receipt is None
+            or final_receipt != receipt
+            or final_tip != tip
+            or final_snapshot.current_host_head_sha256 != snapshot.current_host_head_sha256
+            or type(final_snapshot.local_transition_count) is not int
+            or final_snapshot.local_transition_count != snapshot.local_transition_count
+            or type(final_terminal_ordinal) is not int
+            or final_terminal_ordinal != final_snapshot.local_transition_count
+        ):
+            raise TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(
+                prior_evidence
+            )
+        try:
+            return TrustedTimeHeadAnchorFirstEnrollmentPostcondition(
+                anchor_sequence=fresh_evidence.anchor_sequence,
+                checkpoint_reason=fresh_evidence.checkpoint_reason,
+                confirmed_anchor_count=final_snapshot.confirmed_anchor_count,
+                local_transition_count=final_snapshot.local_transition_count,
+                confirmed_anchor_local_transition_ordinal=final_terminal_ordinal,
+                remote_object_count=1,
+                current_host_head_sha256=fresh_evidence.current_host_head_sha256,
+                current_anchor_sha256=fresh_evidence.current_anchor_sha256,
+                current_anchor_semantic_sha256=(fresh_evidence.current_anchor_semantic_sha256),
+                anchor_intent_semantic_sha256=(fresh_evidence.anchor_intent_semantic_sha256),
+                candidate_remote_readback_sha256=(fresh_evidence.candidate_remote_readback_sha256),
+                receipt_semantic_sha256=fresh_evidence.receipt_semantic_sha256,
+                remote_namespace_sha256=namespace_sha256,
+                anchor_authority_sha256=authority.anchor_authority_sha256,
+                deployment_identity_sha256=authority.deployment_identity_sha256,
+                runtime_database_identity_sha256=(authority.runtime_database_identity_sha256),
+                anchor_project_identity_sha256=authority.anchor_project_identity_sha256,
+                source_authority_sha256=authority.source_authority_sha256,
+                signing_public_key_sha256=authority.signing_public_key_sha256,
+                host_identity_sha256=trusted_time_first_enrollment_identity_sha256(
+                    kind="host",
+                    value=authority.host_id,
+                ),
+                principal_identity_sha256=trusted_time_first_enrollment_identity_sha256(
+                    kind="principal",
+                    value=authority.principal_id,
+                ),
+                bucket_identity_sha256=trusted_time_first_enrollment_identity_sha256(
+                    kind="bucket",
+                    value=authority.bucket_name,
+                ),
+                full_audit_completed=True,
+                pending_intent_present=False,
+            )
+        except Exception:
+            raise TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed(
+                prior_evidence
+            ) from None
+
+    def verify_first_enrollment_remote_postcondition(self) -> str:
+        """Compatibility wrapper for the exact read-only sequence-one proof."""
+
+        return self.reauthenticate_first_enrollment_postcondition().remote_namespace_sha256
 
     def __call__(
         self,
@@ -921,6 +1112,7 @@ __all__ = [
     "TrustedTimeHeadAnchorFirstEnrollmentAlreadyCompleted",
     "TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed",
     "TrustedTimeHeadAnchorFirstEnrollmentDisposition",
+    "TrustedTimeHeadAnchorFirstEnrollmentPostcondition",
     "TrustedTimeHeadAnchorFirstEnrollmentRecoveryRequired",
     "TrustedTimeHeadAnchorFirstEnrollmentResult",
     "TrustedTimeHeadAnchorFirstEnrollmentStateConflict",
