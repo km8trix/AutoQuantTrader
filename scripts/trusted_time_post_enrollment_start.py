@@ -25,9 +25,12 @@ POST_ENROLLMENT_START_RETAINED_CLAIM_CONTRACT_VERSION = (
     "phase6d-post-enrollment-start-retained-claim-v1"
 )
 POST_ENROLLMENT_START_RETAINED_CLAIM_SERVICE = "trusted-time-post-enrollment-start-host-launcher"
+POST_ENROLLMENT_START_CLAIM_FILE_NAME = "trusted-time-post-enrollment-start-claim.json"
 POST_ENROLLMENT_START_CLAIM_FILE_PREFIX = "trusted-time-post-enrollment-start-claim-"
 POST_ENROLLMENT_START_CLAIM_FILE_SUFFIX = ".json"
 MAXIMUM_POST_ENROLLMENT_START_CLAIM_BYTES = 32_768
+MAXIMUM_POST_ENROLLMENT_START_ARTIFACT_ENTRIES = 4_096
+MAXIMUM_POST_ENROLLMENT_START_ARTIFACT_NAME_BYTES = 255
 DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY = IGNORED_ARTIFACT_ROOT / "trusted-time"
 
 _FILE_READ_FLAGS = (
@@ -51,7 +54,7 @@ class TrustedTimePostEnrollmentStartClaimPersistenceError(ValueError):
 
 
 class TrustedTimePostEnrollmentStartClaimConsumed(RuntimeError):
-    """The exact operation identity already has a retained claim inode."""
+    """The global post-enrollment start slot already has a claim inode."""
 
 
 class TrustedTimePostEnrollmentStartClaimRetentionUnconfirmed(RuntimeError):
@@ -81,6 +84,7 @@ class RetainedTrustedTimePostEnrollmentStartClaim:
             or not isinstance(self.artifact_path, Path)
             or not self.artifact_path.is_absolute()
             or self.artifact_path != Path(os.path.abspath(self.artifact_path))
+            or self.artifact_path.name != POST_ENROLLMENT_START_CLAIM_FILE_NAME
             or type(self.encoded) is not bytes
             or not self.encoded
             or len(self.encoded) > MAXIMUM_POST_ENROLLMENT_START_CLAIM_BYTES
@@ -182,10 +186,7 @@ def _claim_file_name(operation_id: str) -> str:
         raise TrustedTimePostEnrollmentStartClaimPersistenceError(
             "trusted-time post-enrollment start claim artifact binding is invalid"
         )
-    file_name = (
-        f"{POST_ENROLLMENT_START_CLAIM_FILE_PREFIX}{operation_id}"
-        f"{POST_ENROLLMENT_START_CLAIM_FILE_SUFFIX}"
-    )
+    file_name = POST_ENROLLMENT_START_CLAIM_FILE_NAME
     if (
         len(os.fsencode(file_name)) > 255
         or file_name in {".", ".."}
@@ -196,6 +197,73 @@ def _claim_file_name(operation_id: str) -> str:
             "trusted-time post-enrollment start claim artifact binding is invalid"
         )
     return file_name
+
+
+def _post_enrollment_start_claim_names(directory_descriptor: int) -> frozenset[str]:
+    """Return one stable bounded inventory without reading retained claim bytes."""
+
+    if type(directory_descriptor) is not int or directory_descriptor < 0:
+        raise TrustedTimePostEnrollmentStartClaimPersistenceError(
+            "trusted-time post-enrollment start claim inventory is unavailable"
+        )
+    try:
+        before = os.fstat(directory_descriptor)
+        names: list[str] = []
+        with os.scandir(directory_descriptor) as iterator:
+            for entry in iterator:
+                name = entry.name
+                if (
+                    type(name) is not str
+                    or not name
+                    or len(os.fsencode(name)) > MAXIMUM_POST_ENROLLMENT_START_ARTIFACT_NAME_BYTES
+                    or len(names) == MAXIMUM_POST_ENROLLMENT_START_ARTIFACT_ENTRIES
+                ):
+                    raise OSError
+                names.append(name)
+        after = os.fstat(directory_descriptor)
+        if _stable_file_identity(before) != _stable_file_identity(after):
+            raise OSError
+    except OSError:
+        raise TrustedTimePostEnrollmentStartClaimPersistenceError(
+            "trusted-time post-enrollment start claim inventory is unavailable"
+        ) from None
+    return frozenset(
+        name
+        for name in names
+        if name == POST_ENROLLMENT_START_CLAIM_FILE_NAME
+        or (
+            name.startswith(POST_ENROLLMENT_START_CLAIM_FILE_PREFIX)
+            and name.endswith(POST_ENROLLMENT_START_CLAIM_FILE_SUFFIX)
+        )
+    )
+
+
+def require_no_retained_post_enrollment_start_claim(
+    *,
+    artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+) -> None:
+    """Fail closed when any current or legacy start claim is retained."""
+
+    absolute_directory = _artifact_directory(
+        artifact_directory,
+        ignored_root=ignored_root,
+    )
+    directory_descriptor: int | None = None
+    try:
+        directory_descriptor = _open_owner_only_artifact_directory(
+            absolute_directory,
+            ignored_root=ignored_root,
+            create=False,
+        )
+        if _post_enrollment_start_claim_names(directory_descriptor):
+            raise TrustedTimePostEnrollmentStartClaimConsumed(
+                "trusted-time post-enrollment start approval was already consumed"
+            )
+    finally:
+        if directory_descriptor is not None:
+            with suppress(OSError):
+                os.close(directory_descriptor)
 
 
 def _artifact_directory(
@@ -398,6 +466,10 @@ def retain_post_enrollment_start_claim(
             ignored_root=ignored_root,
             create=True,
         )
+        if _post_enrollment_start_claim_names(directory_descriptor):
+            raise TrustedTimePostEnrollmentStartClaimConsumed(
+                "trusted-time post-enrollment start approval was already consumed"
+            )
         file_descriptor = os.open(
             file_name,
             os.O_WRONLY
@@ -427,7 +499,7 @@ def retain_post_enrollment_start_claim(
             raise OSError
         created_file_identity = _stable_file_identity(metadata)
         os.fsync(directory_descriptor)
-    except FileExistsError:
+    except (FileExistsError, TrustedTimePostEnrollmentStartClaimConsumed):
         if directory_descriptor is not None:
             with suppress(OSError):
                 os.close(directory_descriptor)
@@ -475,6 +547,8 @@ def retain_post_enrollment_start_claim(
             or observed_file_identity != created_file_identity
             or retained != encoded
             or hashlib.sha256(retained).hexdigest() != artifact_sha256
+            or _post_enrollment_start_claim_names(directory_descriptor)
+            != frozenset({POST_ENROLLMENT_START_CLAIM_FILE_NAME})
         ):
             raise OSError
     except (OSError, TrustedTimePostEnrollmentStartClaimPersistenceError):
@@ -528,7 +602,9 @@ def revalidate_retained_post_enrollment_start_claim(
             file_name=file_name,
         )
         return (
-            observed_file_identity == retained.file_identity
+            _post_enrollment_start_claim_names(directory_descriptor)
+            == frozenset({POST_ENROLLMENT_START_CLAIM_FILE_NAME})
+            and observed_file_identity == retained.file_identity
             and observed == retained.encoded
             and hashlib.sha256(observed).hexdigest() == retained.artifact_sha256
         )
@@ -541,7 +617,10 @@ def revalidate_retained_post_enrollment_start_claim(
 
 __all__ = [
     "DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY",
+    "MAXIMUM_POST_ENROLLMENT_START_ARTIFACT_ENTRIES",
+    "MAXIMUM_POST_ENROLLMENT_START_ARTIFACT_NAME_BYTES",
     "MAXIMUM_POST_ENROLLMENT_START_CLAIM_BYTES",
+    "POST_ENROLLMENT_START_CLAIM_FILE_NAME",
     "POST_ENROLLMENT_START_CLAIM_FILE_PREFIX",
     "POST_ENROLLMENT_START_CLAIM_FILE_SUFFIX",
     "POST_ENROLLMENT_START_RETAINED_CLAIM_CONTRACT_VERSION",
@@ -550,6 +629,7 @@ __all__ = [
     "TrustedTimePostEnrollmentStartClaimConsumed",
     "TrustedTimePostEnrollmentStartClaimPersistenceError",
     "TrustedTimePostEnrollmentStartClaimRetentionUnconfirmed",
+    "require_no_retained_post_enrollment_start_claim",
     "retain_post_enrollment_start_claim",
     "retained_post_enrollment_start_claim_bytes",
     "revalidate_retained_post_enrollment_start_claim",

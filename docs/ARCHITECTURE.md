@@ -3512,28 +3512,54 @@ produced different immutable pairs under historical artifacts
 `b78bda0469077672beacbb746d0278db8b4f84dc5aead65d155c61b98ba4d0d7`
 and
 `a119b19699c4ce97a13c207d47a9c80c796194d71c99ace97489800838d1dabe`.
-These three, like every currently retained canonical or content-addressed
-`image-admission*.json` artifact, use a superseded v1 schema, omit the captured
-`git_revision`, and are historical evidence only; the current v2 loader rejects
-them.
+These three use a superseded v1 schema, omit the captured `git_revision`, and
+are historical evidence only; the current v2 loader rejects them.
 The exact pairs are retained in
 [ADR 0094](adr/0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md).
-That permitted drift makes each build a distinct approval boundary. The
-following secure launch did not admit and retained no v2 receipt;
-secure-launcher runtime admission is `ATTEMPTED_NOT_ADMITTED`, while first
-external enrollment remains `UNRUN`. Do not retry until the approval-binding
-hardening is merged, new images are built from that exact merge, and the owner
-approves the fresh revision/artifact/image tuple.
-Therefore the deployed topology still has no
-authenticated external-head evidence or independent supervisor watchdog:
-after supervisor death, local evidence stops and a later evaluation is the
-first component that can recognize its cadence gap. Readiness, operational
-control, arming, exposure/new exposure, broker action, alert delivery,
-automatic re-arm/resume, paper trading, and live trading authority all remain
-false. See historical
+That permitted drift makes each build a distinct approval boundary. The cited
+secure launch did not admit. A later fresh admission and separately approved
+one-shot operation confirmed sequence 1 with reason `enrollment`; its immutable
+claim and outcome are retained, and the claim continues to quarantine normal
+start and unenrolled admission. ADR 0098 provides only secretless review of that
+history. ADR 0099 now provides dormant durable claim and pre-mutation release
+primitives plus a read-only exact sequence-2 postcondition issuer and pure claim
+binder. The issuer replays SQL around a stable bounded two-object remote audit,
+freezes the exact sequence-2 `epoch_rotation` receipt, record, and confirmed-
+anchor ordinal, and permits only authenticated monotonic local probe-suffix
+advancement. The binder checks the sequence-1 predecessor and all nine identity
+digests and emits only `successor_candidate_unqualified`. Claim persistence uses
+one globally single-use fixed owner-only slot: any existing fixed-name or legacy
+per-operation claim prevents retention, and revalidation requires the fixed
+claim to remain the only recognized claim.
+
+An import-only claimed-release handoff requires its future caller to hold the
+global launcher lock and accepts only a syntactically valid full 64-character
+container-ID candidate. It checks exact retained enrollment evidence before
+reauthentication and again before and after retention, consumes and closes its
+read-only sequence-1 issuer before retaining anything, rechecks the empty claim
+slot, then retains and revalidates the claim against its canonical owner-only
+artifact root. Its only release projection is inert data with status
+`claimed_release_handoff_unqualified` and these exact argv elements, in order:
+`docker`, `container`, `exec`, `--user`, `10001:10001`, the full 64-character
+lowercase-hex container-ID candidate, and
+`/opt/venv/bin/autoquant-trusted-time-post-enrollment-release`, with no
+additional arguments. The handoff authenticates neither container nor topology
+identity: `container_identity_authenticated` and `topology_authenticated` are
+false, and the ID remains untrusted until a future executor independently
+revalidates the exact topology immediately before release. It does not inspect
+or execute Docker, create a topology, publish the marker, observe or mutate
+sequence 2, retain an outcome, or expose a CLI. No worker/main, Make, Compose,
+or launcher wiring invokes this handoff, the sequence-2 issuer, or the binder;
+the host outcome remains `UNCONFIRMED`, every authority field remains false,
+and `trusted-time-start` and shutdown remain hard closed. Consequently, no
+supported persistent topology or independent supervisor watchdog is deployed.
+See historical
 [ADR 0092](adr/0092-evidence-only-local-chrony-nts-trusted-time-supervision.md),
 [ADR 0093](adr/0093-system76-virginia-nts-authority-rotation.md),
 [ADR 0094](adr/0094-separate-supabase-signed-sparse-trusted-time-head-checkpoints.md),
+[ADR 0097](adr/0097-approval-bound-first-trusted-time-enrollment.md),
+[ADR 0098](adr/0098-canonical-post-enrollment-start-evidence-review.md),
+[ADR 0099](adr/0099-approval-bound-post-enrollment-start-and-graceful-stop.md),
 and the
 [trusted-time supervisor runbook](runbooks/trusted-time-supervisor.md).
 
@@ -3559,17 +3585,19 @@ Supabase/provider adapter, runtime process or container, independent external
 failure domain, alert route, readiness/control/new-exposure/re-arm consumer,
 deployment, drill, or Phase 6 exit evidence. The retained passing rollback
 probe, applied atomic read-policy upgrade, separately approved same-object proof
-resume, and historical immutable-image admissions are complete. The next
-normative sequence is to merge the approval-binding hardening, build and review
-a new content-addressed admission on that exact merge, obtain fresh tuple
-approval, and complete secure-launcher runtime admission. Separately approved
-and retained first enrollment then precedes a sealed provider-terminal
-observer. That future issuer must authenticate the complete new suffix, bind
-two stable namespace passes to their exact digest, count, and terminal
-identity, prove no higher sequence exists, and capture an independent
-monotonic instant inside the issuer. Only its later deployed runtime applies
-the 360-second stale policy with equality stale and every stale result
-unavailable; dormant v1 does not.
+resume, confirmed first enrollment, and staged-release image admission are
+complete. The next normative sequence is a separately reviewed exact-outcome-
+bound host orchestration implementation. It must control the staged topology,
+retain and repeatedly revalidate the exact claim, execute only the approved
+release, receive and authenticate the bounded sequence-2 terminal, requalify the
+topology, and durably retain the exact outcome. Its merged revision requires a
+fresh image admission and separate operational approval before execution. Only
+after that boundary exists may a sealed watchdog provider-terminal issuer
+authenticate the complete new suffix, bind two stable namespace passes to their
+exact digest, count, and terminal identity, prove no higher sequence exists, and
+capture an independent monotonic instant inside the issuer. Only its later
+deployed runtime applies the 360-second stale policy with equality stale and
+every stale result unavailable; dormant v1 does not.
 See
 [ADR 0095](adr/0095-dormant-provider-neutral-trusted-head-watchdog-state.md).
 

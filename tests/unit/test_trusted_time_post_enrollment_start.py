@@ -7,10 +7,12 @@ import pytest
 
 from apps.trusted_time_supervisor.head_anchor_attempt import (
     TrustedTimeHeadAnchorFirstEnrollmentPostcondition,
+    TrustedTimeHeadAnchorPostEnrollmentStartPostcondition,
 )
 from apps.trusted_time_supervisor.post_enrollment_start import (
     TrustedTimePostEnrollmentStartCompositionError,
     bind_post_enrollment_start_reauthentication,
+    bind_post_enrollment_start_successor,
 )
 from packages.application.trusted_time_head_anchor import (
     TrustedTimeHeadAnchorCheckpointReason,
@@ -267,6 +269,38 @@ def _successor() -> TrustedTimePostEnrollmentStartSuccessor:
     )
 
 
+def _observed_successor_postcondition() -> TrustedTimeHeadAnchorPostEnrollmentStartPostcondition:
+    identities = _identities()
+    successor = _successor()
+    return TrustedTimeHeadAnchorPostEnrollmentStartPostcondition(
+        anchor_sequence=successor.anchor_sequence,
+        checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION,
+        confirmed_anchor_count=successor.confirmed_anchor_count,
+        local_transition_count=4,
+        confirmed_anchor_local_transition_ordinal=3,
+        remote_object_count=successor.remote_object_count,
+        predecessor_anchor_sha256=successor.predecessor_anchor_sha256,
+        current_host_head_sha256=successor.current_host_head_sha256,
+        current_anchor_sha256=successor.current_anchor_sha256,
+        current_anchor_semantic_sha256=successor.current_anchor_semantic_sha256,
+        anchor_intent_semantic_sha256=successor.anchor_intent_semantic_sha256,
+        candidate_remote_readback_sha256=successor.candidate_remote_readback_sha256,
+        receipt_semantic_sha256=successor.receipt_semantic_sha256,
+        remote_namespace_sha256=successor.remote_namespace_sha256,
+        anchor_authority_sha256=identities.anchor_authority_sha256,
+        deployment_identity_sha256=identities.deployment_identity_sha256,
+        runtime_database_identity_sha256=identities.runtime_database_identity_sha256,
+        anchor_project_identity_sha256=identities.anchor_project_identity_sha256,
+        source_authority_sha256=identities.source_authority_sha256,
+        signing_public_key_sha256=identities.signing_public_key_sha256,
+        host_identity_sha256=identities.host_identity_sha256,
+        principal_identity_sha256=identities.principal_identity_sha256,
+        bucket_identity_sha256=identities.bucket_identity_sha256,
+        full_audit_completed=True,
+        pending_intent_present=False,
+    )
+
+
 def test_literal_v1_contracts_keys_and_wire_hashes_are_frozen() -> None:
     approval = _approval()
     reauthentication = _reauthentication()
@@ -401,6 +435,60 @@ def test_fresh_attempt_postcondition_rejects_any_historical_identity_drift() -> 
             approval=_approval(),
             observed=observed,
         )
+
+
+def test_fresh_sequence_two_postcondition_binds_only_an_unqualified_successor() -> None:
+    successor = bind_post_enrollment_start_successor(
+        claim=_claim(),
+        observed=_observed_successor_postcondition(),
+    )
+
+    assert successor.payload() == _successor().payload()
+    assert successor.payload()["status"] == "successor_candidate_unqualified"
+    assert successor.payload()["release_authorized"] is False
+    assert successor.payload()["sequence_2_authorized"] is False
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "anchor_authority_sha256",
+        "anchor_project_identity_sha256",
+        "bucket_identity_sha256",
+        "deployment_identity_sha256",
+        "host_identity_sha256",
+        "principal_identity_sha256",
+        "runtime_database_identity_sha256",
+        "signing_public_key_sha256",
+        "source_authority_sha256",
+    ],
+)
+def test_sequence_two_binder_rejects_every_deployment_identity_drift(
+    field_name: str,
+) -> None:
+    observed = replace(
+        _observed_successor_postcondition(),
+        **{field_name: "0" * 64},
+    )
+
+    with pytest.raises(
+        TrustedTimePostEnrollmentStartCompositionError,
+        match="successor is unavailable",
+    ):
+        bind_post_enrollment_start_successor(claim=_claim(), observed=observed)
+
+
+def test_sequence_two_binder_rejects_wrong_sequence_one_predecessor() -> None:
+    observed = replace(
+        _observed_successor_postcondition(),
+        predecessor_anchor_sha256="a" * 64,
+    )
+
+    with pytest.raises(
+        TrustedTimePostEnrollmentStartCompositionError,
+        match="successor is unavailable",
+    ):
+        bind_post_enrollment_start_successor(claim=_claim(), observed=observed)
 
 
 @pytest.mark.parametrize(

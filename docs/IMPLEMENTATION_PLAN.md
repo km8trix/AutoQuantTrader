@@ -2561,18 +2561,44 @@ proposed later start tuple. Persistent start, sequence 2, and shutdown remain
 hard-closed pending the separately reviewed runtime binding. ADR 0099 freezes
 the single-use operation, fresh sequence-1 reauthentication, exact sequence-2
 `epoch_rotation`, crash, confirmed-outcome, and supervisor-first `clean_stop`
-contracts. Its current code-only implementation also adds a dormant durable
-owner-only retained-claim primitive and a fixed, bounded in-container
-pre-mutation release barrier. No supported host launcher invokes either
-primitive: it creates no staged topology, publishes no release marker, confirms
-no sequence 2, and leaves persistent start and shutdown hard closed. Only after
-the remaining boundary is implemented, admitted, and separately approved may
-a sealed provider-terminal observer authenticate the complete new suffix, bind two
-stable namespace passes to their exact digest/count/terminal identity, prove
-that no higher sequence exists, and capture its own independent monotonic
-instant. That future deployed runtime, not dormant v1, must apply the
-360-second stale threshold with equality stale and every stale result
-unavailable before any watchdog consumer is designed or qualified. See
+contracts. Its current code-only implementation uses one globally single-use,
+fixed owner-only retained-claim slot. A stable bounded inventory rejects any
+existing fixed-name or legacy per-operation claim before retention and during
+revalidation. It also includes a fixed, bounded in-container pre-mutation
+release barrier; a dormant read-only sequence-2 postcondition issuer; and a pure
+claim-to-successor binder. The issuer performs a complete SQL replay, a stable
+bounded two-object remote audit, then another complete SQL replay. It freezes
+the exact sequence-2 `epoch_rotation` receipt, record, and confirmed-anchor
+ordinal while permitting independently authenticated local probe suffixes to
+advance monotonically. The binder requires the claim's sequence-1 predecessor
+and all nine identity digests and returns only
+`successor_candidate_unqualified`; the existing host outcome remains
+`UNCONFIRMED` and every authority field remains false.
+
+An import-only claimed-release handoff checks the exact retained enrollment
+before reauthentication and again before and after claim retention, closes its
+read-only sequence-1 issuer before retention, rechecks the empty claim slot,
+and durably retains and revalidates the claim against its canonical owner-only
+artifact root. It returns only
+`claimed_release_handoff_unqualified` plus these exact inert argv elements, in
+order: `docker`, `container`, `exec`, `--user`, `10001:10001`, the full 64-
+character lowercase-hex container-ID candidate, and
+`/opt/venv/bin/autoquant-trusted-time-post-enrollment-release`, with no
+additional arguments. It authenticates neither container nor topology identity;
+`container_identity_authenticated` and `topology_authenticated` remain false.
+The ID remains untrusted until a future executor independently revalidates the
+exact topology immediately before release. The handoff does not inspect or
+execute Docker, create a topology, publish the marker, observe or mutate
+sequence 2, retain an outcome, or expose a CLI. No worker/main, Make, Compose,
+or launcher path invokes the handoff, sequence-2 issuer, or binder; persistent
+start and shutdown remain hard closed. Only after the remaining boundary is
+implemented, admitted, and separately approved may a separate sealed watchdog
+provider-terminal issuer authenticate the complete new suffix, bind two stable
+namespace passes to their exact digest/count/terminal identity, prove that no
+higher sequence exists, and capture its own independent monotonic instant. That
+future deployed runtime, not dormant v1, must apply the 360-second stale
+threshold with equality stale and every stale result unavailable before any
+watchdog consumer is designed or qualified. See
 [ADR 0095](adr/0095-dormant-provider-neutral-trusted-head-watchdog-state.md).
 
 ## Phase 6 - deployment, browser security, and operational hardening (weeks 16-18)
@@ -2655,17 +2681,41 @@ unavailable before any watchdog consumer is designed or qualified. See
   and supervisor image
   `sha256:4954613be6d192cc315bfae614ee3944003c7124fc48d1d3408b3dcb41c8547c`.
   That tuple predates the staged-release code and is historical build evidence,
-  not an approval or usable admission for a later revision. ADR 0098 implements
+  not an approval or usable admission for a later revision. A fresh secretless
+  build/admission from exact staged-release merge revision
+  `6c4f89d9745bac380ef370663d9fb54495be95bc` also passed on 2026-08-09. Its
+  owner-only, non-authorizing artifact SHA-256
+  `b6145e6a79b5ea818dd2318154ceedd5abb52b84b74f559b0910b7b94e6dc334`
+  binds source image
+  `sha256:70c600e4b2c51980541b78fbcbbf121487c12c09a2cfcfc569a83883a87c3c3f`
+  and supervisor image
+  `sha256:10fce1ef4031cd19bd4e88f544a11948894e0d0ba23116ded5f40a5173b7ef96`.
+  It grants no authority or new exposure and predates the current sequence-2
+  observation code. ADR 0098 implements
   only the pure canonical decoder, unambiguous owner-only loader, and non-
   authorizing old-evidence/new-target review projection. ADR 0099 defines the
-  exact single-use start and graceful-stop lifecycle and now adds the dormant
-  durable retained-claim primitive and the in-container pre-mutation release
-  barrier in addition to its pure/read-only components. Any retained enrollment
-  claim still blocks normal start and
-  unenrolled admission; the confirmed outcome requires a later exact-outcome-
-  bound host orchestration implementation, a fresh image admission built from
-  the merged barrier revision, and exact operational approval before the normal
-  worker may create sequence 2.
+  exact single-use start and graceful-stop lifecycle and now includes the
+  dormant durable retained-claim primitive, in-container pre-mutation release
+  barrier, read-only exact sequence-2 postcondition issuer, and pure
+  claim-to-successor binder. The issuer can only authenticate an already-
+  existing sequence-2 `epoch_rotation`; the binder emits only
+  `successor_candidate_unqualified`. Neither is wired through worker/main,
+  Compose, Make, or a host launcher, and all authority remains false. Any
+  retained enrollment claim still blocks normal start and unenrolled admission.
+  Claim persistence now uses one globally single-use fixed slot and rejects any
+  current or legacy per-operation claim. An import-only coordinator checks the
+  exact enrollment evidence before reauthentication and before and after claim
+  retention, closes the read-only sequence-1 issuer, retains and revalidates the
+  claim against its canonical owner-only artifact root, and returns only an
+  unqualified handoff with an inert full-container-ID-candidate
+  `docker container exec` argv. Container and topology authentication remain
+  false; a future executor must independently revalidate the exact topology
+  immediately before release. The handoff does not execute or inspect Docker,
+  create topology, publish the marker, observe or mutate sequence 2, retain an
+  outcome, or expose CLI/Make/Compose/launcher wiring. A later exact-outcome-
+  bound host orchestration implementation, admission for its exact revision,
+  and separate operational approval remain required before the normal worker
+  may create sequence 2.
   Complete that boundary before adding an
   independent watchdog, readiness,
   final new-exposure, alert, and exact-head manual re-arm consumers. The local

@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import stat
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
@@ -24,12 +26,15 @@ from packages.domain.trusted_time_post_enrollment_start import (
 )
 from scripts import trusted_time_post_enrollment_start as persistence
 from scripts.trusted_time_post_enrollment_start import (
+    POST_ENROLLMENT_START_CLAIM_FILE_NAME,
+    POST_ENROLLMENT_START_CLAIM_FILE_PREFIX,
     POST_ENROLLMENT_START_RETAINED_CLAIM_CONTRACT_VERSION,
     POST_ENROLLMENT_START_RETAINED_CLAIM_SERVICE,
     RetainedTrustedTimePostEnrollmentStartClaim,
     TrustedTimePostEnrollmentStartClaimConsumed,
     TrustedTimePostEnrollmentStartClaimPersistenceError,
     TrustedTimePostEnrollmentStartClaimRetentionUnconfirmed,
+    require_no_retained_post_enrollment_start_claim,
     retain_post_enrollment_start_claim,
     retained_post_enrollment_start_claim_bytes,
     revalidate_retained_post_enrollment_start_claim,
@@ -85,9 +90,11 @@ def _confirmed() -> TrustedTimeConfirmedFirstEnrollment:
     )
 
 
-def _approval() -> TrustedTimePostEnrollmentStartApproval:
+def _approval(
+    operation_id: str = OPERATION_ID,
+) -> TrustedTimePostEnrollmentStartApproval:
     return TrustedTimePostEnrollmentStartApproval(
-        operation_id=OPERATION_ID,
+        operation_id=operation_id,
         review=build_post_enrollment_start_review(
             confirmed_enrollment=_confirmed(),
             proposed_launch=TrustedTimeImmutableLaunchEvidence(
@@ -100,8 +107,10 @@ def _approval() -> TrustedTimePostEnrollmentStartApproval:
     )
 
 
-def _claim() -> TrustedTimePostEnrollmentStartClaim:
-    approval = _approval()
+def _claim(
+    operation_id: str = OPERATION_ID,
+) -> TrustedTimePostEnrollmentStartClaim:
+    approval = _approval(operation_id)
     confirmed = approval.confirmed_enrollment
     sequence = confirmed.sequence_one
     reauthentication = TrustedTimePostEnrollmentRuntimeReauthentication(
@@ -196,6 +205,7 @@ def test_claim_retention_is_owner_only_durable_exact_and_revalidates(tmp_path: P
     assert retained.claim is claim
     assert retained.operation_id == claim.operation_id
     assert retained.claim_projection_sha256 == claim.claim_sha256
+    assert retained.artifact_path.name == POST_ENROLLMENT_START_CLAIM_FILE_NAME
     assert retained.file_identity[0:2] == (metadata.st_dev, metadata.st_ino)
     assert metadata.st_uid == os.geteuid()
     assert metadata.st_nlink == 1
@@ -235,6 +245,117 @@ def test_replay_is_consumed_without_overwriting_first_inode(tmp_path: Path) -> N
         before.st_mtime_ns,
         retained.encoded,
     )
+
+
+def test_different_operation_is_consumed_by_the_single_global_claim_slot(tmp_path: Path) -> None:
+    ignored_root, artifact_directory = _artifact_paths(tmp_path)
+    retained = retain_post_enrollment_start_claim(
+        _claim(),
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
+
+    with pytest.raises(
+        TrustedTimePostEnrollmentStartClaimConsumed,
+        match="already consumed",
+    ):
+        retain_post_enrollment_start_claim(
+            _claim("323e4567-e89b-42d3-a456-426614174002"),
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+
+    assert retained.artifact_path.read_bytes() == retained.encoded
+    assert list(artifact_directory.glob("trusted-time-post-enrollment-start-claim*.json")) == [
+        retained.artifact_path
+    ]
+
+
+def test_concurrent_different_operations_have_one_global_claim_winner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ignored_root, artifact_directory = _artifact_paths(tmp_path)
+    artifact_directory.mkdir(mode=0o700)
+    barrier = threading.Barrier(2)
+    counter_lock = threading.Lock()
+    empty_inventory_calls = 0
+    original_inventory = persistence._post_enrollment_start_claim_names
+
+    def synchronized_inventory(directory_descriptor: int) -> frozenset[str]:
+        nonlocal empty_inventory_calls
+        observed = original_inventory(directory_descriptor)
+        should_wait = False
+        with counter_lock:
+            if not observed and empty_inventory_calls < 2:
+                empty_inventory_calls += 1
+                should_wait = True
+        if should_wait:
+            barrier.wait(timeout=5)
+        return observed
+
+    monkeypatch.setattr(
+        persistence,
+        "_post_enrollment_start_claim_names",
+        synchronized_inventory,
+    )
+
+    def retain(claim: TrustedTimePostEnrollmentStartClaim) -> object:
+        try:
+            return retain_post_enrollment_start_claim(
+                claim,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        except TrustedTimePostEnrollmentStartClaimConsumed:
+            return "consumed"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(
+            executor.map(
+                retain,
+                (
+                    _claim(),
+                    _claim("323e4567-e89b-42d3-a456-426614174002"),
+                ),
+            )
+        )
+
+    winners = [
+        result for result in results if type(result) is RetainedTrustedTimePostEnrollmentStartClaim
+    ]
+    assert len(winners) == 1
+    assert results.count("consumed") == 1
+    winner = winners[0]
+    assert winner.artifact_path.name == POST_ENROLLMENT_START_CLAIM_FILE_NAME
+    assert winner.artifact_path.read_bytes() == winner.encoded
+
+
+def test_inventory_gate_rejects_current_and_legacy_claim_names(tmp_path: Path) -> None:
+    ignored_root, artifact_directory = _artifact_paths(tmp_path)
+    artifact_directory.mkdir(mode=0o700)
+    legacy = artifact_directory / (
+        f"{POST_ENROLLMENT_START_CLAIM_FILE_PREFIX}423e4567-e89b-42d3-a456-426614174003.json"
+    )
+    legacy.write_bytes(b"retained\n")
+    legacy.chmod(0o600)
+
+    with pytest.raises(
+        TrustedTimePostEnrollmentStartClaimConsumed,
+        match="already consumed",
+    ):
+        require_no_retained_post_enrollment_start_claim(
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+    with pytest.raises(TrustedTimePostEnrollmentStartClaimConsumed):
+        retain_post_enrollment_start_claim(
+            _claim(),
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+
+    assert not (artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).exists()
 
 
 def test_revalidation_rejects_unlink_recreate_even_with_identical_bytes(tmp_path: Path) -> None:
@@ -277,6 +398,26 @@ def test_revalidation_rejects_content_mode_link_and_receipt_drift(tmp_path: Path
     )
     with pytest.raises(TrustedTimePostEnrollmentStartClaimPersistenceError):
         replace(retained, claim_projection_sha256="0" * 64)
+
+
+def test_revalidation_rejects_an_additional_legacy_claim(tmp_path: Path) -> None:
+    ignored_root, artifact_directory = _artifact_paths(tmp_path)
+    retained = retain_post_enrollment_start_claim(
+        _claim(),
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
+    legacy = artifact_directory / (
+        f"{POST_ENROLLMENT_START_CLAIM_FILE_PREFIX}523e4567-e89b-42d3-a456-426614174004.json"
+    )
+    legacy.write_bytes(retained.encoded)
+    legacy.chmod(0o600)
+
+    assert not revalidate_retained_post_enrollment_start_claim(
+        retained,
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
 
 
 def test_partial_write_uncertainty_leaves_consumed_inode(

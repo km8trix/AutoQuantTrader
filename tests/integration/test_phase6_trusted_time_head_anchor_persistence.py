@@ -19,6 +19,12 @@ from alembic.config import Config
 from sqlalchemy import Engine
 from sqlalchemy.engine import Connection
 
+from apps.trusted_time_supervisor.head_anchor_attempt import (
+    RepositoryBackedTrustedTimeHeadAnchorAttempt,
+)
+from apps.trusted_time_supervisor.head_anchor_config import (
+    TrustedTimeHeadAnchorAuthority,
+)
 from packages.application import trusted_time_head_anchor as anchor_contract
 from packages.application.durable_trusted_time_monitor import (
     DurableTrustedTimeEpochSession,
@@ -63,7 +69,8 @@ PRINCIPAL_ID = "11111111-1111-4111-8111-111111111111"
 HOST_ID = "aqt-local-paper-host"
 SOURCE_ID = "chrony-nts-system76-virginia-v2"
 SIGNING_KEY_ID = "aqt-trusted-time-anchor-ed25519-v1"
-SIGNING_PUBLIC_KEY_SHA256 = hashlib.sha256(b"test-public-key").hexdigest()
+SIGNING_PUBLIC_KEY_BYTES = b"phase6-sequence2-integration-key!"[:32]
+SIGNING_PUBLIC_KEY_SHA256 = hashlib.sha256(SIGNING_PUBLIC_KEY_BYTES).hexdigest()
 
 
 class DeterministicVerifier:
@@ -212,6 +219,57 @@ class ExactReadbackProvider(EmptyAnchorProvider):
         return self._payload
 
 
+class ImmutableHistoryProvider(EmptyAnchorProvider):
+    def __init__(self, intents: tuple[PersistedTrustedTimeHeadAnchorIntent, ...]) -> None:
+        super().__init__()
+        self._objects = {intent.object_name: intent.signed_envelope_bytes for intent in intents}
+        self.upload_calls = 0
+
+    def list_object_names(self, *, bucket_name: str, prefix: str) -> tuple[str, ...]:
+        self.calls += 1
+        assert bucket_name == TRUSTED_TIME_HEAD_ANCHOR_BUCKET_NAME
+        return tuple(sorted(name for name in self._objects if name.startswith(prefix)))
+
+    def list_object_names_page(
+        self,
+        *,
+        bucket_name: str,
+        prefix: str,
+        offset: int,
+        limit: int,
+    ) -> tuple[str, ...]:
+        names = self.list_object_names(bucket_name=bucket_name, prefix=prefix)
+        return names[offset : offset + limit]
+
+    def list_sequence_object_names(
+        self,
+        *,
+        bucket_name: str,
+        prefix: str,
+        anchor_sequence: int,
+    ) -> tuple[str, ...]:
+        self.calls += 1
+        assert bucket_name == TRUSTED_TIME_HEAD_ANCHOR_BUCKET_NAME
+        sequence_prefix = f"{prefix}{anchor_sequence:020d}-"
+        return tuple(sorted(name for name in self._objects if name.startswith(sequence_prefix)))
+
+    def download_object(self, *, bucket_name: str, object_name: str) -> bytes:
+        self.calls += 1
+        assert bucket_name == TRUSTED_TIME_HEAD_ANCHOR_BUCKET_NAME
+        return self._objects[object_name]
+
+    def upload_object_no_overwrite(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        payload: bytes,
+        content_type: str,
+    ) -> None:
+        self.upload_calls += 1
+        raise AssertionError(f"unexpected upload to {bucket_name}/{object_name} as {content_type}")
+
+
 @dataclass(frozen=True, slots=True)
 class System:
     engine: Engine
@@ -284,6 +342,25 @@ def _load_startup(system: System) -> anchor_persistence.TrustedTimeHeadAnchorPer
         anchor_project_ref=ANCHOR_PROJECT_REF,
         bucket_name=TRUSTED_TIME_HEAD_ANCHOR_BUCKET_NAME,
         principal_id=PRINCIPAL_ID,
+    )
+
+
+def _attempt_authority() -> TrustedTimeHeadAnchorAuthority:
+    return TrustedTimeHeadAnchorAuthority(
+        anchor_authority_sha256=ANCHOR_AUTHORITY,
+        deployment_identity_sha256=DEPLOYMENT_IDENTITY,
+        host_id=HOST_ID,
+        source_authority_sha256=SOURCE_AUTHORITY,
+        runtime_database_project_ref="bcdefghijklmnopqrstu",
+        runtime_database_identity_sha256=RUNTIME_DATABASE_IDENTITY,
+        anchor_project_ref=ANCHOR_PROJECT_REF,
+        anchor_project_url=f"https://{ANCHOR_PROJECT_REF}.supabase.co",
+        anchor_project_identity_sha256=ANCHOR_PROJECT_IDENTITY,
+        bucket_name=TRUSTED_TIME_HEAD_ANCHOR_BUCKET_NAME,
+        principal_id=PRINCIPAL_ID,
+        signing_key_id=SIGNING_KEY_ID,
+        signing_public_key_sha256=SIGNING_PUBLIC_KEY_SHA256,
+        signing_public_key_bytes=SIGNING_PUBLIC_KEY_BYTES,
     )
 
 
@@ -364,6 +441,74 @@ def _provider_readback(
         record=intent.record,
         object_name=intent.object_name,
     )
+
+
+def test_sequence_two_observer_accepts_real_compact_startup_snapshots(
+    system: System,
+) -> None:
+    _register_epoch(system, recorded_at=BASE)
+    first_chain = _local_chain(system.engine)
+    first_intent = _prepare_enrollment(system, first_chain)
+    system.anchors.confirm_remote_readback(
+        first_chain,
+        intent=first_intent,
+        provider_readback=_provider_readback(first_intent),
+        observed_at=BASE + timedelta(seconds=1),
+    )
+
+    second_session = _register_epoch(system, recorded_at=BASE + timedelta(seconds=2))
+    second_chain = _local_chain(system.engine)
+    second_intent = system.anchors.prepare_or_read_pending(
+        second_chain,
+        record=_signed_record(second_chain[-1], previous=first_intent.record),
+        checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION,
+        created_at=BASE + timedelta(seconds=2),
+    )
+    system.anchors.confirm_remote_readback(
+        second_chain,
+        intent=second_intent,
+        provider_readback=_provider_readback(second_intent),
+        observed_at=BASE + timedelta(seconds=3),
+    )
+    _append_probe(
+        system,
+        second_session,
+        observed_at=BASE + timedelta(seconds=4),
+        monotonic_ns=4_000_000_000,
+    )
+
+    startup = _load_startup(system)
+    assert startup.complete_replay is True
+    assert startup.confirmed_anchor_count == 2
+    assert startup.confirmed_anchor_records == ()
+    assert startup.authenticated_journal_tip.confirmed_anchor_local_transition_ordinal == 2
+    system.anchors.discard_head_anchor_snapshot(startup)
+
+    provider = ImmutableHistoryProvider((first_intent, second_intent))
+    attempt = RepositoryBackedTrustedTimeHeadAnchorAttempt(
+        anchor_repository=system.anchors,
+        provider=provider,
+        signer=VERIFIER,
+        verifier=VERIFIER,
+        authority=_attempt_authority(),
+        utc_clock=lambda: BASE + timedelta(seconds=5),
+    )
+    try:
+        attempt.prime_startup()
+        observed = attempt.reauthenticate_post_enrollment_start_successor()
+    finally:
+        attempt.close()
+
+    assert observed.anchor_sequence == 2
+    assert observed.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION
+    assert observed.confirmed_anchor_count == 2
+    assert observed.local_transition_count == 3
+    assert observed.confirmed_anchor_local_transition_ordinal == 2
+    assert observed.remote_object_count == 2
+    assert observed.predecessor_anchor_sha256 == first_intent.record.byte_sha256
+    assert observed.current_anchor_sha256 == second_intent.record.byte_sha256
+    assert observed.current_host_head_sha256 == second_intent.record.current_host_head_sha256
+    assert provider.upload_calls == 0
 
 
 def test_enrollment_defaults_closed_and_prepare_commits_exact_pending_bytes(
