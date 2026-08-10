@@ -2668,6 +2668,7 @@ def _never_started_container_inspection(
         {
             "Image": image_id,
             "NetworkDisabled": False,
+            "StopTimeout": 10 if service == "chrony-nts" else 40,
         }
     )
     labels.update(
@@ -2764,7 +2765,14 @@ def _staged_running_container_inspection(
     if service == "chrony-nts":
         state["Health"] = {
             "FailingStreak": 0,
-            "Log": [],
+            "Log": [
+                {
+                    "End": "2026-08-09T12:34:55.200000000Z",
+                    "ExitCode": 0,
+                    "Output": "healthy\n",
+                    "Start": "2026-08-09T12:34:55.100000000Z",
+                }
+            ],
             "Status": "healthy",
         }
     return inspection
@@ -2789,6 +2797,7 @@ def _validate_staged_running_fixture(
     inspection: object,
     *,
     service: str,
+    require_live_observation_fields: bool = False,
 ) -> None:
     source = service == "chrony-nts"
     staged_paths = (None, None, None, None) if source else _staged_supervisor_input_paths()
@@ -2802,6 +2811,126 @@ def _validate_staged_running_fixture(
         expected_head_anchor_authority_file=staged_paths[1],
         expected_head_anchor_auth_secret_file=staged_paths[2],
         expected_head_anchor_signing_key_secret_file=staged_paths[3],
+        require_live_observation_fields=require_live_observation_fields,
+    )
+
+
+def _validate_created_fixture(
+    inspection: object,
+    *,
+    service: str,
+    require_live_observation_fields: bool = False,
+) -> None:
+    source = service == "chrony-nts"
+    staged_paths = (None, None, None, None) if source else _staged_supervisor_input_paths()
+    validate_exact_never_started_created_container(
+        inspection,
+        expected_container_id=SOURCE_CONTAINER_ID if source else SUPERVISOR_CONTAINER_ID,
+        expected_image_id=SOURCE_IMAGE_ID if source else SUPERVISOR_IMAGE_ID,
+        expected_image_configuration=_image_configuration(service),
+        expected_service=service,
+        expected_database_secret_file=staged_paths[0],
+        expected_head_anchor_authority_file=staged_paths[1],
+        expected_head_anchor_auth_secret_file=staged_paths[2],
+        expected_head_anchor_signing_key_secret_file=staged_paths[3],
+        require_live_observation_fields=require_live_observation_fields,
+    )
+
+
+class _EqualString(str):
+    pass
+
+
+class _ListSubclass(list[object]):
+    pass
+
+
+class _DictSubclass(dict[str, object]):
+    pass
+
+
+def _add_safe_exact_docker_observation_boundary(
+    inspection: list[dict[str, object]],
+    *,
+    service: str,
+    running_endpoint: bool,
+) -> None:
+    container = inspection[0]
+    container["ExecIDs"] = []
+    container["AppArmorProfile"] = "docker-default"
+    host = cast(dict[str, object], container["HostConfig"])
+    host["Runtime"] = "runc"
+    network_settings = cast(dict[str, object], container["NetworkSettings"])
+    network_settings.update(
+        {
+            "Bridge": "",
+            "EndpointID": "",
+            "Gateway": "",
+            "GlobalIPv6Address": "",
+            "GlobalIPv6PrefixLen": 0,
+            "HairpinMode": False,
+            "IPAddress": "",
+            "IPPrefixLen": 0,
+            "IPv6Gateway": "",
+            "LinkLocalIPv6Address": "",
+            "LinkLocalIPv6PrefixLen": 0,
+            "MacAddress": "",
+            "Ports": {},
+            "SecondaryIPAddresses": None,
+            "SecondaryIPv6Addresses": None,
+            "SandboxID": "e" * 64 if running_endpoint else "",
+            "SandboxKey": ("/var/run/docker/netns/" + "f" * 12 if running_endpoint else ""),
+        }
+    )
+    networks = cast(dict[str, object], network_settings["Networks"])
+    networks[COMPOSE_NETWORK_NAME] = {
+        "Aliases": [service],
+        "DNSNames": [service],
+        "DriverOpts": None,
+        "EndpointID": "d" * 64 if running_endpoint else "",
+        "Gateway": "172.20.0.1" if running_endpoint else "",
+        "GlobalIPv6Address": "",
+        "GlobalIPv6PrefixLen": 0,
+        "GwPriority": 0,
+        "IPAddress": "172.20.0.2" if running_endpoint else "",
+        "IPAMConfig": None,
+        "IPPrefixLen": 16 if running_endpoint else 0,
+        "IPv6Gateway": "",
+        "Links": None,
+        "MacAddress": "02:42:ac:14:00:02" if running_endpoint else "",
+        "NetworkID": "c" * 64,
+    }
+
+
+def _validate_exact_observation_fixture(
+    inspection: object,
+    *,
+    service: str,
+    staged: bool,
+) -> None:
+    if staged:
+        _validate_staged_running_fixture(
+            inspection,
+            service=service,
+            require_live_observation_fields=True,
+        )
+        return
+    _validate_created_fixture(
+        inspection,
+        service=service,
+        require_live_observation_fields=True,
+    )
+
+
+def _validate_exact_source_observation_fixture(
+    inspection: object,
+    *,
+    staged: bool,
+) -> None:
+    _validate_exact_observation_fixture(
+        inspection,
+        service="chrony-nts",
+        staged=staged,
     )
 
 
@@ -3695,6 +3824,347 @@ def test_admission_observer_baseexception_still_tears_down_and_cleans_inputs(
     assert events.index("terminal-observe") < events.index("compose-down")
 
 
+@pytest.mark.parametrize("staged", [False, True])
+@pytest.mark.parametrize("exec_ids", [None, []])
+@pytest.mark.parametrize("apparmor_profile", ["", "docker-default"])
+def test_exact_container_observation_boundary_accepts_safe_docker_metadata(
+    staged: bool,
+    exec_ids: object,
+    apparmor_profile: str,
+) -> None:
+    inspection = (
+        _staged_running_container_inspection(
+            container_id=SOURCE_CONTAINER_ID,
+            image_id=SOURCE_IMAGE_ID,
+            service="chrony-nts",
+        )
+        if staged
+        else _never_started_container_inspection(
+            container_id=SOURCE_CONTAINER_ID,
+            image_id=SOURCE_IMAGE_ID,
+            service="chrony-nts",
+        )
+    )
+    _add_safe_exact_docker_observation_boundary(
+        inspection,
+        service="chrony-nts",
+        running_endpoint=staged,
+    )
+    inspection[0]["ExecIDs"] = exec_ids
+    inspection[0]["AppArmorProfile"] = apparmor_profile
+
+    _validate_exact_source_observation_fixture(inspection, staged=staged)
+
+
+def test_exact_staged_running_container_rejects_neutral_created_network_endpoint() -> None:
+    inspection = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    _add_safe_exact_docker_observation_boundary(
+        inspection,
+        service="chrony-nts",
+        running_endpoint=False,
+    )
+    network_settings = cast(dict[str, object], inspection[0]["NetworkSettings"])
+    network_settings["SandboxID"] = "e" * 64
+    network_settings["SandboxKey"] = "/var/run/docker/netns/" + "f" * 12
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="network endpoint drifted",
+    ):
+        _validate_staged_running_fixture(
+            inspection,
+            service="chrony-nts",
+            require_live_observation_fields=True,
+        )
+
+
+def test_exact_never_started_created_container_rejects_running_network_endpoint() -> None:
+    inspection = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    _add_safe_exact_docker_observation_boundary(
+        inspection,
+        service="chrony-nts",
+        running_endpoint=True,
+    )
+    network_settings = cast(dict[str, object], inspection[0]["NetworkSettings"])
+    network_settings["SandboxID"] = ""
+    network_settings["SandboxKey"] = ""
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="network endpoint drifted",
+    ):
+        _validate_exact_source_observation_fixture(inspection, staged=False)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("SandboxID", "e" * 64),
+        ("SandboxKey", "/var/run/docker/netns/" + "f" * 12),
+    ],
+)
+def test_exact_never_started_created_container_rejects_nonempty_network_sandbox(
+    field_name: str,
+    value: object,
+) -> None:
+    inspection = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    _add_safe_exact_docker_observation_boundary(
+        inspection,
+        service="chrony-nts",
+        running_endpoint=False,
+    )
+    network_settings = cast(dict[str, object], inspection[0]["NetworkSettings"])
+    network_settings[field_name] = value
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="network sandbox drifted",
+    ):
+        _validate_exact_source_observation_fixture(inspection, staged=False)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("SandboxID", ""),
+        ("SandboxID", False),
+        ("SandboxID", _EqualString("e" * 64)),
+        ("SandboxKey", ""),
+        ("SandboxKey", False),
+        ("SandboxKey", _EqualString("/var/run/docker/netns/" + "f" * 12)),
+        ("SandboxKey", "/tmp/not-docker-netns"),
+        ("SandboxKey", "/var/run/docker/netns/" + "f" * 65),
+    ],
+)
+def test_exact_staged_running_container_rejects_empty_or_confused_network_sandbox(
+    field_name: str,
+    value: object,
+) -> None:
+    inspection = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    _add_safe_exact_docker_observation_boundary(
+        inspection,
+        service="chrony-nts",
+        running_endpoint=True,
+    )
+    network_settings = cast(dict[str, object], inspection[0]["NetworkSettings"])
+    network_settings[field_name] = value
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="network sandbox drifted",
+    ):
+        _validate_exact_source_observation_fixture(inspection, staged=True)
+
+
+@pytest.mark.parametrize("missing_field", ["SandboxID", "SandboxKey"])
+def test_exact_live_observation_requires_both_network_sandbox_fields(
+    missing_field: str,
+) -> None:
+    inspection = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    _add_safe_exact_docker_observation_boundary(
+        inspection,
+        service="chrony-nts",
+        running_endpoint=True,
+    )
+    network_settings = cast(dict[str, object], inspection[0]["NetworkSettings"])
+    del network_settings[missing_field]
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="network sandbox is incomplete",
+    ):
+        _validate_exact_source_observation_fixture(inspection, staged=True)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("Gateway", "1" * 16),
+        ("IPv6Gateway", "a" * 40),
+    ],
+)
+def test_exact_network_observation_rejects_oversized_ip_before_parser(
+    field_name: str,
+    value: str,
+) -> None:
+    inspection = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    _add_safe_exact_docker_observation_boundary(
+        inspection,
+        service="chrony-nts",
+        running_endpoint=True,
+    )
+    network_settings = cast(dict[str, object], inspection[0]["NetworkSettings"])
+    networks = cast(dict[str, object], network_settings["Networks"])
+    attachment = cast(dict[str, object], networks[COMPOSE_NETWORK_NAME])
+    attachment[field_name] = value
+
+    with (
+        patch(
+            "scripts.start_trusted_time_supervisor.ipaddress.ip_address",
+            side_effect=AssertionError("oversized IP reached parser"),
+        ) as parser,
+        pytest.raises(TrustedTimeSupervisorConfigurationError),
+    ):
+        _validate_exact_source_observation_fixture(inspection, staged=True)
+    parser.assert_not_called()
+
+
+@pytest.mark.parametrize("staged", [False, True])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "active-exec",
+        "exec-list-subclass",
+        "runtime-missing-value",
+        "runtime-subclass",
+        "runtime-unapproved",
+        "apparmor-missing-value",
+        "apparmor-subclass",
+        "apparmor-unconfined",
+        "network-key-subclass",
+        "network-attachment-wrong-type",
+        "network-attachment-extra-field",
+        "network-id-missing",
+        "network-id-subclass",
+        "network-id-malformed",
+        "endpoint-id-malformed",
+        "ipam-config-nonneutral",
+        "ipam-config-subclass",
+        "driver-options-nonneutral",
+        "links-nonneutral",
+        "aliases-subclass",
+        "aliases-wrong-service",
+        "gw-priority-bool",
+        "gw-priority-nonzero",
+        "invalid-ip-address",
+        "ip-prefix-bool",
+        "invalid-mac-address",
+        "published-port",
+        "secondary-address",
+        "hairpin-enabled",
+        "top-network-string-subclass",
+        "top-network-prefix-bool",
+    ],
+)
+def test_exact_container_observation_boundary_rejects_unsafe_or_confused_metadata(
+    staged: bool,
+    mutation: str,
+) -> None:
+    inspection = (
+        _staged_running_container_inspection(
+            container_id=SOURCE_CONTAINER_ID,
+            image_id=SOURCE_IMAGE_ID,
+            service="chrony-nts",
+        )
+        if staged
+        else _never_started_container_inspection(
+            container_id=SOURCE_CONTAINER_ID,
+            image_id=SOURCE_IMAGE_ID,
+            service="chrony-nts",
+        )
+    )
+    _add_safe_exact_docker_observation_boundary(
+        inspection,
+        service="chrony-nts",
+        running_endpoint=staged,
+    )
+    container = inspection[0]
+    host = cast(dict[str, object], container["HostConfig"])
+    network_settings = cast(dict[str, object], container["NetworkSettings"])
+    networks = cast(dict[str, object], network_settings["Networks"])
+    attachment = cast(dict[str, object], networks[COMPOSE_NETWORK_NAME])
+
+    if mutation == "active-exec":
+        container["ExecIDs"] = ["e" * 64]
+    elif mutation == "exec-list-subclass":
+        container["ExecIDs"] = _ListSubclass()
+    elif mutation == "runtime-missing-value":
+        host["Runtime"] = None
+    elif mutation == "runtime-subclass":
+        host["Runtime"] = _EqualString("runc")
+    elif mutation == "runtime-unapproved":
+        host["Runtime"] = "runsc"
+    elif mutation == "apparmor-missing-value":
+        container["AppArmorProfile"] = None
+    elif mutation == "apparmor-subclass":
+        container["AppArmorProfile"] = _EqualString("docker-default")
+    elif mutation == "apparmor-unconfined":
+        container["AppArmorProfile"] = "unconfined"
+    elif mutation == "network-key-subclass":
+        networks[_EqualString(COMPOSE_NETWORK_NAME)] = networks.pop(COMPOSE_NETWORK_NAME)
+    elif mutation == "network-attachment-wrong-type":
+        networks[COMPOSE_NETWORK_NAME] = []
+    elif mutation == "network-attachment-extra-field":
+        attachment["Unexpected"] = False
+    elif mutation == "network-id-missing":
+        del attachment["NetworkID"]
+    elif mutation == "network-id-subclass":
+        attachment["NetworkID"] = _EqualString("c" * 64)
+    elif mutation == "network-id-malformed":
+        attachment["NetworkID"] = "C" * 64
+    elif mutation == "endpoint-id-malformed":
+        attachment["EndpointID"] = "d" * 63
+    elif mutation == "ipam-config-nonneutral":
+        attachment["IPAMConfig"] = {"IPv4Address": "172.20.0.42"}
+    elif mutation == "ipam-config-subclass":
+        attachment["IPAMConfig"] = _DictSubclass()
+    elif mutation == "driver-options-nonneutral":
+        attachment["DriverOpts"] = {"trusted": "false"}
+    elif mutation == "links-nonneutral":
+        attachment["Links"] = ["other:alias"]
+    elif mutation == "aliases-subclass":
+        attachment["Aliases"] = [_EqualString("chrony-nts")]
+    elif mutation == "aliases-wrong-service":
+        attachment["Aliases"] = ["other-service"]
+    elif mutation == "gw-priority-bool":
+        attachment["GwPriority"] = False
+    elif mutation == "gw-priority-nonzero":
+        attachment["GwPriority"] = 1
+    elif mutation == "invalid-ip-address":
+        attachment["IPAddress"] = "172.20.0.999"
+    elif mutation == "ip-prefix-bool":
+        attachment["IPPrefixLen"] = False
+    elif mutation == "invalid-mac-address":
+        attachment["MacAddress"] = "not-a-mac"
+    elif mutation == "published-port":
+        network_settings["Ports"] = {"123/udp": [{"HostPort": "123"}]}
+    elif mutation == "secondary-address":
+        network_settings["SecondaryIPAddresses"] = ["172.20.0.3"]
+    elif mutation == "hairpin-enabled":
+        network_settings["HairpinMode"] = True
+    elif mutation == "top-network-string-subclass":
+        network_settings["Bridge"] = _EqualString("")
+    else:
+        network_settings["IPPrefixLen"] = False
+
+    with pytest.raises(TrustedTimeSupervisorConfigurationError):
+        _validate_exact_source_observation_fixture(inspection, staged=staged)
+
+
 def test_exact_never_started_created_source_uses_shared_runtime_policy() -> None:
     source = _never_started_container_inspection(
         container_id=SOURCE_CONTAINER_ID,
@@ -4045,6 +4515,126 @@ def test_exact_never_started_created_container_rejects_config_boundary_drift(
             expected_image_id=SOURCE_IMAGE_ID,
             expected_image_configuration=_image_configuration("chrony-nts"),
             expected_service="chrony-nts",
+        )
+
+
+@pytest.mark.parametrize("staged", [False, True])
+@pytest.mark.parametrize(
+    ("service", "container_id", "image_id", "stop_timeout"),
+    [
+        ("chrony-nts", SOURCE_CONTAINER_ID, SOURCE_IMAGE_ID, 10),
+        (
+            "trusted-time-supervisor",
+            SUPERVISOR_CONTAINER_ID,
+            SUPERVISOR_IMAGE_ID,
+            40,
+        ),
+    ],
+)
+def test_exact_live_container_accepts_service_specific_builtin_stop_timeout(
+    staged: bool,
+    service: str,
+    container_id: str,
+    image_id: str,
+    stop_timeout: int,
+) -> None:
+    inspection = (
+        _staged_running_container_inspection(
+            container_id=container_id,
+            image_id=image_id,
+            service=service,
+        )
+        if staged
+        else _never_started_container_inspection(
+            container_id=container_id,
+            image_id=image_id,
+            service=service,
+        )
+    )
+    configuration = cast(dict[str, object], inspection[0]["Config"])
+    assert type(configuration["StopTimeout"]) is int
+    assert configuration["StopTimeout"] == stop_timeout
+    _add_safe_exact_docker_observation_boundary(
+        inspection,
+        service=service,
+        running_endpoint=staged,
+    )
+
+    _validate_exact_observation_fixture(
+        inspection,
+        service=service,
+        staged=staged,
+    )
+
+
+@pytest.mark.parametrize("staged", [False, True])
+@pytest.mark.parametrize(
+    ("service", "container_id", "image_id", "mutation"),
+    [
+        ("chrony-nts", SOURCE_CONTAINER_ID, SOURCE_IMAGE_ID, "missing"),
+        ("chrony-nts", SOURCE_CONTAINER_ID, SOURCE_IMAGE_ID, "bool"),
+        ("chrony-nts", SOURCE_CONTAINER_ID, SOURCE_IMAGE_ID, "wrong-service"),
+        (
+            "trusted-time-supervisor",
+            SUPERVISOR_CONTAINER_ID,
+            SUPERVISOR_IMAGE_ID,
+            "missing",
+        ),
+        (
+            "trusted-time-supervisor",
+            SUPERVISOR_CONTAINER_ID,
+            SUPERVISOR_IMAGE_ID,
+            "bool",
+        ),
+        (
+            "trusted-time-supervisor",
+            SUPERVISOR_CONTAINER_ID,
+            SUPERVISOR_IMAGE_ID,
+            "wrong-service",
+        ),
+    ],
+)
+def test_exact_live_container_rejects_missing_confused_or_wrong_service_stop_timeout(
+    staged: bool,
+    service: str,
+    container_id: str,
+    image_id: str,
+    mutation: str,
+) -> None:
+    inspection = (
+        _staged_running_container_inspection(
+            container_id=container_id,
+            image_id=image_id,
+            service=service,
+        )
+        if staged
+        else _never_started_container_inspection(
+            container_id=container_id,
+            image_id=image_id,
+            service=service,
+        )
+    )
+    _add_safe_exact_docker_observation_boundary(
+        inspection,
+        service=service,
+        running_endpoint=staged,
+    )
+    configuration = cast(dict[str, object], inspection[0]["Config"])
+    if mutation == "missing":
+        del configuration["StopTimeout"]
+    elif mutation == "bool":
+        configuration["StopTimeout"] = False
+    else:
+        configuration["StopTimeout"] = 40 if service == "chrony-nts" else 10
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="high-risk runtime boundary drifted",
+    ):
+        _validate_exact_observation_fixture(
+            inspection,
+            service=service,
+            staged=staged,
         )
 
 
@@ -4532,7 +5122,7 @@ def test_exact_staged_running_source_requires_exact_healthy_projection(
         _validate_staged_running_fixture(source, service="chrony-nts")
 
 
-def test_exact_staged_running_source_allows_mutable_health_log_contents() -> None:
+def test_exact_staged_running_source_allows_bounded_healthy_health_log_contents() -> None:
     source = _staged_running_container_inspection(
         container_id=SOURCE_CONTAINER_ID,
         image_id=SOURCE_IMAGE_ID,
@@ -4543,7 +5133,7 @@ def test_exact_staged_running_source_allows_mutable_health_log_contents() -> Non
     health["Log"] = [
         {
             "End": "2026-08-09T12:34:55.200000000Z",
-            "ExitCode": 1,
+            "ExitCode": 0,
             "Output": "earlier attempt",
             "Start": "2026-08-09T12:34:55.100000000Z",
         },
@@ -4556,6 +5146,67 @@ def test_exact_staged_running_source_allows_mutable_health_log_contents() -> Non
     ]
 
     _validate_staged_running_fixture(source, service="chrony-nts")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "empty",
+        "wrong-key",
+        "key-subclass",
+        "entry-subclass",
+        "bool-exit",
+        "nonzero-exit",
+        "bad-start",
+        "bad-end",
+        "output-subclass",
+        "oversized-list",
+        "oversized-output",
+        "deep-output",
+    ],
+)
+def test_exact_staged_running_source_rejects_unbounded_or_confused_health_log(
+    mutation: str,
+) -> None:
+    source = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    state = cast(dict[str, object], source[0]["State"])
+    health = cast(dict[str, object], state["Health"])
+    log = cast(list[object], health["Log"])
+    entry = cast(dict[str, object], log[0])
+    if mutation == "empty":
+        health["Log"] = []
+    elif mutation == "wrong-key":
+        entry["Unexpected"] = entry.pop("Output")
+    elif mutation == "key-subclass":
+        health["Log"] = [{_EqualString(key): value for key, value in entry.items()}]
+    elif mutation == "entry-subclass":
+        health["Log"] = [_DictSubclass(entry)]
+    elif mutation == "bool-exit":
+        entry["ExitCode"] = False
+    elif mutation == "nonzero-exit":
+        entry["ExitCode"] = 1
+    elif mutation == "bad-start":
+        entry["Start"] = "0001-01-01T00:00:00Z"
+    elif mutation == "bad-end":
+        entry["End"] = "2026-02-30T00:00:00Z"
+    elif mutation == "output-subclass":
+        entry["Output"] = _EqualString("healthy\n")
+    elif mutation == "oversized-list":
+        health["Log"] = [dict(entry) for _ in range(6)]
+    elif mutation == "oversized-output":
+        entry["Output"] = "x" * 4_097
+    else:
+        entry["Output"] = {"nested": ["untrusted"]}
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="health log is invalid",
+    ):
+        _validate_staged_running_fixture(source, service="chrony-nts")
 
 
 @pytest.mark.parametrize(

@@ -2629,22 +2629,49 @@ performs no I/O and retains no raw
 inspection, image-configuration, marker, staged-path, environment, mount, or
 state object.
 
-No worker/main, Make, Compose, or launcher path invokes either topology
-candidate, the handoff, sequence-2 issuer, or binder; persistent start and
-shutdown remain hard closed. The next implementation must be a strict bounded
-read-only Docker issuer that targets both created and staged-unreleased
-contracts under the same qualified-daemon lock and rejects duplicate JSON keys
-before decoding. A later pure fence composition must bind the created snapshot
-and equal staged snapshots obtained immediately before claim retention and
-release. Only after those boundaries are implemented may a separately admitted
-and operationally approved active controller execute a projected argv. Only
-after that remaining boundary may a separate sealed watchdog provider-terminal
-issuer authenticate the complete new suffix, bind two stable namespace passes
-to their exact digest/count/terminal identity, prove that no higher sequence
-exists, and capture its own independent monotonic instant. That future deployed
-runtime, not dormant v1, must apply the 360-second stale threshold with equality
-stale and every stale result unavailable before any watchdog consumer is
-designed or qualified. See
+Contract `phase6d-post-enrollment-topology-observation-reader-v1` now adds the
+strict dormant observation boundary without changing either pure snapshot
+contract. One exact production open owns the global launcher lock, pins a
+canonical absolute Docker executable plus local socket and daemon identity,
+and binds the session to one process and one non-copyable lifecycle. Every
+fixed Docker command has a two-second deadline and independent stdout/stderr
+caps. The decoder accepts only one compact LF-terminated UTF-8 JSON value,
+rejects duplicate keys, nonstandard constants, floats, oversized integers,
+surrogates, and depth/node exhaustion before any projection is trusted.
+
+The issuer performs 14 bounded reads for the never-started state and 16 for
+each staged-unreleased state. Raw observations require the exact image root
+IDs, Linux/runc/container confinement, complete sandbox and network attachment
+metadata, stable daemon, volume, inventory, and separately inspected bridge
+identity, plus exact post-probe container state. The staged path performs two
+fixed descriptor-held, read-only in-container marker/absence probes, inspects
+the containers only after both probes have exited, and observes the four host
+retirements through owner-only no-follow directory descriptors. It can issue
+one created envelope and at most two ordered staged envelopes; staged ordinal
+1 names the created envelope as predecessor, ordinal 2 names ordinal 1, and
+both staged snapshots must have the same stable snapshot digest.
+
+Only the outer envelopes authenticate the lock/daemon observation provenance.
+The unchanged pure snapshots still authenticate no submitted topology, and
+the envelopes retain no raw Docker response, secret, staged path, or mutable
+inspection object. Topology, start order, both starts, claim retention,
+release, persistent start, sequence 2, shutdown, and every operational or
+trading authority remain false. No worker/main, Make, Compose, or launcher path
+invokes the reader, either topology candidate, the handoff, sequence-2 issuer,
+or binder; persistent start and shutdown remain hard closed.
+
+The next implementation is the pure same-session fence composition. It must
+bind the one created envelope to equal staged ordinals obtained immediately
+before claim retention and release, and ordinary pre-claim drift must fail
+before the globally single-use claim is consumed. Only after that boundary may
+a separately admitted and operationally approved active controller execute a
+projected argv. Only after that remaining boundary may a separate sealed
+watchdog provider-terminal issuer authenticate the complete new suffix, bind
+two stable namespace passes to their exact digest/count/terminal identity,
+prove that no higher sequence exists, and capture its own independent
+monotonic instant. That future deployed runtime, not dormant v1, must apply the
+360-second stale threshold with equality stale and every stale result
+unavailable before any watchdog consumer is designed or qualified. See
 [ADR 0095](adr/0095-dormant-provider-neutral-trusted-head-watchdog-state.md).
 
 ## Phase 6 - deployment, browser security, and operational hardening (weeks 16-18)
@@ -2765,14 +2792,16 @@ designed or qualified. See
   snapshot. It requires exact nonterminal and unrestarted running containers, a
   healthy source, the fixed consumed-input marker, absent release and release-
   staging markers, and all four staged host inputs reported retired. It retains
-  only nonsecret identities and digests. None of these seams executes or
-  inspects Docker, reads staged inputs, creates topology, consumes a claim,
-  publishes the marker, observes or mutates sequence 2, retains an outcome, or
-  exposes CLI/Make/Compose/launcher wiring. Submitted observation provenance,
-  inventory, daemon, volume, container, topology, marker, input-retirement, and
-  every authority remain false. Next implement a strict bounded duplicate-key-
-  rejecting Docker issuer for both topology contracts, then pure pre-claim/pre-
-  release fence composition. A later exact-outcome-bound host orchestration
+  only nonsecret identities and digests. Those pure seams perform no I/O. The
+  separate dormant bounded reader now owns the exact lock/daemon Docker
+  observations for both topology contracts, rejects duplicate-key and otherwise
+  ambiguous raw JSON, and returns only HMAC-sealed, non-authorizing provenance
+  envelopes. It has no CLI/Make/Compose/launcher wiring and neither creates nor
+  mutates topology, consumes a claim, publishes the release marker, observes or
+  mutates sequence 2, or retains an outcome. The pure snapshots' submitted
+  observation and topology authentication remain false, and every authority
+  remains false. Next implement the pure same-session pre-claim/pre-release
+  fence composition. A later exact-outcome-bound host orchestration
   implementation, admission for its exact revision, and separate operational
   approval remain required before the normal worker may create sequence 2.
   Complete that boundary before adding an

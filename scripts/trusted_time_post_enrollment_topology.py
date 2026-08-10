@@ -96,62 +96,69 @@ def _require_exact_json_tree(
         if remaining_ascii_bytes[0] < 0:
             raise ValueError
 
-    remaining_nodes[0] -= 1
-    if remaining_nodes[0] < 0 or depth > 64:
+    def require(current: object, *, current_depth: int, node_already_counted: bool) -> None:
+        if current_depth > 64 or remaining_nodes[0] < 0:
+            raise ValueError
+        if not node_already_counted:
+            remaining_nodes[0] -= 1
+            if remaining_nodes[0] < 0:
+                raise ValueError
+        if current is None:
+            consume(4)
+            return
+        if type(current) is bool:
+            consume(5)
+            return
+        if type(current) is int:
+            integer_bits = current.bit_length()
+            if integer_bits > _MAXIMUM_JSON_INTEGER_BITS:
+                raise ValueError
+            # A signed base-10 rendering cannot exceed one digit per binary bit,
+            # plus a possible sign and one zero digit.
+            consume(max(1, integer_bits) + 2)
+            return
+        if type(current) is str:
+            # ``ensure_ascii`` can render one non-BMP code point as two six-byte
+            # surrogate escapes.  Quotes are included in the conservative bound.
+            consume(2 + 12 * len(current))
+            return
+        if type(current) is float:
+            if not math.isfinite(current):
+                raise ValueError
+            consume(32)
+            return
+        if type(current) is list:
+            consume(2 + max(0, len(current) - 1))
+            for item in current:
+                require(
+                    item,
+                    current_depth=current_depth + 1,
+                    node_already_counted=False,
+                )
+            return
+        if type(current) is dict:
+            child_node_count = 2 * len(current)
+            if child_node_count > remaining_nodes[0]:
+                raise ValueError
+            remaining_nodes[0] -= child_node_count
+            consume(2 + max(0, child_node_count - 1))
+            if any(type(key) is not str for key in current):
+                raise ValueError
+            for key, item in current.items():
+                require(
+                    key,
+                    current_depth=current_depth + 1,
+                    node_already_counted=True,
+                )
+                require(
+                    item,
+                    current_depth=current_depth + 1,
+                    node_already_counted=True,
+                )
+            return
         raise ValueError
-    if value is None:
-        consume(4)
-        return
-    if type(value) is bool:
-        consume(5)
-        return
-    if type(value) is int:
-        integer_bits = value.bit_length()
-        if integer_bits > _MAXIMUM_JSON_INTEGER_BITS:
-            raise ValueError
-        # A signed base-10 rendering cannot exceed one digit per binary bit,
-        # plus a possible sign and one zero digit.
-        consume(max(1, integer_bits) + 2)
-        return
-    if type(value) is str:
-        # ``ensure_ascii`` can render one non-BMP code point as two six-byte
-        # surrogate escapes.  Quotes are included in the conservative bound.
-        consume(2 + 12 * len(value))
-        return
-    if type(value) is float:
-        if not math.isfinite(value):
-            raise ValueError
-        consume(32)
-        return
-    if type(value) is list:
-        consume(2 + max(0, len(value) - 1))
-        for item in value:
-            _require_exact_json_tree(
-                item,
-                depth=depth + 1,
-                remaining_nodes=remaining_nodes,
-                remaining_ascii_bytes=remaining_ascii_bytes,
-            )
-        return
-    if type(value) is dict:
-        if any(type(key) is not str for key in value):
-            raise ValueError
-        consume(2 + max(0, 2 * len(value) - 1))
-        for key, item in value.items():
-            _require_exact_json_tree(
-                key,
-                depth=depth + 1,
-                remaining_nodes=remaining_nodes,
-                remaining_ascii_bytes=remaining_ascii_bytes,
-            )
-            _require_exact_json_tree(
-                item,
-                depth=depth + 1,
-                remaining_nodes=remaining_nodes,
-                remaining_ascii_bytes=remaining_ascii_bytes,
-            )
-        return
-    raise ValueError
+
+    require(value, current_depth=depth, node_already_counted=False)
 
 
 def _isolated_json_projection(
@@ -471,11 +478,15 @@ class TrustedTimePostEnrollmentCreatedTopologySnapshot:
     daemon_identity_authenticated = property(_authority_is_never_granted)
     database_secret_disclosed = property(_authority_is_never_granted)
     inventory_authenticated = property(_authority_is_never_granted)
+    observation_provenance_authenticated = property(_authority_is_never_granted)
     persistent_start_authorized = property(_authority_is_never_granted)
     release_authorized = property(_authority_is_never_granted)
     sequence_2_authorized = property(_authority_is_never_granted)
     shutdown_authorized = property(_authority_is_never_granted)
     source_start_authorized = property(_authority_is_never_granted)
+    source_start_authenticated = property(_authority_is_never_granted)
+    start_order_authenticated = property(_authority_is_never_granted)
+    supervisor_start_authenticated = property(_authority_is_never_granted)
     supervisor_start_authorized = property(_authority_is_never_granted)
     topology_authenticated = property(_authority_is_never_granted)
     topology_mutation_authorized = property(_authority_is_never_granted)
@@ -529,7 +540,7 @@ def validate_post_enrollment_start_created_topology(
             or proposed_launch.source_image_id != approved_launch.source_image_id
             or proposed_launch.supervisor_image_id != approved_launch.supervisor_image_id
             or not _valid_daemon_identity(daemon_identity_before)
-            or type(daemon_identity_after) is not LocalDockerDaemonIdentity
+            or not _valid_daemon_identity(daemon_identity_after)
             or daemon_identity_after != daemon_identity_before
             or type(volume_identities_before) is not TrustedTimeVolumeIdentities
             or type(volume_identities_after) is not TrustedTimeVolumeIdentities
@@ -542,7 +553,16 @@ def validate_post_enrollment_start_created_topology(
 
         inventory_before = _validated_container_inventory(project_container_ids_before)
         inventory_after = _validated_container_inventory(project_container_ids_after)
-        if inventory_after != inventory_before or type(container_inspections) is not dict:
+        if (
+            inventory_after != inventory_before
+            or type(container_inspections) is not dict
+            or len(container_inspections) != 2
+            or any(type(container_id) is not str for container_id in container_inspections)
+            or any(
+                _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
+                for container_id in container_inspections
+            )
+        ):
             raise ValueError
         if set(container_inspections) != set(inventory_before):
             raise ValueError
