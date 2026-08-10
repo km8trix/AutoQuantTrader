@@ -2660,12 +2660,37 @@ trading authority remain false. No worker/main, Make, Compose, or launcher path
 invokes the reader, either topology candidate, the handoff, sequence-2 issuer,
 or binder; persistent start and shutdown remain hard closed.
 
-The next implementation is the pure same-session fence composition. It must
-bind the one created envelope to equal staged ordinals obtained immediately
-before claim retention and release, and ordinary pre-claim drift must fail
-before the globally single-use claim is consumed. Only after that boundary may
-a separately admitted and operationally approved active controller execute a
-projected argv. Only after that remaining boundary may a separate sealed
+The pure two-stage same-session composition is now implemented. Contract
+`phase6d-post-enrollment-start-pre-claim-topology-fence-v1` returns only
+`pre_claim_same_session_topology_fence_unqualified` after reauthenticating the
+exact created envelope and staged ordinal 1 and binding their one session,
+created-observation identity, direct predecessor, approved launch, topology
+identity projections, and staged snapshot digest. Contract
+`phase6d-post-enrollment-start-pre-release-topology-fence-v1` returns only
+`pre_release_same_session_topology_fence_unqualified` after reauthenticating
+that exact pre-claim fence and staged ordinal 2 and proving the ordinal-2-to-
+ordinal-1 predecessor, same created observation/session, and unchanged staged
+snapshot digest.
+
+The binders perform no I/O and authenticate only the opaque process-private
+observation provenance plus those submitted same-session chain/equality
+relationships. They authenticate no clock, freshness, claim, current topology
+for an action, or temporal adjacency to release. An ordinal 2 issued before
+claim retention can be cached and later satisfy the pure structural binder;
+therefore it is explicitly not release authority. Claim retention, topology
+mutation, both starts, release, persistent start, sequence 2, shutdown, and
+every operational/trading authority remain false. No worker/main, Make,
+Compose, or launcher path invokes either binder.
+
+The next implementation is a separately admitted and operationally approved
+active controller. Under one continuously open PID-bound issuer/global-lock
+session and end-to-end deadline, it must obtain staged ordinal 1, bind the pre-
+claim fence, reject ordinary drift before consuming the globally single-use
+claim, retain and revalidate that exact claim, obtain staged ordinal 2, bind the
+pre-release fence, perform final live revalidation, and reject any cached
+ordinal 2. It must then execute only the approved release, authenticate sequence
+2 and persistent topology, and retain the exact outcome. Only after that
+remaining boundary may a separate sealed
 watchdog provider-terminal issuer authenticate the complete new suffix, bind
 two stable namespace passes to their exact digest/count/terminal identity,
 prove that no higher sequence exists, and capture its own independent
@@ -2796,14 +2821,21 @@ unavailable before any watchdog consumer is designed or qualified. See
   separate dormant bounded reader now owns the exact lock/daemon Docker
   observations for both topology contracts, rejects duplicate-key and otherwise
   ambiguous raw JSON, and returns only HMAC-sealed, non-authorizing provenance
-  envelopes. It has no CLI/Make/Compose/launcher wiring and neither creates nor
-  mutates topology, consumes a claim, publishes the release marker, observes or
-  mutates sequence 2, or retains an outcome. The pure snapshots' submitted
-  observation and topology authentication remain false, and every authority
-  remains false. Next implement the pure same-session pre-claim/pre-release
-  fence composition. A later exact-outcome-bound host orchestration
-  implementation, admission for its exact revision, and separate operational
-  approval remain required before the normal worker may create sequence 2.
+  envelopes. Pure pre-claim and pre-release fence contracts now authenticate
+  the created/ordinal-1 and pre-claim/ordinal-2 same-session chains respectively,
+  with statuses `pre_claim_same_session_topology_fence_unqualified` and
+  `pre_release_same_session_topology_fence_unqualified`. They authenticate no
+  clock, claim, freshness, action-current topology, or proximity to release; a
+  cached ordinal 2 remains a known temporal limitation. Neither the reader nor
+  either binder has CLI/Make/Compose/launcher wiring, and they do not create or
+  mutate topology, consume a claim, publish the release marker, observe or
+  mutate sequence 2, or retain an outcome. The pure snapshots' submitted
+  topology authentication remains false, and every authority remains false. A
+  later exact-outcome-bound host orchestration implementation, admission for its
+  exact revision, and separate operational approval must enforce ordinal 1,
+  claim retention/revalidation, ordinal 2, final live revalidation, and release
+  under one continuously open issuer/global-lock session and deadline, rejecting
+  cached evidence, before the normal worker may create sequence 2.
   Complete that boundary before adding an
   independent watchdog, readiness,
   final new-exposure, alert, and exact-head manual re-arm consumers. The local

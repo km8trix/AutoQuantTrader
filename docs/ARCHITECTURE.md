@@ -3623,14 +3623,36 @@ reader owned those observations; they do not authenticate topology for an
 action and grant no claim, release, start, shutdown, persistence, sequence-2,
 operational, or trading authority. The reader has no CLI, worker, controller,
 provider, SQL, claim, start, release, persistence, or supported runtime wiring.
-The next implementation is a pure same-session fence composition binding the
-created envelope and equal staged ordinals immediately before claim retention
-and release. Only then may a separately admitted and operationally approved
-controller execute a projected action.
+
+Two pure import-only binders now compose those envelopes without widening the
+reader. Contract
+`phase6d-post-enrollment-start-pre-claim-topology-fence-v1`, with sole status
+`pre_claim_same_session_topology_fence_unqualified`, requires the exact created
+envelope and staged ordinal 1. It reauthenticates both opaque envelopes and
+binds their equal session, created-observation identity, direct predecessor,
+approved launch, container/topology identities, and staged snapshot digest.
+Contract
+`phase6d-post-enrollment-start-pre-release-topology-fence-v1`, with sole status
+`pre_release_same_session_topology_fence_unqualified`, requires that exact pre-
+claim fence and staged ordinal 2. It reauthenticates the pre-claim result and
+second staged envelope, requires ordinal 2 to name ordinal 1 as its predecessor,
+and proves the same session, created observation, and unchanged staged snapshot
+digest across both stages.
+
+These results authenticate only the process-private observation envelopes and
+their submitted same-session chain and equality relationships. They do not
+authenticate current topology for an action, time, freshness, claim retention,
+or proximity to release. In particular, pure pre-release binding can accept a
+previously issued ordinal 2; absent an active controller, it cannot prove that
+ordinal 2 was obtained after claim retention or immediately before release.
+Only observation provenance and same-session topology equality authenticate;
+both statuses therefore remain unqualified. Every claim, topology mutation,
+start, release, persistent-start, sequence-2, shutdown, operational, and
+trading authority remains false.
 
 No worker/main, Make, Compose, or launcher wiring invokes either topology
-candidate, the dormant observation reader, the claimed-release handoff, the
-sequence-2 issuer, or the binder;
+candidate, the dormant observation reader, either same-session fence binder,
+the claimed-release handoff, the sequence-2 issuer, or the successor binder;
 the host outcome remains `UNCONFIRMED`, every authority field remains false,
 and `trusted-time-start` and shutdown remain hard closed. Consequently, no
 supported persistent topology or independent supervisor watchdog is deployed.
@@ -3666,15 +3688,19 @@ Supabase/provider adapter, runtime process or container, independent external
 failure domain, alert route, readiness/control/new-exposure/re-arm consumer,
 deployment, drill, or Phase 6 exit evidence. The retained passing rollback
 probe, applied atomic read-policy upgrade, separately approved same-object proof
-resume, confirmed first enrollment, staged-release image admission, and dormant
-bounded topology observation issuer are complete. The next normative sequence
-is pure same-session pre-claim/pre-release fence composition, followed by a
-separately reviewed exact-outcome-bound host orchestration implementation. That
-controller must control the staged topology, retain and repeatedly revalidate
-the exact claim, execute only the approved release, receive and authenticate
-the bounded sequence-2 terminal, requalify the topology, and durably retain the
-exact outcome. Its merged revision requires a fresh image admission and
-separate operational approval before execution. Only after that boundary exists
+resume, confirmed first enrollment, staged-release image admission, dormant
+bounded topology observation issuer, and pure two-stage same-session fence are
+complete. The next normative boundary is a separately reviewed exact-outcome-
+bound host orchestration implementation. Under one continuously open PID-bound
+issuer/global-lock session and end-to-end deadline, that controller must create
+and stage the topology, obtain ordinal 1, bind the pre-claim fence, retain and
+revalidate the exact claim, obtain ordinal 2, bind the pre-release fence,
+perform final live revalidation, and execute only the approved release. It must
+then receive and authenticate the bounded sequence-2 terminal, requalify the
+topology, and durably retain the exact outcome. It must reject a cached ordinal
+2 rather than treating the pure binder as temporal proof. Its merged revision
+requires a fresh image admission and separate operational approval before
+execution. Only after that boundary exists
 may a sealed watchdog provider-terminal issuer
 authenticate the complete new suffix, bind two stable namespace passes to their
 exact digest, count, and terminal identity, prove no higher sequence exists, and

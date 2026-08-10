@@ -75,7 +75,22 @@ def test_every_supported_trusted_time_python_target_uses_isolated_launcher() -> 
         assert script in makefile
 
 
-def test_post_enrollment_topology_observation_has_no_supported_runtime_wiring() -> None:
+def test_post_enrollment_topology_observation_and_fence_have_no_runtime_wiring() -> None:
+    topology_fence_api_names = (
+        "POST_ENROLLMENT_START_PRE_CLAIM_TOPOLOGY_FENCE_CONTRACT_VERSION",
+        "POST_ENROLLMENT_START_PRE_CLAIM_TOPOLOGY_FENCE_STATUS",
+        "POST_ENROLLMENT_START_PRE_RELEASE_TOPOLOGY_FENCE_CONTRACT_VERSION",
+        "POST_ENROLLMENT_START_PRE_RELEASE_TOPOLOGY_FENCE_STATUS",
+        "phase6d-post-enrollment-start-pre-claim-topology-fence-v1",
+        "pre_claim_same_session_topology_fence_unqualified",
+        "phase6d-post-enrollment-start-pre-release-topology-fence-v1",
+        "pre_release_same_session_topology_fence_unqualified",
+        "TrustedTimePostEnrollmentStartPreClaimTopologyFence",
+        "TrustedTimePostEnrollmentStartPreReleaseTopologyFence",
+        "TrustedTimePostEnrollmentStartTopologyFenceRejected",
+        "bind_post_enrollment_start_pre_claim_topology_fence",
+        "bind_post_enrollment_start_pre_release_topology_fence",
+    )
     forbidden_names = (
         "trusted_time_post_enrollment_topology",
         "validate_post_enrollment_start_created_topology",
@@ -86,23 +101,34 @@ def test_post_enrollment_topology_observation_has_no_supported_runtime_wiring() 
         "TrustedTimePostEnrollmentTopologyObservationIssuer",
         "TrustedTimePostEnrollmentCreatedTopologyObservation",
         "TrustedTimePostEnrollmentStagedTopologyObservation",
+        "trusted_time_post_enrollment_topology_fence",
+        *topology_fence_api_names,
     )
     supported_surfaces = (
         ROOT / "Makefile",
         ROOT / "apps" / "api" / "main.py",
         ROOT / "apps" / "trader" / "main.py",
-        ROOT / "apps" / "trusted_time_supervisor" / "main.py",
         ROOT / "apps" / "worker" / "main.py",
+        *sorted((ROOT / "apps" / "trusted_time_supervisor").glob("*.py")),
         ROOT / "infra" / "compose" / "trusted-time.compose.yaml",
         ROOT / "pyproject.toml",
+        ROOT / "scripts" / "diagnose_trusted_time_runtime.py",
         ROOT / "scripts" / "enroll_trusted_time_head_anchor.py",
+        ROOT / "scripts" / "inspect_trusted_time_qualification.py",
         ROOT / "scripts" / "start_trusted_time_supervisor.py",
+        ROOT / "scripts" / "verify_trusted_time_compose.py",
     )
 
     for path in supported_surfaces:
         payload = path.read_text(encoding="utf-8")
         for forbidden_name in forbidden_names:
             assert forbidden_name not in payload
+
+    admission_cli = (ROOT / "scripts" / "verify_trusted_time_images.py").read_text(encoding="utf-8")
+    assert '"scripts/trusted_time_post_enrollment_topology_fence.py"' in admission_cli
+    assert admission_cli.count("trusted_time_post_enrollment_topology_fence") == 1
+    for forbidden_name in topology_fence_api_names:
+        assert forbidden_name not in admission_cli
 
 
 def test_runtime_diagnostic_make_target_emits_only_child_output(tmp_path: Path) -> None:

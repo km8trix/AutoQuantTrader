@@ -1,9 +1,9 @@
 # ADR 0099: Approval-bound post-enrollment start and graceful stop
 
 - Status: Accepted (contract, dormant globally fixed claim/barrier, read-only
-  sequence-2 observation/binding, import-only claimed-release handoff, and
-  pure never-started and staged-unreleased topology snapshots; host execution
-  blocked)
+  sequence-2 observation/binding, import-only claimed-release handoff, pure
+  topology snapshots, bounded observation issuer, and pure two-stage same-
+  session topology fence; host execution blocked)
 - Date: 2026-08-08
 - Extends: [ADR 0098](0098-canonical-post-enrollment-start-evidence-review.md)
 
@@ -200,12 +200,33 @@ release, sequence-2, shutdown, operational, and trading authority false. The
 issuer has no CLI, worker, controller, provider, SQL, claim, topology mutation,
 start, release, or persistence surface.
 
-The next implementation is a pure same-session fence composition binding the
-created envelope and the two equal staged envelopes obtained immediately before
-claim retention and release. Ordinary pre-claim drift must fail before
-consuming the globally single-use claim. Only after that boundary exists may a
-separately admitted and operationally approved active controller execute any
-projected argv.
+Two pure import-only contracts compose that sealed observation chain. The
+pre-claim contract is
+`phase6d-post-enrollment-start-pre-claim-topology-fence-v1`, and its only status
+is `pre_claim_same_session_topology_fence_unqualified`. It reauthenticates the
+exact created envelope and staged ordinal 1, then binds the equal session,
+created-observation identity, ordinal-1 direct predecessor, approved launch,
+container/topology identity projections, and staged snapshot digest.
+
+The pre-release contract is
+`phase6d-post-enrollment-start-pre-release-topology-fence-v1`, and its only
+status is `pre_release_same_session_topology_fence_unqualified`. It
+reauthenticates the exact pre-claim fence and staged ordinal 2, requires ordinal
+2 to name ordinal 1 as predecessor, and binds the same session, created
+observation, approved launch, topology identity projections, and unchanged
+staged snapshot digest across both stages. Malformed, forged, cross-session,
+out-of-order, forked, or drifted candidates fail closed.
+
+The two fence results authenticate only the opaque process-private observation
+envelopes and their submitted same-session chain and equality relationships.
+They do not authenticate a current topology for an action, time, freshness,
+claim retention, or temporal adjacency to release. Because these functions are
+pure, staged ordinal 2 may have been issued and cached before claim retention;
+a structurally valid pre-release result does not prove otherwise. Neither
+binder performs Docker, file, clock, subprocess, claim, release, SQL, provider,
+or persistence I/O. Claim retention, topology mutation, both starts, release,
+persistent start, sequence 2, shutdown, outcome retention, and every operational
+or trading authority remain false.
 
 The dormant sequence-2 issuer performs complete SQL replay, a stable bounded
 two-object remote audit, and complete SQL replay again without signing or
@@ -219,15 +240,24 @@ remains `UNCONFIRMED`, and all authority fields remain false.
 
 No worker/main, Make, Compose, or supported host-launcher path calls the
 sequence-2 issuer or binder, invokes the claimed-release handoff, either pure
-topology snapshot, or the dormant observation reader, executes either projected
-start argv, invokes the claim writer, or publishes the release marker. There is
-no staged-topology controller, fence composition, retained-evidence/approval
-wiring, topology mutation, sequence-2 runtime mutation, confirmed start
-outcome, or graceful-stop operator. The reader's exact in-container probe is
-observation-only and cannot publish either release path. `trusted-time-start`
-and shutdown remain hard closed. Building and executing the remaining protocol
-requires a later exact revision/image/admission tuple and separate operational
-approval.
+topology snapshot, the dormant observation reader, or either same-session fence
+binder, executes either projected start argv, invokes the claim writer, or
+publishes the release marker. There is no staged-topology controller, retained-
+evidence/approval wiring, topology mutation, sequence-2 runtime mutation,
+confirmed start outcome, or graceful-stop operator. The reader's exact in-
+container probe is observation-only and cannot publish either release path.
+`trusted-time-start` and shutdown remain hard closed.
+
+The next implementation is a separately reviewed active controller. Under one
+continuously open PID-bound issuer/global-launcher-lock session and end-to-end
+deadline, it must create and stage the admitted topology, obtain ordinal 1,
+bind the pre-claim fence, reject drift before the globally single-use claim is
+consumed, retain and revalidate the exact claim, obtain ordinal 2, bind the pre-
+release fence, and perform final live revalidation before release. It must
+reject a cached ordinal 2, execute only the approved release, authenticate the
+exact sequence-2 terminal and persistent topology, and durably retain the
+outcome. Its exact merged revision and images require fresh admission and
+separate operational approval before execution.
 
 ## Consequences
 
@@ -235,8 +265,9 @@ The runtime now has an explicit pre-mutation barrier, and the dormant claim
 writer freezes the required exclusive durability semantics in one global fixed
 slot while treating every legacy per-operation claim as consumed authority.
 Neither that seam, the import-only handoff, nor either pure topology snapshot
-connects approval to an active Docker observation or staged container, so a
-projected Docker argv, caller-supplied inspection or marker state, container
+nor either same-session fence connects approval to an active Docker action or
+temporally qualified staged container, so a projected Docker argv, caller-
+supplied inspection or marker state, structurally valid fence, container
 creation, and marker capability still are not authorization or success. The
 already-retained enrollment evidence remains historical proof; it is never
 rewritten, deleted, or used as an implicit start permit.
