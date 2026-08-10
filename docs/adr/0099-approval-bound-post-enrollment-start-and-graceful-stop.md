@@ -1,8 +1,8 @@
 # ADR 0099: Approval-bound post-enrollment start and graceful stop
 
 - Status: Accepted (contract, dormant globally fixed claim/barrier, read-only
-  sequence-2 observation/binding, and import-only claimed-release handoff;
-  host execution blocked)
+  sequence-2 observation/binding, import-only claimed-release handoff, and
+  pure never-started created-topology snapshot; host execution blocked)
 - Date: 2026-08-08
 - Extends: [ADR 0098](0098-canonical-post-enrollment-start-evidence-review.md)
 
@@ -90,7 +90,7 @@ an automatic stop retry.
 The implementation now contains the dependency-neutral, non-authorizing
 approval, claim, reauthentication, successor-candidate, and unconfirmed-outcome
 projections plus the reusable read-only sequence-1 observation path. It also
-contains three independently fail-closed mutation-boundary seams:
+contains four independently fail-closed mutation-boundary seams:
 
 - a dormant, globally single-use fixed owner-only mode-`0600`, `O_EXCL`, fsync-
   confirmed retained-claim writer. A stable bounded inventory rejects any
@@ -106,7 +106,18 @@ contains three independently fail-closed mutation-boundary seams:
   and again before and after claim retention, consumes and closes its read-only
   sequence-1 issuer before retention, rechecks the empty claim slot, and
   durably retains and revalidates the claim against its canonical owner-only
-  artifact root.
+  artifact root; and
+- a pure, import-only created-topology candidate validator. It accepts only two
+  equal submitted full-ID project inventories, two equal structurally valid local-daemon
+  projections, two equal stable named-volume identity projections, the exact
+  approved launch and image configurations, two inspections keyed by their
+  IDs, and all four non-optional staged input paths. It derives source and
+  supervisor roles from exact Compose labels, not caller ordering, and requires
+  each execution-bearing Docker state field to prove a never-started `created`
+  container. Missing nullable evidence, type-confused numeric values, unsafe
+  namespace/device/DNS/sysctl/logging/proc-policy values, ambiguous or repeated
+  staged paths, and command/stop-policy drift fail closed before it returns
+  separate inert source-first start argv values.
 
 The handoff returns only `claimed_release_handoff_unqualified` and these exact
 inert argv elements, in order: `docker`, `container`, `exec`, `--user`,
@@ -120,6 +131,29 @@ inspects Docker, creates a topology, publishes the release marker, observes or
 mutates sequence 2, retains an outcome, or exposes a CLI. Every authority
 property remains false.
 
+The created-topology contract is
+`phase6d-post-enrollment-start-created-topology-snapshot-v1`. It binds the
+operation, approval, review, confirmed-enrollment evidence, proposed immutable
+launch, daemon identity, both stable volume identities, the exact two-container
+inventory, and SHA-256 projections of the same isolated inspection and image-
+configuration copies that passed validation. Raw environment, mount, staged-
+path, state, inspection, and image-configuration objects are not retained. Its
+only status is `created_topology_snapshot_unqualified`; submitted-inventory,
+daemon, volume, container, and topology authentication remain false because the
+pure function does not own the Docker reads. Claim retention, topology
+mutation, both container starts, release, persistent start, sequence 2,
+shutdown, and every trading or operational authority remain false.
+
+The validator performs no file, clock, Docker, subprocess, claim, release, SQL,
+provider, or persistence operation. A future active controller must obtain the
+bounded observations under the global lock on the qualified daemon, repeat the
+complete validation immediately before claim retention and again before
+release, and require the immutable snapshots to agree. Ordinary pre-claim
+inspection drift must fail before consuming the globally single-use claim.
+That future reader must reject duplicate JSON keys while parsing the bounded
+raw Docker bytes; this pure already-decoded projection cannot recover keys an
+upstream parser discarded.
+
 The dormant sequence-2 issuer performs complete SQL replay, a stable bounded
 two-object remote audit, and complete SQL replay again without signing or
 uploading. It freezes the exact sequence-2 `epoch_rotation` receipt, record, and
@@ -131,9 +165,10 @@ sequence-1 predecessor and all nine identity digests and yields only
 remains `UNCONFIRMED`, and all authority fields remain false.
 
 No worker/main, Make, Compose, or supported host-launcher path calls the
-sequence-2 issuer or binder, invokes the claimed-release handoff, executes its
-argv, invokes the claim writer, or publishes the release marker. There is no
-staged-topology controller, retained-evidence/approval wiring, Docker execution,
+sequence-2 issuer or binder, invokes the claimed-release handoff or created-
+topology snapshot, executes either projected argv, invokes the claim writer, or
+publishes the release marker. There is no staged-topology controller, bounded
+Docker observation issuer, retained-evidence/approval wiring, Docker execution,
 sequence-2 runtime mutation, confirmed start outcome, or graceful-stop
 operator. `trusted-time-start` and shutdown remain hard closed. Building and
 executing the remaining protocol requires a later exact revision/image/
@@ -144,11 +179,12 @@ admission tuple and separate operational approval.
 The runtime now has an explicit pre-mutation barrier, and the dormant claim
 writer freezes the required exclusive durability semantics in one global fixed
 slot while treating every legacy per-operation claim as consumed authority.
-Neither that seam nor the import-only handoff connects approval to a staged
-container, so a projected Docker argv, container creation, and marker capability
-still are not authorization or success. The already-retained enrollment
-evidence remains historical proof; it is never rewritten, deleted, or used as
-an implicit start permit.
+Neither that seam, the import-only handoff, nor the pure created-topology
+snapshot connects approval to an active Docker observation or staged container,
+so a projected Docker argv, caller-supplied inspection, container creation, and
+marker capability still are not authorization or success. The already-retained
+enrollment evidence remains historical proof; it is never rewritten, deleted,
+or used as an implicit start permit.
 
 The new observer can authenticate only an already-existing exact sequence-2
 state; it cannot create that state or qualify topology, release, start outcome,

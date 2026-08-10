@@ -3398,6 +3398,78 @@ def _validate_runtime_healthcheck(
         raise TrustedTimeSupervisorConfigurationError("trusted-time source healthcheck drifted")
 
 
+def _validate_trusted_time_container_runtime_policy(
+    container: Mapping[str, object],
+    configuration: Mapping[str, object],
+    host: Mapping[str, object],
+    state: Mapping[str, object],
+    *,
+    expected_image_configuration: Mapping[str, object],
+    expected_service: str,
+    require_healthy: bool,
+    expected_database_secret_file: Path | None,
+    expected_head_anchor_authority_file: Path | None,
+    expected_head_anchor_auth_secret_file: Path | None,
+    expected_head_anchor_signing_key_secret_file: Path | None,
+) -> None:
+    """Validate the shared image, environment, hardening, and mount policy."""
+
+    if expected_service not in {
+        "chrony-nts",
+        "trusted-time-supervisor",
+        FIRST_ENROLLMENT_SERVICE,
+    }:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time created container service identity drifted"
+        )
+    for field_name in ("User", "Entrypoint", "WorkingDir", "ExposedPorts"):
+        if configuration.get(field_name) != expected_image_configuration.get(field_name):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time created container command or image configuration drifted"
+            )
+    expected_command = (
+        [FIRST_ENROLLMENT_COMMAND]
+        if expected_service == FIRST_ENROLLMENT_SERVICE
+        else expected_image_configuration.get("Cmd")
+    )
+    if configuration.get("Cmd") != expected_command:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time created container command or image configuration drifted"
+        )
+    expected_environment = _environment_mapping(
+        expected_image_configuration.get("Env"),
+        "trusted-time admitted image environment",
+    )
+    if expected_service == "trusted-time-supervisor":
+        expected_environment.update(_SUPERVISOR_RUNTIME_ENVIRONMENT)
+    elif expected_service == FIRST_ENROLLMENT_SERVICE:
+        expected_environment.update(_FIRST_ENROLLMENT_RUNTIME_ENVIRONMENT)
+    runtime_environment = _environment_mapping(
+        configuration.get("Env"),
+        "trusted-time runtime environment",
+    )
+    if runtime_environment != expected_environment:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time runtime environment allowlist drifted"
+        )
+    _validate_runtime_healthcheck(configuration, expected_service=expected_service)
+    _validate_host_hardening(
+        host,
+        expected_service=expected_service,
+        expected_database_secret_file=expected_database_secret_file,
+        expected_head_anchor_authority_file=expected_head_anchor_authority_file,
+        expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
+        expected_head_anchor_signing_key_secret_file=(expected_head_anchor_signing_key_secret_file),
+    )
+    _validate_runtime_mounts(container.get("Mounts"), expected_service=expected_service)
+    if require_healthy:
+        health = _mapping(state.get("Health"), "trusted-time container health")
+        if health.get("Status") != "healthy":
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time source container is not healthy"
+            )
+
+
 def validate_created_container(
     inspection: object,
     *,
@@ -3461,60 +3533,426 @@ def validate_created_container(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time created container network attachment drifted"
         )
-    if expected_service not in {
-        "chrony-nts",
-        "trusted-time-supervisor",
-        FIRST_ENROLLMENT_SERVICE,
-    }:
-        raise TrustedTimeSupervisorConfigurationError(
-            "trusted-time created container service identity drifted"
-        )
-    for field_name in ("User", "Entrypoint", "WorkingDir", "ExposedPorts"):
-        if configuration.get(field_name) != expected_image_configuration.get(field_name):
-            raise TrustedTimeSupervisorConfigurationError(
-                "trusted-time created container command or image configuration drifted"
-            )
-    expected_command = (
-        [FIRST_ENROLLMENT_COMMAND]
-        if expected_service == FIRST_ENROLLMENT_SERVICE
-        else expected_image_configuration.get("Cmd")
-    )
-    if configuration.get("Cmd") != expected_command:
-        raise TrustedTimeSupervisorConfigurationError(
-            "trusted-time created container command or image configuration drifted"
-        )
-    expected_environment = _environment_mapping(
-        expected_image_configuration.get("Env"),
-        "trusted-time admitted image environment",
-    )
-    if expected_service == "trusted-time-supervisor":
-        expected_environment.update(_SUPERVISOR_RUNTIME_ENVIRONMENT)
-    elif expected_service == FIRST_ENROLLMENT_SERVICE:
-        expected_environment.update(_FIRST_ENROLLMENT_RUNTIME_ENVIRONMENT)
-    runtime_environment = _environment_mapping(
-        configuration.get("Env"),
-        "trusted-time runtime environment",
-    )
-    if runtime_environment != expected_environment:
-        raise TrustedTimeSupervisorConfigurationError(
-            "trusted-time runtime environment allowlist drifted"
-        )
-    _validate_runtime_healthcheck(configuration, expected_service=expected_service)
-    _validate_host_hardening(
+    _validate_trusted_time_container_runtime_policy(
+        container,
+        configuration,
         host,
+        state,
+        expected_image_configuration=expected_image_configuration,
         expected_service=expected_service,
+        require_healthy=require_healthy,
         expected_database_secret_file=expected_database_secret_file,
         expected_head_anchor_authority_file=expected_head_anchor_authority_file,
         expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
         expected_head_anchor_signing_key_secret_file=(expected_head_anchor_signing_key_secret_file),
     )
-    _validate_runtime_mounts(container.get("Mounts"), expected_service=expected_service)
-    if require_healthy:
-        health = _mapping(state.get("Health"), "trusted-time container health")
-        if health.get("Status") != "healthy":
-            raise TrustedTimeSupervisorConfigurationError(
-                "trusted-time source container is not healthy"
-            )
+
+
+_NEVER_STARTED_CREATED_STATE_KEYS = frozenset(
+    {
+        "Dead",
+        "Error",
+        "ExitCode",
+        "FinishedAt",
+        "OOMKilled",
+        "Paused",
+        "Pid",
+        "Restarting",
+        "Running",
+        "StartedAt",
+        "Status",
+    }
+)
+_ZERO_DOCKER_TIMESTAMP = "0001-01-01T00:00:00Z"
+_EXACT_CREATED_REQUIRED_CONFIG_KEYS = frozenset(
+    {
+        "Cmd",
+        "Entrypoint",
+        "Env",
+        "ExposedPorts",
+        "Healthcheck",
+        "Image",
+        "Labels",
+        "User",
+        "WorkingDir",
+    }
+)
+_EXACT_CREATED_REQUIRED_HOST_CONFIG_KEYS = frozenset(
+    {
+        "AutoRemove",
+        "Binds",
+        "CapAdd",
+        "CapDrop",
+        "DeviceCgroupRules",
+        "Devices",
+        "ExtraHosts",
+        "GroupAdd",
+        "Init",
+        "IpcMode",
+        "Memory",
+        "Mounts",
+        "NanoCpus",
+        "NetworkMode",
+        "OomKillDisable",
+        "PidMode",
+        "PidsLimit",
+        "PortBindings",
+        "Privileged",
+        "PublishAllPorts",
+        "ReadonlyRootfs",
+        "RestartPolicy",
+        "SecurityOpt",
+        "Tmpfs",
+        "UTSMode",
+        "VolumesFrom",
+    }
+)
+_EXACT_CREATED_EXPLICIT_HIGH_RISK_HOST_CONFIG_KEYS = frozenset(
+    {
+        "CgroupnsMode",
+        "DeviceRequests",
+        "Dns",
+        "DnsOptions",
+        "DnsSearch",
+        "Links",
+        "LogConfig",
+        "MaskedPaths",
+        "ReadonlyPaths",
+        "UsernsMode",
+    }
+)
+_EXACT_CREATED_MINIMUM_MASKED_PATHS = frozenset(
+    {
+        "/proc/acpi",
+        "/proc/asound",
+        "/proc/kcore",
+        "/proc/keys",
+        "/proc/latency_stats",
+        "/proc/sched_debug",
+        "/proc/scsi",
+        "/proc/timer_list",
+        "/proc/timer_stats",
+        "/sys/firmware",
+    }
+)
+_EXACT_CREATED_MINIMUM_READONLY_PATHS = frozenset(
+    {
+        "/proc/bus",
+        "/proc/fs",
+        "/proc/irq",
+        "/proc/sys",
+        "/proc/sysrq-trigger",
+    }
+)
+
+
+def _expected_container_path_and_args(
+    expected_image_configuration: Mapping[str, object],
+) -> tuple[str, list[str]]:
+    entrypoint_value = expected_image_configuration.get("Entrypoint")
+    entrypoint = (
+        []
+        if entrypoint_value is None
+        else _string_sequence(
+            entrypoint_value,
+            "trusted-time admitted image entrypoint",
+        )
+    )
+    command = _string_sequence(
+        expected_image_configuration.get("Cmd"),
+        "trusted-time admitted image command",
+    )
+    process = [*entrypoint, *command]
+    if not process:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time admitted image process is malformed"
+        )
+    return process[0], process[1:]
+
+
+def _validate_exact_never_started_created_state(
+    container: Mapping[str, object],
+    state: Mapping[str, object],
+) -> None:
+    if (
+        set(state) != _NEVER_STARTED_CREATED_STATE_KEYS
+        or state.get("Status") != "created"
+        or state.get("Running") is not False
+        or state.get("Paused") is not False
+        or state.get("Restarting") is not False
+        or state.get("OOMKilled") is not False
+        or state.get("Dead") is not False
+        or type(state.get("Pid")) is not int
+        or state.get("Pid") != 0
+        or type(state.get("ExitCode")) is not int
+        or state.get("ExitCode") != 0
+        or state.get("Error") != ""
+        or state.get("StartedAt") != _ZERO_DOCKER_TIMESTAMP
+        or state.get("FinishedAt") != _ZERO_DOCKER_TIMESTAMP
+        or type(container.get("RestartCount")) is not int
+        or container.get("RestartCount") != 0
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time container is not exact never-started created state"
+        )
+
+
+def _validate_exact_never_started_projection_presence(
+    configuration: Mapping[str, object],
+    host: Mapping[str, object],
+) -> None:
+    if not _EXACT_CREATED_REQUIRED_CONFIG_KEYS.issubset(configuration):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time never-started Config projection is incomplete"
+        )
+    if not (
+        _EXACT_CREATED_REQUIRED_HOST_CONFIG_KEYS
+        | _EXACT_CREATED_EXPLICIT_HIGH_RISK_HOST_CONFIG_KEYS
+    ).issubset(host):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time never-started HostConfig projection is incomplete"
+        )
+
+
+def _is_explicit_neutral_list(value: object) -> bool:
+    return value is None or (type(value) is list and not value)
+
+
+def _is_explicit_neutral_mapping(value: object) -> bool:
+    return value is None or (type(value) is dict and not value)
+
+
+def _is_string_list_containing(
+    value: object,
+    minimum: frozenset[str],
+) -> bool:
+    return (
+        type(value) is list and all(type(item) is str for item in value) and minimum.issubset(value)
+    )
+
+
+def _validate_exact_never_started_host_boundary(host: Mapping[str, object]) -> None:
+    if (
+        host.get("AutoRemove") is not False
+        or host.get("PidMode") != ""
+        or host.get("IpcMode") != "private"
+        or host.get("UTSMode") != ""
+        or not _is_explicit_neutral_list(host.get("GroupAdd"))
+        or not _is_explicit_neutral_list(host.get("VolumesFrom"))
+        or not _is_explicit_neutral_list(host.get("ExtraHosts"))
+        or host.get("OomKillDisable") not in (None, False)
+        or type(host.get("OomKillDisable")) not in (type(None), bool)
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time never-started host isolation drifted"
+        )
+
+
+def _validate_exact_never_started_high_risk_boundary(
+    configuration: Mapping[str, object],
+    host: Mapping[str, object],
+    *,
+    expected_image_configuration: Mapping[str, object],
+) -> None:
+    sysctls = host.get("Sysctls")
+    log_configuration = host.get("LogConfig")
+    expected_stop_signal = expected_image_configuration.get("StopSignal")
+    runtime_stop_signal = configuration.get("StopSignal")
+    if (
+        not _is_explicit_neutral_list(host.get("DeviceRequests"))
+        or host.get("CgroupnsMode") != "private"
+        or host.get("UsernsMode") != ""
+        or host.get("Cgroup") not in (None, "")
+        or type(log_configuration) is not dict
+        or type(log_configuration.get("Config")) is not dict
+        or log_configuration != {"Type": "json-file", "Config": {}}
+        or any(
+            not _is_explicit_neutral_list(host.get(field_name))
+            for field_name in ("Dns", "DnsOptions", "DnsSearch", "Links")
+        )
+        or not _is_explicit_neutral_mapping(sysctls)
+        or not _is_string_list_containing(
+            host.get("MaskedPaths"),
+            _EXACT_CREATED_MINIMUM_MASKED_PATHS,
+        )
+        or not _is_string_list_containing(
+            host.get("ReadonlyPaths"),
+            _EXACT_CREATED_MINIMUM_READONLY_PATHS,
+        )
+        or (
+            "NetworkDisabled" in configuration and configuration.get("NetworkDisabled") is not False
+        )
+        or type(runtime_stop_signal) is not type(expected_stop_signal)
+        or runtime_stop_signal != expected_stop_signal
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time never-started high-risk runtime boundary drifted"
+        )
+
+
+def _validate_exact_never_started_numeric_types(
+    configuration: Mapping[str, object],
+    host: Mapping[str, object],
+    *,
+    expected_service: str,
+) -> None:
+    restart_policy = _mapping(
+        host.get("RestartPolicy"),
+        "trusted-time never-started restart policy",
+    )
+    numeric_values = [
+        host.get("PidsLimit"),
+        host.get("NanoCpus"),
+        host.get("Memory"),
+        restart_policy.get("MaximumRetryCount"),
+    ]
+    if expected_service == "chrony-nts":
+        healthcheck = _mapping(
+            configuration.get("Healthcheck"),
+            "trusted-time never-started source healthcheck",
+        )
+        numeric_values.extend(
+            healthcheck.get(field_name)
+            for field_name in ("Interval", "Timeout", "StartPeriod", "Retries")
+        )
+        if "StartInterval" in healthcheck:
+            numeric_values.append(healthcheck.get("StartInterval"))
+    if any(type(value) is not int for value in numeric_values):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time never-started numeric runtime boundary drifted"
+        )
+
+
+def _is_absolute_lexically_canonical_path(value: object) -> bool:
+    if type(value) is not type(Path()) or not value.is_absolute():
+        return False
+    try:
+        encoded = os.fspath(value)
+        return (
+            encoded.startswith("/")
+            and not encoded.startswith("//")
+            and not any(ord(character) < 32 or ord(character) == 127 for character in encoded)
+            and value == Path(os.path.abspath(encoded))
+        )
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def validate_exact_never_started_created_container(
+    inspection: object,
+    *,
+    expected_container_id: str,
+    expected_image_id: str,
+    expected_image_configuration: Mapping[str, object],
+    expected_service: str,
+    expected_database_secret_file: Path | None = None,
+    expected_head_anchor_authority_file: Path | None = None,
+    expected_head_anchor_auth_secret_file: Path | None = None,
+    expected_head_anchor_signing_key_secret_file: Path | None = None,
+) -> None:
+    """Validate one exact Compose-created container that has never started."""
+
+    if type(inspection) is not list or len(inspection) != 1:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time never-started container inspection is malformed"
+        )
+    container = _mapping(inspection[0], "trusted-time never-started container")
+    configuration = _mapping(
+        container.get("Config"),
+        "trusted-time never-started container Config",
+    )
+    host = _mapping(
+        container.get("HostConfig"),
+        "trusted-time never-started container HostConfig",
+    )
+    _validate_exact_never_started_projection_presence(configuration, host)
+    network_settings = _mapping(
+        container.get("NetworkSettings"),
+        "trusted-time never-started container NetworkSettings",
+    )
+    networks = _mapping(
+        network_settings.get("Networks"),
+        "trusted-time never-started container networks",
+    )
+    labels = _mapping(
+        configuration.get("Labels"),
+        "trusted-time never-started container labels",
+    )
+    state = _mapping(
+        container.get("State"),
+        "trusted-time never-started container state",
+    )
+    if (
+        expected_service not in {"chrony-nts", "trusted-time-supervisor"}
+        or type(expected_container_id) is not str
+        or _FULL_CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None
+        or type(expected_image_id) is not str
+        or _IMAGE_ID_PATTERN.fullmatch(expected_image_id) is None
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time never-started container binding is invalid"
+        )
+    staged_paths = (
+        expected_database_secret_file,
+        expected_head_anchor_authority_file,
+        expected_head_anchor_auth_secret_file,
+        expected_head_anchor_signing_key_secret_file,
+    )
+    if (expected_service == "chrony-nts" and any(path is not None for path in staged_paths)) or (
+        expected_service == "trusted-time-supervisor"
+        and (
+            not all(_is_absolute_lexically_canonical_path(path) for path in staged_paths)
+            or len(set(staged_paths)) != len(staged_paths)
+        )
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time never-started staged input binding is invalid"
+        )
+    expected_path, expected_args = _expected_container_path_and_args(expected_image_configuration)
+    if (
+        container.get("Id") != expected_container_id
+        or container.get("Image") != expected_image_id
+        or configuration.get("Image") != expected_image_id
+        or container.get("Path") != expected_path
+        or type(container.get("Args")) is not list
+        or container.get("Args") != expected_args
+        or labels.get("com.docker.compose.project") != "autoquanttrader-trusted-time"
+        or labels.get("com.docker.compose.service") != expected_service
+        or labels.get("com.docker.compose.oneoff") != "False"
+        or labels.get("com.docker.compose.container-number") != "1"
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time never-started container identity drifted"
+        )
+    if set(networks) != {COMPOSE_NETWORK_NAME}:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time never-started container network attachment drifted"
+        )
+    _validate_exact_never_started_created_state(container, state)
+    _validate_exact_never_started_host_boundary(host)
+    _validate_exact_never_started_high_risk_boundary(
+        configuration,
+        host,
+        expected_image_configuration=expected_image_configuration,
+    )
+    _validate_exact_never_started_numeric_types(
+        configuration,
+        host,
+        expected_service=expected_service,
+    )
+    _validate_trusted_time_container_runtime_policy(
+        container,
+        configuration,
+        host,
+        state,
+        expected_image_configuration=expected_image_configuration,
+        expected_service=expected_service,
+        require_healthy=False,
+        expected_database_secret_file=expected_database_secret_file,
+        expected_head_anchor_authority_file=expected_head_anchor_authority_file,
+        expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
+        expected_head_anchor_signing_key_secret_file=(expected_head_anchor_signing_key_secret_file),
+    )
 
 
 def _validate_runtime_path_metadata(

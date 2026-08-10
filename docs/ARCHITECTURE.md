@@ -3548,10 +3548,43 @@ identity: `container_identity_authenticated` and `topology_authenticated` are
 false, and the ID remains untrusted until a future executor independently
 revalidates the exact topology immediately before release. It does not inspect
 or execute Docker, create a topology, publish the marker, observe or mutate
-sequence 2, retain an outcome, or expose a CLI. No worker/main, Make, Compose,
-or launcher wiring invokes this handoff, the sequence-2 issuer, or the binder;
-the host outcome remains `UNCONFIRMED`, every authority field remains false,
-and `trusted-time-start` and shutdown remain hard closed. Consequently, no
+sequence 2, retain an outcome, or expose a CLI.
+
+A second import-only seam now validates a caller-supplied, never-started
+created-topology candidate under contract
+`phase6d-post-enrollment-start-created-topology-snapshot-v1`. It requires the
+exact approved launch, equal structurally valid daemon observations, equal
+stable socket/state-volume identity projections, two equal submitted order-
+independent full-ID project inventories, and exactly two inspections keyed by
+those IDs.
+Source and supervisor roles come from exact Compose labels. Both containers
+must have the approved immutable image in top-level and configuration fields,
+the exact effective path/arguments, environment, healthcheck configuration,
+network, mounts, hardening, and a complete never-started `created` state. The
+four staged input paths are mandatory for the supervisor and are never read.
+They must be exact concrete, control-free, lexically canonical, and pairwise
+distinct. Missing nullable projection fields, bool/number confusion, and
+unsafe device, namespace, DNS, link, sysctl, logging, or proc/sys policy fail
+closed.
+Only SHA-256 projections of isolated inspection/image-configuration copies and
+separate inert source-first `docker container start` argv values survive in the
+result. Raw inspection, environment, mount, state, configuration, and staged-
+path objects do not.
+
+The pure candidate owns no Docker read, file or clock access, runner, claim,
+release, persistence, SQL, or provider call. Its daemon, named-volume,
+submitted-inventory, container, and topology authentication fields remain
+false; claim retention, topology mutation, both starts, persistent start,
+release, sequence 2, shutdown, and every operational/trading authority remain
+false. A future controller must issue and repeat all bounded observations under
+the global lock on the same qualified daemon before consuming a claim or
+releasing anything, and must reject duplicate keys while parsing bounded raw
+Docker bytes rather than relying on an already-decoded projection.
+
+No worker/main, Make, Compose, or launcher wiring invokes this candidate, the
+claimed-release handoff, the sequence-2 issuer, or the binder; the host outcome
+remains `UNCONFIRMED`, every authority field remains false, and
+`trusted-time-start` and shutdown remain hard closed. Consequently, no
 supported persistent topology or independent supervisor watchdog is deployed.
 See historical
 [ADR 0092](adr/0092-evidence-only-local-chrony-nts-trusted-time-supervision.md),

@@ -75,6 +75,22 @@ def test_every_supported_trusted_time_python_target_uses_isolated_launcher() -> 
         assert script in makefile
 
 
+def test_post_enrollment_created_topology_snapshot_has_no_supported_runtime_wiring() -> None:
+    module_name = "trusted_time_post_enrollment_topology"
+    validator_name = "validate_post_enrollment_start_created_topology"
+    supported_surfaces = (
+        ROOT / "Makefile",
+        ROOT / "apps" / "trusted_time_supervisor" / "main.py",
+        ROOT / "scripts" / "enroll_trusted_time_head_anchor.py",
+        ROOT / "scripts" / "start_trusted_time_supervisor.py",
+    )
+
+    for path in supported_surfaces:
+        payload = path.read_text(encoding="utf-8")
+        assert module_name not in payload
+        assert validator_name not in payload
+
+
 def test_runtime_diagnostic_make_target_emits_only_child_output(tmp_path: Path) -> None:
     fake_uv = tmp_path / "fake-uv"
     expected = '{"outcome_code":"test-only","status":"failed"}\n'
