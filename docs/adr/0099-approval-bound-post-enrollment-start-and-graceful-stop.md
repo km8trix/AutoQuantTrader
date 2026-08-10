@@ -3,7 +3,8 @@
 - Status: Accepted (contract, dormant globally fixed claim/barrier, read-only
   sequence-2 observation/binding, import-only claimed-release handoff, pure
   topology snapshots, bounded observation issuer, and pure two-stage same-
-  session topology fence; host execution blocked)
+  session topology fence plus code-only claimed pre-release chronology; host
+  execution blocked)
 - Date: 2026-08-08
 - Extends: [ADR 0098](0098-canonical-post-enrollment-start-evidence-review.md)
 
@@ -176,8 +177,13 @@ The separate dormant raw issuer now implements contract
 `phase6d-post-enrollment-topology-observation-reader-v1`. Its production open
 owns the global launcher lock, pins one canonical absolute Docker executable,
 local Unix socket, and daemon identity, and binds one non-copyable session to
-its creating process with serialized lifecycle state. Every fixed observation
-has a two-second command deadline and independent byte bounds. The decoder
+its creating process with serialized lifecycle state. Its guarded production
+signer is bound to the exact issuer owner, session, and creating PID. The
+lifecycle serializes each observation or cursor operation; it is not an
+exclusive lease over the multi-call chronology. A child at-fork hook closes the
+inherited global-lock descriptor without acquiring inherited Python locks.
+Every fixed observation has a
+two-second command deadline and independent byte bounds. The decoder
 accepts only compact LF-terminated UTF-8 JSON and rejects duplicate keys,
 nonstandard constants, floats, oversized integers, invalid Unicode, and
 depth/node exhaustion.
@@ -192,6 +198,17 @@ directory descriptors. One created envelope may be followed by at most two
 ordered staged envelopes. Ordinal 1 chains to the created observation, ordinal
 2 chains to ordinal 1, and both staged snapshots must retain one equal stable
 snapshot digest.
+
+The issuer's `issue_observation_cursor` method emits contract
+`phase6d-post-enrollment-topology-observation-cursor-v1`, with sole status
+`topology_observation_cursor_unqualified`. Each process-HMAC-sealed cursor uses
+one bounded daemon read and revalidates the PID-bound issuer, global lock,
+executable, socket, daemon, and session. It binds its cursor ordinal, staged
+count, created and last observation identities, and first staged snapshot
+digest. At most three ordered cursors may be issued. They authenticate reader
+position only, not freshness or authority. Each cursor is bound to its exact
+registered object identity in the originating process, is non-copyable and
+nonserializable, and is invalid after fork.
 
 Only those opaque, payload-bound outer envelopes authenticate lock/daemon
 observation provenance. They retain no raw response, secret, staged path, or
@@ -228,6 +245,45 @@ or persistence I/O. Claim retention, topology mutation, both starts, release,
 persistent start, sequence 2, shutdown, outcome retention, and every operational
 or trading authority remain false.
 
+The code-only claimed chronology seam is contract
+`phase6d-post-enrollment-start-claimed-pre-release-topology-fence-v1`, with sole
+status `claimed_pre_release_topology_fence_unqualified`. It accepts the exact
+pre-claim fence only while the same live issuer reports staged count 1.
+Function `prepare_post_enrollment_start_claimed_pre_release_fence` enforces:
+exact approval binding and descriptor-anchored live absence of all four staged
+inputs; first consecutive count-1 cursor and pre-claim validation; real claim
+retention and revalidation through the claimed-release handoff; second consecutive cursor
+still at count 1; issuer-created staged ordinal 2; pre-release binding; third
+consecutive cursor at count 2 with ordinal 2 last; and final exact-claim
+revalidation. It accepts no caller-supplied ordinal 2, so cached or preissued
+ordinal 2 evidence, a preadvanced or nonconsecutive cursor, another issuer
+session, chain drift, a mismatch between the full ordinal-1 and ordinal-2
+observations, or claim drift fails closed. This rejects preissued ordinal 2 only
+within this preparation call. The third cursor performs one daemon/session read,
+not another full topology observation, so topology drift after ordinal 2 is not
+detected. Because the issuer guard is released between individual calls, the
+function has no unshareable same-process choreography lease against another
+holder of the issuer reference; after return, the result neither holds nor
+proves that the issuer remains open.
+
+This process-sealed seam authenticates observation provenance, same-session
+chain and stable-topology equality, real claim retention and chronology,
+ordinal 2 after the claim, and the final cursor session. Its result is bound to
+its exact registered identity in the originating process, is non-copyable and
+nonserializable, and is invalid after fork. Public authenticated payload
+projection revalidates that exact type, process seal, and nested evidence; it is
+not durable evidence. It
+authenticates no freshness or current topology for an action. It may retain the
+globally single-use claim and perform the reader's bounded ordinal-2
+observations, but it does not publish the marker, execute release, mutate
+topology, start a container,
+observe or create sequence 2, qualify persistent topology, retain an outcome,
+or grant any operational or trading authority. Once claim preparation begins,
+every later failure is recovery-required because this seam cannot establish
+claim absence versus retention after that boundary. A crash may leave only the
+durable consumed claim; no chronology/release/outcome result can be reloaded and
+no recovery command exists. The result is never a release or retry permit.
+
 The dormant sequence-2 issuer performs complete SQL replay, a stable bounded
 two-object remote audit, and complete SQL replay again without signing or
 uploading. It freezes the exact sequence-2 `epoch_rotation` receipt, record, and
@@ -241,23 +297,28 @@ remains `UNCONFIRMED`, and all authority fields remain false.
 No worker/main, Make, Compose, or supported host-launcher path calls the
 sequence-2 issuer or binder, invokes the claimed-release handoff, either pure
 topology snapshot, the dormant observation reader, or either same-session fence
-binder, executes either projected start argv, invokes the claim writer, or
-publishes the release marker. There is no staged-topology controller, retained-
-evidence/approval wiring, topology mutation, sequence-2 runtime mutation,
-confirmed start outcome, or graceful-stop operator. The reader's exact in-
-container probe is observation-only and cannot publish either release path.
-`trusted-time-start` and shutdown remain hard closed.
+binder or the claimed chronology seam, executes either projected start argv,
+invokes the claim writer through a supported command, or publishes the release
+marker. There is no complete staged-topology controller, retained-evidence/
+approval wiring, topology mutation, sequence-2 runtime mutation, confirmed
+start outcome, or graceful-stop operator. The reader's exact in-container probe
+is observation-only and cannot publish either release path. `trusted-time-start`
+and shutdown remain hard closed.
 
-The next implementation is a separately reviewed active controller. Under one
-continuously open PID-bound issuer/global-launcher-lock session and end-to-end
-deadline, it must create and stage the admitted topology, obtain ordinal 1,
-bind the pre-claim fence, reject drift before the globally single-use claim is
-consumed, retain and revalidate the exact claim, obtain ordinal 2, bind the pre-
-release fence, and perform final live revalidation before release. It must
-reject a cached ordinal 2, execute only the approved release, authenticate the
-exact sequence-2 terminal and persistent topology, and durably retain the
-outcome. Its exact merged revision and images require fresh admission and
-separate operational approval before execution.
+The next implementation remains a separately reviewed active controller. Under
+an unshareable same-process choreography lease/capability over one continuously
+open PID-bound issuer/global-launcher-lock session spanning claim preparation,
+release, post-release qualification, and durable outcome retention, it must
+create and stage the admitted topology, obtain and bind ordinal 1, and invoke
+the claimed chronology seam. An end-to-end deadline must span claim preparation
+through retention of an exact success, failure, or recovery-required outcome.
+It still
+needs explicit release, post-release terminal/persistent-topology, and durable-
+outcome contracts to perform a final full live reobservation, execute only the
+approved marker release, authenticate the exact sequence-2 terminal and
+persistent topology, and retain every exact result and recovery disposition.
+Its exact merged revision and images require
+fresh admission and separate operational approval before execution.
 
 ## Consequences
 
@@ -265,11 +326,12 @@ The runtime now has an explicit pre-mutation barrier, and the dormant claim
 writer freezes the required exclusive durability semantics in one global fixed
 slot while treating every legacy per-operation claim as consumed authority.
 Neither that seam, the import-only handoff, nor either pure topology snapshot
-nor either same-session fence connects approval to an active Docker action or
-temporally qualified staged container, so a projected Docker argv, caller-
-supplied inspection or marker state, structurally valid fence, container
-creation, and marker capability still are not authorization or success. The
-already-retained enrollment evidence remains historical proof; it is never
+nor either same-session fence nor the claimed chronology result connects
+approval to release or a post-release qualified topology, so a projected Docker
+argv, caller-supplied inspection or marker state, structurally valid fence,
+retained claim, container creation, and marker capability still are not
+authorization or success. The already-retained enrollment evidence remains
+historical proof; it is never
 rewritten, deleted, or used as an implicit start permit.
 
 The new observer can authenticate only an already-existing exact sequence-2

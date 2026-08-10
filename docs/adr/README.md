@@ -131,7 +131,9 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   (freezes the single-use start/claim/outcome, fresh sequence-1
   reauthentication, sequence-2, crash, and supervisor-first stop contracts;
   the dormant durable claim/barrier, bounded topology reader, and pure two-stage
-  same-session pre-claim/pre-release fence are implemented, while active host
-  orchestration and both lifecycle commands remain hard closed)
+  same-session fences plus process-local code-only claimed chronology are
+  implemented without an exclusive choreography lease or durable chronology
+  result, while supported runtime, release/post-release/outcome orchestration,
+  authority, and both lifecycle commands remain hard closed)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

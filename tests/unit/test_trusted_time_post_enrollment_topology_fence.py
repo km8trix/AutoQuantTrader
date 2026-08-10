@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import hashlib
+import hmac
 import inspect
 import json
 from dataclasses import FrozenInstanceError, fields, replace
@@ -13,6 +15,7 @@ import scripts.trusted_time_post_enrollment_topology_reader as reader
 from packages.domain.trusted_time_enrollment_evidence import (
     FIRST_ENROLLMENT_AUTHORITY_FIELDS,
     TrustedTimeImmutableLaunchEvidence,
+    canonical_first_enrollment_json_bytes,
 )
 from scripts.trusted_time_post_enrollment_staged_topology import (
     POST_ENROLLMENT_STAGED_TOPOLOGY_CONTRACT_VERSION,
@@ -32,6 +35,22 @@ SUPERVISOR_CONTAINER_ID = "2" * 64
 SOURCE_IMAGE_ID = "sha256:" + "3" * 64
 SUPERVISOR_IMAGE_ID = "sha256:" + "4" * 64
 OPERATION_ID = "223e4567-e89b-42d3-a456-426614174001"
+
+
+def _test_observation_seal(payload: object) -> bytes:
+    return hashlib.sha256(canonical_first_enrollment_json_bytes(payload)).digest()
+
+
+@pytest.fixture(autouse=True)
+def _install_test_observation_validator(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        reader,
+        "_valid_observation_seal",
+        lambda candidate, payload: (
+            type(candidate) is bytes
+            and hmac.compare_digest(candidate, _test_observation_seal(payload))
+        ),
+    )
 
 
 def _launch() -> TrustedTimeImmutableLaunchEvidence:
@@ -138,10 +157,7 @@ def _created_observation(
         transcript_sha256=transcript_sha256,
         observation_count=14,
         snapshot=snapshot,
-        _seal=reader._seal_observation(
-            reader._new_authenticated_issuer_capability(),
-            payload,
-        ),
+        _seal=_test_observation_seal(payload),
     )
 
 
@@ -175,10 +191,7 @@ def _staged_observation(
         staged_observation_ordinal=ordinal,
         predecessor_observation_sha256=predecessor_sha256,
         snapshot=snapshot,
-        _seal=reader._seal_observation(
-            reader._new_authenticated_issuer_capability(),
-            payload,
-        ),
+        _seal=_test_observation_seal(payload),
     )
 
 

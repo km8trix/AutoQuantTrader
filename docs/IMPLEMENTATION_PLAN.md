@@ -2633,9 +2633,14 @@ Contract `phase6d-post-enrollment-topology-observation-reader-v1` now adds the
 strict dormant observation boundary without changing either pure snapshot
 contract. One exact production open owns the global launcher lock, pins a
 canonical absolute Docker executable plus local socket and daemon identity,
-and binds the session to one process and one non-copyable lifecycle. Every
-fixed Docker command has a two-second deadline and independent stdout/stderr
-caps. The decoder accepts only one compact LF-terminated UTF-8 JSON value,
+and binds the session to one process and one non-copyable lifecycle. Its guarded
+production signer is bound to the exact issuer owner, session, and creating
+PID. The lifecycle serializes each observation or cursor operation, not the
+whole multi-call choreography. A child at-fork hook closes the inherited global-
+lock descriptor without acquiring inherited Python locks. Every fixed Docker
+command has a two-second deadline and independent stdout/stderr caps. The
+decoder accepts only one
+compact LF-terminated UTF-8 JSON value,
 rejects duplicate keys, nonstandard constants, floats, oversized integers,
 surrogates, and depth/node exhaustion before any projection is trusted.
 
@@ -2650,6 +2655,17 @@ retirements through owner-only no-follow directory descriptors. It can issue
 one created envelope and at most two ordered staged envelopes; staged ordinal
 1 names the created envelope as predecessor, ordinal 2 names ordinal 1, and
 both staged snapshots must have the same stable snapshot digest.
+
+The same issuer now exposes `issue_observation_cursor` under contract
+`phase6d-post-enrollment-topology-observation-cursor-v1`, with sole status
+`topology_observation_cursor_unqualified`. Each process-HMAC-sealed cursor uses
+one bounded daemon read and revalidates the live PID, global lock, executable,
+socket, daemon, and session. It binds its ordinal, staged count, created/last
+observation digests, and first staged snapshot digest. At most three ordered
+cursors may be issued per session. Each cursor is bound to its exact registered
+object identity in the originating process, is non-copyable and nonserializable,
+and is invalid after fork. Cursors authenticate reader position, not freshness
+or action authority.
 
 Only the outer envelopes authenticate the lock/daemon observation provenance.
 The unchanged pure snapshots still authenticate no submitted topology, and
@@ -2682,15 +2698,57 @@ mutation, both starts, release, persistent start, sequence 2, shutdown, and
 every operational/trading authority remain false. No worker/main, Make,
 Compose, or launcher path invokes either binder.
 
-The next implementation is a separately admitted and operationally approved
-active controller. Under one continuously open PID-bound issuer/global-lock
-session and end-to-end deadline, it must obtain staged ordinal 1, bind the pre-
-claim fence, reject ordinary drift before consuming the globally single-use
-claim, retain and revalidate that exact claim, obtain staged ordinal 2, bind the
-pre-release fence, perform final live revalidation, and reject any cached
-ordinal 2. It must then execute only the approved release, authenticate sequence
-2 and persistent topology, and retain the exact outcome. Only after that
-remaining boundary may a separate sealed
+Contract
+`phase6d-post-enrollment-start-claimed-pre-release-topology-fence-v1` now adds a
+code-only chronology slice with sole status
+`claimed_pre_release_topology_fence_unqualified`. It requires the same live
+issuer and exact pre-claim fence. Function
+`prepare_post_enrollment_start_claimed_pre_release_fence` performs this fixed
+order: exact approval binding and descriptor-anchored live absence of all four
+staged inputs; first consecutive cursor at staged count 1 plus pre-claim
+validation; real claim retention and revalidation through the existing claimed-
+release handoff; second consecutive cursor still at count 1; issuer-created staged
+ordinal 2; pre-release binding; third consecutive cursor at count 2 with ordinal
+2 last; and final retained-claim revalidation. It never accepts a submitted
+ordinal 2. A cached ordinal 2, preadvanced cursor, nonconsecutive cursor, changed
+issuer session, forked predecessor, a mismatch between the full ordinal-1 and
+ordinal-2 observations, or claim drift therefore fails closed. This rejects a
+preissued ordinal 2 only within this call. Cursor 3 is one daemon/session read,
+not a full topology observation, and topology drift after ordinal 2 is not
+detected. The issuer's per-operation guard is released between calls, so the
+seam has no unshareable same-process choreography lease and the returned result
+does not keep or prove the issuer open.
+
+The process-sealed result authenticates observation provenance, the same-session
+chain and stable-topology match, claim retention and chronology, ordinal 2 after
+the claim, and the final cursor session. It is bound to its exact registered
+identity in the originating process, is non-copyable and nonserializable, and
+is invalid after fork; public authenticated payload projection revalidates that
+exact type, process seal, and nested evidence. It is not durable evidence. It
+does not authenticate freshness or a current topology for an action. It does
+not publish or execute the release marker, mutate topology, start either
+container, observe or create sequence 2, qualify
+persistent topology, retain a host outcome, or grant authority. No CLI,
+worker/main, Make, Compose, launcher, or supported runtime path invokes it. Real
+claim persistence means every failure once claim preparation begins is
+recovery-required because this seam cannot establish claim absence versus
+retention after that boundary. A crash can leave only the durable consumed
+claim: no chronology/release/outcome result can be reloaded and no recovery
+command exists. The unqualified result is not permission to release or retry.
+
+The next implementation remains a separately admitted and operationally
+approved active controller. It must own an unshareable same-process choreography
+lease/capability over one continuously open PID-bound issuer/global-lock session
+from claim preparation through release, post-release qualification, and durable
+outcome retention, and enforce an end-to-end deadline through retention of an
+exact success, failure, or recovery-required outcome. Under that lease it must
+create and stage the admitted topology, obtain and bind ordinal 1, and invoke
+the claimed chronology slice.
+Still-missing release, post-release terminal/topology, and outcome contracts
+must perform a final full live reobservation, execute only the approved release,
+authenticate sequence 2 and persistent topology, and durably retain every exact
+outcome and recovery disposition. Only after that remaining boundary may a
+separate sealed
 watchdog provider-terminal issuer authenticate the complete new suffix, bind
 two stable namespace passes to their exact digest/count/terminal identity,
 prove that no higher sequence exists, and capture its own independent
@@ -2826,16 +2884,30 @@ unavailable before any watchdog consumer is designed or qualified. See
   with statuses `pre_claim_same_session_topology_fence_unqualified` and
   `pre_release_same_session_topology_fence_unqualified`. They authenticate no
   clock, claim, freshness, action-current topology, or proximity to release; a
-  cached ordinal 2 remains a known temporal limitation. Neither the reader nor
-  either binder has CLI/Make/Compose/launcher wiring, and they do not create or
-  mutate topology, consume a claim, publish the release marker, observe or
-  mutate sequence 2, or retain an outcome. The pure snapshots' submitted
-  topology authentication remains false, and every authority remains false. A
-  later exact-outcome-bound host orchestration implementation, admission for its
-  exact revision, and separate operational approval must enforce ordinal 1,
-  claim retention/revalidation, ordinal 2, final live revalidation, and release
-  under one continuously open issuer/global-lock session and deadline, rejecting
-  cached evidence, before the normal worker may create sequence 2.
+  cached ordinal 2 is therefore valid only as inert structural evidence. The
+  code-only claimed pre-release chronology contract now rejects that cached path
+  by requiring a count-1 cursor/pre-claim, performing real claim retention and
+  revalidation, requiring a second consecutive cursor still at count 1,
+  requesting ordinal 2 from that issuer, binding pre-release, requiring a third
+  consecutive cursor at count 2, and revalidating the claim. Cursors use
+  contract `phase6d-post-enrollment-topology-observation-cursor-v1`; the claimed
+  chronology status remains
+  `claimed_pre_release_topology_fence_unqualified`. Neither the reader, pure
+  binders, nor chronology seam has CLI/Make/Compose/launcher wiring. The new seam
+  rejects preissued ordinal 2 only within its own call; its final cursor is not
+  a full topology reobservation, and it owns no exclusive same-process lease
+  across the calls or after return. Its exact-identity-bound process-local result
+  is non-copyable, nonserializable, invalid after fork, and not reloadable after
+  a crash. Every failure after claim preparation begins is recovery-required,
+  while no recovery command exists. The new seam
+  retains a claim but does not create or mutate topology, publish or execute the
+  release marker, observe or mutate sequence 2, or retain an outcome; every
+  authority remains false. A later exact-outcome-bound host controller,
+  admission for its exact revision, and separate operational approval must add
+  an unshareable choreography lease, an end-to-end deadline through durable
+  success/failure/recovery outcome retention, and the missing release and post-
+  release terminal/topology contracts before the normal worker may create
+  sequence 2.
   Complete that boundary before adding an
   independent watchdog, readiness,
   final new-exposure, alert, and exact-head manual re-arm consumers. The local
@@ -2978,7 +3050,8 @@ Every change includes:
 
 ## Initial CI pipeline
 
-1. Ruff format/lint, static typing, and architecture import-boundary tests.
+1. Ruff format/lint, static typing, and architecture import-boundary tests over
+   the configured `apps`/`packages` source roots.
 2. Unit and property tests for domain, ledger, risk, and order reducers.
 3. Temporal leakage, batch/incremental differential, and semantic replay tests.
 4. PostgreSQL integration, migration compatibility, lease/fencing, and job tests.
