@@ -7,7 +7,7 @@ import stat
 import subprocess
 from contextlib import ExitStack
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import Mock, call, patch
@@ -91,6 +91,7 @@ from scripts.start_trusted_time_supervisor import (
     run_local_topology,
     validate_chrony_state_volume_inspection,
     validate_created_container,
+    validate_exact_never_started_created_container,
     validate_materialized_database_secret,
     validate_materialized_trusted_time_head_anchor_inputs,
     write_unenrolled_admission_receipt,
@@ -2440,6 +2441,7 @@ def _image_configuration(service: str) -> dict[str, object]:
             "WorkingDir": "",
             "ExposedPorts": None,
             "Env": ["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"],
+            "StopSignal": "SIGTERM",
         }
     return {
         "User": "10001:10001",
@@ -2448,6 +2450,7 @@ def _image_configuration(service: str) -> dict[str, object]:
         "WorkingDir": "/workspace",
         "ExposedPorts": None,
         "Env": ["PATH=/opt/venv/bin:/usr/local/bin:/usr/bin"],
+        "StopSignal": "SIGTERM",
     }
 
 
@@ -2639,6 +2642,102 @@ def _container_inspection(
             "State": state,
         }
     ]
+
+
+def _never_started_container_inspection(
+    *,
+    container_id: str,
+    image_id: str,
+    service: str,
+) -> list[dict[str, object]]:
+    inspection = _container_inspection(
+        image_id=image_id,
+        service=service,
+        healthy=False,
+    )
+    container = inspection[0]
+    image_configuration = _image_configuration(service)
+    entrypoint = cast(list[str] | None, image_configuration["Entrypoint"])
+    command = cast(list[str], image_configuration["Cmd"])
+    process = [*([] if entrypoint is None else entrypoint), *command]
+    configuration = cast(dict[str, object], container["Config"])
+    labels = cast(dict[str, object], configuration["Labels"])
+    host = cast(dict[str, object], container["HostConfig"])
+    configuration.update(
+        {
+            "Image": image_id,
+            "NetworkDisabled": False,
+        }
+    )
+    labels.update(
+        {
+            "com.docker.compose.container-number": "1",
+            "com.docker.compose.oneoff": "False",
+        }
+    )
+    host.update(
+        {
+            "AutoRemove": False,
+            "Cgroup": "",
+            "CgroupnsMode": "private",
+            "DeviceRequests": None,
+            "Dns": None,
+            "DnsOptions": None,
+            "DnsSearch": None,
+            "ExtraHosts": None,
+            "GroupAdd": None,
+            "IpcMode": "private",
+            "Links": None,
+            "LogConfig": {"Type": "json-file", "Config": {}},
+            "MaskedPaths": [
+                "/proc/acpi",
+                "/proc/asound",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/sched_debug",
+                "/proc/scsi",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/sys/firmware",
+            ],
+            "OomKillDisable": False,
+            "PidMode": "",
+            "ReadonlyPaths": [
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger",
+            ],
+            "Sysctls": None,
+            "UTSMode": "",
+            "UsernsMode": "",
+            "VolumesFrom": None,
+        }
+    )
+    container.update(
+        {
+            "Args": process[1:],
+            "Id": container_id,
+            "Path": process[0],
+            "RestartCount": 0,
+            "State": {
+                "Dead": False,
+                "Error": "",
+                "ExitCode": 0,
+                "FinishedAt": "0001-01-01T00:00:00Z",
+                "OOMKilled": False,
+                "Paused": False,
+                "Pid": 0,
+                "Restarting": False,
+                "Running": False,
+                "StartedAt": "0001-01-01T00:00:00Z",
+                "Status": "created",
+            },
+        }
+    )
+    return inspection
 
 
 def test_admission_reuses_approved_images_with_exact_docker_environment_before_env() -> None:
@@ -3529,6 +3628,705 @@ def test_admission_observer_baseexception_still_tears_down_and_cleans_inputs(
     assert events.index("anchor-cleanup") < events.index("terminal-observe")
     assert events.index("secret-cleanup") < events.index("terminal-observe")
     assert events.index("terminal-observe") < events.index("compose-down")
+
+
+def test_exact_never_started_created_source_uses_shared_runtime_policy() -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+
+    validate_exact_never_started_created_container(
+        source,
+        expected_container_id=SOURCE_CONTAINER_ID,
+        expected_image_id=SOURCE_IMAGE_ID,
+        expected_image_configuration=_image_configuration("chrony-nts"),
+        expected_service="chrony-nts",
+    )
+
+    host = cast(dict[str, object], source[0]["HostConfig"])
+    host["ReadonlyRootfs"] = False
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="isolation or resource policy drifted",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "Cmd",
+        "Entrypoint",
+        "Env",
+        "ExposedPorts",
+        "Healthcheck",
+        "Image",
+        "Labels",
+        "User",
+        "WorkingDir",
+    ],
+)
+def test_exact_never_started_created_container_requires_consumed_config_fields(
+    field_name: str,
+) -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    configuration = cast(dict[str, object], source[0]["Config"])
+    del configuration[field_name]
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="Config projection is incomplete",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "AutoRemove",
+        "Binds",
+        "CapAdd",
+        "CapDrop",
+        "CgroupnsMode",
+        "DeviceCgroupRules",
+        "DeviceRequests",
+        "Devices",
+        "Dns",
+        "DnsOptions",
+        "DnsSearch",
+        "ExtraHosts",
+        "GroupAdd",
+        "Init",
+        "IpcMode",
+        "Links",
+        "LogConfig",
+        "MaskedPaths",
+        "Memory",
+        "Mounts",
+        "NanoCpus",
+        "NetworkMode",
+        "OomKillDisable",
+        "PidMode",
+        "PidsLimit",
+        "PortBindings",
+        "Privileged",
+        "PublishAllPorts",
+        "ReadonlyPaths",
+        "ReadonlyRootfs",
+        "RestartPolicy",
+        "SecurityOpt",
+        "Tmpfs",
+        "UTSMode",
+        "UsernsMode",
+        "VolumesFrom",
+    ],
+)
+def test_exact_never_started_created_container_requires_consumed_host_fields(
+    field_name: str,
+) -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    host = cast(dict[str, object], source[0]["HostConfig"])
+    del host[field_name]
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="HostConfig projection is incomplete",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+def test_exact_never_started_created_container_accepts_exact_neutral_representations() -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    configuration = cast(dict[str, object], source[0]["Config"])
+    host = cast(dict[str, object], source[0]["HostConfig"])
+    for field_name in (
+        "CapAdd",
+        "DeviceCgroupRules",
+        "DeviceRequests",
+        "Devices",
+        "Dns",
+        "DnsOptions",
+        "DnsSearch",
+        "ExtraHosts",
+        "GroupAdd",
+        "Links",
+        "VolumesFrom",
+    ):
+        host[field_name] = []
+    host["OomKillDisable"] = None
+    host["PortBindings"] = None
+    host["Sysctls"] = {}
+    del host["Cgroup"]
+    del configuration["NetworkDisabled"]
+
+    validate_exact_never_started_created_container(
+        source,
+        expected_container_id=SOURCE_CONTAINER_ID,
+        expected_image_id=SOURCE_IMAGE_ID,
+        expected_image_configuration=_image_configuration("chrony-nts"),
+        expected_service="chrony-nts",
+    )
+    del host["Sysctls"]
+    validate_exact_never_started_created_container(
+        source,
+        expected_container_id=SOURCE_CONTAINER_ID,
+        expected_image_id=SOURCE_IMAGE_ID,
+        expected_image_configuration=_image_configuration("chrony-nts"),
+        expected_service="chrony-nts",
+    )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("DeviceRequests", {}),
+        ("Dns", ()),
+        ("DnsOptions", ""),
+        ("DnsSearch", {}),
+        ("ExtraHosts", ()),
+        ("GroupAdd", {}),
+        ("Links", ()),
+        ("OomKillDisable", 0),
+        ("VolumesFrom", ()),
+    ],
+)
+def test_exact_never_started_created_container_rejects_ambiguous_neutral_values(
+    field_name: str,
+    value: object,
+) -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    host = cast(dict[str, object], source[0]["HostConfig"])
+    host[field_name] = value
+
+    with pytest.raises(TrustedTimeSupervisorConfigurationError, match="drifted"):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("Cgroup", "system.slice"),
+        ("CgroupnsMode", "host"),
+        ("DeviceRequests", [{"Driver": "nvidia"}]),
+        ("Dns", ["169.254.169.254"]),
+        ("DnsOptions", ["use-vc"]),
+        ("DnsSearch", ["internal.example"]),
+        ("Links", ["other:other"]),
+        ("LogConfig", {"Type": "local", "Config": {}}),
+        ("Sysctls", {"net.ipv4.ip_forward": "1"}),
+        ("UsernsMode", "host"),
+    ],
+)
+def test_exact_never_started_created_container_rejects_high_risk_host_drift(
+    field_name: str,
+    value: object,
+) -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    host = cast(dict[str, object], source[0]["HostConfig"])
+    host[field_name] = value
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="high-risk runtime boundary drifted",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "missing_path"),
+    [
+        ("MaskedPaths", "/proc/kcore"),
+        ("ReadonlyPaths", "/proc/sys"),
+    ],
+)
+def test_exact_never_started_created_container_requires_minimum_kernel_path_protection(
+    field_name: str,
+    missing_path: str,
+) -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    host = cast(dict[str, object], source[0]["HostConfig"])
+    paths = cast(list[str], host[field_name])
+    host[field_name] = [path for path in paths if path != missing_path]
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="high-risk runtime boundary drifted",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("MaskedPaths", ("/proc/kcore",)),
+        ("ReadonlyPaths", ["/proc/bus", 1]),
+    ],
+)
+def test_exact_never_started_created_container_requires_string_kernel_path_lists(
+    field_name: str,
+    value: object,
+) -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    host = cast(dict[str, object], source[0]["HostConfig"])
+    host[field_name] = value
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="high-risk runtime boundary drifted",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("NetworkDisabled", True),
+        ("NetworkDisabled", 0),
+        ("StopSignal", "SIGKILL"),
+        ("StopSignal", None),
+    ],
+)
+def test_exact_never_started_created_container_rejects_config_boundary_drift(
+    field_name: str,
+    value: object,
+) -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    configuration = cast(dict[str, object], source[0]["Config"])
+    configuration[field_name] = value
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="high-risk runtime boundary drifted",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+@pytest.mark.parametrize(
+    ("section", "field_name"),
+    [
+        ("HostConfig", "PidsLimit"),
+        ("HostConfig", "NanoCpus"),
+        ("HostConfig", "Memory"),
+        ("RestartPolicy", "MaximumRetryCount"),
+        ("Healthcheck", "Interval"),
+        ("Healthcheck", "Timeout"),
+        ("Healthcheck", "StartPeriod"),
+        ("Healthcheck", "Retries"),
+        ("Healthcheck", "StartInterval"),
+    ],
+)
+def test_exact_never_started_created_container_rejects_boolean_numeric_fields(
+    section: str,
+    field_name: str,
+) -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    configuration = cast(dict[str, object], source[0]["Config"])
+    host = cast(dict[str, object], source[0]["HostConfig"])
+    if section == "HostConfig":
+        target = host
+    elif section == "RestartPolicy":
+        target = cast(dict[str, object], host["RestartPolicy"])
+    else:
+        target = cast(dict[str, object], configuration["Healthcheck"])
+    target[field_name] = False
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="numeric runtime boundary drifted",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("AutoRemove", True),
+        ("PidMode", "host"),
+        ("IpcMode", "host"),
+        ("UTSMode", "host"),
+        ("GroupAdd", ["0"]),
+        ("VolumesFrom", ["other-container:rw"]),
+        ("ExtraHosts", ["metadata:169.254.169.254"]),
+        ("OomKillDisable", True),
+    ],
+)
+def test_exact_never_started_created_container_rejects_host_boundary_drift(
+    field_name: str,
+    value: object,
+) -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    host = cast(dict[str, object], source[0]["HostConfig"])
+    host[field_name] = value
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="never-started host isolation drifted",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+def test_exact_never_started_created_supervisor_requires_exact_staged_paths() -> None:
+    supervisor = _never_started_container_inspection(
+        container_id=SUPERVISOR_CONTAINER_ID,
+        image_id=SUPERVISOR_IMAGE_ID,
+        service="trusted-time-supervisor",
+    )
+    database_secret = DATABASE_SECRET_ROOT / (".database-secret-" + "a" * 32) / "database-url"
+    head_anchor_inputs = _materialized_head_anchor_inputs()
+
+    validate_exact_never_started_created_container(
+        supervisor,
+        expected_container_id=SUPERVISOR_CONTAINER_ID,
+        expected_image_id=SUPERVISOR_IMAGE_ID,
+        expected_image_configuration=_image_configuration("trusted-time-supervisor"),
+        expected_service="trusted-time-supervisor",
+        expected_database_secret_file=database_secret,
+        expected_head_anchor_authority_file=head_anchor_inputs.authority.path,
+        expected_head_anchor_auth_secret_file=head_anchor_inputs.auth_secret.path,
+        expected_head_anchor_signing_key_secret_file=head_anchor_inputs.signing_key.path,
+    )
+
+    for invalid_path in (
+        None,
+        Path("relative/database-url"),
+        Path("/tmp/../tmp/database-url"),
+        PurePosixPath("/tmp/database-url"),
+        Path("//tmp/database-url"),
+        Path("/tmp/control" + chr(10) + "database-url"),
+        Path("/tmp/control" + chr(0) + "database-url"),
+    ):
+        with pytest.raises(
+            TrustedTimeSupervisorConfigurationError,
+            match="staged input binding is invalid",
+        ):
+            validate_exact_never_started_created_container(
+                supervisor,
+                expected_container_id=SUPERVISOR_CONTAINER_ID,
+                expected_image_id=SUPERVISOR_IMAGE_ID,
+                expected_image_configuration=_image_configuration("trusted-time-supervisor"),
+                expected_service="trusted-time-supervisor",
+                expected_database_secret_file=invalid_path,
+                expected_head_anchor_authority_file=head_anchor_inputs.authority.path,
+                expected_head_anchor_auth_secret_file=head_anchor_inputs.auth_secret.path,
+                expected_head_anchor_signing_key_secret_file=(head_anchor_inputs.signing_key.path),
+            )
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="staged input binding is invalid",
+    ):
+        validate_exact_never_started_created_container(
+            supervisor,
+            expected_container_id=SUPERVISOR_CONTAINER_ID,
+            expected_image_id=SUPERVISOR_IMAGE_ID,
+            expected_image_configuration=_image_configuration("trusted-time-supervisor"),
+            expected_service="trusted-time-supervisor",
+            expected_database_secret_file=head_anchor_inputs.authority.path,
+            expected_head_anchor_authority_file=head_anchor_inputs.authority.path,
+            expected_head_anchor_auth_secret_file=head_anchor_inputs.auth_secret.path,
+            expected_head_anchor_signing_key_secret_file=head_anchor_inputs.signing_key.path,
+        )
+
+
+def test_exact_never_started_created_source_rejects_staged_paths() -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="staged input binding is invalid",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+            expected_database_secret_file=Path("/tmp/database-url"),
+        )
+
+
+@pytest.mark.parametrize(
+    ("section", "field_name", "value"),
+    [
+        ("container", "Id", "c" * 64),
+        ("container", "Image", SUPERVISOR_IMAGE_ID),
+        ("container", "Path", "/bin/false"),
+        ("container", "Args", ("-x",)),
+        ("container", "Args", ["-x"]),
+        ("Config", "Image", SUPERVISOR_IMAGE_ID),
+        ("Labels", "com.docker.compose.project", "other"),
+        ("Labels", "com.docker.compose.service", "other"),
+        ("Labels", "com.docker.compose.oneoff", "True"),
+        ("Labels", "com.docker.compose.container-number", "2"),
+    ],
+)
+def test_exact_never_started_created_container_binds_identity_and_process(
+    section: str,
+    field_name: str,
+    value: object,
+) -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    container = source[0]
+    if section == "container":
+        target = container
+    elif section == "Config":
+        target = cast(dict[str, object], container["Config"])
+    else:
+        configuration = cast(dict[str, object], container["Config"])
+        target = cast(dict[str, object], configuration["Labels"])
+    target[field_name] = value
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="container identity drifted",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("Status", "running"),
+        ("Running", True),
+        ("Paused", True),
+        ("Restarting", True),
+        ("OOMKilled", True),
+        ("Dead", True),
+        ("Pid", False),
+        ("Pid", 1),
+        ("ExitCode", False),
+        ("ExitCode", 1),
+        ("Error", "started"),
+        ("StartedAt", "2026-08-09T00:00:00Z"),
+        ("FinishedAt", "2026-08-09T00:00:00Z"),
+    ],
+)
+def test_exact_never_started_created_container_rejects_state_drift(
+    field_name: str,
+    value: object,
+) -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    state = cast(dict[str, object], source[0]["State"])
+    state[field_name] = value
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="not exact never-started created state",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra", "health", "restart-bool", "restart"])
+def test_exact_never_started_created_container_requires_exact_state_key_set(
+    mutation: str,
+) -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    state = cast(dict[str, object], source[0]["State"])
+    if mutation == "missing":
+        del state["FinishedAt"]
+    elif mutation == "extra":
+        state["Unexpected"] = False
+    elif mutation == "health":
+        state["Health"] = {"Status": "starting"}
+    elif mutation == "restart-bool":
+        source[0]["RestartCount"] = False
+    else:
+        source[0]["RestartCount"] = 1
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="not exact never-started created state",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+def test_exact_never_started_created_container_rejects_network_or_binding_drift() -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    network_settings = cast(dict[str, object], source[0]["NetworkSettings"])
+    network_settings["Networks"] = {}
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="network attachment drifted",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="binding is invalid",
+    ):
+        validate_exact_never_started_created_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID.upper(),
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+def test_legacy_container_validator_still_rejects_never_started_source() -> None:
+    source = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="created container identity or state drifted",
+    ):
+        validate_created_container(
+            source,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+            require_healthy=False,
+        )
 
 
 def test_created_container_validation_requires_exact_image_running_and_health() -> None:

@@ -2589,9 +2589,33 @@ additional arguments. It authenticates neither container nor topology identity;
 The ID remains untrusted until a future executor independently revalidates the
 exact topology immediately before release. The handoff does not inspect or
 execute Docker, create a topology, publish the marker, observe or mutate
-sequence 2, retain an outcome, or expose a CLI. No worker/main, Make, Compose,
-or launcher path invokes the handoff, sequence-2 issuer, or binder; persistent
-start and shutdown remain hard closed. Only after the remaining boundary is
+sequence 2, retain an outcome, or expose a CLI.
+
+Contract `phase6d-post-enrollment-start-created-topology-snapshot-v1` now adds
+a separate pure, import-only never-started topology candidate. It binds the
+exact approval/proposed launch, two equal structurally valid daemon projections,
+two equal stable named-volume identity projections, two equal submitted order-
+independent full-ID project inventories, and exactly two isolated inspections
+keyed by those IDs. Exact Compose labels derive source and supervisor roles.
+Top-level and configured images, effective path/arguments, configuration, environment,
+healthcheck, network, mounts, hardening, and every execution-bearing `created`
+state field must match. Missing nullable projection fields, numeric type
+confusion, unsafe device/namespace/DNS/link/sysctl/logging/proc policy, and
+ambiguous or repeated staged paths fail closed. The snapshot retains only four
+SHA-256 inspection/image-configuration projections, nonsecret identity
+bindings, and separate inert
+source-first `docker container start` argv values. It does not read Docker,
+files, secrets, or clocks and cannot retain a claim, mutate topology, start a
+container, release the barrier, or contact SQL/provider state. Daemon, volume,
+submitted-inventory, container, and topology authentication plus every
+authority field remain false.
+
+No worker/main, Make, Compose, or launcher path invokes the topology candidate,
+handoff, sequence-2 issuer, or binder; persistent start and shutdown remain hard
+closed. A future active controller must obtain and repeat the bounded
+observations under the global lock on the same qualified daemon before claim
+retention and again before release. Its raw Docker reader must reject duplicate
+JSON keys before decoding. Only after the remaining boundary is
 implemented, admitted, and separately approved may a separate sealed watchdog
 provider-terminal issuer authenticate the complete new suffix, bind two stable
 namespace passes to their exact digest/count/terminal identity, prove that no
@@ -2708,14 +2732,23 @@ watchdog consumer is designed or qualified. See
   retention, closes the read-only sequence-1 issuer, retains and revalidates the
   claim against its canonical owner-only artifact root, and returns only an
   unqualified handoff with an inert full-container-ID-candidate
-  `docker container exec` argv. Container and topology authentication remain
-  false; a future executor must independently revalidate the exact topology
-  immediately before release. The handoff does not execute or inspect Docker,
-  create topology, publish the marker, observe or mutate sequence 2, retain an
-  outcome, or expose CLI/Make/Compose/launcher wiring. A later exact-outcome-
-  bound host orchestration implementation, admission for its exact revision,
-  and separate operational approval remain required before the normal worker
-  may create sequence 2.
+  `docker container exec` argv. A second import-only contract validates an exact
+  caller-supplied, never-started two-container topology candidate against the
+  approval, immutable images/configuration, stable daemon and named-volume
+  identities, two equal submitted project inventories, exact Compose roles,
+  complete mounts/hardening, and all execution-bearing `created` state fields.
+  It retains only digest projections and separate inert source-first
+  `docker container start` argv values. Neither seam executes or inspects
+  Docker, reads staged inputs, creates topology, consumes a claim, publishes the
+  marker, observes or mutates sequence 2, retains an outcome, or exposes
+  CLI/Make/Compose/launcher wiring. Submitted-inventory, daemon, volume,
+  container, and topology authentication and every authority remain false; a
+  future controller must independently issue and repeat the bounded
+  observations immediately before claim and release and reject duplicate JSON
+  keys at its bounded raw Docker reader. A later exact-outcome-bound host
+  orchestration implementation, admission for its exact revision, and separate
+  operational approval remain required before the normal worker may create
+  sequence 2.
   Complete that boundary before adding an
   independent watchdog, readiness,
   final new-exposure, alert, and exact-head manual re-arm consumers. The local
