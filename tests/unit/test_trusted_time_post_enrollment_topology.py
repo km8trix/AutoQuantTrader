@@ -33,10 +33,13 @@ from scripts.start_trusted_time_supervisor import (
     TrustedTimeVolumeIdentities,
 )
 from scripts.trusted_time_post_enrollment_topology import (
+    _MAXIMUM_JSON_PROJECTION_BYTES,
+    _MAXIMUM_JSON_PROJECTION_NODES,
     POST_ENROLLMENT_CREATED_TOPOLOGY_CONTRACT_VERSION,
     POST_ENROLLMENT_CREATED_TOPOLOGY_STATUS,
     TrustedTimePostEnrollmentCreatedTopologyRejected,
     TrustedTimePostEnrollmentCreatedTopologySnapshot,
+    _require_exact_json_tree,
     validate_post_enrollment_start_created_topology,
 )
 
@@ -48,6 +51,11 @@ SUPERVISOR_IMAGE_ID = "sha256:" + "2" * 64
 PROJECT_NAME = "autoquanttrader-trusted-time"
 ZERO_DOCKER_TIMESTAMP = "0001-01-01T00:00:00Z"
 OPERATION_ID = "223e4567-e89b-42d3-a456-426614174001"
+
+
+class _EqualString(str):
+    pass
+
 
 SOURCE_COMMAND = [
     "-x",
@@ -586,7 +594,7 @@ def test_created_container_fixtures_have_exact_narrow_payload_shape(tmp_path: Pa
         ("supervisor", SUPERVISOR_CONTAINER_ID, SUPERVISOR_IMAGE_ID),
     ):
         inspection = _created_container_inspection(
-            role=role,
+            role=cast(Literal["source", "supervisor"], role),
             container_id=container_id,
             image_id=image_id,
             staged_paths=paths,
@@ -716,6 +724,14 @@ def test_created_topology_payload_is_exact_frozen_and_non_authorizing(tmp_path: 
     }
     assert all(payload[field_name] is False for field_name in false_fields)
     assert all(getattr(snapshot, field_name) is False for field_name in false_fields)
+    assert snapshot.observation_provenance_authenticated is False
+    assert snapshot.source_start_authenticated is False
+    assert snapshot.start_order_authenticated is False
+    assert snapshot.supervisor_start_authenticated is False
+    assert "observation_provenance_authenticated" not in payload
+    assert "source_start_authenticated" not in payload
+    assert "start_order_authenticated" not in payload
+    assert "supervisor_start_authenticated" not in payload
     assert len(snapshot.snapshot_sha256) == 64
     with pytest.raises(FrozenInstanceError):
         snapshot.daemon_id = "changed"  # type: ignore[misc]
@@ -817,6 +833,24 @@ def test_created_topology_rejects_noncanonical_or_control_bearing_daemon_endpoin
         _validate(inputs)
 
 
+@pytest.mark.parametrize("field_name", ["context_name", "endpoint", "daemon_id"])
+def test_created_topology_rejects_equal_daemon_after_string_subclass(
+    tmp_path: Path,
+    field_name: str,
+) -> None:
+    inputs = _valid_inputs(tmp_path)
+    daemon_after = _daemon_identity()
+    object.__setattr__(
+        daemon_after,
+        field_name,
+        _EqualString(cast(str, getattr(daemon_after, field_name))),
+    )
+    inputs["daemon_identity_after"] = daemon_after
+
+    with pytest.raises(TrustedTimePostEnrollmentCreatedTopologyRejected):
+        _validate(inputs)
+
+
 @pytest.mark.parametrize(
     ("before", "after"),
     [
@@ -854,17 +888,57 @@ def test_created_topology_rejects_invalid_or_changed_project_inventory(
         _validate(inputs)
 
 
-@pytest.mark.parametrize("mutation", ["missing", "extra", "key_id_mismatch"])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "extra",
+        "oversized",
+        "wrong_type",
+        "wrong_keys",
+        "key_subclass",
+        "key_too_long",
+        "key_uppercase",
+        "key_nonhex",
+        "key_integer",
+        "key_id_mismatch",
+    ],
+)
 def test_created_topology_requires_exact_id_keyed_inspection_mapping(
     tmp_path: Path,
     mutation: str,
 ) -> None:
     inputs = _valid_inputs(tmp_path)
-    inspections = cast(dict[str, object], inputs["container_inspections"])
+    if mutation == "wrong_type":
+        inputs["container_inspections"] = []
+        with pytest.raises(TrustedTimePostEnrollmentCreatedTopologyRejected):
+            _validate(inputs)
+        return
+    if mutation == "oversized":
+        inputs["container_inspections"] = {f"{index:064x}": None for index in range(1_024)}
+        with pytest.raises(TrustedTimePostEnrollmentCreatedTopologyRejected):
+            _validate(inputs)
+        return
+
+    inspections = cast(dict[object, object], inputs["container_inspections"])
     if mutation == "missing":
         inspections.pop(SUPERVISOR_CONTAINER_ID)
     elif mutation == "extra":
         inspections[OTHER_CONTAINER_ID] = deepcopy(inspections[SOURCE_CONTAINER_ID])
+    elif mutation == "wrong_keys":
+        inspections[OTHER_CONTAINER_ID] = inspections.pop(SUPERVISOR_CONTAINER_ID)
+    elif mutation == "key_subclass":
+        source = inspections.pop(SOURCE_CONTAINER_ID)
+        inspections[_EqualString(SOURCE_CONTAINER_ID)] = source
+    elif mutation in {"key_too_long", "key_uppercase", "key_nonhex", "key_integer"}:
+        source = inspections.pop(SOURCE_CONTAINER_ID)
+        replacement: object = {
+            "key_too_long": "a" * 65,
+            "key_uppercase": "A" * 64,
+            "key_nonhex": "g" * 64,
+            "key_integer": 1,
+        }[mutation]
+        inspections[replacement] = source
     else:
         source = cast(list[dict[str, object]], inspections.pop(SOURCE_CONTAINER_ID))
         inspections[SOURCE_CONTAINER_ID] = _mutated_inspection(
@@ -1542,6 +1616,22 @@ def test_created_topology_rejects_json_depth_and_node_budget_exhaustion(tmp_path
     node_configuration["many"] = [None] * 131_073
     with pytest.raises(TrustedTimePostEnrollmentCreatedTopologyRejected):
         _validate(node_inputs)
+
+
+def test_json_mapping_cardinality_fails_before_iterating_children() -> None:
+    mapping = {f"key-{index}": None for index in range(_MAXIMUM_JSON_PROJECTION_NODES // 2)}
+    remaining_nodes = [_MAXIMUM_JSON_PROJECTION_NODES]
+    remaining_ascii_bytes = [_MAXIMUM_JSON_PROJECTION_BYTES]
+
+    with pytest.raises(ValueError):
+        _require_exact_json_tree(
+            mapping,
+            remaining_nodes=remaining_nodes,
+            remaining_ascii_bytes=remaining_ascii_bytes,
+        )
+
+    assert remaining_nodes == [_MAXIMUM_JSON_PROJECTION_NODES - 1]
+    assert remaining_ascii_bytes == [_MAXIMUM_JSON_PROJECTION_BYTES]
 
 
 @pytest.mark.parametrize(

@@ -3590,18 +3590,47 @@ release, persistence, SQL, or provider call. The staged candidate's observation-
 provenance, created-topology, daemon, named-volume, submitted-inventory,
 container, topology, consumed-marker, release-absence, input-retirement,
 source-start, supervisor-start, and start-order authentication fields remain
-false; in both results, claim retention,
-topology mutation, both starts, persistent start, release, sequence 2,
-shutdown, and every operational/trading authority remain false. The next
-implementation must be a strict bounded read-only Docker issuer that targets
-both snapshot contracts under the same qualified-daemon lock and rejects
-duplicate keys while parsing bounded raw Docker bytes. A later pure fence
-composition must bind the created snapshot and equal staged snapshots obtained
-immediately before claim retention and release. Only then may a separately
-admitted and operationally approved controller execute a projected action.
+false; in both results, claim retention, topology mutation, both starts,
+persistent start, release, sequence 2, shutdown, and every operational/trading
+authority remain false.
+
+The distinct dormant raw boundary is
+`phase6d-post-enrollment-topology-observation-reader-v1`. One exact production
+open owns the global launcher lock, a canonical absolute and metadata-pinned
+Docker executable, the qualified local Unix socket and daemon identity, and a
+PID-bound non-copyable lifecycle guarded against concurrent use. Its fixed
+commands have two-second deadlines and per-stream byte caps. A compact
+LF-terminated UTF-8 decoder rejects duplicate object keys, whitespace framing,
+nonstandard constants, floats, oversized integers, invalid Unicode, and
+depth/node exhaustion before validation.
+
+The never-started observation uses 14 Docker reads. Each staged observation
+uses 16, including two exact descriptor-held in-container read probes for the
+consumed marker and absent release paths; both probes complete before the raw
+container inspections prove no residual exec ID and the exact running state.
+The reader independently observes stable daemon, volume, inventory, and bridge
+network identities around the container reads, requires exact image-root IDs
+before accepting image configuration, cross-binds both containers to the one
+network and distinct staged endpoints, and walks retired host inputs only
+through owner-only no-follow descriptors. The first created envelope is
+followed by at most two staged envelopes in one session. Staged ordinal 1 names
+the created observation as predecessor, ordinal 2 names ordinal 1, and the two
+staged snapshots must share one stable snapshot digest.
+
+The envelopes retain only the nonsecret pure snapshot plus session, transcript,
+predecessor, and digest projections. They authenticate that the lock/daemon
+reader owned those observations; they do not authenticate topology for an
+action and grant no claim, release, start, shutdown, persistence, sequence-2,
+operational, or trading authority. The reader has no CLI, worker, controller,
+provider, SQL, claim, start, release, persistence, or supported runtime wiring.
+The next implementation is a pure same-session fence composition binding the
+created envelope and equal staged ordinals immediately before claim retention
+and release. Only then may a separately admitted and operationally approved
+controller execute a projected action.
 
 No worker/main, Make, Compose, or launcher wiring invokes either topology
-candidate, the claimed-release handoff, the sequence-2 issuer, or the binder;
+candidate, the dormant observation reader, the claimed-release handoff, the
+sequence-2 issuer, or the binder;
 the host outcome remains `UNCONFIRMED`, every authority field remains false,
 and `trusted-time-start` and shutdown remain hard closed. Consequently, no
 supported persistent topology or independent supervisor watchdog is deployed.
@@ -3637,10 +3666,9 @@ Supabase/provider adapter, runtime process or container, independent external
 failure domain, alert route, readiness/control/new-exposure/re-arm consumer,
 deployment, drill, or Phase 6 exit evidence. The retained passing rollback
 probe, applied atomic read-policy upgrade, separately approved same-object proof
-resume, confirmed first enrollment, and staged-release image admission are
-complete. The next normative sequence is a strict bounded duplicate-key-
-rejecting Docker observation issuer for both created and staged-unreleased
-snapshots, then pure pre-claim/pre-release fence composition, and only then a
+resume, confirmed first enrollment, staged-release image admission, and dormant
+bounded topology observation issuer are complete. The next normative sequence
+is pure same-session pre-claim/pre-release fence composition, followed by a
 separately reviewed exact-outcome-bound host orchestration implementation. That
 controller must control the staged topology, retain and repeatedly revalidate
 the exact claim, execute only the approved release, receive and authenticate

@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -3625,6 +3626,37 @@ _EXACT_CREATED_EXPLICIT_HIGH_RISK_HOST_CONFIG_KEYS = frozenset(
         "UsernsMode",
     }
 )
+_EXACT_CONTAINER_MAXIMUM_TOP_LEVEL_KEYS = 128
+_EXACT_CONTAINER_MAXIMUM_HOST_CONFIG_KEYS = 256
+_EXACT_CONTAINER_MAXIMUM_NETWORK_SETTINGS_KEYS = 64
+_EXACT_CONTAINER_SAFE_APPARMOR_PROFILES = frozenset({"", "docker-default"})
+_EXACT_CONTAINER_SAFE_RUNTIME = "runc"
+_EXACT_CONTAINER_NETWORK_ATTACHMENT_KEYS = frozenset(
+    {
+        "Aliases",
+        "DNSNames",
+        "DriverOpts",
+        "EndpointID",
+        "Gateway",
+        "GlobalIPv6Address",
+        "GlobalIPv6PrefixLen",
+        "GwPriority",
+        "IPAddress",
+        "IPAMConfig",
+        "IPPrefixLen",
+        "IPv6Gateway",
+        "Links",
+        "MacAddress",
+        "NetworkID",
+    }
+)
+_EXACT_CONTAINER_MAXIMUM_NETWORK_NAMES = 8
+_EXACT_CONTAINER_MAXIMUM_NETWORK_NAME_CHARACTERS = 255
+_EXACT_CONTAINER_MAXIMUM_HEALTH_LOG_ENTRIES = 5
+_EXACT_CONTAINER_MAXIMUM_HEALTH_OUTPUT_BYTES = 4_096
+_EXACT_CONTAINER_MAXIMUM_SANDBOX_KEY_CHARACTERS = 128
+_MAC_ADDRESS_PATTERN = re.compile(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}")
+_DOCKER_NETNS_KEY_PATTERN = re.compile(r"/var/run/docker/netns/[0-9a-f]{12,64}")
 _EXACT_CREATED_MINIMUM_MASKED_PATHS = frozenset(
     {
         "/proc/acpi",
@@ -3704,6 +3736,7 @@ def _validate_exact_never_started_created_state(
 def _is_concrete_docker_timestamp(value: object) -> bool:
     if (
         type(value) is not str
+        or not 20 <= len(value) <= 30
         or _CONCRETE_DOCKER_TIMESTAMP_PATTERN.fullmatch(value) is None
         or int(value[:4]) < 1970
     ):
@@ -3713,6 +3746,44 @@ def _is_concrete_docker_timestamp(value: object) -> bool:
     except (OverflowError, ValueError):
         return False
     return True
+
+
+def _is_bounded_health_output(value: object) -> bool:
+    if type(value) is not str or len(value) > _EXACT_CONTAINER_MAXIMUM_HEALTH_OUTPUT_BYTES:
+        return False
+    try:
+        return len(value.encode("utf-8", errors="strict")) <= (
+            _EXACT_CONTAINER_MAXIMUM_HEALTH_OUTPUT_BYTES
+        )
+    except UnicodeError:
+        return False
+
+
+def _validate_exact_staged_health_log(value: object) -> None:
+    if (
+        type(value) is not list
+        or not value
+        or len(value) > _EXACT_CONTAINER_MAXIMUM_HEALTH_LOG_ENTRIES
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time staged source health log is invalid"
+        )
+    expected_keys = {"End", "ExitCode", "Output", "Start"}
+    for raw_entry in value:
+        if (
+            type(raw_entry) is not dict
+            or len(raw_entry) != len(expected_keys)
+            or any(type(key) is not str for key in raw_entry)
+            or set(raw_entry) != expected_keys
+            or not _is_concrete_docker_timestamp(raw_entry.get("Start"))
+            or not _is_concrete_docker_timestamp(raw_entry.get("End"))
+            or type(raw_entry.get("ExitCode")) is not int
+            or raw_entry.get("ExitCode") != 0
+            or not _is_bounded_health_output(raw_entry.get("Output"))
+        ):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time staged source health log is invalid"
+            )
 
 
 def _validate_exact_staged_running_state(
@@ -3748,15 +3819,17 @@ def _validate_exact_staged_running_state(
         return
     health = _mapping(state.get("Health"), "trusted-time staged source health")
     if (
-        set(health) != {"Status", "FailingStreak", "Log"}
+        len(health) != 3
+        or any(type(key) is not str for key in health)
+        or set(health) != {"Status", "FailingStreak", "Log"}
         or health.get("Status") != "healthy"
         or type(health.get("FailingStreak")) is not int
         or health.get("FailingStreak") != 0
-        or type(health.get("Log")) is not list
     ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time staged source health is invalid"
         )
+    _validate_exact_staged_health_log(health.get("Log"))
 
 
 def _validate_exact_never_started_projection_presence(
@@ -3782,6 +3855,290 @@ def _is_explicit_neutral_list(value: object) -> bool:
 
 def _is_explicit_neutral_mapping(value: object) -> bool:
     return value is None or (type(value) is dict and not value)
+
+
+def _is_exact_network_name_sequence(
+    value: object,
+    *,
+    expected_service: str,
+) -> bool:
+    if value is None:
+        return True
+    if (
+        type(value) is not list
+        or len(value) > _EXACT_CONTAINER_MAXIMUM_NETWORK_NAMES
+        or any(
+            type(item) is not str
+            or not item
+            or len(item) > _EXACT_CONTAINER_MAXIMUM_NETWORK_NAME_CHARACTERS
+            or any(ord(character) < 32 or ord(character) == 127 for character in item)
+            for item in value
+        )
+        or len(set(value)) != len(value)
+    ):
+        return False
+    return not value or expected_service in value
+
+
+def _is_exact_ip_address(value: object, *, version: int) -> bool:
+    if type(value) is not str:
+        return False
+    if not value:
+        return True
+    maximum_characters = 15 if version == 4 else 39
+    if len(value) > maximum_characters or "%" in value:
+        return False
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return address.version == version and str(address) == value
+
+
+def _validate_exact_network_observation_boundary(
+    network_settings: Mapping[str, object],
+    networks: Mapping[str, object],
+    *,
+    expected_service: str,
+    require_running_endpoint: bool,
+    require_live_observation_fields: bool,
+) -> None:
+    if (
+        len(network_settings) > _EXACT_CONTAINER_MAXIMUM_NETWORK_SETTINGS_KEYS
+        or any(type(key) is not str for key in network_settings)
+        or len(networks) != 1
+        or any(type(key) is not str for key in networks)
+        or COMPOSE_NETWORK_NAME not in networks
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time exact container network attachment drifted"
+        )
+    attachment = networks.get(COMPOSE_NETWORK_NAME)
+    if type(attachment) is not dict:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time exact container network attachment drifted"
+        )
+
+    sandbox_id_present = "SandboxID" in network_settings
+    sandbox_key_present = "SandboxKey" in network_settings
+    if require_live_observation_fields and not (sandbox_id_present and sandbox_key_present):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time exact container network sandbox is incomplete"
+        )
+    if sandbox_id_present or sandbox_key_present:
+        sandbox_id = network_settings.get("SandboxID")
+        sandbox_key = network_settings.get("SandboxKey")
+        neutral_sandbox = (
+            type(sandbox_id) is str
+            and sandbox_id == ""
+            and type(sandbox_key) is str
+            and sandbox_key == ""
+        )
+        running_sandbox = (
+            type(sandbox_id) is str
+            and _FULL_CONTAINER_ID_PATTERN.fullmatch(sandbox_id) is not None
+            and type(sandbox_key) is str
+            and len(sandbox_key) <= _EXACT_CONTAINER_MAXIMUM_SANDBOX_KEY_CHARACTERS
+            and _DOCKER_NETNS_KEY_PATTERN.fullmatch(sandbox_key) is not None
+        )
+        if (require_running_endpoint and not running_sandbox) or (
+            not require_running_endpoint and not neutral_sandbox
+        ):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time exact container network sandbox drifted"
+            )
+
+    # Existing pure topology candidates intentionally use an empty, projected
+    # attachment.  A strict live reader must supply Docker's complete one.
+    if require_live_observation_fields and not attachment:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time exact container network attachment is incomplete"
+        )
+    if attachment:
+        if (
+            len(attachment) > len(_EXACT_CONTAINER_NETWORK_ATTACHMENT_KEYS)
+            or any(type(key) is not str for key in attachment)
+            or any(key not in _EXACT_CONTAINER_NETWORK_ATTACHMENT_KEYS for key in attachment)
+        ):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time exact container network attachment drifted"
+            )
+        network_id = attachment.get("NetworkID")
+        endpoint_id = attachment.get("EndpointID")
+        if (
+            type(network_id) is not str
+            or _FULL_CONTAINER_ID_PATTERN.fullmatch(network_id) is None
+            or not _is_explicit_neutral_mapping(attachment.get("IPAMConfig"))
+            or not _is_explicit_neutral_mapping(attachment.get("DriverOpts"))
+            or not _is_explicit_neutral_list(attachment.get("Links"))
+            or not _is_exact_network_name_sequence(
+                attachment.get("Aliases"),
+                expected_service=expected_service,
+            )
+            or not _is_exact_network_name_sequence(
+                attachment.get("DNSNames"),
+                expected_service=expected_service,
+            )
+            or (
+                "GwPriority" in attachment
+                and (type(attachment.get("GwPriority")) is not int or attachment["GwPriority"] != 0)
+            )
+            or not _is_exact_ip_address(attachment.get("IPv6Gateway", ""), version=6)
+            or not _is_exact_ip_address(
+                attachment.get("GlobalIPv6Address", ""),
+                version=6,
+            )
+        ):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time exact container network attachment drifted"
+            )
+        required_endpoint_fields = {
+            "EndpointID",
+            "Gateway",
+            "IPAddress",
+            "IPPrefixLen",
+            "MacAddress",
+        }
+        mac_address = attachment.get("MacAddress", "")
+        gateway = attachment.get("Gateway", "")
+        ip_address = attachment.get("IPAddress", "")
+        ip_prefix = attachment.get("IPPrefixLen", 0)
+        global_ipv6_prefix = attachment.get("GlobalIPv6PrefixLen", 0)
+        if (
+            not required_endpoint_fields.issubset(attachment)
+            or type(global_ipv6_prefix) is not int
+            or not 0 <= global_ipv6_prefix <= 128
+        ):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time exact container network attachment drifted"
+            )
+        neutral_endpoint = (
+            type(endpoint_id) is str
+            and endpoint_id == ""
+            and type(gateway) is str
+            and gateway == ""
+            and type(ip_address) is str
+            and ip_address == ""
+            and type(ip_prefix) is int
+            and ip_prefix == 0
+            and type(mac_address) is str
+            and mac_address == ""
+        )
+        running_endpoint = (
+            type(endpoint_id) is str
+            and _FULL_CONTAINER_ID_PATTERN.fullmatch(endpoint_id) is not None
+            and type(gateway) is str
+            and bool(gateway)
+            and _is_exact_ip_address(gateway, version=4)
+            and type(ip_address) is str
+            and bool(ip_address)
+            and _is_exact_ip_address(ip_address, version=4)
+            and type(ip_prefix) is int
+            and 0 < ip_prefix <= 32
+            and type(mac_address) is str
+            and _MAC_ADDRESS_PATTERN.fullmatch(mac_address) is not None
+        )
+        if (require_running_endpoint and not running_endpoint) or (
+            not require_running_endpoint and not neutral_endpoint
+        ):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time exact container network endpoint drifted"
+            )
+
+    neutral_string_fields = (
+        "Bridge",
+        "EndpointID",
+        "Gateway",
+        "GlobalIPv6Address",
+        "IPAddress",
+        "IPv6Gateway",
+        "LinkLocalIPv6Address",
+        "MacAddress",
+    )
+    neutral_integer_fields = (
+        "GlobalIPv6PrefixLen",
+        "IPPrefixLen",
+        "LinkLocalIPv6PrefixLen",
+    )
+    if (
+        (
+            "Ports" in network_settings
+            and not _is_explicit_neutral_mapping(network_settings["Ports"])
+        )
+        or any(
+            field_name in network_settings
+            and not _is_explicit_neutral_list(network_settings[field_name])
+            for field_name in ("SecondaryIPAddresses", "SecondaryIPv6Addresses")
+        )
+        or ("HairpinMode" in network_settings and network_settings["HairpinMode"] is not False)
+        or any(
+            field_name in network_settings
+            and (
+                type(network_settings[field_name]) is not str or network_settings[field_name] != ""
+            )
+            for field_name in neutral_string_fields
+        )
+        or any(
+            field_name in network_settings
+            and (type(network_settings[field_name]) is not int or network_settings[field_name] != 0)
+            for field_name in neutral_integer_fields
+        )
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time exact container network boundary drifted"
+        )
+
+
+def _validate_exact_container_observation_boundary(
+    container: Mapping[str, object],
+    host: Mapping[str, object],
+    network_settings: Mapping[str, object],
+    networks: Mapping[str, object],
+    *,
+    expected_service: str,
+    require_running_endpoint: bool,
+    require_live_observation_fields: bool,
+) -> None:
+    if (
+        len(container) > _EXACT_CONTAINER_MAXIMUM_TOP_LEVEL_KEYS
+        or any(type(key) is not str for key in container)
+        or len(host) > _EXACT_CONTAINER_MAXIMUM_HOST_CONFIG_KEYS
+        or any(type(key) is not str for key in host)
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time exact container observation boundary drifted"
+        )
+    exec_ids = container.get("ExecIDs")
+    if require_live_observation_fields and (
+        "ExecIDs" not in container or "Runtime" not in host or "AppArmorProfile" not in container
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time exact container live observation is incomplete"
+        )
+    if exec_ids is not None and (type(exec_ids) is not list or exec_ids):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time exact container has active or malformed exec sessions"
+        )
+    if "Runtime" in host and (
+        type(host["Runtime"]) is not str or host["Runtime"] != _EXACT_CONTAINER_SAFE_RUNTIME
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time exact container runtime boundary drifted"
+        )
+    if "AppArmorProfile" in container and (
+        type(container["AppArmorProfile"]) is not str
+        or container["AppArmorProfile"] not in _EXACT_CONTAINER_SAFE_APPARMOR_PROFILES
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time exact container AppArmor boundary drifted"
+        )
+    _validate_exact_network_observation_boundary(
+        network_settings,
+        networks,
+        expected_service=expected_service,
+        require_running_endpoint=require_running_endpoint,
+        require_live_observation_fields=require_live_observation_fields,
+    )
 
 
 def _is_string_list_containing(
@@ -3815,11 +4172,14 @@ def _validate_exact_never_started_high_risk_boundary(
     host: Mapping[str, object],
     *,
     expected_image_configuration: Mapping[str, object],
+    expected_service: str,
+    require_live_observation_fields: bool,
 ) -> None:
     sysctls = host.get("Sysctls")
     log_configuration = host.get("LogConfig")
     expected_stop_signal = expected_image_configuration.get("StopSignal")
     runtime_stop_signal = configuration.get("StopSignal")
+    expected_stop_timeout = 10 if expected_service == "chrony-nts" else 40
     if (
         not _is_explicit_neutral_list(host.get("DeviceRequests"))
         or host.get("CgroupnsMode") != "private"
@@ -3846,6 +4206,14 @@ def _validate_exact_never_started_high_risk_boundary(
         )
         or type(runtime_stop_signal) is not type(expected_stop_signal)
         or runtime_stop_signal != expected_stop_signal
+        or (require_live_observation_fields and "StopTimeout" not in configuration)
+        or (
+            "StopTimeout" in configuration
+            and (
+                type(configuration["StopTimeout"]) is not int
+                or configuration["StopTimeout"] != expected_stop_timeout
+            )
+        )
     ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time never-started high-risk runtime boundary drifted"
@@ -3911,6 +4279,7 @@ def validate_exact_never_started_created_container(
     expected_head_anchor_authority_file: Path | None = None,
     expected_head_anchor_auth_secret_file: Path | None = None,
     expected_head_anchor_signing_key_secret_file: Path | None = None,
+    require_live_observation_fields: bool = False,
 ) -> None:
     """Validate one exact Compose-created container that has never started."""
 
@@ -3950,6 +4319,7 @@ def validate_exact_never_started_created_container(
         or _FULL_CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None
         or type(expected_image_id) is not str
         or _IMAGE_ID_PATTERN.fullmatch(expected_image_id) is None
+        or type(require_live_observation_fields) is not bool
     ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time never-started container binding is invalid"
@@ -3986,16 +4356,23 @@ def validate_exact_never_started_created_container(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time never-started container identity drifted"
         )
-    if set(networks) != {COMPOSE_NETWORK_NAME}:
-        raise TrustedTimeSupervisorConfigurationError(
-            "trusted-time never-started container network attachment drifted"
-        )
+    _validate_exact_container_observation_boundary(
+        container,
+        host,
+        network_settings,
+        networks,
+        expected_service=expected_service,
+        require_running_endpoint=False,
+        require_live_observation_fields=require_live_observation_fields,
+    )
     _validate_exact_never_started_created_state(container, state)
     _validate_exact_never_started_host_boundary(host)
     _validate_exact_never_started_high_risk_boundary(
         configuration,
         host,
         expected_image_configuration=expected_image_configuration,
+        expected_service=expected_service,
+        require_live_observation_fields=require_live_observation_fields,
     )
     _validate_exact_never_started_numeric_types(
         configuration,
@@ -4028,6 +4405,7 @@ def validate_exact_staged_running_container(
     expected_head_anchor_authority_file: Path | None = None,
     expected_head_anchor_auth_secret_file: Path | None = None,
     expected_head_anchor_signing_key_secret_file: Path | None = None,
+    require_live_observation_fields: bool = False,
 ) -> None:
     """Validate one exact staged-running container without proving its barrier."""
 
@@ -4067,6 +4445,7 @@ def validate_exact_staged_running_container(
         or _FULL_CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None
         or type(expected_image_id) is not str
         or _IMAGE_ID_PATTERN.fullmatch(expected_image_id) is None
+        or type(require_live_observation_fields) is not bool
     ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time staged running container binding is invalid"
@@ -4103,10 +4482,15 @@ def validate_exact_staged_running_container(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time staged running container identity drifted"
         )
-    if set(networks) != {COMPOSE_NETWORK_NAME}:
-        raise TrustedTimeSupervisorConfigurationError(
-            "trusted-time staged running container network attachment drifted"
-        )
+    _validate_exact_container_observation_boundary(
+        container,
+        host,
+        network_settings,
+        networks,
+        expected_service=expected_service,
+        require_running_endpoint=True,
+        require_live_observation_fields=require_live_observation_fields,
+    )
     _validate_exact_staged_running_state(
         container,
         state,
@@ -4117,6 +4501,8 @@ def validate_exact_staged_running_container(
         configuration,
         host,
         expected_image_configuration=expected_image_configuration,
+        expected_service=expected_service,
+        require_live_observation_fields=require_live_observation_fields,
     )
     _validate_exact_never_started_numeric_types(
         configuration,

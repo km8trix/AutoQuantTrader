@@ -170,14 +170,42 @@ start, supervisor-start, and start-order authentication field remains false.
 Neither topology validator performs file, clock, Docker, subprocess, claim,
 release, SQL, provider, or persistence operations. Neither retains raw
 inspection, image-configuration, marker, staged-path, environment, mount, or
-state objects. The next implementation must be a strict bounded read-only
-Docker issuer that rejects duplicate JSON keys before decoding and targets both
-the created and staged-unreleased contracts under the same qualified-daemon
-lock. A later pure fence composition must bind the created snapshot and equal
-staged snapshots obtained immediately before claim retention and release.
-Ordinary pre-claim drift must fail before consuming the globally single-use
-claim. Only after those boundaries exist may a separately admitted and
-operationally approved active controller execute any projected argv.
+state objects.
+
+The separate dormant raw issuer now implements contract
+`phase6d-post-enrollment-topology-observation-reader-v1`. Its production open
+owns the global launcher lock, pins one canonical absolute Docker executable,
+local Unix socket, and daemon identity, and binds one non-copyable session to
+its creating process with serialized lifecycle state. Every fixed observation
+has a two-second command deadline and independent byte bounds. The decoder
+accepts only compact LF-terminated UTF-8 JSON and rejects duplicate keys,
+nonstandard constants, floats, oversized integers, invalid Unicode, and
+depth/node exhaustion.
+
+The created path performs 14 reads and each staged path performs 16. Both bind
+stable daemon, named-volume, exact two-container inventory, separately observed
+bridge network, immutable image root, and exact raw container boundaries. The
+staged path also performs two fixed descriptor-held, read-only in-container
+marker/absence probes and validates the container state after both probes have
+exited; retired host inputs are observed only through owner-only no-follow
+directory descriptors. One created envelope may be followed by at most two
+ordered staged envelopes. Ordinal 1 chains to the created observation, ordinal
+2 chains to ordinal 1, and both staged snapshots must retain one equal stable
+snapshot digest.
+
+Only those opaque, payload-bound outer envelopes authenticate lock/daemon
+observation provenance. They retain no raw response, secret, staged path, or
+mutable inspection and leave topology authentication plus every claim, start,
+release, sequence-2, shutdown, operational, and trading authority false. The
+issuer has no CLI, worker, controller, provider, SQL, claim, topology mutation,
+start, release, or persistence surface.
+
+The next implementation is a pure same-session fence composition binding the
+created envelope and the two equal staged envelopes obtained immediately before
+claim retention and release. Ordinary pre-claim drift must fail before
+consuming the globally single-use claim. Only after that boundary exists may a
+separately admitted and operationally approved active controller execute any
+projected argv.
 
 The dormant sequence-2 issuer performs complete SQL replay, a stable bounded
 two-object remote audit, and complete SQL replay again without signing or
@@ -190,13 +218,14 @@ sequence-1 predecessor and all nine identity digests and yields only
 remains `UNCONFIRMED`, and all authority fields remain false.
 
 No worker/main, Make, Compose, or supported host-launcher path calls the
-sequence-2 issuer or binder, invokes the claimed-release handoff or created-
-topology or staged-unreleased snapshot, executes either projected argv, invokes
-the claim writer, or publishes the release marker. There is no staged-topology
-controller, bounded Docker observation issuer, fence composition, retained-
-evidence/approval wiring, Docker execution, sequence-2 runtime mutation,
-confirmed start outcome, or graceful-stop operator. `trusted-time-start` and
-shutdown remain hard closed. Building and executing the remaining protocol
+sequence-2 issuer or binder, invokes the claimed-release handoff, either pure
+topology snapshot, or the dormant observation reader, executes either projected
+start argv, invokes the claim writer, or publishes the release marker. There is
+no staged-topology controller, fence composition, retained-evidence/approval
+wiring, topology mutation, sequence-2 runtime mutation, confirmed start
+outcome, or graceful-stop operator. The reader's exact in-container probe is
+observation-only and cannot publish either release path. `trusted-time-start`
+and shutdown remain hard closed. Building and executing the remaining protocol
 requires a later exact revision/image/admission tuple and separate operational
 approval.
 

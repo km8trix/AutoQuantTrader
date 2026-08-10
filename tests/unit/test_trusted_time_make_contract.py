@@ -75,16 +75,24 @@ def test_every_supported_trusted_time_python_target_uses_isolated_launcher() -> 
         assert script in makefile
 
 
-def test_post_enrollment_topology_snapshots_have_no_supported_runtime_wiring() -> None:
+def test_post_enrollment_topology_observation_has_no_supported_runtime_wiring() -> None:
     forbidden_names = (
         "trusted_time_post_enrollment_topology",
         "validate_post_enrollment_start_created_topology",
         "trusted_time_post_enrollment_staged_topology",
         "validate_post_enrollment_start_staged_unreleased_topology",
+        "trusted_time_post_enrollment_topology_reader",
+        "phase6d-post-enrollment-topology-observation-reader-v1",
+        "TrustedTimePostEnrollmentTopologyObservationIssuer",
+        "TrustedTimePostEnrollmentCreatedTopologyObservation",
+        "TrustedTimePostEnrollmentStagedTopologyObservation",
     )
     supported_surfaces = (
         ROOT / "Makefile",
+        ROOT / "apps" / "api" / "main.py",
+        ROOT / "apps" / "trader" / "main.py",
         ROOT / "apps" / "trusted_time_supervisor" / "main.py",
+        ROOT / "apps" / "worker" / "main.py",
         ROOT / "infra" / "compose" / "trusted-time.compose.yaml",
         ROOT / "pyproject.toml",
         ROOT / "scripts" / "enroll_trusted_time_head_anchor.py",
