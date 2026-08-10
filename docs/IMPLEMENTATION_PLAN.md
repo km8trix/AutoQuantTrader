@@ -2610,19 +2610,41 @@ container, release the barrier, or contact SQL/provider state. Daemon, volume,
 submitted-inventory, container, and topology authentication plus every
 authority field remain false.
 
-No worker/main, Make, Compose, or launcher path invokes the topology candidate,
-handoff, sequence-2 issuer, or binder; persistent start and shutdown remain hard
-closed. A future active controller must obtain and repeat the bounded
-observations under the global lock on the same qualified daemon before claim
-retention and again before release. Its raw Docker reader must reject duplicate
-JSON keys before decoding. Only after the remaining boundary is
-implemented, admitted, and separately approved may a separate sealed watchdog
-provider-terminal issuer authenticate the complete new suffix, bind two stable
-namespace passes to their exact digest/count/terminal identity, prove that no
-higher sequence exists, and capture its own independent monotonic instant. That
-future deployed runtime, not dormant v1, must apply the 360-second stale
-threshold with equality stale and every stale result unavailable before any
-watchdog consumer is designed or qualified. See
+Contract
+`phase6d-post-enrollment-start-staged-unreleased-topology-snapshot-v1` now adds
+the distinct pure state required after the two containers are running but
+before claim or release. It binds the exact prior created snapshot and requires
+the same operation, approval, immutable launch, daemon, volume, inventory,
+container, and image-configuration identities. Caller-supplied inspections must
+show an exact nonterminal, unrestarted running topology with a healthy source.
+Equal caller-supplied before/after candidates must show the exact database-
+secret-consumed marker, both fixed release paths absent, and all four staged
+host inputs retired. The result retains only nonsecret identity and
+digest projections, has status
+`staged_unreleased_topology_snapshot_unqualified`, and leaves observation-
+provenance, created-topology, daemon, volume, inventory, container, topology,
+database-secret-consumption, release-absence, staged-input-retirement, source-
+start, supervisor-start, start-order, and every authority field false. It
+performs no I/O and retains no raw
+inspection, image-configuration, marker, staged-path, environment, mount, or
+state object.
+
+No worker/main, Make, Compose, or launcher path invokes either topology
+candidate, the handoff, sequence-2 issuer, or binder; persistent start and
+shutdown remain hard closed. The next implementation must be a strict bounded
+read-only Docker issuer that targets both created and staged-unreleased
+contracts under the same qualified-daemon lock and rejects duplicate JSON keys
+before decoding. A later pure fence composition must bind the created snapshot
+and equal staged snapshots obtained immediately before claim retention and
+release. Only after those boundaries are implemented may a separately admitted
+and operationally approved active controller execute a projected argv. Only
+after that remaining boundary may a separate sealed watchdog provider-terminal
+issuer authenticate the complete new suffix, bind two stable namespace passes
+to their exact digest/count/terminal identity, prove that no higher sequence
+exists, and capture its own independent monotonic instant. That future deployed
+runtime, not dormant v1, must apply the 360-second stale threshold with equality
+stale and every stale result unavailable before any watchdog consumer is
+designed or qualified. See
 [ADR 0095](adr/0095-dormant-provider-neutral-trusted-head-watchdog-state.md).
 
 ## Phase 6 - deployment, browser security, and operational hardening (weeks 16-18)
@@ -2738,17 +2760,21 @@ watchdog consumer is designed or qualified. See
   identities, two equal submitted project inventories, exact Compose roles,
   complete mounts/hardening, and all execution-bearing `created` state fields.
   It retains only digest projections and separate inert source-first
-  `docker container start` argv values. Neither seam executes or inspects
-  Docker, reads staged inputs, creates topology, consumes a claim, publishes the
-  marker, observes or mutates sequence 2, retains an outcome, or exposes
-  CLI/Make/Compose/launcher wiring. Submitted-inventory, daemon, volume,
-  container, and topology authentication and every authority remain false; a
-  future controller must independently issue and repeat the bounded
-  observations immediately before claim and release and reject duplicate JSON
-  keys at its bounded raw Docker reader. A later exact-outcome-bound host
-  orchestration implementation, admission for its exact revision, and separate
-  operational approval remain required before the normal worker may create
-  sequence 2.
+  `docker container start` argv values. A third import-only contract binds an
+  exact caller-supplied staged-running-but-unreleased candidate to that prior
+  snapshot. It requires exact nonterminal and unrestarted running containers, a
+  healthy source, the fixed consumed-input marker, absent release and release-
+  staging markers, and all four staged host inputs reported retired. It retains
+  only nonsecret identities and digests. None of these seams executes or
+  inspects Docker, reads staged inputs, creates topology, consumes a claim,
+  publishes the marker, observes or mutates sequence 2, retains an outcome, or
+  exposes CLI/Make/Compose/launcher wiring. Submitted observation provenance,
+  inventory, daemon, volume, container, topology, marker, input-retirement, and
+  every authority remain false. Next implement a strict bounded duplicate-key-
+  rejecting Docker issuer for both topology contracts, then pure pre-claim/pre-
+  release fence composition. A later exact-outcome-bound host orchestration
+  implementation, admission for its exact revision, and separate operational
+  approval remain required before the normal worker may create sequence 2.
   Complete that boundary before adding an
   independent watchdog, readiness,
   final new-exposure, alert, and exact-head manual re-arm consumers. The local

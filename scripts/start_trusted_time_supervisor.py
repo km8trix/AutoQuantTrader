@@ -3564,6 +3564,10 @@ _NEVER_STARTED_CREATED_STATE_KEYS = frozenset(
     }
 )
 _ZERO_DOCKER_TIMESTAMP = "0001-01-01T00:00:00Z"
+_CONCRETE_DOCKER_TIMESTAMP_PATTERN = re.compile(
+    r"[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])"
+    r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:[.][0-9]{1,9})?Z"
+)
 _EXACT_CREATED_REQUIRED_CONFIG_KEYS = frozenset(
     {
         "Cmd",
@@ -3694,6 +3698,64 @@ def _validate_exact_never_started_created_state(
     ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time container is not exact never-started created state"
+        )
+
+
+def _is_concrete_docker_timestamp(value: object) -> bool:
+    if (
+        type(value) is not str
+        or _CONCRETE_DOCKER_TIMESTAMP_PATTERN.fullmatch(value) is None
+        or int(value[:4]) < 1970
+    ):
+        return False
+    try:
+        time.strptime(value[:19], "%Y-%m-%dT%H:%M:%S")
+    except (OverflowError, ValueError):
+        return False
+    return True
+
+
+def _validate_exact_staged_running_state(
+    container: Mapping[str, object],
+    state: Mapping[str, object],
+    *,
+    expected_service: str,
+) -> None:
+    source = expected_service == "chrony-nts"
+    expected_state_keys = _NEVER_STARTED_CREATED_STATE_KEYS | ({"Health"} if source else set())
+    pid = state.get("Pid")
+    if (
+        set(state) != expected_state_keys
+        or state.get("Status") != "running"
+        or state.get("Running") is not True
+        or state.get("Paused") is not False
+        or state.get("Restarting") is not False
+        or state.get("OOMKilled") is not False
+        or state.get("Dead") is not False
+        or not (type(pid) is int and pid > 0)
+        or type(state.get("ExitCode")) is not int
+        or state.get("ExitCode") != 0
+        or state.get("Error") != ""
+        or not _is_concrete_docker_timestamp(state.get("StartedAt"))
+        or state.get("FinishedAt") != _ZERO_DOCKER_TIMESTAMP
+        or type(container.get("RestartCount")) is not int
+        or container.get("RestartCount") != 0
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time container is not exact staged running state"
+        )
+    if not source:
+        return
+    health = _mapping(state.get("Health"), "trusted-time staged source health")
+    if (
+        set(health) != {"Status", "FailingStreak", "Log"}
+        or health.get("Status") != "healthy"
+        or type(health.get("FailingStreak")) is not int
+        or health.get("FailingStreak") != 0
+        or type(health.get("Log")) is not list
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time staged source health is invalid"
         )
 
 
@@ -3929,6 +3991,127 @@ def validate_exact_never_started_created_container(
             "trusted-time never-started container network attachment drifted"
         )
     _validate_exact_never_started_created_state(container, state)
+    _validate_exact_never_started_host_boundary(host)
+    _validate_exact_never_started_high_risk_boundary(
+        configuration,
+        host,
+        expected_image_configuration=expected_image_configuration,
+    )
+    _validate_exact_never_started_numeric_types(
+        configuration,
+        host,
+        expected_service=expected_service,
+    )
+    _validate_trusted_time_container_runtime_policy(
+        container,
+        configuration,
+        host,
+        state,
+        expected_image_configuration=expected_image_configuration,
+        expected_service=expected_service,
+        require_healthy=False,
+        expected_database_secret_file=expected_database_secret_file,
+        expected_head_anchor_authority_file=expected_head_anchor_authority_file,
+        expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
+        expected_head_anchor_signing_key_secret_file=(expected_head_anchor_signing_key_secret_file),
+    )
+
+
+def validate_exact_staged_running_container(
+    inspection: object,
+    *,
+    expected_container_id: str,
+    expected_image_id: str,
+    expected_image_configuration: Mapping[str, object],
+    expected_service: str,
+    expected_database_secret_file: Path | None = None,
+    expected_head_anchor_authority_file: Path | None = None,
+    expected_head_anchor_auth_secret_file: Path | None = None,
+    expected_head_anchor_signing_key_secret_file: Path | None = None,
+) -> None:
+    """Validate one exact staged-running container without proving its barrier."""
+
+    if type(inspection) is not list or len(inspection) != 1:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time staged running container inspection is malformed"
+        )
+    container = _mapping(inspection[0], "trusted-time staged running container")
+    configuration = _mapping(
+        container.get("Config"),
+        "trusted-time staged running container Config",
+    )
+    host = _mapping(
+        container.get("HostConfig"),
+        "trusted-time staged running container HostConfig",
+    )
+    _validate_exact_never_started_projection_presence(configuration, host)
+    network_settings = _mapping(
+        container.get("NetworkSettings"),
+        "trusted-time staged running container NetworkSettings",
+    )
+    networks = _mapping(
+        network_settings.get("Networks"),
+        "trusted-time staged running container networks",
+    )
+    labels = _mapping(
+        configuration.get("Labels"),
+        "trusted-time staged running container labels",
+    )
+    state = _mapping(
+        container.get("State"),
+        "trusted-time staged running container state",
+    )
+    if (
+        expected_service not in {"chrony-nts", "trusted-time-supervisor"}
+        or type(expected_container_id) is not str
+        or _FULL_CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None
+        or type(expected_image_id) is not str
+        or _IMAGE_ID_PATTERN.fullmatch(expected_image_id) is None
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time staged running container binding is invalid"
+        )
+    staged_paths = (
+        expected_database_secret_file,
+        expected_head_anchor_authority_file,
+        expected_head_anchor_auth_secret_file,
+        expected_head_anchor_signing_key_secret_file,
+    )
+    if (expected_service == "chrony-nts" and any(path is not None for path in staged_paths)) or (
+        expected_service == "trusted-time-supervisor"
+        and (
+            not all(_is_absolute_lexically_canonical_path(path) for path in staged_paths)
+            or len(set(staged_paths)) != len(staged_paths)
+        )
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time staged running input binding is invalid"
+        )
+    expected_path, expected_args = _expected_container_path_and_args(expected_image_configuration)
+    if (
+        container.get("Id") != expected_container_id
+        or container.get("Image") != expected_image_id
+        or configuration.get("Image") != expected_image_id
+        or container.get("Path") != expected_path
+        or type(container.get("Args")) is not list
+        or container.get("Args") != expected_args
+        or labels.get("com.docker.compose.project") != "autoquanttrader-trusted-time"
+        or labels.get("com.docker.compose.service") != expected_service
+        or labels.get("com.docker.compose.oneoff") != "False"
+        or labels.get("com.docker.compose.container-number") != "1"
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time staged running container identity drifted"
+        )
+    if set(networks) != {COMPOSE_NETWORK_NAME}:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time staged running container network attachment drifted"
+        )
+    _validate_exact_staged_running_state(
+        container,
+        state,
+        expected_service=expected_service,
+    )
     _validate_exact_never_started_host_boundary(host)
     _validate_exact_never_started_high_risk_boundary(
         configuration,

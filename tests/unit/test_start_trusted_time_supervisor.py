@@ -92,6 +92,7 @@ from scripts.start_trusted_time_supervisor import (
     validate_chrony_state_volume_inspection,
     validate_created_container,
     validate_exact_never_started_created_container,
+    validate_exact_staged_running_container,
     validate_materialized_database_secret,
     validate_materialized_trusted_time_head_anchor_inputs,
     write_unenrolled_admission_receipt,
@@ -2740,6 +2741,70 @@ def _never_started_container_inspection(
     return inspection
 
 
+def _staged_running_container_inspection(
+    *,
+    container_id: str,
+    image_id: str,
+    service: str,
+) -> list[dict[str, object]]:
+    inspection = _never_started_container_inspection(
+        container_id=container_id,
+        image_id=image_id,
+        service=service,
+    )
+    state = cast(dict[str, object], inspection[0]["State"])
+    state.update(
+        {
+            "Pid": 42,
+            "Running": True,
+            "StartedAt": "2026-08-09T12:34:56.123456789Z",
+            "Status": "running",
+        }
+    )
+    if service == "chrony-nts":
+        state["Health"] = {
+            "FailingStreak": 0,
+            "Log": [],
+            "Status": "healthy",
+        }
+    return inspection
+
+
+def _staged_supervisor_input_paths() -> tuple[Path, Path, Path, Path]:
+    return (
+        DATABASE_SECRET_ROOT / (".database-secret-" + "a" * 32) / "database-url",
+        DATABASE_SECRET_ROOT
+        / (".head-anchor-authority-" + "a" * 32)
+        / HEAD_ANCHOR_AUTHORITY_FILE_NAME,
+        DATABASE_SECRET_ROOT
+        / (".head-anchor-auth-" + "a" * 32)
+        / HEAD_ANCHOR_AUTH_SECRET_FILE_NAME,
+        DATABASE_SECRET_ROOT
+        / (".head-anchor-signing-key-" + "a" * 32)
+        / HEAD_ANCHOR_SIGNING_KEY_FILE_NAME,
+    )
+
+
+def _validate_staged_running_fixture(
+    inspection: object,
+    *,
+    service: str,
+) -> None:
+    source = service == "chrony-nts"
+    staged_paths = (None, None, None, None) if source else _staged_supervisor_input_paths()
+    validate_exact_staged_running_container(
+        inspection,
+        expected_container_id=SOURCE_CONTAINER_ID if source else SUPERVISOR_CONTAINER_ID,
+        expected_image_id=SOURCE_IMAGE_ID if source else SUPERVISOR_IMAGE_ID,
+        expected_image_configuration=_image_configuration(service),
+        expected_service=service,
+        expected_database_secret_file=staged_paths[0],
+        expected_head_anchor_authority_file=staged_paths[1],
+        expected_head_anchor_auth_secret_file=staged_paths[2],
+        expected_head_anchor_signing_key_secret_file=staged_paths[3],
+    )
+
+
 def test_admission_reuses_approved_images_with_exact_docker_environment_before_env() -> None:
     admission = _admission()
     docker_environment = {
@@ -4307,6 +4372,436 @@ def test_exact_never_started_created_container_rejects_network_or_binding_drift(
             expected_image_configuration=_image_configuration("chrony-nts"),
             expected_service="chrony-nts",
         )
+
+
+@pytest.mark.parametrize(
+    ("service", "container_id", "image_id"),
+    [
+        ("chrony-nts", SOURCE_CONTAINER_ID, SOURCE_IMAGE_ID),
+        ("trusted-time-supervisor", SUPERVISOR_CONTAINER_ID, SUPERVISOR_IMAGE_ID),
+    ],
+)
+def test_exact_staged_running_container_accepts_only_exact_service_shapes(
+    service: str,
+    container_id: str,
+    image_id: str,
+) -> None:
+    inspection = _staged_running_container_inspection(
+        container_id=container_id,
+        image_id=image_id,
+        service=service,
+    )
+
+    _validate_staged_running_fixture(inspection, service=service)
+
+
+@pytest.mark.parametrize(
+    "inspection",
+    [
+        None,
+        {},
+        (),
+        [],
+        [{}, {}],
+    ],
+)
+def test_exact_staged_running_container_rejects_malformed_inspection_shape(
+    inspection: object,
+) -> None:
+    with pytest.raises(TrustedTimeSupervisorConfigurationError):
+        _validate_staged_running_fixture(inspection, service="chrony-nts")
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("Status", "created"),
+        ("Running", False),
+        ("Paused", True),
+        ("Restarting", True),
+        ("OOMKilled", True),
+        ("Dead", True),
+        ("Pid", False),
+        ("Pid", 0),
+        ("Pid", -1),
+        ("Pid", 1.0),
+        ("ExitCode", False),
+        ("ExitCode", 1),
+        ("Error", "runtime error"),
+        ("StartedAt", "0001-01-01T00:00:00Z"),
+        ("StartedAt", "2026-02-30T00:00:00Z"),
+        ("StartedAt", "2026-08-09T00:00:00+00:00"),
+        ("StartedAt", "2026-08-09T00:00:00Z\n"),
+        ("FinishedAt", "2026-08-09T00:00:01Z"),
+    ],
+)
+def test_exact_staged_running_container_rejects_state_or_numeric_type_confusion(
+    field_name: str,
+    value: object,
+) -> None:
+    source = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    state = cast(dict[str, object], source[0]["State"])
+    state[field_name] = value
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="not exact staged running state",
+    ):
+        _validate_staged_running_fixture(source, service="chrony-nts")
+
+
+@pytest.mark.parametrize("restart_count", [False, 1, -1, 0.0])
+def test_exact_staged_running_container_rejects_restart_count_type_or_value(
+    restart_count: object,
+) -> None:
+    source = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    source[0]["RestartCount"] = restart_count
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="not exact staged running state",
+    ):
+        _validate_staged_running_fixture(source, service="chrony-nts")
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra", "source-health", "supervisor-health"])
+def test_exact_staged_running_container_requires_service_specific_exact_state_keys(
+    mutation: str,
+) -> None:
+    service = "trusted-time-supervisor" if mutation == "supervisor-health" else "chrony-nts"
+    container_id = (
+        SUPERVISOR_CONTAINER_ID if service == "trusted-time-supervisor" else SOURCE_CONTAINER_ID
+    )
+    image_id = SUPERVISOR_IMAGE_ID if service == "trusted-time-supervisor" else SOURCE_IMAGE_ID
+    inspection = _staged_running_container_inspection(
+        container_id=container_id,
+        image_id=image_id,
+        service=service,
+    )
+    state = cast(dict[str, object], inspection[0]["State"])
+    if mutation == "missing":
+        del state["FinishedAt"]
+    elif mutation == "extra":
+        state["Unexpected"] = False
+    elif mutation == "source-health":
+        del state["Health"]
+    else:
+        state["Health"] = {"FailingStreak": 0, "Log": [], "Status": "healthy"}
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="not exact staged running state",
+    ):
+        _validate_staged_running_fixture(inspection, service=service)
+
+
+@pytest.mark.parametrize(
+    "health",
+    [
+        None,
+        [],
+        {"FailingStreak": 0, "Log": []},
+        {"FailingStreak": 0, "Log": [], "Status": "healthy", "Unexpected": False},
+        {"FailingStreak": 0, "Log": [], "Status": "starting"},
+        {"FailingStreak": False, "Log": [], "Status": "healthy"},
+        {"FailingStreak": 1, "Log": [], "Status": "healthy"},
+        {"FailingStreak": 0, "Log": (), "Status": "healthy"},
+        {"FailingStreak": 0, "Log": None, "Status": "healthy"},
+    ],
+)
+def test_exact_staged_running_source_requires_exact_healthy_projection(
+    health: object,
+) -> None:
+    source = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    state = cast(dict[str, object], source[0]["State"])
+    state["Health"] = health
+
+    with pytest.raises(TrustedTimeSupervisorConfigurationError):
+        _validate_staged_running_fixture(source, service="chrony-nts")
+
+
+def test_exact_staged_running_source_allows_mutable_health_log_contents() -> None:
+    source = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    state = cast(dict[str, object], source[0]["State"])
+    health = cast(dict[str, object], state["Health"])
+    health["Log"] = [
+        {
+            "End": "2026-08-09T12:34:55.200000000Z",
+            "ExitCode": 1,
+            "Output": "earlier attempt",
+            "Start": "2026-08-09T12:34:55.100000000Z",
+        },
+        {
+            "End": "2026-08-09T12:34:56.200000000Z",
+            "ExitCode": 0,
+            "Output": "current attempt",
+            "Start": "2026-08-09T12:34:56.100000000Z",
+        },
+    ]
+
+    _validate_staged_running_fixture(source, service="chrony-nts")
+
+
+@pytest.mark.parametrize(
+    ("section", "field_name", "value"),
+    [
+        ("container", "Id", "c" * 64),
+        ("container", "Image", SUPERVISOR_IMAGE_ID),
+        ("container", "Path", "/bin/false"),
+        ("container", "Args", ("-x",)),
+        ("Config", "Image", SUPERVISOR_IMAGE_ID),
+        ("Labels", "com.docker.compose.project", "other"),
+        ("Labels", "com.docker.compose.service", "other"),
+        ("Labels", "com.docker.compose.oneoff", "True"),
+        ("Labels", "com.docker.compose.container-number", "2"),
+    ],
+)
+def test_exact_staged_running_container_binds_identity_image_and_process(
+    section: str,
+    field_name: str,
+    value: object,
+) -> None:
+    source = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    container = source[0]
+    if section == "container":
+        target = container
+    elif section == "Config":
+        target = cast(dict[str, object], container["Config"])
+    else:
+        configuration = cast(dict[str, object], container["Config"])
+        target = cast(dict[str, object], configuration["Labels"])
+    target[field_name] = value
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="staged running container identity drifted",
+    ):
+        _validate_staged_running_fixture(source, service="chrony-nts")
+
+
+@pytest.mark.parametrize(
+    ("section", "field_name", "value"),
+    [
+        ("Config", "Env", ["PATH=/usr/bin", "DATABASE_URL=secret"]),
+        ("Config", "StartInterval", False),
+        ("HostConfig", "ReadonlyRootfs", False),
+        ("HostConfig", "DeviceRequests", [{"Capabilities": [["gpu"]]}]),
+        ("HostConfig", "RestartMaximum", False),
+        ("HostConfig", "Mounts", []),
+        ("container", "Mounts", []),
+    ],
+)
+def test_exact_staged_running_container_reuses_complete_exact_runtime_policy(
+    section: str,
+    field_name: str,
+    value: object,
+) -> None:
+    source = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    configuration = cast(dict[str, object], source[0]["Config"])
+    host = cast(dict[str, object], source[0]["HostConfig"])
+    if section == "Config" and field_name == "StartInterval":
+        healthcheck = cast(dict[str, object], configuration["Healthcheck"])
+        healthcheck[field_name] = value
+    elif section == "Config":
+        configuration[field_name] = value
+    elif field_name == "RestartMaximum":
+        restart_policy = cast(dict[str, object], host["RestartPolicy"])
+        restart_policy["MaximumRetryCount"] = value
+    elif section == "HostConfig":
+        host[field_name] = value
+    else:
+        source[0][field_name] = value
+
+    with pytest.raises(TrustedTimeSupervisorConfigurationError):
+        _validate_staged_running_fixture(source, service="chrony-nts")
+
+
+def test_exact_staged_running_container_requires_network_and_binding_types() -> None:
+    source = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    network_settings = cast(dict[str, object], source[0]["NetworkSettings"])
+    network_settings["Networks"] = {}
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="network attachment drifted",
+    ):
+        _validate_staged_running_fixture(source, service="chrony-nts")
+
+    source = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="binding is invalid",
+    ):
+        validate_exact_staged_running_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID.upper(),
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+        )
+
+
+def test_exact_staged_running_supervisor_requires_four_distinct_staged_paths() -> None:
+    supervisor = _staged_running_container_inspection(
+        container_id=SUPERVISOR_CONTAINER_ID,
+        image_id=SUPERVISOR_IMAGE_ID,
+        service="trusted-time-supervisor",
+    )
+    database, authority, auth, signing = _staged_supervisor_input_paths()
+    validate_exact_staged_running_container(
+        supervisor,
+        expected_container_id=SUPERVISOR_CONTAINER_ID,
+        expected_image_id=SUPERVISOR_IMAGE_ID,
+        expected_image_configuration=_image_configuration("trusted-time-supervisor"),
+        expected_service="trusted-time-supervisor",
+        expected_database_secret_file=database,
+        expected_head_anchor_authority_file=authority,
+        expected_head_anchor_auth_secret_file=auth,
+        expected_head_anchor_signing_key_secret_file=signing,
+    )
+
+    for invalid_database in (
+        None,
+        Path("relative/database-url"),
+        Path("/tmp/../tmp/database-url"),
+        PurePosixPath("/tmp/database-url"),
+        Path("//tmp/database-url"),
+        authority,
+    ):
+        with pytest.raises(
+            TrustedTimeSupervisorConfigurationError,
+            match="staged running input binding is invalid",
+        ):
+            validate_exact_staged_running_container(
+                supervisor,
+                expected_container_id=SUPERVISOR_CONTAINER_ID,
+                expected_image_id=SUPERVISOR_IMAGE_ID,
+                expected_image_configuration=_image_configuration("trusted-time-supervisor"),
+                expected_service="trusted-time-supervisor",
+                expected_database_secret_file=invalid_database,
+                expected_head_anchor_authority_file=authority,
+                expected_head_anchor_auth_secret_file=auth,
+                expected_head_anchor_signing_key_secret_file=signing,
+            )
+
+
+def test_exact_staged_running_source_rejects_any_staged_path() -> None:
+    source = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="staged running input binding is invalid",
+    ):
+        validate_exact_staged_running_container(
+            source,
+            expected_container_id=SOURCE_CONTAINER_ID,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+            expected_database_secret_file=Path("/private/database-url"),
+        )
+
+
+def test_exact_staged_running_validation_performs_no_io() -> None:
+    source = _staged_running_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    supervisor = _staged_running_container_inspection(
+        container_id=SUPERVISOR_CONTAINER_ID,
+        image_id=SUPERVISOR_IMAGE_ID,
+        service="trusted-time-supervisor",
+    )
+    with (
+        patch(
+            "scripts.start_trusted_time_supervisor._run_docker",
+            side_effect=AssertionError("Docker must not run"),
+        ) as docker,
+        patch(
+            "scripts.start_trusted_time_supervisor.os.path.lexists",
+            side_effect=AssertionError("files must not be read"),
+        ) as lexists,
+    ):
+        _validate_staged_running_fixture(source, service="chrony-nts")
+        _validate_staged_running_fixture(supervisor, service="trusted-time-supervisor")
+
+    docker.assert_not_called()
+    lexists.assert_not_called()
+
+
+def test_new_exact_staged_validator_does_not_change_existing_validator_semantics() -> None:
+    never_started = _never_started_container_inspection(
+        container_id=SOURCE_CONTAINER_ID,
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+    )
+    validate_exact_never_started_created_container(
+        never_started,
+        expected_container_id=SOURCE_CONTAINER_ID,
+        expected_image_id=SOURCE_IMAGE_ID,
+        expected_image_configuration=_image_configuration("chrony-nts"),
+        expected_service="chrony-nts",
+    )
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="created container identity or state drifted",
+    ):
+        validate_created_container(
+            never_started,
+            expected_image_id=SOURCE_IMAGE_ID,
+            expected_image_configuration=_image_configuration("chrony-nts"),
+            expected_service="chrony-nts",
+            require_healthy=False,
+        )
+
+    legacy_running = _container_inspection(
+        image_id=SOURCE_IMAGE_ID,
+        service="chrony-nts",
+        healthy=True,
+    )
+    validate_created_container(
+        legacy_running,
+        expected_image_id=SOURCE_IMAGE_ID,
+        expected_image_configuration=_image_configuration("chrony-nts"),
+        expected_service="chrony-nts",
+        require_healthy=True,
+    )
 
 
 def test_legacy_container_validator_still_rejects_never_started_source() -> None:

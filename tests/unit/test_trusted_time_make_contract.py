@@ -75,20 +75,26 @@ def test_every_supported_trusted_time_python_target_uses_isolated_launcher() -> 
         assert script in makefile
 
 
-def test_post_enrollment_created_topology_snapshot_has_no_supported_runtime_wiring() -> None:
-    module_name = "trusted_time_post_enrollment_topology"
-    validator_name = "validate_post_enrollment_start_created_topology"
+def test_post_enrollment_topology_snapshots_have_no_supported_runtime_wiring() -> None:
+    forbidden_names = (
+        "trusted_time_post_enrollment_topology",
+        "validate_post_enrollment_start_created_topology",
+        "trusted_time_post_enrollment_staged_topology",
+        "validate_post_enrollment_start_staged_unreleased_topology",
+    )
     supported_surfaces = (
         ROOT / "Makefile",
         ROOT / "apps" / "trusted_time_supervisor" / "main.py",
+        ROOT / "infra" / "compose" / "trusted-time.compose.yaml",
+        ROOT / "pyproject.toml",
         ROOT / "scripts" / "enroll_trusted_time_head_anchor.py",
         ROOT / "scripts" / "start_trusted_time_supervisor.py",
     )
 
     for path in supported_surfaces:
         payload = path.read_text(encoding="utf-8")
-        assert module_name not in payload
-        assert validator_name not in payload
+        for forbidden_name in forbidden_names:
+            assert forbidden_name not in payload
 
 
 def test_runtime_diagnostic_make_target_emits_only_child_output(tmp_path: Path) -> None:
