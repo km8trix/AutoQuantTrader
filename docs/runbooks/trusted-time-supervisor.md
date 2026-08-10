@@ -1181,10 +1181,63 @@ ADR 0099 freezes that later boundary's single-use approval/claim/outcome,
 fresh SQL and bounded full-remote sequence-1 reauthentication, exact sequence-2
 `epoch_rotation`, crash, and supervisor-first `clean_stop` rules. Its current
 code-only implementation includes a dormant `O_EXCL`/fsync retained-start-claim
-writer and an atomically published exact in-container release-marker barrier.
-The supervisor cannot compose SQL/provider runtime state until that marker is
-present, but no supported host command can retain the claim or publish the
-marker. The current lifecycle commands remain hard closed.
+writer, an atomically published exact in-container release-marker barrier,
+bounded same-session topology observations, pure pre-claim/pre-release fences,
+and claimed pre-release chronology contract
+`phase6d-post-enrollment-start-claimed-pre-release-topology-fence-v1` with status
+`claimed_pre_release_topology_fence_unqualified`.
+
+The reader's process-sealed cursor contract is
+`phase6d-post-enrollment-topology-observation-cursor-v1`, with status
+`topology_observation_cursor_unqualified`. Method `issue_observation_cursor`
+performs one bounded daemon read and live PID/lock/executable/socket/session
+revalidation. The guarded production signer is bound to the exact issuer owner,
+session, and creating PID. Each cursor is bound to its exact registered identity
+in the originating process, is non-copyable and nonserializable, and is invalid
+after fork. A child at-fork hook closes the inherited global-lock descriptor
+without acquiring inherited Python locks. The issuer guard serializes individual calls, not the whole
+choreography; a cursor is not freshness or release authority.
+
+Function `prepare_post_enrollment_start_claimed_pre_release_fence` enforces this
+exact order in one live issuer session: exact approval binding and descriptor-
+anchored live absence of all four staged inputs; first consecutive cursor at
+staged count 1 plus the pre-claim fence; real claim retention and revalidation;
+second
+consecutive cursor still at count 1; issuer-created staged ordinal 2; pre-release
+binding; third consecutive cursor at count 2 with ordinal 2 last; and final
+retained-claim revalidation. It accepts no caller-supplied ordinal 2, so a cached
+ordinal 2, preadvanced cursor, or nonconsecutive cursor is rejected within that
+preparation call. The third cursor is one daemon/session read, not a full
+topology observation; it does not detect topology drift after ordinal 2. The
+per-operation issuer guard is released between calls, and the function owns no
+unshareable same-process lease against another holder of the issuer reference or
+after it returns. Once claim preparation begins, every later failure requires
+recovery because the seam cannot establish claim absence versus retention after
+that boundary; it must never be retried as a fresh start.
+
+The exact-identity-bound result is process-local, non-copyable,
+nonserializable, and invalid after fork. Its public authenticated payload
+projection revalidates the exact type, process seal, and nested evidence. It is
+not durable evidence. A crash can leave only the durable consumed claim, with no
+reloadable chronology, release,
+or host-outcome result and no recovery command. The status is not permission to
+continue. The seam does not publish or execute
+the release marker, mutate topology, create or observe sequence 2, qualify a
+persistent topology, retain a host outcome, or grant authority. It has no CLI,
+Make, Compose, worker/main, launcher, or supported runbook command. Do not call
+it directly as an operator workaround. The supervisor cannot compose SQL/
+provider runtime state until the marker is present, but no supported host
+command can retain the claim or publish that marker. The current lifecycle
+commands remain hard closed.
+
+The next active-controller implementation must add the missing release, post-
+release terminal/topology, and durable-outcome contracts. It must hold an
+unshareable same-process choreography lease/capability through final release,
+qualification, and outcome retention; perform a final full live reobservation;
+and enforce one end-to-end deadline from claim preparation through durable
+retention of an exact success, failure, or recovery-required outcome. Its exact
+merged revision and immutable images require fresh admission and separate
+operational approval before execution.
 
 The hard closure is unconditional in this phase: persistent start is rejected
 even before claim lookup. The retained-claim check remains defense in depth,

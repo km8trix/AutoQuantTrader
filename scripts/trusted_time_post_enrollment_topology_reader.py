@@ -20,9 +20,11 @@ import secrets
 import stat
 import subprocess
 import threading
+import weakref
 from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
+from functools import wraps
 from pathlib import Path
 from typing import Any, Literal, Never, Protocol, SupportsIndex, cast
 from urllib.parse import unquote, urlsplit
@@ -85,9 +87,14 @@ POST_ENROLLMENT_CREATED_TOPOLOGY_OBSERVATION_STATUS = "created_topology_observat
 POST_ENROLLMENT_STAGED_TOPOLOGY_OBSERVATION_STATUS = (
     "staged_unreleased_topology_observation_unqualified"
 )
+POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_CONTRACT_VERSION = (
+    "phase6d-post-enrollment-topology-observation-cursor-v1"
+)
+POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_STATUS = "topology_observation_cursor_unqualified"
 
 _CREATED_OBSERVATION_COUNT = 14
 _STAGED_OBSERVATION_COUNT = 16
+_MAXIMUM_OBSERVATION_CURSOR_COUNT = 3
 _COMMAND_TIMEOUT_SECONDS = 2.0
 _MAXIMUM_DAEMON_STDOUT_BYTES = 512
 _MAXIMUM_INVENTORY_STDOUT_BYTES = 512
@@ -198,14 +205,34 @@ _RELEASE_PATHS = (
     "/tmp/post-enrollment-start-release",
 )
 _BARRIER_PROBE_CONTRACT_VERSION = "phase6d-post-enrollment-barrier-read-probe-v1"
-_PRODUCTION_OPEN_PROOF = object()
 
 
 def _authority_is_never_granted(_: object) -> bool:
     return False
 
 
-def _observation_is_authenticated(_: object) -> bool:
+def _validate_authenticated_observation(value: object) -> None:
+    try:
+        if type(value) is TrustedTimePostEnrollmentCreatedTopologyObservation:
+            TrustedTimePostEnrollmentCreatedTopologyObservation.__post_init__(value)
+        elif type(value) is TrustedTimePostEnrollmentStagedTopologyObservation:
+            TrustedTimePostEnrollmentStagedTopologyObservation.__post_init__(value)
+        elif type(value) is TrustedTimePostEnrollmentTopologyObservationCursor:
+            TrustedTimePostEnrollmentTopologyObservationCursor.__post_init__(value)
+        else:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology observation is invalid"
+            )
+    except TrustedTimePostEnrollmentTopologyReaderError:
+        raise
+    except BaseException:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time topology observation is invalid"
+        ) from None
+
+
+def _observation_is_authenticated(value: object) -> bool:
+    _validate_authenticated_observation(value)
     return True
 
 
@@ -222,29 +249,95 @@ class _AuthenticatedIssuerCapability:
         )
 
 
-def _new_authenticated_issuer_capability() -> _AuthenticatedIssuerCapability:
-    return object.__new__(_AuthenticatedIssuerCapability)
-
-
 def _build_observation_sealer() -> tuple[
-    Callable[[object, Mapping[str, object]], bytes],
+    Callable[[Callable[..., Any]], Callable[..., Any]],
+    Callable[[str], Callable[[Callable[..., Any]], Callable[..., Any]]],
+    Callable[[object, object, Mapping[str, object], str], bytes],
     Callable[[object, Mapping[str, object]], bool],
+    Callable[[object, Mapping[str, object], object], bool],
+    Callable[[object, object], None],
+    Callable[[object, object], bool],
 ]:
     process_private_key = secrets.token_bytes(32)
+    process_pid = os.getpid()
+    registry_lock = threading.Lock()
+    issuance_gate = threading.local()
+    active_capabilities: dict[_AuthenticatedIssuerCapability, object] = {}
+    cursor_registrations: dict[bytes, tuple[str, object | None]] = {}
 
-    def seal(capability: object, material: Mapping[str, object]) -> bytes:
-        if type(capability) is not _AuthenticatedIssuerCapability:
+    def register(owner: object) -> _AuthenticatedIssuerCapability:
+        if os.getpid() != process_pid:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time observation capability is unavailable"
+            )
+        capability = object.__new__(_AuthenticatedIssuerCapability)
+        with registry_lock:
+            active_capabilities[capability] = owner
+        return capability
+
+    def revoke(owner: object, candidate: object) -> None:
+        if os.getpid() != process_pid or type(candidate) is not _AuthenticatedIssuerCapability:
+            return
+        with registry_lock:
+            if active_capabilities.get(candidate) is owner:
+                active_capabilities.pop(candidate, None)
+
+    def active(owner: object, candidate: object) -> bool:
+        if os.getpid() != process_pid:
+            return False
+        with registry_lock:
+            return (
+                type(candidate) is _AuthenticatedIssuerCapability
+                and active_capabilities.get(candidate) is owner
+                and getattr(owner, "_owner_pid", None) == os.getpid()
+                and getattr(owner, "_authentication_capability", None) is candidate
+                and getattr(owner, "_closed", True) is False
+                and getattr(owner, "_poisoned", True) is False
+            )
+
+    def seal(
+        owner: object,
+        capability: object,
+        material: Mapping[str, object],
+        kind: str,
+    ) -> bytes:
+        if os.getpid() != process_pid:
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time observation seal is unavailable"
             )
-        return hmac.digest(
-            process_private_key,
-            canonical_first_enrollment_json_bytes(dict(material)),
-            "sha256",
-        )
+        canonical_material = canonical_first_enrollment_json_bytes(dict(material))
+        with registry_lock:
+            if (
+                getattr(issuance_gate, "owner", None) is not owner
+                or getattr(issuance_gate, "kind", None) != kind
+                or type(capability) is not _AuthenticatedIssuerCapability
+                or active_capabilities.get(capability) is not owner
+                or getattr(owner, "_owner_pid", None) != os.getpid()
+                or getattr(owner, "_authentication_capability", None) is not capability
+                or getattr(owner, "_busy", False) is not True
+                or getattr(owner, "_closed", True) is not False
+                or getattr(owner, "_poisoned", True) is not False
+                or material.get("session_sha256") != getattr(owner, "_session_sha256", None)
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time observation seal is unavailable"
+                )
+            signature = hmac.digest(
+                process_private_key,
+                canonical_material,
+                "sha256",
+            )
+            if kind == "cursor":
+                material_sha256 = hashlib.sha256(canonical_material).hexdigest()
+                if signature in cursor_registrations:
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time observation seal is unavailable"
+                    )
+                cursor_registrations[signature] = (material_sha256, None)
+            return signature
 
     def valid(candidate: object, material: Mapping[str, object]) -> bool:
-        if type(candidate) is not bytes or len(candidate) != 32:
+        if os.getpid() != process_pid or type(candidate) is not bytes or len(candidate) != 32:
             return False
         expected = hmac.digest(
             process_private_key,
@@ -253,10 +346,82 @@ def _build_observation_sealer() -> tuple[
         )
         return hmac.compare_digest(candidate, expected)
 
-    return seal, valid
+    def valid_cursor(candidate: object, material: Mapping[str, object], result: object) -> bool:
+        if not valid(candidate, material):
+            return False
+        signature = cast(bytes, candidate)
+        canonical_material = canonical_first_enrollment_json_bytes(dict(material))
+        material_sha256 = hashlib.sha256(canonical_material).hexdigest()
+        with registry_lock:
+            registration = cursor_registrations.get(signature)
+            if registration is None or registration[0] != material_sha256:
+                return False
+            bound_result = registration[1]
+            if bound_result is None:
+                cursor_registrations[signature] = (material_sha256, result)
+                return True
+            return bound_result is result
+
+    def authenticated_open(method: Callable[..., Any]) -> Callable[..., Any]:
+        def guarded_open(
+            cls: type[object],
+            *,
+            expected_daemon_identity: LocalDockerDaemonIdentity,
+            docker_environment: Mapping[str, str],
+        ) -> Any:
+            return method(
+                cls,
+                expected_daemon_identity=expected_daemon_identity,
+                docker_environment=docker_environment,
+                _capability_registrar=register,
+            )
+
+        guarded_open.__name__ = method.__name__
+        guarded_open.__qualname__ = method.__qualname__
+        guarded_open.__doc__ = method.__doc__
+        return guarded_open
+
+    def authenticated_issuance(
+        kind: str,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        if kind not in {"created", "cursor", "staged_unreleased"}:
+            raise RuntimeError("trusted-time observation issuance kind is invalid")
+
+        def decorate(method: Callable[..., Any]) -> Callable[..., Any]:
+            @wraps(method)
+            def guarded(*args: Any, **kwargs: Any) -> Any:
+                if (
+                    os.getpid() != process_pid
+                    or not args
+                    or getattr(issuance_gate, "owner", None) is not None
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time observation issuance is unavailable"
+                    )
+                issuance_gate.owner = args[0]
+                issuance_gate.kind = kind
+                try:
+                    return method(*args, **kwargs)
+                finally:
+                    issuance_gate.owner = None
+                    issuance_gate.kind = None
+
+            return guarded
+
+        return decorate
+
+    return authenticated_open, authenticated_issuance, seal, valid, valid_cursor, revoke, active
 
 
-_seal_observation, _valid_observation_seal = _build_observation_sealer()
+(
+    _authenticated_observation_open,
+    _authenticated_observation_issuance,
+    _seal_observation,
+    _valid_observation_seal,
+    _valid_cursor_seal,
+    _revoke_authenticated_issuer_capability,
+    _authenticated_issuer_capability_is_active,
+) = _build_observation_sealer()
 
 
 class _DuplicateJsonKey(ValueError):
@@ -578,6 +743,10 @@ class TrustedTimePostEnrollmentCreatedTopologyObservation:
     _seal: object = field(repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        if type(self) is not TrustedTimePostEnrollmentCreatedTopologyObservation:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time created observation envelope is invalid"
+            )
         try:
             if type(self.snapshot) is not TrustedTimePostEnrollmentCreatedTopologySnapshot:
                 raise ValueError
@@ -593,7 +762,18 @@ class TrustedTimePostEnrollmentCreatedTopologyObservation:
             or _SHA256_PATTERN.fullmatch(self.transcript_sha256) is None
             or type(self.observation_count) is not int
             or self.observation_count != _CREATED_OBSERVATION_COUNT
-            or not _valid_observation_seal(self._seal, self.payload())
+            or not _valid_observation_seal(
+                self._seal,
+                _observation_payload(
+                    kind="created",
+                    status=POST_ENROLLMENT_CREATED_TOPOLOGY_OBSERVATION_STATUS,
+                    session_sha256=self.session_sha256,
+                    transcript_sha256=self.transcript_sha256,
+                    observation_count=self.observation_count,
+                    snapshot_contract_version=(POST_ENROLLMENT_CREATED_TOPOLOGY_CONTRACT_VERSION),
+                    snapshot_sha256=self.snapshot.snapshot_sha256,
+                ),
+            )
         ):
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time created observation envelope is invalid"
@@ -604,6 +784,7 @@ class TrustedTimePostEnrollmentCreatedTopologyObservation:
         return POST_ENROLLMENT_CREATED_TOPOLOGY_OBSERVATION_STATUS
 
     def payload(self) -> dict[str, object]:
+        _validate_authenticated_observation(self)
         return _observation_payload(
             kind="created",
             status=self.status,
@@ -661,6 +842,10 @@ class TrustedTimePostEnrollmentStagedTopologyObservation:
     _seal: object = field(repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        if type(self) is not TrustedTimePostEnrollmentStagedTopologyObservation:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time staged observation envelope is invalid"
+            )
         try:
             if type(self.snapshot) is not TrustedTimePostEnrollmentStagedUnreleasedTopologySnapshot:
                 raise ValueError
@@ -682,7 +867,21 @@ class TrustedTimePostEnrollmentStagedTopologyObservation:
             or _SHA256_PATTERN.fullmatch(self.predecessor_observation_sha256) is None
             or type(self.observation_count) is not int
             or self.observation_count != _STAGED_OBSERVATION_COUNT
-            or not _valid_observation_seal(self._seal, self.payload())
+            or not _valid_observation_seal(
+                self._seal,
+                _observation_payload(
+                    kind="staged_unreleased",
+                    status=POST_ENROLLMENT_STAGED_TOPOLOGY_OBSERVATION_STATUS,
+                    session_sha256=self.session_sha256,
+                    transcript_sha256=self.transcript_sha256,
+                    observation_count=self.observation_count,
+                    snapshot_contract_version=(POST_ENROLLMENT_STAGED_TOPOLOGY_CONTRACT_VERSION),
+                    snapshot_sha256=self.snapshot.snapshot_sha256,
+                    created_observation_sha256=self.created_observation_sha256,
+                    staged_observation_ordinal=self.staged_observation_ordinal,
+                    predecessor_observation_sha256=self.predecessor_observation_sha256,
+                ),
+            )
         ):
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time staged observation envelope is invalid"
@@ -693,6 +892,7 @@ class TrustedTimePostEnrollmentStagedTopologyObservation:
         return POST_ENROLLMENT_STAGED_TOPOLOGY_OBSERVATION_STATUS
 
     def payload(self) -> dict[str, object]:
+        _validate_authenticated_observation(self)
         return _observation_payload(
             kind="staged_unreleased",
             status=self.status,
@@ -716,6 +916,178 @@ class TrustedTimePostEnrollmentStagedTopologyObservation:
     authority_granted = property(_authority_is_never_granted)
     claim_retention_authorized = property(_authority_is_never_granted)
     database_secret_disclosed = property(_authority_is_never_granted)
+    persistent_start_authorized = property(_authority_is_never_granted)
+    release_authorized = property(_authority_is_never_granted)
+    sequence_2_authorized = property(_authority_is_never_granted)
+    shutdown_authorized = property(_authority_is_never_granted)
+    source_start_authorized = property(_authority_is_never_granted)
+    start_order_authenticated = property(_authority_is_never_granted)
+    supervisor_start_authorized = property(_authority_is_never_granted)
+    topology_authenticated = property(_authority_is_never_granted)
+    topology_mutation_authorized = property(_authority_is_never_granted)
+    alert_delivery_authorized = property(_authority_is_never_granted)
+    arming_authorized = property(_authority_is_never_granted)
+    automatic_rearm_authorized = property(_authority_is_never_granted)
+    automatic_resume_authorized = property(_authority_is_never_granted)
+    broker_action_authorized = property(_authority_is_never_granted)
+    exposure_authorized = property(_authority_is_never_granted)
+    live_trading_authorized = property(_authority_is_never_granted)
+    new_exposure_authorized = property(_authority_is_never_granted)
+    operational_control_authorized = property(_authority_is_never_granted)
+    paper_trading_authorized = property(_authority_is_never_granted)
+    readiness_authorized = property(_authority_is_never_granted)
+    rearm_authorized = property(_authority_is_never_granted)
+
+
+def _cursor_payload(
+    *,
+    session_sha256: str,
+    transcript_sha256: str,
+    cursor_ordinal: int,
+    staged_observation_count: int,
+    created_observation_sha256: str,
+    last_observation_sha256: str,
+    first_staged_snapshot_sha256: str,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        field_name: False for field_name in FIRST_ENROLLMENT_AUTHORITY_FIELDS
+    }
+    payload.update(
+        {
+            "authority_granted": False,
+            "claim_chronology_authenticated": False,
+            "claim_retention_authorized": False,
+            "contract_version": POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_CONTRACT_VERSION,
+            "created_observation_sha256": created_observation_sha256,
+            "cursor_ordinal": cursor_ordinal,
+            "daemon_session_authenticated": True,
+            "database_secret_disclosed": False,
+            "first_staged_snapshot_sha256": first_staged_snapshot_sha256,
+            "freshness_authenticated": False,
+            "last_observation_sha256": last_observation_sha256,
+            "lock_session_authenticated": True,
+            "observation_cursor_authenticated": True,
+            "observation_provenance_authenticated": True,
+            "persistent_start_authorized": False,
+            "release_authorized": False,
+            "sequence_2_authorized": False,
+            "session_sha256": session_sha256,
+            "shutdown_authorized": False,
+            "source_start_authorized": False,
+            "staged_observation_count": staged_observation_count,
+            "start_order_authenticated": False,
+            "status": POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_STATUS,
+            "supervisor_start_authorized": False,
+            "topology_authenticated": False,
+            "topology_mutation_authorized": False,
+            "transcript_sha256": transcript_sha256,
+        }
+    )
+    return payload
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedTimePostEnrollmentTopologyObservationCursor:
+    """Process-sealed position in one live topology observation session."""
+
+    session_sha256: str
+    transcript_sha256: str
+    cursor_ordinal: int
+    staged_observation_count: int
+    created_observation_sha256: str
+    last_observation_sha256: str
+    first_staged_snapshot_sha256: str
+    _seal: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if type(self) is not TrustedTimePostEnrollmentTopologyObservationCursor:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology observation cursor is invalid"
+            )
+        digests = (
+            self.session_sha256,
+            self.transcript_sha256,
+            self.created_observation_sha256,
+            self.last_observation_sha256,
+            self.first_staged_snapshot_sha256,
+        )
+        if (
+            any(
+                type(value) is not str or _SHA256_PATTERN.fullmatch(value) is None
+                for value in digests
+            )
+            or type(self.cursor_ordinal) is not int
+            or self.cursor_ordinal not in range(1, _MAXIMUM_OBSERVATION_CURSOR_COUNT + 1)
+            or type(self.staged_observation_count) is not int
+            or self.staged_observation_count not in {1, 2}
+            or self.last_observation_sha256 == self.created_observation_sha256
+            or not _valid_cursor_seal(
+                self._seal,
+                _cursor_payload(
+                    session_sha256=self.session_sha256,
+                    transcript_sha256=self.transcript_sha256,
+                    cursor_ordinal=self.cursor_ordinal,
+                    staged_observation_count=self.staged_observation_count,
+                    created_observation_sha256=self.created_observation_sha256,
+                    last_observation_sha256=self.last_observation_sha256,
+                    first_staged_snapshot_sha256=self.first_staged_snapshot_sha256,
+                ),
+                self,
+            )
+        ):
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology observation cursor is invalid"
+            )
+
+    def __copy__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time topology observation cursor cannot be copied"
+        )
+
+    def __deepcopy__(self, _: object) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time topology observation cursor cannot be copied"
+        )
+
+    def __reduce__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time topology observation cursor cannot be serialized"
+        )
+
+    def __reduce_ex__(self, _: SupportsIndex) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time topology observation cursor cannot be serialized"
+        )
+
+    @property
+    def status(self) -> str:
+        return POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_STATUS
+
+    def payload(self) -> dict[str, object]:
+        _validate_authenticated_observation(self)
+        return _cursor_payload(
+            session_sha256=self.session_sha256,
+            transcript_sha256=self.transcript_sha256,
+            cursor_ordinal=self.cursor_ordinal,
+            staged_observation_count=self.staged_observation_count,
+            created_observation_sha256=self.created_observation_sha256,
+            last_observation_sha256=self.last_observation_sha256,
+            first_staged_snapshot_sha256=self.first_staged_snapshot_sha256,
+        )
+
+    @property
+    def cursor_sha256(self) -> str:
+        return _canonical_sha256(self.payload())
+
+    observation_cursor_authenticated = property(_observation_is_authenticated)
+    observation_provenance_authenticated = property(_observation_is_authenticated)
+    lock_session_authenticated = property(_observation_is_authenticated)
+    daemon_session_authenticated = property(_observation_is_authenticated)
+    authority_granted = property(_authority_is_never_granted)
+    claim_chronology_authenticated = property(_authority_is_never_granted)
+    claim_retention_authorized = property(_authority_is_never_granted)
+    database_secret_disclosed = property(_authority_is_never_granted)
+    freshness_authenticated = property(_authority_is_never_granted)
     persistent_start_authorized = property(_authority_is_never_granted)
     release_authorized = property(_authority_is_never_granted)
     sequence_2_authorized = property(_authority_is_never_granted)
@@ -1356,6 +1728,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
     _authentication_capability: _AuthenticatedIssuerCapability | None
     _busy: bool
     _closed: bool
+    _cursor_count: int
     _daemon_identity: LocalDockerDaemonIdentity
     _docker_executable_identity_value: tuple[int, ...]
     _docker_executable_path: Path
@@ -1377,9 +1750,11 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
     _staged_observation_count: int
 
     __slots__ = (
+        "__weakref__",
         "_authentication_capability",
         "_busy",
         "_closed",
+        "_cursor_count",
         "_daemon_identity",
         "_docker_executable_identity_value",
         "_docker_executable_path",
@@ -1407,11 +1782,13 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         )
 
     @classmethod
+    @_authenticated_observation_open
     def open(
         cls,
         *,
         expected_daemon_identity: LocalDockerDaemonIdentity,
         docker_environment: Mapping[str, str],
+        _capability_registrar: Callable[[object], _AuthenticatedIssuerCapability] | None = None,
     ) -> TrustedTimePostEnrollmentTopologyObservationIssuer:
         if cls is not TrustedTimePostEnrollmentTopologyObservationIssuer:
             raise TrustedTimePostEnrollmentTopologyReaderError(
@@ -1426,7 +1803,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             ignored_root=IGNORED_ARTIFACT_ROOT,
             runner=run_bounded_subprocess,
             session_token_factory=lambda: secrets.token_bytes(32),
-            _production_open_proof=_PRODUCTION_OPEN_PROOF,
+            _capability_registrar=_capability_registrar,
         )
 
     @classmethod
@@ -1440,7 +1817,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         ignored_root: Path,
         runner: _BoundedRunner,
         session_token_factory: Callable[[], bytes],
-        _production_open_proof: object | None = None,
+        _capability_registrar: Callable[[object], _AuthenticatedIssuerCapability] | None = None,
     ) -> TrustedTimePostEnrollmentTopologyObservationIssuer:
         if (
             cls is not TrustedTimePostEnrollmentTopologyObservationIssuer
@@ -1460,9 +1837,10 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             docker_environment,
             endpoint=expected_daemon_identity.endpoint,
         )
+        authentication_capability: _AuthenticatedIssuerCapability | None = None
         lock_descriptor: int | None = None
         instance = object.__new__(cls)
-        authenticated_open = _production_open_proof is _PRODUCTION_OPEN_PROOF
+        authenticated_open = callable(_capability_registrar)
         try:
             lock_descriptor = _acquire_trusted_time_launch_lock(
                 path=lock_path,
@@ -1472,11 +1850,13 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             token = session_token_factory()
             if type(token) is not bytes or len(token) != 32:
                 raise ValueError
-            instance._authentication_capability = (
-                _new_authenticated_issuer_capability() if authenticated_open else None
+            authentication_capability = (
+                _capability_registrar(instance) if _capability_registrar is not None else None
             )
+            instance._authentication_capability = authentication_capability
             instance._busy = False
             instance._closed = False
+            instance._cursor_count = 0
             instance._daemon_identity = expected_daemon_identity
             instance._docker_executable_identity_value = docker_executable_identity
             instance._docker_executable_path = docker_executable
@@ -1502,6 +1882,30 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             instance._socket_path_value = socket_path
             instance._staged_observation_count = 0
             instance._session_sha256 = "0" * 64
+
+            instance_reference = weakref.ref(instance)
+
+            def close_inherited_lock_descriptor() -> None:
+                inherited = instance_reference()
+                if inherited is None or inherited._owner_pid == os.getpid():
+                    return
+                descriptor = inherited._lock_descriptor
+                inherited._authentication_capability = None
+                inherited._busy = False
+                inherited._closed = True
+                inherited._environment = {}
+                inherited._lock_descriptor = -1
+                inherited._poisoned = True
+                if type(descriptor) is int and descriptor >= 0:
+                    try:
+                        metadata = os.fstat(descriptor)
+                    except OSError:
+                        return
+                    if (metadata.st_dev, metadata.st_ino) == inherited._lock_identity[:2]:
+                        with suppress(OSError):
+                            os.close(descriptor)
+
+            os.register_at_fork(after_in_child=close_inherited_lock_descriptor)
             instance._validate_session()
             receipts: list[_ReadReceipt] = []
             instance._observe_daemon(receipts)
@@ -1526,13 +1930,26 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     "socket_identity": list(instance._socket_identity_value),
                 }
             )
+            if authenticated_open and not _authenticated_issuer_capability_is_active(
+                instance,
+                authentication_capability,
+            ):
+                raise ValueError
             return instance
         except BaseException:
-            if lock_descriptor is not None:
+            try:
                 with suppress(BaseException):
-                    _release_trusted_time_launch_lock(lock_descriptor)
-                with suppress(OSError):
-                    os.close(lock_descriptor)
+                    instance._authentication_capability = None
+                with suppress(BaseException):
+                    _revoke_authenticated_issuer_capability(instance, authentication_capability)
+            finally:
+                if lock_descriptor is not None:
+                    with suppress(BaseException):
+                        _release_trusted_time_launch_lock(lock_descriptor)
+                    with suppress(OSError):
+                        os.close(lock_descriptor)
+                    with suppress(BaseException):
+                        instance._lock_descriptor = -1
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology observation session is unavailable"
             ) from None
@@ -1639,7 +2056,12 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology observation process is unavailable"
             )
-        if type(self._authentication_capability) is not _AuthenticatedIssuerCapability:
+        if type(
+            self._authentication_capability
+        ) is not _AuthenticatedIssuerCapability or not _authenticated_issuer_capability_is_active(
+            self,
+            self._authentication_capability,
+        ):
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time authenticated observation issuer is unavailable"
             )
@@ -1654,6 +2076,10 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 )
             if self._busy:
                 self._poisoned = True
+                capability = self._authentication_capability
+                self._authentication_capability = None
+                with suppress(BaseException):
+                    _revoke_authenticated_issuer_capability(self, capability)
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time topology observation issuer is unavailable"
                 )
@@ -2154,7 +2580,110 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
     def _fail_observation(self) -> None:
         with self._lifecycle_lock:
             self._poisoned = True
+            capability = self._authentication_capability
+            self._authentication_capability = None
+            with suppress(BaseException):
+                _revoke_authenticated_issuer_capability(self, capability)
 
+    @_authenticated_observation_issuance("cursor")
+    def issue_observation_cursor(
+        self,
+    ) -> TrustedTimePostEnrollmentTopologyObservationCursor:
+        """Seal one bounded live-session cursor without observing topology again."""
+
+        self._begin_observation()
+        try:
+            with self._lifecycle_lock:
+                cursor_count = self._cursor_count
+                staged_observation_count = self._staged_observation_count
+                created_observation_sha256 = self._issued_created_observation_sha256
+                last_observation_sha256 = self._last_observation_sha256
+                first_staged_snapshot_sha256 = self._first_staged_snapshot_sha256
+                session_sha256 = self._session_sha256
+                authentication_capability = self._authentication_capability
+                if (
+                    self._closed
+                    or self._poisoned
+                    or not self._busy
+                    or cursor_count >= _MAXIMUM_OBSERVATION_CURSOR_COUNT
+                    or created_observation_sha256 is None
+                    or last_observation_sha256 is None
+                    or first_staged_snapshot_sha256 is None
+                    or staged_observation_count not in {1, 2}
+                    or not _authenticated_issuer_capability_is_active(
+                        self,
+                        authentication_capability,
+                    )
+                ):
+                    raise ValueError
+            receipts: list[_ReadReceipt] = []
+            self._observe_daemon(receipts)
+            if len(receipts) != 1:
+                raise ValueError
+            transcript_sha256 = _canonical_sha256(
+                {
+                    "contract_version": (
+                        POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_CONTRACT_VERSION
+                    ),
+                    "reads": [receipt.payload() for receipt in receipts],
+                    "session_sha256": session_sha256,
+                }
+            )
+            self._validate_session()
+            cursor_ordinal = cursor_count + 1
+            cursor_payload = _cursor_payload(
+                session_sha256=session_sha256,
+                transcript_sha256=transcript_sha256,
+                cursor_ordinal=cursor_ordinal,
+                staged_observation_count=staged_observation_count,
+                created_observation_sha256=created_observation_sha256,
+                last_observation_sha256=last_observation_sha256,
+                first_staged_snapshot_sha256=first_staged_snapshot_sha256,
+            )
+            cursor = TrustedTimePostEnrollmentTopologyObservationCursor(
+                session_sha256=session_sha256,
+                transcript_sha256=transcript_sha256,
+                cursor_ordinal=cursor_ordinal,
+                staged_observation_count=staged_observation_count,
+                created_observation_sha256=created_observation_sha256,
+                last_observation_sha256=last_observation_sha256,
+                first_staged_snapshot_sha256=first_staged_snapshot_sha256,
+                _seal=_seal_observation(
+                    self,
+                    authentication_capability,
+                    cursor_payload,
+                    "cursor",
+                ),
+            )
+            with self._lifecycle_lock:
+                if (
+                    self._closed
+                    or self._poisoned
+                    or not self._busy
+                    or self._authentication_capability is not authentication_capability
+                    or not _authenticated_issuer_capability_is_active(
+                        self,
+                        authentication_capability,
+                    )
+                    or self._cursor_count != cursor_count
+                    or self._staged_observation_count != staged_observation_count
+                    or self._issued_created_observation_sha256 != created_observation_sha256
+                    or self._last_observation_sha256 != last_observation_sha256
+                    or self._first_staged_snapshot_sha256 != first_staged_snapshot_sha256
+                    or self._session_sha256 != session_sha256
+                ):
+                    raise ValueError
+                self._cursor_count = cursor_ordinal
+            return cursor
+        except BaseException:
+            self._fail_observation()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology observation cursor is unavailable"
+            ) from None
+        finally:
+            self._finish_observation()
+
+    @_authenticated_observation_issuance("created")
     def issue_created_snapshot(
         self,
         *,
@@ -2169,13 +2698,28 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
 
         self._begin_observation()
         try:
-            if (
-                type(approval) is not TrustedTimePostEnrollmentStartApproval
-                or type(approved_launch) is not TrustedTimeApprovedLaunch
-                or self._issued_created_observation_sha256 is not None
-                or self._staged_observation_count != 0
-            ):
-                raise ValueError
+            with self._lifecycle_lock:
+                issued_created_observation_sha256 = self._issued_created_observation_sha256
+                last_observation_sha256 = self._last_observation_sha256
+                first_staged_snapshot_sha256 = self._first_staged_snapshot_sha256
+                staged_observation_count = self._staged_observation_count
+                cursor_count = self._cursor_count
+                session_sha256 = self._session_sha256
+                authentication_capability = self._authentication_capability
+                if (
+                    type(approval) is not TrustedTimePostEnrollmentStartApproval
+                    or type(approved_launch) is not TrustedTimeApprovedLaunch
+                    or issued_created_observation_sha256 is not None
+                    or last_observation_sha256 is not None
+                    or first_staged_snapshot_sha256 is not None
+                    or staged_observation_count != 0
+                    or cursor_count != 0
+                    or not _authenticated_issuer_capability_is_active(
+                        self,
+                        authentication_capability,
+                    )
+                ):
+                    raise ValueError
             approved_launch.__post_init__()
             receipts: list[_ReadReceipt] = []
             daemon_before = self._observe_daemon(receipts)
@@ -2246,23 +2790,43 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             observation_payload = _observation_payload(
                 kind="created",
                 status=POST_ENROLLMENT_CREATED_TOPOLOGY_OBSERVATION_STATUS,
-                session_sha256=self._session_sha256,
+                session_sha256=session_sha256,
                 transcript_sha256=transcript_sha256,
                 observation_count=len(receipts),
                 snapshot_contract_version=POST_ENROLLMENT_CREATED_TOPOLOGY_CONTRACT_VERSION,
                 snapshot_sha256=snapshot.snapshot_sha256,
             )
             observation = TrustedTimePostEnrollmentCreatedTopologyObservation(
-                session_sha256=self._session_sha256,
+                session_sha256=session_sha256,
                 transcript_sha256=transcript_sha256,
                 observation_count=len(receipts),
                 snapshot=snapshot,
                 _seal=_seal_observation(
-                    self._authentication_capability,
+                    self,
+                    authentication_capability,
                     observation_payload,
+                    "created",
                 ),
             )
             with self._lifecycle_lock:
+                if (
+                    self._closed
+                    or self._poisoned
+                    or not self._busy
+                    or self._authentication_capability is not authentication_capability
+                    or not _authenticated_issuer_capability_is_active(
+                        self,
+                        authentication_capability,
+                    )
+                    or self._issued_created_observation_sha256
+                    is not issued_created_observation_sha256
+                    or self._last_observation_sha256 is not last_observation_sha256
+                    or self._first_staged_snapshot_sha256 is not first_staged_snapshot_sha256
+                    or self._staged_observation_count != staged_observation_count
+                    or self._cursor_count != cursor_count
+                    or self._session_sha256 != session_sha256
+                ):
+                    raise ValueError
                 self._issued_created_observation_sha256 = observation.observation_sha256
                 self._last_observation_sha256 = observation.observation_sha256
             return observation
@@ -2274,6 +2838,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         finally:
             self._finish_observation()
 
+    @_authenticated_observation_issuance("staged_unreleased")
     def issue_staged_unreleased_snapshot(
         self,
         *,
@@ -2289,18 +2854,30 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
 
         self._begin_observation()
         try:
-            if (
-                type(created_observation) is not TrustedTimePostEnrollmentCreatedTopologyObservation
-                or created_observation.session_sha256 != self._session_sha256
-                or type(approval) is not TrustedTimePostEnrollmentStartApproval
-                or type(approved_launch) is not TrustedTimeApprovedLaunch
-                or self._issued_created_observation_sha256 is None
-                or self._last_observation_sha256 is None
-                or self._staged_observation_count >= 2
-            ):
-                raise ValueError
+            with self._lifecycle_lock:
+                staged_observation_count = self._staged_observation_count
+                issued_created_observation_sha256 = self._issued_created_observation_sha256
+                last_observation_sha256 = self._last_observation_sha256
+                first_staged_snapshot_sha256 = self._first_staged_snapshot_sha256
+                session_sha256 = self._session_sha256
+                authentication_capability = self._authentication_capability
+                if (
+                    type(created_observation)
+                    is not TrustedTimePostEnrollmentCreatedTopologyObservation
+                    or created_observation.session_sha256 != session_sha256
+                    or type(approval) is not TrustedTimePostEnrollmentStartApproval
+                    or type(approved_launch) is not TrustedTimeApprovedLaunch
+                    or issued_created_observation_sha256 is None
+                    or last_observation_sha256 is None
+                    or staged_observation_count >= 2
+                    or not _authenticated_issuer_capability_is_active(
+                        self,
+                        authentication_capability,
+                    )
+                ):
+                    raise ValueError
             created_observation.__post_init__()
-            if created_observation.observation_sha256 != self._issued_created_observation_sha256:
+            if created_observation.observation_sha256 != issued_created_observation_sha256:
                 raise ValueError
             approved_launch.__post_init__()
             staged_paths = (
@@ -2390,8 +2967,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 staged_input_retirements_after=retirements_after.candidates,
             )
             if (
-                self._staged_observation_count == 1
-                and snapshot.snapshot_sha256 != self._first_staged_snapshot_sha256
+                staged_observation_count == 1
+                and snapshot.snapshot_sha256 != first_staged_snapshot_sha256
             ):
                 raise ValueError
             transcript_sha256 = self._transcript_sha256(
@@ -2400,33 +2977,51 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 expected_count=_STAGED_OBSERVATION_COUNT,
             )
             self._validate_session()
-            ordinal = self._staged_observation_count + 1
+            ordinal = staged_observation_count + 1
             observation_payload = _observation_payload(
                 kind="staged_unreleased",
                 status=POST_ENROLLMENT_STAGED_TOPOLOGY_OBSERVATION_STATUS,
-                session_sha256=self._session_sha256,
+                session_sha256=session_sha256,
                 transcript_sha256=transcript_sha256,
                 observation_count=len(receipts),
                 snapshot_contract_version=POST_ENROLLMENT_STAGED_TOPOLOGY_CONTRACT_VERSION,
                 snapshot_sha256=snapshot.snapshot_sha256,
                 created_observation_sha256=created_observation.observation_sha256,
                 staged_observation_ordinal=ordinal,
-                predecessor_observation_sha256=self._last_observation_sha256,
+                predecessor_observation_sha256=last_observation_sha256,
             )
             observation = TrustedTimePostEnrollmentStagedTopologyObservation(
-                session_sha256=self._session_sha256,
+                session_sha256=session_sha256,
                 transcript_sha256=transcript_sha256,
                 observation_count=len(receipts),
                 created_observation_sha256=created_observation.observation_sha256,
                 staged_observation_ordinal=ordinal,
-                predecessor_observation_sha256=self._last_observation_sha256,
+                predecessor_observation_sha256=last_observation_sha256,
                 snapshot=snapshot,
                 _seal=_seal_observation(
-                    self._authentication_capability,
+                    self,
+                    authentication_capability,
                     observation_payload,
+                    "staged_unreleased",
                 ),
             )
             with self._lifecycle_lock:
+                if (
+                    self._closed
+                    or self._poisoned
+                    or not self._busy
+                    or self._authentication_capability is not authentication_capability
+                    or not _authenticated_issuer_capability_is_active(
+                        self,
+                        authentication_capability,
+                    )
+                    or self._staged_observation_count != staged_observation_count
+                    or self._issued_created_observation_sha256 != issued_created_observation_sha256
+                    or self._last_observation_sha256 != last_observation_sha256
+                    or self._first_staged_snapshot_sha256 != first_staged_snapshot_sha256
+                    or self._session_sha256 != session_sha256
+                ):
+                    raise ValueError
                 self._staged_observation_count = ordinal
                 if ordinal == 1:
                     self._first_staged_snapshot_sha256 = snapshot.snapshot_sha256
@@ -2455,6 +3050,10 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             if self._closed or self._busy:
                 if self._busy:
                     self._poisoned = True
+                    capability = self._authentication_capability
+                    self._authentication_capability = None
+                    with suppress(BaseException):
+                        _revoke_authenticated_issuer_capability(self, capability)
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time topology observation issuer close is unavailable"
                 )
@@ -2464,34 +3063,50 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 self._validate_lock()
             except BaseException:
                 validation_failed = True
-            self._closed = True
-            self._poisoned = True
-            self._authentication_capability = None
-            self._lock_descriptor = -1
-            self._environment = {}
-            self._first_staged_snapshot_sha256 = None
-            self._issued_created_observation_sha256 = None
-            self._last_observation_sha256 = None
-        try:
-            _release_trusted_time_launch_lock(descriptor)
-        except BaseException:
-            with suppress(OSError):
-                os.close(descriptor)
+            state_cleanup_failed = False
+            descriptor_release_failed = False
+            try:
+                self._closed = True
+                self._poisoned = True
+                capability = self._authentication_capability
+                self._authentication_capability = None
+                self._environment = {}
+                self._cursor_count = 0
+                self._first_staged_snapshot_sha256 = None
+                self._issued_created_observation_sha256 = None
+                self._last_observation_sha256 = None
+                with suppress(BaseException):
+                    _revoke_authenticated_issuer_capability(self, capability)
+            except BaseException:
+                state_cleanup_failed = True
+            finally:
+                try:
+                    _release_trusted_time_launch_lock(descriptor)
+                except BaseException:
+                    descriptor_release_failed = True
+                    with suppress(BaseException):
+                        os.close(descriptor)
+                self._lock_descriptor = -1
+        if validation_failed or state_cleanup_failed or descriptor_release_failed:
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology observation issuer close is unavailable"
             ) from None
-        if validation_failed:
-            raise TrustedTimePostEnrollmentTopologyReaderError(
-                "trusted-time topology observation issuer close is unavailable"
-            )
+
+
+del _authenticated_observation_open
+del _authenticated_observation_issuance
+del _build_observation_sealer
 
 
 __all__ = [
     "POST_ENROLLMENT_CREATED_TOPOLOGY_OBSERVATION_STATUS",
     "POST_ENROLLMENT_STAGED_TOPOLOGY_OBSERVATION_STATUS",
+    "POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_CONTRACT_VERSION",
+    "POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_STATUS",
     "POST_ENROLLMENT_TOPOLOGY_READER_CONTRACT_VERSION",
     "TrustedTimePostEnrollmentCreatedTopologyObservation",
     "TrustedTimePostEnrollmentStagedTopologyObservation",
+    "TrustedTimePostEnrollmentTopologyObservationCursor",
     "TrustedTimePostEnrollmentTopologyObservationIssuer",
     "TrustedTimePostEnrollmentTopologyReaderError",
 ]

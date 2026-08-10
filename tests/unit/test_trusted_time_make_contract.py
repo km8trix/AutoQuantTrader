@@ -75,7 +75,25 @@ def test_every_supported_trusted_time_python_target_uses_isolated_launcher() -> 
         assert script in makefile
 
 
-def test_post_enrollment_topology_observation_and_fence_have_no_runtime_wiring() -> None:
+def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
+    claimed_fence_api_names = (
+        "POST_ENROLLMENT_START_CLAIMED_PRE_RELEASE_TOPOLOGY_FENCE_CONTRACT_VERSION",
+        "POST_ENROLLMENT_START_CLAIMED_PRE_RELEASE_TOPOLOGY_FENCE_STATUS",
+        "phase6d-post-enrollment-start-claimed-pre-release-topology-fence-v1",
+        "claimed_pre_release_topology_fence_unqualified",
+        "TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence",
+        "TrustedTimePostEnrollmentStartClaimedFenceRejected",
+        "TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired",
+        "prepare_post_enrollment_start_claimed_pre_release_fence",
+    )
+    topology_cursor_api_names = (
+        "POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_CONTRACT_VERSION",
+        "POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_STATUS",
+        "phase6d-post-enrollment-topology-observation-cursor-v1",
+        "topology_observation_cursor_unqualified",
+        "TrustedTimePostEnrollmentTopologyObservationCursor",
+        "issue_observation_cursor",
+    )
     topology_fence_api_names = (
         "POST_ENROLLMENT_START_PRE_CLAIM_TOPOLOGY_FENCE_CONTRACT_VERSION",
         "POST_ENROLLMENT_START_PRE_CLAIM_TOPOLOGY_FENCE_STATUS",
@@ -101,6 +119,9 @@ def test_post_enrollment_topology_observation_and_fence_have_no_runtime_wiring()
         "TrustedTimePostEnrollmentTopologyObservationIssuer",
         "TrustedTimePostEnrollmentCreatedTopologyObservation",
         "TrustedTimePostEnrollmentStagedTopologyObservation",
+        "trusted_time_post_enrollment_claimed_fence",
+        *claimed_fence_api_names,
+        *topology_cursor_api_names,
         "trusted_time_post_enrollment_topology_fence",
         *topology_fence_api_names,
     )
@@ -125,9 +146,15 @@ def test_post_enrollment_topology_observation_and_fence_have_no_runtime_wiring()
             assert forbidden_name not in payload
 
     admission_cli = (ROOT / "scripts" / "verify_trusted_time_images.py").read_text(encoding="utf-8")
+    assert '"scripts/trusted_time_post_enrollment_claimed_fence.py"' in admission_cli
+    assert admission_cli.count("trusted_time_post_enrollment_claimed_fence") == 1
     assert '"scripts/trusted_time_post_enrollment_topology_fence.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_topology_fence") == 1
-    for forbidden_name in topology_fence_api_names:
+    for forbidden_name in (
+        *claimed_fence_api_names,
+        *topology_cursor_api_names,
+        *topology_fence_api_names,
+    ):
         assert forbidden_name not in admission_cli
 
 

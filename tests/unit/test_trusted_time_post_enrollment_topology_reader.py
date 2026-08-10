@@ -1117,9 +1117,12 @@ def test_reader_surface_is_dormant_and_has_no_authority_methods() -> None:
     assert public == {
         "POST_ENROLLMENT_CREATED_TOPOLOGY_OBSERVATION_STATUS",
         "POST_ENROLLMENT_STAGED_TOPOLOGY_OBSERVATION_STATUS",
+        "POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_CONTRACT_VERSION",
+        "POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_STATUS",
         "POST_ENROLLMENT_TOPOLOGY_READER_CONTRACT_VERSION",
         "TrustedTimePostEnrollmentCreatedTopologyObservation",
         "TrustedTimePostEnrollmentStagedTopologyObservation",
+        "TrustedTimePostEnrollmentTopologyObservationCursor",
         "TrustedTimePostEnrollmentTopologyObservationIssuer",
         "TrustedTimePostEnrollmentTopologyReaderError",
     }
