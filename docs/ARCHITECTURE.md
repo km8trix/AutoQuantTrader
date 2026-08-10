@@ -3571,20 +3571,39 @@ separate inert source-first `docker container start` argv values survive in the
 result. Raw inspection, environment, mount, state, configuration, and staged-
 path objects do not.
 
-The pure candidate owns no Docker read, file or clock access, runner, claim,
-release, persistence, SQL, or provider call. Its daemon, named-volume,
-submitted-inventory, container, and topology authentication fields remain
-false; claim retention, topology mutation, both starts, persistent start,
-release, sequence 2, shutdown, and every operational/trading authority remain
-false. A future controller must issue and repeat all bounded observations under
-the global lock on the same qualified daemon before consuming a claim or
-releasing anything, and must reject duplicate keys while parsing bounded raw
-Docker bytes rather than relying on an already-decoded projection.
+Pure contract
+`phase6d-post-enrollment-start-staged-unreleased-topology-snapshot-v1` binds a
+caller-supplied staged-running candidate back to one exact created-topology
+snapshot. The same operation, approval, immutable launch, daemon, volumes,
+two-container inventory, full container identities, and image-configuration
+projections must survive. Both inspections must be exact running,
+nonterminal, unrestarted projections, with a healthy source. Equal before/after
+nonsecret candidates must show the exact database-secret-consumed marker, both
+fixed release paths absent, and all four staged host inputs retired. The result retains
+only nonsecret identities and digest projections; it never retains raw
+inspection, image-configuration, marker, staged-path, environment, mount, or
+state objects. Its only status is
+`staged_unreleased_topology_snapshot_unqualified`.
 
-No worker/main, Make, Compose, or launcher wiring invokes this candidate, the
-claimed-release handoff, the sequence-2 issuer, or the binder; the host outcome
-remains `UNCONFIRMED`, every authority field remains false, and
-`trusted-time-start` and shutdown remain hard closed. Consequently, no
+Both pure candidates own no Docker read, file or clock access, runner, claim,
+release, persistence, SQL, or provider call. The staged candidate's observation-
+provenance, created-topology, daemon, named-volume, submitted-inventory,
+container, topology, consumed-marker, release-absence, input-retirement,
+source-start, supervisor-start, and start-order authentication fields remain
+false; in both results, claim retention,
+topology mutation, both starts, persistent start, release, sequence 2,
+shutdown, and every operational/trading authority remain false. The next
+implementation must be a strict bounded read-only Docker issuer that targets
+both snapshot contracts under the same qualified-daemon lock and rejects
+duplicate keys while parsing bounded raw Docker bytes. A later pure fence
+composition must bind the created snapshot and equal staged snapshots obtained
+immediately before claim retention and release. Only then may a separately
+admitted and operationally approved controller execute a projected action.
+
+No worker/main, Make, Compose, or launcher wiring invokes either topology
+candidate, the claimed-release handoff, the sequence-2 issuer, or the binder;
+the host outcome remains `UNCONFIRMED`, every authority field remains false,
+and `trusted-time-start` and shutdown remain hard closed. Consequently, no
 supported persistent topology or independent supervisor watchdog is deployed.
 See historical
 [ADR 0092](adr/0092-evidence-only-local-chrony-nts-trusted-time-supervision.md),
@@ -3619,13 +3638,16 @@ failure domain, alert route, readiness/control/new-exposure/re-arm consumer,
 deployment, drill, or Phase 6 exit evidence. The retained passing rollback
 probe, applied atomic read-policy upgrade, separately approved same-object proof
 resume, confirmed first enrollment, and staged-release image admission are
-complete. The next normative sequence is a separately reviewed exact-outcome-
-bound host orchestration implementation. It must control the staged topology,
-retain and repeatedly revalidate the exact claim, execute only the approved
-release, receive and authenticate the bounded sequence-2 terminal, requalify the
-topology, and durably retain the exact outcome. Its merged revision requires a
-fresh image admission and separate operational approval before execution. Only
-after that boundary exists may a sealed watchdog provider-terminal issuer
+complete. The next normative sequence is a strict bounded duplicate-key-
+rejecting Docker observation issuer for both created and staged-unreleased
+snapshots, then pure pre-claim/pre-release fence composition, and only then a
+separately reviewed exact-outcome-bound host orchestration implementation. That
+controller must control the staged topology, retain and repeatedly revalidate
+the exact claim, execute only the approved release, receive and authenticate
+the bounded sequence-2 terminal, requalify the topology, and durably retain the
+exact outcome. Its merged revision requires a fresh image admission and
+separate operational approval before execution. Only after that boundary exists
+may a sealed watchdog provider-terminal issuer
 authenticate the complete new suffix, bind two stable namespace passes to their
 exact digest, count, and terminal identity, prove no higher sequence exists, and
 capture an independent monotonic instant inside the issuer. Only its later
