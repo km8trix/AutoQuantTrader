@@ -85,6 +85,7 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         "TrustedTimePostEnrollmentStartClaimedFenceRejected",
         "TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired",
         "prepare_post_enrollment_start_claimed_pre_release_fence",
+        "prepare_post_enrollment_start_leased_claimed_pre_release_fence",
     )
     topology_cursor_api_names = (
         "POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_CONTRACT_VERSION",
@@ -121,6 +122,9 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         "TrustedTimePostEnrollmentStagedTopologyObservation",
         "trusted_time_post_enrollment_claimed_fence",
         *claimed_fence_api_names,
+        "_run_exclusive_choreography",
+        "choreography_lease",
+        "choreography_deadline",
         *topology_cursor_api_names,
         "trusted_time_post_enrollment_topology_fence",
         *topology_fence_api_names,

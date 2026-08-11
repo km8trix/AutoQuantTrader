@@ -20,6 +20,7 @@ import secrets
 import stat
 import subprocess
 import threading
+import time
 import weakref
 from collections.abc import Callable, Mapping
 from contextlib import suppress
@@ -205,6 +206,14 @@ _RELEASE_PATHS = (
     "/tmp/post-enrollment-start-release",
 )
 _BARRIER_PROBE_CONTRACT_VERSION = "phase6d-post-enrollment-barrier-read-probe-v1"
+_POST_ENROLLMENT_TOPOLOGY_CHOREOGRAPHY_LEASE_CONTRACT_VERSION = (
+    "phase6d-post-enrollment-topology-choreography-lease-v1"
+)
+_POST_ENROLLMENT_START_CHOREOGRAPHY_DEADLINE_SECONDS = 300
+_POST_ENROLLMENT_START_CHOREOGRAPHY_DEADLINE_NANOSECONDS = (
+    _POST_ENROLLMENT_START_CHOREOGRAPHY_DEADLINE_SECONDS * 1_000_000_000
+)
+_MAXIMUM_MONOTONIC_NANOSECONDS = (1 << 63) - 1
 
 
 def _authority_is_never_granted(_: object) -> bool:
@@ -249,14 +258,58 @@ class _AuthenticatedIssuerCapability:
         )
 
 
+class _TrustedTimePostEnrollmentTopologyChoreographyLease:
+    """Opaque one-shot authority to use one issuer inside one callback."""
+
+    __slots__ = ()
+
+    def __new__(cls) -> _TrustedTimePostEnrollmentTopologyChoreographyLease:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time topology choreography lease is unavailable"
+        )
+
+    def __copy__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time topology choreography lease cannot be copied"
+        )
+
+    def __deepcopy__(self, _: object) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time topology choreography lease cannot be copied"
+        )
+
+    def __reduce__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time topology choreography lease cannot be serialized"
+        )
+
+    def __reduce_ex__(self, _: SupportsIndex) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time topology choreography lease cannot be serialized"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _ChoreographyCheckpoint:
+    lease_sha256: str
+    started_monotonic_ns: int
+    deadline_monotonic_ns: int
+    observed_monotonic_ns: int
+
+
 def _build_observation_sealer() -> tuple[
     Callable[[Callable[..., Any]], Callable[..., Any]],
     Callable[[str], Callable[[Callable[..., Any]], Callable[..., Any]]],
+    Callable[[Callable[..., Any]], Callable[..., Any]],
     Callable[[object, object, Mapping[str, object], str], bytes],
     Callable[[object, Mapping[str, object]], bool],
     Callable[[object, Mapping[str, object], object], bool],
     Callable[[object, object], None],
     Callable[[object, object], bool],
+    Callable[[object, object | None], None],
+    Callable[[object, object], bool],
+    Callable[[object, object, object], _ChoreographyCheckpoint],
+    Callable[[object, object], _ChoreographyCheckpoint],
 ]:
     process_private_key = secrets.token_bytes(32)
     process_pid = os.getpid()
@@ -264,6 +317,20 @@ def _build_observation_sealer() -> tuple[
     issuance_gate = threading.local()
     active_capabilities: dict[_AuthenticatedIssuerCapability, object] = {}
     cursor_registrations: dict[bytes, tuple[str, object | None]] = {}
+
+    @dataclass(slots=True)
+    class ChoreographyRegistration:
+        lease: _TrustedTimePostEnrollmentTopologyChoreographyLease
+        authentication_capability: _AuthenticatedIssuerCapability
+        session_sha256: str
+        owner_pid: int
+        owner_thread: threading.Thread
+        started_monotonic_ns: int
+        deadline_monotonic_ns: int
+        last_monotonic_ns: int
+        lease_sha256: str
+
+    active_choreographies: dict[object, ChoreographyRegistration] = {}
 
     def register(owner: object) -> _AuthenticatedIssuerCapability:
         if os.getpid() != process_pid:
@@ -293,6 +360,179 @@ def _build_observation_sealer() -> tuple[
                 and getattr(owner, "_authentication_capability", None) is candidate
                 and getattr(owner, "_closed", True) is False
                 and getattr(owner, "_poisoned", True) is False
+            )
+
+    def choreography_registration_is_active(
+        owner: object,
+        candidate: object,
+        registration: ChoreographyRegistration | None,
+    ) -> bool:
+        return (
+            registration is not None
+            and os.getpid() == process_pid
+            and type(candidate) is _TrustedTimePostEnrollmentTopologyChoreographyLease
+            and registration.lease is candidate
+            and registration.owner_pid == os.getpid()
+            and registration.owner_thread is threading.current_thread()
+            and type(registration.authentication_capability) is _AuthenticatedIssuerCapability
+            and active_capabilities.get(registration.authentication_capability) is owner
+            and getattr(owner, "_owner_pid", None) == os.getpid()
+            and getattr(owner, "_authentication_capability", None)
+            is registration.authentication_capability
+            and getattr(owner, "_session_sha256", None) == registration.session_sha256
+            and getattr(owner, "_choreography_inflight", False) is True
+            and getattr(owner, "_closed", True) is False
+            and getattr(owner, "_poisoned", True) is False
+        )
+
+    def register_choreography(
+        owner: object,
+        authentication_capability: object,
+        *,
+        started_monotonic_ns: int,
+        deadline_monotonic_ns: int,
+    ) -> _TrustedTimePostEnrollmentTopologyChoreographyLease:
+        if (
+            os.getpid() != process_pid
+            or type(authentication_capability) is not _AuthenticatedIssuerCapability
+            or type(started_monotonic_ns) is not int
+            or type(deadline_monotonic_ns) is not int
+            or started_monotonic_ns < 0
+            or deadline_monotonic_ns <= started_monotonic_ns
+            or deadline_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS
+        ):
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography lease is unavailable"
+            )
+        typed_authentication_capability = authentication_capability
+        lease = object.__new__(_TrustedTimePostEnrollmentTopologyChoreographyLease)
+        session_sha256 = getattr(owner, "_session_sha256", None)
+        if type(session_sha256) is not str or _SHA256_PATTERN.fullmatch(session_sha256) is None:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography lease is unavailable"
+            )
+        lease_sha256 = hashlib.sha256(
+            canonical_first_enrollment_json_bytes(
+                {
+                    "contract_version": (
+                        _POST_ENROLLMENT_TOPOLOGY_CHOREOGRAPHY_LEASE_CONTRACT_VERSION
+                    ),
+                    "deadline_monotonic_ns": deadline_monotonic_ns,
+                    "lease_nonce_sha256": hashlib.sha256(secrets.token_bytes(32)).hexdigest(),
+                    "session_sha256": session_sha256,
+                    "started_monotonic_ns": started_monotonic_ns,
+                }
+            )
+        ).hexdigest()
+        with registry_lock:
+            if (
+                owner in active_choreographies
+                or active_capabilities.get(typed_authentication_capability) is not owner
+                or getattr(owner, "_owner_pid", None) != os.getpid()
+                or getattr(owner, "_authentication_capability", None)
+                is not typed_authentication_capability
+                or getattr(owner, "_choreography_inflight", False) is not True
+                or getattr(owner, "_closed", True) is not False
+                or getattr(owner, "_poisoned", True) is not False
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time topology choreography lease is unavailable"
+                )
+            active_choreographies[owner] = ChoreographyRegistration(
+                lease=lease,
+                authentication_capability=typed_authentication_capability,
+                session_sha256=session_sha256,
+                owner_pid=os.getpid(),
+                owner_thread=threading.current_thread(),
+                started_monotonic_ns=started_monotonic_ns,
+                deadline_monotonic_ns=deadline_monotonic_ns,
+                last_monotonic_ns=started_monotonic_ns,
+                lease_sha256=lease_sha256,
+            )
+        return lease
+
+    def revoke_choreography(owner: object, candidate: object | None = None) -> None:
+        if os.getpid() != process_pid:
+            return
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            if registration is not None and (candidate is None or registration.lease is candidate):
+                active_choreographies.pop(owner, None)
+
+    def choreography_active(owner: object, candidate: object) -> bool:
+        if os.getpid() != process_pid:
+            return False
+        with registry_lock:
+            return choreography_registration_is_active(
+                owner,
+                candidate,
+                active_choreographies.get(owner),
+            )
+
+    def checkpoint_registration(
+        owner: object,
+        registration: ChoreographyRegistration | None,
+        candidate: object,
+        observed_monotonic_ns: object,
+    ) -> _ChoreographyCheckpoint:
+        if (
+            not choreography_registration_is_active(owner, candidate, registration)
+            or type(observed_monotonic_ns) is not int
+            or observed_monotonic_ns < 0
+            or observed_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS
+        ):
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography deadline is unavailable"
+            )
+        assert registration is not None
+        if (
+            observed_monotonic_ns < registration.last_monotonic_ns
+            or observed_monotonic_ns >= registration.deadline_monotonic_ns
+        ):
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography deadline is unavailable"
+            )
+        registration.last_monotonic_ns = observed_monotonic_ns
+        return _ChoreographyCheckpoint(
+            lease_sha256=registration.lease_sha256,
+            started_monotonic_ns=registration.started_monotonic_ns,
+            deadline_monotonic_ns=registration.deadline_monotonic_ns,
+            observed_monotonic_ns=observed_monotonic_ns,
+        )
+
+    def checkpoint_choreography(
+        owner: object,
+        candidate: object,
+        observed_monotonic_ns: object,
+    ) -> _ChoreographyCheckpoint:
+        if os.getpid() != process_pid:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography deadline is unavailable"
+            )
+        with registry_lock:
+            return checkpoint_registration(
+                owner,
+                active_choreographies.get(owner),
+                candidate,
+                observed_monotonic_ns,
+            )
+
+    def checkpoint_choreography_owner(
+        owner: object,
+        observed_monotonic_ns: object,
+    ) -> _ChoreographyCheckpoint:
+        if os.getpid() != process_pid:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography deadline is unavailable"
+            )
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            candidate = registration.lease if registration is not None else None
+            return checkpoint_registration(
+                owner,
+                registration,
+                candidate,
+                observed_monotonic_ns,
             )
 
     def seal(
@@ -410,17 +650,50 @@ def _build_observation_sealer() -> tuple[
 
         return decorate
 
-    return authenticated_open, authenticated_issuance, seal, valid, valid_cursor, revoke, active
+    def authenticated_choreography(method: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(method)
+        def guarded(owner: object, action: Callable[..., Any]) -> Any:
+            if os.getpid() != process_pid or not callable(action):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time topology choreography is unavailable"
+                )
+            return method(
+                owner,
+                action,
+                _choreography_registrar=register_choreography,
+            )
+
+        return guarded
+
+    return (
+        authenticated_open,
+        authenticated_issuance,
+        authenticated_choreography,
+        seal,
+        valid,
+        valid_cursor,
+        revoke,
+        active,
+        revoke_choreography,
+        choreography_active,
+        checkpoint_choreography,
+        checkpoint_choreography_owner,
+    )
 
 
 (
     _authenticated_observation_open,
     _authenticated_observation_issuance,
+    _authenticated_choreography,
     _seal_observation,
     _valid_observation_seal,
     _valid_cursor_seal,
     _revoke_authenticated_issuer_capability,
     _authenticated_issuer_capability_is_active,
+    _revoke_authenticated_choreography,
+    _authenticated_choreography_is_active,
+    _checkpoint_authenticated_choreography,
+    _checkpoint_authenticated_choreography_owner,
 ) = _build_observation_sealer()
 
 
@@ -1727,6 +2000,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
 
     _authentication_capability: _AuthenticatedIssuerCapability | None
     _busy: bool
+    _choreography_consumed: bool
+    _choreography_inflight: bool
     _closed: bool
     _cursor_count: int
     _daemon_identity: LocalDockerDaemonIdentity
@@ -1741,6 +2016,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
     _lock_descriptor: int
     _lock_identity: tuple[int, int, int, int, int]
     _lock_path: Path
+    _monotonic_ns: Callable[[], int]
     _owner_pid: int
     _poisoned: bool
     _runner: _BoundedRunner
@@ -1753,6 +2029,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         "__weakref__",
         "_authentication_capability",
         "_busy",
+        "_choreography_consumed",
+        "_choreography_inflight",
         "_closed",
         "_cursor_count",
         "_daemon_identity",
@@ -1767,6 +2045,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         "_lock_descriptor",
         "_lock_identity",
         "_lock_path",
+        "_monotonic_ns",
         "_owner_pid",
         "_poisoned",
         "_runner",
@@ -1817,6 +2096,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         ignored_root: Path,
         runner: _BoundedRunner,
         session_token_factory: Callable[[], bytes],
+        monotonic_ns: Callable[[], int] = time.monotonic_ns,
         _capability_registrar: Callable[[object], _AuthenticatedIssuerCapability] | None = None,
     ) -> TrustedTimePostEnrollmentTopologyObservationIssuer:
         if (
@@ -1827,6 +2107,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             or type(ignored_root) is not type(Path())
             or not callable(runner)
             or not callable(session_token_factory)
+            or not callable(monotonic_ns)
         ):
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology observation session is invalid"
@@ -1855,6 +2136,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             )
             instance._authentication_capability = authentication_capability
             instance._busy = False
+            instance._choreography_consumed = False
+            instance._choreography_inflight = False
             instance._closed = False
             instance._cursor_count = 0
             instance._daemon_identity = expected_daemon_identity
@@ -1875,6 +2158,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 lock_metadata.st_gid,
             )
             instance._lock_path = lock_path
+            instance._monotonic_ns = monotonic_ns
             instance._owner_pid = os.getpid()
             instance._poisoned = False
             instance._runner = runner
@@ -1892,6 +2176,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 descriptor = inherited._lock_descriptor
                 inherited._authentication_capability = None
                 inherited._busy = False
+                inherited._choreography_consumed = True
+                inherited._choreography_inflight = False
                 inherited._closed = True
                 inherited._environment = {}
                 inherited._lock_descriptor = -1
@@ -2075,14 +2361,112 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     "trusted-time topology observation issuer is unavailable"
                 )
             if self._busy:
-                self._poisoned = True
-                capability = self._authentication_capability
-                self._authentication_capability = None
-                with suppress(BaseException):
-                    _revoke_authenticated_issuer_capability(self, capability)
+                self._poison_locked()
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time topology observation issuer is unavailable"
                 )
+
+    def _poison_locked(self) -> None:
+        """Revoke process capabilities without releasing the outer flock."""
+
+        self._poisoned = True
+        capability = self._authentication_capability
+        self._authentication_capability = None
+        with suppress(BaseException):
+            _revoke_authenticated_choreography(self, None)
+        with suppress(BaseException):
+            _revoke_authenticated_issuer_capability(self, capability)
+
+    def _sample_choreography_monotonic_ns(self) -> int:
+        try:
+            observed = self._monotonic_ns()
+        except BaseException:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography clock is unavailable"
+            ) from None
+        if type(observed) is not int or observed < 0 or observed > _MAXIMUM_MONOTONIC_NANOSECONDS:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography clock is unavailable"
+            )
+        return observed
+
+    def _checkpoint_active_choreography_owner(self) -> _ChoreographyCheckpoint:
+        try:
+            self._validate_session()
+            observed = self._sample_choreography_monotonic_ns()
+            with self._lifecycle_lock:
+                if (
+                    not self._choreography_inflight
+                    or self._closed
+                    or self._poisoned
+                    or type(self._authentication_capability) is not _AuthenticatedIssuerCapability
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time topology choreography is unavailable"
+                    )
+                return _checkpoint_authenticated_choreography_owner(self, observed)
+        except BaseException:
+            with self._lifecycle_lock:
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography is unavailable"
+            ) from None
+
+    def _require_active_choreography_lease(
+        self,
+        candidate: object,
+    ) -> _ChoreographyCheckpoint:
+        """Revalidate one exact callback-bound lease and its absolute deadline."""
+
+        try:
+            with self._lifecycle_lock:
+                if (
+                    self._closed
+                    or self._poisoned
+                    or self._busy
+                    or not self._choreography_inflight
+                    or not _authenticated_choreography_is_active(self, candidate)
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time topology choreography lease is unavailable"
+                    )
+            self._validate_session()
+            observed = self._sample_choreography_monotonic_ns()
+            with self._lifecycle_lock:
+                if (
+                    self._closed
+                    or self._poisoned
+                    or self._busy
+                    or not self._choreography_inflight
+                    or not _authenticated_choreography_is_active(self, candidate)
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time topology choreography lease is unavailable"
+                    )
+                return _checkpoint_authenticated_choreography(self, candidate, observed)
+        except BaseException:
+            with self._lifecycle_lock:
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography lease is unavailable"
+            ) from None
+
+    def _choreography_command_timeout_seconds(self) -> float:
+        with self._lifecycle_lock:
+            inflight = self._choreography_inflight
+        if not inflight:
+            return _COMMAND_TIMEOUT_SECONDS
+        checkpoint = self._checkpoint_active_choreography_owner()
+        remaining_seconds = (
+            checkpoint.deadline_monotonic_ns - checkpoint.observed_monotonic_ns
+        ) / 1_000_000_000
+        if remaining_seconds <= 0:
+            with self._lifecycle_lock:
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography deadline is unavailable"
+            )
+        return min(_COMMAND_TIMEOUT_SECONDS, remaining_seconds)
 
     def _run_bytes(
         self,
@@ -2093,12 +2477,13 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         maximum_stdout_bytes: int,
     ) -> bytes:
         self._validate_session()
+        timeout_seconds = self._choreography_command_timeout_seconds()
         try:
             completed = self._runner(
                 argv,
                 cwd=ROOT,
                 environment=self._environment,
-                timeout_seconds=_COMMAND_TIMEOUT_SECONDS,
+                timeout_seconds=timeout_seconds,
                 maximum_stdout_bytes=maximum_stdout_bytes,
                 maximum_stderr_bytes=_MAXIMUM_STDERR_BYTES,
                 stdin_bytes=None,
@@ -2113,7 +2498,10 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time topology observation issuer is unavailable"
                 )
+            choreography_inflight = self._choreography_inflight
         self._validate_session()
+        if choreography_inflight:
+            self._checkpoint_active_choreography_owner()
         if (
             type(completed) is not subprocess.CompletedProcess
             or completed.args != argv
@@ -2560,7 +2948,109 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             }
         )
 
-    def _begin_observation(self) -> None:
+    @_authenticated_choreography
+    def _run_exclusive_choreography(
+        self,
+        action: Callable[[_TrustedTimePostEnrollmentTopologyChoreographyLease], Any],
+        *,
+        _choreography_registrar: Callable[..., object] | None = None,
+    ) -> Any:
+        """Run one callback under an exclusive, one-shot process-local lease."""
+
+        lease: object | None = None
+        owns_inflight_scope = False
+        scope_finalized = False
+        try:
+            if not callable(action) or not callable(_choreography_registrar):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time topology choreography is unavailable"
+                )
+            self._require_usable()
+            self._validate_session()
+            started_monotonic_ns = self._sample_choreography_monotonic_ns()
+            deadline_monotonic_ns = (
+                started_monotonic_ns + _POST_ENROLLMENT_START_CHOREOGRAPHY_DEADLINE_NANOSECONDS
+            )
+            if deadline_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS:
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time topology choreography deadline is unavailable"
+                )
+            with self._lifecycle_lock:
+                if (
+                    self._closed
+                    or self._poisoned
+                    or self._busy
+                    or self._choreography_consumed
+                    or self._choreography_inflight
+                    or self._cursor_count != 0
+                    or self._staged_observation_count != 0
+                    or self._issued_created_observation_sha256 is not None
+                    or self._last_observation_sha256 is not None
+                    or self._first_staged_snapshot_sha256 is not None
+                    or type(self._authentication_capability) is not _AuthenticatedIssuerCapability
+                ):
+                    self._poison_locked()
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time topology choreography is unavailable"
+                    )
+                authentication_capability = self._authentication_capability
+                self._choreography_consumed = True
+                self._choreography_inflight = True
+                owns_inflight_scope = True
+                lease = _choreography_registrar(
+                    self,
+                    authentication_capability,
+                    started_monotonic_ns=started_monotonic_ns,
+                    deadline_monotonic_ns=deadline_monotonic_ns,
+                )
+            if type(lease) is not _TrustedTimePostEnrollmentTopologyChoreographyLease:
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time topology choreography is unavailable"
+                )
+            checkpoint = self._require_active_choreography_lease(lease)
+            if (
+                checkpoint.started_monotonic_ns != started_monotonic_ns
+                or checkpoint.deadline_monotonic_ns != deadline_monotonic_ns
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time topology choreography is unavailable"
+                )
+            result = action(lease)
+            self._require_active_choreography_lease(lease)
+            with self._lifecycle_lock:
+                if (
+                    self._closed
+                    or self._poisoned
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._authentication_capability is not authentication_capability
+                    or not _authenticated_choreography_is_active(self, lease)
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time topology choreography is unavailable"
+                    )
+                with suppress(BaseException):
+                    _revoke_authenticated_choreography(self, lease)
+                self._choreography_inflight = False
+                scope_finalized = True
+            return result
+        except BaseException:
+            with self._lifecycle_lock:
+                self._poison_locked()
+            raise
+        finally:
+            if owns_inflight_scope and not scope_finalized:
+                with self._lifecycle_lock:
+                    with suppress(BaseException):
+                        _revoke_authenticated_choreography(self, lease)
+                    self._choreography_inflight = False
+
+    def _observation_choreography_is_valid_locked(self, candidate: object | None) -> bool:
+        if self._choreography_inflight:
+            return _authenticated_choreography_is_active(self, candidate)
+        return candidate is None and not self._choreography_consumed
+
+    def _begin_observation(self, choreography_lease: object | None = None) -> None:
         if type(self._owner_pid) is not int or self._owner_pid != os.getpid():
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology observation process is unavailable"
@@ -2571,6 +3061,11 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     "trusted-time topology observation process is unavailable"
                 )
             self._require_usable()
+            if not self._observation_choreography_is_valid_locked(choreography_lease):
+                self._poison_locked()
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time topology observation choreography is unavailable"
+                )
             self._busy = True
 
     def _finish_observation(self) -> None:
@@ -2579,19 +3074,17 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
 
     def _fail_observation(self) -> None:
         with self._lifecycle_lock:
-            self._poisoned = True
-            capability = self._authentication_capability
-            self._authentication_capability = None
-            with suppress(BaseException):
-                _revoke_authenticated_issuer_capability(self, capability)
+            self._poison_locked()
 
     @_authenticated_observation_issuance("cursor")
     def issue_observation_cursor(
         self,
+        *,
+        _choreography_lease: object | None = None,
     ) -> TrustedTimePostEnrollmentTopologyObservationCursor:
         """Seal one bounded live-session cursor without observing topology again."""
 
-        self._begin_observation()
+        self._begin_observation(_choreography_lease)
         try:
             with self._lifecycle_lock:
                 cursor_count = self._cursor_count
@@ -2605,6 +3098,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     self._closed
                     or self._poisoned
                     or not self._busy
+                    or not self._observation_choreography_is_valid_locked(_choreography_lease)
                     or cursor_count >= _MAXIMUM_OBSERVATION_CURSOR_COUNT
                     or created_observation_sha256 is None
                     or last_observation_sha256 is None
@@ -2660,6 +3154,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     self._closed
                     or self._poisoned
                     or not self._busy
+                    or not self._observation_choreography_is_valid_locked(_choreography_lease)
                     or self._authentication_capability is not authentication_capability
                     or not _authenticated_issuer_capability_is_active(
                         self,
@@ -2693,10 +3188,11 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         expected_head_anchor_authority_file: Path,
         expected_head_anchor_auth_secret_file: Path,
         expected_head_anchor_signing_key_secret_file: Path,
+        _choreography_lease: object | None = None,
     ) -> TrustedTimePostEnrollmentCreatedTopologyObservation:
         """Observe a created topology without starting or mutating it."""
 
-        self._begin_observation()
+        self._begin_observation(_choreography_lease)
         try:
             with self._lifecycle_lock:
                 issued_created_observation_sha256 = self._issued_created_observation_sha256
@@ -2707,7 +3203,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 session_sha256 = self._session_sha256
                 authentication_capability = self._authentication_capability
                 if (
-                    type(approval) is not TrustedTimePostEnrollmentStartApproval
+                    not self._observation_choreography_is_valid_locked(_choreography_lease)
+                    or type(approval) is not TrustedTimePostEnrollmentStartApproval
                     or type(approved_launch) is not TrustedTimeApprovedLaunch
                     or issued_created_observation_sha256 is not None
                     or last_observation_sha256 is not None
@@ -2813,6 +3310,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     self._closed
                     or self._poisoned
                     or not self._busy
+                    or not self._observation_choreography_is_valid_locked(_choreography_lease)
                     or self._authentication_capability is not authentication_capability
                     or not _authenticated_issuer_capability_is_active(
                         self,
@@ -2849,10 +3347,11 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         expected_head_anchor_authority_file: Path,
         expected_head_anchor_auth_secret_file: Path,
         expected_head_anchor_signing_key_secret_file: Path,
+        _choreography_lease: object | None = None,
     ) -> TrustedTimePostEnrollmentStagedTopologyObservation:
         """Observe staged state using one exact read-only in-container probe."""
 
-        self._begin_observation()
+        self._begin_observation(_choreography_lease)
         try:
             with self._lifecycle_lock:
                 staged_observation_count = self._staged_observation_count
@@ -2862,7 +3361,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 session_sha256 = self._session_sha256
                 authentication_capability = self._authentication_capability
                 if (
-                    type(created_observation)
+                    not self._observation_choreography_is_valid_locked(_choreography_lease)
+                    or type(created_observation)
                     is not TrustedTimePostEnrollmentCreatedTopologyObservation
                     or created_observation.session_sha256 != session_sha256
                     or type(approval) is not TrustedTimePostEnrollmentStartApproval
@@ -3010,6 +3510,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     self._closed
                     or self._poisoned
                     or not self._busy
+                    or not self._observation_choreography_is_valid_locked(_choreography_lease)
                     or self._authentication_capability is not authentication_capability
                     or not _authenticated_issuer_capability_is_active(
                         self,
@@ -3047,13 +3548,9 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time topology observation issuer close is unavailable"
                 )
-            if self._closed or self._busy:
-                if self._busy:
-                    self._poisoned = True
-                    capability = self._authentication_capability
-                    self._authentication_capability = None
-                    with suppress(BaseException):
-                        _revoke_authenticated_issuer_capability(self, capability)
+            if self._closed or self._busy or self._choreography_inflight:
+                if self._busy or self._choreography_inflight:
+                    self._poison_locked()
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time topology observation issuer close is unavailable"
                 )
@@ -3067,16 +3564,12 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             descriptor_release_failed = False
             try:
                 self._closed = True
-                self._poisoned = True
-                capability = self._authentication_capability
-                self._authentication_capability = None
+                self._poison_locked()
                 self._environment = {}
                 self._cursor_count = 0
                 self._first_staged_snapshot_sha256 = None
                 self._issued_created_observation_sha256 = None
                 self._last_observation_sha256 = None
-                with suppress(BaseException):
-                    _revoke_authenticated_issuer_capability(self, capability)
             except BaseException:
                 state_cleanup_failed = True
             finally:
@@ -3095,6 +3588,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
 
 del _authenticated_observation_open
 del _authenticated_observation_issuance
+del _authenticated_choreography
 del _build_observation_sealer
 
 

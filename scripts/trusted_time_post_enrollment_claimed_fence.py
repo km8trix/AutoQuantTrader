@@ -542,6 +542,7 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
     expected_head_anchor_signing_key_secret_file: Path,
     artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
     ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+    _choreography_lease: object | None = None,
 ) -> _ClaimedFenceMaterials:
     """Retain one claim and prove ordinal 2 was issued after it; never release."""
 
@@ -566,6 +567,8 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
         approved_launch.__post_init__()
         created_observation.__post_init__()
         pre_claim_fence.__post_init__()
+        if _choreography_lease is not None:
+            topology_issuer._require_active_choreography_lease(_choreography_lease)
         _require_pre_claim_structural_inputs(
             artifact_directory=artifact_directory,
             ignored_root=ignored_root,
@@ -609,7 +612,12 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
             or approval.proposed_launch.supervisor_image_id != approved_launch.supervisor_image_id
         ):
             raise ValueError
-        cursor_one = topology_issuer.issue_observation_cursor()
+        if _choreography_lease is None:
+            cursor_one = topology_issuer.issue_observation_cursor()
+        else:
+            cursor_one = topology_issuer.issue_observation_cursor(
+                _choreography_lease=_choreography_lease
+            )
         _require_cursor(
             cursor_one,
             expected_cursor_ordinal=1,
@@ -626,6 +634,8 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
 
     claim_preparation_began = False
     try:
+        if _choreography_lease is not None:
+            topology_issuer._require_active_choreography_lease(_choreography_lease)
         claim_preparation_began = True
         handoff = prepare_post_enrollment_start_release_under_lock(
             approval=approval,
@@ -635,6 +645,8 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
             artifact_directory=artifact_directory,
             ignored_root=ignored_root,
         )
+        if _choreography_lease is not None:
+            topology_issuer._require_active_choreography_lease(_choreography_lease)
         retained = handoff.retained_claim
         if not revalidate_retained_post_enrollment_start_claim(
             retained,
@@ -642,7 +654,12 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
             ignored_root=ignored_root,
         ):
             raise RuntimeError
-        cursor_two = topology_issuer.issue_observation_cursor()
+        if _choreography_lease is None:
+            cursor_two = topology_issuer.issue_observation_cursor()
+        else:
+            cursor_two = topology_issuer.issue_observation_cursor(
+                _choreography_lease=_choreography_lease
+            )
         _require_cursor(
             cursor_two,
             expected_cursor_ordinal=2,
@@ -654,22 +671,34 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
         )
         if cursor_two.cursor_sha256 == cursor_one.cursor_sha256:
             raise RuntimeError
-        ordinal_two = topology_issuer.issue_staged_unreleased_snapshot(
-            created_observation=created_observation,
-            approval=approval,
-            approved_launch=approved_launch,
-            expected_database_secret_file=expected_database_secret_file,
-            expected_head_anchor_authority_file=expected_head_anchor_authority_file,
-            expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
-            expected_head_anchor_signing_key_secret_file=(
+        ordinal_two_arguments = {
+            "created_observation": created_observation,
+            "approval": approval,
+            "approved_launch": approved_launch,
+            "expected_database_secret_file": expected_database_secret_file,
+            "expected_head_anchor_authority_file": expected_head_anchor_authority_file,
+            "expected_head_anchor_auth_secret_file": expected_head_anchor_auth_secret_file,
+            "expected_head_anchor_signing_key_secret_file": (
                 expected_head_anchor_signing_key_secret_file
             ),
-        )
+        }
+        if _choreography_lease is None:
+            ordinal_two = topology_issuer.issue_staged_unreleased_snapshot(**ordinal_two_arguments)
+        else:
+            ordinal_two = topology_issuer.issue_staged_unreleased_snapshot(
+                **ordinal_two_arguments,
+                _choreography_lease=_choreography_lease,
+            )
         pre_release = bind_post_enrollment_start_pre_release_topology_fence(
             pre_claim_fence,
             ordinal_two,
         )
-        cursor_three = topology_issuer.issue_observation_cursor()
+        if _choreography_lease is None:
+            cursor_three = topology_issuer.issue_observation_cursor()
+        else:
+            cursor_three = topology_issuer.issue_observation_cursor(
+                _choreography_lease=_choreography_lease
+            )
         _require_cursor(
             cursor_three,
             expected_cursor_ordinal=3,
@@ -690,6 +719,8 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
             ignored_root=ignored_root,
         ):
             raise RuntimeError
+        if _choreography_lease is not None:
+            topology_issuer._require_active_choreography_lease(_choreography_lease)
         return _ClaimedFenceMaterials(
             approval=approval,
             created_observation=created_observation,
@@ -706,7 +737,9 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
             raise TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired(
                 "trusted-time claimed pre-release topology requires recovery"
             ) from None
-        raise
+        raise TrustedTimePostEnrollmentStartClaimedFenceRejected(
+            "trusted-time claimed pre-release topology inputs are unavailable"
+        ) from None
 
 
 class _ClaimedFencePreparer(Protocol):
@@ -727,6 +760,7 @@ class _ClaimedFencePreparer(Protocol):
         expected_head_anchor_signing_key_secret_file: Path,
         artifact_directory: Path = ...,
         ignored_root: Path = ...,
+        _choreography_lease: object | None = ...,
     ) -> TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence: ...
 
 
@@ -803,6 +837,7 @@ def _build_claimed_fence_preparer(
         expected_head_anchor_signing_key_secret_file: Path,
         artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
         ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+        _choreography_lease: object | None = None,
     ) -> TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence:
         capability: _ClaimedFenceCapability | None = None
         materials_prepared = False
@@ -824,6 +859,7 @@ def _build_claimed_fence_preparer(
                 ),
                 artifact_directory=artifact_directory,
                 ignored_root=ignored_root,
+                _choreography_lease=_choreography_lease,
             )
             materials_prepared = True
             retained = materials.handoff.retained_claim
@@ -869,6 +905,8 @@ def _build_claimed_fence_preparer(
                 _capability=capability,
             )
             result.__post_init__()
+            if _choreography_lease is not None:
+                topology_issuer._require_active_choreography_lease(_choreography_lease)
             return result
         except TrustedTimePostEnrollmentStartClaimedFenceRejected:
             if not materials_prepared:
@@ -898,6 +936,51 @@ del _build_claimed_fence_preparer
 del _prepare_post_enrollment_start_claimed_pre_release_materials
 
 
+def prepare_post_enrollment_start_leased_claimed_pre_release_fence(
+    *,
+    approval: TrustedTimePostEnrollmentStartApproval,
+    expected_approval_sha256: str,
+    approved_launch: TrustedTimeApprovedLaunch,
+    created_observation: TrustedTimePostEnrollmentCreatedTopologyObservation,
+    pre_claim_fence: TrustedTimePostEnrollmentStartPreClaimTopologyFence,
+    topology_issuer: TrustedTimePostEnrollmentTopologyObservationIssuer,
+    choreography_lease: object,
+    supervisor_container_id: str,
+    reauthentication_issuer: TrustedTimePostEnrollmentStartReauthenticationIssuer,
+    expected_database_secret_file: Path,
+    expected_head_anchor_authority_file: Path,
+    expected_head_anchor_auth_secret_file: Path,
+    expected_head_anchor_signing_key_secret_file: Path,
+    artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+) -> TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence:
+    """Run the unchanged claimed chronology under one active private lease."""
+
+    try:
+        topology_issuer._require_active_choreography_lease(choreography_lease)
+    except BaseException:
+        raise TrustedTimePostEnrollmentStartClaimedFenceRejected(
+            "trusted-time claimed pre-release topology inputs are unavailable"
+        ) from None
+    return prepare_post_enrollment_start_claimed_pre_release_fence(
+        approval=approval,
+        expected_approval_sha256=expected_approval_sha256,
+        approved_launch=approved_launch,
+        created_observation=created_observation,
+        pre_claim_fence=pre_claim_fence,
+        topology_issuer=topology_issuer,
+        supervisor_container_id=supervisor_container_id,
+        reauthentication_issuer=reauthentication_issuer,
+        expected_database_secret_file=expected_database_secret_file,
+        expected_head_anchor_authority_file=expected_head_anchor_authority_file,
+        expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
+        expected_head_anchor_signing_key_secret_file=(expected_head_anchor_signing_key_secret_file),
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+        _choreography_lease=choreography_lease,
+    )
+
+
 __all__ = [
     "POST_ENROLLMENT_START_CLAIMED_PRE_RELEASE_TOPOLOGY_FENCE_CONTRACT_VERSION",
     "POST_ENROLLMENT_START_CLAIMED_PRE_RELEASE_TOPOLOGY_FENCE_STATUS",
@@ -905,4 +988,5 @@ __all__ = [
     "TrustedTimePostEnrollmentStartClaimedFenceRejected",
     "TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence",
     "prepare_post_enrollment_start_claimed_pre_release_fence",
+    "prepare_post_enrollment_start_leased_claimed_pre_release_fence",
 ]

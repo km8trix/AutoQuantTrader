@@ -321,11 +321,19 @@ def _install_success(
     staged_error: BaseException | None = None,
     bind_error: BaseException | None = None,
     revalidations: list[bool] | None = None,
+    expected_choreography_lease: object | None = None,
+    choreography_checkpoint_failure: tuple[int, BaseException] | None = None,
 ) -> None:
     cursors = iter(cursor_values or context.cursors)
     validations = iter(revalidations or [True, True])
+    checkpoint_count = 0
 
-    def issue_cursor(_: object) -> reader.TrustedTimePostEnrollmentTopologyObservationCursor:
+    def issue_cursor(
+        _: object,
+        *,
+        _choreography_lease: object | None = None,
+    ) -> reader.TrustedTimePostEnrollmentTopologyObservationCursor:
+        assert _choreography_lease is expected_choreography_lease
         value = next(cursors)
         context.events.append(f"cursor:{value.cursor_ordinal}:{value.staged_observation_count}")
         return value
@@ -339,12 +347,28 @@ def _install_success(
         return next(validations)
 
     def issue_staged(
-        _: object, **__: object
+        _: object,
+        *,
+        _choreography_lease: object | None = None,
+        **__: object,
     ) -> reader.TrustedTimePostEnrollmentStagedTopologyObservation:
+        assert _choreography_lease is expected_choreography_lease
         context.events.append("issue_ordinal_2")
         if staged_error is not None:
             raise staged_error
         return context.staged_two
+
+    def checkpoint(_: object, candidate: object) -> object:
+        nonlocal checkpoint_count
+        checkpoint_count += 1
+        assert candidate is expected_choreography_lease
+        context.events.append("checkpoint_lease")
+        if (
+            choreography_checkpoint_failure is not None
+            and checkpoint_count == choreography_checkpoint_failure[0]
+        ):
+            raise choreography_checkpoint_failure[1]
+        return object()
 
     original_bind = bind_post_enrollment_start_pre_release_topology_fence
 
@@ -364,6 +388,12 @@ def _install_success(
         "issue_staged_unreleased_snapshot",
         issue_staged,
     )
+    if expected_choreography_lease is not None:
+        monkeypatch.setattr(
+            reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+            "_require_active_choreography_lease",
+            checkpoint,
+        )
     monkeypatch.setattr(
         claimed,
         "prepare_post_enrollment_start_release_under_lock",
@@ -450,6 +480,153 @@ def test_success_binds_exact_three_cursor_claim_chronology(
         "runtime-secrets",
     }
     assert list((context.artifact_directory / "runtime-secrets").iterdir()) == []
+
+
+def test_leased_wrapper_threads_one_exact_lease_and_brackets_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _context(tmp_path)
+    lease = object()
+    _install_success(
+        monkeypatch,
+        context,
+        expected_choreography_lease=lease,
+    )
+
+    result = claimed.prepare_post_enrollment_start_leased_claimed_pre_release_fence(
+        **context.kwargs(),  # type: ignore[arg-type]
+        choreography_lease=lease,
+    )
+
+    assert result.claim_chronology_authenticated is True
+    assert context.events == [
+        "checkpoint_lease",
+        "checkpoint_lease",
+        "cursor:1:1",
+        "checkpoint_lease",
+        "prepare_claim",
+        "checkpoint_lease",
+        "revalidate_claim",
+        "cursor:2:1",
+        "issue_ordinal_2",
+        "bind_pre_release",
+        "cursor:3:2",
+        "revalidate_claim",
+        "checkpoint_lease",
+        "checkpoint_lease",
+    ]
+    claim_index = context.events.index("prepare_claim")
+    assert context.events[claim_index - 1 : claim_index + 2] == [
+        "checkpoint_lease",
+        "prepare_claim",
+        "checkpoint_lease",
+    ]
+
+
+def test_leased_wrapper_preserves_unleased_v1_payload_and_digest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _context(tmp_path)
+    _install_success(monkeypatch, context)
+    unleased = claimed.prepare_post_enrollment_start_claimed_pre_release_fence(
+        **context.kwargs()  # type: ignore[arg-type]
+    )
+    unleased_payload = unleased.payload()
+    unleased_fence_sha256 = unleased.fence_sha256
+    (context.artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).unlink()
+    context.events.clear()
+
+    lease = object()
+    _install_success(
+        monkeypatch,
+        context,
+        expected_choreography_lease=lease,
+    )
+    leased = claimed.prepare_post_enrollment_start_leased_claimed_pre_release_fence(
+        **context.kwargs(),  # type: ignore[arg-type]
+        choreography_lease=lease,
+    )
+
+    assert leased.payload() == unleased_payload
+    assert leased.fence_sha256 == unleased_fence_sha256
+    assert "choreography_lease" not in leased.payload()
+    assert "choreography_deadline" not in leased.payload()
+    assert "lease_token" not in leased.payload()
+    assert not hasattr(leased, "choreography_lease")
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        reader.TrustedTimePostEnrollmentTopologyReaderError("lease lost"),
+        KeyboardInterrupt(),
+    ],
+)
+def test_pre_claim_lease_failure_is_rejected_without_retained_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: BaseException,
+) -> None:
+    context = _context(tmp_path)
+    lease = object()
+    _install_success(
+        monkeypatch,
+        context,
+        expected_choreography_lease=lease,
+        choreography_checkpoint_failure=(3, failure),
+    )
+
+    with pytest.raises(claimed.TrustedTimePostEnrollmentStartClaimedFenceRejected):
+        claimed.prepare_post_enrollment_start_leased_claimed_pre_release_fence(
+            **context.kwargs(),  # type: ignore[arg-type]
+            choreography_lease=lease,
+        )
+
+    assert context.events == [
+        "checkpoint_lease",
+        "checkpoint_lease",
+        "cursor:1:1",
+        "checkpoint_lease",
+    ]
+    assert not (context.artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).exists()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        reader.TrustedTimePostEnrollmentTopologyReaderError("lease lost"),
+        KeyboardInterrupt(),
+    ],
+)
+def test_post_claim_lease_failure_requires_recovery_and_retains_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: BaseException,
+) -> None:
+    context = _context(tmp_path)
+    lease = object()
+    _install_success(
+        monkeypatch,
+        context,
+        expected_choreography_lease=lease,
+        choreography_checkpoint_failure=(4, failure),
+    )
+
+    with pytest.raises(claimed.TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired):
+        claimed.prepare_post_enrollment_start_leased_claimed_pre_release_fence(
+            **context.kwargs(),  # type: ignore[arg-type]
+            choreography_lease=lease,
+        )
+
+    claim_index = context.events.index("prepare_claim")
+    assert context.events[claim_index - 1 : claim_index + 2] == [
+        "checkpoint_lease",
+        "prepare_claim",
+        "checkpoint_lease",
+    ]
+    assert (context.artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).exists()
 
 
 def test_cached_ordinal_two_is_rejected_before_claim(
@@ -996,6 +1173,7 @@ def test_module_has_no_cli_release_subprocess_or_outcome_surface() -> None:
         "TrustedTimePostEnrollmentStartClaimedFenceRejected",
         "TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence",
         "prepare_post_enrollment_start_claimed_pre_release_fence",
+        "prepare_post_enrollment_start_leased_claimed_pre_release_fence",
     }
     for name in ("main", "run", "release", "execute", "retain_outcome"):
         assert not hasattr(claimed, name)

@@ -3602,12 +3602,26 @@ open owns the global launcher lock, a canonical absolute and metadata-pinned
 Docker executable, the qualified local Unix socket and daemon identity, and a
 PID-bound non-copyable lifecycle guarded against concurrent use. The guarded
 production signer is bound to the exact issuer owner, session, and creating
-PID. That lifecycle serializes each observation or cursor operation; it is not
-an exclusive lease over a multi-call choreography. An at-fork child hook closes
-the inherited global-lock descriptor without acquiring inherited Python locks,
-so a surviving child cannot retain the flock after an abnormal parent exit.
-Its fixed commands have
-two-second deadlines and per-stream byte caps. A compact
+PID. That lifecycle still serializes each raw observation or cursor operation
+outside a consumed choreography. The additive private
+`_run_exclusive_choreography` callback acquires one opaque token exactly once
+and only on a fresh issuer with no prior observation, cursor, active operation,
+or consumed choreography. The token is bound to the exact issuer,
+authentication capability, session, creating PID, and exact current-thread
+identity. It is non-copyable and nonserializable, valid only inside that callback, and revoked
+before callback return escapes. An at-fork child hook closes the inherited
+global-lock descriptor without acquiring inherited Python locks, so a surviving
+child cannot retain the flock after an abnormal parent exit.
+
+Lease acquisition fixes one absolute 300-second monotonic deadline. A regressed
+sample or a sample equal to or later than that deadline fails closed. Raw
+commands retain two-second deadlines; callback Docker timeouts shrink to
+`min(2 seconds, remaining time)` and are followed by another checkpoint. The
+unchanged v1 transcript's 2,000-millisecond field records that ceiling, not the
+possibly smaller timeout supplied to a leased runner. A raw
+observation/cursor call or attempted close during the callback poisons the
+issuer and revokes its capabilities without releasing the outer flock before
+callback unwind. Commands retain their per-stream byte caps. A compact
 LF-terminated UTF-8 decoder rejects duplicate object keys, whitespace framing,
 nonstandard constants, floats, oversized integers, invalid Unicode, and
 depth/node exhaustion before validation.
@@ -3688,11 +3702,21 @@ revalidated again. It accepts no caller-supplied ordinal 2, so a cached ordinal
 changed predecessor, a mismatch between the full ordinal-1 and ordinal-2
 staged observations, or claim drift fails closed. The third cursor performs one
 daemon/session read, not another full topology observation. The per-operation
-issuer guard is released between these calls, so the function has no
-unshareable same-process lease against another holder of the issuer reference;
-after it returns, the result neither holds nor proves that the issuer remains
-open. It therefore proves neither topology stability after ordinal 2 nor
-uninterrupted ownership through a later release.
+issuer guard is released between these calls when the original preparer is
+called directly, so that raw call does not prove uninterrupted ownership. It
+therefore proves neither topology stability after ordinal 2 nor uninterrupted
+ownership through a later release.
+
+The additive
+`prepare_post_enrollment_start_leased_claimed_pre_release_fence` wrapper accepts
+only the exact private callback token, runs the unchanged chronology, and
+returns the same exact v1 result and public payload. It checkpoints the lease
+before structural preparation, immediately before and after the claimed-release
+handoff, after final claim revalidation, and after result construction. Leased
+cursor and ordinal-2 Docker reads also checkpoint the lease and use the
+shrinking deadline. Lease identity, private monotonic fields, and checkpoints
+do not enter the claimed-fence payload or durable evidence. The returned result
+does not retain the token or prove that the callback or issuer remains active.
 
 This process-sealed chronology result authenticates observation provenance,
 the same-session chain and stable-topology match, real claim retention and
@@ -3718,8 +3742,8 @@ release is authorized.
 
 No worker/main, Make, Compose, or launcher wiring invokes either topology
 candidate, the dormant observation reader, either same-session fence binder,
-the claimed chronology seam, the claimed-release handoff, the sequence-2
-issuer, or the successor binder;
+the claimed chronology seam or its leased wrapper, the claimed-release handoff,
+the sequence-2 issuer, or the successor binder;
 the host outcome remains `UNCONFIRMED`, every authority field remains false,
 and `trusted-time-start` and shutdown remain hard closed. Consequently, no
 supported persistent topology or independent supervisor watchdog is deployed.
@@ -3757,22 +3781,28 @@ deployment, drill, or Phase 6 exit evidence. The retained passing rollback
 probe, applied atomic read-policy upgrade, separately approved same-object proof
 resume, confirmed first enrollment, staged-release image admission, dormant
 bounded topology observation issuer, pure two-stage same-session fence, and
-code-only claimed pre-release chronology are complete. The next normative
-boundary remains a separately reviewed exact-outcome-bound host controller.
-It must own an unshareable same-process choreography lease/capability over one
-continuously open PID-bound issuer/global-lock session, spanning claim
-preparation, release, post-release qualification, and durable outcome retention,
-with an end-to-end deadline through retention of an exact success, failure, or
-recovery-required outcome. Under that lease it must create
-and stage the admitted topology, obtain ordinal 1, bind the pre-claim fence,
-and use the claimed chronology seam for claim retention/revalidation, issuer-
-created ordinal 2, pre-release binding, and final claim revalidation. Still-
-missing release, post-release terminal/topology, and outcome contracts must
-then perform a final full live reobservation, execute only the approved marker
-release, receive and authenticate the bounded sequence-2 terminal, requalify
-the persistent topology, and durably retain every exact outcome and recovery
-disposition. The controller's merged revision and images require fresh admission
-and separate operational approval before execution. Only after that boundary
+code-only claimed pre-release chronology plus private one-shot lease/deadline
+seam are complete. The next normative boundary remains a separately reviewed
+exact-outcome-bound host controller. While healthy, it must use that action
+lease while keeping the same callback and continuously open PID-bound issuer/
+global-lock session from fresh topology creation and staging through ordinal 1,
+claim preparation, final full live action-time reobservation, exact marker
+release, the bounded sequence-2 terminal, persistent-topology qualification,
+and durable success retention. The existing absolute 300-second deadline must
+cover the successful callback and must not restart at any later stage; the
+callback must not return with only the claimed v1 result.
+
+Poisoning irreversibly revokes the action lease but does not let a non-owning
+attempt clear the owning callback's inflight scope or release the flock. Before
+release exists, a distinct exact callback-local retention-only capability must
+append at most one durable failure/recovery disposition without restoring any
+read or mutation authority. Deadline-expired recovery retention is the sole
+non-action deadline exception and needs a separately reviewed bound. If it
+cannot finish or a crash occurs, the consumed claim is the hard-closed recovery
+fact. The lease slice itself grants no release, retention, runtime, sequence-2,
+persistent-topology, or outcome authority. The controller's merged revision and
+images require fresh admission and separate operational approval before
+execution. Only after that boundary
 exists may a sealed watchdog provider-terminal issuer
 authenticate the complete new suffix, bind two stable namespace passes to their
 exact digest, count, and terminal identity, prove no higher sequence exists, and
