@@ -2816,15 +2816,70 @@ durable artifact is preserved but
 internal retention state remains `unconfirmed`; it is never reported as terminal
 retained success.
 
+Contract `phase6d-post-enrollment-final-action-topology-observation-v1`, with
+sole status
+`final_action_staged_unreleased_topology_observation_unqualified`, now adds one
+distinct full action-time read without widening the staged v1 ordinal chain.
+After staged ordinal 2 and all three cursors, private method
+`_issue_claimed_final_action_topology_snapshot` accepts only a one-shot
+authorization bound to the exact claimed pre-release object and digest, created
+observation, approval, approved launch, staged-path tuple, issuer, active lease,
+PID, and thread. A `finally` edge removes any authorization that issuance does
+not consume. The reader performs another complete 16-read staged-unreleased
+observation under the shrinking action deadline. It independently revalidates
+the claimed type/process seal and private created, ordinal-2, and cursor-3
+identities; requires staged count 2, cursor count 3, ordinal 2 last, the same
+first staged snapshot, and no prior final observation; and issues neither staged
+ordinal 3 nor cursor 4.
+
+Contract `phase6d-post-enrollment-start-claimed-action-topology-fence-v1`, with
+sole status `claimed_action_topology_fence_unqualified`, binds that final reader
+envelope to the exact process-sealed claimed pre-release fence. Function
+`prepare_post_enrollment_start_leased_claimed_action_topology_fence` accepts only
+the exact claimed result and its one-shot private claim-origin tuple: issuer,
+lease, armed recovery capability, artifact and ignored roots, PID, and thread.
+The claimed result registers that tuple only in the process-private capability
+registry; neither its public payload nor the later action-fence payload contains
+the lease or recovery capability. Successful consumption removes the full
+issuer/lease/recovery/root/PID/thread tuple before any final read and retains
+only a weak reference to the originating issuer as a consumed-origin tombstone.
+That tombstone conveys no lease, recovery, observation, or mutation authority;
+it exists only so any later replay can still poison the origin. A wrong or
+replayed tuple fails closed and poisons the registered or tombstoned origin.
+The preparer then requires the exact recovery capability to remain armed while
+revalidating the live lease, named lock, roots, and shrinking deadline throughout
+the operation. It revalidates the retained claim before and after the full read
+and checkpoints both the armed recovery escape and action lease through result
+construction. Its result is process-local, non-copyable, nonserializable, and
+invalid after fork. The public payload retains only authenticated digest
+projections; the in-process object retains its sealed claimed result and final
+observation so validation can recheck the nested evidence. It does not retain
+the lease or recovery capability and does not prove authority survives after
+return. Current-session, freshness, and topology authentication fields remain
+false: this observation is not temporal adjacency or release authority.
+
+Invalid input before the exact claimed fence is established is rejected. Once
+that exact object is presented, a missing, wrong, or replayed origin tuple is
+recovery-required and poisons its registered originating action; an exact
+candidate issuer is poisoned as well. Any later observation, claim, armed-
+recovery, lock, deadline, checkpoint, or result failure likewise poisons action
+and reports recovery-required while preserving the already armed recovery token
+for the owning outer callback. The preparer does not retain an outcome. This is
+a dormant action-adjacent fence, not the active controller: it closes the final
+cursor-only topology-observation gap at its own code boundary but authorizes no
+release, runtime, sequence 2, persistent topology, success outcome, or trading
+action.
+
 The next implementation remains a separately admitted and operationally
 approved active controller. While healthy, it must use the now-implemented
 private one-shot action lease and keep the same callback plus continuously open
 PID-bound issuer/global-lock session from fresh topology creation and staging
-through ordinal 1, claim preparation, final full live action-time
-reobservation, exact release, bounded sequence 2, persistent-topology
-qualification, and durable success retention. The existing absolute
-300-second deadline must cover that successful callback and must not restart at
-a later stage; the callback must not return with only the claimed v1 result.
+through ordinal 1, claim preparation and the now-implemented final full live
+action-time reobservation, then through exact release, bounded sequence 2,
+persistent-topology qualification, and durable success retention. The existing
+absolute 300-second deadline must cover that successful callback and must not
+restart at a later stage; the callback must not return with only either
+unqualified claimed fence.
 
 Any poison or action-deadline failure revokes action authority immediately,
 while the owning callback and flock remain live until unwind. The implemented
@@ -3011,16 +3066,26 @@ unavailable before any watchdog consumer is designed or qualified. See
   the binder, and then revalidates the claim again. Pre-arm failure revokes and
   poisons; post-arm ambiguity is `unconfirmed`. It never unlinks, replaces, or
   retries a possibly durable outcome and never restores action authority. The
-  claim and recovery seams do not
-  create or mutate topology, publish or execute the release marker, observe or
-  mutate sequence 2, or grant authority. There is no CLI, Make, Compose,
-  launcher, worker, release, or trading wiring. A later exact-outcome-bound host
-  controller, admission for its exact revision, and separate operational
-  approval must keep this same callback, flock, and action deadline through
-  final full action-time reobservation, exact release, bounded sequence 2,
-  persistent-topology qualification, and durable success retention. Those
-  action, runtime, and success-outcome contracts remain missing before the
-  normal worker may create sequence 2.
+  claim, recovery, and final action-topology seams do not create or mutate
+  topology, publish or execute the release marker, observe or mutate sequence 2,
+  or grant authority. The distinct final observation performs one exact 16-read
+  staged-unreleased pass under the same active lease after ordinal 2 and cursor
+  3, and the claimed action fence consumes the claimed result's private one-shot
+  issuer/lease/armed-recovery/roots/PID/thread origin tuple before binding the
+  observation back to that exact process-sealed chronology. It continuously
+  requires the recovery capability to remain armed under the same live lock and
+  deadline, without creating ordinal 3 or cursor 4. Full origin material is
+  erased at consumption; only a non-authorizing weak issuer tombstone remains
+  for replay poisoning. Neither enters a public payload. There is no CLI, Make,
+  Compose, launcher, worker,
+  release, or trading wiring. A later exact-outcome-bound host controller,
+  admission for its exact revision, and separate
+  operational approval must keep this same callback, flock, and action deadline
+  from fresh topology creation through the now-implemented claimed action fence,
+  then through exact release, bounded sequence 2, persistent-topology
+  qualification, and durable success retention. The topology creation/start,
+  release, runtime, post-release topology, and success-outcome contracts remain
+  missing before the normal worker may create sequence 2.
   Complete that boundary before adding an
   independent watchdog, readiness,
   final new-exposure, alert, and exact-head manual re-arm consumers. The local

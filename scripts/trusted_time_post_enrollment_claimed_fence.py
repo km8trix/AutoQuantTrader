@@ -13,7 +13,9 @@ import hashlib
 import os
 import stat
 import threading
+import weakref
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Never, Protocol, SupportsIndex
@@ -845,10 +847,19 @@ def _build_claimed_fence_preparer(
     _ClaimedFencePreparer,
     _ClaimedFenceCapabilityValidator,
     Callable[..., bool],
+    Callable[..., bool],
 ]:
     registry_lock = threading.Lock()
     origin_pid = os.getpid()
     registrations: dict[object, tuple[str, object | None]] = {}
+    claimed_action_choreographies: dict[
+        _ClaimedFenceCapability,
+        tuple[object, object | None, object | None, Path, Path, int, threading.Thread],
+    ] = {}
+    consumed_claimed_action_origins: dict[
+        _ClaimedFenceCapability,
+        weakref.ReferenceType[TrustedTimePostEnrollmentTopologyObservationIssuer],
+    ] = {}
     recovery_binder_authorizations: dict[
         _ClaimedFenceRecoveryBinderAuthorization,
         tuple[object, object, object, Path, Path, int, threading.Thread],
@@ -922,21 +933,46 @@ def _build_claimed_fence_preparer(
             and registration[6] is threading.current_thread()
         )
 
-    def register(material: Mapping[str, object]) -> _ClaimedFenceCapability:
-        if os.getpid() != origin_pid:
+    def register(
+        candidate: _ClaimedFenceCapability,
+        material: Mapping[str, object],
+        *,
+        topology_issuer: object,
+        choreography_lease: object | None,
+        recovery_retention_capability: object | None,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> None:
+        if os.getpid() != origin_pid or type(candidate) is not _ClaimedFenceCapability:
             raise TrustedTimePostEnrollmentStartClaimedFenceRejected(
                 "trusted-time claimed pre-release capability is unavailable"
             )
-        capability = object.__new__(_ClaimedFenceCapability)
         with registry_lock:
-            registrations[capability] = (_payload_sha256(dict(material)), None)
-        return capability
+            registrations[candidate] = (_payload_sha256(dict(material)), None)
+            claimed_action_choreographies[candidate] = (
+                topology_issuer,
+                choreography_lease,
+                recovery_retention_capability,
+                artifact_directory,
+                ignored_root,
+                os.getpid(),
+                threading.current_thread(),
+            )
 
     def unregister(candidate: object) -> None:
-        if os.getpid() != origin_pid:
+        if os.getpid() != origin_pid or type(candidate) is not _ClaimedFenceCapability:
             return
-        with registry_lock:
-            registrations.pop(candidate, None)
+        try:
+            with registry_lock:
+                claimed_action_choreographies.pop(candidate, None)
+                consumed_claimed_action_origins.pop(candidate, None)
+                registrations.pop(candidate, None)
+        except BaseException:
+            with suppress(BaseException), registry_lock:
+                claimed_action_choreographies.pop(candidate, None)
+                consumed_claimed_action_origins.pop(candidate, None)
+                registrations.pop(candidate, None)
+            raise
 
     def valid(
         candidate: object,
@@ -959,6 +995,85 @@ def _build_claimed_fence_preparer(
                 registrations[candidate] = (material_sha256, result)
                 return True
             return bound_result is result
+
+    def consume_claimed_action_choreography(
+        candidate: object,
+        *,
+        topology_issuer: object,
+        choreography_lease: object,
+        recovery_retention_capability: object,
+        artifact_directory: object,
+        ignored_root: object,
+    ) -> bool:
+        """Consume the exact claim-origin binding before any final action read."""
+
+        if (
+            os.getpid() != origin_pid
+            or type(candidate) is not TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence
+        ):
+            return False
+        capability = candidate._capability
+        if type(capability) is not _ClaimedFenceCapability:
+            return False
+        origin: (
+            tuple[object, object | None, object | None, Path, Path, int, threading.Thread] | None
+        ) = None
+        consumed_origin: (
+            weakref.ReferenceType[TrustedTimePostEnrollmentTopologyObservationIssuer] | None
+        ) = None
+        replayed_origin: TrustedTimePostEnrollmentTopologyObservationIssuer | None = None
+        try:
+            with registry_lock:
+                registration = registrations.get(capability)
+                origin = claimed_action_choreographies.pop(capability, None)
+                consumed_origin = consumed_claimed_action_origins.get(capability)
+            if origin is None:
+                replayed_origin = consumed_origin() if consumed_origin is not None else None
+                if type(replayed_origin) is TrustedTimePostEnrollmentTopologyObservationIssuer:
+                    with replayed_origin._lifecycle_lock:
+                        replayed_origin._poison_locked()
+                return False
+            accepted = bool(
+                registration is not None
+                and registration[1] is candidate
+                and getattr(origin[0], "_poisoned", False) is False
+                and getattr(origin[0], "_closed", False) is False
+                and origin[0] is topology_issuer
+                and origin[1] is choreography_lease
+                and origin[2] is recovery_retention_capability
+                and recovery_retention_capability is not None
+                and origin[3] == artifact_directory
+                and origin[4] == ignored_root
+                and origin[5] == os.getpid()
+                and origin[6] is threading.current_thread()
+            )
+            if not accepted:
+                origin_issuer = origin[0]
+                if type(origin_issuer) is TrustedTimePostEnrollmentTopologyObservationIssuer:
+                    with origin_issuer._lifecycle_lock:
+                        origin_issuer._poison_locked()
+            else:
+                origin_issuer = origin[0]
+                assert type(origin_issuer) is TrustedTimePostEnrollmentTopologyObservationIssuer
+                with registry_lock:
+                    consumed_claimed_action_origins[capability] = weakref.ref(origin_issuer)
+            return accepted
+        except BaseException:
+            if origin is None:
+                with registry_lock:
+                    origin = claimed_action_choreographies.pop(capability, None)
+                    consumed_origin = consumed_claimed_action_origins.get(capability)
+                if consumed_origin is not None:
+                    replayed_origin = consumed_origin()
+            if origin is not None:
+                origin_issuer = origin[0]
+                if type(origin_issuer) is TrustedTimePostEnrollmentTopologyObservationIssuer:
+                    with origin_issuer._lifecycle_lock:
+                        origin_issuer._poison_locked()
+            elif type(replayed_origin) is TrustedTimePostEnrollmentTopologyObservationIssuer:
+                with replayed_origin._lifecycle_lock:
+                    replayed_origin._poison_locked()
+            raise
 
     def prepare_post_enrollment_start_claimed_pre_release_fence(
         *,
@@ -1020,7 +1135,16 @@ def _build_claimed_fence_preparer(
                 pre_release_fence_sha256=materials.pre_release_fence.fence_sha256,
                 final_cursor_sha256=materials.final_cursor.cursor_sha256,
             )
-            capability = register(payload)
+            capability = object.__new__(_ClaimedFenceCapability)
+            register(
+                capability,
+                payload,
+                topology_issuer=topology_issuer,
+                choreography_lease=_choreography_lease,
+                recovery_retention_capability=_recovery_retention_capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
             result = TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence(
                 operation_id=materials.approval.operation_id,
                 approval_sha256=materials.approval.approval_sha256,
@@ -1071,6 +1195,7 @@ def _build_claimed_fence_preparer(
         prepare_post_enrollment_start_claimed_pre_release_fence,
         valid,
         consume_recovery_binder_authorization,
+        consume_claimed_action_choreography,
     )
 
 
@@ -1078,6 +1203,7 @@ def _build_claimed_fence_preparer(
     prepare_post_enrollment_start_claimed_pre_release_fence,
     _valid_claimed_fence_capability,
     _consume_claimed_fence_recovery_binder_authorization,
+    _consume_claimed_fence_action_choreography,
 ) = _build_claimed_fence_preparer(_prepare_post_enrollment_start_claimed_pre_release_materials)
 del _build_claimed_fence_preparer
 del _prepare_post_enrollment_start_claimed_pre_release_materials

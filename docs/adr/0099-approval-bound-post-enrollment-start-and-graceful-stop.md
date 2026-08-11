@@ -4,8 +4,8 @@
   sequence-2 observation/binding, import-only claimed-release handoff, pure
   topology snapshots, bounded observation issuer, and pure two-stage same-
   session topology fence plus code-only claimed pre-release chronology and
-  callback-scoped lease/deadline and retained recovery-outcome seams; host
-  execution blocked)
+  callback-scoped lease/deadline, retained recovery-outcome, and final claimed
+  action-time topology-fence seams; host execution blocked)
 - Date: 2026-08-08
 - Extends: [ADR 0098](0098-canonical-post-enrollment-start-evidence-review.md)
 
@@ -362,6 +362,57 @@ outcome receipt and inode. Claim or outcome loss after exclusive creation begins
 therefore preserves any possibly durable artifact but reports retention as
 unconfirmed, never as terminal retained success.
 
+The distinct final action-time reader contract is
+`phase6d-post-enrollment-final-action-topology-observation-v1`, with sole status
+`final_action_staged_unreleased_topology_observation_unqualified`. It does not
+widen the staged v1 chain: after staged ordinal 2 and all three cursors, private
+method `_issue_claimed_final_action_topology_snapshot` accepts only a one-shot
+authorization bound to the exact claimed pre-release object and digest, created
+observation, approval, approved launch, staged-path tuple, issuer, active lease,
+PID, and thread. A `finally` edge removes any authorization that issuance does
+not consume. The reader performs one new complete 16-read staged-unreleased
+observation under the shrinking action deadline. It independently revalidates
+the claimed type/process seal and private created, ordinal-2, and cursor-3
+identities; requires staged count 2, cursor count 3, ordinal 2 last, the same
+first staged snapshot, and no prior final observation; and issues neither staged
+ordinal 3 nor cursor 4.
+
+Contract `phase6d-post-enrollment-start-claimed-action-topology-fence-v1`, with
+sole status `claimed_action_topology_fence_unqualified`, binds that final full
+observation back to the exact process-sealed claimed pre-release fence.
+Function `prepare_post_enrollment_start_leased_claimed_action_topology_fence`
+accepts only that exact result and its one-shot process-private origin tuple:
+issuer, lease, armed recovery capability, artifact and ignored roots, PID, and
+thread. The claimed result's capability registry, not either public payload,
+holds that tuple until the action preparer consumes it. Successful consumption
+erases the full issuer/lease/recovery/root/PID/thread tuple before the final read
+and retains only a weak reference to the originating issuer as a consumed-origin
+tombstone. The tombstone grants no authority and exists solely so a later replay
+can still poison the origin. Wrong or replayed tuples poison the registered or
+tombstoned origin. After consumption, the preparer repeatedly requires the exact
+recovery capability to remain armed while revalidating the live lease, named
+lock, roots, and shrinking deadline. It revalidates the exact
+retained claim before and after the reader operation and checkpoints both the
+armed recovery escape and lease through result construction. The result is
+process-local, non-copyable, nonserializable, and invalid after fork. Its public
+payload retains only digest projections; the in-process object retains sealed
+nested evidence for revalidation. It retains neither the lease nor recovery
+capability and does not prove authority survives after return. Current-session,
+freshness, and topology authentication remain false; it does not prove temporal
+adjacency to release.
+
+Invalid input before the exact claimed fence is established is rejected. Once
+that exact object is presented, a missing, wrong, or replayed origin tuple is
+recovery-required and poisons its registered originating action; an exact
+candidate issuer is poisoned as well. Any later observation, claim, armed-
+recovery, lock, deadline, checkpoint, or result failure likewise poisons action
+and reports recovery-required while preserving the already armed recovery token
+for the owning outer callback. The preparer never retains an outcome itself.
+This intermediate seam closes the specific cursor-only topology-observation gap
+at its own code boundary; it is not the active controller and supplies no
+release, runtime, sequence-2, persistent-topology, success-outcome, or trading
+authority.
+
 The dormant sequence-2 issuer performs complete SQL replay, a stable bounded
 two-object remote audit, and complete SQL replay again without signing or
 uploading. It freezes the exact sequence-2 `epoch_rotation` receipt, record, and
@@ -376,8 +427,9 @@ No worker/main, Make, Compose, or supported host-launcher path calls the
 sequence-2 issuer or binder, invokes the claimed-release handoff, either pure
 topology snapshot, the dormant observation reader, or either same-session fence
 binder, the claimed chronology seam, its leased wrapper, or the recovery-
-outcome module, executes either projected start argv, invokes the claim or
-outcome writer through a supported command, or publishes the release marker.
+outcome module, or the claimed action-topology fence, executes either projected
+start argv, invokes the claim or outcome writer through a supported command, or
+publishes the release marker.
 There is no complete staged-topology controller, retained-evidence/approval
 wiring, topology mutation, sequence-2 runtime mutation, confirmed start
 outcome, or graceful-stop operator. The reader's exact in-container probe is
@@ -388,11 +440,12 @@ The next implementation remains a separately reviewed active controller. While
 healthy, the now-implemented private one-shot action lease must remain inside
 the same callback and continuously open PID-bound issuer/global-launcher-lock
 session from fresh topology creation and staging through ordinal 1, claim
-preparation, a final full live action-time reobservation, the exact marker
-release, the bounded sequence-2 terminal, persistent-topology qualification,
-and durable success retention. The fixed 300-second deadline remains the one
-deadline for that successful callback; it is never restarted at release or a
-later stage, and the callback must not return with only the claimed v1 result.
+preparation and the now-implemented final full live action-time reobservation,
+then through the exact marker release, bounded sequence-2 terminal, persistent-
+topology qualification, and durable success retention. The fixed 300-second
+deadline remains the one deadline for that successful callback; it is never
+restarted at release or a later stage, and the callback must not return with
+only either unqualified claimed fence.
 
 Poisoning or deadline failure revokes the action token immediately and
 irreversibly, but the owning callback and outer flock remain live until owner
@@ -411,11 +464,12 @@ The runtime now has an explicit pre-mutation barrier, and the dormant claim
 writer freezes the required exclusive durability semantics in one global fixed
 slot while treating every legacy per-operation claim as consumed authority.
 Neither that seam, the import-only handoff, either pure topology snapshot,
-either same-session fence, the claimed chronology result, nor its private
-callback lease connects approval to release or a post-release qualified
-topology. A projected Docker argv, caller-supplied inspection or marker state,
-structurally valid fence, retained claim, container creation, lease token, and
-marker capability therefore still are not authorization or success. Poisoning
+either same-session fence, the claimed chronology or action-topology result,
+nor its private callback lease connects approval to release or a post-release
+qualified topology. A projected Docker argv, caller-supplied inspection or
+marker state, structurally valid fence, retained claim, container creation,
+lease token, and marker capability therefore still are not authorization or
+success. Poisoning
 caused by raw issuer interference is fail-closed and does not release the flock
 early. A retained `recovery_required` disposition is evidence of a hard-closed
 pre-release failure, never success or a retry permit. The already-retained

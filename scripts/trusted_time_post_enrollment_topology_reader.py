@@ -97,6 +97,12 @@ POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_CONTRACT_VERSION = (
     "phase6d-post-enrollment-topology-observation-cursor-v1"
 )
 POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_STATUS = "topology_observation_cursor_unqualified"
+POST_ENROLLMENT_FINAL_ACTION_TOPOLOGY_OBSERVATION_CONTRACT_VERSION = (
+    "phase6d-post-enrollment-final-action-topology-observation-v1"
+)
+POST_ENROLLMENT_FINAL_ACTION_TOPOLOGY_OBSERVATION_STATUS = (
+    "final_action_staged_unreleased_topology_observation_unqualified"
+)
 
 _CREATED_OBSERVATION_COUNT = 14
 _STAGED_OBSERVATION_COUNT = 16
@@ -237,6 +243,8 @@ def _validate_authenticated_observation(value: object) -> None:
             TrustedTimePostEnrollmentStagedTopologyObservation.__post_init__(value)
         elif type(value) is TrustedTimePostEnrollmentTopologyObservationCursor:
             TrustedTimePostEnrollmentTopologyObservationCursor.__post_init__(value)
+        elif type(value) is TrustedTimePostEnrollmentFinalActionTopologyObservation:
+            TrustedTimePostEnrollmentFinalActionTopologyObservation.__post_init__(value)
         else:
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology observation is invalid"
@@ -256,6 +264,39 @@ def _observation_is_authenticated(value: object) -> bool:
 
 class TrustedTimePostEnrollmentTopologyReaderError(RuntimeError):
     """A bounded topology observation could not be issued safely."""
+
+
+def _consume_claimed_action_topology_observation_authorization(
+    candidate: object,
+    *,
+    topology_issuer: object,
+    choreography_lease: object,
+    claimed_fence: object,
+    claimed_fence_sha256: object,
+    created_observation: object,
+    approval: object,
+    approved_launch: object,
+    staged_paths: object,
+) -> bool:
+    """Delegate one exact continuation admission without a module import cycle."""
+
+    from scripts.trusted_time_post_enrollment_action_topology_fence import (
+        _consume_claimed_action_topology_observation_authorization as consume,
+    )
+
+    return bool(
+        consume(
+            candidate,
+            topology_issuer=topology_issuer,
+            choreography_lease=choreography_lease,
+            claimed_fence=claimed_fence,
+            claimed_fence_sha256=claimed_fence_sha256,
+            created_observation=created_observation,
+            approval=approval,
+            approved_launch=approved_launch,
+            staged_paths=staged_paths,
+        )
+    )
 
 
 class _AuthenticatedIssuerCapability:
@@ -1522,7 +1563,12 @@ def _build_observation_sealer() -> tuple[
     def authenticated_issuance(
         kind: str,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        if kind not in {"created", "cursor", "staged_unreleased"}:
+        if kind not in {
+            "created",
+            "cursor",
+            "final_action_staged_unreleased",
+            "staged_unreleased",
+        }:
             raise RuntimeError("trusted-time observation issuance kind is invalid")
 
         def decorate(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -1925,6 +1971,46 @@ def _observation_payload(
     return payload
 
 
+def _final_action_observation_payload(
+    *,
+    session_sha256: str,
+    transcript_sha256: str,
+    observation_count: int,
+    claimed_fence_sha256: str,
+    created_observation_sha256: str,
+    predecessor_observation_sha256: str,
+    snapshot_sha256: str,
+) -> dict[str, object]:
+    payload = _observation_payload(
+        kind="final_action_staged_unreleased",
+        status=POST_ENROLLMENT_FINAL_ACTION_TOPOLOGY_OBSERVATION_STATUS,
+        session_sha256=session_sha256,
+        transcript_sha256=transcript_sha256,
+        observation_count=observation_count,
+        snapshot_contract_version=POST_ENROLLMENT_STAGED_TOPOLOGY_CONTRACT_VERSION,
+        snapshot_sha256=snapshot_sha256,
+        created_observation_sha256=created_observation_sha256,
+        predecessor_observation_sha256=predecessor_observation_sha256,
+    )
+    payload.update(
+        {
+            "claimed_fence_authorization_authenticated": True,
+            "claimed_fence_sha256": claimed_fence_sha256,
+            "claim_chronology_authenticated": False,
+            "contract_version": (
+                POST_ENROLLMENT_FINAL_ACTION_TOPOLOGY_OBSERVATION_CONTRACT_VERSION
+            ),
+            "current_daemon_session_authenticated": False,
+            "current_lock_session_authenticated": False,
+            "final_action_topology_reobservation_authenticated": True,
+            "freshness_authenticated": False,
+            "same_session_observation_chain_authenticated": True,
+            "stable_topology_match_authenticated": True,
+        }
+    )
+    return payload
+
+
 @dataclass(frozen=True, slots=True)
 class TrustedTimePostEnrollmentCreatedTopologyObservation:
     """Session-bound provenance envelope for an unchanged created snapshot."""
@@ -2109,6 +2195,141 @@ class TrustedTimePostEnrollmentStagedTopologyObservation:
     authority_granted = property(_authority_is_never_granted)
     claim_retention_authorized = property(_authority_is_never_granted)
     database_secret_disclosed = property(_authority_is_never_granted)
+    persistent_start_authorized = property(_authority_is_never_granted)
+    release_authorized = property(_authority_is_never_granted)
+    sequence_2_authorized = property(_authority_is_never_granted)
+    shutdown_authorized = property(_authority_is_never_granted)
+    source_start_authorized = property(_authority_is_never_granted)
+    start_order_authenticated = property(_authority_is_never_granted)
+    supervisor_start_authorized = property(_authority_is_never_granted)
+    topology_authenticated = property(_authority_is_never_granted)
+    topology_mutation_authorized = property(_authority_is_never_granted)
+    alert_delivery_authorized = property(_authority_is_never_granted)
+    arming_authorized = property(_authority_is_never_granted)
+    automatic_rearm_authorized = property(_authority_is_never_granted)
+    automatic_resume_authorized = property(_authority_is_never_granted)
+    broker_action_authorized = property(_authority_is_never_granted)
+    exposure_authorized = property(_authority_is_never_granted)
+    live_trading_authorized = property(_authority_is_never_granted)
+    new_exposure_authorized = property(_authority_is_never_granted)
+    operational_control_authorized = property(_authority_is_never_granted)
+    paper_trading_authorized = property(_authority_is_never_granted)
+    readiness_authorized = property(_authority_is_never_granted)
+    rearm_authorized = property(_authority_is_never_granted)
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedTimePostEnrollmentFinalActionTopologyObservation:
+    """Claim-admitted full staged reobservation under one live action lease."""
+
+    session_sha256: str
+    transcript_sha256: str
+    observation_count: int
+    claimed_fence_sha256: str
+    created_observation_sha256: str
+    predecessor_observation_sha256: str
+    snapshot: TrustedTimePostEnrollmentStagedUnreleasedTopologySnapshot = field(repr=False)
+    _seal: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if type(self) is not TrustedTimePostEnrollmentFinalActionTopologyObservation:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time final-action topology observation envelope is invalid"
+            )
+        try:
+            if type(self.snapshot) is not TrustedTimePostEnrollmentStagedUnreleasedTopologySnapshot:
+                raise ValueError
+            self.snapshot.__post_init__()
+        except Exception:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time final-action topology observation envelope is invalid"
+            ) from None
+        digests = (
+            self.session_sha256,
+            self.transcript_sha256,
+            self.claimed_fence_sha256,
+            self.created_observation_sha256,
+            self.predecessor_observation_sha256,
+        )
+        if (
+            any(
+                type(value) is not str or _SHA256_PATTERN.fullmatch(value) is None
+                for value in digests
+            )
+            or self.created_observation_sha256 == self.predecessor_observation_sha256
+            or type(self.observation_count) is not int
+            or self.observation_count != _STAGED_OBSERVATION_COUNT
+            or not _valid_observation_seal(
+                self._seal,
+                _final_action_observation_payload(
+                    session_sha256=self.session_sha256,
+                    transcript_sha256=self.transcript_sha256,
+                    observation_count=self.observation_count,
+                    claimed_fence_sha256=self.claimed_fence_sha256,
+                    created_observation_sha256=self.created_observation_sha256,
+                    predecessor_observation_sha256=self.predecessor_observation_sha256,
+                    snapshot_sha256=self.snapshot.snapshot_sha256,
+                ),
+            )
+        ):
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time final-action topology observation envelope is invalid"
+            )
+
+    def __copy__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time final-action topology observation cannot be copied"
+        )
+
+    def __deepcopy__(self, _: object) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time final-action topology observation cannot be copied"
+        )
+
+    def __reduce__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time final-action topology observation cannot be serialized"
+        )
+
+    def __reduce_ex__(self, _: SupportsIndex) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time final-action topology observation cannot be serialized"
+        )
+
+    @property
+    def status(self) -> str:
+        return POST_ENROLLMENT_FINAL_ACTION_TOPOLOGY_OBSERVATION_STATUS
+
+    def payload(self) -> dict[str, object]:
+        _validate_authenticated_observation(self)
+        return _final_action_observation_payload(
+            session_sha256=self.session_sha256,
+            transcript_sha256=self.transcript_sha256,
+            observation_count=self.observation_count,
+            claimed_fence_sha256=self.claimed_fence_sha256,
+            created_observation_sha256=self.created_observation_sha256,
+            predecessor_observation_sha256=self.predecessor_observation_sha256,
+            snapshot_sha256=self.snapshot.snapshot_sha256,
+        )
+
+    @property
+    def observation_sha256(self) -> str:
+        return _canonical_sha256(self.payload())
+
+    claimed_fence_authorization_authenticated = property(_observation_is_authenticated)
+    final_action_topology_reobservation_authenticated = property(_observation_is_authenticated)
+    observation_provenance_authenticated = property(_observation_is_authenticated)
+    same_session_observation_chain_authenticated = property(_observation_is_authenticated)
+    stable_topology_match_authenticated = property(_observation_is_authenticated)
+    lock_session_authenticated = property(_observation_is_authenticated)
+    daemon_session_authenticated = property(_observation_is_authenticated)
+    authority_granted = property(_authority_is_never_granted)
+    claim_chronology_authenticated = property(_authority_is_never_granted)
+    claim_retention_authorized = property(_authority_is_never_granted)
+    current_daemon_session_authenticated = property(_authority_is_never_granted)
+    current_lock_session_authenticated = property(_authority_is_never_granted)
+    database_secret_disclosed = property(_authority_is_never_granted)
+    freshness_authenticated = property(_authority_is_never_granted)
     persistent_start_authorized = property(_authority_is_never_granted)
     release_authorized = property(_authority_is_never_granted)
     sequence_2_authorized = property(_authority_is_never_granted)
@@ -2929,6 +3150,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
     _docker_executable_identity_value: tuple[int, ...]
     _docker_executable_path: Path
     _environment: dict[str, str]
+    _final_action_observation_sha256: str | None
     _first_staged_snapshot_sha256: str | None
     _ignored_root: Path
     _issued_created_observation_sha256: str | None
@@ -2959,6 +3181,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         "_docker_executable_identity_value",
         "_docker_executable_path",
         "_environment",
+        "_final_action_observation_sha256",
         "_first_staged_snapshot_sha256",
         "_ignored_root",
         "_issued_created_observation_sha256",
@@ -3067,6 +3290,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             instance._docker_executable_identity_value = docker_executable_identity
             instance._docker_executable_path = docker_executable
             instance._environment = environment
+            instance._final_action_observation_sha256 = None
             instance._first_staged_snapshot_sha256 = None
             instance._ignored_root = ignored_root
             instance._issued_created_observation_sha256 = None
@@ -3104,6 +3328,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 inherited._choreography_scope_nonce = None
                 inherited._closed = True
                 inherited._environment = {}
+                inherited._final_action_observation_sha256 = None
                 inherited._lock_descriptor = -1
                 inherited._poisoned = True
                 if type(descriptor) is int and descriptor >= 0:
@@ -3427,6 +3652,77 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 self._poison_locked()
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time recovery claim binder is unavailable"
+            ) from None
+
+    def _require_armed_recovery_outcome_retention(
+        self,
+        choreography_lease: object,
+        recovery_retention_capability: object,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> _ChoreographyCheckpoint:
+        """Require the exact armed recovery escape before action continues."""
+
+        try:
+            if (
+                type(artifact_directory) is not type(Path())
+                or type(ignored_root) is not type(Path())
+                or artifact_directory != ignored_root / "trusted-time"
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time armed recovery retention is unavailable"
+                )
+            self._require_active_choreography_lease(choreography_lease)
+            self._validate_lock()
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._poisoned
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is None
+                    or not _authenticated_recovery_retention_is_available(
+                        self,
+                        recovery_retention_capability,
+                        expected_state="armed",
+                        artifact_directory=artifact_directory,
+                        ignored_root=ignored_root,
+                    )
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time armed recovery retention is unavailable"
+                    )
+            checkpoint = self._require_active_choreography_lease(choreography_lease)
+            self._validate_lock()
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._poisoned
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is None
+                    or not _authenticated_recovery_retention_is_available(
+                        self,
+                        recovery_retention_capability,
+                        expected_state="armed",
+                        artifact_directory=artifact_directory,
+                        ignored_root=ignored_root,
+                    )
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time armed recovery retention is unavailable"
+                    )
+            return checkpoint
+        except BaseException:
+            with self._lifecycle_lock:
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time armed recovery retention is unavailable"
             ) from None
 
     def _begin_recovery_outcome_retention(
@@ -4073,11 +4369,111 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             )
         return marker_candidate, absence_candidates
 
+    def _observe_staged_unreleased_snapshot(
+        self,
+        *,
+        created_observation: TrustedTimePostEnrollmentCreatedTopologyObservation,
+        approval: TrustedTimePostEnrollmentStartApproval,
+        approved_launch: TrustedTimeApprovedLaunch,
+        staged_paths: tuple[Path, Path, Path, Path],
+    ) -> tuple[TrustedTimePostEnrollmentStagedUnreleasedTopologySnapshot, list[_ReadReceipt]]:
+        """Run the one shared raw-first 16-read staged topology recipe."""
+
+        receipts: list[_ReadReceipt] = []
+        daemon_before = self._observe_daemon(receipts)
+        volumes_before = self._observe_volumes(receipts)
+        inventory_before = self._observe_inventory(receipts)
+        created_inventory = {
+            created_observation.snapshot.source.container_id,
+            created_observation.snapshot.supervisor.container_id,
+        }
+        if set(inventory_before) != created_inventory:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time staged topology observation is unavailable"
+            )
+        network_before = self._observe_network(
+            receipts,
+            inventory=inventory_before,
+            expected_state="staged_unreleased",
+        )
+        retirements_before = _observe_host_retirements(staged_paths)
+        marker_before, release_before = self._observe_barrier(
+            receipts,
+            supervisor_container_id=(created_observation.snapshot.supervisor.container_id),
+        )
+        source_configuration, supervisor_configuration = self._observe_image_configurations(
+            receipts,
+            approved_launch=approved_launch,
+        )
+        marker_after, release_after = self._observe_barrier(
+            receipts,
+            supervisor_container_id=(created_observation.snapshot.supervisor.container_id),
+        )
+        inspections = self._observe_containers(
+            receipts,
+            inventory=inventory_before,
+            network=network_before,
+            expected_state="staged_unreleased",
+            approved_launch=approved_launch,
+            source_configuration=source_configuration,
+            supervisor_configuration=supervisor_configuration,
+            staged_paths=staged_paths,
+        )
+        retirements_after = _observe_host_retirements(staged_paths)
+        if retirements_after.root_identity != retirements_before.root_identity:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time staged topology observation is unavailable"
+            )
+        inventory_after = self._observe_inventory(receipts)
+        network_after = self._observe_network(
+            receipts,
+            inventory=inventory_after,
+            expected_state="staged_unreleased",
+        )
+        volumes_after = self._observe_volumes(receipts)
+        daemon_after = self._observe_daemon(receipts)
+        if (
+            network_after.network_id != network_before.network_id
+            or network_after.identity_sha256 != network_before.identity_sha256
+        ):
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time staged topology observation is unavailable"
+            )
+        snapshot = validate_post_enrollment_start_staged_unreleased_topology(
+            approval=approval,
+            approved_launch=approved_launch,
+            created_topology=created_observation.snapshot,
+            daemon_identity_before=daemon_before,
+            daemon_identity_after=daemon_after,
+            volume_identities_before=volumes_before,
+            volume_identities_after=volumes_after,
+            project_container_ids_before=inventory_before,
+            project_container_ids_after=inventory_after,
+            container_inspections=inspections,
+            source_image_configuration=source_configuration,
+            supervisor_image_configuration=supervisor_configuration,
+            expected_database_secret_file=staged_paths[0],
+            expected_head_anchor_authority_file=staged_paths[1],
+            expected_head_anchor_auth_secret_file=staged_paths[2],
+            expected_head_anchor_signing_key_secret_file=staged_paths[3],
+            database_secret_consumed_before=marker_before,
+            database_secret_consumed_after=marker_after,
+            release_path_absences_before=release_before,
+            release_path_absences_after=release_after,
+            staged_input_retirements_before=retirements_before.candidates,
+            staged_input_retirements_after=retirements_after.candidates,
+        )
+        return snapshot, receipts
+
     def _transcript_sha256(
         self,
         receipts: list[_ReadReceipt],
         *,
-        kind: Literal["created", "staged_unreleased"],
+        kind: Literal[
+            "created",
+            "final_action_staged_unreleased",
+            "staged_unreleased",
+        ],
         expected_count: int,
     ) -> str:
         if len(receipts) != expected_count:
@@ -4086,7 +4482,11 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             )
         return _canonical_sha256(
             {
-                "contract_version": POST_ENROLLMENT_TOPOLOGY_READER_CONTRACT_VERSION,
+                "contract_version": (
+                    POST_ENROLLMENT_FINAL_ACTION_TOPOLOGY_OBSERVATION_CONTRACT_VERSION
+                    if kind == "final_action_staged_unreleased"
+                    else POST_ENROLLMENT_TOPOLOGY_READER_CONTRACT_VERSION
+                ),
                 "kind": kind,
                 "reads": [receipt.payload() for receipt in receipts],
                 "session_sha256": self._session_sha256,
@@ -4142,6 +4542,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     or self._staged_observation_count != 0
                     or self._issued_created_observation_sha256 is not None
                     or self._last_observation_sha256 is not None
+                    or self._final_action_observation_sha256 is not None
                     or self._first_staged_snapshot_sha256 is not None
                     or type(self._authentication_capability) is not _AuthenticatedIssuerCapability
                 ):
@@ -4621,85 +5022,11 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 expected_head_anchor_auth_secret_file,
                 expected_head_anchor_signing_key_secret_file,
             )
-            receipts: list[_ReadReceipt] = []
-            daemon_before = self._observe_daemon(receipts)
-            volumes_before = self._observe_volumes(receipts)
-            inventory_before = self._observe_inventory(receipts)
-            created_inventory = {
-                created_observation.snapshot.source.container_id,
-                created_observation.snapshot.supervisor.container_id,
-            }
-            if set(inventory_before) != created_inventory:
-                raise ValueError
-            network_before = self._observe_network(
-                receipts,
-                inventory=inventory_before,
-                expected_state="staged_unreleased",
-            )
-            retirements_before = _observe_host_retirements(staged_paths)
-            marker_before, release_before = self._observe_barrier(
-                receipts,
-                supervisor_container_id=(created_observation.snapshot.supervisor.container_id),
-            )
-            source_configuration, supervisor_configuration = self._observe_image_configurations(
-                receipts,
-                approved_launch=approved_launch,
-            )
-            marker_after, release_after = self._observe_barrier(
-                receipts,
-                supervisor_container_id=(created_observation.snapshot.supervisor.container_id),
-            )
-            inspections = self._observe_containers(
-                receipts,
-                inventory=inventory_before,
-                network=network_before,
-                expected_state="staged_unreleased",
-                approved_launch=approved_launch,
-                source_configuration=source_configuration,
-                supervisor_configuration=supervisor_configuration,
-                staged_paths=staged_paths,
-            )
-            retirements_after = _observe_host_retirements(staged_paths)
-            if retirements_after.root_identity != retirements_before.root_identity:
-                raise ValueError
-            inventory_after = self._observe_inventory(receipts)
-            network_after = self._observe_network(
-                receipts,
-                inventory=inventory_after,
-                expected_state="staged_unreleased",
-            )
-            volumes_after = self._observe_volumes(receipts)
-            daemon_after = self._observe_daemon(receipts)
-            if (
-                network_after.network_id != network_before.network_id
-                or network_after.identity_sha256 != network_before.identity_sha256
-            ):
-                raise ValueError
-            snapshot = validate_post_enrollment_start_staged_unreleased_topology(
+            snapshot, receipts = self._observe_staged_unreleased_snapshot(
+                created_observation=created_observation,
                 approval=approval,
                 approved_launch=approved_launch,
-                created_topology=created_observation.snapshot,
-                daemon_identity_before=daemon_before,
-                daemon_identity_after=daemon_after,
-                volume_identities_before=volumes_before,
-                volume_identities_after=volumes_after,
-                project_container_ids_before=inventory_before,
-                project_container_ids_after=inventory_after,
-                container_inspections=inspections,
-                source_image_configuration=source_configuration,
-                supervisor_image_configuration=supervisor_configuration,
-                expected_database_secret_file=expected_database_secret_file,
-                expected_head_anchor_authority_file=expected_head_anchor_authority_file,
-                expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
-                expected_head_anchor_signing_key_secret_file=(
-                    expected_head_anchor_signing_key_secret_file
-                ),
-                database_secret_consumed_before=marker_before,
-                database_secret_consumed_after=marker_after,
-                release_path_absences_before=release_before,
-                release_path_absences_after=release_after,
-                staged_input_retirements_before=retirements_before.candidates,
-                staged_input_retirements_after=retirements_after.candidates,
+                staged_paths=staged_paths,
             )
             if (
                 staged_observation_count == 1
@@ -4771,6 +5098,221 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         finally:
             self._finish_observation()
 
+    @_authenticated_observation_issuance("final_action_staged_unreleased")
+    def _issue_claimed_final_action_topology_snapshot(
+        self,
+        *,
+        claimed_action_authorization: object,
+        claimed_fence: object,
+        claimed_fence_sha256: str,
+        created_observation: TrustedTimePostEnrollmentCreatedTopologyObservation,
+        approval: TrustedTimePostEnrollmentStartApproval,
+        approved_launch: TrustedTimeApprovedLaunch,
+        expected_database_secret_file: Path,
+        expected_head_anchor_authority_file: Path,
+        expected_head_anchor_auth_secret_file: Path,
+        expected_head_anchor_signing_key_secret_file: Path,
+        _choreography_lease: object,
+    ) -> TrustedTimePostEnrollmentFinalActionTopologyObservation:
+        """Issue one claim-admitted full reobservation under the active lease."""
+
+        staged_paths = (
+            expected_database_secret_file,
+            expected_head_anchor_authority_file,
+            expected_head_anchor_auth_secret_file,
+            expected_head_anchor_signing_key_secret_file,
+        )
+        try:
+            authorization_consumed = _consume_claimed_action_topology_observation_authorization(
+                claimed_action_authorization,
+                topology_issuer=self,
+                choreography_lease=_choreography_lease,
+                claimed_fence=claimed_fence,
+                claimed_fence_sha256=claimed_fence_sha256,
+                created_observation=created_observation,
+                approval=approval,
+                approved_launch=approved_launch,
+                staged_paths=staged_paths,
+            )
+            if (
+                not authorization_consumed
+                or type(_choreography_lease)
+                is not _TrustedTimePostEnrollmentTopologyChoreographyLease
+            ):
+                raise ValueError
+            from scripts.trusted_time_post_enrollment_claimed_fence import (
+                TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence,
+            )
+
+            if (
+                type(claimed_fence)
+                is not TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence
+            ):
+                raise ValueError
+            claimed_fence.__post_init__()
+            claimed_created_observation = claimed_fence._created_observation
+            claimed_pre_release_observation = claimed_fence._pre_release_staged_observation
+            claimed_final_cursor = claimed_fence._final_cursor
+            if (
+                created_observation is not claimed_created_observation
+                or approval is not claimed_fence._approval
+                or type(claimed_pre_release_observation)
+                is not TrustedTimePostEnrollmentStagedTopologyObservation
+                or type(claimed_final_cursor)
+                is not TrustedTimePostEnrollmentTopologyObservationCursor
+                or claimed_fence.fence_sha256 != claimed_fence_sha256
+            ):
+                raise ValueError
+            claimed_predecessor_observation_sha256 = (
+                claimed_pre_release_observation.observation_sha256
+            )
+            claimed_staged_snapshot_sha256 = (
+                claimed_pre_release_observation.snapshot.snapshot_sha256
+            )
+        except BaseException:
+            self._fail_observation()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time final-action topology observation authorization is unavailable"
+            ) from None
+
+        try:
+            self._begin_observation(_choreography_lease)
+            with self._lifecycle_lock:
+                staged_observation_count = self._staged_observation_count
+                cursor_count = self._cursor_count
+                issued_created_observation_sha256 = self._issued_created_observation_sha256
+                last_observation_sha256 = self._last_observation_sha256
+                first_staged_snapshot_sha256 = self._first_staged_snapshot_sha256
+                final_action_observation_sha256 = self._final_action_observation_sha256
+                session_sha256 = self._session_sha256
+                authentication_capability = self._authentication_capability
+                if (
+                    not self._observation_choreography_is_valid_locked(_choreography_lease)
+                    or type(claimed_fence_sha256) is not str
+                    or _SHA256_PATTERN.fullmatch(claimed_fence_sha256) is None
+                    or type(created_observation)
+                    is not TrustedTimePostEnrollmentCreatedTopologyObservation
+                    or created_observation.session_sha256 != session_sha256
+                    or type(approval) is not TrustedTimePostEnrollmentStartApproval
+                    or type(approved_launch) is not TrustedTimeApprovedLaunch
+                    or issued_created_observation_sha256 is None
+                    or issued_created_observation_sha256
+                    != claimed_created_observation.observation_sha256
+                    or last_observation_sha256 is None
+                    or last_observation_sha256 != claimed_predecessor_observation_sha256
+                    or first_staged_snapshot_sha256 is None
+                    or first_staged_snapshot_sha256 != claimed_staged_snapshot_sha256
+                    or staged_observation_count != 2
+                    or cursor_count != _MAXIMUM_OBSERVATION_CURSOR_COUNT
+                    or claimed_final_cursor.cursor_ordinal != _MAXIMUM_OBSERVATION_CURSOR_COUNT
+                    or claimed_final_cursor.staged_observation_count != 2
+                    or claimed_final_cursor.last_observation_sha256
+                    != claimed_predecessor_observation_sha256
+                    or final_action_observation_sha256 is not None
+                    or not _authenticated_issuer_capability_is_active(
+                        self,
+                        authentication_capability,
+                    )
+                ):
+                    raise ValueError
+            approval.__post_init__()
+            created_observation.__post_init__()
+            approved_launch.__post_init__()
+            created_snapshot = created_observation.snapshot
+            proposed_launch = approval.proposed_launch
+            if (
+                created_observation.observation_sha256 != issued_created_observation_sha256
+                or created_snapshot.operation_id != approval.operation_id
+                or created_snapshot.approval_sha256 != approval.approval_sha256
+                or created_snapshot.review_projection_sha256 != approval.review.projection_sha256
+                or created_snapshot.confirmed_enrollment_evidence_sha256
+                != approval.confirmed_enrollment.evidence_sha256
+                or created_snapshot.approved_launch != proposed_launch
+                or approved_launch.git_revision != proposed_launch.git_revision
+                or approved_launch.image_admission_sha256 != proposed_launch.image_admission_sha256
+                or approved_launch.source_image_id != proposed_launch.source_image_id
+                or approved_launch.supervisor_image_id != proposed_launch.supervisor_image_id
+            ):
+                raise ValueError
+            self._checkpoint_active_choreography_owner()
+            snapshot, receipts = self._observe_staged_unreleased_snapshot(
+                created_observation=created_observation,
+                approval=approval,
+                approved_launch=approved_launch,
+                staged_paths=staged_paths,
+            )
+            if snapshot.snapshot_sha256 != first_staged_snapshot_sha256:
+                raise ValueError
+            self._checkpoint_active_choreography_owner()
+            self._validate_session()
+            transcript_sha256 = self._transcript_sha256(
+                receipts,
+                kind="final_action_staged_unreleased",
+                expected_count=_STAGED_OBSERVATION_COUNT,
+            )
+            observation_payload = _final_action_observation_payload(
+                session_sha256=session_sha256,
+                transcript_sha256=transcript_sha256,
+                observation_count=len(receipts),
+                claimed_fence_sha256=claimed_fence_sha256,
+                created_observation_sha256=created_observation.observation_sha256,
+                predecessor_observation_sha256=last_observation_sha256,
+                snapshot_sha256=snapshot.snapshot_sha256,
+            )
+            observation = TrustedTimePostEnrollmentFinalActionTopologyObservation(
+                session_sha256=session_sha256,
+                transcript_sha256=transcript_sha256,
+                observation_count=len(receipts),
+                claimed_fence_sha256=claimed_fence_sha256,
+                created_observation_sha256=created_observation.observation_sha256,
+                predecessor_observation_sha256=last_observation_sha256,
+                snapshot=snapshot,
+                _seal=_seal_observation(
+                    self,
+                    authentication_capability,
+                    observation_payload,
+                    "final_action_staged_unreleased",
+                ),
+            )
+            with self._lifecycle_lock:
+                if (
+                    self._closed
+                    or self._poisoned
+                    or not self._busy
+                    or not self._observation_choreography_is_valid_locked(_choreography_lease)
+                    or self._authentication_capability is not authentication_capability
+                    or not _authenticated_issuer_capability_is_active(
+                        self,
+                        authentication_capability,
+                    )
+                    or self._staged_observation_count != staged_observation_count
+                    or self._cursor_count != cursor_count
+                    or self._issued_created_observation_sha256 != issued_created_observation_sha256
+                    or self._last_observation_sha256 != last_observation_sha256
+                    or self._first_staged_snapshot_sha256 != first_staged_snapshot_sha256
+                    or self._final_action_observation_sha256 is not final_action_observation_sha256
+                    or self._session_sha256 != session_sha256
+                ):
+                    raise ValueError
+                self._final_action_observation_sha256 = observation.observation_sha256
+            self._checkpoint_active_choreography_owner()
+            return observation
+        except BaseException:
+            self._fail_observation()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time final-action topology observation is unavailable"
+            ) from None
+        finally:
+            try:
+                self._finish_observation()
+            except BaseException:
+                with self._lifecycle_lock:
+                    self._busy = False
+                    self._poison_locked()
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time final-action topology observation cleanup is unavailable"
+                ) from None
+
     def close(self) -> None:
         """Close the one lock session exactly once."""
 
@@ -4804,6 +5346,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     _revoke_authenticated_choreography_scope(self, None)
                 self._environment = {}
                 self._cursor_count = 0
+                self._final_action_observation_sha256 = None
                 self._first_staged_snapshot_sha256 = None
                 self._issued_created_observation_sha256 = None
                 self._last_observation_sha256 = None
@@ -4831,11 +5374,14 @@ del _build_observation_sealer
 
 __all__ = [
     "POST_ENROLLMENT_CREATED_TOPOLOGY_OBSERVATION_STATUS",
+    "POST_ENROLLMENT_FINAL_ACTION_TOPOLOGY_OBSERVATION_CONTRACT_VERSION",
+    "POST_ENROLLMENT_FINAL_ACTION_TOPOLOGY_OBSERVATION_STATUS",
     "POST_ENROLLMENT_STAGED_TOPOLOGY_OBSERVATION_STATUS",
     "POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_CONTRACT_VERSION",
     "POST_ENROLLMENT_TOPOLOGY_OBSERVATION_CURSOR_STATUS",
     "POST_ENROLLMENT_TOPOLOGY_READER_CONTRACT_VERSION",
     "TrustedTimePostEnrollmentCreatedTopologyObservation",
+    "TrustedTimePostEnrollmentFinalActionTopologyObservation",
     "TrustedTimePostEnrollmentStagedTopologyObservation",
     "TrustedTimePostEnrollmentTopologyObservationCursor",
     "TrustedTimePostEnrollmentTopologyObservationIssuer",

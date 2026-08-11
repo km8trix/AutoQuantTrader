@@ -363,6 +363,7 @@ def test_reviewed_inputs_bind_launch_entrypoint_and_strict_environment_loader() 
     assert ROOT / "scripts" / "credential_env.py" in reviewed
     assert ROOT / "scripts" / "enroll_trusted_time_head_anchor.py" in reviewed
     assert ROOT / "scripts" / "start_trusted_time_supervisor.py" in reviewed
+    assert ROOT / "scripts" / "trusted_time_post_enrollment_action_topology_fence.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_claimed_fence.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_evidence.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_outcome.py" in reviewed
@@ -1475,14 +1476,22 @@ def test_image_admission_rejects_metadata_drift_during_canonical_or_archive_read
     encoded = path.read_bytes()
     archive = path.with_name(f"image-admission-{hashlib.sha256(encoded).hexdigest()}.json")
     target = path if target_kind == "canonical" else archive
-    target_inode = target.stat().st_ino
+    target_metadata = target.stat()
+    target_identity = (target_metadata.st_dev, target_metadata.st_ino)
     real_fstat = os.fstat
     target_observations = 0
 
     def drifting_fstat(descriptor: int) -> object:
         nonlocal target_observations
         observed = real_fstat(descriptor)
-        if stat.S_ISREG(observed.st_mode) and observed.st_ino == target_inode:
+        if (
+            stat.S_ISREG(observed.st_mode)
+            and (
+                observed.st_dev,
+                observed.st_ino,
+            )
+            == target_identity
+        ):
             target_observations += 1
             if target_observations == 2:
                 values = {
