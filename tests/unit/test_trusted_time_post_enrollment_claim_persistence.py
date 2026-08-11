@@ -629,3 +629,43 @@ def test_public_receipt_cannot_rebind_arbitrary_bytes_or_operation(tmp_path: Pat
         )
     with pytest.raises(TrustedTimePostEnrollmentStartClaimPersistenceError):
         replace(retained, operation_id="323e4567-e89b-42d3-a456-426614174002")
+
+
+def test_directory_walk_async_failure_closes_every_owned_descriptor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    artifact_directory = ignored_root / "trusted-time"
+    original_open = os.open
+    original_fstat = os.fstat
+    opened: list[int] = []
+
+    def tracked_open(
+        path: str | bytes | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        descriptor = original_open(path, flags, mode, dir_fd=dir_fd)
+        opened.append(descriptor)
+        return descriptor
+
+    def interrupt_fstat(_: int) -> os.stat_result:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(persistence.os, "open", tracked_open)
+    monkeypatch.setattr(persistence.os, "fstat", interrupt_fstat)
+
+    with pytest.raises(KeyboardInterrupt):
+        persistence._open_owner_only_artifact_directory(
+            artifact_directory,
+            ignored_root=ignored_root,
+            create=True,
+        )
+
+    assert len(opened) >= 2
+    for descriptor in set(opened):
+        with pytest.raises(OSError):
+            original_fstat(descriptor)

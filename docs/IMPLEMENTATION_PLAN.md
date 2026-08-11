@@ -2659,6 +2659,16 @@ compact LF-terminated UTF-8 JSON value, rejects duplicate keys, nonstandard
 constants, floats, oversized integers,
 surrogates, and depth/node exhaustion before any projection is trusted.
 
+The same acquisition fixes a second absolute bound from the identical
+monotonic origin: recovery retention expires at `start + 305 seconds`, with
+equality expired. Claim retention, action poison, the `start + 300 seconds`
+action boundary, recovery-capability arming, and retention start never reset
+either deadline. The five-second outer interval is not action time and cannot
+be used for a Docker read, cursor, release, SQL/provider call, or any other
+topology observation or mutation. An `unbound` or `claim_admitted` recovery
+capability is revoked by action poison or the 300-second equality boundary and
+cannot be armed during that outer interval.
+
 The issuer performs 14 bounded reads for the never-started state and 16 for
 each staged-unreleased state. Raw observations require the exact image root
 IDs, Linux/runc/container confinement, complete sandbox and network attachment
@@ -2759,8 +2769,52 @@ worker/main, Make, Compose, launcher, or supported runtime path invokes it. Real
 claim persistence means every failure once claim preparation begins is
 recovery-required because this seam cannot establish claim absence versus
 retention after that boundary. A crash can leave only the durable consumed
-claim: no chronology/release/outcome result can be reloaded and no recovery
-command exists. The unqualified result is not permission to release or retry.
+claim: no chronology/release result can be reloaded and no recovery command
+exists. The unqualified result is not permission to release or retry.
+
+Contract
+`phase6d-post-enrollment-start-retained-recovery-outcome-v1` now adds the
+dormant pre-release recovery disposition, with sole status
+`recovery_required`. The private
+`_run_exclusive_choreography_with_recovery_retention` wrapper creates one exact
+callback-local, PID/thread/session-bound, non-copyable retention capability
+alongside the action lease. It can be armed only by the exact process-sealed
+leased claimed-chronology seam. Before claim preparation, that seam mints a
+non-copyable, nonserializable one-shot authorization bound to the exact issuer,
+lease, recovery capability, artifact and ignored roots, PID, and thread. The
+reader consumes that exact tuple before registering an opaque binder; forgery,
+substitution, replay, or direct issuance fails closed. A `finally` edge removes
+the authorization whether the reader consumes it or issuance raises any
+ordinary or asynchronous failure first. The claim writer accepts only that
+registered binder and, immediately before its exclusive `O_EXCL` creation
+boundary, checkpoints the exact live action lease, flock, roots, and absolute
+action deadline. That successful checkpoint is the only transition from
+`unbound` to mandatory one-way `claim_admitted`; binding refuses a binder that
+skipped it. After the first exact post-retention revalidation, binder consumption
+revalidates the claim, flock, deadline, and registration, arms the capability
+with that exact receipt while atomically revoking the binder, then revalidates
+the claim again. Any pre-arm failure, including asynchronous interruption,
+revokes and poisons; any post-arm failure marks retention `unconfirmed`. The
+seam cannot accept or execute an arbitrary callback. If the exact retained claim
+receipt is absent or unavailable at outcome preflight, no outcome write begins.
+
+At poison or equality with `start + 300 seconds`, action authority is revoked
+immediately while the owner callback and flock remain live. The armed retention
+capability is the sole non-action exception and can be consumed exactly once by
+`retain_post_enrollment_start_recovery_required_outcome` before equality with
+the unchanged `start + 305 seconds` outer deadline. It retains one content-
+addressed owner-only `recovery_required` outcome bound to the exact claim. It
+cannot observe or mutate topology, unlink or replace evidence, retry retention,
+publish release, create sequence 2, restore the action lease, or grant any
+operational or trading authority. Beginning at or after the outer deadline
+writes nothing. If a begun write cannot be confirmed before that deadline, the
+capability remains consumed, any possibly durable file is never unlinked, and
+the retained claim remains the hard-closed recovery fact. If the claim or exact
+outcome becomes unavailable after exclusive creation begins, the possibly
+durable artifact is preserved but
+`TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed` is raised and the
+internal retention state remains `unconfirmed`; it is never reported as terminal
+retained success.
 
 The next implementation remains a separately admitted and operationally
 approved active controller. While healthy, it must use the now-implemented
@@ -2772,17 +2826,15 @@ qualification, and durable success retention. The existing absolute
 300-second deadline must cover that successful callback and must not restart at
 a later stage; the callback must not return with only the claimed v1 result.
 
-Any poison or deadline failure revokes action authority immediately, while the
-owning callback and flock remain live until unwind. Before a release executor
-is introduced, the controller therefore needs a distinct exact callback-local,
-retention-only capability that can append one failure/recovery disposition but
-cannot observe or mutate topology. Deadline-expired recovery retention is the
-sole non-action exception and needs a separately reviewed bound. If retention
-cannot finish or the process crashes, the consumed claim remains the hard-
-closed recovery fact and grants no retry. The lease slice itself authorizes none
-of those actions. Only after that remaining boundary may a separate sealed
-watchdog provider-terminal issuer authenticate the complete new suffix, bind
-two stable namespace passes to their exact digest/count/terminal identity,
+Any poison or action-deadline failure revokes action authority immediately,
+while the owning callback and flock remain live until unwind. The implemented
+claim-bound retention capability appends only the one pre-release recovery
+disposition and restores no authority. If retention cannot be confirmed or the
+process crashes, the consumed claim remains the hard-closed recovery fact and
+grants no retry. These dormant seams authorize no release or runtime action.
+Only after the separately admitted active controller boundary may a separate
+sealed watchdog provider-terminal issuer authenticate the complete new suffix,
+bind two stable namespace passes to their exact digest/count/terminal identity,
 prove that no higher sequence exists, and capture its own independent
 monotonic instant. That future deployed runtime, not dormant v1, must apply the
 360-second stale threshold with equality stale and every stale result
@@ -2938,18 +2990,37 @@ unavailable before any watchdog consumer is designed or qualified. See
   the callback remains active. Its exact-identity-bound process-local result is
   non-copyable, nonserializable, invalid after fork, and not reloadable after a
   crash. Every failure after claim preparation begins is recovery-required,
-  while no recovery command exists. The new seam
-  retains a claim but does not create or mutate topology, publish or execute the
-  release marker, observe or mutate sequence 2, or retain an outcome; every
-  authority remains false. A later exact-outcome-bound host controller,
-  admission for its exact revision, and separate operational approval must keep
-  this same callback, flock, and action deadline through final full action-time
-  reobservation, exact release, bounded sequence 2, persistent-topology
-  qualification, and durable success retention. Poison must irreversibly revoke
-  the action token; a separate callback-local retention-only capability must
-  append at most one failure/recovery disposition without restoring action
-  authority. Those action, runtime, and outcome contracts remain missing before
-  the normal worker may create sequence 2.
+  while no recovery command exists. The new exact claim-bound callback-local
+  retention capability shares the action lease's monotonic origin. All action
+  expires at equality with `start + 300 seconds`; the sole retention-only bound
+  expires at equality with `start + 305 seconds` and is never reset. It may
+  retain at most one content-addressed pre-release outcome under contract
+  `phase6d-post-enrollment-start-retained-recovery-outcome-v1`, with status
+  `recovery_required`, only when the exact retained claim receipt remains
+  available. Only an already claim-bound capability survives action poison or
+  the 300-second equality boundary; an `unbound` or `claim_admitted` token is
+  revoked. Completion is
+  bound to the exact revalidated outcome receipt and inode. Binder issuance is
+  itself admitted by a one-shot claimed-fence authorization bound to the exact
+  issuer, lease, capability, roots, PID, and thread; `finally` revokes any
+  authorization not consumed before ordinary or asynchronous issuance failure.
+  The fixed binder checkpoints those roots, the live lease, flock, and action
+  deadline immediately before the claim writer's `O_EXCL` boundary and makes the
+  mandatory `unbound` to `claim_admitted` transition. Binding requires that
+  state, revalidates the exact claim and deadline, arms while atomically revoking
+  the binder, and then revalidates the claim again. Pre-arm failure revokes and
+  poisons; post-arm ambiguity is `unconfirmed`. It never unlinks, replaces, or
+  retries a possibly durable outcome and never restores action authority. The
+  claim and recovery seams do not
+  create or mutate topology, publish or execute the release marker, observe or
+  mutate sequence 2, or grant authority. There is no CLI, Make, Compose,
+  launcher, worker, release, or trading wiring. A later exact-outcome-bound host
+  controller, admission for its exact revision, and separate operational
+  approval must keep this same callback, flock, and action deadline through
+  final full action-time reobservation, exact release, bounded sequence 2,
+  persistent-topology qualification, and durable success retention. Those
+  action, runtime, and success-outcome contracts remain missing before the
+  normal worker may create sequence 2.
   Complete that boundary before adding an
   independent watchdog, readiness,
   final new-exposure, alert, and exact-head manual re-arm consumers. The local

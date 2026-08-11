@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ from packages.domain.trusted_time_post_enrollment_start import (
     TrustedTimePostEnrollmentStartClaim,
 )
 from scripts import trusted_time_post_enrollment_staging as staging
+from scripts import trusted_time_post_enrollment_topology_reader as reader
 from scripts.trusted_time_post_enrollment_staging import (
     POST_ENROLLMENT_START_CONTAINER_USER,
     POST_ENROLLMENT_START_RELEASE_COMMAND,
@@ -39,6 +41,7 @@ from scripts.trusted_time_post_enrollment_start import (
     TrustedTimePostEnrollmentStartClaimConsumed,
     TrustedTimePostEnrollmentStartClaimPersistenceError,
     TrustedTimePostEnrollmentStartClaimRetentionUnconfirmed,
+    _TrustedTimePostEnrollmentStartClaimCheckpointRejected,
     retain_post_enrollment_start_claim,
 )
 
@@ -340,6 +343,491 @@ def test_prepare_returns_exact_non_authorizing_handoff_in_fixed_order(
         "load_enrollment",
         "revalidate",
     ]
+
+
+def test_exact_retained_claim_binder_is_preflighted_and_consumed_once_after_revalidation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ignored_root, artifact_directory = _artifact_paths(tmp_path)
+    expected_ignored_root = ignored_root
+    expected_artifact_directory = artifact_directory
+    approval = _approval()
+    issuer = _Issuer(_observed_postcondition())
+    events: list[str] = []
+    retained_seen: list[Any] = []
+    binder = object.__new__(reader._TrustedTimePostEnrollmentRecoveryClaimBinder)
+    binder_active = True
+    original_retain = staging.retain_post_enrollment_start_claim
+    original_revalidate = staging.revalidate_retained_post_enrollment_start_claim
+    original_open = os.open
+
+    def binder_available(
+        candidate: object,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> bool:
+        events.append("binder_preflight")
+        return (
+            binder_active
+            and candidate is binder
+            and artifact_directory == ignored_root / "trusted-time"
+        )
+
+    def load(**_: Any) -> TrustedTimeConfirmedFirstEnrollment:
+        events.append("load_enrollment")
+        return approval.confirmed_enrollment
+
+    def revalidate(*args: Any, **kwargs: Any) -> bool:
+        events.append("revalidate")
+        return original_revalidate(*args, **kwargs)
+
+    def checkpoint(
+        candidate: object,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> None:
+        assert binder_active
+        assert candidate is binder
+        assert artifact_directory == ignored_root / "trusted-time"
+        assert artifact_directory == expected_artifact_directory
+        assert ignored_root == expected_ignored_root
+        assert events[-1] == "retain"
+        events.append("binder_checkpoint")
+
+    def retain(*args: Any, **kwargs: Any) -> Any:
+        events.append("retain")
+        return original_retain(*args, **kwargs)
+
+    def tracked_open(
+        path: str | bytes | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        if path == POST_ENROLLMENT_START_CLAIM_FILE_NAME and flags & os.O_EXCL:
+            assert events[-1] == "binder_checkpoint"
+            events.append("claim_o_excl")
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    def consume(candidate: object, retained: Any) -> None:
+        nonlocal binder_active
+        assert binder_active
+        assert candidate is binder
+        assert events[-1] == "revalidate"
+        assert retained_seen == []
+        binder_active = False
+        events.append("retained_claim_binder")
+        retained_seen.append(retained)
+
+    monkeypatch.setattr(
+        staging,
+        "_authenticated_recovery_claim_binder_is_available",
+        binder_available,
+    )
+    monkeypatch.setattr(reader, "_checkpoint_authenticated_recovery_claim_binder", checkpoint)
+    monkeypatch.setattr(reader, "_consume_authenticated_recovery_claim_binder", consume)
+    monkeypatch.setattr(staging, "load_confirmed_first_enrollment_evidence", load)
+    monkeypatch.setattr(staging, "retain_post_enrollment_start_claim", retain)
+    monkeypatch.setattr(os, "open", tracked_open)
+    monkeypatch.setattr(
+        staging,
+        "revalidate_retained_post_enrollment_start_claim",
+        revalidate,
+    )
+
+    handoff = prepare_post_enrollment_start_release_under_lock(
+        approval=approval,
+        expected_approval_sha256=approval.approval_sha256,
+        supervisor_container_id=SUPERVISOR_CONTAINER_ID,
+        reauthentication_issuer=issuer,
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+        _retained_claim_binder=binder,
+    )
+
+    assert retained_seen == [handoff.retained_claim]
+    assert retained_seen[0] is handoff.retained_claim
+    assert binder_active is False
+    assert events == [
+        "binder_preflight",
+        "load_enrollment",
+        "load_enrollment",
+        "retain",
+        "binder_checkpoint",
+        "claim_o_excl",
+        "revalidate",
+        "retained_claim_binder",
+        "load_enrollment",
+        "revalidate",
+    ]
+
+
+@pytest.mark.parametrize(
+    "candidate_kind",
+    ["wrong_type", "unregistered_exact", "wrong_path"],
+)
+def test_invalid_or_wrong_path_retained_claim_binder_is_rejected_before_observation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    candidate_kind: str,
+) -> None:
+    bound_ignored_root, bound_artifact_directory = _artifact_paths(tmp_path)
+    approval = _approval()
+    issuer = _Issuer(_observed_postcondition())
+    candidate = (
+        object()
+        if candidate_kind == "wrong_type"
+        else object.__new__(reader._TrustedTimePostEnrollmentRecoveryClaimBinder)
+    )
+    if candidate_kind == "wrong_path":
+        ignored_root = tmp_path / "other-artifacts"
+        artifact_directory = ignored_root / "trusted-time"
+        registered_binder: object | None = candidate
+    else:
+        ignored_root = bound_ignored_root
+        artifact_directory = bound_artifact_directory
+        registered_binder = None
+    availability_calls: list[tuple[object, Path, Path]] = []
+
+    def unavailable(
+        candidate: object,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> bool:
+        availability_calls.append((candidate, artifact_directory, ignored_root))
+        return (
+            candidate is registered_binder
+            and artifact_directory == bound_artifact_directory
+            and ignored_root == bound_ignored_root
+        )
+
+    def consume(*_: Any) -> None:
+        raise AssertionError("an unavailable binder must never be consumed")
+
+    def checkpoint(*_: Any, **__: Any) -> None:
+        raise AssertionError("an unavailable binder must never be checkpointed")
+
+    monkeypatch.setattr(
+        staging,
+        "_authenticated_recovery_claim_binder_is_available",
+        unavailable,
+    )
+    monkeypatch.setattr(
+        reader,
+        "_checkpoint_authenticated_recovery_claim_binder",
+        checkpoint,
+    )
+    monkeypatch.setattr(reader, "_consume_authenticated_recovery_claim_binder", consume)
+
+    with pytest.raises(
+        TrustedTimePostEnrollmentStartStagingRejected,
+        match="staging inputs are invalid",
+    ):
+        prepare_post_enrollment_start_release_under_lock(
+            approval=approval,
+            expected_approval_sha256=approval.approval_sha256,
+            supervisor_container_id=SUPERVISOR_CONTAINER_ID,
+            reauthentication_issuer=issuer,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+            _retained_claim_binder=candidate,  # type: ignore[arg-type]
+        )
+
+    assert availability_calls == (
+        [] if candidate_kind == "wrong_type" else [(candidate, artifact_directory, ignored_root)]
+    )
+    assert issuer.reauthentication_calls == 0
+    assert issuer.close_calls == 0
+    assert not (artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).exists()
+    assert not (bound_artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).exists()
+
+
+def test_preclaim_failure_never_consumes_exact_retained_claim_binder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ignored_root, artifact_directory = _artifact_paths(tmp_path)
+    approval = _approval()
+    issuer = _Issuer(_observed_postcondition())
+    binder = object.__new__(reader._TrustedTimePostEnrollmentRecoveryClaimBinder)
+    retained_seen: list[Any] = []
+
+    def fail_load(**_: Any) -> TrustedTimeConfirmedFirstEnrollment:
+        raise OSError("evidence unavailable")
+
+    def unexpected_checkpoint(*_: Any, **__: Any) -> None:
+        raise AssertionError("a precondition failure must never checkpoint the binder")
+
+    monkeypatch.setattr(staging, "load_confirmed_first_enrollment_evidence", fail_load)
+    monkeypatch.setattr(
+        staging,
+        "_authenticated_recovery_claim_binder_is_available",
+        lambda candidate, **_: candidate is binder,
+    )
+    monkeypatch.setattr(
+        reader,
+        "_checkpoint_authenticated_recovery_claim_binder",
+        unexpected_checkpoint,
+    )
+    monkeypatch.setattr(
+        reader,
+        "_consume_authenticated_recovery_claim_binder",
+        lambda candidate, retained: retained_seen.append((candidate, retained)),
+    )
+
+    with pytest.raises(TrustedTimePostEnrollmentStartStagingRejected):
+        prepare_post_enrollment_start_release_under_lock(
+            approval=approval,
+            expected_approval_sha256=approval.approval_sha256,
+            supervisor_container_id=SUPERVISOR_CONTAINER_ID,
+            reauthentication_issuer=issuer,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+            _retained_claim_binder=binder,
+        )
+
+    assert retained_seen == []
+    assert not (artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).exists()
+
+
+def test_retained_claim_binder_checkpoint_failure_is_rejected_before_claim_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ignored_root, artifact_directory = _artifact_paths(tmp_path)
+    approval = _approval()
+    issuer = _Issuer(_observed_postcondition())
+    binder = object.__new__(reader._TrustedTimePostEnrollmentRecoveryClaimBinder)
+    checkpoint_calls: list[tuple[object, Path, Path]] = []
+    exclusive_open_calls: list[str | bytes | os.PathLike[str]] = []
+    original_open = os.open
+    _stub_confirmed_loader(
+        monkeypatch,
+        [approval.confirmed_enrollment, approval.confirmed_enrollment],
+    )
+
+    def reject_checkpoint(
+        candidate: object,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> None:
+        checkpoint_calls.append((candidate, artifact_directory, ignored_root))
+        raise RuntimeError("action lease expired")
+
+    def tracked_open(
+        path: str | bytes | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        if path == POST_ENROLLMENT_START_CLAIM_FILE_NAME and flags & os.O_EXCL:
+            exclusive_open_calls.append(path)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    def unexpected_consume(*_: Any) -> None:
+        raise AssertionError("a rejected binder must never be consumed")
+
+    monkeypatch.setattr(
+        staging,
+        "_authenticated_recovery_claim_binder_is_available",
+        lambda candidate, **_: candidate is binder,
+    )
+    monkeypatch.setattr(
+        reader,
+        "_checkpoint_authenticated_recovery_claim_binder",
+        reject_checkpoint,
+    )
+    monkeypatch.setattr(
+        reader,
+        "_consume_authenticated_recovery_claim_binder",
+        unexpected_consume,
+    )
+    monkeypatch.setattr(os, "open", tracked_open)
+
+    with pytest.raises(
+        TrustedTimePostEnrollmentStartStagingRejected,
+        match="recovery claim binder is unavailable",
+    ):
+        prepare_post_enrollment_start_release_under_lock(
+            approval=approval,
+            expected_approval_sha256=approval.approval_sha256,
+            supervisor_container_id=SUPERVISOR_CONTAINER_ID,
+            reauthentication_issuer=issuer,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+            _retained_claim_binder=binder,
+        )
+
+    assert checkpoint_calls == [(binder, artifact_directory, ignored_root)]
+    assert exclusive_open_calls == []
+    assert not (artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).exists()
+
+
+def test_forged_exact_retained_claim_binder_is_rejected_before_claim_o_excl(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ignored_root, artifact_directory = _artifact_paths(tmp_path)
+    forged = object.__new__(reader._TrustedTimePostEnrollmentRecoveryClaimBinder)
+    exclusive_open_calls: list[str | bytes | os.PathLike[str]] = []
+    original_open = os.open
+
+    def tracked_open(
+        path: str | bytes | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        if path == POST_ENROLLMENT_START_CLAIM_FILE_NAME and flags & os.O_EXCL:
+            exclusive_open_calls.append(path)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", tracked_open)
+
+    with pytest.raises(
+        _TrustedTimePostEnrollmentStartClaimCheckpointRejected,
+        match="recovery claim binder is unavailable",
+    ):
+        retain_post_enrollment_start_claim(
+            _claim(),
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+            _retained_claim_binder=forged,
+        )
+
+    assert exclusive_open_calls == []
+    assert not (artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).exists()
+
+
+def test_retained_claim_binder_failure_requires_recovery_and_leaves_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ignored_root, artifact_directory = _artifact_paths(tmp_path)
+    approval = _approval()
+    issuer = _Issuer(_observed_postcondition())
+    binder = object.__new__(reader._TrustedTimePostEnrollmentRecoveryClaimBinder)
+    checkpoint_calls: list[tuple[object, Path, Path]] = []
+    calls = 0
+    _stub_confirmed_loader(
+        monkeypatch,
+        [approval.confirmed_enrollment, approval.confirmed_enrollment],
+    )
+
+    def fail_binder(candidate: object, _: Any) -> None:
+        nonlocal calls
+        assert candidate is binder
+        calls += 1
+        raise RuntimeError("retention binding failed")
+
+    def checkpoint(
+        candidate: object,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> None:
+        checkpoint_calls.append((candidate, artifact_directory, ignored_root))
+
+    monkeypatch.setattr(
+        staging,
+        "_authenticated_recovery_claim_binder_is_available",
+        lambda candidate, **_: candidate is binder,
+    )
+    monkeypatch.setattr(
+        reader,
+        "_checkpoint_authenticated_recovery_claim_binder",
+        checkpoint,
+    )
+    monkeypatch.setattr(reader, "_consume_authenticated_recovery_claim_binder", fail_binder)
+
+    with pytest.raises(
+        TrustedTimePostEnrollmentStartClaimedRecoveryRequired,
+        match="retained claim requires recovery",
+    ):
+        prepare_post_enrollment_start_release_under_lock(
+            approval=approval,
+            expected_approval_sha256=approval.approval_sha256,
+            supervisor_container_id=SUPERVISOR_CONTAINER_ID,
+            reauthentication_issuer=issuer,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+            _retained_claim_binder=binder,
+        )
+
+    assert checkpoint_calls == [(binder, artifact_directory, ignored_root)]
+    assert calls == 1
+    assert (artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).exists()
+
+
+def test_failure_after_retained_claim_binder_consumption_leaves_exact_binding_and_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ignored_root, artifact_directory = _artifact_paths(tmp_path)
+    approval = _approval()
+    drifted = replace(approval.confirmed_enrollment, outcome_sha256="a" * 64)
+    issuer = _Issuer(_observed_postcondition())
+    binder = object.__new__(reader._TrustedTimePostEnrollmentRecoveryClaimBinder)
+    checkpoint_calls: list[tuple[object, Path, Path]] = []
+    retained_seen: list[Any] = []
+    _stub_confirmed_loader(
+        monkeypatch,
+        [approval.confirmed_enrollment, approval.confirmed_enrollment, drifted],
+    )
+
+    def consume(candidate: object, retained: Any) -> None:
+        assert candidate is binder
+        assert retained_seen == []
+        retained_seen.append(retained)
+
+    def checkpoint(
+        candidate: object,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> None:
+        checkpoint_calls.append((candidate, artifact_directory, ignored_root))
+
+    monkeypatch.setattr(
+        staging,
+        "_authenticated_recovery_claim_binder_is_available",
+        lambda candidate, **_: candidate is binder,
+    )
+    monkeypatch.setattr(
+        reader,
+        "_checkpoint_authenticated_recovery_claim_binder",
+        checkpoint,
+    )
+    monkeypatch.setattr(reader, "_consume_authenticated_recovery_claim_binder", consume)
+
+    with pytest.raises(
+        TrustedTimePostEnrollmentStartClaimedRecoveryRequired,
+        match="retained claim requires recovery",
+    ):
+        prepare_post_enrollment_start_release_under_lock(
+            approval=approval,
+            expected_approval_sha256=approval.approval_sha256,
+            supervisor_container_id=SUPERVISOR_CONTAINER_ID,
+            reauthentication_issuer=issuer,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+            _retained_claim_binder=binder,
+        )
+
+    assert checkpoint_calls == [(binder, artifact_directory, ignored_root)]
+    assert len(retained_seen) == 1
+    assert retained_seen[0].artifact_path == (
+        artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME
+    )
+    assert (artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).exists()
 
 
 @pytest.mark.parametrize(

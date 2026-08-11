@@ -365,6 +365,7 @@ def test_reviewed_inputs_bind_launch_entrypoint_and_strict_environment_loader() 
     assert ROOT / "scripts" / "start_trusted_time_supervisor.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_claimed_fence.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_evidence.py" in reviewed
+    assert ROOT / "scripts" / "trusted_time_post_enrollment_outcome.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_staged_topology.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_staging.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_start.py" in reviewed

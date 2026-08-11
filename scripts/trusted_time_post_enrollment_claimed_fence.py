@@ -47,6 +47,7 @@ from scripts.trusted_time_post_enrollment_topology_reader import (
     TrustedTimePostEnrollmentTopologyObservationCursor,
     TrustedTimePostEnrollmentTopologyObservationIssuer,
     _observe_host_retirements,
+    _TrustedTimePostEnrollmentRecoveryClaimBinder,
     _validate_staged_paths,
 )
 
@@ -145,6 +146,37 @@ class _ClaimedFenceCapability:
     def __new__(cls) -> _ClaimedFenceCapability:
         raise TrustedTimePostEnrollmentStartClaimedFenceRejected(
             "trusted-time claimed pre-release capability is unavailable"
+        )
+
+
+class _ClaimedFenceRecoveryBinderAuthorization:
+    """Opaque one-shot authority minted only inside claimed chronology."""
+
+    __slots__ = ()
+
+    def __new__(cls) -> _ClaimedFenceRecoveryBinderAuthorization:
+        raise TrustedTimePostEnrollmentStartClaimedFenceRejected(
+            "trusted-time recovery binder authorization is unavailable"
+        )
+
+    def __copy__(self) -> Never:
+        raise TrustedTimePostEnrollmentStartClaimedFenceRejected(
+            "trusted-time recovery binder authorization cannot be copied"
+        )
+
+    def __deepcopy__(self, _: object) -> Never:
+        raise TrustedTimePostEnrollmentStartClaimedFenceRejected(
+            "trusted-time recovery binder authorization cannot be copied"
+        )
+
+    def __reduce__(self) -> Never:
+        raise TrustedTimePostEnrollmentStartClaimedFenceRejected(
+            "trusted-time recovery binder authorization cannot be serialized"
+        )
+
+    def __reduce_ex__(self, _: SupportsIndex) -> Never:
+        raise TrustedTimePostEnrollmentStartClaimedFenceRejected(
+            "trusted-time recovery binder authorization cannot be serialized"
         )
 
 
@@ -543,6 +575,11 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
     artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
     ignored_root: Path = IGNORED_ARTIFACT_ROOT,
     _choreography_lease: object | None = None,
+    _recovery_retention_capability: object | None = None,
+    _recovery_binder_issuer: Callable[
+        ...,
+        _TrustedTimePostEnrollmentRecoveryClaimBinder,
+    ],
 ) -> _ClaimedFenceMaterials:
     """Retain one claim and prove ordinal 2 was issued after it; never release."""
 
@@ -561,6 +598,8 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
                 )
             )
             or not callable(getattr(reauthentication_issuer, "close", None))
+            or (_recovery_retention_capability is not None and _choreography_lease is None)
+            or not callable(_recovery_binder_issuer)
         ):
             raise ValueError
         approval.__post_init__()
@@ -636,15 +675,41 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
     try:
         if _choreography_lease is not None:
             topology_issuer._require_active_choreography_lease(_choreography_lease)
+
+        retained_claim_binder: _TrustedTimePostEnrollmentRecoveryClaimBinder | None = None
+        if _recovery_retention_capability is not None:
+            if _choreography_lease is None:
+                raise RuntimeError
+            retained_claim_binder = _recovery_binder_issuer(
+                topology_issuer=topology_issuer,
+                choreography_lease=_choreography_lease,
+                recovery_retention_capability=_recovery_retention_capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+            if type(retained_claim_binder) is not _TrustedTimePostEnrollmentRecoveryClaimBinder:
+                raise RuntimeError
+
         claim_preparation_began = True
-        handoff = prepare_post_enrollment_start_release_under_lock(
-            approval=approval,
-            expected_approval_sha256=expected_approval_sha256,
-            supervisor_container_id=supervisor_container_id,
-            reauthentication_issuer=reauthentication_issuer,
-            artifact_directory=artifact_directory,
-            ignored_root=ignored_root,
-        )
+        if retained_claim_binder is None:
+            handoff = prepare_post_enrollment_start_release_under_lock(
+                approval=approval,
+                expected_approval_sha256=expected_approval_sha256,
+                supervisor_container_id=supervisor_container_id,
+                reauthentication_issuer=reauthentication_issuer,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        else:
+            handoff = prepare_post_enrollment_start_release_under_lock(
+                approval=approval,
+                expected_approval_sha256=expected_approval_sha256,
+                supervisor_container_id=supervisor_container_id,
+                reauthentication_issuer=reauthentication_issuer,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+                _retained_claim_binder=retained_claim_binder,
+            )
         if _choreography_lease is not None:
             topology_issuer._require_active_choreography_lease(_choreography_lease)
         retained = handoff.retained_claim
@@ -761,6 +826,7 @@ class _ClaimedFencePreparer(Protocol):
         artifact_directory: Path = ...,
         ignored_root: Path = ...,
         _choreography_lease: object | None = ...,
+        _recovery_retention_capability: object | None = ...,
     ) -> TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence: ...
 
 
@@ -778,10 +844,83 @@ def _build_claimed_fence_preparer(
 ) -> tuple[
     _ClaimedFencePreparer,
     _ClaimedFenceCapabilityValidator,
+    Callable[..., bool],
 ]:
     registry_lock = threading.Lock()
     origin_pid = os.getpid()
     registrations: dict[object, tuple[str, object | None]] = {}
+    recovery_binder_authorizations: dict[
+        _ClaimedFenceRecoveryBinderAuthorization,
+        tuple[object, object, object, Path, Path, int, threading.Thread],
+    ] = {}
+
+    def issue_recovery_binder(
+        *,
+        topology_issuer: object,
+        choreography_lease: object,
+        recovery_retention_capability: object,
+        artifact_directory: object,
+        ignored_root: object,
+    ) -> _TrustedTimePostEnrollmentRecoveryClaimBinder:
+        if (
+            os.getpid() != origin_pid
+            or type(topology_issuer) is not TrustedTimePostEnrollmentTopologyObservationIssuer
+            or type(artifact_directory) is not type(Path())
+            or type(ignored_root) is not type(Path())
+            or artifact_directory != ignored_root / "trusted-time"
+        ):
+            raise TrustedTimePostEnrollmentStartClaimedFenceRejected(
+                "trusted-time recovery binder authorization is unavailable"
+            )
+        authorization = object.__new__(_ClaimedFenceRecoveryBinderAuthorization)
+        try:
+            with registry_lock:
+                recovery_binder_authorizations[authorization] = (
+                    topology_issuer,
+                    choreography_lease,
+                    recovery_retention_capability,
+                    artifact_directory,
+                    ignored_root,
+                    os.getpid(),
+                    threading.current_thread(),
+                )
+            return topology_issuer._issue_recovery_retention_claim_binder(
+                choreography_lease,
+                recovery_retention_capability,
+                claimed_fence_authorization=authorization,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        finally:
+            with registry_lock:
+                recovery_binder_authorizations.pop(authorization, None)
+
+    def consume_recovery_binder_authorization(
+        candidate: object,
+        *,
+        topology_issuer: object,
+        choreography_lease: object,
+        recovery_retention_capability: object,
+        artifact_directory: object,
+        ignored_root: object,
+    ) -> bool:
+        if (
+            os.getpid() != origin_pid
+            or type(candidate) is not _ClaimedFenceRecoveryBinderAuthorization
+        ):
+            return False
+        with registry_lock:
+            registration = recovery_binder_authorizations.pop(candidate, None)
+        return bool(
+            registration is not None
+            and registration[0] is topology_issuer
+            and registration[1] is choreography_lease
+            and registration[2] is recovery_retention_capability
+            and registration[3] == artifact_directory
+            and registration[4] == ignored_root
+            and registration[5] == os.getpid()
+            and registration[6] is threading.current_thread()
+        )
 
     def register(material: Mapping[str, object]) -> _ClaimedFenceCapability:
         if os.getpid() != origin_pid:
@@ -838,6 +977,7 @@ def _build_claimed_fence_preparer(
         artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
         ignored_root: Path = IGNORED_ARTIFACT_ROOT,
         _choreography_lease: object | None = None,
+        _recovery_retention_capability: object | None = None,
     ) -> TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence:
         capability: _ClaimedFenceCapability | None = None
         materials_prepared = False
@@ -860,6 +1000,8 @@ def _build_claimed_fence_preparer(
                 artifact_directory=artifact_directory,
                 ignored_root=ignored_root,
                 _choreography_lease=_choreography_lease,
+                _recovery_retention_capability=_recovery_retention_capability,
+                _recovery_binder_issuer=issue_recovery_binder,
             )
             materials_prepared = True
             retained = materials.handoff.retained_claim
@@ -925,12 +1067,17 @@ def _build_claimed_fence_preparer(
                 "trusted-time claimed pre-release topology requires recovery"
             ) from None
 
-    return prepare_post_enrollment_start_claimed_pre_release_fence, valid
+    return (
+        prepare_post_enrollment_start_claimed_pre_release_fence,
+        valid,
+        consume_recovery_binder_authorization,
+    )
 
 
 (
     prepare_post_enrollment_start_claimed_pre_release_fence,
     _valid_claimed_fence_capability,
+    _consume_claimed_fence_recovery_binder_authorization,
 ) = _build_claimed_fence_preparer(_prepare_post_enrollment_start_claimed_pre_release_materials)
 del _build_claimed_fence_preparer
 del _prepare_post_enrollment_start_claimed_pre_release_materials
@@ -953,6 +1100,7 @@ def prepare_post_enrollment_start_leased_claimed_pre_release_fence(
     expected_head_anchor_signing_key_secret_file: Path,
     artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
     ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+    recovery_retention_capability: object | None = None,
 ) -> TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence:
     """Run the unchanged claimed chronology under one active private lease."""
 
@@ -978,6 +1126,7 @@ def prepare_post_enrollment_start_leased_claimed_pre_release_fence(
         artifact_directory=artifact_directory,
         ignored_root=ignored_root,
         _choreography_lease=choreography_lease,
+        _recovery_retention_capability=recovery_retention_capability,
     )
 
 
