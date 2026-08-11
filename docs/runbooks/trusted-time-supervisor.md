@@ -1186,7 +1186,8 @@ bounded same-session topology observations, pure pre-claim/pre-release fences,
 and claimed pre-release chronology contract
 `phase6d-post-enrollment-start-claimed-pre-release-topology-fence-v1` with status
 `claimed_pre_release_topology_fence_unqualified`, plus the code-only private
-callback lease/deadline and leased-wrapper seam described below.
+callback lease/deadline, claim-bound recovery retention, and final action-time
+topology-fence seams described below.
 
 The reader's process-sealed cursor contract is
 `phase6d-post-enrollment-topology-observation-cursor-v1`, with status
@@ -1211,6 +1212,13 @@ by another lease checkpoint. Raw observation/cursor use or attempted issuer
 close during the callback poisons the issuer and revokes its capabilities; it
 cannot release the outer flock before callback unwind. This token cannot be
 manually retained or used as an operator permit.
+
+The same callback acquisition fixes recovery retention at absolute
+`start + 305 seconds`, from the identical monotonic origin. Neither claim
+retention, poison, 300-second action expiry, capability arming, nor retention
+start resets either deadline. Equality is expired at both boundaries. Only an
+already claim-bound recovery capability may survive action expiry; an `unbound`
+or `claim_admitted` capability is revoked and cannot be armed afterward.
 
 Function `prepare_post_enrollment_start_claimed_pre_release_fence` enforces this
 exact order in one live issuer session: exact approval binding and descriptor-
@@ -1241,38 +1249,86 @@ a fresh start.
 The exact-identity-bound result is process-local, non-copyable,
 nonserializable, and invalid after fork. Its public authenticated payload
 projection revalidates the exact type, process seal, and nested evidence. It is
-not durable evidence. A crash can leave only the durable consumed claim, with no
-reloadable chronology, release,
-or host-outcome result and no recovery command. The status is not permission to
-continue. The seam does not publish or execute
-the release marker, mutate topology, create or observe sequence 2, qualify a
-persistent topology, retain a host outcome, or grant authority. It has no CLI,
-Make, Compose, worker/main, launcher, or supported runbook command. Do not call
-it directly as an operator workaround. The supervisor cannot compose SQL/
-provider runtime state until the marker is present, but no supported host
-command can retain the claim or publish that marker. The current lifecycle
-commands remain hard closed.
+not durable evidence and is not permission to continue.
 
-The next active-controller implementation must add the missing release, post-
-release terminal/topology, runtime, and durable-outcome contracts. It must use
-the implemented private action lease while healthy and keep the same callback,
-PID-bound issuer, and outer flock from fresh topology creation and staging
-through ordinal 1, claim preparation, final full live action-time
-reobservation, exact release, bounded sequence 2, persistent-topology
+The callback-local recovery seam can arm only from the exact retained claim.
+Its sole durable contract is
+`phase6d-post-enrollment-start-retained-recovery-outcome-v1`, with status
+`recovery_required`. Before the claim writer's `O_EXCL` boundary, its opaque
+binder checkpoints the live lease, flock, artifact roots, and 300-second action
+deadline. After claim retention, binding revalidates the claim, atomically arms
+the recovery capability while revoking the binder, then revalidates the claim
+again. The armed capability can be consumed once before equality with
+`start + 305 seconds`. It has no observation, mutation, release, retry, or
+authority surface and never removes or replaces a possibly durable artifact.
+Unconfirmed retention leaves the exact consumed claim as the hard-closed fact.
+
+The final dormant pre-release seam performs a separate full action-time
+reobservation rather than treating the third cursor as current topology.
+Reader contract `phase6d-post-enrollment-final-action-topology-observation-v1`,
+with status
+`final_action_staged_unreleased_topology_observation_unqualified`, performs one
+private lease-only 16-read staged-unreleased observation after ordinal 2 and all
+three cursors. Its one-shot authorization binds the exact claimed object and
+digest, created observation, approval, approved launch, staged-path tuple,
+issuer, lease, PID, and thread; a `finally` edge removes it if issuance does not
+consume it. The reader requires the same live issuer session, created
+observation, private ordinal-2/cursor-3 chain, staged count 2, cursor count 3,
+ordinal 2 last, unchanged staged snapshot, and no prior final observation. It
+creates neither staged ordinal 3 nor cursor 4.
+
+Function `prepare_post_enrollment_start_leased_claimed_action_topology_fence`
+implements contract
+`phase6d-post-enrollment-start-claimed-action-topology-fence-v1`, with status
+`claimed_action_topology_fence_unqualified`. It accepts the exact process-sealed
+claimed pre-release result only with its exact one-shot private origin tuple:
+issuer, lease, armed recovery capability, artifact and ignored roots, PID, and
+thread. That tuple exists only in the claimed-result process registry and never
+in a public payload. The preparer consumes it before the final read, erases the
+full tuple and all lease/recovery/root/PID/thread material, and retains only a
+weak reference to the originating issuer as a consumed-origin tombstone. The
+tombstone grants no authority and exists solely so a later replay can still
+poison the origin. Wrong or replayed tuples poison the registered or tombstoned
+origin. The preparer then repeatedly verifies that the same recovery capability
+remains armed while revalidating the live lease, named lock, roots, and shrinking
+deadline, revalidates the retained claim before and after the full read, and
+returns another process-local, non-copyable,
+nonserializable, fork-invalid result. Its public payload is digest-only; the in-
+process object retains sealed nested evidence for revalidation but retains
+neither lease nor recovery capability. Once the exact claimed result has been
+presented, a missing, wrong, or replayed origin tuple or any later failure
+poisons the originating action and raises recovery-required so the owning outer
+callback may use its already armed recovery capability. The preparer does not
+retain an outcome itself. Current-session, freshness, and topology authentication
+remain false; neither result is temporal adjacency or release authority.
+
+Neither seam publishes or executes the release marker, mutates topology,
+creates or observes sequence 2, qualifies persistent topology, retains a
+success outcome, or grants authority. Neither has CLI, Make, Compose,
+worker/main, launcher, or a supported runbook command. Do not call either as an
+operator workaround. The supervisor cannot compose SQL/provider runtime state
+until the marker is present, but no supported host command can retain the claim
+or publish that marker. The current lifecycle commands remain hard closed.
+
+The next active-controller implementation must add the missing topology
+creation/start executors, exact release, post-release terminal/topology,
+runtime, and durable-success-outcome contracts. It must use the implemented
+private action lease while healthy and keep the same callback, PID-bound issuer,
+and outer flock from fresh topology creation and staging through ordinal 1,
+claim preparation and the now-implemented final full live action-time
+reobservation through exact release, bounded sequence 2, persistent-topology
 qualification, and durable success retention. The existing 300-second deadline
 must span that successful callback and must not restart, and the callback must
-not return with only the claimed v1 result.
+not return with only either unqualified claimed fence.
 
 Poison or deadline failure revokes the action token immediately. The owning
 callback and flock remain live until unwind, but the revoked token must never
-be restored. Before any release executor is added, implement a separate exact
-callback-local, retention-only capability for at most one durable failure or
-recovery disposition and give it no topology-read or mutation method.
-Deadline-expired recovery retention is the sole non-action deadline exception
-and needs a separately reviewed bound. If it cannot complete or the process
-crashes, treat the consumed claim as the hard-closed recovery fact. The current
-slice authorizes no action-time reobservation, release, retention, runtime,
-sequence 2, persistent topology, or outcome. The controller's exact merged
+be restored. The implemented callback-local capability may retain at most one
+pre-release recovery disposition before its fixed 305-second equality boundary
+and restores no topology-read or mutation authority. If it cannot complete or
+the process crashes, treat the consumed claim as the hard-closed recovery fact.
+The current slice authorizes no release, runtime, sequence 2, persistent
+topology, success outcome, or trading action. The controller's exact merged
 revision and immutable images require fresh admission and separate operational
 approval before execution.
 

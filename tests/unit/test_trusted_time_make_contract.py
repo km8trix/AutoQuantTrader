@@ -77,6 +77,25 @@ def test_every_supported_trusted_time_python_target_uses_isolated_launcher() -> 
 
 
 def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
+    action_topology_fence_api_names = (
+        "trusted_time_post_enrollment_action_topology_fence",
+        "POST_ENROLLMENT_START_CLAIMED_ACTION_TOPOLOGY_FENCE_CONTRACT_VERSION",
+        "POST_ENROLLMENT_START_CLAIMED_ACTION_TOPOLOGY_FENCE_STATUS",
+        "phase6d-post-enrollment-start-claimed-action-topology-fence-v1",
+        "claimed_action_topology_fence_unqualified",
+        "TrustedTimePostEnrollmentStartClaimedActionTopologyFence",
+        "TrustedTimePostEnrollmentStartClaimedActionTopologyFenceRejected",
+        "TrustedTimePostEnrollmentStartClaimedActionTopologyFenceRecoveryRequired",
+        "prepare_post_enrollment_start_leased_claimed_action_topology_fence",
+        "POST_ENROLLMENT_FINAL_ACTION_TOPOLOGY_OBSERVATION_CONTRACT_VERSION",
+        "POST_ENROLLMENT_FINAL_ACTION_TOPOLOGY_OBSERVATION_STATUS",
+        "phase6d-post-enrollment-final-action-topology-observation-v1",
+        "final_action_staged_unreleased_topology_observation_unqualified",
+        "TrustedTimePostEnrollmentFinalActionTopologyObservation",
+        "_consume_claimed_fence_action_choreography",
+        "_issue_claimed_final_action_topology_snapshot",
+        "_require_armed_recovery_outcome_retention",
+    )
     recovery_outcome_api_names = (
         "trusted_time_post_enrollment_outcome",
         "phase6d-post-enrollment-start-retained-recovery-outcome-v1",
@@ -132,6 +151,7 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         "TrustedTimePostEnrollmentTopologyObservationIssuer",
         "TrustedTimePostEnrollmentCreatedTopologyObservation",
         "TrustedTimePostEnrollmentStagedTopologyObservation",
+        *action_topology_fence_api_names,
         "trusted_time_post_enrollment_claimed_fence",
         *claimed_fence_api_names,
         "_run_exclusive_choreography",
@@ -165,6 +185,8 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         assert re.search(r"(?<![0-9A-Za-z])305(?:\.0)?(?![0-9A-Za-z])", payload) is None
 
     admission_cli = (ROOT / "scripts" / "verify_trusted_time_images.py").read_text(encoding="utf-8")
+    assert '"scripts/trusted_time_post_enrollment_action_topology_fence.py"' in admission_cli
+    assert admission_cli.count("trusted_time_post_enrollment_action_topology_fence") == 1
     assert '"scripts/trusted_time_post_enrollment_claimed_fence.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_claimed_fence") == 1
     assert '"scripts/trusted_time_post_enrollment_outcome.py"' in admission_cli
@@ -172,6 +194,7 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
     assert '"scripts/trusted_time_post_enrollment_topology_fence.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_topology_fence") == 1
     for forbidden_name in (
+        *action_topology_fence_api_names[1:],
         *recovery_outcome_api_names[1:],
         *claimed_fence_api_names,
         *topology_cursor_api_names,
