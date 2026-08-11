@@ -1185,7 +1185,8 @@ writer, an atomically published exact in-container release-marker barrier,
 bounded same-session topology observations, pure pre-claim/pre-release fences,
 and claimed pre-release chronology contract
 `phase6d-post-enrollment-start-claimed-pre-release-topology-fence-v1` with status
-`claimed_pre_release_topology_fence_unqualified`.
+`claimed_pre_release_topology_fence_unqualified`, plus the code-only private
+callback lease/deadline and leased-wrapper seam described below.
 
 The reader's process-sealed cursor contract is
 `phase6d-post-enrollment-topology-observation-cursor-v1`, with status
@@ -1195,8 +1196,21 @@ revalidation. The guarded production signer is bound to the exact issuer owner,
 session, and creating PID. Each cursor is bound to its exact registered identity
 in the originating process, is non-copyable and nonserializable, and is invalid
 after fork. A child at-fork hook closes the inherited global-lock descriptor
-without acquiring inherited Python locks. The issuer guard serializes individual calls, not the whole
-choreography; a cursor is not freshness or release authority.
+without acquiring inherited Python locks. Raw issuer operations remain
+individually serialized outside a consumed choreography; a cursor is not
+freshness or release authority. The private `_run_exclusive_choreography`
+callback can be acquired only once and only on a fresh issuer with no prior
+observation, cursor, or choreography. Its non-copyable, nonserializable token is
+bound to the exact issuer, authentication capability, session, creating PID,
+and exact current-thread identity, and is revoked before callback return.
+
+The callback starts one fixed absolute 300-second monotonic deadline. Clock
+regression and equality with that deadline both fail closed. During the callback,
+each Docker timeout shrinks to `min(2 seconds, remaining time)` and is followed
+by another lease checkpoint. Raw observation/cursor use or attempted issuer
+close during the callback poisons the issuer and revokes its capabilities; it
+cannot release the outer flock before callback unwind. This token cannot be
+manually retained or used as an operator permit.
 
 Function `prepare_post_enrollment_start_claimed_pre_release_fence` enforces this
 exact order in one live issuer session: exact approval binding and descriptor-
@@ -1209,11 +1223,20 @@ retained-claim revalidation. It accepts no caller-supplied ordinal 2, so a cache
 ordinal 2, preadvanced cursor, or nonconsecutive cursor is rejected within that
 preparation call. The third cursor is one daemon/session read, not a full
 topology observation; it does not detect topology drift after ordinal 2. The
-per-operation issuer guard is released between calls, and the function owns no
-unshareable same-process lease against another holder of the issuer reference or
-after it returns. Once claim preparation begins, every later failure requires
-recovery because the seam cannot establish claim absence versus retention after
-that boundary; it must never be retried as a fresh start.
+original function retains raw per-operation behavior when called directly and
+does not prove uninterrupted ownership.
+
+The additive
+`prepare_post_enrollment_start_leased_claimed_pre_release_fence` wrapper accepts
+only the exact private callback token and checkpoints it before structural
+preparation, immediately before and after claim handoff, after final claim
+revalidation, and after constructing the same exact v1 result. Its cursor and
+ordinal-2 reads also checkpoint the token. The existing v1 public payload and
+status are unchanged; no lease or checkpoint material is durable, and the
+returned result retains no token or callback authority. Once claim preparation
+begins, every later failure requires recovery because the seam cannot establish
+claim absence versus retention after that boundary; it must never be retried as
+a fresh start.
 
 The exact-identity-bound result is process-local, non-copyable,
 nonserializable, and invalid after fork. Its public authenticated payload
@@ -1231,13 +1254,27 @@ command can retain the claim or publish that marker. The current lifecycle
 commands remain hard closed.
 
 The next active-controller implementation must add the missing release, post-
-release terminal/topology, and durable-outcome contracts. It must hold an
-unshareable same-process choreography lease/capability through final release,
-qualification, and outcome retention; perform a final full live reobservation;
-and enforce one end-to-end deadline from claim preparation through durable
-retention of an exact success, failure, or recovery-required outcome. Its exact
-merged revision and immutable images require fresh admission and separate
-operational approval before execution.
+release terminal/topology, runtime, and durable-outcome contracts. It must use
+the implemented private action lease while healthy and keep the same callback,
+PID-bound issuer, and outer flock from fresh topology creation and staging
+through ordinal 1, claim preparation, final full live action-time
+reobservation, exact release, bounded sequence 2, persistent-topology
+qualification, and durable success retention. The existing 300-second deadline
+must span that successful callback and must not restart, and the callback must
+not return with only the claimed v1 result.
+
+Poison or deadline failure revokes the action token immediately. The owning
+callback and flock remain live until unwind, but the revoked token must never
+be restored. Before any release executor is added, implement a separate exact
+callback-local, retention-only capability for at most one durable failure or
+recovery disposition and give it no topology-read or mutation method.
+Deadline-expired recovery retention is the sole non-action deadline exception
+and needs a separately reviewed bound. If it cannot complete or the process
+crashes, treat the consumed claim as the hard-closed recovery fact. The current
+slice authorizes no action-time reobservation, release, retention, runtime,
+sequence 2, persistent topology, or outcome. The controller's exact merged
+revision and immutable images require fresh admission and separate operational
+approval before execution.
 
 The hard closure is unconditional in this phase: persistent start is rejected
 even before claim lookup. The retained-claim check remains defense in depth,

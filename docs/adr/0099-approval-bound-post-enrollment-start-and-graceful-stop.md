@@ -3,8 +3,8 @@
 - Status: Accepted (contract, dormant globally fixed claim/barrier, read-only
   sequence-2 observation/binding, import-only claimed-release handoff, pure
   topology snapshots, bounded observation issuer, and pure two-stage same-
-  session topology fence plus code-only claimed pre-release chronology; host
-  execution blocked)
+  session topology fence plus code-only claimed pre-release chronology and
+  callback-scoped lease/deadline seam; host execution blocked)
 - Date: 2026-08-08
 - Extends: [ADR 0098](0098-canonical-post-enrollment-start-evidence-review.md)
 
@@ -179,12 +179,28 @@ owns the global launcher lock, pins one canonical absolute Docker executable,
 local Unix socket, and daemon identity, and binds one non-copyable session to
 its creating process with serialized lifecycle state. Its guarded production
 signer is bound to the exact issuer owner, session, and creating PID. The
-lifecycle serializes each observation or cursor operation; it is not an
-exclusive lease over the multi-call chronology. A child at-fork hook closes the
+lifecycle still serializes each raw observation or cursor operation outside a
+consumed choreography. The additive private `_run_exclusive_choreography`
+callback may be acquired exactly once and only while the issuer is fresh: it
+must have no prior created or staged observation, cursor, active operation, or
+consumed choreography. Its opaque token is bound to the exact issuer,
+authentication capability, session, creating PID, and exact current-thread
+identity. It cannot be copied or serialized, is valid only inside that callback, and
+is revoked before callback return can escape. A child at-fork hook closes the
 inherited global-lock descriptor without acquiring inherited Python locks.
-Every fixed observation has a
-two-second command deadline and independent byte bounds. The decoder
-accepts only compact LF-terminated UTF-8 JSON and rejects duplicate keys,
+
+The callback fixes one absolute 300-second monotonic deadline at acquisition.
+Every checkpoint rejects clock regression and treats equality with the deadline
+as expired. Raw Docker reads retain their two-second deadline; leased Docker
+reads instead receive `min(2 seconds, remaining time)` and checkpoint again
+after the command. The unchanged v1 transcript's
+`timeout_milliseconds=2000` records the authenticated ceiling, not a claim that
+a smaller leased runner timeout was not applied. A raw observation or cursor
+call with no exact token while
+the callback is active, or an attempted `close`, poisons the issuer and revokes
+its capabilities. That interference cannot release the outer flock before the
+callback unwinds. Every fixed observation also has independent byte bounds.
+The decoder accepts only compact LF-terminated UTF-8 JSON and rejects duplicate keys,
 nonstandard constants, floats, oversized integers, invalid Unicode, and
 depth/node exhaustion.
 
@@ -261,10 +277,20 @@ session, chain drift, a mismatch between the full ordinal-1 and ordinal-2
 observations, or claim drift fails closed. This rejects preissued ordinal 2 only
 within this preparation call. The third cursor performs one daemon/session read,
 not another full topology observation, so topology drift after ordinal 2 is not
-detected. Because the issuer guard is released between individual calls, the
-function has no unshareable same-process choreography lease against another
-holder of the issuer reference; after return, the result neither holds nor
-proves that the issuer remains open.
+detected. Called directly, this original preparer retains its prior raw,
+per-operation behavior and does not prove uninterrupted issuer ownership.
+
+The additive
+`prepare_post_enrollment_start_leased_claimed_pre_release_fence` wrapper runs
+that unchanged v1 chronology and returns the same exact v1 result and public
+payload. It accepts only the exact private callback token and checkpoints it
+before structural preparation, immediately before and after the claimed-release
+handoff, after final claim revalidation, and after result construction. All
+leased cursor and ordinal-2 Docker reads also use the lease checkpoints and
+shrinking command timeouts. The lease, its private digest and monotonic fields,
+and the checkpoints are not added to the claimed-fence payload and are not
+durable evidence. The returned result neither retains the token nor proves that
+the callback or issuer remains active.
 
 This process-sealed seam authenticates observation provenance, same-session
 chain and stable-topology equality, real claim retention and chronology,
@@ -297,41 +323,50 @@ remains `UNCONFIRMED`, and all authority fields remain false.
 No worker/main, Make, Compose, or supported host-launcher path calls the
 sequence-2 issuer or binder, invokes the claimed-release handoff, either pure
 topology snapshot, the dormant observation reader, or either same-session fence
-binder or the claimed chronology seam, executes either projected start argv,
-invokes the claim writer through a supported command, or publishes the release
-marker. There is no complete staged-topology controller, retained-evidence/
-approval wiring, topology mutation, sequence-2 runtime mutation, confirmed
-start outcome, or graceful-stop operator. The reader's exact in-container probe
-is observation-only and cannot publish either release path. `trusted-time-start`
-and shutdown remain hard closed.
+binder, the claimed chronology seam, or its leased wrapper, executes either
+projected start argv, invokes the claim writer through a supported command, or
+publishes the release marker. There is no complete staged-topology controller,
+retained-evidence/approval wiring, topology mutation, sequence-2 runtime
+mutation, confirmed start outcome, or graceful-stop operator. The reader's
+exact in-container probe is observation-only and cannot publish either release
+path. `trusted-time-start` and shutdown remain hard closed.
 
-The next implementation remains a separately reviewed active controller. Under
-an unshareable same-process choreography lease/capability over one continuously
-open PID-bound issuer/global-launcher-lock session spanning claim preparation,
-release, post-release qualification, and durable outcome retention, it must
-create and stage the admitted topology, obtain and bind ordinal 1, and invoke
-the claimed chronology seam. An end-to-end deadline must span claim preparation
-through retention of an exact success, failure, or recovery-required outcome.
-It still
-needs explicit release, post-release terminal/persistent-topology, and durable-
-outcome contracts to perform a final full live reobservation, execute only the
-approved marker release, authenticate the exact sequence-2 terminal and
-persistent topology, and retain every exact result and recovery disposition.
-Its exact merged revision and images require
-fresh admission and separate operational approval before execution.
+The next implementation remains a separately reviewed active controller. While
+healthy, the now-implemented private one-shot action lease must remain inside
+the same callback and continuously open PID-bound issuer/global-launcher-lock
+session from fresh topology creation and staging through ordinal 1, claim
+preparation, a final full live action-time reobservation, the exact marker
+release, the bounded sequence-2 terminal, persistent-topology qualification,
+and durable success retention. The fixed 300-second deadline remains the one
+deadline for that successful callback; it is never restarted at release or a
+later stage, and the callback must not return with only the claimed v1 result.
+
+Poisoning or deadline failure revokes the action token immediately and
+irreversibly, but the owning callback and outer flock remain live until owner
+unwind. Before any release executor exists, a separate exact callback-local,
+retention-only capability must allow one durable failure/recovery disposition
+without restoring observation or mutation authority. Deadline-expired recovery
+retention is the sole non-action exception to the action deadline and needs its
+own reviewed bound. If it cannot complete or the process crashes, the consumed
+claim remains the durable hard-closed recovery fact and never authorizes retry.
+The current lease slice itself grants no release, retention, runtime,
+sequence-2, persistent-topology, or trading authority. The controller's exact
+merged revision and images require fresh admission and separate operational
+approval before execution.
 
 ## Consequences
 
 The runtime now has an explicit pre-mutation barrier, and the dormant claim
 writer freezes the required exclusive durability semantics in one global fixed
 slot while treating every legacy per-operation claim as consumed authority.
-Neither that seam, the import-only handoff, nor either pure topology snapshot
-nor either same-session fence nor the claimed chronology result connects
-approval to release or a post-release qualified topology, so a projected Docker
-argv, caller-supplied inspection or marker state, structurally valid fence,
-retained claim, container creation, and marker capability still are not
-authorization or success. The already-retained enrollment evidence remains
-historical proof; it is never
+Neither that seam, the import-only handoff, either pure topology snapshot,
+either same-session fence, the claimed chronology result, nor its private
+callback lease connects approval to release or a post-release qualified
+topology. A projected Docker argv, caller-supplied inspection or marker state,
+structurally valid fence, retained claim, container creation, lease token, and
+marker capability therefore still are not authorization or success. Poisoning
+caused by raw issuer interference is fail-closed and does not release the flock
+early. The already-retained enrollment evidence remains historical proof; it is never
 rewritten, deleted, or used as an implicit start permit.
 
 The new observer can authenticate only an already-existing exact sequence-2
