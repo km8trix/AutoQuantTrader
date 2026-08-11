@@ -37,9 +37,14 @@ from scripts.trusted_time_post_enrollment_start import (
     IGNORED_ARTIFACT_ROOT,
     RetainedTrustedTimePostEnrollmentStartClaim,
     TrustedTimePostEnrollmentStartClaimConsumed,
+    _TrustedTimePostEnrollmentStartClaimCheckpointRejected,
     require_no_retained_post_enrollment_start_claim,
     retain_post_enrollment_start_claim,
     revalidate_retained_post_enrollment_start_claim,
+)
+from scripts.trusted_time_post_enrollment_topology_reader import (
+    _authenticated_recovery_claim_binder_is_available,
+    _TrustedTimePostEnrollmentRecoveryClaimBinder,
 )
 
 POST_ENROLLMENT_START_RELEASE_COMMAND = (
@@ -234,6 +239,7 @@ def prepare_post_enrollment_start_release_under_lock(
     reauthentication_issuer: TrustedTimePostEnrollmentStartReauthenticationIssuer,
     artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
     ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+    _retained_claim_binder: _TrustedTimePostEnrollmentRecoveryClaimBinder | None = None,
 ) -> TrustedTimePostEnrollmentStartStagingHandoff:
     """Consume one staged issuer and retain a claim without executing release.
 
@@ -257,6 +263,11 @@ def prepare_post_enrollment_start_release_under_lock(
                 )
             )
             or not callable(getattr(reauthentication_issuer, "close", None))
+            or (
+                _retained_claim_binder is not None
+                and type(_retained_claim_binder)
+                is not _TrustedTimePostEnrollmentRecoveryClaimBinder
+            )
         ):
             raise ValueError
         release_argv = post_enrollment_start_release_argv(supervisor_container_id)
@@ -264,6 +275,14 @@ def prepare_post_enrollment_start_release_under_lock(
             artifact_directory,
             ignored_root=ignored_root,
         )
+        if _retained_claim_binder is not None and not (
+            _authenticated_recovery_claim_binder_is_available(
+                _retained_claim_binder,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        ):
+            raise ValueError
     except Exception:
         raise TrustedTimePostEnrollmentStartStagingRejected(
             "trusted-time post-enrollment staging inputs are invalid"
@@ -360,6 +379,7 @@ def prepare_post_enrollment_start_release_under_lock(
                 claim,
                 artifact_directory=artifact_directory,
                 ignored_root=ignored_root,
+                _retained_claim_binder=_retained_claim_binder,
             )
             if not revalidate_retained_post_enrollment_start_claim(
                 retained,
@@ -367,6 +387,8 @@ def prepare_post_enrollment_start_release_under_lock(
                 ignored_root=ignored_root,
             ):
                 raise RuntimeError
+            if _retained_claim_binder is not None:
+                _retained_claim_binder(retained)
             if (
                 _load_exact_confirmed_enrollment(
                     approval,
@@ -386,6 +408,10 @@ def prepare_post_enrollment_start_release_under_lock(
                 supervisor_container_id=supervisor_container_id,
                 release_argv=release_argv,
             )
+        except _TrustedTimePostEnrollmentStartClaimCheckpointRejected:
+            raise TrustedTimePostEnrollmentStartStagingRejected(
+                "trusted-time recovery claim binder is unavailable"
+            ) from None
         except BaseException:
             raise TrustedTimePostEnrollmentStartClaimedRecoveryRequired(
                 "trusted-time post-enrollment retained claim requires recovery"

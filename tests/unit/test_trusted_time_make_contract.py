@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -76,6 +77,17 @@ def test_every_supported_trusted_time_python_target_uses_isolated_launcher() -> 
 
 
 def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
+    recovery_outcome_api_names = (
+        "trusted_time_post_enrollment_outcome",
+        "phase6d-post-enrollment-start-retained-recovery-outcome-v1",
+        '"recovery_required"',
+        "retain_post_enrollment_start_recovery_required_outcome",
+        "_TrustedTimePostEnrollmentRecoveryClaimBinder",
+        "_TrustedTimePostEnrollmentRecoveryRetentionCapability",
+        "_issue_recovery_retention_claim_binder",
+        "_run_exclusive_choreography_with_recovery_retention",
+        "_POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_SECONDS",
+    )
     claimed_fence_api_names = (
         "POST_ENROLLMENT_START_CLAIMED_PRE_RELEASE_TOPOLOGY_FENCE_CONTRACT_VERSION",
         "POST_ENROLLMENT_START_CLAIMED_PRE_RELEASE_TOPOLOGY_FENCE_STATUS",
@@ -125,6 +137,7 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         "_run_exclusive_choreography",
         "choreography_lease",
         "choreography_deadline",
+        *recovery_outcome_api_names,
         *topology_cursor_api_names,
         "trusted_time_post_enrollment_topology_fence",
         *topology_fence_api_names,
@@ -148,18 +161,25 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         payload = path.read_text(encoding="utf-8")
         for forbidden_name in forbidden_names:
             assert forbidden_name not in payload
+        assert re.search(r"(?<![0-9A-Za-z_])recovery_required(?![0-9A-Za-z_])", payload) is None
+        assert re.search(r"(?<![0-9A-Za-z])305(?:\.0)?(?![0-9A-Za-z])", payload) is None
 
     admission_cli = (ROOT / "scripts" / "verify_trusted_time_images.py").read_text(encoding="utf-8")
     assert '"scripts/trusted_time_post_enrollment_claimed_fence.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_claimed_fence") == 1
+    assert '"scripts/trusted_time_post_enrollment_outcome.py"' in admission_cli
+    assert admission_cli.count("trusted_time_post_enrollment_outcome") == 1
     assert '"scripts/trusted_time_post_enrollment_topology_fence.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_topology_fence") == 1
     for forbidden_name in (
+        *recovery_outcome_api_names[1:],
         *claimed_fence_api_names,
         *topology_cursor_api_names,
         *topology_fence_api_names,
     ):
         assert forbidden_name not in admission_cli
+    assert re.search(r"(?<![0-9A-Za-z_])recovery_required(?![0-9A-Za-z_])", admission_cli) is None
+    assert re.search(r"(?<![0-9A-Za-z])305(?:\.0)?(?![0-9A-Za-z])", admission_cli) is None
 
 
 def test_runtime_diagnostic_make_target_emits_only_child_output(tmp_path: Path) -> None:

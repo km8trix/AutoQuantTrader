@@ -174,6 +174,7 @@ _REVIEWED_FIXED_RELATIVE_PATHS = (
     "scripts/start_trusted_time_supervisor.py",
     "scripts/trusted_time_post_enrollment_claimed_fence.py",
     "scripts/trusted_time_post_enrollment_evidence.py",
+    "scripts/trusted_time_post_enrollment_outcome.py",
     "scripts/trusted_time_post_enrollment_staged_topology.py",
     "scripts/trusted_time_post_enrollment_staging.py",
     "scripts/trusted_time_post_enrollment_start.py",

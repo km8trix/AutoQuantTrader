@@ -61,6 +61,10 @@ class TrustedTimePostEnrollmentStartClaimRetentionUnconfirmed(RuntimeError):
     """Claim creation may have occurred, but durable retention is unconfirmed."""
 
 
+class _TrustedTimePostEnrollmentStartClaimCheckpointRejected(RuntimeError):
+    """The fixed recovery binder rejected claim creation before O_EXCL."""
+
+
 @dataclass(frozen=True, slots=True)
 class RetainedTrustedTimePostEnrollmentStartClaim:
     """Exact bytes observed after one durable exclusive claim creation."""
@@ -320,6 +324,8 @@ def _open_owner_only_artifact_directory(
             "trusted-time post-enrollment start claim directory is unavailable"
         ) from None
     current = Path(absolute.anchor)
+    next_descriptor: int | None = None
+    previous_descriptor: int | None = None
     try:
         for part in absolute.parts[1:]:
             current /= part
@@ -332,42 +338,40 @@ def _open_owner_only_artifact_directory(
                     created = False
             else:
                 created = False
-            next_descriptor: int | None = None
-            try:
-                next_descriptor = os.open(
-                    part,
-                    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-                    dir_fd=descriptor,
-                )
+            next_descriptor = os.open(
+                part,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=descriptor,
+            )
+            metadata = os.fstat(next_descriptor)
+            if created:
+                os.fchmod(next_descriptor, 0o700)
                 metadata = os.fstat(next_descriptor)
-                if created:
-                    os.fchmod(next_descriptor, 0o700)
-                    metadata = os.fstat(next_descriptor)
-                if protected and (
-                    not stat.S_ISDIR(metadata.st_mode)
-                    or metadata.st_uid != os.geteuid()
-                    or stat.S_IMODE(metadata.st_mode) != 0o700
-                ):
-                    raise OSError
-                if created:
-                    os.fsync(next_descriptor)
-                    os.fsync(descriptor)
-                os.close(descriptor)
-            except OSError:
-                if next_descriptor is not None:
-                    with suppress(OSError):
-                        os.close(next_descriptor)
-                raise
-            if next_descriptor is None:
+            if protected and (
+                not stat.S_ISDIR(metadata.st_mode)
+                or metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o700
+            ):
                 raise OSError
+            if created:
+                os.fsync(next_descriptor)
+                os.fsync(descriptor)
+            previous_descriptor = descriptor
             descriptor = next_descriptor
+            next_descriptor = None
+            os.close(previous_descriptor)
+            previous_descriptor = None
         return descriptor
-    except OSError:
-        with suppress(OSError):
-            os.close(descriptor)
-        raise TrustedTimePostEnrollmentStartClaimPersistenceError(
-            "trusted-time post-enrollment start claim directory is unavailable"
-        ) from None
+    except BaseException as error:
+        for candidate in {descriptor, next_descriptor, previous_descriptor}:
+            if candidate is not None:
+                with suppress(OSError):
+                    os.close(candidate)
+        if isinstance(error, OSError):
+            raise TrustedTimePostEnrollmentStartClaimPersistenceError(
+                "trusted-time post-enrollment start claim directory is unavailable"
+            ) from None
+        raise
 
 
 def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
@@ -446,6 +450,7 @@ def retain_post_enrollment_start_claim(
     *,
     artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
     ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+    _retained_claim_binder: object | None = None,
 ) -> RetainedTrustedTimePostEnrollmentStartClaim:
     """Durably create one operation claim without granting release authority."""
 
@@ -470,6 +475,26 @@ def retain_post_enrollment_start_claim(
             raise TrustedTimePostEnrollmentStartClaimConsumed(
                 "trusted-time post-enrollment start approval was already consumed"
             )
+        if _retained_claim_binder is not None:
+            try:
+                from scripts.trusted_time_post_enrollment_topology_reader import (
+                    _TrustedTimePostEnrollmentRecoveryClaimBinder,
+                )
+
+                if (
+                    type(_retained_claim_binder)
+                    is not _TrustedTimePostEnrollmentRecoveryClaimBinder
+                ):
+                    raise ValueError
+                exact_binder = _retained_claim_binder
+                exact_binder._checkpoint(
+                    artifact_directory=absolute_directory,
+                    ignored_root=ignored_root,
+                )
+            except BaseException:
+                raise _TrustedTimePostEnrollmentStartClaimCheckpointRejected(
+                    "trusted-time recovery claim binder is unavailable"
+                ) from None
         file_descriptor = os.open(
             file_name,
             os.O_WRONLY
@@ -523,6 +548,12 @@ def retain_post_enrollment_start_claim(
         raise TrustedTimePostEnrollmentStartClaimRetentionUnconfirmed(
             "trusted-time post-enrollment start claim retention is unconfirmed"
         ) from None
+    except BaseException:
+        if directory_descriptor is not None:
+            with suppress(OSError):
+                os.close(directory_descriptor)
+            directory_descriptor = None
+        raise
     finally:
         if file_descriptor is not None:
             try:

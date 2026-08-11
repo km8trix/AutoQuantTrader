@@ -1,9 +1,10 @@
 """Dormant raw-first Docker observation issuer for post-enrollment topology.
 
 The issuer owns one global launcher lock and one pinned local Docker daemon
-session.  It can issue only the two already-frozen, non-authorizing topology
-snapshot contracts.  It has no start, release, claim, persistence, provider,
-or controller surface, and it retains no raw Docker response or staged path.
+session.  It can issue only the frozen, non-authorizing topology observations
+and one callback-local claim-bound recovery-retention capability.  It has no
+start, release, outcome writer, provider, or controller surface, and it retains
+no raw Docker response or staged path.
 """
 
 from __future__ import annotations
@@ -66,6 +67,10 @@ from scripts.trusted_time_post_enrollment_staged_topology import (
     TrustedTimePostEnrollmentConsumedMarkerCandidate,
     TrustedTimePostEnrollmentStagedUnreleasedTopologySnapshot,
     validate_post_enrollment_start_staged_unreleased_topology,
+)
+from scripts.trusted_time_post_enrollment_start import (
+    RetainedTrustedTimePostEnrollmentStartClaim,
+    revalidate_retained_post_enrollment_start_claim,
 )
 from scripts.trusted_time_post_enrollment_topology import (
     POST_ENROLLMENT_CREATED_TOPOLOGY_COMPOSE_PROJECT,
@@ -213,6 +218,10 @@ _POST_ENROLLMENT_START_CHOREOGRAPHY_DEADLINE_SECONDS = 300
 _POST_ENROLLMENT_START_CHOREOGRAPHY_DEADLINE_NANOSECONDS = (
     _POST_ENROLLMENT_START_CHOREOGRAPHY_DEADLINE_SECONDS * 1_000_000_000
 )
+_POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_SECONDS = 305
+_POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_NANOSECONDS = (
+    _POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_SECONDS * 1_000_000_000
+)
 _MAXIMUM_MONOTONIC_NANOSECONDS = (1 << 63) - 1
 
 
@@ -289,12 +298,129 @@ class _TrustedTimePostEnrollmentTopologyChoreographyLease:
         )
 
 
+class _TrustedTimePostEnrollmentRecoveryRetentionCapability:
+    """Opaque one-shot authority for one fixed local recovery outcome only."""
+
+    __slots__ = ()
+
+    def __new__(cls) -> _TrustedTimePostEnrollmentRecoveryRetentionCapability:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time recovery retention capability is unavailable"
+        )
+
+    def __copy__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time recovery retention capability cannot be copied"
+        )
+
+    def __deepcopy__(self, _: object) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time recovery retention capability cannot be copied"
+        )
+
+    def __reduce__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time recovery retention capability cannot be serialized"
+        )
+
+    def __reduce_ex__(self, _: SupportsIndex) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time recovery retention capability cannot be serialized"
+        )
+
+
+class _TrustedTimePostEnrollmentRecoveryClaimBinder:
+    """Opaque one-shot bridge from the claim writer to one retention token."""
+
+    __slots__ = ()
+
+    def __new__(cls) -> _TrustedTimePostEnrollmentRecoveryClaimBinder:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time recovery claim binder is unavailable"
+        )
+
+    def __call__(
+        self,
+        retained_claim: RetainedTrustedTimePostEnrollmentStartClaim,
+    ) -> None:
+        _consume_authenticated_recovery_claim_binder(self, retained_claim)
+
+    def _checkpoint(
+        self,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> None:
+        _checkpoint_authenticated_recovery_claim_binder(
+            self,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+
+    def __copy__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time recovery claim binder cannot be copied"
+        )
+
+    def __deepcopy__(self, _: object) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time recovery claim binder cannot be copied"
+        )
+
+    def __reduce__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time recovery claim binder cannot be serialized"
+        )
+
+    def __reduce_ex__(self, _: SupportsIndex) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time recovery claim binder cannot be serialized"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class _ChoreographyCheckpoint:
     lease_sha256: str
     started_monotonic_ns: int
     deadline_monotonic_ns: int
     observed_monotonic_ns: int
+
+
+@dataclass(frozen=True, slots=True)
+class _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint:
+    """Exact process-local claim binding consumed by the fixed outcome writer."""
+
+    retained_claim: RetainedTrustedTimePostEnrollmentStartClaim
+    artifact_directory: Path
+    ignored_root: Path
+    started_monotonic_ns: int
+    deadline_monotonic_ns: int
+    observed_monotonic_ns: int
+
+
+def _retained_claim_binding_sha256(
+    retained: RetainedTrustedTimePostEnrollmentStartClaim,
+) -> str:
+    if type(retained) is not RetainedTrustedTimePostEnrollmentStartClaim:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time recovery retention claim binding is unavailable"
+        )
+    try:
+        retained.__post_init__()
+        material = {
+            "artifact_path": os.fspath(retained.artifact_path),
+            "artifact_sha256": retained.artifact_sha256,
+            "claim_projection_sha256": retained.claim_projection_sha256,
+            "encoded_sha256": hashlib.sha256(retained.encoded).hexdigest(),
+            "encoded_size": len(retained.encoded),
+            "file_identity": list(retained.file_identity),
+            "operation_id": retained.operation_id,
+        }
+        return hashlib.sha256(canonical_first_enrollment_json_bytes(material)).hexdigest()
+    except BaseException:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time recovery retention claim binding is unavailable"
+        ) from None
 
 
 def _build_observation_sealer() -> tuple[
@@ -310,6 +436,17 @@ def _build_observation_sealer() -> tuple[
     Callable[[object, object], bool],
     Callable[[object, object, object], _ChoreographyCheckpoint],
     Callable[[object, object], _ChoreographyCheckpoint],
+    Callable[[object, object], None],
+    Callable[..., None],
+    Callable[..., _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint],
+    Callable[..., None],
+    Callable[..., None],
+    Callable[..., bool],
+    Callable[[object], None],
+    Callable[..., _TrustedTimePostEnrollmentRecoveryClaimBinder],
+    Callable[..., bool],
+    Callable[..., None],
+    Callable[[object, object], None],
 ]:
     process_private_key = secrets.token_bytes(32)
     process_pid = os.getpid()
@@ -317,18 +454,45 @@ def _build_observation_sealer() -> tuple[
     issuance_gate = threading.local()
     active_capabilities: dict[_AuthenticatedIssuerCapability, object] = {}
     cursor_registrations: dict[bytes, tuple[str, object | None]] = {}
+    active_recovery_claim_binders: dict[
+        _TrustedTimePostEnrollmentRecoveryClaimBinder,
+        object,
+    ] = {}
 
     @dataclass(slots=True)
     class ChoreographyRegistration:
         lease: _TrustedTimePostEnrollmentTopologyChoreographyLease
+        recovery_retention_capability: _TrustedTimePostEnrollmentRecoveryRetentionCapability
         authentication_capability: _AuthenticatedIssuerCapability
+        callback: object
+        scope_nonce: object
         session_sha256: str
         owner_pid: int
         owner_thread: threading.Thread
+        lock_descriptor: int
+        lock_identity: tuple[int, int, int, int, int]
         started_monotonic_ns: int
         deadline_monotonic_ns: int
+        retention_deadline_monotonic_ns: int
         last_monotonic_ns: int
         lease_sha256: str
+        action_active: bool
+        retention_state: Literal[
+            "unbound",
+            "claim_admitted",
+            "armed",
+            "consuming",
+            "confirmed",
+            "unconfirmed",
+            "expired",
+            "revoked",
+        ]
+        retained_claim: RetainedTrustedTimePostEnrollmentStartClaim | None
+        retained_claim_binding_sha256: str | None
+        artifact_directory: Path | None
+        ignored_root: Path | None
+        retention_checkpoint: _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint | None
+        recovery_claim_binder: _TrustedTimePostEnrollmentRecoveryClaimBinder | None
 
     active_choreographies: dict[object, ChoreographyRegistration] = {}
 
@@ -372,6 +536,7 @@ def _build_observation_sealer() -> tuple[
             and os.getpid() == process_pid
             and type(candidate) is _TrustedTimePostEnrollmentTopologyChoreographyLease
             and registration.lease is candidate
+            and registration.action_active is True
             and registration.owner_pid == os.getpid()
             and registration.owner_thread is threading.current_thread()
             and type(registration.authentication_capability) is _AuthenticatedIssuerCapability
@@ -380,34 +545,80 @@ def _build_observation_sealer() -> tuple[
             and getattr(owner, "_authentication_capability", None)
             is registration.authentication_capability
             and getattr(owner, "_session_sha256", None) == registration.session_sha256
+            and getattr(owner, "_choreography_scope_nonce", None) is registration.scope_nonce
             and getattr(owner, "_choreography_inflight", False) is True
             and getattr(owner, "_closed", True) is False
             and getattr(owner, "_poisoned", True) is False
+        )
+
+    def recovery_registration_is_active(
+        owner: object,
+        registration: ChoreographyRegistration | None,
+    ) -> bool:
+        return (
+            registration is not None
+            and os.getpid() == process_pid
+            and registration.owner_pid == os.getpid()
+            and registration.owner_thread is threading.current_thread()
+            and getattr(owner, "_owner_pid", None) == os.getpid()
+            and getattr(owner, "_session_sha256", None) == registration.session_sha256
+            and getattr(owner, "_choreography_scope_nonce", None) is registration.scope_nonce
+            and getattr(owner, "_lock_descriptor", None) == registration.lock_descriptor
+            and getattr(owner, "_lock_identity", None) == registration.lock_identity
+            and getattr(owner, "_choreography_inflight", False) is True
+            and getattr(owner, "_closed", True) is False
+            and getattr(owner, "_busy", True) is False
         )
 
     def register_choreography(
         owner: object,
         authentication_capability: object,
         *,
+        callback: object,
         started_monotonic_ns: int,
         deadline_monotonic_ns: int,
-    ) -> _TrustedTimePostEnrollmentTopologyChoreographyLease:
+        retention_deadline_monotonic_ns: int,
+    ) -> tuple[
+        _TrustedTimePostEnrollmentTopologyChoreographyLease,
+        _TrustedTimePostEnrollmentRecoveryRetentionCapability,
+        object,
+    ]:
         if (
             os.getpid() != process_pid
             or type(authentication_capability) is not _AuthenticatedIssuerCapability
+            or not callable(callback)
             or type(started_monotonic_ns) is not int
             or type(deadline_monotonic_ns) is not int
+            or type(retention_deadline_monotonic_ns) is not int
             or started_monotonic_ns < 0
             or deadline_monotonic_ns <= started_monotonic_ns
+            or retention_deadline_monotonic_ns <= deadline_monotonic_ns
             or deadline_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS
+            or retention_deadline_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS
         ):
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology choreography lease is unavailable"
             )
         typed_authentication_capability = authentication_capability
         lease = object.__new__(_TrustedTimePostEnrollmentTopologyChoreographyLease)
+        recovery_retention_capability = object.__new__(
+            _TrustedTimePostEnrollmentRecoveryRetentionCapability
+        )
+        scope_nonce = object()
         session_sha256 = getattr(owner, "_session_sha256", None)
+        lock_descriptor = getattr(owner, "_lock_descriptor", None)
+        lock_identity = getattr(owner, "_lock_identity", None)
         if type(session_sha256) is not str or _SHA256_PATTERN.fullmatch(session_sha256) is None:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography lease is unavailable"
+            )
+        if (
+            type(lock_descriptor) is not int
+            or lock_descriptor < 0
+            or type(lock_identity) is not tuple
+            or len(lock_identity) != 5
+            or any(type(value) is not int for value in lock_identity)
+        ):
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology choreography lease is unavailable"
             )
@@ -440,16 +651,84 @@ def _build_observation_sealer() -> tuple[
                 )
             active_choreographies[owner] = ChoreographyRegistration(
                 lease=lease,
+                recovery_retention_capability=recovery_retention_capability,
                 authentication_capability=typed_authentication_capability,
+                callback=callback,
+                scope_nonce=scope_nonce,
                 session_sha256=session_sha256,
                 owner_pid=os.getpid(),
                 owner_thread=threading.current_thread(),
+                lock_descriptor=lock_descriptor,
+                lock_identity=lock_identity,
                 started_monotonic_ns=started_monotonic_ns,
                 deadline_monotonic_ns=deadline_monotonic_ns,
+                retention_deadline_monotonic_ns=retention_deadline_monotonic_ns,
                 last_monotonic_ns=started_monotonic_ns,
                 lease_sha256=lease_sha256,
+                action_active=True,
+                retention_state="unbound",
+                retained_claim=None,
+                retained_claim_binding_sha256=None,
+                artifact_directory=None,
+                ignored_root=None,
+                retention_checkpoint=None,
+                recovery_claim_binder=None,
             )
-        return lease
+        return lease, recovery_retention_capability, scope_nonce
+
+    def revoke_recovery_claim_binder(
+        registration: ChoreographyRegistration,
+    ) -> None:
+        binder = registration.recovery_claim_binder
+        registration.recovery_claim_binder = None
+        if binder is not None:
+            active_recovery_claim_binders.pop(binder, None)
+
+    def fail_recovery_claim_binder(
+        candidate: object,
+        owner_hint: object | None,
+        *,
+        binding_may_have_begun: bool,
+    ) -> None:
+        """Best-effort, idempotent revocation for every binder failure edge."""
+
+        if os.getpid() != process_pid:
+            return
+        owner = owner_hint
+        if owner is None and type(candidate) is _TrustedTimePostEnrollmentRecoveryClaimBinder:
+            with suppress(BaseException), registry_lock:
+                owner = active_recovery_claim_binders.get(candidate)
+        if owner is None:
+            return
+        lifecycle_lock = getattr(owner, "_lifecycle_lock", None)
+        poison_locked = getattr(owner, "_poison_locked", None)
+
+        def revoke_failed_registration() -> None:
+            with registry_lock:
+                registration = active_choreographies.get(owner)
+                if registration is None:
+                    return
+                registration.action_active = False
+                if binding_may_have_begun and registration.retention_state == "armed":
+                    registration.retention_state = "unconfirmed"
+                elif registration.retention_state in {"unbound", "claim_admitted"}:
+                    registration.retention_state = "revoked"
+                revoke_recovery_claim_binder(registration)
+
+        if lifecycle_lock is not None:
+            try:
+                with lifecycle_lock:
+                    revoke_failed_registration()
+                    if callable(poison_locked):
+                        poison_locked()
+                return
+            except BaseException:
+                pass
+        with suppress(BaseException):
+            revoke_failed_registration()
+        if callable(poison_locked):
+            with suppress(BaseException):
+                poison_locked()
 
     def revoke_choreography(owner: object, candidate: object | None = None) -> None:
         if os.getpid() != process_pid:
@@ -457,7 +736,31 @@ def _build_observation_sealer() -> tuple[
         with registry_lock:
             registration = active_choreographies.get(owner)
             if registration is not None and (candidate is None or registration.lease is candidate):
-                active_choreographies.pop(owner, None)
+                registration.action_active = False
+                if registration.retention_state in {"unbound", "claim_admitted"}:
+                    registration.retention_state = "revoked"
+                    revoke_recovery_claim_binder(registration)
+
+    def revoke_choreography_scope(owner: object, scope_nonce: object | None) -> None:
+        if os.getpid() != process_pid:
+            return
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            if registration is None:
+                return
+            if scope_nonce is not None and registration.scope_nonce is not scope_nonce:
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time topology choreography scope is unavailable"
+                )
+            registration.action_active = False
+            registration.retention_state = "revoked"
+            registration.retained_claim = None
+            registration.retained_claim_binding_sha256 = None
+            registration.artifact_directory = None
+            registration.ignored_root = None
+            registration.retention_checkpoint = None
+            revoke_recovery_claim_binder(registration)
+            active_choreographies.pop(owner, None)
 
     def choreography_active(owner: object, candidate: object) -> bool:
         if os.getpid() != process_pid:
@@ -468,6 +771,66 @@ def _build_observation_sealer() -> tuple[
                 candidate,
                 active_choreographies.get(owner),
             )
+
+    def recovery_retention_available(
+        owner: object,
+        recovery_retention_capability: object,
+        *,
+        expected_state: str,
+        choreography_lease: object | None = None,
+        checkpoint: object | None = None,
+        artifact_directory: object | None = None,
+        ignored_root: object | None = None,
+    ) -> bool:
+        if os.getpid() != process_pid:
+            return False
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            if (
+                not recovery_registration_is_active(owner, registration)
+                or registration is None
+                or type(recovery_retention_capability)
+                is not _TrustedTimePostEnrollmentRecoveryRetentionCapability
+                or registration.recovery_retention_capability is not recovery_retention_capability
+                or registration.retention_state != expected_state
+            ):
+                return False
+            if expected_state == "unbound":
+                return (
+                    type(choreography_lease) is _TrustedTimePostEnrollmentTopologyChoreographyLease
+                    and registration.lease is choreography_lease
+                )
+            if expected_state == "armed":
+                return (
+                    type(artifact_directory) is type(Path())
+                    and type(ignored_root) is type(Path())
+                    and registration.artifact_directory == artifact_directory
+                    and registration.ignored_root == ignored_root
+                )
+            if expected_state == "consuming":
+                return (
+                    type(checkpoint) is _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint
+                    and registration.retention_checkpoint is checkpoint
+                )
+            return False
+
+    def invalidate_recovery_retention(owner: object) -> None:
+        if os.getpid() != process_pid:
+            return
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            if registration is not None:
+                registration.action_active = False
+                if registration.retention_state in {
+                    "unbound",
+                    "claim_admitted",
+                    "armed",
+                }:
+                    if registration.retention_state in {"unbound", "claim_admitted"}:
+                        revoke_recovery_claim_binder(registration)
+                    registration.retention_state = "revoked"
+                elif registration.retention_state == "consuming":
+                    registration.retention_state = "unconfirmed"
 
     def checkpoint_registration(
         owner: object,
@@ -485,14 +848,28 @@ def _build_observation_sealer() -> tuple[
                 "trusted-time topology choreography deadline is unavailable"
             )
         assert registration is not None
-        if (
-            observed_monotonic_ns < registration.last_monotonic_ns
-            or observed_monotonic_ns >= registration.deadline_monotonic_ns
-        ):
+        if observed_monotonic_ns < registration.last_monotonic_ns:
+            registration.action_active = False
+            if registration.retention_state in {
+                "unbound",
+                "claim_admitted",
+                "armed",
+            }:
+                registration.retention_state = "revoked"
+                if registration.recovery_claim_binder is not None:
+                    revoke_recovery_claim_binder(registration)
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology choreography deadline is unavailable"
             )
         registration.last_monotonic_ns = observed_monotonic_ns
+        if observed_monotonic_ns >= registration.deadline_monotonic_ns:
+            registration.action_active = False
+            if registration.retention_state in {"unbound", "claim_admitted"}:
+                registration.retention_state = "revoked"
+                revoke_recovery_claim_binder(registration)
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography deadline is unavailable"
+            )
         return _ChoreographyCheckpoint(
             lease_sha256=registration.lease_sha256,
             started_monotonic_ns=registration.started_monotonic_ns,
@@ -534,6 +911,527 @@ def _build_observation_sealer() -> tuple[
                 candidate,
                 observed_monotonic_ns,
             )
+
+    def issue_recovery_claim_binder(
+        owner: object,
+        choreography_lease: object,
+        recovery_retention_capability: object,
+        *,
+        claimed_fence_authorization: object,
+        artifact_directory: object,
+        ignored_root: object,
+    ) -> _TrustedTimePostEnrollmentRecoveryClaimBinder:
+        if os.getpid() != process_pid:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time recovery claim binder is unavailable"
+            )
+        from scripts.trusted_time_post_enrollment_claimed_fence import (
+            _consume_claimed_fence_recovery_binder_authorization,
+        )
+
+        if not _consume_claimed_fence_recovery_binder_authorization(
+            claimed_fence_authorization,
+            topology_issuer=owner,
+            choreography_lease=choreography_lease,
+            recovery_retention_capability=recovery_retention_capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        ):
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time recovery claim binder is unavailable"
+            )
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            if (
+                registration is None
+                or not choreography_registration_is_active(
+                    owner,
+                    choreography_lease,
+                    registration,
+                )
+                or not recovery_registration_is_active(owner, registration)
+                or type(recovery_retention_capability)
+                is not _TrustedTimePostEnrollmentRecoveryRetentionCapability
+                or registration.recovery_retention_capability is not recovery_retention_capability
+                or registration.retention_state != "unbound"
+                or registration.recovery_claim_binder is not None
+                or type(artifact_directory) is not type(Path())
+                or type(ignored_root) is not type(Path())
+                or artifact_directory != ignored_root / "trusted-time"
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery claim binder is unavailable"
+                )
+            binder = object.__new__(_TrustedTimePostEnrollmentRecoveryClaimBinder)
+            registration.recovery_claim_binder = binder
+            registration.artifact_directory = artifact_directory
+            registration.ignored_root = ignored_root
+            active_recovery_claim_binders[binder] = owner
+            return binder
+
+    def recovery_claim_binder_available(
+        candidate: object,
+        *,
+        artifact_directory: object,
+        ignored_root: object,
+    ) -> bool:
+        if (
+            os.getpid() != process_pid
+            or type(candidate) is not _TrustedTimePostEnrollmentRecoveryClaimBinder
+        ):
+            return False
+        with registry_lock:
+            owner = active_recovery_claim_binders.get(candidate)
+            registration = active_choreographies.get(owner)
+            return bool(
+                owner is not None
+                and registration is not None
+                and registration.recovery_claim_binder is candidate
+                and choreography_registration_is_active(
+                    owner,
+                    registration.lease,
+                    registration,
+                )
+                and recovery_registration_is_active(owner, registration)
+                and registration.retention_state == "unbound"
+                and type(artifact_directory) is type(Path())
+                and type(ignored_root) is type(Path())
+                and registration.artifact_directory == artifact_directory
+                and registration.ignored_root == ignored_root
+            )
+
+    def checkpoint_recovery_claim_binder(
+        candidate: object,
+        *,
+        artifact_directory: object,
+        ignored_root: object,
+    ) -> None:
+        owner: object | None = None
+        try:
+            if (
+                os.getpid() != process_pid
+                or type(candidate) is not _TrustedTimePostEnrollmentRecoveryClaimBinder
+                or type(artifact_directory) is not type(Path())
+                or type(ignored_root) is not type(Path())
+                or artifact_directory != ignored_root / "trusted-time"
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery claim binder is unavailable"
+                )
+            with registry_lock:
+                owner = active_recovery_claim_binders.get(candidate)
+                registration = active_choreographies.get(owner)
+                if (
+                    owner is None
+                    or registration is None
+                    or registration.recovery_claim_binder is not candidate
+                    or not choreography_registration_is_active(
+                        owner,
+                        registration.lease,
+                        registration,
+                    )
+                    or not recovery_registration_is_active(owner, registration)
+                    or registration.retention_state != "unbound"
+                    or registration.artifact_directory != artifact_directory
+                    or registration.ignored_root != ignored_root
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time recovery claim binder is unavailable"
+                    )
+                choreography_lease = registration.lease
+            checkpoint_lease = getattr(owner, "_require_active_choreography_lease", None)
+            validate_lock = getattr(owner, "_validate_lock", None)
+            if not callable(checkpoint_lease) or not callable(validate_lock):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery claim binder is unavailable"
+                )
+            checkpoint_lease(choreography_lease)
+            validate_lock()
+            with registry_lock:
+                registration = active_choreographies.get(owner)
+                if (
+                    registration is None
+                    or registration.recovery_claim_binder is not candidate
+                    or not choreography_registration_is_active(
+                        owner,
+                        choreography_lease,
+                        registration,
+                    )
+                    or not recovery_registration_is_active(owner, registration)
+                    or registration.retention_state != "unbound"
+                    or registration.artifact_directory != artifact_directory
+                    or registration.ignored_root != ignored_root
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time recovery claim binder is unavailable"
+                    )
+                registration.retention_state = "claim_admitted"
+        except BaseException:
+            fail_recovery_claim_binder(
+                candidate,
+                owner,
+                binding_may_have_begun=False,
+            )
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time recovery claim binder is unavailable"
+            ) from None
+
+    def consume_recovery_claim_binder(
+        candidate: object,
+        retained_claim: object,
+    ) -> None:
+        owner: object | None = None
+        binding_may_have_begun = False
+        try:
+            if (
+                os.getpid() != process_pid
+                or type(candidate) is not _TrustedTimePostEnrollmentRecoveryClaimBinder
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery claim binder is unavailable"
+                )
+            with registry_lock:
+                owner = active_recovery_claim_binders.get(candidate)
+                registration = active_choreographies.get(owner)
+                if (
+                    owner is None
+                    or registration is None
+                    or registration.recovery_claim_binder is not candidate
+                    or not choreography_registration_is_active(
+                        owner,
+                        registration.lease,
+                        registration,
+                    )
+                    or not recovery_registration_is_active(owner, registration)
+                    or registration.retention_state != "claim_admitted"
+                    or type(registration.artifact_directory) is not type(Path())
+                    or type(registration.ignored_root) is not type(Path())
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time recovery claim binder is unavailable"
+                    )
+                choreography_lease = registration.lease
+                recovery_retention_capability = registration.recovery_retention_capability
+                artifact_directory = registration.artifact_directory
+                ignored_root = registration.ignored_root
+            lifecycle_lock = getattr(owner, "_lifecycle_lock", None)
+            validate_lock = getattr(owner, "_validate_lock", None)
+            sample_monotonic = getattr(owner, "_sample_choreography_monotonic_ns", None)
+            if (
+                lifecycle_lock is None
+                or not callable(validate_lock)
+                or not callable(sample_monotonic)
+                or not callable(getattr(owner, "_poison_locked", None))
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery claim binder is unavailable"
+                )
+            if (
+                type(retained_claim) is not RetainedTrustedTimePostEnrollmentStartClaim
+                or retained_claim.artifact_path.parent != artifact_directory
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery claim binder is unavailable"
+                )
+            retained_claim_binding_sha256 = _retained_claim_binding_sha256(retained_claim)
+            if not revalidate_retained_post_enrollment_start_claim(
+                retained_claim,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery claim binder is unavailable"
+                )
+            validate_lock()
+            observed = sample_monotonic()
+            with lifecycle_lock:
+                if (
+                    getattr(owner, "_owner_pid", None) != os.getpid()
+                    or getattr(owner, "_closed", True)
+                    or getattr(owner, "_busy", True)
+                    or not getattr(owner, "_choreography_inflight", False)
+                    or getattr(owner, "_choreography_scope_nonce", None) is None
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time recovery claim binder is unavailable"
+                    )
+                binding_may_have_begun = True
+                bind_recovery_retention(
+                    owner,
+                    choreography_lease,
+                    recovery_retention_capability,
+                    candidate,
+                    retained_claim,
+                    retained_claim_binding_sha256=retained_claim_binding_sha256,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                    observed_monotonic_ns=observed,
+                )
+            if not revalidate_retained_post_enrollment_start_claim(
+                retained_claim,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery claim binder is unavailable"
+                )
+        except BaseException:
+            fail_recovery_claim_binder(
+                candidate,
+                owner,
+                binding_may_have_begun=binding_may_have_begun,
+            )
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time recovery claim binder is unavailable"
+            ) from None
+
+    def bind_recovery_retention(
+        owner: object,
+        choreography_lease: object,
+        recovery_retention_capability: object,
+        recovery_claim_binder: object,
+        retained_claim: object,
+        *,
+        retained_claim_binding_sha256: object,
+        artifact_directory: object,
+        ignored_root: object,
+        observed_monotonic_ns: object,
+    ) -> None:
+        if os.getpid() != process_pid:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time recovery retention capability is unavailable"
+            )
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            if (
+                registration is None
+                or not choreography_registration_is_active(
+                    owner,
+                    choreography_lease,
+                    registration,
+                )
+                or not recovery_registration_is_active(owner, registration)
+                or type(choreography_lease)
+                is not _TrustedTimePostEnrollmentTopologyChoreographyLease
+                or registration.lease is not choreography_lease
+                or type(recovery_retention_capability)
+                is not _TrustedTimePostEnrollmentRecoveryRetentionCapability
+                or registration.recovery_retention_capability is not recovery_retention_capability
+                or registration.retention_state != "claim_admitted"
+                or type(recovery_claim_binder) is not _TrustedTimePostEnrollmentRecoveryClaimBinder
+                or registration.recovery_claim_binder is not recovery_claim_binder
+                or active_recovery_claim_binders.get(recovery_claim_binder) is not owner
+                or type(retained_claim) is not RetainedTrustedTimePostEnrollmentStartClaim
+                or type(retained_claim_binding_sha256) is not str
+                or _SHA256_PATTERN.fullmatch(retained_claim_binding_sha256) is None
+                or _retained_claim_binding_sha256(retained_claim) != retained_claim_binding_sha256
+                or type(artifact_directory) is not type(Path())
+                or type(ignored_root) is not type(Path())
+                or retained_claim.artifact_path.parent != artifact_directory
+                or artifact_directory != ignored_root / "trusted-time"
+                or registration.artifact_directory not in {None, artifact_directory}
+                or registration.ignored_root not in {None, ignored_root}
+                or type(observed_monotonic_ns) is not int
+                or observed_monotonic_ns < 0
+                or observed_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery retention capability is unavailable"
+                )
+            if observed_monotonic_ns < registration.last_monotonic_ns:
+                registration.action_active = False
+                registration.retention_state = "revoked"
+                revoke_recovery_claim_binder(registration)
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery retention deadline is unavailable"
+                )
+            if observed_monotonic_ns >= registration.retention_deadline_monotonic_ns:
+                registration.action_active = False
+                registration.retention_state = "expired"
+                revoke_recovery_claim_binder(registration)
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery retention deadline is unavailable"
+                )
+            if observed_monotonic_ns >= registration.deadline_monotonic_ns:
+                registration.action_active = False
+                registration.retention_state = "revoked"
+                revoke_recovery_claim_binder(registration)
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery retention deadline is unavailable"
+                )
+            registration.last_monotonic_ns = observed_monotonic_ns
+            registration.retention_state = "armed"
+            registration.retained_claim = retained_claim
+            registration.retained_claim_binding_sha256 = retained_claim_binding_sha256
+            registration.artifact_directory = artifact_directory
+            registration.ignored_root = ignored_root
+            revoke_recovery_claim_binder(registration)
+
+    def begin_recovery_retention(
+        owner: object,
+        recovery_retention_capability: object,
+        *,
+        artifact_directory: object,
+        ignored_root: object,
+        observed_monotonic_ns: object,
+    ) -> _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint:
+        if os.getpid() != process_pid:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time recovery retention capability is unavailable"
+            )
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            exact_capability = (
+                registration is not None
+                and type(recovery_retention_capability)
+                is _TrustedTimePostEnrollmentRecoveryRetentionCapability
+                and registration.recovery_retention_capability is recovery_retention_capability
+            )
+            recovery_scope_active = recovery_registration_is_active(owner, registration)
+            if (
+                not exact_capability
+                or not recovery_scope_active
+                or registration is None
+                or registration.retention_state != "armed"
+                or type(registration.retained_claim)
+                is not RetainedTrustedTimePostEnrollmentStartClaim
+                or type(registration.retained_claim_binding_sha256) is not str
+                or _retained_claim_binding_sha256(registration.retained_claim)
+                != registration.retained_claim_binding_sha256
+                or type(artifact_directory) is not type(Path())
+                or type(ignored_root) is not type(Path())
+                or registration.artifact_directory != artifact_directory
+                or registration.ignored_root != ignored_root
+                or type(observed_monotonic_ns) is not int
+                or observed_monotonic_ns < 0
+                or observed_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS
+            ):
+                if exact_capability and recovery_scope_active and registration is not None:
+                    registration.action_active = False
+                    registration.retention_state = "unconfirmed"
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery retention capability is unavailable"
+                )
+            if observed_monotonic_ns < registration.last_monotonic_ns:
+                registration.action_active = False
+                registration.retention_state = "unconfirmed"
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery retention deadline is unavailable"
+                )
+            if observed_monotonic_ns >= registration.retention_deadline_monotonic_ns:
+                registration.action_active = False
+                registration.retention_state = "expired"
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery retention deadline is unavailable"
+                )
+            retained_claim = registration.retained_claim
+            assert retained_claim is not None
+            checkpoint = _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint(
+                retained_claim=retained_claim,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+                started_monotonic_ns=registration.started_monotonic_ns,
+                deadline_monotonic_ns=registration.retention_deadline_monotonic_ns,
+                observed_monotonic_ns=observed_monotonic_ns,
+            )
+            registration.action_active = False
+            registration.last_monotonic_ns = observed_monotonic_ns
+            registration.retention_state = "consuming"
+            registration.retention_checkpoint = checkpoint
+            return checkpoint
+
+    def complete_recovery_retention(
+        owner: object,
+        recovery_retention_capability: object,
+        checkpoint: object,
+        *,
+        observed_monotonic_ns: object,
+    ) -> None:
+        if os.getpid() != process_pid:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time recovery retention completion is unavailable"
+            )
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            exact_consumption = (
+                registration is not None
+                and type(recovery_retention_capability)
+                is _TrustedTimePostEnrollmentRecoveryRetentionCapability
+                and registration.recovery_retention_capability is recovery_retention_capability
+                and type(checkpoint) is _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint
+                and registration.retention_checkpoint is checkpoint
+                and registration.retention_state == "consuming"
+            )
+            recovery_scope_active = recovery_registration_is_active(owner, registration)
+            typed_checkpoint = cast(
+                _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint,
+                checkpoint,
+            )
+            if (
+                not exact_consumption
+                or not recovery_scope_active
+                or registration is None
+                or type(registration.retained_claim)
+                is not RetainedTrustedTimePostEnrollmentStartClaim
+                or type(registration.retained_claim_binding_sha256) is not str
+                or _retained_claim_binding_sha256(registration.retained_claim)
+                != registration.retained_claim_binding_sha256
+                or typed_checkpoint.retained_claim is not registration.retained_claim
+                or typed_checkpoint.artifact_directory != registration.artifact_directory
+                or typed_checkpoint.ignored_root != registration.ignored_root
+                or typed_checkpoint.started_monotonic_ns != registration.started_monotonic_ns
+                or typed_checkpoint.deadline_monotonic_ns
+                != registration.retention_deadline_monotonic_ns
+                or type(observed_monotonic_ns) is not int
+                or observed_monotonic_ns < 0
+                or observed_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS
+            ):
+                if exact_consumption and recovery_scope_active and registration is not None:
+                    registration.retention_state = "unconfirmed"
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery retention completion is unavailable"
+                )
+            if (
+                observed_monotonic_ns < registration.last_monotonic_ns
+                or observed_monotonic_ns >= registration.retention_deadline_monotonic_ns
+            ):
+                registration.retention_state = "unconfirmed"
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery retention completion is unavailable"
+                )
+            registration.last_monotonic_ns = observed_monotonic_ns
+            registration.retention_state = "confirmed"
+
+    def abandon_recovery_retention(
+        owner: object,
+        recovery_retention_capability: object,
+        checkpoint: object,
+    ) -> None:
+        if os.getpid() != process_pid:
+            return
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            if (
+                registration is not None
+                and recovery_registration_is_active(owner, registration)
+                and type(recovery_retention_capability)
+                is _TrustedTimePostEnrollmentRecoveryRetentionCapability
+                and registration.recovery_retention_capability is recovery_retention_capability
+                and (
+                    (
+                        checkpoint is None
+                        and registration.retention_state == "armed"
+                        and registration.retention_checkpoint is None
+                    )
+                    or (
+                        type(checkpoint) is _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint
+                        and registration.retention_checkpoint is checkpoint
+                        and registration.retention_state == "consuming"
+                    )
+                )
+            ):
+                registration.action_active = False
+                registration.retention_state = "unconfirmed"
 
     def seal(
         owner: object,
@@ -678,6 +1576,17 @@ def _build_observation_sealer() -> tuple[
         choreography_active,
         checkpoint_choreography,
         checkpoint_choreography_owner,
+        revoke_choreography_scope,
+        bind_recovery_retention,
+        begin_recovery_retention,
+        complete_recovery_retention,
+        abandon_recovery_retention,
+        recovery_retention_available,
+        invalidate_recovery_retention,
+        issue_recovery_claim_binder,
+        recovery_claim_binder_available,
+        checkpoint_recovery_claim_binder,
+        consume_recovery_claim_binder,
     )
 
 
@@ -694,6 +1603,17 @@ def _build_observation_sealer() -> tuple[
     _authenticated_choreography_is_active,
     _checkpoint_authenticated_choreography,
     _checkpoint_authenticated_choreography_owner,
+    _revoke_authenticated_choreography_scope,
+    _bind_authenticated_recovery_retention,
+    _begin_authenticated_recovery_retention,
+    _complete_authenticated_recovery_retention,
+    _abandon_authenticated_recovery_retention,
+    _authenticated_recovery_retention_is_available,
+    _invalidate_authenticated_recovery_retention,
+    _issue_authenticated_recovery_claim_binder,
+    _authenticated_recovery_claim_binder_is_available,
+    _checkpoint_authenticated_recovery_claim_binder,
+    _consume_authenticated_recovery_claim_binder,
 ) = _build_observation_sealer()
 
 
@@ -2002,6 +2922,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
     _busy: bool
     _choreography_consumed: bool
     _choreography_inflight: bool
+    _choreography_scope_nonce: object | None
     _closed: bool
     _cursor_count: int
     _daemon_identity: LocalDockerDaemonIdentity
@@ -2031,6 +2952,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         "_busy",
         "_choreography_consumed",
         "_choreography_inflight",
+        "_choreography_scope_nonce",
         "_closed",
         "_cursor_count",
         "_daemon_identity",
@@ -2138,6 +3060,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             instance._busy = False
             instance._choreography_consumed = False
             instance._choreography_inflight = False
+            instance._choreography_scope_nonce = None
             instance._closed = False
             instance._cursor_count = 0
             instance._daemon_identity = expected_daemon_identity
@@ -2178,6 +3101,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 inherited._busy = False
                 inherited._choreography_consumed = True
                 inherited._choreography_inflight = False
+                inherited._choreography_scope_nonce = None
                 inherited._closed = True
                 inherited._environment = {}
                 inherited._lock_descriptor = -1
@@ -2381,10 +3305,14 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         try:
             observed = self._monotonic_ns()
         except BaseException:
+            with suppress(BaseException):
+                _invalidate_authenticated_recovery_retention(self)
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology choreography clock is unavailable"
             ) from None
         if type(observed) is not int or observed < 0 or observed > _MAXIMUM_MONOTONIC_NANOSECONDS:
+            with suppress(BaseException):
+                _invalidate_authenticated_recovery_retention(self)
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology choreography clock is unavailable"
             )
@@ -2450,6 +3378,223 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology choreography lease is unavailable"
             ) from None
+
+    def _issue_recovery_retention_claim_binder(
+        self,
+        choreography_lease: object,
+        recovery_retention_capability: object,
+        *,
+        claimed_fence_authorization: object,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> _TrustedTimePostEnrollmentRecoveryClaimBinder:
+        """Issue the only fixed bridge allowed inside claim retention."""
+
+        try:
+            if (
+                type(artifact_directory) is not type(Path())
+                or type(ignored_root) is not type(Path())
+                or artifact_directory != ignored_root / "trusted-time"
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery claim binder is unavailable"
+                )
+            self._require_active_choreography_lease(choreography_lease)
+            self._validate_lock()
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._poisoned
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is None
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time recovery claim binder is unavailable"
+                    )
+                return _issue_authenticated_recovery_claim_binder(
+                    self,
+                    choreography_lease,
+                    recovery_retention_capability,
+                    claimed_fence_authorization=claimed_fence_authorization,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                )
+        except BaseException:
+            with self._lifecycle_lock:
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time recovery claim binder is unavailable"
+            ) from None
+
+    def _begin_recovery_outcome_retention(
+        self,
+        recovery_retention_capability: object,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint:
+        """Consume action authority and begin the sole fixed local write."""
+
+        checkpoint: _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint | None = None
+        try:
+            with self._lifecycle_lock:
+                if not _authenticated_recovery_retention_is_available(
+                    self,
+                    recovery_retention_capability,
+                    expected_state="armed",
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time recovery retention capability is unavailable"
+                    )
+            self._validate_lock()
+            observed = self._sample_choreography_monotonic_ns()
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is None
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time recovery retention capability is unavailable"
+                    )
+                checkpoint = _begin_authenticated_recovery_retention(
+                    self,
+                    recovery_retention_capability,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                    observed_monotonic_ns=observed,
+                )
+                self._poison_locked()
+                return checkpoint
+        except BaseException:
+            with self._lifecycle_lock:
+                with suppress(BaseException):
+                    _abandon_authenticated_recovery_retention(
+                        self,
+                        recovery_retention_capability,
+                        checkpoint,
+                    )
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time recovery retention capability is unavailable"
+            ) from None
+
+    def _complete_recovery_outcome_retention(
+        self,
+        recovery_retention_capability: object,
+        checkpoint: _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint,
+        retained_outcome: object,
+    ) -> None:
+        """Confirm the one local write only before the absolute retention cutoff."""
+
+        try:
+            with self._lifecycle_lock:
+                if not _authenticated_recovery_retention_is_available(
+                    self,
+                    recovery_retention_capability,
+                    expected_state="consuming",
+                    checkpoint=checkpoint,
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time recovery retention completion is unavailable"
+                    )
+            from scripts.trusted_time_post_enrollment_outcome import (
+                RetainedTrustedTimePostEnrollmentStartOutcome,
+                revalidate_retained_post_enrollment_start_outcome,
+            )
+
+            retained_claim = checkpoint.retained_claim
+            if (
+                type(retained_outcome) is not RetainedTrustedTimePostEnrollmentStartOutcome
+                or retained_outcome.operation_id != retained_claim.operation_id
+                or retained_outcome.approval_sha256 != retained_claim.claim.approval.approval_sha256
+                or retained_outcome.claim_sha256 != retained_claim.claim.claim_sha256
+                or retained_outcome.retained_claim_artifact_sha256 != retained_claim.artifact_sha256
+                or retained_outcome.artifact_path.parent != checkpoint.artifact_directory
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery retention completion is unavailable"
+                )
+            self._validate_lock()
+            if not revalidate_retained_post_enrollment_start_claim(
+                retained_claim,
+                artifact_directory=checkpoint.artifact_directory,
+                ignored_root=checkpoint.ignored_root,
+            ) or not revalidate_retained_post_enrollment_start_outcome(
+                retained_outcome,
+                artifact_directory=checkpoint.artifact_directory,
+                ignored_root=checkpoint.ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery retention completion is unavailable"
+                )
+            observed = self._sample_choreography_monotonic_ns()
+            if not revalidate_retained_post_enrollment_start_claim(
+                retained_claim,
+                artifact_directory=checkpoint.artifact_directory,
+                ignored_root=checkpoint.ignored_root,
+            ) or not revalidate_retained_post_enrollment_start_outcome(
+                retained_outcome,
+                artifact_directory=checkpoint.artifact_directory,
+                ignored_root=checkpoint.ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time recovery retention completion is unavailable"
+                )
+            self._validate_lock()
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is None
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time recovery retention completion is unavailable"
+                    )
+                _complete_authenticated_recovery_retention(
+                    self,
+                    recovery_retention_capability,
+                    checkpoint,
+                    observed_monotonic_ns=observed,
+                )
+        except BaseException:
+            with self._lifecycle_lock:
+                with suppress(BaseException):
+                    _abandon_authenticated_recovery_retention(
+                        self,
+                        recovery_retention_capability,
+                        checkpoint,
+                    )
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time recovery retention completion is unavailable"
+            ) from None
+
+    def _abandon_recovery_outcome_retention(
+        self,
+        recovery_retention_capability: object,
+        checkpoint: _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint,
+    ) -> None:
+        """Irreversibly consume an ambiguous fixed persistence attempt."""
+
+        with self._lifecycle_lock:
+            _abandon_authenticated_recovery_retention(
+                self,
+                recovery_retention_capability,
+                checkpoint,
+            )
+            self._poison_locked()
 
     def _choreography_command_timeout_seconds(self) -> float:
         with self._lifecycle_lock:
@@ -2948,20 +4093,23 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             }
         )
 
-    @_authenticated_choreography
-    def _run_exclusive_choreography(
+    def _run_authenticated_choreography_scope(
         self,
-        action: Callable[[_TrustedTimePostEnrollmentTopologyChoreographyLease], Any],
+        action: Callable[..., Any],
         *,
-        _choreography_registrar: Callable[..., object] | None = None,
+        expose_recovery_retention: bool,
+        choreography_registrar: Callable[..., object],
     ) -> Any:
-        """Run one callback under an exclusive, one-shot process-local lease."""
-
         lease: object | None = None
+        recovery_retention_capability: object | None = None
+        scope_nonce: object | None = None
         owns_inflight_scope = False
-        scope_finalized = False
         try:
-            if not callable(action) or not callable(_choreography_registrar):
+            if (
+                not callable(action)
+                or type(expose_recovery_retention) is not bool
+                or not callable(choreography_registrar)
+            ):
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time topology choreography is unavailable"
                 )
@@ -2971,7 +4119,14 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             deadline_monotonic_ns = (
                 started_monotonic_ns + _POST_ENROLLMENT_START_CHOREOGRAPHY_DEADLINE_NANOSECONDS
             )
-            if deadline_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS:
+            retention_deadline_monotonic_ns = (
+                started_monotonic_ns
+                + _POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_NANOSECONDS
+            )
+            if (
+                deadline_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS
+                or retention_deadline_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS
+            ):
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time topology choreography deadline is unavailable"
                 )
@@ -2982,6 +4137,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     or self._busy
                     or self._choreography_consumed
                     or self._choreography_inflight
+                    or self._choreography_scope_nonce is not None
                     or self._cursor_count != 0
                     or self._staged_observation_count != 0
                     or self._issued_created_observation_sha256 is not None
@@ -2995,15 +4151,37 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     )
                 authentication_capability = self._authentication_capability
                 self._choreography_consumed = True
-                self._choreography_inflight = True
                 owns_inflight_scope = True
-                lease = _choreography_registrar(
+                self._choreography_inflight = True
+                registered = choreography_registrar(
                     self,
                     authentication_capability,
+                    callback=action,
                     started_monotonic_ns=started_monotonic_ns,
                     deadline_monotonic_ns=deadline_monotonic_ns,
+                    retention_deadline_monotonic_ns=(retention_deadline_monotonic_ns),
                 )
-            if type(lease) is not _TrustedTimePostEnrollmentTopologyChoreographyLease:
+                if type(registered) is not tuple or len(registered) != 3:
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time topology choreography is unavailable"
+                    )
+                lease, recovery_retention_capability, scope_nonce = registered
+                if (
+                    type(lease) is not _TrustedTimePostEnrollmentTopologyChoreographyLease
+                    or type(recovery_retention_capability)
+                    is not _TrustedTimePostEnrollmentRecoveryRetentionCapability
+                    or scope_nonce is None
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time topology choreography is unavailable"
+                    )
+                self._choreography_scope_nonce = scope_nonce
+            if (
+                type(lease) is not _TrustedTimePostEnrollmentTopologyChoreographyLease
+                or type(recovery_retention_capability)
+                is not _TrustedTimePostEnrollmentRecoveryRetentionCapability
+                or scope_nonce is None
+            ):
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time topology choreography is unavailable"
                 )
@@ -3015,7 +4193,10 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time topology choreography is unavailable"
                 )
-            result = action(lease)
+            if expose_recovery_retention:
+                result = action(lease, recovery_retention_capability)
+            else:
+                result = action(lease)
             self._require_active_choreography_lease(lease)
             with self._lifecycle_lock:
                 if (
@@ -3023,27 +4204,81 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     or self._poisoned
                     or self._busy
                     or not self._choreography_inflight
+                    or self._choreography_scope_nonce is not scope_nonce
                     or self._authentication_capability is not authentication_capability
                     or not _authenticated_choreography_is_active(self, lease)
                 ):
                     raise TrustedTimePostEnrollmentTopologyReaderError(
                         "trusted-time topology choreography is unavailable"
                     )
-                with suppress(BaseException):
-                    _revoke_authenticated_choreography(self, lease)
-                self._choreography_inflight = False
-                scope_finalized = True
             return result
         except BaseException:
             with self._lifecycle_lock:
                 self._poison_locked()
             raise
         finally:
-            if owns_inflight_scope and not scope_finalized:
+            cleanup_failed = False
+            if owns_inflight_scope:
                 with self._lifecycle_lock:
-                    with suppress(BaseException):
-                        _revoke_authenticated_choreography(self, lease)
+                    # Invalidate every registry token through owner state first.
+                    # The registry revoker is deliberately idempotent so an
+                    # asynchronous exception after registration or removal can
+                    # never leave close() permanently blocked on this scope.
                     self._choreography_inflight = False
+                    self._choreography_scope_nonce = None
+                    try:
+                        _revoke_authenticated_choreography_scope(self, scope_nonce)
+                    except BaseException:
+                        cleanup_failed = True
+                        self._poison_locked()
+            if cleanup_failed:
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time topology choreography cleanup is unavailable"
+                ) from None
+
+    @_authenticated_choreography
+    def _run_exclusive_choreography(
+        self,
+        action: Callable[[_TrustedTimePostEnrollmentTopologyChoreographyLease], Any],
+        *,
+        _choreography_registrar: Callable[..., object] | None = None,
+    ) -> Any:
+        """Run one callback under the original action-only private interface."""
+
+        if not callable(_choreography_registrar):
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography is unavailable"
+            )
+        return self._run_authenticated_choreography_scope(
+            action,
+            expose_recovery_retention=False,
+            choreography_registrar=_choreography_registrar,
+        )
+
+    @_authenticated_choreography
+    def _run_exclusive_choreography_with_recovery_retention(
+        self,
+        action: Callable[
+            [
+                _TrustedTimePostEnrollmentTopologyChoreographyLease,
+                _TrustedTimePostEnrollmentRecoveryRetentionCapability,
+            ],
+            Any,
+        ],
+        *,
+        _choreography_registrar: Callable[..., object] | None = None,
+    ) -> Any:
+        """Expose one claim-bound, non-action recovery retention token."""
+
+        if not callable(_choreography_registrar):
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography is unavailable"
+            )
+        return self._run_authenticated_choreography_scope(
+            action,
+            expose_recovery_retention=True,
+            choreography_registrar=_choreography_registrar,
+        )
 
     def _observation_choreography_is_valid_locked(self, candidate: object | None) -> bool:
         if self._choreography_inflight:
@@ -3565,6 +4800,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             try:
                 self._closed = True
                 self._poison_locked()
+                with suppress(BaseException):
+                    _revoke_authenticated_choreography_scope(self, None)
                 self._environment = {}
                 self._cursor_count = 0
                 self._first_staged_snapshot_sha256 = None
