@@ -1019,12 +1019,19 @@ def test_file_fsync_failure_is_unconfirmed_and_preserves_private_staging(
         ignored_root=ignored_root,
     )
     issuer, calls = _fake_issuer(monkeypatch, checkpoint)
+    staging_path = (
+        artifact_directory / outcome._POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME
+    )
     real_fsync = os.fsync
     failed = False
 
     def fail_outcome_file_fsync(descriptor: int) -> None:
         nonlocal failed
-        if not failed and os.fstat(descriptor).st_size > 256:
+        try:
+            staging = os.stat(staging_path, follow_symlinks=False)
+        except FileNotFoundError:
+            staging = None
+        if not failed and staging is not None and os.path.samestat(os.fstat(descriptor), staging):
             failed = True
             raise OSError("injected")
         real_fsync(descriptor)
@@ -1039,9 +1046,7 @@ def test_file_fsync_failure_is_unconfirmed_and_preserves_private_staging(
         )
 
     paths = list(artifact_directory.glob(f"{outcome.POST_ENROLLMENT_START_OUTCOME_FILE_PREFIX}*"))
-    staging_path = (
-        artifact_directory / outcome._POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME
-    )
+    assert failed is True
     assert paths == []
     assert staging_path.is_file()
     assert staging_path.stat().st_nlink == 1
