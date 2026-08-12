@@ -8,14 +8,19 @@ callback-local retention capability.
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
+import io
 import json
 import os
 import stat
+import threading
 import uuid
-from contextlib import suppress
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import partial
 from pathlib import Path
 from typing import Never
 
@@ -43,19 +48,18 @@ POST_ENROLLMENT_START_RETAINED_OUTCOME_SERVICE = (
 POST_ENROLLMENT_START_OUTCOME_FILE_PREFIX = "trusted-time-post-enrollment-start-outcome-"
 POST_ENROLLMENT_START_OUTCOME_FILE_SUFFIX = ".json"
 POST_ENROLLMENT_START_LEGACY_OUTCOME_FILE_NAME = "trusted-time-post-enrollment-start-outcome.json"
+POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME = ".post-enrollment-start-controller-outcome-slot"
+_POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME = (
+    ".post-enrollment-start-recovery-outcome-staging"
+)
 MAXIMUM_POST_ENROLLMENT_START_OUTCOME_BYTES = 16_384
 MAXIMUM_POST_ENROLLMENT_START_OUTCOME_ARTIFACT_ENTRIES = 4_096
 MAXIMUM_POST_ENROLLMENT_START_OUTCOME_ARTIFACT_NAME_BYTES = 255
 POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_SECONDS = 305
 
-_FILE_READ_FLAGS = (
-    os.O_RDONLY
-    | getattr(os, "O_CLOEXEC", 0)
-    | getattr(os, "O_NOFOLLOW", 0)
-    | getattr(os, "O_NONBLOCK", 0)
-)
 _SHA256_LENGTH = 64
 _NANOSECONDS_PER_SECOND = 1_000_000_000
+_OUTCOME_SLOT_PROCESS_LOCK = threading.RLock()
 _CLOSED_OUTCOME_FIELDS = (
     "authority_granted",
     "claim_chronology_authenticated",
@@ -127,6 +131,170 @@ def _is_uuid4(value: object) -> bool:
     except (AttributeError, ValueError):
         return False
     return parsed.version == 4 and str(parsed) == value
+
+
+def _outcome_slot_bytes(
+    outcome_sha256: str,
+    *,
+    outcome_contract_version: str,
+    status: str = "reserved",
+) -> bytes:
+    if (
+        not _is_sha256(outcome_sha256)
+        or type(outcome_contract_version) is not str
+        or status not in {"reserved", "retained"}
+    ):
+        raise ValueError("trusted-time post-enrollment outcome slot binding is invalid")
+    return canonical_first_enrollment_json_bytes(
+        {
+            "contract_version": outcome_contract_version,
+            "outcome_sha256": outcome_sha256,
+            "status": status,
+        }
+    )
+
+
+def _open_owner_only_file(
+    directory_descriptor: int,
+    file_name: str,
+    *,
+    exclusive: bool,
+) -> io.FileIO:
+    """Return a VM-owned descriptor so async CALL/STORE loss closes it."""
+
+    mode = "xb" if exclusive else "rb"
+
+    if exclusive:
+        return io.FileIO(
+            file_name,
+            mode=mode,
+            opener=partial(
+                os.open,
+                mode=0o600,
+                dir_fd=directory_descriptor,
+            ),
+        )
+
+    def opener(path: str, flags: int) -> int:
+        return os.open(
+            path,
+            flags
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+            0o600,
+            dir_fd=directory_descriptor,
+        )
+
+    return io.FileIO(file_name, mode=mode, opener=opener)
+
+
+def _write_locked_slot(descriptor: int, encoded: bytes) -> tuple[int, ...]:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    view = memoryview(encoded)
+    while view:
+        written = os.write(descriptor, view)
+        if written <= 0:
+            raise OSError
+        view = view[written:]
+    os.ftruncate(descriptor, len(encoded))
+    os.fchmod(descriptor, 0o600)
+    os.fsync(descriptor)
+    metadata = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+        or metadata.st_uid != os.geteuid()
+        or metadata.st_nlink != 1
+        or metadata.st_size != len(encoded)
+    ):
+        raise OSError
+    return _stable_file_identity(metadata)
+
+
+def _reserve_outcome_slot(
+    directory_descriptor: int,
+    *,
+    encoded: bytes,
+) -> tuple[int, ...]:
+    """Atomically reserve and durably publish the process-global outcome slot."""
+
+    file_owner: io.FileIO | None = None
+    with _OUTCOME_SLOT_PROCESS_LOCK:
+        try:
+            file_owner = _open_owner_only_file(
+                directory_descriptor,
+                POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
+                exclusive=True,
+            )
+            descriptor = file_owner.fileno()
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            identity = _write_locked_slot(descriptor, encoded)
+            os.fsync(directory_descriptor)
+            return identity
+        finally:
+            if file_owner is not None:
+                with suppress(OSError):
+                    fcntl.flock(file_owner.fileno(), fcntl.LOCK_UN)
+                file_owner.close()
+
+
+@contextmanager
+def _reserve_and_lock_outcome_slot(
+    directory_descriptor: int,
+    *,
+    encoded: bytes,
+) -> Iterator[tuple[int, tuple[int, ...]]]:
+    """Reserve the slot and keep its exact inode exclusively locked."""
+
+    file_owner: io.FileIO | None = None
+    _OUTCOME_SLOT_PROCESS_LOCK.acquire()
+    try:
+        file_owner = _open_owner_only_file(
+            directory_descriptor,
+            POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
+            exclusive=True,
+        )
+        descriptor = file_owner.fileno()
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        identity = _write_locked_slot(descriptor, encoded)
+        os.fsync(directory_descriptor)
+        yield descriptor, identity
+    finally:
+        if file_owner is not None:
+            with suppress(BaseException):
+                fcntl.flock(file_owner.fileno(), fcntl.LOCK_UN)
+            with suppress(BaseException):
+                file_owner.close()
+        _OUTCOME_SLOT_PROCESS_LOCK.release()
+
+
+@contextmanager
+def _locked_outcome_slot(
+    directory_descriptor: int,
+    *,
+    exclusive: bool,
+) -> Iterator[int]:
+    """Hold a process- and host-wide lock on the permanent outcome slot."""
+
+    file_owner: io.FileIO | None = None
+    _OUTCOME_SLOT_PROCESS_LOCK.acquire()
+    try:
+        file_owner = _open_owner_only_file(
+            directory_descriptor,
+            POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
+            exclusive=False,
+        )
+        descriptor = file_owner.fileno()
+        fcntl.flock(descriptor, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        yield descriptor
+    finally:
+        if file_owner is not None:
+            with suppress(OSError):
+                fcntl.flock(file_owner.fileno(), fcntl.LOCK_UN)
+            with suppress(OSError):
+                file_owner.close()
+        _OUTCOME_SLOT_PROCESS_LOCK.release()
 
 
 def _outcome_payload(
@@ -231,6 +399,7 @@ class RetainedTrustedTimePostEnrollmentStartOutcome:
     artifact_path: Path
     encoded: bytes
     file_identity: tuple[int, ...]
+    slot_file_identity: tuple[int, ...]
     status: TrustedTimePostEnrollmentStartRetainedOutcomeStatus
     reason: TrustedTimePostEnrollmentStartRetainedOutcomeReason
 
@@ -258,6 +427,23 @@ class RetainedTrustedTimePostEnrollmentStartOutcome:
             or self.file_identity[3] != os.geteuid()
             or self.file_identity[5] != 1
             or self.file_identity[6] != len(self.encoded)
+            or type(self.slot_file_identity) is not tuple
+            or len(self.slot_file_identity) != 9
+            or any(type(value) is not int for value in self.slot_file_identity)
+            or not stat.S_ISREG(self.slot_file_identity[2])
+            or stat.S_IMODE(self.slot_file_identity[2]) != 0o600
+            or self.slot_file_identity[3] != os.geteuid()
+            or self.slot_file_identity[5] != 1
+            or self.slot_file_identity[6]
+            != len(
+                _outcome_slot_bytes(
+                    self.outcome_sha256,
+                    outcome_contract_version=(
+                        POST_ENROLLMENT_START_RETAINED_OUTCOME_CONTRACT_VERSION
+                    ),
+                    status="retained",
+                )
+            )
             or self.status
             is not TrustedTimePostEnrollmentStartRetainedOutcomeStatus.RECOVERY_REQUIRED
             or self.reason
@@ -448,10 +634,15 @@ def _read_retained_outcome(
     file_name: str,
     expected_outcome_names: frozenset[str] | None = None,
 ) -> tuple[bytes, tuple[int, ...]]:
-    descriptor: int | None = None
+    file_owner: io.FileIO | None = None
     try:
         directory_before = os.fstat(directory_descriptor)
-        descriptor = os.open(file_name, _FILE_READ_FLAGS, dir_fd=directory_descriptor)
+        file_owner = _open_owner_only_file(
+            directory_descriptor,
+            file_name,
+            exclusive=False,
+        )
+        descriptor = file_owner.fileno()
         before = os.fstat(descriptor)
         if (
             not stat.S_ISREG(before.st_mode)
@@ -496,9 +687,84 @@ def _read_retained_outcome(
             "trusted-time post-enrollment retained recovery outcome is unavailable"
         ) from None
     finally:
-        if descriptor is not None:
+        if file_owner is not None:
             with suppress(OSError):
-                os.close(descriptor)
+                file_owner.close()
+
+
+def _entry_is_absent(directory_descriptor: int, file_name: str) -> bool:
+    try:
+        os.stat(file_name, dir_fd=directory_descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        return True
+    return False
+
+
+def _obscure_unconfirmed_recovery_outcome(
+    directory_descriptor: int,
+    *,
+    file_name: str,
+) -> None:
+    """Keep an ambiguous final ineligible, preserving its inode when possible."""
+
+    sentinel_owner: io.FileIO | None = None
+    final_exists = not _entry_is_absent(directory_descriptor, file_name)
+    staging_absent = _entry_is_absent(
+        directory_descriptor,
+        _POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME,
+    )
+    if final_exists and staging_absent:
+        try:
+            os.rename(
+                file_name,
+                _POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME,
+                src_dir_fd=directory_descriptor,
+                dst_dir_fd=directory_descriptor,
+            )
+        except BaseException:
+            try:
+                sentinel_owner = _open_owner_only_file(
+                    directory_descriptor,
+                    _POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME,
+                    exclusive=True,
+                )
+                sentinel_descriptor = sentinel_owner.fileno()
+                os.fchmod(sentinel_descriptor, 0o600)
+                os.fsync(sentinel_descriptor)
+            except BaseException:
+                try:
+                    os.unlink(
+                        file_name,
+                        dir_fd=directory_descriptor,
+                    )
+                except BaseException:
+                    raise OSError("trusted-time recovery outcome could not be obscured") from None
+    if sentinel_owner is not None:
+        sentinel_owner.close()
+    os.fsync(directory_descriptor)
+    if _entry_is_absent(
+        directory_descriptor,
+        _POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME,
+    ) and not _entry_is_absent(directory_descriptor, file_name):
+        raise OSError("trusted-time recovery outcome remained publicly visible")
+
+
+@contextmanager
+def _fail_closed_recovery_outcome_publication(
+    directory_descriptor: int,
+    *,
+    file_name: str,
+) -> Iterator[None]:
+    """Leave every interrupted legacy publication visibly incomplete."""
+
+    try:
+        yield
+    except BaseException:
+        _obscure_unconfirmed_recovery_outcome(
+            directory_descriptor,
+            file_name=file_name,
+        )
+        raise
 
 
 def _receipt_from_encoded(
@@ -506,6 +772,7 @@ def _receipt_from_encoded(
     encoded: bytes,
     artifact_path: Path,
     file_identity: tuple[int, ...],
+    slot_file_identity: tuple[int, ...],
 ) -> RetainedTrustedTimePostEnrollmentStartOutcome:
     try:
         payload = json.loads(encoded)
@@ -565,6 +832,7 @@ def _receipt_from_encoded(
             artifact_path=artifact_path,
             encoded=encoded,
             file_identity=file_identity,
+            slot_file_identity=slot_file_identity,
             status=TrustedTimePostEnrollmentStartRetainedOutcomeStatus.RECOVERY_REQUIRED,
             reason=(
                 TrustedTimePostEnrollmentStartRetainedOutcomeReason.POST_ENROLLMENT_START_RECOVERY_REQUIRED
@@ -591,9 +859,19 @@ def _persist_outcome(
     )
     outcome_sha256 = hashlib.sha256(encoded).hexdigest()
     file_name = _outcome_file_name(outcome_sha256)
+    reserved_slot_encoded = _outcome_slot_bytes(
+        outcome_sha256,
+        outcome_contract_version=POST_ENROLLMENT_START_RETAINED_OUTCOME_CONTRACT_VERSION,
+    )
+    retained_slot_encoded = _outcome_slot_bytes(
+        outcome_sha256,
+        outcome_contract_version=POST_ENROLLMENT_START_RETAINED_OUTCOME_CONTRACT_VERSION,
+        status="retained",
+    )
     directory_descriptor: int | None = None
-    file_descriptor: int | None = None
+    file_owner: io.FileIO | None = None
     created_file_identity: tuple[int, ...] | None = None
+    created_slot_identity: tuple[int, ...] | None = None
     try:
         directory_descriptor = _open_owner_only_artifact_directory(
             artifact_directory,
@@ -612,35 +890,121 @@ def _persist_outcome(
             raise TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable(
                 "trusted-time post-enrollment recovery claim evidence is unavailable"
             )
-        file_descriptor = os.open(
-            file_name,
-            os.O_WRONLY
-            | os.O_CREAT
-            | os.O_EXCL
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0),
-            0o600,
-            dir_fd=directory_descriptor,
-        )
-        view = memoryview(encoded)
-        while view:
-            written = os.write(file_descriptor, view)
-            if written <= 0:
-                raise OSError
-            view = view[written:]
-        os.fchmod(file_descriptor, 0o600)
-        os.fsync(file_descriptor)
-        metadata = os.fstat(file_descriptor)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_uid != os.geteuid()
-            or stat.S_IMODE(metadata.st_mode) != 0o600
-            or metadata.st_nlink != 1
-            or metadata.st_size != len(encoded)
+        with (
+            _reserve_and_lock_outcome_slot(
+                directory_descriptor,
+                encoded=reserved_slot_encoded,
+            ) as locked_slot,
+            _fail_closed_recovery_outcome_publication(
+                directory_descriptor,
+                file_name=file_name,
+            ),
         ):
-            raise OSError
-        created_file_identity = _stable_file_identity(metadata)
-        os.fsync(directory_descriptor)
+            slot_descriptor, reserved_slot_identity = locked_slot
+            if _outcome_names(directory_descriptor):
+                raise TrustedTimePostEnrollmentStartOutcomeAlreadyRetained(
+                    "trusted-time post-enrollment recovery outcome was already retained"
+                )
+            file_owner = _open_owner_only_file(
+                directory_descriptor,
+                _POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME,
+                exclusive=True,
+            )
+            file_descriptor = file_owner.fileno()
+            view = memoryview(encoded)
+            while view:
+                written = os.write(file_descriptor, view)
+                if written <= 0:
+                    raise OSError
+                view = view[written:]
+            os.fchmod(file_descriptor, 0o600)
+            os.fsync(file_descriptor)
+            staged = os.fstat(file_descriptor)
+            if (
+                not stat.S_ISREG(staged.st_mode)
+                or staged.st_uid != os.geteuid()
+                or stat.S_IMODE(staged.st_mode) != 0o600
+                or staged.st_nlink != 1
+                or staged.st_size != len(encoded)
+            ):
+                raise OSError
+            os.link(
+                _POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME,
+                file_name,
+                src_dir_fd=directory_descriptor,
+                dst_dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            linked = os.stat(
+                file_name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            staged_linked = os.fstat(file_descriptor)
+            if (
+                _stable_file_identity(linked) != _stable_file_identity(staged_linked)
+                or staged_linked.st_nlink != 2
+            ):
+                raise OSError
+            os.fsync(directory_descriptor)
+            os.unlink(
+                _POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME,
+                dir_fd=directory_descriptor,
+            )
+            published = os.fstat(file_descriptor)
+            named = os.stat(
+                file_name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                _stable_file_identity(published) != _stable_file_identity(named)
+                or published.st_nlink != 1
+            ):
+                raise OSError
+            os.fsync(directory_descriptor)
+            created_file_identity = _stable_file_identity(published)
+            retained, observed_file_identity = _read_retained_outcome(
+                directory_descriptor,
+                file_name=file_name,
+                expected_outcome_names=frozenset({file_name}),
+            )
+            if (
+                retained != encoded
+                or observed_file_identity != created_file_identity
+                or hashlib.sha256(retained).hexdigest() != outcome_sha256
+            ):
+                raise OSError
+            reserved_slot, observed_reserved_slot_identity = _read_retained_outcome(
+                directory_descriptor,
+                file_name=POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
+                expected_outcome_names=frozenset({file_name}),
+            )
+            if (
+                reserved_slot != reserved_slot_encoded
+                or observed_reserved_slot_identity != reserved_slot_identity
+                or _stable_file_identity(os.fstat(slot_descriptor))
+                != observed_reserved_slot_identity
+            ):
+                raise OSError
+            created_slot_identity = _write_locked_slot(
+                slot_descriptor,
+                retained_slot_encoded,
+            )
+            os.fsync(directory_descriptor)
+            directory_identity = _stable_file_identity(os.fstat(directory_descriptor))
+            slot, observed_slot_identity = _read_retained_outcome(
+                directory_descriptor,
+                file_name=POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
+                expected_outcome_names=frozenset({file_name}),
+            )
+            if (
+                slot != retained_slot_encoded
+                or observed_slot_identity != created_slot_identity
+                or _stable_file_identity(os.fstat(slot_descriptor)) != observed_slot_identity
+                or _stable_file_identity(os.fstat(directory_descriptor)) != directory_identity
+            ):
+                raise OSError
     except TrustedTimePostEnrollmentStartOutcomeAlreadyRetained:
         if directory_descriptor is not None:
             with suppress(OSError):
@@ -684,39 +1048,16 @@ def _persist_outcome(
             directory_descriptor = None
         raise
     finally:
-        if file_descriptor is not None:
-            try:
-                os.close(file_descriptor)
-            except OSError:
-                if directory_descriptor is not None:
-                    with suppress(OSError):
-                        os.close(directory_descriptor)
-                    directory_descriptor = None
-                raise TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed(
-                    "trusted-time post-enrollment recovery outcome retention is unconfirmed"
-                ) from None
-    try:
-        if directory_descriptor is None or created_file_identity is None:
-            raise OSError
-        retained, observed_file_identity = _read_retained_outcome(
-            directory_descriptor,
-            file_name=file_name,
-            expected_outcome_names=frozenset({file_name}),
-        )
-        if (
-            retained != encoded
-            or observed_file_identity != created_file_identity
-            or hashlib.sha256(retained).hexdigest() != outcome_sha256
-        ):
-            raise OSError
-    except Exception:
-        raise TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed(
-            "trusted-time post-enrollment recovery outcome retention is unconfirmed"
-        ) from None
-    finally:
+        if file_owner is not None:
+            with suppress(OSError):
+                file_owner.close()
         if directory_descriptor is not None:
             with suppress(OSError):
                 os.close(directory_descriptor)
+    if created_file_identity is None or created_slot_identity is None:
+        raise TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed(
+            "trusted-time post-enrollment recovery outcome retention is unconfirmed"
+        )
     return RetainedTrustedTimePostEnrollmentStartOutcome(
         operation_id=retained_claim.operation_id,
         approval_sha256=claim.approval.approval_sha256,
@@ -726,6 +1067,7 @@ def _persist_outcome(
         artifact_path=artifact_directory / file_name,
         encoded=encoded,
         file_identity=created_file_identity,
+        slot_file_identity=created_slot_identity,
         status=TrustedTimePostEnrollmentStartRetainedOutcomeStatus.RECOVERY_REQUIRED,
         reason=(
             TrustedTimePostEnrollmentStartRetainedOutcomeReason.POST_ENROLLMENT_START_RECOVERY_REQUIRED
@@ -896,31 +1238,63 @@ def load_retained_post_enrollment_start_outcome(
             "trusted-time post-enrollment retained recovery outcome is unavailable"
         ) from None
     try:
-        names = _outcome_names(directory_descriptor)
-        if len(names) != 1:
-            raise TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable(
-                "trusted-time post-enrollment retained recovery outcome is unavailable"
+        with _locked_outcome_slot(directory_descriptor, exclusive=False) as slot_descriptor:
+            os.fsync(slot_descriptor)
+            os.fsync(directory_descriptor)
+            directory_identity = _stable_file_identity(os.fstat(directory_descriptor))
+            if not _entry_is_absent(
+                directory_descriptor,
+                _POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME,
+            ):
+                raise TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable(
+                    "trusted-time post-enrollment retained recovery outcome is unavailable"
+                )
+            names = _outcome_names(directory_descriptor)
+            if len(names) != 1:
+                raise TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable(
+                    "trusted-time post-enrollment retained recovery outcome is unavailable"
+                )
+            file_name = next(iter(names))
+            digest = file_name[
+                len(POST_ENROLLMENT_START_OUTCOME_FILE_PREFIX) : -len(
+                    POST_ENROLLMENT_START_OUTCOME_FILE_SUFFIX
+                )
+            ]
+            if file_name != _outcome_file_name(digest):
+                raise TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable(
+                    "trusted-time post-enrollment retained recovery outcome is unavailable"
+                )
+            encoded, file_identity = _read_retained_outcome(
+                directory_descriptor,
+                file_name=file_name,
+                expected_outcome_names=frozenset({file_name}),
             )
-        file_name = next(iter(names))
-        digest = file_name[
-            len(POST_ENROLLMENT_START_OUTCOME_FILE_PREFIX) : -len(
-                POST_ENROLLMENT_START_OUTCOME_FILE_SUFFIX
+            slot, slot_identity = _read_retained_outcome(
+                directory_descriptor,
+                file_name=POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
+                expected_outcome_names=frozenset({file_name}),
             )
-        ]
-        if file_name != _outcome_file_name(digest):
-            raise TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable(
-                "trusted-time post-enrollment retained recovery outcome is unavailable"
+            if (
+                slot
+                != _outcome_slot_bytes(
+                    digest,
+                    outcome_contract_version=(
+                        POST_ENROLLMENT_START_RETAINED_OUTCOME_CONTRACT_VERSION
+                    ),
+                    status="retained",
+                )
+                or _stable_file_identity(os.fstat(slot_descriptor)) != slot_identity
+                or _stable_file_identity(os.fstat(directory_descriptor)) != directory_identity
+            ):
+                raise TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable(
+                    "trusted-time post-enrollment retained recovery outcome is unavailable"
+                )
+            return _receipt_from_encoded(
+                encoded=encoded,
+                artifact_path=absolute_directory / file_name,
+                file_identity=file_identity,
+                slot_file_identity=slot_identity,
             )
-        encoded, file_identity = _read_retained_outcome(
-            directory_descriptor,
-            file_name=file_name,
-            expected_outcome_names=frozenset({file_name}),
-        )
-        return _receipt_from_encoded(
-            encoded=encoded,
-            artifact_path=absolute_directory / file_name,
-            file_identity=file_identity,
-        )
     except TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable:
         raise
     except Exception:
@@ -959,16 +1333,41 @@ def revalidate_retained_post_enrollment_start_outcome(
     except Exception:
         return False
     try:
-        observed, observed_file_identity = _read_retained_outcome(
-            directory_descriptor,
-            file_name=file_name,
-            expected_outcome_names=frozenset({file_name}),
-        )
-        return (
-            observed_file_identity == retained.file_identity
-            and observed == retained.encoded
-            and hashlib.sha256(observed).hexdigest() == retained.outcome_sha256
-        )
+        with _locked_outcome_slot(directory_descriptor, exclusive=False) as slot_descriptor:
+            os.fsync(slot_descriptor)
+            os.fsync(directory_descriptor)
+            directory_identity = _stable_file_identity(os.fstat(directory_descriptor))
+            if not _entry_is_absent(
+                directory_descriptor,
+                _POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME,
+            ):
+                return False
+            observed, observed_file_identity = _read_retained_outcome(
+                directory_descriptor,
+                file_name=file_name,
+                expected_outcome_names=frozenset({file_name}),
+            )
+            slot, slot_identity = _read_retained_outcome(
+                directory_descriptor,
+                file_name=POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
+                expected_outcome_names=frozenset({file_name}),
+            )
+            return (
+                observed_file_identity == retained.file_identity
+                and observed == retained.encoded
+                and hashlib.sha256(observed).hexdigest() == retained.outcome_sha256
+                and slot
+                == _outcome_slot_bytes(
+                    retained.outcome_sha256,
+                    outcome_contract_version=(
+                        POST_ENROLLMENT_START_RETAINED_OUTCOME_CONTRACT_VERSION
+                    ),
+                    status="retained",
+                )
+                and slot_identity == retained.slot_file_identity
+                and _stable_file_identity(os.fstat(slot_descriptor)) == slot_identity
+                and _stable_file_identity(os.fstat(directory_descriptor)) == directory_identity
+            )
     except Exception:
         return False
     finally:
@@ -983,6 +1382,7 @@ __all__ = [
     "POST_ENROLLMENT_START_LEGACY_OUTCOME_FILE_NAME",
     "POST_ENROLLMENT_START_OUTCOME_FILE_PREFIX",
     "POST_ENROLLMENT_START_OUTCOME_FILE_SUFFIX",
+    "POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME",
     "POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_SECONDS",
     "POST_ENROLLMENT_START_RETAINED_OUTCOME_CONTRACT_VERSION",
     "POST_ENROLLMENT_START_RETAINED_OUTCOME_SERVICE",

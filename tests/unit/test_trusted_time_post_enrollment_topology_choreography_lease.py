@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import inspect
 import os
 import pickle
@@ -8,11 +9,13 @@ import threading
 from collections.abc import Callable
 from copy import copy, deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Never, cast
 
 import pytest
 
 import scripts.trusted_time_post_enrollment_claimed_fence as claimed_fence
+import scripts.trusted_time_post_enrollment_controller_outcome as controller_outcome
 import scripts.trusted_time_post_enrollment_staging as staging
 import scripts.trusted_time_post_enrollment_topology_reader as reader
 from apps.trusted_time_supervisor.config import TrustedTimeSupervisorConfigurationError
@@ -47,6 +50,119 @@ class _MonotonicClock:
     @property
     def remaining(self) -> list[int]:
         return list(self._remaining)
+
+
+def _fake_darwin_clock_library(
+    *,
+    ticks: int = 10,
+    numerator: int = 3,
+    denominator: int = 2,
+) -> tuple[SimpleNamespace, list[str]]:
+    calls: list[str] = []
+
+    def mach_continuous_time() -> int:
+        calls.append("continuous")
+        return ticks
+
+    def mach_timebase_info(pointer: object) -> int:
+        calls.append("timebase")
+        timebase = ctypes.cast(
+            pointer,
+            ctypes.POINTER(reader._DarwinMachTimebaseInfo),
+        ).contents
+        timebase.numer = numerator
+        timebase.denom = denominator
+        return 0
+
+    return (
+        SimpleNamespace(
+            mach_continuous_time=mach_continuous_time,
+            mach_timebase_info=mach_timebase_info,
+        ),
+        calls,
+    )
+
+
+def test_linux_suspend_aware_clock_captures_one_exact_native_callable_and_id() -> None:
+    calls: list[int] = []
+
+    def clock_gettime_ns(clock_id: int) -> int:
+        calls.append(clock_id)
+        return 41 + len(calls)
+
+    clock = reader._build_suspend_aware_monotonic_clock(
+        platform_name="linux",
+        clock_gettime_ns=clock_gettime_ns,
+        clock_boottime=7,
+        darwin_library_loader=lambda _: (_ for _ in ()).throw(AssertionError),
+    )
+
+    assert clock() == 42
+    assert clock() == 43
+    assert calls == [7, 7]
+
+
+def test_darwin_suspend_aware_clock_captures_timebase_once() -> None:
+    library, native_calls = _fake_darwin_clock_library()
+    loader_calls: list[object] = []
+
+    def load_library(name: object) -> SimpleNamespace:
+        loader_calls.append(name)
+        return library
+
+    clock = reader._build_suspend_aware_monotonic_clock(
+        platform_name="darwin",
+        clock_gettime_ns=None,
+        clock_boottime=None,
+        darwin_library_loader=load_library,
+    )
+
+    assert clock() == 15
+    assert clock() == 15
+    assert loader_calls == [None]
+    assert native_calls == ["timebase", "continuous", "continuous"]
+
+
+@pytest.mark.parametrize(("numerator", "denominator"), [(0, 1), (1, 0)])
+def test_darwin_suspend_aware_clock_rejects_invalid_timebase(
+    numerator: int,
+    denominator: int,
+) -> None:
+    library, native_calls = _fake_darwin_clock_library(
+        numerator=numerator,
+        denominator=denominator,
+    )
+    clock = reader._build_suspend_aware_monotonic_clock(
+        platform_name="darwin",
+        clock_gettime_ns=None,
+        clock_boottime=None,
+        darwin_library_loader=lambda _: library,
+    )
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        clock()
+
+    assert native_calls == ["timebase"]
+
+
+def test_unsupported_suspend_aware_clock_fails_closed() -> None:
+    clock = reader._build_suspend_aware_monotonic_clock(
+        platform_name="unsupported",
+        clock_gettime_ns=None,
+        clock_boottime=None,
+        darwin_library_loader=None,
+    )
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        clock()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Darwin production clock only")
+def test_darwin_production_suspend_aware_clock_is_available_and_monotonic() -> None:
+    first = reader._suspend_aware_monotonic_ns()
+    second = reader._suspend_aware_monotonic_ns()
+
+    assert 0 <= first <= second
 
 
 def _install_monotonic_clock(
@@ -86,6 +202,22 @@ def _open_issuer(
         executable,
     )
     return issuer, queued
+
+
+def test_issuer_exposes_only_the_exact_clock_sealed_at_open(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    clock = _MonotonicClock([])
+    issuer, _ = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        monotonic_clock=clock,
+    )
+    try:
+        assert issuer._bound_choreography_monotonic_clock() is clock
+    finally:
+        _close_and_assert_launch_lock_is_reacquirable(issuer)
 
 
 def _seed_cursor_state(
@@ -193,6 +325,83 @@ def _persist_recovery_outcome(
         artifact_directory=artifact_directory,
         ignored_root=ignored_root,
     )
+
+
+def _active_choreography_registration(
+    issuer: reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+) -> Any:
+    closure = inspect.getclosurevars(reader._transition_authenticated_post_effect_outcome_retention)
+    registrations = cast(dict[object, Any], closure.nonlocals["active_choreographies"])
+    return registrations[issuer]
+
+
+def _transition_registered_post_effect_retention(
+    issuer: reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+    lease: object,
+    recovery_capability: object,
+    retained: RetainedTrustedTimePostEnrollmentStartClaim,
+    *,
+    artifact_directory: Path,
+    ignored_root: Path,
+) -> reader._TrustedTimePostEnrollmentPostEffectOutcomeCapability:
+    _bind_registered_recovery_claim(
+        issuer,
+        lease,
+        recovery_capability,
+        retained,
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
+    candidate = issuer._issue_post_effect_outcome_retention_candidate()
+    issuer._transition_to_post_effect_outcome_retention(
+        lease,
+        recovery_capability,
+        retained,
+        post_effect_outcome_candidate=candidate,
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
+    return candidate
+
+
+def _confirmed_controller_receipt(
+    artifact_directory: Path,
+) -> controller_outcome.RetainedTrustedTimePostEnrollmentStartControllerOutcome:
+    retained = object.__new__(
+        controller_outcome.RetainedTrustedTimePostEnrollmentStartControllerOutcome
+    )
+    object.__setattr__(
+        retained,
+        "status",
+        controller_outcome.TrustedTimePostEnrollmentStartControllerOutcomeStatus.CONFIRMED,
+    )
+    object.__setattr__(
+        retained,
+        "reason",
+        controller_outcome.TrustedTimePostEnrollmentStartControllerOutcomeReason.POST_ENROLLMENT_START_CONFIRMED,
+    )
+    object.__setattr__(retained, "artifact_path", artifact_directory / "exact-receipt.json")
+    return retained
+
+
+def _recovery_controller_receipt(
+    artifact_directory: Path,
+    *,
+    reason: controller_outcome.TrustedTimePostEnrollmentStartControllerOutcomeReason = (
+        controller_outcome.TrustedTimePostEnrollmentStartControllerOutcomeReason.SEQUENCE_TWO_UNCONFIRMED
+    ),
+) -> controller_outcome.RetainedTrustedTimePostEnrollmentStartControllerOutcome:
+    retained = object.__new__(
+        controller_outcome.RetainedTrustedTimePostEnrollmentStartControllerOutcome
+    )
+    object.__setattr__(
+        retained,
+        "status",
+        controller_outcome.TrustedTimePostEnrollmentStartControllerOutcomeStatus.RECOVERY_REQUIRED,
+    )
+    object.__setattr__(retained, "reason", reason)
+    object.__setattr__(retained, "artifact_path", artifact_directory / "exact-failure.json")
+    return retained
 
 
 def test_nominal_callback_uses_one_private_lease_for_exact_observation_chain(
@@ -649,7 +858,7 @@ def test_async_failure_after_inflight_visibility_still_cleans_scope_and_flock(
         if "registered = choreography_registrar(" in line
     )
 
-    def interrupt_after_inflight(frame: object, event: str, _arg: object) -> object:
+    def interrupt_after_inflight(frame: object, event: str, _arg: object) -> Any:
         if (
             event == "line"
             and getattr(frame, "f_code", None) is method.__code__
@@ -1316,7 +1525,9 @@ def test_second_checkpoint_lock_validation_failure_poisons_and_revokes_binder(
         issuer_type = type(issuer)
         original_validate_lock = issuer_type._validate_lock
 
-        def fail_second(candidate: object) -> None:
+        def fail_second(
+            candidate: reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        ) -> None:
             nonlocal validation_calls
             validation_calls += 1
             if validation_calls == 2:
@@ -1367,7 +1578,7 @@ def test_async_interruption_during_binder_discovery_cannot_be_caught_to_continue
     interruption_injected = False
     callback_caught_rejection = False
 
-    def interrupt_during_discovery(frame: object, event: str, _arg: object) -> object:
+    def interrupt_during_discovery(frame: object, event: str, _arg: object) -> Any:
         nonlocal interruption_injected
         if (
             not interruption_injected
@@ -2142,4 +2353,1543 @@ def test_close_interference_revokes_action_but_preserves_bound_recovery_and_floc
 
     assert clock.calls == values
     assert len(queued.calls) == 1
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+class _PostEffectRetentionTerminal(BaseException):
+    pass
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "runner",
+        "runner_and_mirror",
+        "environment",
+        "environment_and_mirrors",
+        "monotonic_clock",
+    ],
+)
+def test_bound_control_rejects_open_session_provenance_mutation_before_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    issuer, queued = _open_issuer(monkeypatch, tmp_path)
+    attacker_runner = fixtures._QueuedRunner([])
+
+    def reject_mutated_control(_lease: object) -> None:
+        if mutation == "runner":
+            issuer._runner = attacker_runner
+        elif mutation == "runner_and_mirror":
+            issuer._runner = attacker_runner
+            issuer._runner_identity_value = attacker_runner
+        elif mutation == "environment":
+            issuer._environment["DOCKER_HOST"] = "unix:///tmp/attacker-docker.sock"
+        elif mutation == "environment_and_mirrors":
+            forged_environment = dict(issuer._environment)
+            forged_environment["DOCKER_HOST"] = "unix:///tmp/attacker-docker.sock"
+            issuer._environment = forged_environment
+            issuer._environment_identity_value = tuple(sorted(forged_environment.items()))
+            issuer._environment_sha256_value = reader._canonical_sha256(forged_environment)
+        else:
+            issuer._monotonic_ns = _MonotonicClock([1])
+        issuer._run_bound_control(
+            (os.fspath(issuer._docker_executable_path), "version"),
+            timeout_seconds=1.0,
+            maximum_stdout_bytes=1,
+            maximum_stderr_bytes=1,
+        )
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._run_exclusive_choreography(reject_mutated_control)
+
+    assert len(queued.calls) == 1
+    assert attacker_runner.calls == []
+    assert issuer._poisoned is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_post_effect_success_retention_is_exact_one_shot_and_scope_sealed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, queued = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    escaped: list[tuple[object, object]] = []
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        reader._TrustedTimePostEnrollmentPostEffectOutcomeCapability()
+
+    def retain_success(lease: object, recovery_capability: object) -> None:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        escaped.append((lease, post_effect_capability))
+        for operation in (
+            lambda: copy(post_effect_capability),
+            lambda: deepcopy(post_effect_capability),
+            lambda: pickle.dumps(post_effect_capability),
+        ):
+            with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+                operation()
+        active = issuer._require_active_post_effect_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="success",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        assert checkpoint.retained_claim is retained
+        assert checkpoint.outcome_kind == "success"
+        assert checkpoint.started_monotonic_ns == active.started_monotonic_ns
+        assert checkpoint.action_deadline_monotonic_ns == active.deadline_monotonic_ns
+        assert checkpoint.deadline_monotonic_ns == active.deadline_monotonic_ns
+        receipt = object()
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "post_effect_confirmed"
+        assert registration.controller_outcome_checkpoint is checkpoint
+        assert registration.controller_outcome_receipt is receipt
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._complete_post_effect_controller_outcome_retention(
+                post_effect_capability,
+                checkpoint,
+                receipt,
+            )
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(retain_success)
+
+    lease, post_effect_capability = escaped[0]
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+    assert len(queued.calls) == 1
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_exact_revalidated_confirmed_receipt_is_the_only_normal_terminal_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    receipt = _confirmed_controller_receipt(artifact_directory)
+    revalidated: list[object] = []
+
+    def revalidate(
+        candidate: object,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> bool:
+        revalidated.append(candidate)
+        return (
+            candidate is receipt
+            and artifact_directory == retained.artifact_path.parent
+            and ignored_root == artifact_directory.parent
+        )
+
+    monkeypatch.setattr(
+        controller_outcome,
+        "revalidate_retained_post_enrollment_start_controller_outcome",
+        revalidate,
+    )
+
+    def retain_success(lease: object, recovery_capability: object) -> object:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="success",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+        return receipt
+
+    returned = issuer._run_exclusive_choreography_with_recovery_retention(retain_success)
+
+    assert returned is receipt
+    assert revalidated == [receipt]
+    assert issuer._poisoned is True
+    assert issuer._choreography_inflight is False
+    assert issuer._choreography_scope_nonce is None
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+@pytest.mark.parametrize("failure", ["wrong_identity", "receipt_revalidation"])
+def test_terminal_success_handoff_rejects_false_or_unrevalidated_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    failure: str,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    receipt = _confirmed_controller_receipt(artifact_directory)
+    revalidated: list[object] = []
+
+    def revalidate(
+        candidate: object,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> bool:
+        revalidated.append(candidate)
+        assert artifact_directory == retained.artifact_path.parent
+        assert ignored_root == artifact_directory.parent
+        return False
+
+    monkeypatch.setattr(
+        controller_outcome,
+        "revalidate_retained_post_enrollment_start_controller_outcome",
+        revalidate,
+    )
+
+    def reject_false_handoff(lease: object, recovery_capability: object) -> object:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="success",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+        return object() if failure == "wrong_identity" else receipt
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_false_handoff)
+
+    assert revalidated == ([] if failure == "wrong_identity" else [receipt])
+    assert issuer._poisoned is True
+    assert issuer._choreography_inflight is False
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        controller_outcome.TrustedTimePostEnrollmentStartControllerOutcomeReason.RELEASE_OUTCOME_UNCONFIRMED,
+        controller_outcome.TrustedTimePostEnrollmentStartControllerOutcomeReason.SEQUENCE_TWO_UNCONFIRMED,
+        controller_outcome.TrustedTimePostEnrollmentStartControllerOutcomeReason.SUCCESS_OUTCOME_UNCONFIRMED,
+    ],
+)
+def test_exact_revalidated_failure_receipt_is_returned_after_issuer_poison(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    reason: controller_outcome.TrustedTimePostEnrollmentStartControllerOutcomeReason,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    receipt = _recovery_controller_receipt(artifact_directory, reason=reason)
+    revalidated: list[object] = []
+
+    def revalidate(
+        candidate: object,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> bool:
+        revalidated.append(candidate)
+        return (
+            candidate is receipt
+            and artifact_directory == retained.artifact_path.parent
+            and ignored_root == artifact_directory.parent
+        )
+
+    monkeypatch.setattr(
+        controller_outcome,
+        "revalidate_retained_post_enrollment_start_controller_outcome",
+        revalidate,
+    )
+
+    def retain_failure(lease: object, recovery_capability: object) -> Never:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+        assert bool(issuer._poisoned) is True
+        returned = issuer._return_confirmed_post_effect_controller_failure(lease, receipt)
+        assert returned is receipt
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(retain_failure)
+
+    assert revalidated == [receipt]
+    assert issuer._choreography_inflight is False
+    assert issuer._choreography_scope_nonce is None
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["wrong_identity", "success_status", "success_reason", "revalidation", "registry", "deadline"],
+)
+def test_terminal_failure_handoff_rejects_false_or_unrevalidated_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    failure: str,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    if failure == "success_status":
+        receipt = _confirmed_controller_receipt(artifact_directory)
+    elif failure == "success_reason":
+        receipt = _recovery_controller_receipt(
+            artifact_directory,
+            reason=(
+                controller_outcome.TrustedTimePostEnrollmentStartControllerOutcomeReason.POST_ENROLLMENT_START_CONFIRMED
+            ),
+        )
+    else:
+        receipt = _recovery_controller_receipt(artifact_directory)
+    revalidated: list[object] = []
+
+    def revalidate(
+        candidate: object,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> bool:
+        revalidated.append(candidate)
+        assert artifact_directory == retained.artifact_path.parent
+        assert ignored_root == artifact_directory.parent
+        if failure == "registry":
+            registration = _active_choreography_registration(issuer)
+            registration.retention_state = "post_effect_unconfirmed"
+        return failure != "revalidation"
+
+    monkeypatch.setattr(
+        controller_outcome,
+        "revalidate_retained_post_enrollment_start_controller_outcome",
+        revalidate,
+    )
+
+    def reject_false_failure(lease: object, recovery_capability: object) -> Never:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+        if failure == "deadline":
+            object.__setattr__(
+                checkpoint,
+                "deadline_monotonic_ns",
+                checkpoint.action_deadline_monotonic_ns,
+            )
+        presented = object() if failure == "wrong_identity" else receipt
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._return_confirmed_post_effect_controller_failure(lease, presented)
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_false_failure)
+
+    rejects_before_revalidation = {
+        "wrong_identity",
+        "success_status",
+        "success_reason",
+        "deadline",
+    }
+    assert revalidated == ([] if failure in rejects_before_revalidation else [receipt])
+    assert issuer._choreography_inflight is False
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_post_effect_transition_retires_old_writer_and_survives_poison_for_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+
+    def retain_failure(lease: object, recovery_capability: object) -> None:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._begin_recovery_outcome_retention(
+                recovery_capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        assert issuer._poisoned is True
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        receipt = object()
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "post_effect_confirmed"
+        assert registration.controller_outcome_receipt is receipt
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(retain_failure)
+
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_real_registry_terminal_outcomes_are_mutually_exclusive_and_one_shot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    success_root = tmp_path / "success"
+    success_root.mkdir()
+    success_issuer, _ = _open_issuer(monkeypatch, success_root)
+    success_claim, success_directory, success_ignored_root = _retain_claim_for_issuer(
+        success_issuer
+    )
+    success_receipt = object()
+
+    def retain_success(lease: object, recovery_capability: object) -> Never:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            success_issuer,
+            lease,
+            recovery_capability,
+            success_claim,
+            artifact_directory=success_directory,
+            ignored_root=success_ignored_root,
+        )
+        checkpoint = success_issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            success_claim,
+            outcome_kind="success",
+            artifact_directory=success_directory,
+            ignored_root=success_ignored_root,
+        )
+        success_issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            success_receipt,
+        )
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            success_issuer._begin_post_effect_controller_outcome_retention(
+                post_effect_capability,
+                lease,
+                success_claim,
+                outcome_kind="failure",
+                artifact_directory=success_directory,
+                ignored_root=success_ignored_root,
+            )
+        registration = _active_choreography_registration(success_issuer)
+        assert registration.retention_state == "post_effect_confirmed"
+        assert registration.controller_outcome_receipt is success_receipt
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        success_issuer._run_exclusive_choreography_with_recovery_retention(retain_success)
+    _close_and_assert_launch_lock_is_reacquirable(success_issuer)
+
+    failure_root = tmp_path / "failure"
+    failure_root.mkdir()
+    failure_issuer, _ = _open_issuer(monkeypatch, failure_root)
+    failure_claim, failure_directory, failure_ignored_root = _retain_claim_for_issuer(
+        failure_issuer
+    )
+    failure_receipt = object()
+
+    def abandon_lost_failure_checkpoint(
+        lease: object,
+        recovery_capability: object,
+    ) -> Never:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            failure_issuer,
+            lease,
+            recovery_capability,
+            failure_claim,
+            artifact_directory=failure_directory,
+            ignored_root=failure_ignored_root,
+        )
+        failure_issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            failure_claim,
+            outcome_kind="failure",
+            artifact_directory=failure_directory,
+            ignored_root=failure_ignored_root,
+        )
+        failure_issuer._abandon_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            None,
+            failure_receipt,
+        )
+        for outcome_kind in ("success", "failure"):
+            with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+                failure_issuer._begin_post_effect_controller_outcome_retention(
+                    post_effect_capability,
+                    lease,
+                    failure_claim,
+                    outcome_kind=cast(Any, outcome_kind),
+                    artifact_directory=failure_directory,
+                    ignored_root=failure_ignored_root,
+                )
+        registration = _active_choreography_registration(failure_issuer)
+        assert registration.retention_state == "post_effect_unconfirmed"
+        assert registration.controller_outcome_receipt is failure_receipt
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        failure_issuer._run_exclusive_choreography_with_recovery_retention(
+            abandon_lost_failure_checkpoint
+        )
+    _close_and_assert_launch_lock_is_reacquirable(failure_issuer)
+
+
+def test_commit_publication_failure_downgrades_completed_controller_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    receipt = object()
+
+    def complete_then_abandon(lease: object, recovery_capability: object) -> Never:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "post_effect_confirmed"
+
+        issuer._abandon_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+
+        assert registration.retention_state == "post_effect_unconfirmed"
+        assert registration.controller_outcome_receipt is receipt
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(complete_then_abandon)
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_abandonment_preserves_exact_publicly_committed_controller_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    receipt = object()
+    monkeypatch.setattr(
+        controller_outcome,
+        "revalidate_retained_post_enrollment_start_controller_outcome",
+        lambda candidate, **kwargs: candidate is receipt,
+    )
+
+    def complete_then_preserve(lease: object, recovery_capability: object) -> Never:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+        issuer._abandon_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "post_effect_confirmed"
+        assert registration.controller_outcome_receipt is receipt
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(complete_then_preserve)
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_post_effect_transition_classification_is_exact_and_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+
+    def classify_transition(lease: object, recovery_capability: object) -> Never:
+        _bind_registered_recovery_claim(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        candidate = issuer._issue_post_effect_outcome_retention_candidate()
+        registration = _active_choreography_registration(issuer)
+        before = (
+            registration.action_active,
+            registration.retention_state,
+            registration.post_effect_outcome_capability,
+        )
+        assert issuer._post_effect_outcome_retention_was_transitioned(candidate) is False
+        assert (
+            registration.action_active,
+            registration.retention_state,
+            registration.post_effect_outcome_capability,
+        ) == before
+
+        cross_thread: list[BaseException] = []
+
+        def classify_from_wrong_thread() -> None:
+            try:
+                issuer._post_effect_outcome_retention_was_transitioned(candidate)
+            except BaseException as error:
+                cross_thread.append(error)
+
+        thread = threading.Thread(target=classify_from_wrong_thread)
+        thread.start()
+        thread.join(timeout=5.0)
+        assert not thread.is_alive()
+        assert len(cross_thread) == 1
+        assert type(cross_thread[0]) is reader.TrustedTimePostEnrollmentTopologyReaderError
+        assert bool(issuer._poisoned) is False
+
+        issuer._transition_to_post_effect_outcome_retention(
+            lease,
+            recovery_capability,
+            retained,
+            post_effect_outcome_candidate=candidate,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        assert issuer._post_effect_outcome_retention_was_transitioned(candidate) is True
+        forged = object.__new__(reader._TrustedTimePostEnrollmentPostEffectOutcomeCapability)
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._post_effect_outcome_retention_was_transitioned(forged)
+        assert registration.retention_state == "post_effect_armed"
+        assert registration.post_effect_outcome_capability is candidate
+        assert bool(issuer._poisoned) is False
+
+        issuer._begin_post_effect_controller_outcome_retention(
+            candidate,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        assert bool(issuer._poisoned) is True
+        assert issuer._post_effect_outcome_retention_was_transitioned(candidate) is True
+        issuer._abandon_post_effect_controller_outcome_retention(candidate, None)
+        assert issuer._post_effect_outcome_retention_was_transitioned(candidate) is True
+        assert registration.retention_state == "post_effect_unconfirmed"
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(classify_transition)
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._post_effect_outcome_retention_was_transitioned(
+            object.__new__(reader._TrustedTimePostEnrollmentPostEffectOutcomeCapability)
+        )
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_post_effect_failure_can_begin_after_action_deadline_but_success_cannot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+
+    def retain_after_action_deadline(lease: object, recovery_capability: object) -> None:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        active = issuer._require_active_post_effect_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._monotonic_ns = lambda: active.deadline_monotonic_ns
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._require_active_post_effect_outcome_retention(
+                post_effect_capability,
+                lease,
+                retained,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._begin_post_effect_controller_outcome_retention(
+                post_effect_capability,
+                lease,
+                retained,
+                outcome_kind="success",
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        issuer._monotonic_ns = lambda: active.deadline_monotonic_ns + 1
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        assert checkpoint.deadline_monotonic_ns == (
+            checkpoint.started_monotonic_ns
+            + reader._POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_NANOSECONDS
+        )
+        issuer._monotonic_ns = lambda: active.deadline_monotonic_ns + 2
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            object(),
+        )
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(retain_after_action_deadline)
+
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_post_effect_failure_deadline_equality_rejects_before_writer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    writer_called = False
+
+    def reject_at_failure_deadline(lease: object, recovery_capability: object) -> None:
+        nonlocal writer_called
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        registration = _active_choreography_registration(issuer)
+        issuer._monotonic_ns = lambda: registration.retention_deadline_monotonic_ns
+        issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        writer_called = True
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_at_failure_deadline)
+
+    assert writer_called is False
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+@pytest.mark.parametrize("attack", ["forged_capability", "wrong_root", "transition_replay"])
+def test_post_effect_failed_authority_attacks_do_not_consume_exact_failure_retention(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    attack: str,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+
+    def reject_attack_then_retain(lease: object, recovery_capability: object) -> None:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            if attack == "forged_capability":
+                forged = object.__new__(
+                    reader._TrustedTimePostEnrollmentPostEffectOutcomeCapability
+                )
+                issuer._begin_post_effect_controller_outcome_retention(
+                    forged,
+                    lease,
+                    retained,
+                    outcome_kind="failure",
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                )
+            elif attack == "wrong_root":
+                issuer._begin_post_effect_controller_outcome_retention(
+                    post_effect_capability,
+                    lease,
+                    retained,
+                    outcome_kind="failure",
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root / "wrong",
+                )
+            else:
+                issuer._transition_to_post_effect_outcome_retention(
+                    lease,
+                    recovery_capability,
+                    retained,
+                    post_effect_outcome_candidate=post_effect_capability,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                )
+        assert issuer._poisoned is True
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        assert (
+            issuer._post_effect_outcome_retention_was_transitioned(post_effect_capability) is True
+        )
+        receipt = object()
+        issuer._abandon_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "post_effect_unconfirmed"
+        assert registration.controller_outcome_receipt is receipt
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_attack_then_retain)
+
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_post_effect_exact_checkpoint_survives_replay_and_forgery_only_for_abandonment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+
+    def reject_replay_and_forgery(lease: object, recovery_capability: object) -> None:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._begin_post_effect_controller_outcome_retention(
+                post_effect_capability,
+                lease,
+                retained,
+                outcome_kind="failure",
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        forged_checkpoint = copy(checkpoint)
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._complete_post_effect_controller_outcome_retention(
+                post_effect_capability,
+                forged_checkpoint,
+                object(),
+            )
+        receipt = object()
+        issuer._abandon_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "post_effect_unconfirmed"
+        assert registration.controller_outcome_checkpoint is checkpoint
+        assert registration.controller_outcome_receipt is receipt
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._abandon_post_effect_controller_outcome_retention(
+                post_effect_capability,
+                checkpoint,
+                receipt,
+            )
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_replay_and_forgery)
+
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_cross_thread_post_effect_use_poison_preserves_owner_failure_retention(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    errors: list[BaseException] = []
+
+    def reject_foreign_thread(lease: object, recovery_capability: object) -> None:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+
+        def foreign_use() -> None:
+            try:
+                issuer._begin_post_effect_controller_outcome_retention(
+                    post_effect_capability,
+                    lease,
+                    retained,
+                    outcome_kind="failure",
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                )
+            except BaseException as error:
+                errors.append(error)
+
+        worker = threading.Thread(target=foreign_use)
+        worker.start()
+        worker.join(timeout=2.0)
+        assert not worker.is_alive()
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            object(),
+        )
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_foreign_thread)
+
+    assert len(errors) == 1
+    assert isinstance(errors[0], reader.TrustedTimePostEnrollmentTopologyReaderError)
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_forked_child_cannot_use_post_effect_capability_but_parent_can_retain_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not hasattr(os, "fork"):
+        pytest.skip("fork is unavailable")
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+
+    def inspect_child(lease: object, recovery_capability: object) -> None:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        read_descriptor, write_descriptor = os.pipe()
+        child_pid = os.fork()
+        if child_pid == 0:  # pragma: no cover - asserted through the pipe
+            os.close(read_descriptor)
+            try:
+                try:
+                    issuer._begin_post_effect_controller_outcome_retention(
+                        post_effect_capability,
+                        lease,
+                        retained,
+                        outcome_kind="failure",
+                        artifact_directory=artifact_directory,
+                        ignored_root=ignored_root,
+                    )
+                except BaseException:
+                    payload = b"rejected"
+                else:
+                    payload = b"accepted"
+                os.write(write_descriptor, payload)
+            finally:
+                os.close(write_descriptor)
+            os._exit(0)
+
+        os.close(write_descriptor)
+        try:
+            assert os.read(read_descriptor, 16) == b"rejected"
+        finally:
+            os.close(read_descriptor)
+            os.waitpid(child_pid, 0)
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            object(),
+        )
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(inspect_child)
+
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_async_interruption_after_post_effect_transition_preserves_failure_capability(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    interruption_injected = False
+
+    def reject_interrupted_transition(lease: object, recovery_capability: object) -> None:
+        nonlocal interruption_injected
+        _bind_registered_recovery_claim(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        candidate = issuer._issue_post_effect_outcome_retention_candidate()
+
+        def transition_like_controller() -> None:
+            issuer._transition_to_post_effect_outcome_retention(
+                lease,
+                recovery_capability,
+                retained,
+                post_effect_outcome_candidate=candidate,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+            raise AssertionError("post-effect transition interruption was not injected")
+
+        source, first_line = inspect.getsourcelines(transition_like_controller)
+        interrupt_line = first_line + next(
+            offset
+            for offset, line in enumerate(source)
+            if "post-effect transition interruption was not injected" in line
+        )
+
+        def interrupt_after_transition(frame: object, event: str, _arg: object) -> Any:
+            nonlocal interruption_injected
+            if (
+                not interruption_injected
+                and event == "line"
+                and getattr(frame, "f_code", None) is transition_like_controller.__code__
+                and getattr(frame, "f_lineno", None) == interrupt_line
+            ):
+                interruption_injected = True
+                sys.settrace(None)
+                raise KeyboardInterrupt
+            return interrupt_after_transition
+
+        sys.settrace(interrupt_after_transition)
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                transition_like_controller()
+        finally:
+            sys.settrace(None)
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "post_effect_armed"
+        assert registration.post_effect_outcome_capability is candidate
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._begin_recovery_outcome_retention(
+                recovery_capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            candidate,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        receipt = object()
+        issuer._complete_post_effect_controller_outcome_retention(
+            candidate,
+            checkpoint,
+            receipt,
+        )
+        assert registration.retention_state == "post_effect_confirmed"
+        assert registration.controller_outcome_receipt is receipt
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_interrupted_transition)
+
+    assert interruption_injected is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_async_interruption_after_post_effect_begin_consumes_one_shot_as_unconfirmed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    begin = reader._begin_authenticated_post_effect_controller_outcome_retention
+    source, first_line = inspect.getsourcelines(begin)
+    return_line = first_line + next(
+        offset for offset, line in enumerate(source) if "return checkpoint" in line
+    )
+    interruption_injected = False
+
+    def interrupt_after_begin(frame: object, event: str, _arg: object) -> Any:
+        nonlocal interruption_injected
+        if (
+            not interruption_injected
+            and event == "line"
+            and getattr(frame, "f_code", None) is begin.__code__
+            and getattr(frame, "f_lineno", None) == return_line
+        ):
+            interruption_injected = True
+            sys.settrace(None)
+            raise KeyboardInterrupt
+        return interrupt_after_begin
+
+    def reject_interrupted_begin(lease: object, recovery_capability: object) -> None:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        sys.settrace(interrupt_after_begin)
+        try:
+            with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+                issuer._begin_post_effect_controller_outcome_retention(
+                    post_effect_capability,
+                    lease,
+                    retained,
+                    outcome_kind="failure",
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                )
+        finally:
+            sys.settrace(None)
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "post_effect_unconfirmed"
+        assert (
+            type(registration.controller_outcome_checkpoint)
+            is reader._TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint
+        )
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._begin_post_effect_controller_outcome_retention(
+                post_effect_capability,
+                lease,
+                retained,
+                outcome_kind="failure",
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_interrupted_begin)
+
+    assert interruption_injected is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_caller_store_interruption_after_post_effect_begin_can_abandon_checkpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    interruption_injected = False
+
+    def abandon_interrupted_begin(lease: object, recovery_capability: object) -> None:
+        nonlocal interruption_injected
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        receipt = object()
+
+        def begin_like_outcome_writer() -> None:
+            checkpoint = None
+            begin_attempted = False
+            try:
+                begin_attempted = True
+                issuer._begin_post_effect_controller_outcome_retention(
+                    post_effect_capability,
+                    lease,
+                    retained,
+                    outcome_kind="failure",
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                )
+                raise AssertionError("post-effect begin interruption was not injected")
+            except KeyboardInterrupt:
+                assert checkpoint is None
+                if begin_attempted:
+                    issuer._abandon_post_effect_controller_outcome_retention(
+                        post_effect_capability,
+                        checkpoint,
+                        receipt,
+                    )
+                raise
+
+        source, first_line = inspect.getsourcelines(begin_like_outcome_writer)
+        interrupt_line = first_line + next(
+            offset
+            for offset, line in enumerate(source)
+            if "post-effect begin interruption was not injected" in line
+        )
+
+        def interrupt_before_checkpoint_store(frame: object, event: str, _arg: object) -> Any:
+            nonlocal interruption_injected
+            if (
+                not interruption_injected
+                and event == "line"
+                and getattr(frame, "f_code", None) is begin_like_outcome_writer.__code__
+                and getattr(frame, "f_lineno", None) == interrupt_line
+            ):
+                interruption_injected = True
+                sys.settrace(None)
+                raise KeyboardInterrupt
+            return interrupt_before_checkpoint_store
+
+        sys.settrace(interrupt_before_checkpoint_store)
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                begin_like_outcome_writer()
+        finally:
+            sys.settrace(None)
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "post_effect_unconfirmed"
+        assert (
+            type(registration.controller_outcome_checkpoint)
+            is reader._TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint
+        )
+        assert registration.controller_outcome_receipt is receipt
+        assert (
+            issuer._post_effect_outcome_retention_was_transitioned(post_effect_capability) is True
+        )
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._begin_post_effect_controller_outcome_retention(
+                post_effect_capability,
+                lease,
+                retained,
+                outcome_kind="failure",
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(abandon_interrupted_begin)
+
+    assert interruption_injected is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_async_interruption_after_post_effect_complete_keeps_exact_receipt_unconfirmed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    complete = reader._complete_authenticated_post_effect_controller_outcome_retention
+    source, first_line = inspect.getsourcelines(complete)
+    completed_line = first_line + next(
+        offset for offset, line in enumerate(source) if "registration.action_active = False" in line
+    )
+    interruption_injected = False
+
+    def interrupt_after_completion(frame: object, event: str, _arg: object) -> Any:
+        nonlocal interruption_injected
+        if (
+            not interruption_injected
+            and event == "line"
+            and getattr(frame, "f_code", None) is complete.__code__
+            and getattr(frame, "f_lineno", None) == completed_line
+        ):
+            interruption_injected = True
+            sys.settrace(None)
+            raise KeyboardInterrupt
+        return interrupt_after_completion
+
+    def reject_interrupted_completion(lease: object, recovery_capability: object) -> None:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        receipt = object()
+        sys.settrace(interrupt_after_completion)
+        try:
+            with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+                issuer._complete_post_effect_controller_outcome_retention(
+                    post_effect_capability,
+                    checkpoint,
+                    receipt,
+                )
+        finally:
+            sys.settrace(None)
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "post_effect_unconfirmed"
+        assert registration.controller_outcome_checkpoint is checkpoint
+        assert registration.controller_outcome_receipt is receipt
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._complete_post_effect_controller_outcome_retention(
+                post_effect_capability,
+                checkpoint,
+                receipt,
+            )
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_interrupted_completion)
+
+    assert interruption_injected is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_async_interruption_after_post_effect_abandonment_keeps_receipt_unconfirmed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    abandon = reader._abandon_authenticated_post_effect_controller_outcome_retention
+    source, first_line = inspect.getsourcelines(abandon)
+    abandoned_line = first_line + next(
+        offset for offset, line in enumerate(source) if "abandoned = True" in line
+    )
+    interruption_injected = False
+
+    def interrupt_after_abandonment(frame: object, event: str, _arg: object) -> Any:
+        nonlocal interruption_injected
+        if (
+            not interruption_injected
+            and event == "line"
+            and getattr(frame, "f_code", None) is abandon.__code__
+            and getattr(frame, "f_lineno", None) == abandoned_line
+        ):
+            interruption_injected = True
+            sys.settrace(None)
+            raise KeyboardInterrupt
+        return interrupt_after_abandonment
+
+    def reject_interrupted_abandonment(lease: object, recovery_capability: object) -> None:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        receipt = object()
+        sys.settrace(interrupt_after_abandonment)
+        try:
+            with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+                issuer._abandon_post_effect_controller_outcome_retention(
+                    post_effect_capability,
+                    checkpoint,
+                    receipt,
+                )
+        finally:
+            sys.settrace(None)
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "post_effect_unconfirmed"
+        assert registration.controller_outcome_checkpoint is checkpoint
+        assert registration.controller_outcome_receipt is receipt
+        raise _PostEffectRetentionTerminal
+
+    with pytest.raises(_PostEffectRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_interrupted_abandonment)
+
+    assert interruption_injected is True
     _close_and_assert_launch_lock_is_reacquirable(issuer)

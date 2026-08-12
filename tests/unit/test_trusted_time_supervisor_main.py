@@ -17,6 +17,10 @@ from apps.trusted_time_supervisor.config import (
     TrustedTimeSupervisorConfigurationError,
     decode_trusted_time_authority,
 )
+from apps.trusted_time_supervisor.head_anchor_attempt import (
+    DeadlineBoundTrustedTimeHeadAnchorProvider,
+    TrustedTimeHeadAnchorStartupEffectDeadlineGuard,
+)
 from apps.trusted_time_supervisor.head_anchor_config import (
     TrustedTimeHeadAnchorRuntimeConfiguration,
 )
@@ -42,14 +46,19 @@ from packages.application.trusted_time_head_anchor import (
 from packages.application.trusted_time_head_anchor_worker import (
     TrustedTimeHeadAnchorAttemptResult,
     TrustedTimeHeadAnchorEnrollmentNotApprovedFailure,
+    TrustedTimeHeadAnchorFatalFailure,
     TrustedTimeHeadAnchorFatalReason,
+    TrustedTimeHeadAnchorTransientFailure,
     TrustedTimeHeadAnchorWorkRequest,
 )
 from packages.application.trusted_time_monitor import (
     TrustedTimeMonitorResult,
     TrustedTimeProbeStatus,
 )
-from packages.application.trusted_time_supervisor import TrustedTimeSupervisorResult
+from packages.application.trusted_time_supervisor import (
+    TrustedTimeSupervisorError,
+    TrustedTimeSupervisorResult,
+)
 from packages.domain.trusted_time import evaluate_trusted_time
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -323,6 +332,247 @@ def test_service_starts_anchor_after_epoch_notifies_without_external_io_and_clea
     engine.dispose.assert_called_once_with()
 
 
+def test_required_startup_terminal_publishes_before_source_or_long_lived_probing() -> None:
+    authority = _authority()
+    engine = Mock()
+    repository = Mock()
+    repository.register_new_epoch.return_value = SimpleNamespace(
+        binding=SimpleNamespace(monitor_epoch_id="fresh-runtime-epoch")
+    )
+    events: list[str] = []
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        events.append(f"attempt:{request.checkpoint_reason.value}")
+        return TrustedTimeHeadAnchorAttemptResult(
+            request_sequence=request.request_sequence,
+            checkpoint_reason=request.checkpoint_reason,
+            current_host_head_sha256="a" * 64,
+            current_anchor_sha256="b" * 64,
+            current_anchor_semantic_sha256="c" * 64,
+            completed_at_utc=BASE,
+            full_audit_completed=request.full_audit,
+            pending_intent_recovered=False,
+            candidate_remote_readback_sha256="d" * 64,
+            receipt_semantic_sha256="e" * 64,
+        )
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=lambda: 10,
+        on_fatal=lambda: None,
+        require_startup_terminal=True,
+    )
+
+    def scheduler(**_: object) -> TrustedTimeSupervisorResult:
+        events.append("long_lived_probe_scheduler")
+        return TrustedTimeSupervisorResult(probe_count=0, last_event=None)
+
+    def construct_source(**_: object) -> object:
+        events.append("chrony_source")
+        return object()
+
+    with (
+        patch("apps.trusted_time_supervisor.main.verify_operational_schema"),
+        patch(
+            "apps.trusted_time_supervisor.main.SqlTrustedTimeRepository",
+            return_value=repository,
+        ),
+        patch(
+            "apps.trusted_time_supervisor.main.ChronyNtsTrustedTimeSource",
+            side_effect=construct_source,
+        ),
+        patch(
+            "apps.trusted_time_supervisor.main.run_trusted_time_supervisor",
+            side_effect=scheduler,
+        ),
+    ):
+        run_service(
+            authority=authority,
+            database_url="postgresql+psycopg://user:secret@db.invalid/autoquant",
+            utc_clock=lambda: BASE,
+            monotonic_clock=lambda: 10,
+            stop_event=threading.Event(),
+            emit=lambda _: None,
+            engine_factory=lambda _: engine,
+            head_anchor_worker=worker,
+            require_head_anchor_startup_terminal=True,
+            head_anchor_startup_terminal_publisher=lambda: events.append("sequence_two_ready"),
+        )
+
+    assert events[:4] == [
+        "attempt:epoch_rotation",
+        "sequence_two_ready",
+        "chrony_source",
+        "long_lived_probe_scheduler",
+    ]
+    assert events[-1] == "attempt:clean_stop"
+
+
+def test_required_startup_terminal_failure_never_publishes_or_probes() -> None:
+    authority = _authority()
+    engine = Mock()
+    repository = Mock()
+    repository.register_new_epoch.return_value = SimpleNamespace(
+        binding=SimpleNamespace(monitor_epoch_id="fresh-runtime-epoch")
+    )
+    publisher = Mock(side_effect=AssertionError("publisher crossed fatal terminal"))
+    scheduler = Mock(side_effect=AssertionError("scheduler crossed fatal terminal"))
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        del request
+        raise TrustedTimeHeadAnchorFatalFailure("sanitized fatal")
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=lambda: 10,
+        on_fatal=lambda: None,
+        require_startup_terminal=True,
+    )
+    with (
+        patch("apps.trusted_time_supervisor.main.verify_operational_schema"),
+        patch(
+            "apps.trusted_time_supervisor.main.SqlTrustedTimeRepository",
+            return_value=repository,
+        ),
+        patch("apps.trusted_time_supervisor.main.ChronyNtsTrustedTimeSource") as source,
+        patch(
+            "apps.trusted_time_supervisor.main.run_trusted_time_supervisor",
+            scheduler,
+        ),
+        pytest.raises(TrustedTimeSupervisorError, match="failed closed"),
+    ):
+        run_service(
+            authority=authority,
+            database_url="postgresql+psycopg://user:secret@db.invalid/autoquant",
+            utc_clock=lambda: BASE,
+            monotonic_clock=lambda: 10,
+            stop_event=threading.Event(),
+            emit=lambda _: None,
+            engine_factory=lambda _: engine,
+            head_anchor_worker=worker,
+            require_head_anchor_startup_terminal=True,
+            head_anchor_startup_terminal_publisher=publisher,
+        )
+
+    publisher.assert_not_called()
+    source.assert_not_called()
+    scheduler.assert_not_called()
+    assert worker.fatal_error_latched is True
+
+
+def test_required_startup_terminal_timeout_never_publishes_or_probes() -> None:
+    authority = _authority()
+    engine = Mock()
+    repository = Mock()
+    repository.register_new_epoch.return_value = SimpleNamespace(
+        binding=SimpleNamespace(monitor_epoch_id="fresh-runtime-epoch")
+    )
+    publisher = Mock(side_effect=AssertionError("publisher crossed timeout"))
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        del request
+        raise TrustedTimeHeadAnchorTransientFailure("bounded outage")
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=lambda: 10,
+        on_fatal=lambda: None,
+        require_startup_terminal=True,
+    )
+    with (
+        patch("apps.trusted_time_supervisor.main.verify_operational_schema"),
+        patch(
+            "apps.trusted_time_supervisor.main.SqlTrustedTimeRepository",
+            return_value=repository,
+        ),
+        patch(
+            "apps.trusted_time_supervisor.main.TRUSTED_TIME_HEAD_ANCHOR_STARTUP_TERMINAL_TIMEOUT_SECONDS",
+            0.01,
+        ),
+        patch("apps.trusted_time_supervisor.main.ChronyNtsTrustedTimeSource") as source,
+        patch("apps.trusted_time_supervisor.main.run_trusted_time_supervisor") as scheduler,
+        pytest.raises(TrustedTimeSupervisorError, match="failed closed"),
+    ):
+        run_service(
+            authority=authority,
+            database_url="postgresql+psycopg://user:secret@db.invalid/autoquant",
+            utc_clock=lambda: BASE,
+            monotonic_clock=lambda: 10,
+            stop_event=threading.Event(),
+            emit=lambda _: None,
+            engine_factory=lambda _: engine,
+            head_anchor_worker=worker,
+            require_head_anchor_startup_terminal=True,
+            head_anchor_startup_terminal_publisher=publisher,
+        )
+
+    publisher.assert_not_called()
+    source.assert_not_called()
+    scheduler.assert_not_called()
+    assert worker.fatal_error_latched is True
+
+
+def test_required_startup_terminal_publication_failure_aborts_before_probing() -> None:
+    authority = _authority()
+    engine = Mock()
+    repository = Mock()
+    repository.register_new_epoch.return_value = SimpleNamespace(
+        binding=SimpleNamespace(monitor_epoch_id="fresh-runtime-epoch")
+    )
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        return TrustedTimeHeadAnchorAttemptResult(
+            request_sequence=request.request_sequence,
+            checkpoint_reason=request.checkpoint_reason,
+            current_host_head_sha256="a" * 64,
+            current_anchor_sha256="b" * 64,
+            current_anchor_semantic_sha256="c" * 64,
+            completed_at_utc=BASE,
+            full_audit_completed=request.full_audit,
+            pending_intent_recovered=False,
+            candidate_remote_readback_sha256="d" * 64,
+            receipt_semantic_sha256="e" * 64,
+        )
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=lambda: 10,
+        on_fatal=lambda: None,
+        require_startup_terminal=True,
+    )
+    with (
+        patch("apps.trusted_time_supervisor.main.verify_operational_schema"),
+        patch(
+            "apps.trusted_time_supervisor.main.SqlTrustedTimeRepository",
+            return_value=repository,
+        ),
+        patch("apps.trusted_time_supervisor.main.ChronyNtsTrustedTimeSource") as source,
+        patch("apps.trusted_time_supervisor.main.run_trusted_time_supervisor") as scheduler,
+        pytest.raises(
+            TrustedTimeSupervisorConfigurationError,
+            match="synthetic ready-marker failure",
+        ),
+    ):
+        run_service(
+            authority=authority,
+            database_url="postgresql+psycopg://user:secret@db.invalid/autoquant",
+            utc_clock=lambda: BASE,
+            monotonic_clock=lambda: 10,
+            stop_event=threading.Event(),
+            emit=lambda _: None,
+            engine_factory=lambda _: engine,
+            head_anchor_worker=worker,
+            require_head_anchor_startup_terminal=True,
+            head_anchor_startup_terminal_publisher=lambda: (_ for _ in ()).throw(
+                TrustedTimeSupervisorConfigurationError("synthetic ready-marker failure")
+            ),
+        )
+
+    source.assert_not_called()
+    scheduler.assert_not_called()
+    assert worker.fatal_error_latched is True
+
+
 def test_service_cleans_partially_started_anchor_worker_when_start_raises() -> None:
     authority = _authority()
     engine = Mock()
@@ -556,17 +806,23 @@ def test_production_head_anchor_uses_separate_resources_and_closes_after_join() 
             "apps.trusted_time_supervisor.main.run_service",
             return_value=result,
         ) as local_service,
+        patch(
+            "apps.trusted_time_supervisor.main.write_post_enrollment_start_sequence_two_ready"
+        ) as ready_writer,
     ):
         actual = run_service_with_production_head_anchor(
             authority=authority,
             database_url="postgresql+psycopg://user:secret@db.invalid/autoquant",
             head_anchor_configuration=configuration,
+            sequence_two_deadline_monotonic_ns=130_000_000_000,
             utc_clock=lambda: BASE,
-            monotonic_clock=lambda: 10,
+            monotonic_clock=lambda: 10_000_000_000,
             stop_event=stop_event,
             emit=lambda _: None,
             anchor_engine_factory=lambda _: anchor_engine,
         )
+        publisher = local_service.call_args.kwargs["head_anchor_startup_terminal_publisher"]
+        publisher()
 
     assert actual == result
     verify_schema.assert_called_once_with(
@@ -581,27 +837,72 @@ def test_production_head_anchor_uses_separate_resources_and_closes_after_join() 
         signing_public_key_sha256="b" * 64,
     )
     provider_factory.assert_called_once_with(credentials=configuration.credentials)
-    attempt_factory.assert_called_once_with(
-        anchor_repository=anchor_repository,
-        provider=provider,
-        signer=configuration.signer,
-        verifier=configuration.verifier,
-        authority=anchor_authority,
-        utc_clock=local_service.call_args.kwargs["utc_clock"],
+    attempt_kwargs = attempt_factory.call_args.kwargs
+    assert attempt_kwargs["anchor_repository"] is anchor_repository
+    assert isinstance(
+        attempt_kwargs["provider"],
+        DeadlineBoundTrustedTimeHeadAnchorProvider,
     )
+    assert attempt_kwargs["provider"]._provider is provider
+    assert attempt_kwargs["signer"] is configuration.signer
+    assert attempt_kwargs["verifier"] is configuration.verifier
+    assert attempt_kwargs["authority"] is anchor_authority
+    assert attempt_kwargs["utc_clock"] is local_service.call_args.kwargs["utc_clock"]
+    startup_effect_guard = attempt_kwargs["startup_effect_guard"]
+    assert isinstance(
+        startup_effect_guard,
+        TrustedTimeHeadAnchorStartupEffectDeadlineGuard,
+    )
+    assert attempt_kwargs["provider"]._startup_effect_guard is startup_effect_guard
+    assert startup_effect_guard._state == "released"
     assert worker_factory.call_args.kwargs["allow_enrollment"] is False
     assert worker_factory.call_args.kwargs["startup_primer"] is attempt.prime_startup
+    assert worker_factory.call_args.kwargs["require_startup_terminal"] is True
+    assert (
+        worker_factory.call_args.kwargs["startup_terminal_deadline_monotonic_ns"] == 125_000_000_000
+    )
     fatal_callback = worker_factory.call_args.kwargs["on_fatal"]
     assert callable(fatal_callback)
     fatal_callback()
     assert stop_event.is_set() is True
     assert local_service.call_args.kwargs["head_anchor_worker"] is worker
+    assert local_service.call_args.kwargs["require_head_anchor_startup_terminal"] is True
+    ready_writer.assert_called_once_with(
+        publication_deadline_monotonic_ns=130_000_000_000,
+        monotonic_clock=local_service.call_args.kwargs["monotonic_clock"],
+    )
     assert cleanup.mock_calls == [
         call.worker_close(timeout_seconds=0, clean_stop=False),
         call.attempt_close(),
         call.provider_close(),
         call.engine_dispose(),
     ]
+
+
+@pytest.mark.parametrize(
+    ("deadline", "observed", "message"),
+    [
+        (True, 0, "runtime dependencies are invalid"),
+        (119_999_999_999, 0, "runtime dependencies are invalid"),
+        (200_000_000_000, 79_999_999_999, "deadline is invalid"),
+        (200_000_000_000, 200_000_000_000, "deadline is invalid"),
+    ],
+)
+def test_production_head_anchor_rejects_malformed_rebooted_or_expired_deadline(
+    deadline: object,
+    observed: int,
+    message: str,
+) -> None:
+    configuration = object.__new__(TrustedTimeHeadAnchorRuntimeConfiguration)
+
+    with pytest.raises(TrustedTimeSupervisorConfigurationError, match=message):
+        run_service_with_production_head_anchor(
+            authority=_authority(),
+            database_url="postgresql+psycopg://db/runtime",
+            head_anchor_configuration=configuration,
+            sequence_two_deadline_monotonic_ns=deadline,  # type: ignore[arg-type]
+            monotonic_clock=lambda: observed,
+        )
 
 
 def test_main_sanitizes_configuration_failure_without_echoing_detail(
@@ -634,21 +935,42 @@ def test_main_waits_after_input_consumption_and_before_runtime_composition(
     authority = _authority()
     configuration = object.__new__(TrustedTimeHeadAnchorRuntimeConfiguration)
     events: list[str] = []
+
+    def load_authority() -> TrustedTimeDeploymentAuthority:
+        events.append("authority")
+        return authority
+
+    def load_database_secret() -> str:
+        events.append("database_secret")
+        return "postgresql+psycopg://db/runtime"
+
+    def load_anchor_inputs(**_: object) -> TrustedTimeHeadAnchorRuntimeConfiguration:
+        events.append("anchor_inputs")
+        return configuration
+
+    def install_handlers(_: threading.Event) -> dict[object, object]:
+        events.append("handlers")
+        return {}
+
+    def run_runtime(**_: object) -> TrustedTimeSupervisorResult:
+        events.append("runtime")
+        return TrustedTimeSupervisorResult(probe_count=0, last_event=None)
+
     monkeypatch.setattr(
         "apps.trusted_time_supervisor.main._require_fixed_runtime_paths",
         lambda: events.append("fixed_paths"),
     )
     monkeypatch.setattr(
         "apps.trusted_time_supervisor.main.load_trusted_time_authority",
-        lambda: events.append("authority") or authority,
+        load_authority,
     )
     monkeypatch.setattr(
         "apps.trusted_time_supervisor.main.load_database_url_secret",
-        lambda: events.append("database_secret") or "postgresql+psycopg://db/runtime",
+        load_database_secret,
     )
     monkeypatch.setattr(
         "apps.trusted_time_supervisor.main.load_trusted_time_head_anchor_runtime_configuration",
-        lambda **_: events.append("anchor_inputs") or configuration,
+        load_anchor_inputs,
     )
     monkeypatch.setattr(
         "apps.trusted_time_supervisor.main._record_database_secret_consumed",
@@ -659,14 +981,16 @@ def test_main_waits_after_input_consumption_and_before_runtime_composition(
         lambda: events.append("release"),
     )
     monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.read_exact_post_enrollment_start_sequence_two_deadline",
+        lambda: events.append("deadline") or 130_000_000_000,
+    )
+    monkeypatch.setattr(
         "apps.trusted_time_supervisor.main._install_stop_handlers",
-        lambda _: events.append("handlers") or {},
+        install_handlers,
     )
     monkeypatch.setattr(
         "apps.trusted_time_supervisor.main.run_service_with_production_head_anchor",
-        lambda **_: (
-            events.append("runtime") or TrustedTimeSupervisorResult(probe_count=0, last_event=None)
-        ),
+        run_runtime,
     )
 
     main()
@@ -678,6 +1002,7 @@ def test_main_waits_after_input_consumption_and_before_runtime_composition(
         "anchor_inputs",
         "inputs_consumed",
         "release",
+        "deadline",
         "handlers",
         "runtime",
     ]
@@ -733,6 +1058,50 @@ def test_release_failure_prevents_every_runtime_mutation_and_is_sanitized(
     assert output.err == ""
 
 
+def test_deadline_failure_after_release_prevents_runtime_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    authority = _authority()
+    configuration = object.__new__(TrustedTimeHeadAnchorRuntimeConfiguration)
+    handlers = Mock(side_effect=AssertionError("handlers crossed deadline barrier"))
+    runtime = Mock(side_effect=AssertionError("runtime crossed deadline barrier"))
+    monkeypatch.setattr("apps.trusted_time_supervisor.main._require_fixed_runtime_paths", Mock())
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.load_trusted_time_authority",
+        Mock(return_value=authority),
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.load_database_url_secret",
+        Mock(return_value="postgresql+psycopg://db/runtime"),
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.load_trusted_time_head_anchor_runtime_configuration",
+        Mock(return_value=configuration),
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main._record_database_secret_consumed",
+        Mock(),
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.read_exact_post_enrollment_start_sequence_two_deadline",
+        Mock(side_effect=TrustedTimeSupervisorConfigurationError("private malformed deadline")),
+    )
+    monkeypatch.setattr("apps.trusted_time_supervisor.main._install_stop_handlers", handlers)
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.run_service_with_production_head_anchor",
+        runtime,
+    )
+
+    with pytest.raises(SystemExit) as captured:
+        main()
+
+    assert captured.value.code == 2
+    handlers.assert_not_called()
+    runtime.assert_not_called()
+    assert json.loads(capsys.readouterr().out)["reason"] == "configuration_rejected"
+
+
 @pytest.mark.parametrize(
     ("failure", "expected_reason"),
     [
@@ -767,6 +1136,10 @@ def test_main_emits_only_fixed_supervision_failure_reasons(
             return_value=configuration,
         ),
         patch("apps.trusted_time_supervisor.main._record_database_secret_consumed"),
+        patch(
+            "apps.trusted_time_supervisor.main.read_exact_post_enrollment_start_sequence_two_deadline",
+            return_value=130_000_000_000,
+        ),
         patch("apps.trusted_time_supervisor.main._install_stop_handlers", return_value={}),
         patch(
             "apps.trusted_time_supervisor.main.run_service_with_production_head_anchor",
@@ -808,6 +1181,10 @@ def test_main_requires_runtime_uid_for_all_file_backed_head_anchor_inputs(
             return_value=configuration,
         ) as load_head_anchor,
         patch("apps.trusted_time_supervisor.main._record_database_secret_consumed"),
+        patch(
+            "apps.trusted_time_supervisor.main.read_exact_post_enrollment_start_sequence_two_deadline",
+            return_value=130_000_000_000,
+        ),
         patch("apps.trusted_time_supervisor.main._install_stop_handlers", return_value={}),
         patch(
             "apps.trusted_time_supervisor.main.run_service_with_production_head_anchor",

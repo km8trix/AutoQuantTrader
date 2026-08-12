@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import dis
 import hashlib
+import io
 import json
+import multiprocessing
 import os
+import stat
+import sys
 import threading
 from dataclasses import replace
 from pathlib import Path
@@ -20,6 +25,25 @@ from scripts.trusted_time_post_enrollment_start import (
     retain_post_enrollment_start_claim,
 )
 from tests.unit import test_trusted_time_post_enrollment_claim_persistence as claim_fixtures
+
+
+def _load_recovery_outcome_in_spawned_process(
+    artifact_directory: str,
+    ignored_root: str,
+    connection: Any,
+) -> None:
+    connection.send(("attempting", None))
+    try:
+        retained = outcome.load_retained_post_enrollment_start_outcome(
+            artifact_directory=Path(artifact_directory),
+            ignored_root=Path(ignored_root),
+        )
+    except BaseException as error:
+        connection.send(("error", type(error).__name__))
+    else:
+        connection.send(("loaded", retained.outcome_sha256))
+    finally:
+        connection.close()
 
 
 def _retained_claim(
@@ -242,6 +266,20 @@ def test_writer_retains_content_addressed_owner_only_outcome_and_raises_terminal
     assert metadata.st_nlink == 1
     assert metadata.st_mode & 0o777 == 0o600
     assert artifact_directory.stat().st_mode & 0o777 == 0o700
+    assert not (
+        artifact_directory / outcome._POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME
+    ).exists()
+    slot_path = artifact_directory / outcome.POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME
+    slot_metadata = slot_path.stat()
+    assert slot_path.read_bytes() == outcome._outcome_slot_bytes(
+        retained_outcome.outcome_sha256,
+        outcome_contract_version=outcome.POST_ENROLLMENT_START_RETAINED_OUTCOME_CONTRACT_VERSION,
+        status="retained",
+    )
+    assert retained_outcome.slot_file_identity[0:2] == (
+        slot_metadata.st_dev,
+        slot_metadata.st_ino,
+    )
     assert retained_claim.artifact_path.exists()
     assert len(calls["begin"]) == 1
     assert len(calls["complete"]) == 1
@@ -536,7 +574,7 @@ def test_replay_never_overwrites_first_outcome_inode_and_abandons(
     assert len(calls["abandon"]) == 1
 
 
-def test_partial_write_failure_is_unconfirmed_and_never_unlinks_artifact(
+def test_partial_write_failure_preserves_private_staging_and_never_publishes_final(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -554,6 +592,8 @@ def test_partial_write_failure_is_unconfirmed_and_never_unlinks_artifact(
         nonlocal write_count
         write_count += 1
         if write_count == 1:
+            return int(real_write(descriptor, cast(Any, value)))
+        if write_count == 2:
             view = memoryview(cast(Any, value))
             return int(real_write(descriptor, view[:1]))
         raise OSError("injected")
@@ -579,8 +619,17 @@ def test_partial_write_failure_is_unconfirmed_and_never_unlinks_artifact(
         f"{hashlib.sha256(encoded).hexdigest()}"
         f"{outcome.POST_ENROLLMENT_START_OUTCOME_FILE_SUFFIX}"
     )
-    assert expected_path.exists()
-    assert expected_path.stat().st_size == 1
+    staging_path = (
+        artifact_directory / outcome._POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME
+    )
+    assert not expected_path.exists()
+    assert staging_path.is_file()
+    assert staging_path.stat().st_size == 1
+    with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable):
+        outcome.load_retained_post_enrollment_start_outcome(
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
     assert calls["complete"] == []
     assert len(calls["abandon"]) == 1
 
@@ -676,6 +725,31 @@ def test_loader_rejects_same_name_inode_replacement_during_final_inventory(
     assert inventory_calls == 2
 
 
+def test_loader_and_revalidator_reject_surviving_publication_staging(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ignored_root, artifact_directory, _, retained_outcome, _ = _retain_outcome(
+        monkeypatch,
+        tmp_path,
+    )
+    staging_path = (
+        artifact_directory / outcome._POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME
+    )
+    os.link(retained_outcome.artifact_path, staging_path)
+
+    assert not outcome.revalidate_retained_post_enrollment_start_outcome(
+        retained_outcome,
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
+    with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable):
+        outcome.load_retained_post_enrollment_start_outcome(
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+
+
 def test_loader_rejects_absent_outcome_and_noncanonical_directory(tmp_path: Path) -> None:
     ignored_root, artifact_directory, _ = _retained_claim(tmp_path)
 
@@ -709,6 +783,13 @@ def test_receipt_rejects_scalar_byte_path_and_identity_forgery(
                 *retained_outcome.file_identity[6:],
             )
         },
+        {
+            "slot_file_identity": (
+                *retained_outcome.slot_file_identity[:5],
+                2,
+                *retained_outcome.slot_file_identity[6:],
+            )
+        },
     ):
         with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeRejected):
             replace(retained_outcome, **changes)
@@ -720,6 +801,81 @@ def test_module_has_no_runtime_or_command_surface() -> None:
     assert not hasattr(outcome, "run_bounded_subprocess")
     assert "subprocess" not in outcome.__dict__
     assert "psycopg" not in outcome.__dict__
+
+
+def test_loader_rejects_legacy_final_bound_to_controller_contract_slot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ignored_root, artifact_directory, _, retained_outcome, _ = _retain_outcome(
+        monkeypatch,
+        tmp_path,
+    )
+    slot = artifact_directory / outcome.POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME
+    slot.unlink()
+    slot.write_bytes(
+        outcome._outcome_slot_bytes(
+            retained_outcome.outcome_sha256,
+            outcome_contract_version=(
+                "phase6d-post-enrollment-start-retained-controller-outcome-v1"
+            ),
+        )
+    )
+    slot.chmod(0o600)
+
+    assert not outcome.revalidate_retained_post_enrollment_start_outcome(
+        retained_outcome,
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
+    with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable):
+        outcome.load_retained_post_enrollment_start_outcome(
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+
+
+def test_legacy_slot_removal_and_same_bytes_replacement_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ignored_root, artifact_directory, _, retained_outcome, _ = _retain_outcome(
+        monkeypatch,
+        tmp_path,
+    )
+    slot = artifact_directory / outcome.POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME
+    encoded = slot.read_bytes()
+    original_identity = retained_outcome.slot_file_identity
+    slot.unlink()
+
+    assert not outcome.revalidate_retained_post_enrollment_start_outcome(
+        retained_outcome,
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
+    with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable):
+        outcome.load_retained_post_enrollment_start_outcome(
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+
+    slot.write_bytes(encoded)
+    slot.chmod(0o600)
+    assert not outcome.revalidate_retained_post_enrollment_start_outcome(
+        retained_outcome,
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
+    reconstructed = outcome.load_retained_post_enrollment_start_outcome(
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
+    assert reconstructed.slot_file_identity != original_identity
+    assert outcome.revalidate_retained_post_enrollment_start_outcome(
+        reconstructed,
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
 
 
 def test_legacy_outcome_name_consumes_slot_without_overwrite(
@@ -852,7 +1008,7 @@ def test_owner_only_directory_mode_is_required_before_outcome_io(
     assert calls["complete"] == []
 
 
-def test_file_fsync_failure_is_unconfirmed_and_preserves_created_inode(
+def test_file_fsync_failure_is_unconfirmed_and_preserves_private_staging(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -866,14 +1022,14 @@ def test_file_fsync_failure_is_unconfirmed_and_preserves_created_inode(
     real_fsync = os.fsync
     failed = False
 
-    def fail_first_fsync(descriptor: int) -> None:
+    def fail_outcome_file_fsync(descriptor: int) -> None:
         nonlocal failed
-        if not failed:
+        if not failed and os.fstat(descriptor).st_size > 256:
             failed = True
             raise OSError("injected")
         real_fsync(descriptor)
 
-    monkeypatch.setattr(os, "fsync", fail_first_fsync)
+    monkeypatch.setattr(os, "fsync", fail_outcome_file_fsync)
     with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed):
         outcome.retain_post_enrollment_start_recovery_required_outcome(
             topology_issuer=issuer,
@@ -883,13 +1039,22 @@ def test_file_fsync_failure_is_unconfirmed_and_preserves_created_inode(
         )
 
     paths = list(artifact_directory.glob(f"{outcome.POST_ENROLLMENT_START_OUTCOME_FILE_PREFIX}*"))
-    assert len(paths) == 1
-    assert paths[0].stat().st_nlink == 1
+    staging_path = (
+        artifact_directory / outcome._POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME
+    )
+    assert paths == []
+    assert staging_path.is_file()
+    assert staging_path.stat().st_nlink == 1
+    with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable):
+        outcome.load_retained_post_enrollment_start_outcome(
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
     assert len(calls["abandon"]) == 1
     assert calls["complete"] == []
 
 
-def test_directory_fsync_failure_is_unconfirmed_and_preserves_created_inode(
+def test_link_directory_fsync_failure_preserves_same_inode_staging_barrier(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -901,16 +1066,17 @@ def test_directory_fsync_failure_is_unconfirmed_and_preserves_created_inode(
     )
     issuer, calls = _fake_issuer(monkeypatch, checkpoint)
     real_fsync = os.fsync
-    fsync_calls = 0
+    directory_fsync_calls = 0
 
-    def fail_second_fsync(descriptor: int) -> None:
-        nonlocal fsync_calls
-        fsync_calls += 1
-        if fsync_calls == 2:
+    def fail_second_directory_fsync(descriptor: int) -> None:
+        nonlocal directory_fsync_calls
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            directory_fsync_calls += 1
+        if directory_fsync_calls == 2:
             raise OSError("injected directory fsync failure")
         real_fsync(descriptor)
 
-    monkeypatch.setattr(os, "fsync", fail_second_fsync)
+    monkeypatch.setattr(os, "fsync", fail_second_directory_fsync)
     with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed):
         outcome.retain_post_enrollment_start_recovery_required_outcome(
             topology_issuer=issuer,
@@ -920,11 +1086,230 @@ def test_directory_fsync_failure_is_unconfirmed_and_preserves_created_inode(
         )
 
     paths = list(artifact_directory.glob(f"{outcome.POST_ENROLLMENT_START_OUTCOME_FILE_PREFIX}*"))
-    assert fsync_calls == 2
+    staging_path = (
+        artifact_directory / outcome._POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME
+    )
+    assert directory_fsync_calls == 3
     assert len(paths) == 1
-    assert paths[0].stat().st_nlink == 1
+    assert staging_path.is_file()
+    assert paths[0].stat().st_ino == staging_path.stat().st_ino
+    assert paths[0].stat().st_nlink == 2
+    with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable):
+        outcome.load_retained_post_enrollment_start_outcome(
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
     assert len(calls["abandon"]) == 1
     assert calls["complete"] == []
+
+
+@pytest.mark.parametrize(
+    "failure_window",
+    ["staging_file_fsync", "linked_directory_fsync", "final_directory_fsync"],
+)
+def test_spawned_loader_never_observes_an_unconfirmed_publication_window(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    failure_window: str,
+) -> None:
+    ignored_root, artifact_directory, retained_claim = _retained_claim(tmp_path)
+    claim = retained_claim.claim
+    encoded = outcome.retained_post_enrollment_start_recovery_required_outcome_bytes(
+        operation_id=retained_claim.operation_id,
+        approval_sha256=claim.approval.approval_sha256,
+        claim_sha256=claim.claim_sha256,
+        retained_claim_artifact_sha256=retained_claim.artifact_sha256,
+    )
+    real_fsync = os.fsync
+    publication_paused = threading.Event()
+    release_publication = threading.Event()
+    directory_fsync_calls = 0
+    failure_injected = False
+
+    def pause_then_fail(descriptor: int) -> None:
+        nonlocal directory_fsync_calls, failure_injected
+        metadata = os.fstat(descriptor)
+        is_directory = stat.S_ISDIR(metadata.st_mode)
+        if is_directory:
+            directory_fsync_calls += 1
+        selected = (
+            (
+                failure_window == "staging_file_fsync"
+                and not is_directory
+                and metadata.st_size == len(encoded)
+            )
+            or (
+                failure_window == "linked_directory_fsync"
+                and is_directory
+                and directory_fsync_calls == 2
+            )
+            or (
+                failure_window == "final_directory_fsync"
+                and is_directory
+                and directory_fsync_calls == 3
+            )
+        )
+        if selected and not failure_injected:
+            failure_injected = True
+            publication_paused.set()
+            if not release_publication.wait(timeout=10.0):
+                raise RuntimeError("publication barrier timed out")
+            raise OSError("injected publication failure")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", pause_then_fail)
+    writer_errors: list[BaseException] = []
+
+    def write_outcome() -> None:
+        try:
+            outcome._persist_outcome(
+                retained_claim=retained_claim,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        except BaseException as error:
+            writer_errors.append(error)
+
+    writer = threading.Thread(target=write_outcome)
+    writer.start()
+    assert publication_paused.wait(timeout=10.0)
+
+    process_context = multiprocessing.get_context("spawn")
+    receive_connection, send_connection = process_context.Pipe(duplex=False)
+    loader = process_context.Process(
+        target=_load_recovery_outcome_in_spawned_process,
+        args=(str(artifact_directory), str(ignored_root), send_connection),
+    )
+    try:
+        loader.start()
+        send_connection.close()
+        assert receive_connection.poll(10.0)
+        assert receive_connection.recv() == ("attempting", None)
+        assert not receive_connection.poll(0.5)
+
+        release_publication.set()
+        writer.join(timeout=10.0)
+        assert not writer.is_alive()
+        assert receive_connection.poll(10.0)
+        assert receive_connection.recv() == (
+            "error",
+            "TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable",
+        )
+        loader.join(timeout=10.0)
+        assert not loader.is_alive()
+        assert loader.exitcode == 0
+    finally:
+        release_publication.set()
+        writer.join(timeout=10.0)
+        if loader.is_alive():
+            loader.terminate()
+            loader.join(timeout=10.0)
+        receive_connection.close()
+        send_connection.close()
+
+    assert failure_injected is True
+    assert len(writer_errors) == 1
+    assert isinstance(
+        writer_errors[0],
+        outcome.TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed,
+    )
+    staging_path = (
+        artifact_directory / outcome._POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME
+    )
+    assert staging_path.is_file()
+    assert (artifact_directory / outcome.POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME).is_file()
+
+
+def test_reserved_slot_rejects_ambiguous_final_when_every_obscuring_fallback_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ignored_root, artifact_directory, retained_claim = _retained_claim(tmp_path)
+    claim = retained_claim.claim
+    encoded = outcome.retained_post_enrollment_start_recovery_required_outcome_bytes(
+        operation_id=retained_claim.operation_id,
+        approval_sha256=claim.approval.approval_sha256,
+        claim_sha256=claim.claim_sha256,
+        retained_claim_artifact_sha256=retained_claim.artifact_sha256,
+    )
+    outcome_sha256 = hashlib.sha256(encoded).hexdigest()
+    final_path = artifact_directory / (
+        f"{outcome.POST_ENROLLMENT_START_OUTCOME_FILE_PREFIX}"
+        f"{outcome_sha256}"
+        f"{outcome.POST_ENROLLMENT_START_OUTCOME_FILE_SUFFIX}"
+    )
+    staging_name = outcome._POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME
+    slot_path = artifact_directory / outcome.POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME
+    real_open_owner_only_file = outcome._open_owner_only_file
+    real_unlink = os.unlink
+    real_write_locked_slot = outcome._write_locked_slot
+    slot_writes = 0
+    obscuring_started = False
+    obscuring_attempts: list[str] = []
+
+    def fail_retained_slot_rewrite(descriptor: int, value: bytes) -> tuple[int, ...]:
+        nonlocal obscuring_started, slot_writes
+        slot_writes += 1
+        if slot_writes == 2:
+            obscuring_started = True
+            raise OSError("injected retained-slot rewrite failure")
+        return real_write_locked_slot(descriptor, value)
+
+    def fail_obscuring_rename(*_: object, **__: object) -> None:
+        obscuring_attempts.append("rename")
+        raise OSError("injected rename failure")
+
+    def fail_obscuring_sentinel(
+        directory_descriptor: int,
+        file_name: str,
+        *,
+        exclusive: bool,
+    ) -> io.FileIO:
+        if obscuring_started and file_name == staging_name:
+            obscuring_attempts.append("sentinel")
+            raise OSError("injected sentinel failure")
+        return real_open_owner_only_file(
+            directory_descriptor,
+            file_name,
+            exclusive=exclusive,
+        )
+
+    def fail_obscuring_unlink(
+        path: str | bytes | os.PathLike[str],
+        *,
+        dir_fd: int | None = None,
+    ) -> None:
+        if obscuring_started:
+            obscuring_attempts.append("unlink")
+            raise OSError("injected unlink failure")
+        real_unlink(path, dir_fd=dir_fd)
+
+    monkeypatch.setattr(outcome, "_write_locked_slot", fail_retained_slot_rewrite)
+    monkeypatch.setattr(os, "rename", fail_obscuring_rename)
+    monkeypatch.setattr(outcome, "_open_owner_only_file", fail_obscuring_sentinel)
+    monkeypatch.setattr(os, "unlink", fail_obscuring_unlink)
+
+    with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed):
+        outcome._persist_outcome(
+            retained_claim=retained_claim,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+
+    assert slot_writes == 2
+    assert obscuring_attempts == ["rename", "sentinel", "unlink"]
+    assert final_path.read_bytes() == encoded
+    assert not (artifact_directory / staging_name).exists()
+    assert slot_path.read_bytes() == outcome._outcome_slot_bytes(
+        outcome_sha256,
+        outcome_contract_version=outcome.POST_ENROLLMENT_START_RETAINED_OUTCOME_CONTRACT_VERSION,
+        status="reserved",
+    )
+    with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable):
+        outcome.load_retained_post_enrollment_start_outcome(
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
 
 
 def test_concurrent_writers_create_at_most_one_content_addressed_inode(
@@ -1009,8 +1394,8 @@ def test_outcome_directory_walk_async_failure_closes_every_owned_descriptor(
     def interrupt_fstat(_: int) -> os.stat_result:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(outcome.os, "open", tracked_open)
-    monkeypatch.setattr(outcome.os, "fstat", interrupt_fstat)
+    monkeypatch.setattr(os, "open", tracked_open)
+    monkeypatch.setattr(os, "fstat", interrupt_fstat)
 
     with pytest.raises(KeyboardInterrupt):
         outcome._open_owner_only_artifact_directory(
@@ -1054,8 +1439,8 @@ def test_async_outcome_write_failure_closes_every_owned_descriptor(
     def interrupt_write(_: int, __: object) -> int:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(outcome.os, "open", tracked_open)
-    monkeypatch.setattr(outcome.os, "write", interrupt_write)
+    monkeypatch.setattr(os, "open", tracked_open)
+    monkeypatch.setattr(os, "write", interrupt_write)
 
     with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed):
         outcome.retain_post_enrollment_start_recovery_required_outcome(
@@ -1071,3 +1456,146 @@ def test_async_outcome_write_failure_closes_every_owned_descriptor(
             original_fstat(descriptor)
     assert len(calls["abandon"]) == 1
     assert calls["complete"] == []
+
+
+def test_async_publication_failure_closes_slot_staging_and_directory_descriptors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ignored_root, artifact_directory, retained_claim = _retained_claim(tmp_path)
+    checkpoint = _checkpoint(
+        retained_claim,
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
+    issuer, calls = _fake_issuer(monkeypatch, checkpoint)
+    original_open = os.open
+    original_fstat = os.fstat
+    opened: list[int] = []
+
+    def tracked_open(
+        path: str | bytes | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        descriptor = original_open(path, flags, mode, dir_fd=dir_fd)
+        opened.append(descriptor)
+        return descriptor
+
+    def interrupt_link(*_: object, **__: object) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(os, "open", tracked_open)
+    monkeypatch.setattr(os, "link", interrupt_link)
+
+    with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed):
+        outcome.retain_post_enrollment_start_recovery_required_outcome(
+            topology_issuer=issuer,
+            recovery_retention_capability=object(),
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+
+    assert opened
+    for descriptor in set(opened):
+        with pytest.raises(OSError):
+            original_fstat(descriptor)
+    assert (
+        artifact_directory / outcome._POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME
+    ).is_file()
+    assert len(calls["abandon"]) == 1
+    assert calls["complete"] == []
+
+
+def test_opcode_interruption_between_staging_call_and_store_closes_both_file_owners(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ignored_root, artifact_directory, retained_claim = _retained_claim(tmp_path)
+    original_fstat = os.fstat
+    real_open_owner_only_file = outcome._open_owner_only_file
+    opened: list[tuple[str, int]] = []
+
+    def tracked_open_owner_only_file(
+        directory_descriptor: int,
+        file_name: str,
+        *,
+        exclusive: bool,
+    ) -> io.FileIO:
+        file_owner = real_open_owner_only_file(
+            directory_descriptor,
+            file_name,
+            exclusive=exclusive,
+        )
+        opened.append((file_name, file_owner.fileno()))
+        return file_owner
+
+    instructions = list(dis.get_instructions(outcome._persist_outcome))
+    store_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_FAST"
+        and instruction.argval == "file_owner"
+        and index > 0
+        and instructions[index - 1].opname == "CALL"
+    )
+    store_offset = instructions[store_index].offset
+    target_code = outcome._persist_outcome.__code__
+
+    def interrupt_before_store(_: object, instruction_offset: int) -> None:
+        if instruction_offset == store_offset:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(outcome, "_open_owner_only_file", tracked_open_owner_only_file)
+    tool_id = next(
+        candidate
+        for candidate in range(sys.monitoring.OPTIMIZER_ID + 1)
+        if sys.monitoring.get_tool(candidate) is None
+    )
+    interrupted = False
+    sys.monitoring.use_tool_id(tool_id, "trusted-time-outcome-test")
+    try:
+        sys.monitoring.register_callback(
+            tool_id,
+            sys.monitoring.events.INSTRUCTION,
+            interrupt_before_store,
+        )
+        sys.monitoring.set_local_events(
+            tool_id,
+            target_code,
+            sys.monitoring.events.INSTRUCTION,
+        )
+        try:
+            outcome._persist_outcome(
+                retained_claim=retained_claim,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        except KeyboardInterrupt:
+            interrupted = True
+    finally:
+        sys.monitoring.set_local_events(tool_id, target_code, 0)
+        sys.monitoring.register_callback(
+            tool_id,
+            sys.monitoring.events.INSTRUCTION,
+            None,
+        )
+        sys.monitoring.free_tool_id(tool_id)
+
+    assert interrupted is True
+    assert [file_name for file_name, _ in opened] == [
+        outcome.POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
+        outcome._POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME,
+    ]
+    assert len({descriptor for _, descriptor in opened}) == 2
+    for _, descriptor in opened:
+        with pytest.raises(OSError):
+            original_fstat(descriptor)
+    assert (
+        artifact_directory / outcome._POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME
+    ).is_file()
+    assert not list(
+        artifact_directory.glob(f"{outcome.POST_ENROLLMENT_START_OUTCOME_FILE_PREFIX}*")
+    )

@@ -24,7 +24,9 @@ from apps.trusted_time_supervisor.config import (
     load_trusted_time_authority,
 )
 from apps.trusted_time_supervisor.head_anchor_attempt import (
+    DeadlineBoundTrustedTimeHeadAnchorProvider,
     RepositoryBackedTrustedTimeHeadAnchorAttempt,
+    TrustedTimeHeadAnchorStartupEffectDeadlineGuard,
 )
 from apps.trusted_time_supervisor.head_anchor_config import (
     TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_PATH,
@@ -34,10 +36,18 @@ from apps.trusted_time_supervisor.head_anchor_config import (
     load_trusted_time_head_anchor_runtime_configuration,
 )
 from apps.trusted_time_supervisor.head_anchor_worker import (
+    TRUSTED_TIME_HEAD_ANCHOR_STARTUP_TERMINAL_TIMEOUT_SECONDS,
     TrustedTimeHeadAnchorBackgroundWorker,
+    TrustedTimeHeadAnchorBackgroundWorkerError,
 )
 from apps.trusted_time_supervisor.post_enrollment_release import (
+    POST_ENROLLMENT_START_SEQUENCE_TWO_DEADLINE_WINDOW_NANOSECONDS,
+    read_exact_post_enrollment_start_sequence_two_deadline,
     wait_for_post_enrollment_start_release,
+)
+from apps.trusted_time_supervisor.post_enrollment_sequence_two_ready import (
+    POST_ENROLLMENT_START_SEQUENCE_TWO_READY_PUBLICATION_TIMEOUT_NANOSECONDS,
+    write_post_enrollment_start_sequence_two_ready,
 )
 from packages.adapters.trusted_time import (
     ChronyNtsAuthority,
@@ -306,6 +316,8 @@ def run_service(
     emit: Callable[[dict[str, object]], None] = _print_payload,
     engine_factory: Callable[[str], Engine] = _create_supervisor_database_engine,
     head_anchor_worker: TrustedTimeHeadAnchorBackgroundWorker | None = None,
+    require_head_anchor_startup_terminal: bool = False,
+    head_anchor_startup_terminal_publisher: Callable[[], None] | None = None,
 ) -> TrustedTimeSupervisorResult:
     """Create one fresh epoch and supervise exact durable probes until stopped.
 
@@ -331,6 +343,20 @@ def run_service(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time head-anchor worker dependency is invalid"
         )
+    if (
+        type(require_head_anchor_startup_terminal) is not bool
+        or (
+            require_head_anchor_startup_terminal
+            and (head_anchor_worker is None or not callable(head_anchor_startup_terminal_publisher))
+        )
+        or (
+            not require_head_anchor_startup_terminal
+            and head_anchor_startup_terminal_publisher is not None
+        )
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time head-anchor startup-terminal composition is invalid"
+        )
     engine = engine_factory(database_url)
     worker_started = False
     worker_closed = False
@@ -348,6 +374,16 @@ def run_service(
             worker_started = True
             head_anchor_worker.prime_startup()
             head_anchor_worker.start()
+            if require_head_anchor_startup_terminal:
+                try:
+                    head_anchor_worker.wait_for_startup_terminal(
+                        timeout_seconds=(TRUSTED_TIME_HEAD_ANCHOR_STARTUP_TERMINAL_TIMEOUT_SECONDS),
+                        publish_startup_terminal=(head_anchor_startup_terminal_publisher),
+                    )
+                except TrustedTimeHeadAnchorBackgroundWorkerError:
+                    _raise_if_head_anchor_failed(head_anchor_worker)
+                    raise
+                _raise_if_head_anchor_failed(head_anchor_worker)
         source = ChronyNtsTrustedTimeSource(
             authority=_chrony_authority(authority),
             utc_clock=utc_clock,
@@ -421,6 +457,7 @@ def run_service_with_production_head_anchor(
     authority: TrustedTimeDeploymentAuthority,
     database_url: str,
     head_anchor_configuration: TrustedTimeHeadAnchorRuntimeConfiguration,
+    sequence_two_deadline_monotonic_ns: int,
     utc_clock: Callable[[], datetime] = _utc_now,
     monotonic_clock: Callable[[], int] = _boottime_monotonic_ns,
     stop_event: threading.Event | None = None,
@@ -433,9 +470,30 @@ def run_service_with_production_head_anchor(
     if (
         type(event) is not threading.Event
         or type(head_anchor_configuration) is not TrustedTimeHeadAnchorRuntimeConfiguration
+        or type(sequence_two_deadline_monotonic_ns) is not int
+        or sequence_two_deadline_monotonic_ns
+        < POST_ENROLLMENT_START_SEQUENCE_TWO_DEADLINE_WINDOW_NANOSECONDS
     ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time head-anchor runtime dependencies are invalid"
+        )
+    try:
+        observed_at_composition = monotonic_clock()
+    except Exception:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time head-anchor sequence-two deadline clock failed"
+        ) from None
+    sequence_two_issued_at = (
+        sequence_two_deadline_monotonic_ns
+        - POST_ENROLLMENT_START_SEQUENCE_TWO_DEADLINE_WINDOW_NANOSECONDS
+    )
+    if (
+        type(observed_at_composition) is not int
+        or observed_at_composition < sequence_two_issued_at
+        or observed_at_composition >= sequence_two_deadline_monotonic_ns
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time head-anchor sequence-two deadline is invalid"
         )
     if (
         head_anchor_configuration.authority.host_id != authority.host_id
@@ -447,6 +505,7 @@ def run_service_with_production_head_anchor(
         )
     anchor_engine = anchor_engine_factory(database_url)
     provider: SupabaseStorageTrustedTimeAnchorProvider | None = None
+    startup_effect_guard: TrustedTimeHeadAnchorStartupEffectDeadlineGuard | None = None
     attempt: RepositoryBackedTrustedTimeHeadAnchorAttempt | None = None
     worker: TrustedTimeHeadAnchorBackgroundWorker | None = None
     try:
@@ -462,13 +521,22 @@ def run_service_with_production_head_anchor(
         provider = SupabaseStorageTrustedTimeAnchorProvider(
             credentials=head_anchor_configuration.credentials
         )
+        startup_effect_guard = TrustedTimeHeadAnchorStartupEffectDeadlineGuard(
+            deadline_monotonic_ns=sequence_two_deadline_monotonic_ns,
+            monotonic_clock=monotonic_clock,
+        )
+        deadline_bound_provider = DeadlineBoundTrustedTimeHeadAnchorProvider(
+            provider=provider,
+            startup_effect_guard=startup_effect_guard,
+        )
         attempt = RepositoryBackedTrustedTimeHeadAnchorAttempt(
             anchor_repository=anchor_repository,
-            provider=provider,
+            provider=deadline_bound_provider,
             signer=head_anchor_configuration.signer,
             verifier=head_anchor_configuration.verifier,
             authority=anchor_authority,
             utc_clock=utc_clock,
+            startup_effect_guard=startup_effect_guard,
         )
         worker = TrustedTimeHeadAnchorBackgroundWorker(
             attempt=attempt,
@@ -476,7 +544,25 @@ def run_service_with_production_head_anchor(
             on_fatal=event.set,
             allow_enrollment=False,
             startup_primer=attempt.prime_startup,
+            require_startup_terminal=True,
+            startup_terminal_deadline_monotonic_ns=(
+                sequence_two_deadline_monotonic_ns
+                - POST_ENROLLMENT_START_SEQUENCE_TWO_READY_PUBLICATION_TIMEOUT_NANOSECONDS
+            ),
+            startup_terminal_publication_deadline_monotonic_ns=(sequence_two_deadline_monotonic_ns),
         )
+
+        def publish_startup_terminal() -> None:
+            write_post_enrollment_start_sequence_two_ready(
+                publication_deadline_monotonic_ns=(sequence_two_deadline_monotonic_ns),
+                monotonic_clock=monotonic_clock,
+            )
+            if startup_effect_guard is None:
+                raise TrustedTimeSupervisorConfigurationError(
+                    "trusted-time startup effect guard is unavailable"
+                )
+            startup_effect_guard.release_after_startup_terminal()
+
         return run_service(
             authority=authority,
             database_url=database_url,
@@ -485,6 +571,8 @@ def run_service_with_production_head_anchor(
             stop_event=event,
             emit=emit,
             head_anchor_worker=worker,
+            require_head_anchor_startup_terminal=True,
+            head_anchor_startup_terminal_publisher=publish_startup_terminal,
         )
     finally:
         joined = worker is None or worker.close(
@@ -521,11 +609,15 @@ def main() -> None:
         )
         _record_database_secret_consumed()
         wait_for_post_enrollment_start_release()
+        sequence_two_deadline_monotonic_ns = (
+            read_exact_post_enrollment_start_sequence_two_deadline()
+        )
         previous_handlers = _install_stop_handlers(stop_event)
         result = run_service_with_production_head_anchor(
             authority=authority,
             database_url=database_url,
             head_anchor_configuration=head_anchor_configuration,
+            sequence_two_deadline_monotonic_ns=(sequence_two_deadline_monotonic_ns),
             stop_event=stop_event,
         )
         _print_payload(

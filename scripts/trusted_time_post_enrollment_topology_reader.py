@@ -9,6 +9,7 @@ no raw Docker response or staged path.
 
 from __future__ import annotations
 
+import ctypes
 import errno
 import fcntl
 import hashlib
@@ -20,6 +21,7 @@ import re
 import secrets
 import stat
 import subprocess
+import sys
 import threading
 import time
 import weakref
@@ -231,6 +233,86 @@ _POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_NANOSECONDS = (
 _MAXIMUM_MONOTONIC_NANOSECONDS = (1 << 63) - 1
 
 
+class _DarwinMachTimebaseInfo(ctypes.Structure):
+    _fields_ = (("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32))
+
+
+def _build_suspend_aware_monotonic_clock(
+    *,
+    platform_name: object,
+    clock_gettime_ns: object,
+    clock_boottime: object,
+    darwin_library_loader: object,
+) -> Callable[[], int]:
+    """Seal one native clock implementation and timebase for this process."""
+
+    maximum_observation = _MAXIMUM_MONOTONIC_NANOSECONDS
+
+    def unavailable() -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time topology suspend-aware clock is unavailable"
+        ) from None
+
+    def validate(observed: object) -> int:
+        if type(observed) is not int or observed < 0 or observed > maximum_observation:
+            unavailable()
+        return observed
+
+    if platform_name == "linux" and callable(clock_gettime_ns) and type(clock_boottime) is int:
+        captured_clock_gettime_ns = cast(Callable[[int], object], clock_gettime_ns)
+        captured_clock_boottime = clock_boottime
+
+        def linux_clock() -> int:
+            try:
+                observed = captured_clock_gettime_ns(captured_clock_boottime)
+            except BaseException:
+                unavailable()
+            return validate(observed)
+
+        return linux_clock
+
+    if platform_name == "darwin" and callable(darwin_library_loader):
+        try:
+            library = cast(
+                Any,
+                cast(Callable[[object], object], darwin_library_loader)(None),
+            )
+            continuous_time = cast(Any, library.mach_continuous_time)
+            continuous_time.argtypes = []
+            continuous_time.restype = ctypes.c_uint64
+            timebase_info = cast(Any, library.mach_timebase_info)
+            timebase_info.argtypes = [ctypes.POINTER(_DarwinMachTimebaseInfo)]
+            timebase_info.restype = ctypes.c_int
+            timebase = _DarwinMachTimebaseInfo()
+            if timebase_info(ctypes.byref(timebase)) != 0:
+                raise ValueError
+            numerator = int(timebase.numer)
+            denominator = int(timebase.denom)
+            if numerator <= 0 or denominator <= 0:
+                raise ValueError
+        except BaseException:
+            return unavailable
+        captured_continuous_time = cast(Callable[[], object], continuous_time)
+        captured_numerator = numerator
+        captured_denominator = denominator
+
+        def darwin_clock() -> int:
+            try:
+                ticks = captured_continuous_time()
+                if type(ticks) is not int:
+                    unavailable()
+                observed = ticks * captured_numerator // captured_denominator
+            except TrustedTimePostEnrollmentTopologyReaderError:
+                raise
+            except BaseException:
+                unavailable()
+            return validate(observed)
+
+        return darwin_clock
+
+    return unavailable
+
+
 def _authority_is_never_granted(_: object) -> bool:
     return False
 
@@ -264,6 +346,14 @@ def _observation_is_authenticated(value: object) -> bool:
 
 class TrustedTimePostEnrollmentTopologyReaderError(RuntimeError):
     """A bounded topology observation could not be issued safely."""
+
+
+_suspend_aware_monotonic_ns = _build_suspend_aware_monotonic_clock(
+    platform_name=sys.platform,
+    clock_gettime_ns=getattr(time, "clock_gettime_ns", None),
+    clock_boottime=getattr(time, "CLOCK_BOOTTIME", None),
+    darwin_library_loader=ctypes.CDLL,
+)
 
 
 def _consume_claimed_action_topology_observation_authorization(
@@ -370,6 +460,37 @@ class _TrustedTimePostEnrollmentRecoveryRetentionCapability:
         )
 
 
+class _TrustedTimePostEnrollmentPostEffectOutcomeCapability:
+    """Opaque one-shot authority for one terminal post-effect outcome."""
+
+    __slots__ = ()
+
+    def __new__(cls) -> _TrustedTimePostEnrollmentPostEffectOutcomeCapability:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time post-effect outcome capability is unavailable"
+        )
+
+    def __copy__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time post-effect outcome capability cannot be copied"
+        )
+
+    def __deepcopy__(self, _: object) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time post-effect outcome capability cannot be copied"
+        )
+
+    def __reduce__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time post-effect outcome capability cannot be serialized"
+        )
+
+    def __reduce_ex__(self, _: SupportsIndex) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time post-effect outcome capability cannot be serialized"
+        )
+
+
 class _TrustedTimePostEnrollmentRecoveryClaimBinder:
     """Opaque one-shot bridge from the claim writer to one retention token."""
 
@@ -439,6 +560,20 @@ class _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint:
     observed_monotonic_ns: int
 
 
+@dataclass(frozen=True, slots=True)
+class _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint:
+    """Exact process-local boundary for one terminal controller outcome."""
+
+    retained_claim: RetainedTrustedTimePostEnrollmentStartClaim
+    outcome_kind: Literal["success", "failure"]
+    artifact_directory: Path
+    ignored_root: Path
+    started_monotonic_ns: int
+    action_deadline_monotonic_ns: int
+    deadline_monotonic_ns: int
+    observed_monotonic_ns: int
+
+
 def _retained_claim_binding_sha256(
     retained: RetainedTrustedTimePostEnrollmentStartClaim,
 ) -> str:
@@ -475,6 +610,10 @@ def _build_observation_sealer() -> tuple[
     Callable[[object, object], bool],
     Callable[[object, object | None], None],
     Callable[[object, object], bool],
+    Callable[
+        [object, object],
+        tuple[object, tuple[tuple[str, str], ...], str, Callable[[], int]],
+    ],
     Callable[[object, object, object], _ChoreographyCheckpoint],
     Callable[[object, object], _ChoreographyCheckpoint],
     Callable[[object, object], None],
@@ -488,12 +627,29 @@ def _build_observation_sealer() -> tuple[
     Callable[..., bool],
     Callable[..., None],
     Callable[[object, object], None],
+    Callable[..., None],
+    Callable[..., _ChoreographyCheckpoint],
+    Callable[..., _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint],
+    Callable[..., None],
+    Callable[..., None],
+    Callable[..., bool],
+    Callable[[object, object], bool],
+    Callable[[object, object, object, object], bool],
 ]:
     process_private_key = secrets.token_bytes(32)
     process_pid = os.getpid()
     registry_lock = threading.Lock()
     issuance_gate = threading.local()
-    active_capabilities: dict[_AuthenticatedIssuerCapability, object] = {}
+
+    @dataclass(frozen=True, slots=True)
+    class IssuerRegistration:
+        owner: object
+        runner: object
+        environment_identity: tuple[tuple[str, str], ...]
+        environment_sha256: str
+        monotonic_clock: Callable[[], int]
+
+    active_capabilities: dict[_AuthenticatedIssuerCapability, IssuerRegistration] = {}
     cursor_registrations: dict[bytes, tuple[str, object | None]] = {}
     active_recovery_claim_binders: dict[
         _TrustedTimePostEnrollmentRecoveryClaimBinder,
@@ -525,6 +681,10 @@ def _build_observation_sealer() -> tuple[
             "consuming",
             "confirmed",
             "unconfirmed",
+            "post_effect_armed",
+            "post_effect_consuming",
+            "post_effect_confirmed",
+            "post_effect_unconfirmed",
             "expired",
             "revoked",
         ]
@@ -534,37 +694,125 @@ def _build_observation_sealer() -> tuple[
         ignored_root: Path | None
         retention_checkpoint: _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint | None
         recovery_claim_binder: _TrustedTimePostEnrollmentRecoveryClaimBinder | None
+        post_effect_outcome_capability: _TrustedTimePostEnrollmentPostEffectOutcomeCapability | None
+        controller_outcome_checkpoint: (
+            _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint | None
+        )
+        controller_outcome_receipt: object | None
 
     active_choreographies: dict[object, ChoreographyRegistration] = {}
 
-    def register(owner: object) -> _AuthenticatedIssuerCapability:
-        if os.getpid() != process_pid:
+    def register(
+        owner: object,
+        *,
+        runner: object,
+        environment_identity: object,
+        environment_sha256: object,
+        monotonic_clock: object,
+    ) -> _AuthenticatedIssuerCapability:
+        if (
+            os.getpid() != process_pid
+            or not callable(runner)
+            or type(environment_identity) is not tuple
+            or any(
+                type(item) is not tuple
+                or len(item) != 2
+                or type(item[0]) is not str
+                or type(item[1]) is not str
+                for item in environment_identity
+            )
+            or tuple(sorted(environment_identity)) != environment_identity
+            or len(dict(environment_identity)) != len(environment_identity)
+            or type(environment_sha256) is not str
+            or _SHA256_PATTERN.fullmatch(environment_sha256) is None
+            or _canonical_sha256(dict(environment_identity)) != environment_sha256
+            or not callable(monotonic_clock)
+        ):
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time observation capability is unavailable"
             )
         capability = object.__new__(_AuthenticatedIssuerCapability)
+        registration = IssuerRegistration(
+            owner=owner,
+            runner=runner,
+            environment_identity=environment_identity,
+            environment_sha256=environment_sha256,
+            monotonic_clock=cast(Callable[[], int], monotonic_clock),
+        )
         with registry_lock:
-            active_capabilities[capability] = owner
+            active_capabilities[capability] = registration
         return capability
 
     def revoke(owner: object, candidate: object) -> None:
         if os.getpid() != process_pid or type(candidate) is not _AuthenticatedIssuerCapability:
             return
         with registry_lock:
-            if active_capabilities.get(candidate) is owner:
+            registration = active_capabilities.get(candidate)
+            if registration is not None and registration.owner is owner:
                 active_capabilities.pop(candidate, None)
 
     def active(owner: object, candidate: object) -> bool:
-        if os.getpid() != process_pid:
+        if os.getpid() != process_pid or type(candidate) is not _AuthenticatedIssuerCapability:
             return False
         with registry_lock:
+            registration = active_capabilities.get(candidate)
             return (
-                type(candidate) is _AuthenticatedIssuerCapability
-                and active_capabilities.get(candidate) is owner
+                registration is not None
+                and registration.owner is owner
+                and getattr(owner, "_runner", None) is registration.runner
+                and getattr(owner, "_runner_identity_value", None) is registration.runner
+                and getattr(owner, "_environment_identity_value", None)
+                == registration.environment_identity
+                and getattr(owner, "_environment_sha256_value", None)
+                == registration.environment_sha256
+                and getattr(owner, "_monotonic_ns", None) is registration.monotonic_clock
                 and getattr(owner, "_owner_pid", None) == os.getpid()
                 and getattr(owner, "_authentication_capability", None) is candidate
                 and getattr(owner, "_closed", True) is False
                 and getattr(owner, "_poisoned", True) is False
+            )
+
+    def runtime_provenance(
+        owner: object,
+        candidate: object,
+    ) -> tuple[object, tuple[tuple[str, str], ...], str, Callable[[], int]]:
+        if os.getpid() != process_pid or type(candidate) is not _AuthenticatedIssuerCapability:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time observation runtime provenance is unavailable"
+            )
+        with registry_lock:
+            registration = active_capabilities.get(candidate)
+            environment = getattr(owner, "_environment", None)
+            if (
+                registration is None
+                or registration.owner is not owner
+                or getattr(owner, "_owner_pid", None) != os.getpid()
+                or getattr(owner, "_authentication_capability", None) is not candidate
+                or getattr(owner, "_closed", True) is not False
+                or getattr(owner, "_poisoned", True) is not False
+                or getattr(owner, "_runner", None) is not registration.runner
+                or getattr(owner, "_runner_identity_value", None) is not registration.runner
+                or type(environment) is not dict
+                or any(
+                    type(key) is not str or type(value) is not str
+                    for key, value in environment.items()
+                )
+                or tuple(sorted(environment.items())) != registration.environment_identity
+                or _canonical_sha256(environment) != registration.environment_sha256
+                or getattr(owner, "_environment_identity_value", None)
+                != registration.environment_identity
+                or getattr(owner, "_environment_sha256_value", None)
+                != registration.environment_sha256
+                or getattr(owner, "_monotonic_ns", None) is not registration.monotonic_clock
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time observation runtime provenance is unavailable"
+                )
+            return (
+                registration.runner,
+                registration.environment_identity,
+                registration.environment_sha256,
+                registration.monotonic_clock,
             )
 
     def choreography_registration_is_active(
@@ -581,7 +829,10 @@ def _build_observation_sealer() -> tuple[
             and registration.owner_pid == os.getpid()
             and registration.owner_thread is threading.current_thread()
             and type(registration.authentication_capability) is _AuthenticatedIssuerCapability
-            and active_capabilities.get(registration.authentication_capability) is owner
+            and (
+                active_capabilities.get(registration.authentication_capability) is not None
+                and active_capabilities[registration.authentication_capability].owner is owner
+            )
             and getattr(owner, "_owner_pid", None) == os.getpid()
             and getattr(owner, "_authentication_capability", None)
             is registration.authentication_capability
@@ -679,7 +930,8 @@ def _build_observation_sealer() -> tuple[
         with registry_lock:
             if (
                 owner in active_choreographies
-                or active_capabilities.get(typed_authentication_capability) is not owner
+                or active_capabilities.get(typed_authentication_capability) is None
+                or active_capabilities[typed_authentication_capability].owner is not owner
                 or getattr(owner, "_owner_pid", None) != os.getpid()
                 or getattr(owner, "_authentication_capability", None)
                 is not typed_authentication_capability
@@ -714,6 +966,9 @@ def _build_observation_sealer() -> tuple[
                 ignored_root=None,
                 retention_checkpoint=None,
                 recovery_claim_binder=None,
+                post_effect_outcome_capability=None,
+                controller_outcome_checkpoint=None,
+                controller_outcome_receipt=None,
             )
         return lease, recovery_retention_capability, scope_nonce
 
@@ -800,6 +1055,9 @@ def _build_observation_sealer() -> tuple[
             registration.artifact_directory = None
             registration.ignored_root = None
             registration.retention_checkpoint = None
+            registration.post_effect_outcome_capability = None
+            registration.controller_outcome_checkpoint = None
+            registration.controller_outcome_receipt = None
             revoke_recovery_claim_binder(registration)
             active_choreographies.pop(owner, None)
 
@@ -872,6 +1130,11 @@ def _build_observation_sealer() -> tuple[
                     registration.retention_state = "revoked"
                 elif registration.retention_state == "consuming":
                     registration.retention_state = "unconfirmed"
+                elif registration.retention_state in {
+                    "post_effect_armed",
+                    "post_effect_consuming",
+                }:
+                    registration.retention_state = "post_effect_unconfirmed"
 
     def checkpoint_registration(
         owner: object,
@@ -1349,7 +1612,8 @@ def _build_observation_sealer() -> tuple[
             ):
                 if exact_capability and recovery_scope_active and registration is not None:
                     registration.action_active = False
-                    registration.retention_state = "unconfirmed"
+                    if not registration.retention_state.startswith("post_effect_"):
+                        registration.retention_state = "unconfirmed"
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time recovery retention capability is unavailable"
                 )
@@ -1474,6 +1738,623 @@ def _build_observation_sealer() -> tuple[
                 registration.action_active = False
                 registration.retention_state = "unconfirmed"
 
+    def transition_post_effect_outcome_retention(
+        owner: object,
+        choreography_lease: object,
+        recovery_retention_capability: object,
+        retained_claim: object,
+        *,
+        post_effect_outcome_candidate: object,
+        artifact_directory: object,
+        ignored_root: object,
+        observed_monotonic_ns: object,
+    ) -> None:
+        """Atomically retire pre-release recovery before any effect may begin."""
+
+        if os.getpid() != process_pid:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time post-effect outcome transition is unavailable"
+            )
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            if (
+                registration is None
+                or not choreography_registration_is_active(
+                    owner,
+                    choreography_lease,
+                    registration,
+                )
+                or not recovery_registration_is_active(owner, registration)
+                or type(recovery_retention_capability)
+                is not _TrustedTimePostEnrollmentRecoveryRetentionCapability
+                or registration.recovery_retention_capability is not recovery_retention_capability
+                or registration.retention_state != "armed"
+                or type(retained_claim) is not RetainedTrustedTimePostEnrollmentStartClaim
+                or registration.retained_claim is not retained_claim
+                or type(registration.retained_claim_binding_sha256) is not str
+                or _retained_claim_binding_sha256(retained_claim)
+                != registration.retained_claim_binding_sha256
+                or type(post_effect_outcome_candidate)
+                is not _TrustedTimePostEnrollmentPostEffectOutcomeCapability
+                or type(artifact_directory) is not type(Path())
+                or type(ignored_root) is not type(Path())
+                or registration.artifact_directory != artifact_directory
+                or registration.ignored_root != ignored_root
+                or artifact_directory != ignored_root / "trusted-time"
+                or type(observed_monotonic_ns) is not int
+                or observed_monotonic_ns < 0
+                or observed_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS
+                or registration.post_effect_outcome_capability is not None
+                or registration.controller_outcome_checkpoint is not None
+                or registration.controller_outcome_receipt is not None
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time post-effect outcome transition is unavailable"
+                )
+            if observed_monotonic_ns < registration.last_monotonic_ns:
+                registration.action_active = False
+                registration.retention_state = "revoked"
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time post-effect outcome transition is unavailable"
+                )
+            if observed_monotonic_ns >= registration.deadline_monotonic_ns:
+                registration.action_active = False
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time post-effect outcome transition is unavailable"
+                )
+            registration.last_monotonic_ns = observed_monotonic_ns
+            (
+                registration.post_effect_outcome_capability,
+                registration.retention_state,
+            ) = (post_effect_outcome_candidate, "post_effect_armed")
+
+    def require_post_effect_outcome_retention(
+        owner: object,
+        post_effect_outcome_capability: object,
+        choreography_lease: object,
+        retained_claim: object,
+        *,
+        artifact_directory: object,
+        ignored_root: object,
+        observed_monotonic_ns: object,
+    ) -> _ChoreographyCheckpoint:
+        if os.getpid() != process_pid:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time active post-effect outcome retention is unavailable"
+            )
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            if (
+                registration is None
+                or not choreography_registration_is_active(
+                    owner,
+                    choreography_lease,
+                    registration,
+                )
+                or not recovery_registration_is_active(owner, registration)
+                or type(post_effect_outcome_capability)
+                is not _TrustedTimePostEnrollmentPostEffectOutcomeCapability
+                or registration.post_effect_outcome_capability is not post_effect_outcome_capability
+                or registration.retention_state != "post_effect_armed"
+                or type(retained_claim) is not RetainedTrustedTimePostEnrollmentStartClaim
+                or registration.retained_claim is not retained_claim
+                or type(registration.retained_claim_binding_sha256) is not str
+                or _retained_claim_binding_sha256(retained_claim)
+                != registration.retained_claim_binding_sha256
+                or type(artifact_directory) is not type(Path())
+                or type(ignored_root) is not type(Path())
+                or registration.artifact_directory != artifact_directory
+                or registration.ignored_root != ignored_root
+                or artifact_directory != ignored_root / "trusted-time"
+                or type(observed_monotonic_ns) is not int
+                or observed_monotonic_ns < 0
+                or observed_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time active post-effect outcome retention is unavailable"
+                )
+            if observed_monotonic_ns < registration.last_monotonic_ns:
+                registration.action_active = False
+                registration.retention_state = "post_effect_unconfirmed"
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time active post-effect outcome retention is unavailable"
+                )
+            return checkpoint_registration(
+                owner,
+                registration,
+                choreography_lease,
+                observed_monotonic_ns,
+            )
+
+    def begin_post_effect_controller_outcome_retention(
+        owner: object,
+        post_effect_outcome_capability: object,
+        choreography_lease: object,
+        retained_claim: object,
+        *,
+        outcome_kind: object,
+        artifact_directory: object,
+        ignored_root: object,
+        observed_monotonic_ns: object,
+    ) -> _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint:
+        if os.getpid() != process_pid:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time controller outcome retention is unavailable"
+            )
+        checkpoint: _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint | None = None
+        try:
+            with registry_lock:
+                registration = active_choreographies.get(owner)
+                recovery_scope_active = recovery_registration_is_active(owner, registration)
+                if (
+                    registration is None
+                    or not recovery_scope_active
+                    or type(post_effect_outcome_capability)
+                    is not _TrustedTimePostEnrollmentPostEffectOutcomeCapability
+                    or registration.post_effect_outcome_capability
+                    is not post_effect_outcome_capability
+                    or type(choreography_lease)
+                    is not _TrustedTimePostEnrollmentTopologyChoreographyLease
+                    or registration.lease is not choreography_lease
+                    or registration.retention_state != "post_effect_armed"
+                    or type(retained_claim) is not RetainedTrustedTimePostEnrollmentStartClaim
+                    or registration.retained_claim is not retained_claim
+                    or type(registration.retained_claim_binding_sha256) is not str
+                    or _retained_claim_binding_sha256(retained_claim)
+                    != registration.retained_claim_binding_sha256
+                    or type(outcome_kind) is not str
+                    or outcome_kind not in {"success", "failure"}
+                    or type(artifact_directory) is not type(Path())
+                    or type(ignored_root) is not type(Path())
+                    or registration.artifact_directory != artifact_directory
+                    or registration.ignored_root != ignored_root
+                    or artifact_directory != ignored_root / "trusted-time"
+                    or type(observed_monotonic_ns) is not int
+                    or observed_monotonic_ns < 0
+                    or observed_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS
+                    or registration.controller_outcome_checkpoint is not None
+                    or registration.controller_outcome_receipt is not None
+                    or (
+                        outcome_kind == "success"
+                        and not choreography_registration_is_active(
+                            owner,
+                            choreography_lease,
+                            registration,
+                        )
+                    )
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time controller outcome retention is unavailable"
+                    )
+                if observed_monotonic_ns < registration.last_monotonic_ns:
+                    registration.action_active = False
+                    registration.retention_state = "post_effect_unconfirmed"
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time controller outcome retention is unavailable"
+                    )
+                if outcome_kind == "success":
+                    deadline_monotonic_ns = registration.deadline_monotonic_ns
+                    if observed_monotonic_ns >= deadline_monotonic_ns:
+                        registration.action_active = False
+                        raise TrustedTimePostEnrollmentTopologyReaderError(
+                            "trusted-time controller outcome retention is unavailable"
+                        )
+                else:
+                    deadline_monotonic_ns = registration.retention_deadline_monotonic_ns
+                    if observed_monotonic_ns >= deadline_monotonic_ns:
+                        registration.action_active = False
+                        registration.retention_state = "expired"
+                        raise TrustedTimePostEnrollmentTopologyReaderError(
+                            "trusted-time controller outcome retention is unavailable"
+                        )
+                checkpoint = _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint(
+                    retained_claim=retained_claim,
+                    outcome_kind=cast(Literal["success", "failure"], outcome_kind),
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                    started_monotonic_ns=registration.started_monotonic_ns,
+                    action_deadline_monotonic_ns=registration.deadline_monotonic_ns,
+                    deadline_monotonic_ns=deadline_monotonic_ns,
+                    observed_monotonic_ns=observed_monotonic_ns,
+                )
+                registration.action_active = False
+                registration.last_monotonic_ns = observed_monotonic_ns
+                (
+                    registration.controller_outcome_checkpoint,
+                    registration.retention_state,
+                ) = (checkpoint, "post_effect_consuming")
+            return checkpoint
+        except BaseException:
+            if checkpoint is not None:
+                with suppress(BaseException), registry_lock:
+                    registration = active_choreographies.get(owner)
+                    if (
+                        registration is not None
+                        and registration.post_effect_outcome_capability
+                        is post_effect_outcome_capability
+                        and (
+                            registration.controller_outcome_checkpoint is checkpoint
+                            or registration.retention_state == "post_effect_consuming"
+                        )
+                    ):
+                        registration.action_active = False
+                        if registration.controller_outcome_checkpoint is None:
+                            registration.controller_outcome_checkpoint = checkpoint
+                        registration.retention_state = "post_effect_unconfirmed"
+            raise
+
+    def complete_post_effect_controller_outcome_retention(
+        owner: object,
+        post_effect_outcome_capability: object,
+        checkpoint: object,
+        retained_outcome_receipt: object,
+        *,
+        observed_monotonic_ns: object,
+    ) -> None:
+        if os.getpid() != process_pid:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time controller outcome retention completion is unavailable"
+            )
+        try:
+            with registry_lock:
+                registration = active_choreographies.get(owner)
+                if registration is None:
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time controller outcome retention completion is unavailable"
+                    )
+                if not recovery_registration_is_active(owner, registration):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time controller outcome retention completion is unavailable"
+                    )
+                if (
+                    type(post_effect_outcome_capability)
+                    is not _TrustedTimePostEnrollmentPostEffectOutcomeCapability
+                    or registration.post_effect_outcome_capability
+                    is not post_effect_outcome_capability
+                    or type(checkpoint)
+                    is not _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint
+                    or registration.controller_outcome_checkpoint is not checkpoint
+                    or registration.retention_state != "post_effect_consuming"
+                    or retained_outcome_receipt is None
+                    or registration.controller_outcome_receipt is not None
+                    or type(registration.retained_claim)
+                    is not RetainedTrustedTimePostEnrollmentStartClaim
+                    or type(registration.retained_claim_binding_sha256) is not str
+                    or _retained_claim_binding_sha256(registration.retained_claim)
+                    != registration.retained_claim_binding_sha256
+                    or type(observed_monotonic_ns) is not int
+                    or observed_monotonic_ns < 0
+                    or observed_monotonic_ns > _MAXIMUM_MONOTONIC_NANOSECONDS
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time controller outcome retention completion is unavailable"
+                    )
+                typed_checkpoint = checkpoint
+                expected_deadline_monotonic_ns = (
+                    registration.deadline_monotonic_ns
+                    if typed_checkpoint.outcome_kind == "success"
+                    else registration.retention_deadline_monotonic_ns
+                )
+                if not all(
+                    (
+                        typed_checkpoint.retained_claim is registration.retained_claim,
+                        typed_checkpoint.artifact_directory == registration.artifact_directory,
+                        typed_checkpoint.ignored_root == registration.ignored_root,
+                        typed_checkpoint.started_monotonic_ns == registration.started_monotonic_ns,
+                        typed_checkpoint.action_deadline_monotonic_ns
+                        == registration.deadline_monotonic_ns,
+                        typed_checkpoint.deadline_monotonic_ns == expected_deadline_monotonic_ns,
+                        type(typed_checkpoint.outcome_kind) is str,
+                        typed_checkpoint.outcome_kind in {"success", "failure"},
+                        type(typed_checkpoint.observed_monotonic_ns) is int,
+                        typed_checkpoint.observed_monotonic_ns
+                        >= typed_checkpoint.started_monotonic_ns,
+                        typed_checkpoint.observed_monotonic_ns
+                        < typed_checkpoint.deadline_monotonic_ns,
+                    )
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time controller outcome retention completion is unavailable"
+                    )
+                if (
+                    observed_monotonic_ns < typed_checkpoint.observed_monotonic_ns
+                    or observed_monotonic_ns < registration.last_monotonic_ns
+                    or observed_monotonic_ns >= typed_checkpoint.deadline_monotonic_ns
+                ):
+                    registration.retention_state = "post_effect_unconfirmed"
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time controller outcome retention completion is unavailable"
+                    )
+                registration.last_monotonic_ns = observed_monotonic_ns
+                (
+                    registration.controller_outcome_receipt,
+                    registration.retention_state,
+                ) = (retained_outcome_receipt, "post_effect_confirmed")
+                registration.action_active = False
+            return
+        except BaseException:
+            with suppress(BaseException), registry_lock:
+                registration = active_choreographies.get(owner)
+                if (
+                    registration is not None
+                    and registration.post_effect_outcome_capability
+                    is post_effect_outcome_capability
+                    and registration.controller_outcome_checkpoint is checkpoint
+                    and registration.controller_outcome_receipt is retained_outcome_receipt
+                    and registration.retention_state
+                    in {"post_effect_consuming", "post_effect_confirmed"}
+                ):
+                    registration.retention_state = "post_effect_unconfirmed"
+            raise
+
+    def abandon_post_effect_controller_outcome_retention(
+        owner: object,
+        post_effect_outcome_capability: object,
+        checkpoint: object,
+        retained_outcome_receipt: object | None,
+    ) -> None:
+        if os.getpid() != process_pid:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time controller outcome retention abandonment is unavailable"
+            )
+        abandoned = False
+        try:
+            with registry_lock:
+                registration = active_choreographies.get(owner)
+                if registration is None:
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time controller outcome retention abandonment is unavailable"
+                    )
+                if not recovery_registration_is_active(owner, registration):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time controller outcome retention abandonment is unavailable"
+                    )
+                registered_checkpoint = registration.controller_outcome_checkpoint
+                if checkpoint is None:
+                    typed_checkpoint = registered_checkpoint
+                elif (
+                    type(checkpoint)
+                    is _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint
+                    and registered_checkpoint is checkpoint
+                ):
+                    typed_checkpoint = checkpoint
+                else:
+                    typed_checkpoint = None
+                if (
+                    type(post_effect_outcome_capability)
+                    is not _TrustedTimePostEnrollmentPostEffectOutcomeCapability
+                    or registration.post_effect_outcome_capability
+                    is not post_effect_outcome_capability
+                    or type(typed_checkpoint)
+                    is not _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint
+                    or not (
+                        (
+                            registration.retention_state == "post_effect_consuming"
+                            and registration.controller_outcome_receipt is None
+                        )
+                        or (
+                            registration.retention_state == "post_effect_confirmed"
+                            and retained_outcome_receipt is not None
+                            and registration.controller_outcome_receipt is retained_outcome_receipt
+                        )
+                    )
+                    or type(registration.retained_claim)
+                    is not RetainedTrustedTimePostEnrollmentStartClaim
+                    or type(registration.retained_claim_binding_sha256) is not str
+                    or _retained_claim_binding_sha256(registration.retained_claim)
+                    != registration.retained_claim_binding_sha256
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time controller outcome retention abandonment is unavailable"
+                    )
+                expected_deadline_monotonic_ns = (
+                    registration.deadline_monotonic_ns
+                    if typed_checkpoint.outcome_kind == "success"
+                    else registration.retention_deadline_monotonic_ns
+                )
+                if not all(
+                    (
+                        typed_checkpoint.retained_claim is registration.retained_claim,
+                        typed_checkpoint.artifact_directory == registration.artifact_directory,
+                        typed_checkpoint.ignored_root == registration.ignored_root,
+                        typed_checkpoint.started_monotonic_ns == registration.started_monotonic_ns,
+                        typed_checkpoint.action_deadline_monotonic_ns
+                        == registration.deadline_monotonic_ns,
+                        type(typed_checkpoint.outcome_kind) is str,
+                        typed_checkpoint.outcome_kind in {"success", "failure"},
+                        typed_checkpoint.deadline_monotonic_ns == expected_deadline_monotonic_ns,
+                        type(typed_checkpoint.observed_monotonic_ns) is int,
+                        typed_checkpoint.observed_monotonic_ns
+                        >= typed_checkpoint.started_monotonic_ns,
+                        typed_checkpoint.observed_monotonic_ns
+                        < typed_checkpoint.deadline_monotonic_ns,
+                    )
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time controller outcome retention abandonment is unavailable"
+                    )
+                if registration.retention_state == "post_effect_confirmed":
+                    from scripts.trusted_time_post_enrollment_controller_outcome import (
+                        revalidate_retained_post_enrollment_start_controller_outcome,
+                    )
+
+                    if revalidate_retained_post_enrollment_start_controller_outcome(
+                        cast(Any, retained_outcome_receipt),
+                        artifact_directory=typed_checkpoint.artifact_directory,
+                        ignored_root=typed_checkpoint.ignored_root,
+                    ):
+                        return
+                registration.action_active = False
+                (
+                    registration.controller_outcome_receipt,
+                    registration.retention_state,
+                ) = (retained_outcome_receipt, "post_effect_unconfirmed")
+                abandoned = True
+        except BaseException:
+            if not abandoned:
+                with suppress(BaseException), registry_lock:
+                    registration = active_choreographies.get(owner)
+                    if (
+                        registration is not None
+                        and registration.post_effect_outcome_capability
+                        is post_effect_outcome_capability
+                        and type(registration.controller_outcome_checkpoint)
+                        is _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint
+                        and (
+                            checkpoint is None
+                            or registration.controller_outcome_checkpoint is checkpoint
+                        )
+                        and registration.retention_state
+                        in {"post_effect_consuming", "post_effect_confirmed"}
+                        and (
+                            registration.controller_outcome_receipt is None
+                            or registration.controller_outcome_receipt is retained_outcome_receipt
+                        )
+                    ):
+                        registration.action_active = False
+                        if registration.controller_outcome_receipt is None:
+                            registration.controller_outcome_receipt = retained_outcome_receipt
+                        registration.retention_state = "post_effect_unconfirmed"
+            raise
+
+    def confirmed_post_effect_controller_success(
+        owner: object,
+        choreography_lease: object,
+        scope_nonce: object,
+        retained_outcome_receipt: object,
+    ) -> bool:
+        """Recognize only the exact success receipt retained in this live scope."""
+
+        if os.getpid() != process_pid or retained_outcome_receipt is None:
+            return False
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            if registration is None:
+                return False
+            checkpoint = registration.controller_outcome_checkpoint
+            return (
+                recovery_registration_is_active(owner, registration)
+                and type(choreography_lease) is _TrustedTimePostEnrollmentTopologyChoreographyLease
+                and registration.lease is choreography_lease
+                and registration.scope_nonce is scope_nonce
+                and type(registration.post_effect_outcome_capability)
+                is _TrustedTimePostEnrollmentPostEffectOutcomeCapability
+                and registration.retention_state == "post_effect_confirmed"
+                and registration.controller_outcome_receipt is retained_outcome_receipt
+                and type(checkpoint)
+                is _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint
+                and checkpoint.outcome_kind == "success"
+                and checkpoint.retained_claim is registration.retained_claim
+                and type(registration.retained_claim) is RetainedTrustedTimePostEnrollmentStartClaim
+                and type(registration.retained_claim_binding_sha256) is str
+                and _retained_claim_binding_sha256(registration.retained_claim)
+                == registration.retained_claim_binding_sha256
+                and checkpoint.artifact_directory == registration.artifact_directory
+                and checkpoint.ignored_root == registration.ignored_root
+                and type(checkpoint.artifact_directory) is type(Path())
+                and type(checkpoint.ignored_root) is type(Path())
+                and checkpoint.artifact_directory == checkpoint.ignored_root / "trusted-time"
+                and checkpoint.started_monotonic_ns == registration.started_monotonic_ns
+                and checkpoint.action_deadline_monotonic_ns == registration.deadline_monotonic_ns
+                and checkpoint.deadline_monotonic_ns == registration.deadline_monotonic_ns
+                and type(checkpoint.observed_monotonic_ns) is int
+                and checkpoint.observed_monotonic_ns >= checkpoint.started_monotonic_ns
+                and checkpoint.observed_monotonic_ns < checkpoint.deadline_monotonic_ns
+                and registration.last_monotonic_ns >= checkpoint.observed_monotonic_ns
+                and registration.last_monotonic_ns < checkpoint.deadline_monotonic_ns
+                and registration.action_active is False
+            )
+
+    def post_effect_outcome_retention_was_transitioned(
+        owner: object,
+        post_effect_outcome_capability: object,
+    ) -> bool:
+        """Classify only whether one exact candidate crossed the transition."""
+
+        if (
+            os.getpid() != process_pid
+            or type(post_effect_outcome_capability)
+            is not _TrustedTimePostEnrollmentPostEffectOutcomeCapability
+        ):
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time post-effect outcome transition classification is unavailable"
+            )
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            if not recovery_registration_is_active(owner, registration) or registration is None:
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time post-effect outcome transition classification is unavailable"
+                )
+            registered_capability = registration.post_effect_outcome_capability
+            if (
+                registered_capability is not None
+                and registered_capability is not post_effect_outcome_capability
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time post-effect outcome transition classification is unavailable"
+                )
+            post_effect_state = registration.retention_state in {
+                "post_effect_armed",
+                "post_effect_consuming",
+                "post_effect_unconfirmed",
+                "post_effect_confirmed",
+            }
+            if post_effect_state:
+                if registered_capability is not post_effect_outcome_capability:
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time post-effect outcome transition classification is unavailable"
+                    )
+                return True
+            return False
+
+    def confirmed_post_effect_controller_failure(
+        owner: object,
+        choreography_lease: object,
+        scope_nonce: object,
+        retained_outcome_receipt: object,
+    ) -> bool:
+        """Recognize only the exact failure receipt retained in this live scope."""
+
+        if os.getpid() != process_pid or retained_outcome_receipt is None:
+            return False
+        with registry_lock:
+            registration = active_choreographies.get(owner)
+            if registration is None:
+                return False
+            checkpoint = registration.controller_outcome_checkpoint
+            return (
+                recovery_registration_is_active(owner, registration)
+                and type(choreography_lease) is _TrustedTimePostEnrollmentTopologyChoreographyLease
+                and registration.lease is choreography_lease
+                and registration.scope_nonce is scope_nonce
+                and type(registration.post_effect_outcome_capability)
+                is _TrustedTimePostEnrollmentPostEffectOutcomeCapability
+                and registration.retention_state == "post_effect_confirmed"
+                and registration.controller_outcome_receipt is retained_outcome_receipt
+                and type(checkpoint)
+                is _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint
+                and checkpoint.outcome_kind == "failure"
+                and checkpoint.retained_claim is registration.retained_claim
+                and type(registration.retained_claim) is RetainedTrustedTimePostEnrollmentStartClaim
+                and type(registration.retained_claim_binding_sha256) is str
+                and _retained_claim_binding_sha256(registration.retained_claim)
+                == registration.retained_claim_binding_sha256
+                and checkpoint.artifact_directory == registration.artifact_directory
+                and checkpoint.ignored_root == registration.ignored_root
+                and type(checkpoint.artifact_directory) is type(Path())
+                and type(checkpoint.ignored_root) is type(Path())
+                and checkpoint.artifact_directory == checkpoint.ignored_root / "trusted-time"
+                and checkpoint.started_monotonic_ns == registration.started_monotonic_ns
+                and checkpoint.action_deadline_monotonic_ns == registration.deadline_monotonic_ns
+                and checkpoint.deadline_monotonic_ns == registration.retention_deadline_monotonic_ns
+                and type(checkpoint.observed_monotonic_ns) is int
+                and checkpoint.observed_monotonic_ns >= checkpoint.started_monotonic_ns
+                and checkpoint.observed_monotonic_ns < checkpoint.deadline_monotonic_ns
+                and registration.last_monotonic_ns >= checkpoint.observed_monotonic_ns
+                and registration.last_monotonic_ns < checkpoint.deadline_monotonic_ns
+                and registration.action_active is False
+            )
+
     def seal(
         owner: object,
         capability: object,
@@ -1490,7 +2371,8 @@ def _build_observation_sealer() -> tuple[
                 getattr(issuance_gate, "owner", None) is not owner
                 or getattr(issuance_gate, "kind", None) != kind
                 or type(capability) is not _AuthenticatedIssuerCapability
-                or active_capabilities.get(capability) is not owner
+                or active_capabilities.get(capability) is None
+                or active_capabilities[capability].owner is not owner
                 or getattr(owner, "_owner_pid", None) != os.getpid()
                 or getattr(owner, "_authentication_capability", None) is not capability
                 or getattr(owner, "_busy", False) is not True
@@ -1620,6 +2502,7 @@ def _build_observation_sealer() -> tuple[
         active,
         revoke_choreography,
         choreography_active,
+        runtime_provenance,
         checkpoint_choreography,
         checkpoint_choreography_owner,
         revoke_choreography_scope,
@@ -1633,6 +2516,14 @@ def _build_observation_sealer() -> tuple[
         recovery_claim_binder_available,
         checkpoint_recovery_claim_binder,
         consume_recovery_claim_binder,
+        transition_post_effect_outcome_retention,
+        require_post_effect_outcome_retention,
+        begin_post_effect_controller_outcome_retention,
+        complete_post_effect_controller_outcome_retention,
+        abandon_post_effect_controller_outcome_retention,
+        confirmed_post_effect_controller_success,
+        post_effect_outcome_retention_was_transitioned,
+        confirmed_post_effect_controller_failure,
     )
 
 
@@ -1647,6 +2538,7 @@ def _build_observation_sealer() -> tuple[
     _authenticated_issuer_capability_is_active,
     _revoke_authenticated_choreography,
     _authenticated_choreography_is_active,
+    _authenticated_issuer_runtime_provenance,
     _checkpoint_authenticated_choreography,
     _checkpoint_authenticated_choreography_owner,
     _revoke_authenticated_choreography_scope,
@@ -1660,6 +2552,14 @@ def _build_observation_sealer() -> tuple[
     _authenticated_recovery_claim_binder_is_available,
     _checkpoint_authenticated_recovery_claim_binder,
     _consume_authenticated_recovery_claim_binder,
+    _transition_authenticated_post_effect_outcome_retention,
+    _require_authenticated_post_effect_outcome_retention,
+    _begin_authenticated_post_effect_controller_outcome_retention,
+    _complete_authenticated_post_effect_controller_outcome_retention,
+    _abandon_authenticated_post_effect_controller_outcome_retention,
+    _authenticated_post_effect_controller_success_is_confirmed,
+    _authenticated_post_effect_outcome_retention_was_transitioned,
+    _authenticated_post_effect_controller_failure_is_confirmed,
 ) = _build_observation_sealer()
 
 
@@ -3150,6 +4050,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
     _docker_executable_identity_value: tuple[int, ...]
     _docker_executable_path: Path
     _environment: dict[str, str]
+    _environment_identity_value: tuple[tuple[str, str], ...]
+    _environment_sha256_value: str
     _final_action_observation_sha256: str | None
     _first_staged_snapshot_sha256: str | None
     _ignored_root: Path
@@ -3163,6 +4065,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
     _owner_pid: int
     _poisoned: bool
     _runner: _BoundedRunner
+    _runner_identity_value: _BoundedRunner
     _session_sha256: str
     _socket_identity_value: tuple[int, int, int, int, int]
     _socket_path_value: Path
@@ -3181,6 +4084,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         "_docker_executable_identity_value",
         "_docker_executable_path",
         "_environment",
+        "_environment_identity_value",
+        "_environment_sha256_value",
         "_final_action_observation_sha256",
         "_first_staged_snapshot_sha256",
         "_ignored_root",
@@ -3194,6 +4099,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         "_owner_pid",
         "_poisoned",
         "_runner",
+        "_runner_identity_value",
         "_session_sha256",
         "_socket_identity_value",
         "_socket_path_value",
@@ -3212,7 +4118,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         *,
         expected_daemon_identity: LocalDockerDaemonIdentity,
         docker_environment: Mapping[str, str],
-        _capability_registrar: Callable[[object], _AuthenticatedIssuerCapability] | None = None,
+        _capability_registrar: Callable[..., _AuthenticatedIssuerCapability] | None = None,
     ) -> TrustedTimePostEnrollmentTopologyObservationIssuer:
         if cls is not TrustedTimePostEnrollmentTopologyObservationIssuer:
             raise TrustedTimePostEnrollmentTopologyReaderError(
@@ -3241,8 +4147,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         ignored_root: Path,
         runner: _BoundedRunner,
         session_token_factory: Callable[[], bytes],
-        monotonic_ns: Callable[[], int] = time.monotonic_ns,
-        _capability_registrar: Callable[[object], _AuthenticatedIssuerCapability] | None = None,
+        monotonic_ns: Callable[[], int] = _suspend_aware_monotonic_ns,
+        _capability_registrar: Callable[..., _AuthenticatedIssuerCapability] | None = None,
     ) -> TrustedTimePostEnrollmentTopologyObservationIssuer:
         if (
             cls is not TrustedTimePostEnrollmentTopologyObservationIssuer
@@ -3263,6 +4169,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             docker_environment,
             endpoint=expected_daemon_identity.endpoint,
         )
+        environment_identity = tuple(sorted(environment.items()))
+        environment_sha256 = _canonical_sha256(environment)
         authentication_capability: _AuthenticatedIssuerCapability | None = None
         lock_descriptor: int | None = None
         instance = object.__new__(cls)
@@ -3277,7 +4185,15 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             if type(token) is not bytes or len(token) != 32:
                 raise ValueError
             authentication_capability = (
-                _capability_registrar(instance) if _capability_registrar is not None else None
+                _capability_registrar(
+                    instance,
+                    runner=runner,
+                    environment_identity=environment_identity,
+                    environment_sha256=environment_sha256,
+                    monotonic_clock=monotonic_ns,
+                )
+                if _capability_registrar is not None
+                else None
             )
             instance._authentication_capability = authentication_capability
             instance._busy = False
@@ -3290,6 +4206,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             instance._docker_executable_identity_value = docker_executable_identity
             instance._docker_executable_path = docker_executable
             instance._environment = environment
+            instance._environment_identity_value = environment_identity
+            instance._environment_sha256_value = environment_sha256
             instance._final_action_observation_sha256 = None
             instance._first_staged_snapshot_sha256 = None
             instance._ignored_root = ignored_root
@@ -3309,6 +4227,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             instance._owner_pid = os.getpid()
             instance._poisoned = False
             instance._runner = runner
+            instance._runner_identity_value = runner
             instance._socket_identity_value = _socket_identity(socket_path)
             instance._socket_path_value = socket_path
             instance._staged_observation_count = 0
@@ -3477,14 +4396,72 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 "trusted-time topology observation process is unavailable"
             )
         self._validate_lock()
+        if type(self._authentication_capability) is _AuthenticatedIssuerCapability:
+            (
+                bound_runner,
+                bound_environment_identity,
+                bound_environment_sha256,
+                bound_monotonic_clock,
+            ) = _authenticated_issuer_runtime_provenance(
+                self,
+                self._authentication_capability,
+            )
+        else:
+            bound_runner = self._runner_identity_value
+            bound_environment_identity = self._environment_identity_value
+            bound_environment_sha256 = self._environment_sha256_value
+            bound_monotonic_clock = self._monotonic_ns
         if (
-            _socket_identity(self._socket_path_value) != self._socket_identity_value
+            self._runner is not bound_runner
+            or self._runner_identity_value is not bound_runner
+            or not callable(bound_runner)
+            or self._monotonic_ns is not bound_monotonic_clock
+            or not callable(bound_monotonic_clock)
+            or type(self._environment) is not dict
+            or any(
+                type(key) is not str or type(value) is not str
+                for key, value in self._environment.items()
+            )
+            or tuple(sorted(self._environment.items())) != bound_environment_identity
+            or self._environment_identity_value != bound_environment_identity
+            or _canonical_sha256(self._environment) != bound_environment_sha256
+            or self._environment_sha256_value != bound_environment_sha256
+            or _socket_identity(self._socket_path_value) != self._socket_identity_value
             or _docker_executable_identity(self._docker_executable_path)
             != self._docker_executable_identity_value
         ):
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology observation session is unavailable"
             )
+
+    def _bound_choreography_monotonic_clock(self) -> Callable[[], int]:
+        """Return only the exact clock identity sealed when this issuer opened."""
+
+        try:
+            self._require_usable()
+            self._validate_session()
+            capability = self._authentication_capability
+            if type(capability) is not _AuthenticatedIssuerCapability:
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time topology choreography clock is unavailable"
+                )
+            *_, bound_monotonic_clock = _authenticated_issuer_runtime_provenance(
+                self,
+                capability,
+            )
+            if self._monotonic_ns is not bound_monotonic_clock or not callable(
+                bound_monotonic_clock
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time topology choreography clock is unavailable"
+                )
+            return bound_monotonic_clock
+        except BaseException:
+            with self._lifecycle_lock:
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time topology choreography clock is unavailable"
+            ) from None
 
     def _require_usable(self) -> None:
         if type(self._owner_pid) is not int or self._owner_pid != os.getpid():
@@ -3783,6 +4760,421 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 "trusted-time recovery retention capability is unavailable"
             ) from None
 
+    def _issue_post_effect_outcome_retention_candidate(
+        self,
+    ) -> _TrustedTimePostEnrollmentPostEffectOutcomeCapability:
+        """Issue one inert caller-owned identity before the atomic phase change."""
+
+        try:
+            self._require_usable()
+            self._validate_session()
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._poisoned
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is None
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time post-effect outcome candidate is unavailable"
+                    )
+                return object.__new__(_TrustedTimePostEnrollmentPostEffectOutcomeCapability)
+        except BaseException:
+            with self._lifecycle_lock:
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time post-effect outcome candidate is unavailable"
+            ) from None
+
+    def _transition_to_post_effect_outcome_retention(
+        self,
+        choreography_lease: object,
+        recovery_retention_capability: object,
+        retained_claim: RetainedTrustedTimePostEnrollmentStartClaim,
+        *,
+        post_effect_outcome_candidate: object,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> None:
+        """Retire pre-release recovery before the controller may attempt release."""
+
+        try:
+            if (
+                type(retained_claim) is not RetainedTrustedTimePostEnrollmentStartClaim
+                or type(artifact_directory) is not type(Path())
+                or type(ignored_root) is not type(Path())
+                or retained_claim.artifact_path.parent != artifact_directory
+                or artifact_directory != ignored_root / "trusted-time"
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time post-effect outcome transition is unavailable"
+                )
+            self._require_armed_recovery_outcome_retention(
+                choreography_lease,
+                recovery_retention_capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+            if not revalidate_retained_post_enrollment_start_claim(
+                retained_claim,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time post-effect outcome transition is unavailable"
+                )
+            self._validate_lock()
+            observed = self._sample_choreography_monotonic_ns()
+            if not revalidate_retained_post_enrollment_start_claim(
+                retained_claim,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time post-effect outcome transition is unavailable"
+                )
+            self._validate_lock()
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._poisoned
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is None
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time post-effect outcome transition is unavailable"
+                    )
+                _transition_authenticated_post_effect_outcome_retention(
+                    self,
+                    choreography_lease,
+                    recovery_retention_capability,
+                    retained_claim,
+                    post_effect_outcome_candidate=post_effect_outcome_candidate,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                    observed_monotonic_ns=observed,
+                )
+        except BaseException:
+            with self._lifecycle_lock:
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time post-effect outcome transition is unavailable"
+            ) from None
+
+    def _post_effect_outcome_retention_was_transitioned(
+        self,
+        post_effect_outcome_capability: object,
+    ) -> bool:
+        """Read only whether this exact candidate crossed the phase boundary."""
+
+        try:
+            if (
+                type(post_effect_outcome_capability)
+                is not _TrustedTimePostEnrollmentPostEffectOutcomeCapability
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time post-effect outcome transition classification is unavailable"
+                )
+            self._validate_lock()
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is None
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time post-effect outcome transition classification is unavailable"
+                    )
+                return _authenticated_post_effect_outcome_retention_was_transitioned(
+                    self,
+                    post_effect_outcome_capability,
+                )
+        except BaseException:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time post-effect outcome transition classification is unavailable"
+            ) from None
+
+    def _require_active_post_effect_outcome_retention(
+        self,
+        post_effect_outcome_capability: object,
+        choreography_lease: object,
+        retained_claim: RetainedTrustedTimePostEnrollmentStartClaim,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> _ChoreographyCheckpoint:
+        """Require the exact post-effect capability while action remains live."""
+
+        try:
+            if (
+                type(post_effect_outcome_capability)
+                is not _TrustedTimePostEnrollmentPostEffectOutcomeCapability
+                or type(retained_claim) is not RetainedTrustedTimePostEnrollmentStartClaim
+                or type(artifact_directory) is not type(Path())
+                or type(ignored_root) is not type(Path())
+                or retained_claim.artifact_path.parent != artifact_directory
+                or artifact_directory != ignored_root / "trusted-time"
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time active post-effect outcome retention is unavailable"
+                )
+            self._require_active_choreography_lease(choreography_lease)
+            if not revalidate_retained_post_enrollment_start_claim(
+                retained_claim,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time active post-effect outcome retention is unavailable"
+                )
+            self._validate_lock()
+            observed = self._sample_choreography_monotonic_ns()
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._poisoned
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is None
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time active post-effect outcome retention is unavailable"
+                    )
+                checkpoint = _require_authenticated_post_effect_outcome_retention(
+                    self,
+                    post_effect_outcome_capability,
+                    choreography_lease,
+                    retained_claim,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                    observed_monotonic_ns=observed,
+                )
+            if not revalidate_retained_post_enrollment_start_claim(
+                retained_claim,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time active post-effect outcome retention is unavailable"
+                )
+            self._validate_lock()
+            final_checkpoint = self._require_active_choreography_lease(choreography_lease)
+            if (
+                final_checkpoint.lease_sha256 != checkpoint.lease_sha256
+                or final_checkpoint.started_monotonic_ns != checkpoint.started_monotonic_ns
+                or final_checkpoint.deadline_monotonic_ns != checkpoint.deadline_monotonic_ns
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time active post-effect outcome retention is unavailable"
+                )
+            return final_checkpoint
+        except BaseException:
+            with self._lifecycle_lock:
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time active post-effect outcome retention is unavailable"
+            ) from None
+
+    def _begin_post_effect_controller_outcome_retention(
+        self,
+        post_effect_outcome_capability: object,
+        choreography_lease: object,
+        retained_claim: RetainedTrustedTimePostEnrollmentStartClaim,
+        *,
+        outcome_kind: Literal["success", "failure"],
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint:
+        """Begin exactly one terminal success or failure outcome retention."""
+
+        checkpoint: _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint | None = None
+        try:
+            untrusted_post_effect_capability: object = post_effect_outcome_capability
+            untrusted_retained_claim: object = retained_claim
+            untrusted_outcome_kind: object = outcome_kind
+            if (
+                type(untrusted_post_effect_capability)
+                is not _TrustedTimePostEnrollmentPostEffectOutcomeCapability
+                or type(untrusted_retained_claim) is not RetainedTrustedTimePostEnrollmentStartClaim
+                or type(untrusted_outcome_kind) is not str
+                or untrusted_outcome_kind not in {"success", "failure"}
+                or type(artifact_directory) is not type(Path())
+                or type(ignored_root) is not type(Path())
+                or retained_claim.artifact_path.parent != artifact_directory
+                or artifact_directory != ignored_root / "trusted-time"
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time controller outcome retention is unavailable"
+                )
+            if not revalidate_retained_post_enrollment_start_claim(
+                retained_claim,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time controller outcome retention is unavailable"
+                )
+            self._validate_lock()
+            observed = self._sample_choreography_monotonic_ns()
+            if not revalidate_retained_post_enrollment_start_claim(
+                retained_claim,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time controller outcome retention is unavailable"
+                )
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is None
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time controller outcome retention is unavailable"
+                    )
+                checkpoint = _begin_authenticated_post_effect_controller_outcome_retention(
+                    self,
+                    post_effect_outcome_capability,
+                    choreography_lease,
+                    retained_claim,
+                    outcome_kind=outcome_kind,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                    observed_monotonic_ns=observed,
+                )
+                self._poison_locked()
+                return checkpoint
+        except BaseException:
+            with self._lifecycle_lock:
+                if checkpoint is not None:
+                    with suppress(BaseException):
+                        _abandon_authenticated_post_effect_controller_outcome_retention(
+                            self,
+                            post_effect_outcome_capability,
+                            checkpoint,
+                            None,
+                        )
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time controller outcome retention is unavailable"
+            ) from None
+
+    def _complete_post_effect_controller_outcome_retention(
+        self,
+        post_effect_outcome_capability: object,
+        checkpoint: _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint,
+        retained_outcome_receipt: object,
+    ) -> None:
+        """Confirm exactly one receipt before its success or failure cutoff."""
+
+        try:
+            if (
+                type(checkpoint)
+                is not _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint
+                or retained_outcome_receipt is None
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time controller outcome retention completion is unavailable"
+                )
+            retained_claim = checkpoint.retained_claim
+            if not revalidate_retained_post_enrollment_start_claim(
+                retained_claim,
+                artifact_directory=checkpoint.artifact_directory,
+                ignored_root=checkpoint.ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time controller outcome retention completion is unavailable"
+                )
+            self._validate_lock()
+            observed = self._sample_choreography_monotonic_ns()
+            if not revalidate_retained_post_enrollment_start_claim(
+                retained_claim,
+                artifact_directory=checkpoint.artifact_directory,
+                ignored_root=checkpoint.ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time controller outcome retention completion is unavailable"
+                )
+            self._validate_lock()
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is None
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time controller outcome retention completion is unavailable"
+                    )
+                _complete_authenticated_post_effect_controller_outcome_retention(
+                    self,
+                    post_effect_outcome_capability,
+                    checkpoint,
+                    retained_outcome_receipt,
+                    observed_monotonic_ns=observed,
+                )
+        except BaseException:
+            with self._lifecycle_lock:
+                with suppress(BaseException):
+                    _abandon_authenticated_post_effect_controller_outcome_retention(
+                        self,
+                        post_effect_outcome_capability,
+                        checkpoint,
+                        retained_outcome_receipt,
+                    )
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time controller outcome retention completion is unavailable"
+            ) from None
+
+    def _abandon_post_effect_controller_outcome_retention(
+        self,
+        post_effect_outcome_capability: object,
+        checkpoint: _TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint | None,
+        retained_outcome_receipt: object | None = None,
+    ) -> None:
+        """Irreversibly close one ambiguous terminal controller write."""
+
+        try:
+            with self._lifecycle_lock:
+                _abandon_authenticated_post_effect_controller_outcome_retention(
+                    self,
+                    post_effect_outcome_capability,
+                    checkpoint,
+                    retained_outcome_receipt,
+                )
+                self._poison_locked()
+        except BaseException:
+            with self._lifecycle_lock:
+                with suppress(BaseException):
+                    _abandon_authenticated_post_effect_controller_outcome_retention(
+                        self,
+                        post_effect_outcome_capability,
+                        checkpoint,
+                        retained_outcome_receipt,
+                    )
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time controller outcome retention abandonment is unavailable"
+            ) from None
+
     def _complete_recovery_outcome_retention(
         self,
         recovery_retention_capability: object,
@@ -3909,6 +5301,83 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             )
         return min(_COMMAND_TIMEOUT_SECONDS, remaining_seconds)
 
+    def _run_bound_control(
+        self,
+        argv: tuple[str, ...],
+        *,
+        timeout_seconds: float,
+        maximum_stdout_bytes: int,
+        maximum_stderr_bytes: int,
+    ) -> subprocess.CompletedProcess[bytes]:
+        """Run one command only through the runner identity pinned at open."""
+
+        try:
+            if (
+                type(argv) is not tuple
+                or not argv
+                or any(type(argument) is not str or not argument for argument in argv)
+                or type(timeout_seconds) is not float
+                or timeout_seconds <= 0
+                or type(maximum_stdout_bytes) is not int
+                or maximum_stdout_bytes < 0
+                or type(maximum_stderr_bytes) is not int
+                or maximum_stderr_bytes < 0
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time bound control execution is unavailable"
+                )
+            self._validate_session()
+            if type(self._authentication_capability) is _AuthenticatedIssuerCapability:
+                bound_runner_value, bound_environment_identity, _, bound_monotonic_clock = (
+                    _authenticated_issuer_runtime_provenance(
+                        self,
+                        self._authentication_capability,
+                    )
+                )
+            else:
+                bound_runner_value = self._runner_identity_value
+                bound_environment_identity = self._environment_identity_value
+                bound_monotonic_clock = self._monotonic_ns
+            bound_runner = cast(_BoundedRunner, bound_runner_value)
+            with self._lifecycle_lock:
+                if (
+                    self._closed
+                    or self._poisoned
+                    or self._runner is not bound_runner
+                    or self._runner_identity_value is not bound_runner
+                    or self._monotonic_ns is not bound_monotonic_clock
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time bound control execution is unavailable"
+                    )
+                bound_environment = dict(bound_environment_identity)
+            completed = bound_runner(
+                argv,
+                cwd=ROOT,
+                environment=bound_environment,
+                timeout_seconds=timeout_seconds,
+                maximum_stdout_bytes=maximum_stdout_bytes,
+                maximum_stderr_bytes=maximum_stderr_bytes,
+                stdin_bytes=None,
+                maximum_stdin_bytes=0,
+            )
+            self._validate_session()
+            with self._lifecycle_lock:
+                if self._closed or self._poisoned:
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time bound control execution is unavailable"
+                    )
+                choreography_inflight = self._choreography_inflight
+            if choreography_inflight:
+                self._checkpoint_active_choreography_owner()
+            return completed
+        except BaseException:
+            with self._lifecycle_lock:
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time bound control execution is unavailable"
+            ) from None
+
     def _run_bytes(
         self,
         receipts: list[_ReadReceipt],
@@ -3917,32 +5386,18 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         argv: tuple[str, ...],
         maximum_stdout_bytes: int,
     ) -> bytes:
-        self._validate_session()
         timeout_seconds = self._choreography_command_timeout_seconds()
         try:
-            completed = self._runner(
+            completed = self._run_bound_control(
                 argv,
-                cwd=ROOT,
-                environment=self._environment,
                 timeout_seconds=timeout_seconds,
                 maximum_stdout_bytes=maximum_stdout_bytes,
                 maximum_stderr_bytes=_MAXIMUM_STDERR_BYTES,
-                stdin_bytes=None,
-                maximum_stdin_bytes=0,
             )
         except BaseException:
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time Docker observation is unavailable"
             ) from None
-        with self._lifecycle_lock:
-            if self._poisoned:
-                raise TrustedTimePostEnrollmentTopologyReaderError(
-                    "trusted-time topology observation issuer is unavailable"
-                )
-            choreography_inflight = self._choreography_inflight
-        self._validate_session()
-        if choreography_inflight:
-            self._checkpoint_active_choreography_owner()
         if (
             type(completed) is not subprocess.CompletedProcess
             or completed.args != argv
@@ -4493,6 +5948,206 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             }
         )
 
+    def _return_confirmed_post_effect_controller_success(
+        self,
+        *,
+        choreography_lease: object,
+        scope_nonce: object,
+        retained_outcome_receipt: object,
+    ) -> object:
+        """Revalidate the exact durable success before its scope is destroyed."""
+
+        from scripts.trusted_time_post_enrollment_controller_outcome import (
+            RetainedTrustedTimePostEnrollmentStartControllerOutcome,
+            TrustedTimePostEnrollmentStartControllerOutcomeReason,
+            TrustedTimePostEnrollmentStartControllerOutcomeStatus,
+            revalidate_retained_post_enrollment_start_controller_outcome,
+        )
+
+        artifact_directory = self._ignored_root / "trusted-time"
+        try:
+            if (
+                type(retained_outcome_receipt)
+                is not RetainedTrustedTimePostEnrollmentStartControllerOutcome
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time confirmed controller outcome is unavailable"
+                )
+            typed_receipt = retained_outcome_receipt
+            if (
+                typed_receipt.status
+                is not TrustedTimePostEnrollmentStartControllerOutcomeStatus.CONFIRMED
+                or typed_receipt.reason
+                is not (
+                    TrustedTimePostEnrollmentStartControllerOutcomeReason.POST_ENROLLMENT_START_CONFIRMED
+                )
+                or typed_receipt.artifact_path.parent != artifact_directory
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time confirmed controller outcome is unavailable"
+                )
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is not scope_nonce
+                    or not _authenticated_post_effect_controller_success_is_confirmed(
+                        self,
+                        choreography_lease,
+                        scope_nonce,
+                        typed_receipt,
+                    )
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time confirmed controller outcome is unavailable"
+                    )
+            self._validate_lock()
+            if not revalidate_retained_post_enrollment_start_controller_outcome(
+                typed_receipt,
+                artifact_directory=artifact_directory,
+                ignored_root=self._ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time confirmed controller outcome is unavailable"
+                )
+            self._validate_lock()
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is not scope_nonce
+                    or type(typed_receipt)
+                    is not RetainedTrustedTimePostEnrollmentStartControllerOutcome
+                    or typed_receipt.status
+                    is not TrustedTimePostEnrollmentStartControllerOutcomeStatus.CONFIRMED
+                    or typed_receipt.reason
+                    is not (
+                        TrustedTimePostEnrollmentStartControllerOutcomeReason.POST_ENROLLMENT_START_CONFIRMED
+                    )
+                    or typed_receipt.artifact_path.parent != artifact_directory
+                    or not _authenticated_post_effect_controller_success_is_confirmed(
+                        self,
+                        choreography_lease,
+                        scope_nonce,
+                        typed_receipt,
+                    )
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time confirmed controller outcome is unavailable"
+                    )
+            return typed_receipt
+        except BaseException:
+            with self._lifecycle_lock:
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time confirmed controller outcome is unavailable"
+            ) from None
+
+    def _return_confirmed_post_effect_controller_failure(
+        self,
+        choreography_lease: object,
+        retained_outcome_receipt: object,
+    ) -> object:
+        """Revalidate the exact durable failure before its scope is destroyed."""
+
+        from scripts.trusted_time_post_enrollment_controller_outcome import (
+            RetainedTrustedTimePostEnrollmentStartControllerOutcome,
+            TrustedTimePostEnrollmentStartControllerOutcomeReason,
+            TrustedTimePostEnrollmentStartControllerOutcomeStatus,
+            revalidate_retained_post_enrollment_start_controller_outcome,
+        )
+
+        artifact_directory = self._ignored_root / "trusted-time"
+        failure_reasons = (
+            TrustedTimePostEnrollmentStartControllerOutcomeReason.RELEASE_OUTCOME_UNCONFIRMED,
+            TrustedTimePostEnrollmentStartControllerOutcomeReason.SEQUENCE_TWO_UNCONFIRMED,
+            TrustedTimePostEnrollmentStartControllerOutcomeReason.SUCCESS_OUTCOME_UNCONFIRMED,
+        )
+        try:
+            if (
+                type(retained_outcome_receipt)
+                is not RetainedTrustedTimePostEnrollmentStartControllerOutcome
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time confirmed controller failure is unavailable"
+                )
+            typed_receipt = retained_outcome_receipt
+            if (
+                typed_receipt.status
+                is not TrustedTimePostEnrollmentStartControllerOutcomeStatus.RECOVERY_REQUIRED
+                or all(typed_receipt.reason is not reason for reason in failure_reasons)
+                or typed_receipt.artifact_path.parent != artifact_directory
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time confirmed controller failure is unavailable"
+                )
+            with self._lifecycle_lock:
+                scope_nonce = self._choreography_scope_nonce
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._busy
+                    or not self._choreography_inflight
+                    or scope_nonce is None
+                    or not _authenticated_post_effect_controller_failure_is_confirmed(
+                        self,
+                        choreography_lease,
+                        scope_nonce,
+                        typed_receipt,
+                    )
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time confirmed controller failure is unavailable"
+                    )
+            self._validate_lock()
+            if not revalidate_retained_post_enrollment_start_controller_outcome(
+                typed_receipt,
+                artifact_directory=artifact_directory,
+                ignored_root=self._ignored_root,
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time confirmed controller failure is unavailable"
+                )
+            self._validate_lock()
+            with self._lifecycle_lock:
+                if (
+                    type(self._owner_pid) is not int
+                    or self._owner_pid != os.getpid()
+                    or self._closed
+                    or self._busy
+                    or not self._choreography_inflight
+                    or self._choreography_scope_nonce is not scope_nonce
+                    or type(typed_receipt)
+                    is not RetainedTrustedTimePostEnrollmentStartControllerOutcome
+                    or typed_receipt.status
+                    is not TrustedTimePostEnrollmentStartControllerOutcomeStatus.RECOVERY_REQUIRED
+                    or all(typed_receipt.reason is not reason for reason in failure_reasons)
+                    or typed_receipt.artifact_path.parent != artifact_directory
+                    or not _authenticated_post_effect_controller_failure_is_confirmed(
+                        self,
+                        choreography_lease,
+                        scope_nonce,
+                        typed_receipt,
+                    )
+                ):
+                    raise TrustedTimePostEnrollmentTopologyReaderError(
+                        "trusted-time confirmed controller failure is unavailable"
+                    )
+            return typed_receipt
+        except BaseException:
+            with self._lifecycle_lock:
+                self._poison_locked()
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time confirmed controller failure is unavailable"
+            ) from None
+
     def _run_authenticated_choreography_scope(
         self,
         action: Callable[..., Any],
@@ -4598,6 +6253,19 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 result = action(lease, recovery_retention_capability)
             else:
                 result = action(lease)
+            if expose_recovery_retention and (
+                _authenticated_post_effect_controller_success_is_confirmed(
+                    self,
+                    lease,
+                    scope_nonce,
+                    result,
+                )
+            ):
+                return self._return_confirmed_post_effect_controller_success(
+                    choreography_lease=lease,
+                    scope_nonce=scope_nonce,
+                    retained_outcome_receipt=result,
+                )
             self._require_active_choreography_lease(lease)
             with self._lifecycle_lock:
                 if (

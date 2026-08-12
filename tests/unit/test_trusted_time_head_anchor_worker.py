@@ -655,3 +655,344 @@ def test_background_monotonic_regression_latches_but_keeps_fatal_evidence_readab
     assert evidence.external_head_anchor_evidence is False
     release.set()
     assert worker.close(timeout_seconds=1, clean_stop=False) is True
+
+
+def test_background_startup_terminal_confirms_only_normal_full_epoch_rotation() -> None:
+    clock = _Clock()
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        return _attempt_result(request)
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=clock,
+        on_fatal=lambda: None,
+    )
+    worker.start()
+
+    evidence = worker.wait_for_startup_terminal(timeout_seconds=1)
+
+    assert evidence.startup_full_audit_completed is True
+    assert evidence.fatal_error_latched is False
+    assert worker.close(timeout_seconds=1, clean_stop=False) is True
+
+
+def test_required_startup_terminal_blocks_later_work_until_publication() -> None:
+    clock = _Clock()
+    startup_completed = threading.Event()
+    later_started = threading.Event()
+    attempts = 0
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            startup_completed.set()
+        else:
+            later_started.set()
+        return _attempt_result(request)
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=clock,
+        on_fatal=lambda: None,
+        require_startup_terminal=True,
+    )
+    worker.start()
+    assert startup_completed.wait(timeout=1)
+    worker.request_on_demand()
+    assert later_started.wait(timeout=0.05) is False
+
+    published = threading.Event()
+    worker.wait_for_startup_terminal(
+        timeout_seconds=1,
+        publish_startup_terminal=lambda: published.set(),
+    )
+
+    assert published.is_set() is True
+    assert later_started.wait(timeout=1) is True
+    assert worker.close(timeout_seconds=1, clean_stop=False) is True
+
+
+def test_background_startup_terminal_allows_transient_retry_only_inside_bound() -> None:
+    clock = _Clock()
+    first_failed = threading.Event()
+    attempts = 0
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            first_failed.set()
+            raise TrustedTimeHeadAnchorTransientFailure("bounded outage")
+        return _attempt_result(request)
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=clock,
+        on_fatal=lambda: None,
+    )
+    worker.start()
+    assert first_failed.wait(timeout=1)
+    clock.advance(TRUSTED_TIME_HEAD_ANCHOR_WORKER_RETRY_INTERVAL_NS)
+
+    evidence = worker.wait_for_startup_terminal(timeout_seconds=115)
+
+    assert attempts == 2
+    assert evidence.startup_full_audit_completed is True
+    assert worker.close(timeout_seconds=1, clean_stop=False) is True
+
+
+def test_background_startup_terminal_timeout_latches_fatal_and_cancels_retry() -> None:
+    clock = _Clock()
+    first_failed = threading.Event()
+    fatal = threading.Event()
+    attempts = 0
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        nonlocal attempts
+        attempts += 1
+        first_failed.set()
+        raise TrustedTimeHeadAnchorTransientFailure("bounded outage")
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=clock,
+        on_fatal=fatal.set,
+    )
+    worker.start()
+    assert first_failed.wait(timeout=1)
+
+    with pytest.raises(
+        TrustedTimeHeadAnchorBackgroundWorkerError,
+        match="was not confirmed",
+    ):
+        worker.wait_for_startup_terminal(timeout_seconds=0.01)
+
+    assert fatal.wait(timeout=1)
+    assert worker.fatal_error_latched is True
+    clock.advance(10 * TRUSTED_TIME_HEAD_ANCHOR_WORKER_RETRY_INTERVAL_NS)
+    worker.request_on_demand()
+    assert worker.close(timeout_seconds=1, clean_stop=False) is True
+    assert attempts == 1
+
+
+def test_background_startup_terminal_uses_suspend_aware_start_deadline() -> None:
+    clock = _Clock()
+    attempt_started = threading.Event()
+    release_attempt = threading.Event()
+    publisher_called = threading.Event()
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        attempt_started.set()
+        assert release_attempt.wait(timeout=2)
+        return _attempt_result(request)
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=clock,
+        on_fatal=lambda: None,
+        require_startup_terminal=True,
+    )
+    worker.start()
+    assert attempt_started.wait(timeout=1)
+    clock.advance(2 * SECOND_NS)
+
+    with pytest.raises(
+        TrustedTimeHeadAnchorBackgroundWorkerError,
+        match="was not confirmed",
+    ):
+        worker.wait_for_startup_terminal(
+            timeout_seconds=1,
+            publish_startup_terminal=publisher_called.set,
+        )
+
+    assert publisher_called.is_set() is False
+    assert worker.fatal_error_latched is True
+    release_attempt.set()
+    assert worker.close(timeout_seconds=1, clean_stop=False) is True
+
+
+def test_background_worker_never_launches_retry_after_startup_deadline() -> None:
+    clock = _Clock()
+    first_failed = threading.Event()
+    fatal = threading.Event()
+    attempts = 0
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        nonlocal attempts
+        attempts += 1
+        first_failed.set()
+        raise TrustedTimeHeadAnchorTransientFailure("bounded outage")
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=clock,
+        on_fatal=fatal.set,
+        require_startup_terminal=True,
+    )
+    worker.start()
+    assert first_failed.wait(timeout=1)
+    clock.advance(116 * SECOND_NS)
+    worker.notify_epoch_rotation()
+
+    assert fatal.wait(timeout=1)
+    assert attempts == 1
+    assert worker.fatal_error_latched is True
+    assert worker.close(timeout_seconds=1, clean_stop=False) is True
+
+
+def test_background_worker_never_launches_first_attempt_after_shared_deadline() -> None:
+    clock = _Clock()
+    clock.advance(10 * SECOND_NS)
+    fatal = threading.Event()
+    attempts = 0
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        nonlocal attempts
+        attempts += 1
+        return _attempt_result(request)
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=clock,
+        on_fatal=fatal.set,
+        require_startup_terminal=True,
+        startup_terminal_deadline_monotonic_ns=10 * SECOND_NS,
+    )
+
+    worker.start()
+
+    assert fatal.wait(timeout=1)
+    assert attempts == 0
+    assert worker.fatal_error_latched is True
+    assert worker.close(timeout_seconds=1, clean_stop=False) is True
+
+
+def test_background_worker_never_releases_after_late_ready_publication() -> None:
+    clock = _Clock()
+    fatal = threading.Event()
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=_attempt_result,
+        monotonic_clock=clock,
+        on_fatal=fatal.set,
+        require_startup_terminal=True,
+        startup_terminal_deadline_monotonic_ns=115 * SECOND_NS,
+        startup_terminal_publication_deadline_monotonic_ns=120 * SECOND_NS,
+    )
+    worker.start()
+
+    def publish_late() -> None:
+        clock.advance(120 * SECOND_NS)
+
+    with pytest.raises(
+        TrustedTimeHeadAnchorBackgroundWorkerError,
+        match="publication failed",
+    ):
+        worker.wait_for_startup_terminal(
+            timeout_seconds=115,
+            publish_startup_terminal=publish_late,
+        )
+
+    assert fatal.wait(timeout=1)
+    assert worker.fatal_error_latched is True
+    assert worker.close(timeout_seconds=1, clean_stop=False) is True
+
+
+@pytest.mark.parametrize(
+    ("deadline", "required"),
+    [(True, True), (-1, True), (1, False)],
+)
+def test_background_worker_rejects_invalid_shared_startup_deadline(
+    deadline: object,
+    required: bool,
+) -> None:
+    with pytest.raises(
+        TrustedTimeHeadAnchorBackgroundWorkerError,
+        match="startup mode is invalid",
+    ):
+        TrustedTimeHeadAnchorBackgroundWorker(
+            attempt=_attempt_result,
+            monotonic_clock=lambda: 0,
+            on_fatal=lambda: None,
+            require_startup_terminal=required,
+            startup_terminal_deadline_monotonic_ns=deadline,  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize("publication_deadline", [True, 119 * SECOND_NS, 121 * SECOND_NS])
+def test_background_worker_rejects_invalid_publication_reserve(
+    publication_deadline: object,
+) -> None:
+    with pytest.raises(
+        TrustedTimeHeadAnchorBackgroundWorkerError,
+        match="startup mode is invalid",
+    ):
+        TrustedTimeHeadAnchorBackgroundWorker(
+            attempt=_attempt_result,
+            monotonic_clock=lambda: 0,
+            on_fatal=lambda: None,
+            require_startup_terminal=True,
+            startup_terminal_deadline_monotonic_ns=115 * SECOND_NS,
+            startup_terminal_publication_deadline_monotonic_ns=(
+                publication_deadline  # type: ignore[arg-type]
+            ),
+        )
+
+
+def test_background_startup_terminal_fatal_never_reports_success() -> None:
+    fatal = threading.Event()
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        del request
+        raise TrustedTimeHeadAnchorFatalFailure("fixed fatal")
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=lambda: 0,
+        on_fatal=fatal.set,
+    )
+    worker.start()
+
+    with pytest.raises(
+        TrustedTimeHeadAnchorBackgroundWorkerError,
+        match="failed closed",
+    ):
+        worker.wait_for_startup_terminal(timeout_seconds=1)
+
+    assert fatal.wait(timeout=1)
+    assert worker.fatal_error_latched is True
+    assert worker.close(timeout_seconds=1, clean_stop=False) is True
+
+
+def test_background_startup_terminal_rejects_enrollment_worker() -> None:
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=_attempt_result,
+        monotonic_clock=lambda: 0,
+        on_fatal=lambda: None,
+        allow_enrollment=True,
+    )
+    worker.start()
+
+    with pytest.raises(
+        TrustedTimeHeadAnchorBackgroundWorkerError,
+        match="requires normal supervision",
+    ):
+        worker.wait_for_startup_terminal(timeout_seconds=1)
+
+    assert worker.close(timeout_seconds=1, clean_stop=False) is True
+
+
+@pytest.mark.parametrize("bound", [True, 0, -1, float("nan"), 116])
+def test_background_startup_terminal_rejects_invalid_bound(bound: object) -> None:
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=_attempt_result,
+        monotonic_clock=lambda: 0,
+        on_fatal=lambda: None,
+    )
+
+    with pytest.raises(
+        TrustedTimeHeadAnchorBackgroundWorkerError,
+        match="bound is invalid",
+    ):
+        worker.wait_for_startup_terminal(timeout_seconds=bound)  # type: ignore[arg-type]

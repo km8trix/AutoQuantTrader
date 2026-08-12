@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import pickle
 import sys
 import threading
@@ -240,6 +241,39 @@ def _install_final_issuer(
     return accepted
 
 
+def _prepared_action_fence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[
+    claimed_fixtures._Context,
+    object,
+    action_fence.TrustedTimePostEnrollmentStartClaimedActionTopologyFence,
+]:
+    context, lease, claimed = _claimed_context(monkeypatch, tmp_path)
+    final = _final_observation(context, claimed)
+    _install_final_issuer(monkeypatch, context, lease, claimed, final)
+    result = action_fence.prepare_post_enrollment_start_leased_claimed_action_topology_fence(
+        **_action_kwargs(context, lease, claimed)
+    )
+    return context, lease, result
+
+
+def _controller_choreography_kwargs(
+    context: claimed_fixtures._Context,
+    lease: object,
+) -> dict[str, object]:
+    return {
+        "topology_issuer": context.topology_issuer,
+        "choreography_lease": lease,
+        "recovery_retention_capability": cast(
+            Any,
+            context,
+        ).action_recovery_retention_capability,
+        "artifact_directory": context.artifact_directory,
+        "ignored_root": context.ignored_root,
+    }
+
+
 def test_binds_exact_claimed_fence_to_one_full_action_time_reobservation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -332,6 +366,275 @@ def test_binds_exact_claimed_fence_to_one_full_action_time_reobservation(
     assert all(getattr(result, field) is False for field in false_fields)
 
 
+def test_controller_choreography_origin_is_exact_one_shot_with_replay_tombstone(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context, lease, result = _prepared_action_fence(monkeypatch, tmp_path)
+    context.topology_issuer._lifecycle_lock = threading.RLock()
+    poisons: list[object] = []
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_poison_locked",
+        lambda candidate: poisons.append(candidate),
+    )
+    consume = action_fence._consume_claimed_action_fence_controller_choreography
+    kwargs = _controller_choreography_kwargs(context, lease)
+
+    assert consume(result, **kwargs) is True
+    assert consume(result, **kwargs) is False
+    assert poisons == [context.topology_issuer]
+
+
+@pytest.mark.parametrize(
+    "wrong_binding",
+    ["issuer", "lease", "recovery", "artifact_directory", "ignored_root"],
+)
+def test_controller_choreography_wrong_tuple_consumes_and_poisons_origin(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    wrong_binding: str,
+) -> None:
+    context, lease, result = _prepared_action_fence(monkeypatch, tmp_path)
+    other_issuer = object.__new__(reader.TrustedTimePostEnrollmentTopologyObservationIssuer)
+    context.topology_issuer._lifecycle_lock = threading.RLock()
+    other_issuer._lifecycle_lock = threading.RLock()
+    poisons: list[object] = []
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_poison_locked",
+        lambda candidate: poisons.append(candidate),
+    )
+    kwargs = _controller_choreography_kwargs(context, lease)
+    if wrong_binding == "issuer":
+        kwargs["topology_issuer"] = other_issuer
+    elif wrong_binding == "artifact_directory":
+        kwargs["artifact_directory"] = context.artifact_directory / "wrong"
+    elif wrong_binding == "ignored_root":
+        kwargs["ignored_root"] = context.ignored_root / "wrong"
+    else:
+        kwargs[
+            "choreography_lease" if wrong_binding == "lease" else "recovery_retention_capability"
+        ] = object()
+
+    consume = action_fence._consume_claimed_action_fence_controller_choreography
+    assert consume(result, **kwargs) is False
+    assert poisons == [context.topology_issuer]
+    assert consume(result, **_controller_choreography_kwargs(context, lease)) is False
+    assert poisons == [context.topology_issuer, context.topology_issuer]
+
+
+def test_forged_action_result_consumes_controller_origin_and_cannot_replay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context, lease, result = _prepared_action_fence(monkeypatch, tmp_path)
+    forged = object.__new__(action_fence.TrustedTimePostEnrollmentStartClaimedActionTopologyFence)
+    for candidate_field in fields(result):
+        object.__setattr__(forged, candidate_field.name, getattr(result, candidate_field.name))
+    context.topology_issuer._lifecycle_lock = threading.RLock()
+    poisons: list[object] = []
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_poison_locked",
+        lambda candidate: poisons.append(candidate),
+    )
+    consume = action_fence._consume_claimed_action_fence_controller_choreography
+    kwargs = _controller_choreography_kwargs(context, lease)
+
+    assert consume(forged, **kwargs) is False
+    assert consume(result, **kwargs) is False
+    assert poisons == [context.topology_issuer, context.topology_issuer]
+
+
+def test_cross_thread_controller_choreography_consumes_and_poisons_origin(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context, lease, result = _prepared_action_fence(monkeypatch, tmp_path)
+    context.topology_issuer._lifecycle_lock = threading.RLock()
+    poisons: list[object] = []
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_poison_locked",
+        lambda candidate: poisons.append(candidate),
+    )
+    consume = action_fence._consume_claimed_action_fence_controller_choreography
+    kwargs = _controller_choreography_kwargs(context, lease)
+    values: list[bool] = []
+    worker = threading.Thread(target=lambda: values.append(consume(result, **kwargs)))
+
+    worker.start()
+    worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert values == [False]
+    assert poisons == [context.topology_issuer]
+    assert consume(result, **kwargs) is False
+    assert poisons == [context.topology_issuer, context.topology_issuer]
+
+
+def test_forked_controller_choreography_cannot_consume_parent_origin(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context, lease, result = _prepared_action_fence(monkeypatch, tmp_path)
+    consume = action_fence._consume_claimed_action_fence_controller_choreography
+    kwargs = _controller_choreography_kwargs(context, lease)
+    owner_pid = os.getpid()
+
+    with monkeypatch.context() as forked:
+        forked.setattr(os, "getpid", lambda: owner_pid + 1)
+        assert consume(result, **kwargs) is False
+
+    assert consume(result, **kwargs) is True
+
+
+def test_controller_choreography_interruption_after_pop_leaves_replay_tombstone(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context, lease, result = _prepared_action_fence(monkeypatch, tmp_path)
+    context.topology_issuer._lifecycle_lock = threading.RLock()
+    poisons: list[object] = []
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_poison_locked",
+        lambda candidate: poisons.append(candidate),
+    )
+    consume = action_fence._consume_claimed_action_fence_controller_choreography
+    source, first_line = inspect.getsourcelines(consume)
+    after_pop_line = first_line + next(
+        offset for offset, line in enumerate(source) if "if origin is None:" in line
+    )
+    interrupted = False
+
+    def interrupt_after_pop(frame: object, event: str, _arg: object) -> object:
+        nonlocal interrupted
+        if (
+            not interrupted
+            and event == "line"
+            and getattr(frame, "f_code", None) is consume.__code__
+            and getattr(frame, "f_lineno", None) == after_pop_line
+        ):
+            interrupted = True
+            sys.settrace(None)
+            raise _AsyncInterruption
+        return interrupt_after_pop
+
+    sys.settrace(cast(Any, interrupt_after_pop))
+    try:
+        with pytest.raises(_AsyncInterruption):
+            consume(result, **_controller_choreography_kwargs(context, lease))
+    finally:
+        sys.settrace(None)
+
+    assert interrupted is True
+    assert poisons == [context.topology_issuer]
+    assert consume(result, **_controller_choreography_kwargs(context, lease)) is False
+    assert poisons == [context.topology_issuer, context.topology_issuer]
+
+
+def test_controller_origin_registration_interruption_cleans_every_registry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context, lease, claimed = _claimed_context(monkeypatch, tmp_path)
+    final = _final_observation(context, claimed)
+    _install_final_issuer(monkeypatch, context, lease, claimed, final)
+    monkeypatch.setattr(action_fence, "_poison_action", lambda _issuer: None)
+    prepare = action_fence.prepare_post_enrollment_start_leased_claimed_action_topology_fence
+    prepare_state = inspect.getclosurevars(prepare).nonlocals
+    register = cast(Any, prepare_state["register_controller_choreography"])
+    unregister = cast(Any, prepare_state["unregister_result"])
+    unregister_state = inspect.getclosurevars(unregister).nonlocals
+    origins = cast(dict[object, object], unregister_state["controller_choreographies"])
+    tombstones = cast(dict[object, object], unregister_state["consumed_controller_origins"])
+    registrations = cast(dict[object, object], unregister_state["result_capabilities"])
+    baseline_origin_keys = set(origins)
+    baseline_tombstone_keys = set(tombstones)
+    baseline_registration_keys = set(registrations)
+    source, first_line = inspect.getsourcelines(prepare)
+    after_registration_line = first_line + next(
+        offset for offset, line in enumerate(source) if line.strip() == "return result"
+    )
+    interrupted = False
+
+    def interrupt_after_registration(frame: object, event: str, _arg: object) -> object:
+        nonlocal interrupted
+        if (
+            not interrupted
+            and event == "line"
+            and getattr(frame, "f_code", None) is prepare.__code__
+            and getattr(frame, "f_lineno", None) == after_registration_line
+        ):
+            interrupted = True
+            sys.settrace(None)
+            assert inspect.getclosurevars(register).nonlocals["controller_choreographies"]
+            raise _AsyncInterruption
+        return interrupt_after_registration
+
+    sys.settrace(cast(Any, interrupt_after_registration))
+    try:
+        with pytest.raises(
+            action_fence.TrustedTimePostEnrollmentStartClaimedActionTopologyFenceRecoveryRequired
+        ):
+            prepare(**_action_kwargs(context, lease, claimed))
+    finally:
+        sys.settrace(None)
+
+    assert interrupted is True
+    assert set(origins) == baseline_origin_keys
+    assert set(tombstones) == baseline_tombstone_keys
+    assert set(registrations) == baseline_registration_keys
+
+
+def test_controller_capability_unregister_interruption_retries_all_map_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _context, _lease, result = _prepared_action_fence(monkeypatch, tmp_path)
+    prepare = action_fence.prepare_post_enrollment_start_leased_claimed_action_topology_fence
+    unregister = cast(Any, inspect.getclosurevars(prepare).nonlocals["unregister_result"])
+    unregister_state = inspect.getclosurevars(unregister).nonlocals
+    origins = cast(dict[object, object], unregister_state["controller_choreographies"])
+    tombstones = cast(dict[object, object], unregister_state["consumed_controller_origins"])
+    registrations = cast(dict[object, object], unregister_state["result_capabilities"])
+    capability = result._capability
+    assert capability in origins
+    assert capability in registrations
+    source, first_line = inspect.getsourcelines(unregister)
+    after_origin_pop_line = first_line + next(
+        offset for offset, line in enumerate(source) if "consumed_controller_origins.pop" in line
+    )
+    interrupted = False
+
+    def interrupt_after_origin_pop(frame: object, event: str, _arg: object) -> object:
+        nonlocal interrupted
+        if (
+            not interrupted
+            and event == "line"
+            and getattr(frame, "f_code", None) is unregister.__code__
+            and getattr(frame, "f_lineno", None) == after_origin_pop_line
+        ):
+            interrupted = True
+            sys.settrace(None)
+            raise _AsyncInterruption
+        return interrupt_after_origin_pop
+
+    sys.settrace(cast(Any, interrupt_after_origin_pop))
+    try:
+        with pytest.raises(_AsyncInterruption):
+            unregister(capability)
+    finally:
+        sys.settrace(None)
+
+    assert interrupted is True
+    assert capability not in origins
+    assert capability not in tombstones
+    assert capability not in registrations
+
+
 def test_authorization_rejects_stolen_claimed_fence_identity_and_is_consumed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -406,8 +709,8 @@ def test_claimed_action_origin_binding_is_one_shot_and_poisons_both_sides(
     other_issuer = object.__new__(reader.TrustedTimePostEnrollmentTopologyObservationIssuer)
     context.topology_issuer._lifecycle_lock = threading.RLock()
     other_issuer._lifecycle_lock = threading.RLock()
-    context.topology_issuer._owner_pid = action_fence.os.getpid()
-    other_issuer._owner_pid = action_fence.os.getpid()
+    context.topology_issuer._owner_pid = os.getpid()
+    other_issuer._owner_pid = os.getpid()
     poisons: list[object] = []
     monkeypatch.setattr(
         reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
@@ -481,7 +784,7 @@ def test_claimed_action_origin_interruption_after_pop_cannot_replay(
             raise _AsyncInterruption
         return interrupt_after_pop
 
-    sys.settrace(interrupt_after_pop)
+    sys.settrace(cast(Any, interrupt_after_pop))
     try:
         with pytest.raises(_AsyncInterruption):
             consume(claimed, **consume_arguments)
@@ -582,7 +885,7 @@ def test_claimed_capability_unregister_interruption_retries_all_map_cleanup(
         "TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence",
         reject_result,
     )
-    sys.settrace(interrupt_after_origin_pop)
+    sys.settrace(cast(Any, interrupt_after_origin_pop))
     try:
         with pytest.raises(_AsyncInterruption):
             prepare(**context.kwargs())  # type: ignore[arg-type]
@@ -864,9 +1167,9 @@ def test_result_is_exact_process_sealed_noncopyable_and_secret_free(
         action_fence.TrustedTimePostEnrollmentStartClaimedActionTopologyFenceRejected
     ):
         replace(result)
-    owner_pid = action_fence.os.getpid()
+    owner_pid = os.getpid()
     with monkeypatch.context() as forked:
-        forked.setattr(action_fence.os, "getpid", lambda: owner_pid + 1)
+        forked.setattr(os, "getpid", lambda: owner_pid + 1)
         with pytest.raises(
             action_fence.TrustedTimePostEnrollmentStartClaimedActionTopologyFenceRejected
         ):
