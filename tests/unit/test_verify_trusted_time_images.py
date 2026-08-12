@@ -364,15 +364,32 @@ def test_reviewed_inputs_bind_launch_entrypoint_and_strict_environment_loader() 
     assert ROOT / "scripts" / "enroll_trusted_time_head_anchor.py" in reviewed
     assert ROOT / "scripts" / "start_trusted_time_supervisor.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_action_topology_fence.py" in reviewed
+    assert ROOT / "scripts" / "trusted_time_post_enrollment_active_controller.py" in reviewed
+    assert (
+        ROOT / "scripts" / "trusted_time_post_enrollment_active_controller_admission.py" in reviewed
+    )
     assert ROOT / "scripts" / "trusted_time_post_enrollment_claimed_fence.py" in reviewed
+    assert ROOT / "scripts" / "trusted_time_post_enrollment_controller_outcome.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_evidence.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_outcome.py" in reviewed
+    assert ROOT / "scripts" / "trusted_time_post_enrollment_persistent_topology.py" in reviewed
+    assert ROOT / "scripts" / "trusted_time_post_enrollment_sequence_two_verifier.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_staged_topology.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_staging.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_start.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_topology.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_topology_fence.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_topology_reader.py" in reviewed
+    assert ROOT / "apps" / "trusted_time_supervisor" / "head_anchor_attempt.py" in reviewed
+    assert ROOT / "apps" / "trusted_time_supervisor" / "head_anchor_worker.py" in reviewed
+    assert ROOT / "apps" / "trusted_time_supervisor" / "post_enrollment_release.py" in reviewed
+    assert (
+        ROOT / "apps" / "trusted_time_supervisor" / "post_enrollment_sequence_two_ready.py"
+        in reviewed
+    )
+    assert (
+        ROOT / "apps" / "trusted_time_supervisor" / "post_enrollment_runtime_state.py" in reviewed
+    )
 
 
 @pytest.mark.parametrize(

@@ -31,6 +31,7 @@ autoquant-trusted-time-supervisor = "apps.trusted_time_supervisor.main:main"
 autoquant-trusted-time-first-enrollment = "apps.trusted_time_supervisor.first_enrollment:main"
 autoquant-trusted-time-first-enrollment-release = "apps.trusted_time_supervisor.first_enrollment:release_main"
 autoquant-trusted-time-post-enrollment-release = "apps.trusted_time_supervisor.post_enrollment_release:release_main"
+autoquant-trusted-time-post-enrollment-runtime-state = "apps.trusted_time_supervisor.post_enrollment_runtime_state:runtime_state_main"
 
 [dependency-groups]
 dev = [

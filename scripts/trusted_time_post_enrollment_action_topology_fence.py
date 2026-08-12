@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 import threading
+import weakref
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -427,6 +428,7 @@ def _build_claimed_action_topology_fence_preparer() -> tuple[
     Callable[..., TrustedTimePostEnrollmentStartClaimedActionTopologyFence],
     Callable[[object, dict[str, object], object], bool],
     Callable[..., bool],
+    Callable[..., bool],
 ]:
     registry_lock = threading.Lock()
     origin_pid = os.getpid()
@@ -448,6 +450,14 @@ def _build_claimed_action_topology_fence_preparer() -> tuple[
     result_capabilities: dict[
         _ClaimedActionTopologyFenceCapability,
         tuple[str, object | None],
+    ] = {}
+    controller_choreographies: dict[
+        _ClaimedActionTopologyFenceCapability,
+        tuple[object, object, object, object, Path, Path, int, threading.Thread],
+    ] = {}
+    consumed_controller_origins: dict[
+        _ClaimedActionTopologyFenceCapability,
+        weakref.ReferenceType[TrustedTimePostEnrollmentTopologyObservationIssuer],
     ] = {}
 
     def consume_authorization(
@@ -507,8 +517,17 @@ def _build_claimed_action_topology_fence_preparer() -> tuple[
             or type(candidate) is not _ClaimedActionTopologyFenceCapability
         ):
             return
-        with registry_lock:
-            result_capabilities.pop(candidate, None)
+        try:
+            with registry_lock:
+                controller_choreographies.pop(candidate, None)
+                consumed_controller_origins.pop(candidate, None)
+                result_capabilities.pop(candidate, None)
+        except BaseException:
+            with suppress(BaseException), registry_lock:
+                controller_choreographies.pop(candidate, None)
+                consumed_controller_origins.pop(candidate, None)
+                result_capabilities.pop(candidate, None)
+            raise
 
     def valid_result(
         candidate: object,
@@ -530,6 +549,126 @@ def _build_claimed_action_topology_fence_preparer() -> tuple[
                 result_capabilities[candidate] = (material_sha256, result)
                 return True
             return registration[1] is result
+
+    def register_controller_choreography(
+        candidate: object,
+        result: object,
+        *,
+        topology_issuer: object,
+        choreography_lease: object,
+        recovery_retention_capability: object,
+        artifact_directory: object,
+        ignored_root: object,
+    ) -> None:
+        if (
+            os.getpid() != origin_pid
+            or type(candidate) is not _ClaimedActionTopologyFenceCapability
+            or type(result) is not TrustedTimePostEnrollmentStartClaimedActionTopologyFence
+            or type(topology_issuer) is not TrustedTimePostEnrollmentTopologyObservationIssuer
+            or recovery_retention_capability is None
+            or type(artifact_directory) is not type(Path())
+            or type(ignored_root) is not type(Path())
+            or artifact_directory != ignored_root / "trusted-time"
+        ):
+            raise TrustedTimePostEnrollmentStartClaimedActionTopologyFenceRejected(
+                "trusted-time claimed action controller choreography is unavailable"
+            )
+        with registry_lock:
+            registration = result_capabilities.get(candidate)
+            if registration is None or registration[1] is not result:
+                raise TrustedTimePostEnrollmentStartClaimedActionTopologyFenceRejected(
+                    "trusted-time claimed action controller choreography is unavailable"
+                )
+            controller_choreographies[candidate] = (
+                result,
+                topology_issuer,
+                choreography_lease,
+                recovery_retention_capability,
+                artifact_directory,
+                ignored_root,
+                os.getpid(),
+                threading.current_thread(),
+            )
+
+    def consume_controller_choreography(
+        candidate: object,
+        *,
+        topology_issuer: object,
+        choreography_lease: object,
+        recovery_retention_capability: object,
+        artifact_directory: object,
+        ignored_root: object,
+    ) -> bool:
+        """Consume one exact action-fence origin before controller admission."""
+
+        if (
+            os.getpid() != origin_pid
+            or type(candidate) is not TrustedTimePostEnrollmentStartClaimedActionTopologyFence
+        ):
+            return False
+        capability = candidate._capability
+        if type(capability) is not _ClaimedActionTopologyFenceCapability:
+            return False
+        origin: tuple[object, object, object, object, Path, Path, int, threading.Thread] | None = (
+            None
+        )
+        consumed_origin: (
+            weakref.ReferenceType[TrustedTimePostEnrollmentTopologyObservationIssuer] | None
+        ) = None
+        originating_issuer: TrustedTimePostEnrollmentTopologyObservationIssuer | None = None
+        try:
+            with registry_lock:
+                registration = result_capabilities.get(capability)
+                origin = controller_choreographies.pop(capability, None)
+                consumed_origin = consumed_controller_origins.get(capability)
+            if origin is None:
+                originating_issuer = consumed_origin() if consumed_origin is not None else None
+                if type(originating_issuer) is TrustedTimePostEnrollmentTopologyObservationIssuer:
+                    with originating_issuer._lifecycle_lock:
+                        originating_issuer._poison_locked()
+                return False
+            origin_issuer = origin[1]
+            if type(origin_issuer) is TrustedTimePostEnrollmentTopologyObservationIssuer:
+                originating_issuer = origin_issuer
+                with registry_lock:
+                    consumed_controller_origins[capability] = weakref.ref(origin_issuer)
+            accepted = bool(
+                registration is not None
+                and registration[1] is candidate
+                and origin[0] is candidate
+                and getattr(origin[1], "_poisoned", False) is False
+                and getattr(origin[1], "_closed", False) is False
+                and origin[1] is topology_issuer
+                and origin[2] is choreography_lease
+                and origin[3] is recovery_retention_capability
+                and recovery_retention_capability is not None
+                and origin[4] == artifact_directory
+                and origin[5] == ignored_root
+                and origin[6] == os.getpid()
+                and origin[7] is threading.current_thread()
+            )
+            if not accepted and originating_issuer is not None:
+                with originating_issuer._lifecycle_lock:
+                    originating_issuer._poison_locked()
+            return accepted
+        except BaseException:
+            if origin is None:
+                with suppress(BaseException), registry_lock:
+                    origin = controller_choreographies.pop(capability, None)
+                    consumed_origin = consumed_controller_origins.get(capability)
+            if origin is not None:
+                origin_issuer = origin[1]
+                if type(origin_issuer) is TrustedTimePostEnrollmentTopologyObservationIssuer:
+                    originating_issuer = origin_issuer
+                    with suppress(BaseException), registry_lock:
+                        consumed_controller_origins[capability] = weakref.ref(origin_issuer)
+            elif consumed_origin is not None:
+                with suppress(BaseException):
+                    originating_issuer = consumed_origin()
+            if type(originating_issuer) is TrustedTimePostEnrollmentTopologyObservationIssuer:
+                with originating_issuer._lifecycle_lock:
+                    originating_issuer._poison_locked()
+            raise
 
     def prepare(
         *,
@@ -718,6 +857,15 @@ def _build_claimed_action_topology_fence_preparer() -> tuple[
                 ignored_root=ignored_root,
             )
             topology_issuer._require_active_choreography_lease(choreography_lease)
+            register_controller_choreography(
+                capability,
+                result,
+                topology_issuer=topology_issuer,
+                choreography_lease=choreography_lease,
+                recovery_retention_capability=recovery_retention_capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
             return result
         except BaseException:
             if exact_claimed_fence_established:
@@ -735,13 +883,14 @@ def _build_claimed_action_topology_fence_preparer() -> tuple[
                 "trusted-time claimed action topology inputs are unavailable"
             ) from None
 
-    return prepare, valid_result, consume_authorization
+    return prepare, valid_result, consume_authorization, consume_controller_choreography
 
 
 (
     prepare_post_enrollment_start_leased_claimed_action_topology_fence,
     _valid_claimed_action_fence_capability,
     _consume_claimed_action_topology_observation_authorization,
+    _consume_claimed_action_fence_controller_choreography,
 ) = _build_claimed_action_topology_fence_preparer()
 del _build_claimed_action_topology_fence_preparer
 

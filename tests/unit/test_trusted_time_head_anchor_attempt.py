@@ -9,6 +9,7 @@ from unittest.mock import Mock, call, patch
 import pytest
 
 from apps.trusted_time_supervisor.head_anchor_attempt import (
+    DeadlineBoundTrustedTimeHeadAnchorProvider,
     RepositoryBackedTrustedTimeHeadAnchorAttempt,
     TrustedTimeHeadAnchorFirstEnrollmentAlreadyCompleted,
     TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed,
@@ -17,6 +18,8 @@ from apps.trusted_time_supervisor.head_anchor_attempt import (
     TrustedTimeHeadAnchorFirstEnrollmentStateConflict,
     TrustedTimeHeadAnchorPostEnrollmentStartPostcondition,
     TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed,
+    TrustedTimeHeadAnchorStartupEffectDeadlineExceeded,
+    TrustedTimeHeadAnchorStartupEffectDeadlineGuard,
 )
 from apps.trusted_time_supervisor.head_anchor_config import (
     TrustedTimeHeadAnchorAuthority,
@@ -48,6 +51,14 @@ from packages.persistence.trusted_time_head_anchor import (
 
 BASE = datetime(2026, 8, 1, 16, 0, tzinfo=UTC)
 PUBLIC_KEY = bytes.fromhex("3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c")
+
+
+class _MonotonicClock:
+    def __init__(self, value: int = 0) -> None:
+        self.value = value
+
+    def __call__(self) -> int:
+        return self.value
 
 
 def _authority() -> TrustedTimeHeadAnchorAuthority:
@@ -367,6 +378,7 @@ def _dependencies():  # type: ignore[no-untyped-def]
     provider = Mock()
     for method in (
         "attest_identity",
+        "list_object_names",
         "list_object_names_page",
         "list_sequence_object_names",
         "download_object",
@@ -382,7 +394,15 @@ def _dependencies():  # type: ignore[no-untyped-def]
     return local, anchor, provider, signer, verifier
 
 
-def _attempt(local, anchor, provider, signer, verifier):  # type: ignore[no-untyped-def]
+def _attempt(  # type: ignore[no-untyped-def]
+    local,
+    anchor,
+    provider,
+    signer,
+    verifier,
+    *,
+    startup_effect_guard=None,
+):
     return RepositoryBackedTrustedTimeHeadAnchorAttempt(
         anchor_repository=anchor,
         provider=provider,
@@ -390,7 +410,281 @@ def _attempt(local, anchor, provider, signer, verifier):  # type: ignore[no-unty
         verifier=verifier,
         authority=_authority(),
         utc_clock=lambda: BASE,
+        startup_effect_guard=startup_effect_guard,
     )
+
+
+def test_startup_effect_guard_is_one_shot_and_fails_closed_at_reserve() -> None:
+    logical = _MonotonicClock()
+    wall = _MonotonicClock(1_000)
+    guard = TrustedTimeHeadAnchorStartupEffectDeadlineGuard(
+        deadline_monotonic_ns=120_000_000_000,
+        monotonic_clock=logical,
+        wall_monotonic_clock=wall,
+    )
+    guard.require_effect_window(minimum_remaining_ns=119_000_000_000)
+    logical.value = 104_000_000_000
+    wall.value += 104_000_000_000
+
+    with pytest.raises(
+        TrustedTimeHeadAnchorStartupEffectDeadlineExceeded,
+        match="deadline is exhausted",
+    ):
+        guard.require_effect_window(minimum_remaining_ns=16_000_000_000)
+    with pytest.raises(
+        TrustedTimeHeadAnchorStartupEffectDeadlineExceeded,
+        match="guard is poisoned",
+    ):
+        guard.require_effect_window()
+    with pytest.raises(
+        TrustedTimeHeadAnchorStartupEffectDeadlineExceeded,
+        match="cannot be released",
+    ):
+        guard.release_after_startup_terminal()
+
+
+def test_deadline_bound_provider_blocks_io_without_full_provider_reserve() -> None:
+    logical = _MonotonicClock()
+    wall = _MonotonicClock()
+    guard = TrustedTimeHeadAnchorStartupEffectDeadlineGuard(
+        deadline_monotonic_ns=120_000_000_000,
+        monotonic_clock=logical,
+        wall_monotonic_clock=wall,
+    )
+    provider = Mock()
+    for method in (
+        "attest_identity",
+        "list_object_names",
+        "list_object_names_page",
+        "list_sequence_object_names",
+        "download_object",
+        "upload_object_no_overwrite",
+    ):
+        setattr(provider, method, Mock())
+    bounded = DeadlineBoundTrustedTimeHeadAnchorProvider(
+        provider=provider,
+        startup_effect_guard=guard,
+    )
+    logical.value = 104_000_000_000
+    wall.value = 104_000_000_000
+
+    with pytest.raises(TrustedTimeHeadAnchorStartupEffectDeadlineExceeded):
+        bounded.upload_object_no_overwrite(
+            bucket_name="trusted-time-head-anchors",
+            object_name="v1/object.json",
+            payload=b"payload",
+            content_type="application/json",
+        )
+
+    provider.upload_object_no_overwrite.assert_not_called()
+
+
+def test_deadline_bound_provider_detects_io_that_crosses_the_absolute_cutoff() -> None:
+    logical = _MonotonicClock(103_000_000_000)
+    wall = _MonotonicClock(103_000_000_000)
+    guard = TrustedTimeHeadAnchorStartupEffectDeadlineGuard(
+        deadline_monotonic_ns=120_000_000_000,
+        monotonic_clock=logical,
+        wall_monotonic_clock=wall,
+    )
+    provider = Mock()
+    for method in (
+        "attest_identity",
+        "list_object_names",
+        "list_object_names_page",
+        "list_sequence_object_names",
+        "download_object",
+        "upload_object_no_overwrite",
+    ):
+        setattr(provider, method, Mock())
+
+    def cross_deadline(**_: object) -> None:
+        logical.value = 120_000_000_000
+        wall.value = 120_000_000_000
+
+    provider.upload_object_no_overwrite.side_effect = cross_deadline
+    bounded = DeadlineBoundTrustedTimeHeadAnchorProvider(
+        provider=provider,
+        startup_effect_guard=guard,
+    )
+
+    with pytest.raises(
+        TrustedTimeHeadAnchorStartupEffectDeadlineExceeded,
+        match="deadline is exhausted",
+    ):
+        bounded.upload_object_no_overwrite(
+            bucket_name="trusted-time-head-anchors",
+            object_name="v1/object.json",
+            payload=b"payload",
+            content_type="application/json",
+        )
+
+    provider.upload_object_no_overwrite.assert_called_once()
+    with pytest.raises(TrustedTimeHeadAnchorStartupEffectDeadlineExceeded):
+        guard.require_effect_window()
+
+
+def test_startup_effect_guard_rejects_a_forked_process_copy() -> None:
+    guard = TrustedTimeHeadAnchorStartupEffectDeadlineGuard(
+        deadline_monotonic_ns=120_000_000_000,
+        monotonic_clock=lambda: 0,
+        wall_monotonic_clock=lambda: 0,
+    )
+
+    with (
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt.os.getpid",
+            return_value=guard._owner_pid + 1,
+        ),
+        pytest.raises(
+            TrustedTimeHeadAnchorStartupEffectDeadlineExceeded,
+            match="process boundary",
+        ),
+    ):
+        guard.require_effect_window()
+
+
+def test_released_startup_effect_guard_remains_process_bound() -> None:
+    guard = TrustedTimeHeadAnchorStartupEffectDeadlineGuard(
+        deadline_monotonic_ns=120_000_000_000,
+        monotonic_clock=lambda: 0,
+        wall_monotonic_clock=lambda: 0,
+    )
+    guard.release_after_startup_terminal()
+
+    with (
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt.os.getpid",
+            return_value=guard._owner_pid + 1,
+        ),
+        pytest.raises(
+            TrustedTimeHeadAnchorStartupEffectDeadlineExceeded,
+            match="process boundary",
+        ),
+    ):
+        guard.require_effect_window()
+
+
+def test_released_startup_effect_guard_allows_long_lived_provider_io() -> None:
+    logical = _MonotonicClock()
+    wall = _MonotonicClock()
+    guard = TrustedTimeHeadAnchorStartupEffectDeadlineGuard(
+        deadline_monotonic_ns=120_000_000_000,
+        monotonic_clock=logical,
+        wall_monotonic_clock=wall,
+    )
+    provider = Mock()
+    for method in (
+        "attest_identity",
+        "list_object_names",
+        "list_object_names_page",
+        "list_sequence_object_names",
+        "download_object",
+        "upload_object_no_overwrite",
+    ):
+        setattr(provider, method, Mock())
+    bounded = DeadlineBoundTrustedTimeHeadAnchorProvider(
+        provider=provider,
+        startup_effect_guard=guard,
+    )
+    guard.release_after_startup_terminal()
+    logical.value = 200_000_000_000
+    wall.value = 200_000_000_000
+
+    bounded.upload_object_no_overwrite(
+        bucket_name="trusted-time-head-anchors",
+        object_name="v1/object.json",
+        payload=b"payload",
+        content_type="application/json",
+    )
+
+    provider.upload_object_no_overwrite.assert_called_once()
+
+
+def test_startup_sql_effect_is_not_started_without_its_deadline_reserve() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    full = _snapshot(complete_replay=True)
+    prepared = SimpleNamespace(candidate_record=object(), full_audit=True)
+    anchor.load_head_anchor_startup_snapshot.return_value = full
+    logical = _MonotonicClock()
+    wall = _MonotonicClock()
+    guard = TrustedTimeHeadAnchorStartupEffectDeadlineGuard(
+        deadline_monotonic_ns=120_000_000_000,
+        monotonic_clock=logical,
+        wall_monotonic_clock=wall,
+    )
+    attempt = _attempt(
+        local,
+        anchor,
+        provider,
+        signer,
+        verifier,
+        startup_effect_guard=guard,
+    )
+    attempt.prime_startup()
+    logical.value = 100_000_000_000
+    wall.value = 100_000_000_000
+
+    with (
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "prepare_bounded_trusted_time_head_anchor_reconciliation",
+            return_value=prepared,
+        ),
+        pytest.raises(TrustedTimeHeadAnchorStartupEffectDeadlineExceeded),
+    ):
+        attempt(_request())
+
+    anchor.commit_prepared_intent.assert_not_called()
+
+
+def test_startup_sql_effect_crossing_the_deadline_is_detected_and_poisoned() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    full = _snapshot(complete_replay=True)
+    pending = _snapshot(complete_replay=False)
+    prepared = SimpleNamespace(candidate_record=object(), full_audit=True)
+    evidence = object()
+    anchor.load_head_anchor_startup_snapshot.return_value = full
+    logical = _MonotonicClock(69_000_000_000)
+    wall = _MonotonicClock(69_000_000_000)
+    guard = TrustedTimeHeadAnchorStartupEffectDeadlineGuard(
+        deadline_monotonic_ns=120_000_000_000,
+        monotonic_clock=logical,
+        wall_monotonic_clock=wall,
+    )
+
+    def commit(*_: object, **__: object) -> tuple[object, object]:
+        logical.value = 120_000_000_000
+        wall.value = 120_000_000_000
+        return pending, evidence
+
+    anchor.commit_prepared_intent.side_effect = commit
+    attempt = _attempt(
+        local,
+        anchor,
+        provider,
+        signer,
+        verifier,
+        startup_effect_guard=guard,
+    )
+    attempt.prime_startup()
+
+    with (
+        patch(
+            "apps.trusted_time_supervisor.head_anchor_attempt."
+            "prepare_bounded_trusted_time_head_anchor_reconciliation",
+            return_value=prepared,
+        ),
+        pytest.raises(
+            TrustedTimeHeadAnchorStartupEffectDeadlineExceeded,
+            match="deadline is exhausted",
+        ),
+    ):
+        attempt(_request())
+
+    anchor.commit_prepared_intent.assert_called_once()
+    with pytest.raises(TrustedTimeHeadAnchorStartupEffectDeadlineExceeded):
+        guard.require_effect_window()
 
 
 def test_attempt_commits_before_upload_then_confirms_a_second_exact_readback() -> None:

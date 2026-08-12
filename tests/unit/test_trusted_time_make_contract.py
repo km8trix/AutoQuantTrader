@@ -77,6 +77,64 @@ def test_every_supported_trusted_time_python_target_uses_isolated_launcher() -> 
 
 
 def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
+    active_controller_api_names = (
+        "trusted_time_post_enrollment_active_controller",
+        "POST_ENROLLMENT_START_ACTIVE_CONTROLLER_CONTRACT_VERSION",
+        "POST_ENROLLMENT_START_ACTIVE_CONTROLLER_STATUS",
+        "phase6d-post-enrollment-start-active-controller-v1",
+        "post_enrollment_start_confirmed",
+        "TrustedTimePostEnrollmentStartActiveControllerRejected",
+        "TrustedTimePostEnrollmentStartActiveControllerRecoveryRequired",
+        "run_post_enrollment_start_active_controller",
+    )
+    active_controller_admission_api_names = (
+        "trusted_time_post_enrollment_active_controller_admission",
+        "POST_ENROLLMENT_START_ACTIVE_CONTROLLER_ADMISSION_CONTRACT_VERSION",
+        "POST_ENROLLMENT_START_ACTIVE_CONTROLLER_ADMISSION_STATUS",
+        "phase6d-post-enrollment-start-active-controller-admission-v1",
+        "active_controller_admission_unqualified",
+        "TrustedTimePostEnrollmentStartActiveControllerAdmission",
+        "TrustedTimePostEnrollmentStartActiveControllerAdmissionRejected",
+        "TrustedTimePostEnrollmentStartActiveControllerAdmissionRecoveryRequired",
+        "prepare_post_enrollment_start_active_controller_admission",
+        "_consume_active_controller_continuation",
+        "active_controller_authorized",
+        "controller_execution_authorized",
+    )
+    controller_outcome_api_names = (
+        "trusted_time_post_enrollment_controller_outcome",
+        "POST_ENROLLMENT_START_RETAINED_CONTROLLER_OUTCOME_CONTRACT_VERSION",
+        "phase6d-post-enrollment-start-retained-controller-outcome-v1",
+        "RetainedTrustedTimePostEnrollmentStartControllerOutcome",
+        "TrustedTimePostEnrollmentStartControllerOutcomeEvidence",
+        "load_retained_post_enrollment_start_controller_outcome",
+        "retain_post_enrollment_start_controller_outcome",
+        "revalidate_retained_post_enrollment_start_controller_outcome",
+        ".post-enrollment-start-controller-outcome-slot",
+        ".post-enrollment-start-controller-outcome-staging",
+        ".post-enrollment-start-controller-outcome-commit-staging",
+        ".post-enrollment-start-controller-outcome-committed",
+    )
+    persistent_topology_api_names = (
+        "trusted_time_post_enrollment_persistent_topology",
+        "POST_ENROLLMENT_PERSISTENT_TOPOLOGY_CONTRACT_VERSION",
+        "POST_ENROLLMENT_PERSISTENT_TOPOLOGY_STATUS",
+        "phase6d-post-enrollment-start-persistent-topology-snapshot-v1",
+        "persistent_topology_snapshot_unqualified",
+        "TrustedTimePostEnrollmentPersistentTopologySnapshot",
+        "validate_post_enrollment_start_persistent_topology",
+    )
+    sequence_two_verifier_api_names = (
+        "trusted_time_post_enrollment_sequence_two_verifier",
+        "POST_ENROLLMENT_START_SEQUENCE_TWO_VERIFIER_CONTRACT_VERSION",
+        "POST_ENROLLMENT_START_SEQUENCE_TWO_FIRST_VERIFICATION_RESERVE_NANOSECONDS",
+        "POST_ENROLLMENT_START_SEQUENCE_TWO_SECOND_VERIFICATION_RESERVE_NANOSECONDS",
+        "phase6d-post-enrollment-start-sequence-two-verifier-v1",
+        "TrustedTimePostEnrollmentStartSequenceTwoReadOnlyConfiguration",
+        "TrustedTimePostEnrollmentStartSequenceTwoVerificationRejected",
+        "TrustedTimePostEnrollmentStartSequenceTwoVerifier",
+        "prepare_trusted_time_post_enrollment_start_sequence_two_verifier",
+    )
     action_topology_fence_api_names = (
         "trusted_time_post_enrollment_action_topology_fence",
         "POST_ENROLLMENT_START_CLAIMED_ACTION_TOPOLOGY_FENCE_CONTRACT_VERSION",
@@ -93,6 +151,7 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         "final_action_staged_unreleased_topology_observation_unqualified",
         "TrustedTimePostEnrollmentFinalActionTopologyObservation",
         "_consume_claimed_fence_action_choreography",
+        "_consume_claimed_action_fence_controller_choreography",
         "_issue_claimed_final_action_topology_snapshot",
         "_require_armed_recovery_outcome_retention",
     )
@@ -106,6 +165,7 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         "_issue_recovery_retention_claim_binder",
         "_run_exclusive_choreography_with_recovery_retention",
         "_POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_SECONDS",
+        ".post-enrollment-start-recovery-outcome-staging",
     )
     claimed_fence_api_names = (
         "POST_ENROLLMENT_START_CLAIMED_PRE_RELEASE_TOPOLOGY_FENCE_CONTRACT_VERSION",
@@ -151,6 +211,8 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         "TrustedTimePostEnrollmentTopologyObservationIssuer",
         "TrustedTimePostEnrollmentCreatedTopologyObservation",
         "TrustedTimePostEnrollmentStagedTopologyObservation",
+        *active_controller_api_names,
+        *active_controller_admission_api_names,
         *action_topology_fence_api_names,
         "trusted_time_post_enrollment_claimed_fence",
         *claimed_fence_api_names,
@@ -158,6 +220,9 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         "choreography_lease",
         "choreography_deadline",
         *recovery_outcome_api_names,
+        *controller_outcome_api_names,
+        *persistent_topology_api_names,
+        *sequence_two_verifier_api_names,
         *topology_cursor_api_names,
         "trusted_time_post_enrollment_topology_fence",
         *topology_fence_api_names,
@@ -187,15 +252,30 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
     admission_cli = (ROOT / "scripts" / "verify_trusted_time_images.py").read_text(encoding="utf-8")
     assert '"scripts/trusted_time_post_enrollment_action_topology_fence.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_action_topology_fence") == 1
+    assert '"scripts/trusted_time_post_enrollment_active_controller.py"' in admission_cli
+    assert admission_cli.count("trusted_time_post_enrollment_active_controller") == 2
+    assert '"scripts/trusted_time_post_enrollment_active_controller_admission.py"' in admission_cli
+    assert admission_cli.count("trusted_time_post_enrollment_active_controller_admission") == 1
     assert '"scripts/trusted_time_post_enrollment_claimed_fence.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_claimed_fence") == 1
+    assert '"scripts/trusted_time_post_enrollment_controller_outcome.py"' in admission_cli
+    assert admission_cli.count("trusted_time_post_enrollment_controller_outcome") == 1
     assert '"scripts/trusted_time_post_enrollment_outcome.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_outcome") == 1
+    assert '"scripts/trusted_time_post_enrollment_persistent_topology.py"' in admission_cli
+    assert admission_cli.count("trusted_time_post_enrollment_persistent_topology") == 1
+    assert '"scripts/trusted_time_post_enrollment_sequence_two_verifier.py"' in admission_cli
+    assert admission_cli.count("trusted_time_post_enrollment_sequence_two_verifier") == 1
     assert '"scripts/trusted_time_post_enrollment_topology_fence.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_topology_fence") == 1
     for forbidden_name in (
+        *active_controller_api_names[1:],
+        *active_controller_admission_api_names[1:],
         *action_topology_fence_api_names[1:],
         *recovery_outcome_api_names[1:],
+        *controller_outcome_api_names[1:],
+        *persistent_topology_api_names[1:],
+        *sequence_two_verifier_api_names[1:],
         *claimed_fence_api_names,
         *topology_cursor_api_names,
         *topology_fence_api_names,
@@ -203,6 +283,31 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         assert forbidden_name not in admission_cli
     assert re.search(r"(?<![0-9A-Za-z_])recovery_required(?![0-9A-Za-z_])", admission_cli) is None
     assert re.search(r"(?<![0-9A-Za-z])305(?:\.0)?(?![0-9A-Za-z])", admission_cli) is None
+
+
+def test_runtime_state_inspector_is_in_container_only_and_not_a_host_controller() -> None:
+    command = "autoquant-trusted-time-post-enrollment-runtime-state"
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    marker_paths = (
+        "/tmp/post-enrollment-start-sequence-two-deadline",
+        "/tmp/.post-enrollment-start-sequence-two-deadline-staging",
+        "/tmp/post-enrollment-start-release",
+        "/tmp/.post-enrollment-start-release-staging",
+        "/tmp/post-enrollment-start-sequence-two-ready",
+        "/tmp/.post-enrollment-start-sequence-two-ready-staging",
+    )
+
+    assert pyproject.count(command) == 1
+    for path in (
+        ROOT / "Makefile",
+        ROOT / "infra" / "compose" / "trusted-time.compose.yaml",
+        ROOT / "scripts" / "start_trusted_time_supervisor.py",
+        ROOT / "scripts" / "verify_trusted_time_compose.py",
+    ):
+        payload = path.read_text(encoding="utf-8")
+        assert command not in payload
+        for marker_path in marker_paths:
+            assert marker_path not in payload
 
 
 def test_runtime_diagnostic_make_target_emits_only_child_output(tmp_path: Path) -> None:

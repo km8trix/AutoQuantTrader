@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from collections.abc import Callable
 from contextlib import suppress
 
 from packages.application.durable_trusted_time_monitor import PersistedTrustedTimeProbe
+from packages.application.trusted_time_head_anchor import (
+    TrustedTimeHeadAnchorCheckpointReason,
+)
 from packages.application.trusted_time_head_anchor_worker import (
     TrustedTimeHeadAnchorAttempt,
     TrustedTimeHeadAnchorAttemptResult,
@@ -25,6 +29,12 @@ TRUSTED_TIME_HEAD_ANCHOR_BACKGROUND_WORKER_CONTRACT_VERSION = (
     "phase6d-background-trusted-head-anchor-runtime-v1"
 )
 TRUSTED_TIME_HEAD_ANCHOR_SHUTDOWN_TIMEOUT_SECONDS = 30.0
+# The read-only cross-process marker waiter owns the enclosing 120-second
+# bound. This worker must fail closed first and preserve its exact 5-second
+# teardown/observation margin.
+TRUSTED_TIME_HEAD_ANCHOR_STARTUP_TERMINAL_TIMEOUT_SECONDS = 115.0
+_TRUSTED_TIME_HEAD_ANCHOR_STARTUP_TERMINAL_POLL_SECONDS = 1.0
+_TRUSTED_TIME_HEAD_ANCHOR_STARTUP_PUBLICATION_RESERVE_NANOSECONDS = 5_000_000_000
 
 
 class TrustedTimeHeadAnchorBackgroundWorkerError(RuntimeError):
@@ -45,16 +55,28 @@ class TrustedTimeHeadAnchorBackgroundWorker:
         "_allow_enrollment",
         "_attempt",
         "_condition",
+        "_configured_startup_terminal_deadline_monotonic_ns",
+        "_configured_startup_terminal_publication_deadline_monotonic_ns",
         "_core",
         "_fatal_event",
         "_fatal_reason",
         "_last_observed_monotonic_ns",
         "_monotonic_clock",
         "_on_fatal",
+        "_require_startup_terminal",
         "_runtime_fatal",
         "_started_event",
         "_startup_primed",
         "_startup_primer",
+        "_startup_started_at_monotonic_ns",
+        "_startup_started_at_wall_monotonic_ns",
+        "_startup_terminal_completed_at_monotonic_ns",
+        "_startup_terminal_completed_at_wall_monotonic_ns",
+        "_startup_terminal_deadline_monotonic_ns",
+        "_startup_terminal_deadline_wall_monotonic_ns",
+        "_startup_terminal_publication_deadline_monotonic_ns",
+        "_startup_terminal_publication_deadline_wall_monotonic_ns",
+        "_startup_terminal_released",
         "_thread",
     )
 
@@ -66,6 +88,9 @@ class TrustedTimeHeadAnchorBackgroundWorker:
         on_fatal: Callable[[], object],
         allow_enrollment: bool = False,
         startup_primer: Callable[[], None] | None = None,
+        require_startup_terminal: bool = False,
+        startup_terminal_deadline_monotonic_ns: int | None = None,
+        startup_terminal_publication_deadline_monotonic_ns: int | None = None,
     ) -> None:
         if (
             not callable(attempt)
@@ -76,15 +101,44 @@ class TrustedTimeHeadAnchorBackgroundWorker:
             raise TrustedTimeHeadAnchorBackgroundWorkerError(
                 "trusted-time anchor background dependencies are unavailable"
             )
-        if type(allow_enrollment) is not bool:
+        if (
+            type(allow_enrollment) is not bool
+            or type(require_startup_terminal) is not bool
+            or (allow_enrollment and require_startup_terminal)
+            or (
+                startup_terminal_deadline_monotonic_ns is not None
+                and (
+                    type(startup_terminal_deadline_monotonic_ns) is not int
+                    or startup_terminal_deadline_monotonic_ns < 0
+                    or not require_startup_terminal
+                )
+            )
+            or (
+                startup_terminal_publication_deadline_monotonic_ns is not None
+                and (
+                    type(startup_terminal_publication_deadline_monotonic_ns) is not int
+                    or startup_terminal_deadline_monotonic_ns is None
+                    or startup_terminal_publication_deadline_monotonic_ns
+                    - startup_terminal_deadline_monotonic_ns
+                    != _TRUSTED_TIME_HEAD_ANCHOR_STARTUP_PUBLICATION_RESERVE_NANOSECONDS
+                )
+            )
+        ):
             raise TrustedTimeHeadAnchorBackgroundWorkerError(
-                "trusted-time anchor background enrollment flag is invalid"
+                "trusted-time anchor background startup mode is invalid"
             )
         self._attempt = attempt
         self._monotonic_clock = monotonic_clock
         self._on_fatal = on_fatal
         self._allow_enrollment = allow_enrollment
+        self._require_startup_terminal = require_startup_terminal
         self._startup_primer = startup_primer
+        self._configured_startup_terminal_deadline_monotonic_ns = (
+            startup_terminal_deadline_monotonic_ns
+        )
+        self._configured_startup_terminal_publication_deadline_monotonic_ns = (
+            startup_terminal_publication_deadline_monotonic_ns
+        )
         self._condition = threading.Condition(threading.Lock())
         self._started_event = threading.Event()
         self._fatal_event = threading.Event()
@@ -92,6 +146,15 @@ class TrustedTimeHeadAnchorBackgroundWorker:
         self._abort_requested = False
         self._runtime_fatal = False
         self._startup_primed = False
+        self._startup_started_at_monotonic_ns: int | None = None
+        self._startup_started_at_wall_monotonic_ns: int | None = None
+        self._startup_terminal_deadline_monotonic_ns: int | None = None
+        self._startup_terminal_deadline_wall_monotonic_ns: int | None = None
+        self._startup_terminal_publication_deadline_monotonic_ns: int | None = None
+        self._startup_terminal_publication_deadline_wall_monotonic_ns: int | None = None
+        self._startup_terminal_completed_at_monotonic_ns: int | None = None
+        self._startup_terminal_completed_at_wall_monotonic_ns: int | None = None
+        self._startup_terminal_released = False
         self._last_observed_monotonic_ns = 0
         self._core: TrustedTimeHeadAnchorWorkerCore | None = None
         self._thread: threading.Thread | None = None
@@ -167,6 +230,7 @@ class TrustedTimeHeadAnchorBackgroundWorker:
         if self._runtime_fatal:
             return None
         self._runtime_fatal = True
+        self._abort_requested = True
         self._fatal_reason = reason
         core = self._core
         if core is not None and not core.fatal_error_latched:
@@ -209,6 +273,41 @@ class TrustedTimeHeadAnchorBackgroundWorker:
                     "trusted-time anchor background startup is fatal"
                 )
             started_at = self._read_monotonic_ns()
+            self._startup_started_at_monotonic_ns = started_at
+            self._startup_started_at_wall_monotonic_ns = time.monotonic_ns()
+            startup_timeout_ns = int(
+                TRUSTED_TIME_HEAD_ANCHOR_STARTUP_TERMINAL_TIMEOUT_SECONDS * 1_000_000_000
+            )
+            self._startup_terminal_deadline_monotonic_ns = (
+                self._configured_startup_terminal_deadline_monotonic_ns
+                if self._configured_startup_terminal_deadline_monotonic_ns is not None
+                else started_at + startup_timeout_ns
+            )
+            remaining_ns = max(
+                0,
+                self._startup_terminal_deadline_monotonic_ns - started_at,
+            )
+            self._startup_terminal_deadline_wall_monotonic_ns = (
+                self._startup_started_at_wall_monotonic_ns + min(startup_timeout_ns, remaining_ns)
+            )
+            self._startup_terminal_publication_deadline_monotonic_ns = (
+                self._configured_startup_terminal_publication_deadline_monotonic_ns
+                if self._configured_startup_terminal_publication_deadline_monotonic_ns is not None
+                else self._startup_terminal_deadline_monotonic_ns
+                + _TRUSTED_TIME_HEAD_ANCHOR_STARTUP_PUBLICATION_RESERVE_NANOSECONDS
+            )
+            publication_remaining_ns = max(
+                0,
+                self._startup_terminal_publication_deadline_monotonic_ns - started_at,
+            )
+            self._startup_terminal_publication_deadline_wall_monotonic_ns = (
+                self._startup_started_at_wall_monotonic_ns
+                + min(
+                    startup_timeout_ns
+                    + _TRUSTED_TIME_HEAD_ANCHOR_STARTUP_PUBLICATION_RESERVE_NANOSECONDS,
+                    publication_remaining_ns,
+                )
+            )
             self._core = TrustedTimeHeadAnchorWorkerCore(
                 started_at_monotonic_ns=started_at,
                 allow_enrollment=self._allow_enrollment,
@@ -241,13 +340,23 @@ class TrustedTimeHeadAnchorBackgroundWorker:
             with self._condition:
                 if self._abort_requested or self._runtime_fatal:
                     return
+                if (
+                    self._require_startup_terminal
+                    and self._startup_terminal_completed_at_monotonic_ns is not None
+                    and not self._startup_terminal_released
+                ):
+                    self._condition.wait()
+                    continue
                 core = self._core_locked()
                 if core.fatal_error_latched or core.stopped:
                     return
                 try:
                     observed = self._read_monotonic_ns()
-                    request = core.take_work(observed_at_monotonic_ns=observed)
-                    if request is None:
+                    if self._startup_terminal_deadline_expired_locked(observed):
+                        callback = self._latch_runtime_fatal_locked()
+                    else:
+                        request = core.take_work(observed_at_monotonic_ns=observed)
+                    if request is None and callback is None:
                         deadline = core.next_wake_monotonic_ns()
                         timeout = None
                         if deadline is not None:
@@ -288,6 +397,9 @@ class TrustedTimeHeadAnchorBackgroundWorker:
 
             callback = None
             with self._condition:
+                if self._abort_requested or self._fatal_event.is_set():
+                    self._condition.notify_all()
+                    return
                 core = self._core_locked()
                 try:
                     completed = self._read_monotonic_ns()
@@ -297,6 +409,16 @@ class TrustedTimeHeadAnchorBackgroundWorker:
                             result,
                             observed_at_monotonic_ns=completed,
                         )
+                        if (
+                            request.full_audit
+                            and not request.allow_enrollment
+                            and request.checkpoint_reason
+                            is TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION
+                        ):
+                            self._startup_terminal_completed_at_monotonic_ns = completed
+                            self._startup_terminal_completed_at_wall_monotonic_ns = (
+                                time.monotonic_ns()
+                            )
                     elif transient:
                         core.record_transient_failure(
                             request,
@@ -322,6 +444,212 @@ class TrustedTimeHeadAnchorBackgroundWorker:
             self._invoke_fatal_callback(callback)
             if callback is not None:
                 return
+
+    def _startup_terminal_deadline_expired_locked(
+        self,
+        observed_at_monotonic_ns: int,
+    ) -> bool:
+        if (
+            not self._require_startup_terminal
+            or self._startup_terminal_completed_at_monotonic_ns is not None
+        ):
+            return False
+        logical_deadline = self._startup_terminal_deadline_monotonic_ns
+        wall_deadline = self._startup_terminal_deadline_wall_monotonic_ns
+        return (
+            logical_deadline is None
+            or wall_deadline is None
+            or observed_at_monotonic_ns >= logical_deadline
+            or time.monotonic_ns() >= wall_deadline
+        )
+
+    def wait_for_startup_terminal(
+        self,
+        *,
+        timeout_seconds: float = (TRUSTED_TIME_HEAD_ANCHOR_STARTUP_TERMINAL_TIMEOUT_SECONDS),
+        publish_startup_terminal: Callable[[], None] | None = None,
+    ) -> TrustedTimeHeadAnchorWorkerEvidence:
+        """Require the first normal full-audit epoch rotation within one bound.
+
+        Transient failures may use the core's existing retry schedule only
+        while both the suspend-aware runtime bound and an independent wall
+        bound remain open. Expiry irreversibly aborts the worker and latches
+        fatal state, so a delayed retry cannot cross into long-lived probing.
+        """
+
+        if (
+            type(timeout_seconds) not in {int, float}
+            or isinstance(timeout_seconds, bool)
+            or not math.isfinite(float(timeout_seconds))
+            or not 0
+            < float(timeout_seconds)
+            <= TRUSTED_TIME_HEAD_ANCHOR_STARTUP_TERMINAL_TIMEOUT_SECONDS
+            or (publish_startup_terminal is not None and not callable(publish_startup_terminal))
+        ):
+            raise TrustedTimeHeadAnchorBackgroundWorkerError(
+                "trusted-time anchor startup-terminal bound is invalid"
+            )
+        timeout_ns = int(float(timeout_seconds) * 1_000_000_000)
+        callback: Callable[[], object] | None = None
+        evidence: TrustedTimeHeadAnchorWorkerEvidence | None = None
+        failure: str | None = None
+        publication_failure: BaseException | None = None
+        with self._condition:
+            if self._thread is None:
+                raise TrustedTimeHeadAnchorBackgroundWorkerError(
+                    "trusted-time anchor startup-terminal worker is not started"
+                )
+            if self._allow_enrollment:
+                raise TrustedTimeHeadAnchorBackgroundWorkerError(
+                    "trusted-time anchor startup terminal requires normal supervision"
+                )
+            logical_started_at = self._startup_started_at_monotonic_ns
+            wall_started_at = self._startup_started_at_wall_monotonic_ns
+            if logical_started_at is None or wall_started_at is None:
+                raise TrustedTimeHeadAnchorBackgroundWorkerError(
+                    "trusted-time anchor startup terminal has no start instant"
+                )
+            requested_logical_deadline = logical_started_at + timeout_ns
+            requested_wall_deadline = wall_started_at + timeout_ns
+            current_logical_deadline = self._startup_terminal_deadline_monotonic_ns
+            current_wall_deadline = self._startup_terminal_deadline_wall_monotonic_ns
+            logical_deadline = min(
+                requested_logical_deadline,
+                current_logical_deadline
+                if current_logical_deadline is not None
+                else requested_logical_deadline,
+            )
+            wall_deadline = min(
+                requested_wall_deadline,
+                current_wall_deadline
+                if current_wall_deadline is not None
+                else requested_wall_deadline,
+            )
+            self._startup_terminal_deadline_monotonic_ns = logical_deadline
+            self._startup_terminal_deadline_wall_monotonic_ns = wall_deadline
+            configured_publication_deadline = (
+                self._startup_terminal_publication_deadline_monotonic_ns
+            )
+            configured_publication_wall_deadline = (
+                self._startup_terminal_publication_deadline_wall_monotonic_ns
+            )
+            self._startup_terminal_publication_deadline_monotonic_ns = min(
+                logical_deadline
+                + _TRUSTED_TIME_HEAD_ANCHOR_STARTUP_PUBLICATION_RESERVE_NANOSECONDS,
+                configured_publication_deadline
+                if configured_publication_deadline is not None
+                else logical_deadline
+                + _TRUSTED_TIME_HEAD_ANCHOR_STARTUP_PUBLICATION_RESERVE_NANOSECONDS,
+            )
+            self._startup_terminal_publication_deadline_wall_monotonic_ns = min(
+                wall_deadline + _TRUSTED_TIME_HEAD_ANCHOR_STARTUP_PUBLICATION_RESERVE_NANOSECONDS,
+                configured_publication_wall_deadline
+                if configured_publication_wall_deadline is not None
+                else wall_deadline
+                + _TRUSTED_TIME_HEAD_ANCHOR_STARTUP_PUBLICATION_RESERVE_NANOSECONDS,
+            )
+            while True:
+                if self._runtime_fatal:
+                    failure = "trusted-time anchor startup terminal failed closed"
+                    break
+                try:
+                    logical_now = self._read_monotonic_ns()
+                except Exception:
+                    self._abort_requested = True
+                    callback = self._latch_runtime_fatal_locked()
+                    failure = "trusted-time anchor startup terminal clock failed"
+                    break
+                wall_now = time.monotonic_ns()
+                terminal_at = self._startup_terminal_completed_at_monotonic_ns
+                terminal_wall_at = self._startup_terminal_completed_at_wall_monotonic_ns
+                if logical_now >= logical_deadline or wall_now >= wall_deadline:
+                    self._abort_requested = True
+                    callback = self._latch_runtime_fatal_locked()
+                    failure = "trusted-time anchor startup terminal was not confirmed"
+                    break
+                if terminal_at is not None and terminal_wall_at is not None:
+                    if terminal_at > logical_deadline or terminal_wall_at > wall_deadline:
+                        self._abort_requested = True
+                        callback = self._latch_runtime_fatal_locked()
+                        failure = "trusted-time anchor startup terminal was not confirmed"
+                        break
+                    try:
+                        if (
+                            publish_startup_terminal is not None
+                            and publish_startup_terminal() is not None
+                        ):
+                            raise TrustedTimeHeadAnchorBackgroundWorkerError(
+                                "trusted-time anchor startup-terminal publisher is invalid"
+                            )
+                    except BaseException as error:
+                        self._abort_requested = True
+                        callback = self._latch_runtime_fatal_locked()
+                        publication_failure = error
+                        failure = "trusted-time anchor startup terminal publication failed"
+                        break
+                    try:
+                        published_at = self._read_monotonic_ns()
+                    except Exception:
+                        self._abort_requested = True
+                        callback = self._latch_runtime_fatal_locked()
+                        failure = "trusted-time anchor startup terminal publication failed"
+                        break
+                    publication_deadline = self._startup_terminal_publication_deadline_monotonic_ns
+                    publication_wall_deadline = (
+                        self._startup_terminal_publication_deadline_wall_monotonic_ns
+                    )
+                    if (
+                        publication_deadline is None
+                        or publication_wall_deadline is None
+                        or published_at >= publication_deadline
+                        or time.monotonic_ns() >= publication_wall_deadline
+                    ):
+                        self._abort_requested = True
+                        callback = self._latch_runtime_fatal_locked()
+                        failure = "trusted-time anchor startup terminal publication failed"
+                        break
+                    try:
+                        evidence = self._core_locked().evidence(
+                            observed_at_monotonic_ns=self._last_observed_monotonic_ns
+                        )
+                    except Exception:
+                        self._abort_requested = True
+                        failure = "trusted-time anchor startup terminal is invalid"
+                    if (
+                        evidence is None
+                        or not evidence.startup_full_audit_completed
+                        or evidence.fatal_error_latched
+                    ):
+                        self._abort_requested = True
+                        callback = self._latch_runtime_fatal_locked()
+                        failure = "trusted-time anchor startup terminal is invalid"
+                    else:
+                        self._startup_terminal_released = True
+                        self._condition.notify_all()
+                    break
+                if terminal_at is not None or terminal_wall_at is not None:
+                    self._abort_requested = True
+                    callback = self._latch_runtime_fatal_locked()
+                    failure = "trusted-time anchor startup terminal is invalid"
+                    break
+                # Recompute the worker's retry deadline against the same
+                # suspend-aware clock after each bounded wall-clock poll.
+                self._condition.notify_all()
+                self._condition.wait(
+                    timeout=min(
+                        _TRUSTED_TIME_HEAD_ANCHOR_STARTUP_TERMINAL_POLL_SECONDS,
+                        (logical_deadline - logical_now) / 1_000_000_000,
+                        (wall_deadline - wall_now) / 1_000_000_000,
+                    )
+                )
+        self._invoke_fatal_callback(callback)
+        if publication_failure is not None:
+            raise publication_failure
+        if failure is not None or evidence is None:
+            raise TrustedTimeHeadAnchorBackgroundWorkerError(
+                failure or "trusted-time anchor startup terminal failed closed"
+            )
+        return evidence
 
     def _notify(self, operation: Callable[[TrustedTimeHeadAnchorWorkerCore, int], None]) -> None:
         callback: Callable[[], object] | None = None
@@ -443,6 +771,7 @@ def system_monotonic_ns() -> int:
 __all__ = [
     "TRUSTED_TIME_HEAD_ANCHOR_BACKGROUND_WORKER_CONTRACT_VERSION",
     "TRUSTED_TIME_HEAD_ANCHOR_SHUTDOWN_TIMEOUT_SECONDS",
+    "TRUSTED_TIME_HEAD_ANCHOR_STARTUP_TERMINAL_TIMEOUT_SECONDS",
     "TrustedTimeHeadAnchorBackgroundWorker",
     "TrustedTimeHeadAnchorBackgroundWorkerError",
     "system_monotonic_ns",

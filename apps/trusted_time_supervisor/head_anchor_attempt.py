@@ -8,6 +8,9 @@ or trading authority.
 
 from __future__ import annotations
 
+import os
+import threading
+import time
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -26,6 +29,7 @@ from packages.application.trusted_time_head_anchor import (
     TrustedTimeHeadAnchorEd25519Verifier,
     TrustedTimeHeadAnchorEnrollmentNotApproved,
     TrustedTimeHeadAnchorProvider,
+    TrustedTimeHeadAnchorProviderIdentity,
     TrustedTimeHeadAnchorProviderUnavailable,
     TrustedTimeHeadAnchorReconciliationResult,
     TrustedTimeHeadAnchorRecord,
@@ -57,6 +61,8 @@ from packages.persistence.trusted_time_head_anchor import (
 TRUSTED_TIME_HEAD_ANCHOR_ATTEMPT_CONTRACT_VERSION = (
     "phase6d-repository-backed-trusted-head-anchor-attempt-v1"
 )
+TRUSTED_TIME_HEAD_ANCHOR_STARTUP_PROVIDER_EFFECT_RESERVE_NANOSECONDS = 16_000_000_000
+TRUSTED_TIME_HEAD_ANCHOR_STARTUP_SQL_EFFECT_RESERVE_NANOSECONDS = 50_000_000_000
 
 
 def _authority_is_never_granted(_: object) -> bool:
@@ -73,6 +79,268 @@ class TrustedTimeHeadAnchorFirstEnrollmentStateConflict(TrustedTimeHeadAnchorFat
 
 class TrustedTimeHeadAnchorFirstEnrollmentRecoveryRequired(TrustedTimeHeadAnchorFatalFailure):
     """A durable intent or remote effect may exist and needs separate recovery."""
+
+
+class TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(TrustedTimeHeadAnchorFatalFailure):
+    """The one-shot sequence-two effect window is absent, stale, or exhausted."""
+
+
+class TrustedTimeHeadAnchorStartupEffectDeadlineGuard:
+    """Share one absolute startup-effect cutoff across SQL and provider calls.
+
+    The guard is process-bound and one-shot.  Once the exact startup terminal
+    has been published, ``release_after_startup_terminal`` permanently turns
+    it into a no-op for the normal long-lived supervisor.  Any clock, process,
+    or deadline failure poisons it instead.
+    """
+
+    __slots__ = (
+        "_deadline_monotonic_ns",
+        "_last_monotonic_ns",
+        "_last_wall_monotonic_ns",
+        "_lock",
+        "_monotonic_clock",
+        "_owner_pid",
+        "_state",
+        "_wall_deadline_monotonic_ns",
+        "_wall_monotonic_clock",
+    )
+
+    def __init__(
+        self,
+        *,
+        deadline_monotonic_ns: int,
+        monotonic_clock: Callable[[], int],
+        wall_monotonic_clock: Callable[[], int] = time.monotonic_ns,
+    ) -> None:
+        if (
+            type(deadline_monotonic_ns) is not int
+            or deadline_monotonic_ns < 0
+            or not callable(monotonic_clock)
+            or not callable(wall_monotonic_clock)
+        ):
+            raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                "trusted-time anchor startup effect deadline is invalid"
+            )
+        try:
+            observed = monotonic_clock()
+            wall_observed = wall_monotonic_clock()
+        except Exception:
+            raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                "trusted-time anchor startup effect deadline clock failed"
+            ) from None
+        if (
+            type(observed) is not int
+            or observed < 0
+            or type(wall_observed) is not int
+            or wall_observed < 0
+            or observed >= deadline_monotonic_ns
+        ):
+            raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                "trusted-time anchor startup effect deadline is expired"
+            )
+        self._deadline_monotonic_ns = deadline_monotonic_ns
+        self._monotonic_clock = monotonic_clock
+        self._wall_monotonic_clock = wall_monotonic_clock
+        self._wall_deadline_monotonic_ns = wall_observed + deadline_monotonic_ns - observed
+        self._last_monotonic_ns = observed
+        self._last_wall_monotonic_ns = wall_observed
+        self._owner_pid = os.getpid()
+        self._state = "armed"
+        self._lock = threading.Lock()
+
+    def _read_clocks_locked(self) -> tuple[int, int]:
+        if os.getpid() != self._owner_pid:
+            self._state = "poisoned"
+            raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                "trusted-time anchor startup effect guard crossed a process boundary"
+            )
+        try:
+            observed = self._monotonic_clock()
+            wall_observed = self._wall_monotonic_clock()
+        except Exception:
+            self._state = "poisoned"
+            raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                "trusted-time anchor startup effect deadline clock failed"
+            ) from None
+        if (
+            type(observed) is not int
+            or observed < self._last_monotonic_ns
+            or type(wall_observed) is not int
+            or wall_observed < self._last_wall_monotonic_ns
+        ):
+            self._state = "poisoned"
+            raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                "trusted-time anchor startup effect deadline clock regressed"
+            )
+        self._last_monotonic_ns = observed
+        self._last_wall_monotonic_ns = wall_observed
+        return observed, wall_observed
+
+    def require_effect_window(self, *, minimum_remaining_ns: int = 0) -> None:
+        """Fail before an operation unless both absolute clocks have room."""
+
+        if type(minimum_remaining_ns) is not int or minimum_remaining_ns < 0:
+            raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                "trusted-time anchor startup effect reserve is invalid"
+            )
+        with self._lock:
+            if os.getpid() != self._owner_pid:
+                self._state = "poisoned"
+                raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                    "trusted-time anchor startup effect guard crossed a process boundary"
+                )
+            if self._state == "released":
+                return
+            if self._state != "armed":
+                raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                    "trusted-time anchor startup effect guard is poisoned"
+                )
+            observed, wall_observed = self._read_clocks_locked()
+            if (
+                observed + minimum_remaining_ns >= self._deadline_monotonic_ns
+                or wall_observed + minimum_remaining_ns >= self._wall_deadline_monotonic_ns
+            ):
+                self._state = "poisoned"
+                raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                    "trusted-time anchor startup effect deadline is exhausted"
+                )
+
+    def release_after_startup_terminal(self) -> None:
+        """Retire the one-shot guard only after exact ready publication."""
+
+        with self._lock:
+            if self._state != "armed":
+                raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                    "trusted-time anchor startup effect guard cannot be released"
+                )
+            observed, wall_observed = self._read_clocks_locked()
+            if (
+                observed >= self._deadline_monotonic_ns
+                or wall_observed >= self._wall_deadline_monotonic_ns
+            ):
+                self._state = "poisoned"
+                raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                    "trusted-time anchor startup effect deadline is exhausted"
+                )
+            self._state = "released"
+
+
+class DeadlineBoundTrustedTimeHeadAnchorProvider:
+    """Apply the shared startup effect cutoff around every provider call."""
+
+    __slots__ = ("_provider", "_startup_effect_guard")
+
+    def __init__(
+        self,
+        *,
+        provider: TrustedTimeHeadAnchorProvider,
+        startup_effect_guard: TrustedTimeHeadAnchorStartupEffectDeadlineGuard,
+    ) -> None:
+        if type(startup_effect_guard) is not TrustedTimeHeadAnchorStartupEffectDeadlineGuard:
+            raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                "trusted-time anchor startup provider guard is invalid"
+            )
+        required = (
+            "attest_identity",
+            "list_object_names",
+            "list_object_names_page",
+            "list_sequence_object_names",
+            "download_object",
+            "upload_object_no_overwrite",
+        )
+        if any(not callable(getattr(provider, method, None)) for method in required):
+            raise TrustedTimeHeadAnchorStartupEffectDeadlineExceeded(
+                "trusted-time anchor startup provider is invalid"
+            )
+        self._provider = provider
+        self._startup_effect_guard = startup_effect_guard
+
+    def _before_remote_io(self) -> None:
+        self._startup_effect_guard.require_effect_window(
+            minimum_remaining_ns=(
+                TRUSTED_TIME_HEAD_ANCHOR_STARTUP_PROVIDER_EFFECT_RESERVE_NANOSECONDS
+            )
+        )
+
+    def _after_remote_io(self) -> None:
+        self._startup_effect_guard.require_effect_window()
+
+    def attest_identity(self) -> TrustedTimeHeadAnchorProviderIdentity:
+        self._startup_effect_guard.require_effect_window()
+        return self._provider.attest_identity()
+
+    def list_object_names(self, *, bucket_name: str, prefix: str) -> tuple[str, ...]:
+        self._before_remote_io()
+        try:
+            return self._provider.list_object_names(bucket_name=bucket_name, prefix=prefix)
+        finally:
+            self._after_remote_io()
+
+    def list_object_names_page(
+        self,
+        *,
+        bucket_name: str,
+        prefix: str,
+        offset: int,
+        limit: int,
+    ) -> tuple[str, ...]:
+        self._before_remote_io()
+        try:
+            return self._provider.list_object_names_page(
+                bucket_name=bucket_name,
+                prefix=prefix,
+                offset=offset,
+                limit=limit,
+            )
+        finally:
+            self._after_remote_io()
+
+    def list_sequence_object_names(
+        self,
+        *,
+        bucket_name: str,
+        prefix: str,
+        anchor_sequence: int,
+    ) -> tuple[str, ...]:
+        self._before_remote_io()
+        try:
+            return self._provider.list_sequence_object_names(
+                bucket_name=bucket_name,
+                prefix=prefix,
+                anchor_sequence=anchor_sequence,
+            )
+        finally:
+            self._after_remote_io()
+
+    def download_object(self, *, bucket_name: str, object_name: str) -> bytes:
+        self._before_remote_io()
+        try:
+            return self._provider.download_object(
+                bucket_name=bucket_name,
+                object_name=object_name,
+            )
+        finally:
+            self._after_remote_io()
+
+    def upload_object_no_overwrite(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        payload: bytes,
+        content_type: str,
+    ) -> None:
+        self._before_remote_io()
+        try:
+            self._provider.upload_object_no_overwrite(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                payload=payload,
+                content_type=content_type,
+            )
+        finally:
+            self._after_remote_io()
 
 
 class TrustedTimeHeadAnchorFirstEnrollmentDisposition(StrEnum):
@@ -387,6 +655,7 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
         "_provider",
         "_signer",
         "_snapshot",
+        "_startup_effect_guard",
         "_utc_clock",
         "_verifier",
     )
@@ -400,8 +669,17 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
         verifier: TrustedTimeHeadAnchorEd25519Verifier,
         authority: TrustedTimeHeadAnchorAuthority,
         utc_clock: Callable[[], datetime],
+        startup_effect_guard: TrustedTimeHeadAnchorStartupEffectDeadlineGuard | None = None,
     ) -> None:
-        if type(authority) is not TrustedTimeHeadAnchorAuthority or not callable(utc_clock):
+        if (
+            type(authority) is not TrustedTimeHeadAnchorAuthority
+            or not callable(utc_clock)
+            or (
+                startup_effect_guard is not None
+                and type(startup_effect_guard)
+                is not TrustedTimeHeadAnchorStartupEffectDeadlineGuard
+            )
+        ):
             raise TrustedTimeHeadAnchorFatalFailure(
                 "trusted-time anchor attempt dependencies are invalid"
             )
@@ -448,8 +726,22 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
         self._verifier = verifier
         self._authority = authority
         self._utc_clock = utc_clock
+        self._startup_effect_guard = startup_effect_guard
         self._snapshot: TrustedTimeHeadAnchorPersistenceSnapshot | None = None
         self._closed = False
+
+    def _require_startup_effect_window(self, *, minimum_remaining_ns: int = 0) -> None:
+        guard = self._startup_effect_guard
+        if guard is not None:
+            guard.require_effect_window(minimum_remaining_ns=minimum_remaining_ns)
+
+    def _before_sql_effect(self) -> None:
+        self._require_startup_effect_window(
+            minimum_remaining_ns=(TRUSTED_TIME_HEAD_ANCHOR_STARTUP_SQL_EFFECT_RESERVE_NANOSECONDS)
+        )
+
+    def _after_sql_effect(self) -> None:
+        self._require_startup_effect_window()
 
     def _now(self) -> datetime:
         try:
@@ -581,12 +873,16 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
             record=intent.record,
             object_name=intent.object_name,
         )
-        confirmed, receipt = self._anchor_repository.confirm_remote_readback_from_snapshot(
-            snapshot,
-            intent=intent,
-            provider_readback=provider_readback,
-            observed_at_utc=self._now(),
-        )
+        self._before_sql_effect()
+        try:
+            confirmed, receipt = self._anchor_repository.confirm_remote_readback_from_snapshot(
+                snapshot,
+                intent=intent,
+                provider_readback=provider_readback,
+                observed_at_utc=self._now(),
+            )
+        finally:
+            self._after_sql_effect()
         self._snapshot = confirmed
         self._compact_snapshot()
         return result, receipt
@@ -649,12 +945,16 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
             self._compact_snapshot()
             return result, None
 
-        snapshot, evidence = self._anchor_repository.commit_prepared_intent(
-            self._require_snapshot(),
-            prepared=prepared,
-            created_at_utc=self._now(),
-            allow_enrollment=allow_enrollment,
-        )
+        self._before_sql_effect()
+        try:
+            snapshot, evidence = self._anchor_repository.commit_prepared_intent(
+                self._require_snapshot(),
+                prepared=prepared,
+                created_at_utc=self._now(),
+                allow_enrollment=allow_enrollment,
+            )
+        finally:
+            self._after_sql_effect()
         self._snapshot = snapshot
         if snapshot.committed_pending_evidence != evidence:
             raise TrustedTimeHeadAnchorFatalFailure(
@@ -834,12 +1134,16 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
             record=intent.record,
             object_name=intent.object_name,
         )
-        confirmed, receipt = self._anchor_repository.confirm_remote_readback_from_snapshot(
-            snapshot,
-            intent=intent,
-            provider_readback=provider_readback,
-            observed_at_utc=self._now(),
-        )
+        self._before_sql_effect()
+        try:
+            confirmed, receipt = self._anchor_repository.confirm_remote_readback_from_snapshot(
+                snapshot,
+                intent=intent,
+                provider_readback=provider_readback,
+                observed_at_utc=self._now(),
+            )
+        finally:
+            self._after_sql_effect()
         self._snapshot = confirmed
         enrollment_result: TrustedTimeHeadAnchorFirstEnrollmentResult | None = None
         try:
@@ -894,12 +1198,16 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
                 "trusted-time first enrollment candidate is invalid"
             )
         try:
-            pending, evidence = self._anchor_repository.commit_prepared_intent(
-                self._require_snapshot(),
-                prepared=prepared,
-                created_at_utc=self._now(),
-                allow_enrollment=True,
-            )
+            self._before_sql_effect()
+            try:
+                pending, evidence = self._anchor_repository.commit_prepared_intent(
+                    self._require_snapshot(),
+                    prepared=prepared,
+                    created_at_utc=self._now(),
+                    allow_enrollment=True,
+                )
+            finally:
+                self._after_sql_effect()
             self._snapshot = pending
             if pending.committed_pending_evidence != evidence:
                 raise TrustedTimeHeadAnchorFirstEnrollmentStateConflict(
@@ -1346,6 +1654,7 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
         if type(request) is not TrustedTimeHeadAnchorWorkRequest:
             raise TrustedTimeHeadAnchorFatalFailure("trusted-time anchor work request is invalid")
         try:
+            self._require_startup_effect_window()
             request.__post_init__()
             return self._run(request)
         except TrustedTimeHeadAnchorSnapshotAdvanced as error:
@@ -1406,6 +1715,9 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
 
 __all__ = [
     "TRUSTED_TIME_HEAD_ANCHOR_ATTEMPT_CONTRACT_VERSION",
+    "TRUSTED_TIME_HEAD_ANCHOR_STARTUP_PROVIDER_EFFECT_RESERVE_NANOSECONDS",
+    "TRUSTED_TIME_HEAD_ANCHOR_STARTUP_SQL_EFFECT_RESERVE_NANOSECONDS",
+    "DeadlineBoundTrustedTimeHeadAnchorProvider",
     "RepositoryBackedTrustedTimeHeadAnchorAttempt",
     "TrustedTimeHeadAnchorFirstEnrollmentAlreadyCompleted",
     "TrustedTimeHeadAnchorFirstEnrollmentCompletedPostconditionsUnconfirmed",
@@ -1416,4 +1728,6 @@ __all__ = [
     "TrustedTimeHeadAnchorFirstEnrollmentStateConflict",
     "TrustedTimeHeadAnchorPostEnrollmentStartPostcondition",
     "TrustedTimeHeadAnchorPostEnrollmentStartPostconditionsUnconfirmed",
+    "TrustedTimeHeadAnchorStartupEffectDeadlineExceeded",
+    "TrustedTimeHeadAnchorStartupEffectDeadlineGuard",
 ]

@@ -2645,8 +2645,12 @@ identity; it is non-copyable, nonserializable, valid only in the callback, and r
 the callback returns. A child at-fork hook closes the inherited global-lock
 descriptor without acquiring inherited Python locks.
 
-Lease acquisition fixes an absolute 300-second monotonic deadline. A clock
-regression or observation at exactly or after that deadline fails closed. Raw
+Lease acquisition fixes an absolute 300-second deadline on one production
+suspend-aware host action clock owned and identity-sealed by the topology
+issuer. Linux uses `CLOCK_BOOTTIME`, macOS uses `mach_continuous_time` scaled by
+`mach_timebase_info`, and every other or unavailable platform fails closed; an
+injected clock remains only a test seam. A clock regression or observation at
+exactly or after that deadline fails closed. Raw
 Docker commands retain a two-second deadline; during the callback each timeout
 shrinks to `min(2 seconds, remaining time)` and the lease is checkpointed again
 after the command. The unchanged v1 transcript's 2,000-millisecond field
@@ -2870,25 +2874,217 @@ cursor-only topology-observation gap at its own code boundary but authorizes no
 release, runtime, sequence 2, persistent topology, success outcome, or trading
 action.
 
-The next implementation remains a separately admitted and operationally
-approved active controller. While healthy, it must use the now-implemented
-private one-shot action lease and keep the same callback plus continuously open
-PID-bound issuer/global-lock session from fresh topology creation and staging
-through ordinal 1, claim preparation and the now-implemented final full live
-action-time reobservation, then through exact release, bounded sequence 2,
-persistent-topology qualification, and durable success retention. The existing
-absolute 300-second deadline must cover that successful callback and must not
-restart at a later stage; the callback must not return with only either
-unqualified claimed fence.
+Contract `phase6d-post-enrollment-start-active-controller-admission-v1`, with
+sole status `active_controller_admission_unqualified`, now adds the first
+dormant active-controller admission without executing an action. Function
+`prepare_post_enrollment_start_active_controller_admission` accepts only the
+exact process-sealed claimed action-topology fence and its one-shot private
+controller-origin tuple: issuer, active lease, armed recovery capability,
+artifact and ignored roots, PID, and thread. It consumes that tuple through
+`_consume_claimed_action_fence_controller_choreography`, revalidates the exact
+action fence and retained claim, and repeatedly requires the same live lease,
+named lock, issuer/daemon session, roots, shrinking deadline, and armed recovery
+escape through result construction.
 
-Any poison or action-deadline failure revokes action authority immediately,
-while the owning callback and flock remain live until unwind. The implemented
-claim-bound retention capability appends only the one pre-release recovery
-disposition and restores no authority. If retention cannot be confirmed or the
-process crashes, the consumed claim remains the hard-closed recovery fact and
-grants no retry. These dormant seams authorize no release or runtime action.
-Only after the separately admitted active controller boundary may a separate
-sealed watchdog provider-terminal issuer authenticate the complete new suffix,
+Successful consumption removes the full tuple from the action-fence registry
+and retains only a weak reference to the originating issuer as a consumed-
+origin tombstone, so replay still poisons the origin without retaining lease,
+recovery, or root authority there. After the remaining checks and exact result
+construction succeed, the preparer registers that same exact tuple in a
+distinct one-shot future-continuation registry bound to the exact admission
+result. Any ordinary or asynchronous failure after origin consumption and
+before return unregisters any partially installed admission-result and
+continuation state, leaves the action-fence registry's weak tombstone intact,
+and poisons the originating action. Neither registration enters the public
+payload. The result directly retains only sealed nested evidence, is process-
+local, non-copyable, nonserializable, and invalid after fork. Private
+`_consume_active_controller_continuation` is called only by the code-only
+`run_post_enrollment_start_active_controller` tail; no supported runtime surface
+can call it. The seam is pop-before-validation and one-shot: an exact-result
+attempt replaces the continuation's full origin tuple with an admission-local
+weak issuer tombstone across ordinary or asynchronous failure, and makes replay
+fail closed and poison the origin without granting an effect.
+
+Preparation positively authenticates only the exact action fence, live issuer/
+lock/daemon session, active lease, armed recovery capability, canonical roots,
+PID/thread binding, and retained-claim revalidation at the admission boundary.
+Those transient checks are not asserted to survive return: current-session,
+freshness, and topology-authentication fields remain false. It performs no
+Docker, file mutation, release, SQL, provider, topology, or outcome operation
+and does not make the prior topology read current for a later effect. An input
+of the wrong action-fence type is rejected. Once an exact-type action-fence
+object is presented, a
+missing, wrong, stale, or replayed origin tuple and any later claim, lease,
+armed-recovery, lock, root, deadline, or result failure are recovery-required,
+poison the registered or tombstoned originating action, and leave the already
+armed recovery capability to the owning outer callback. Release, runtime,
+sequence 2, persistent start, topology qualification, success outcome,
+shutdown, and every operational or trading authority remain false. In
+particular, `active_controller_authorized=false` and
+`controller_execution_authorized=false` are explicit payload and result
+properties; admission is not controller execution.
+
+The separately admitted effecting-controller code slice is now implemented as
+`phase6d-post-enrollment-start-active-controller-v1`, with terminal success
+status `post_enrollment_start_confirmed`. Public function
+`run_post_enrollment_start_active_controller` has no CLI, Make, Compose,
+launcher, or supported runbook invocation. It can run only inside the same
+private choreography callback by consuming the exact admission's one-shot
+continuation. It revalidates the retained claim, action fence, live lease,
+PID-bound issuer session, named outer lock, roots, and deadline, then performs a
+fresh 16-read staged-unreleased observation immediately before the effect. The
+original 300-second callback deadline is never restarted.
+
+Before release, the controller requires at least 260 seconds of the original
+lease budget. It first issues a caller-owned post-effect candidate, then
+atomically transitions the exact pre-release recovery capability to the
+post-effect controller-outcome state; asynchronous interruption cannot leave a
+committed effect with only the old pre-release writer. The old writer is invalid
+after transition. That irreversible transition is the conservative release-
+attempt admission boundary and occurs immediately before command spawn:
+`release_attempted=true` from that point even if interruption prevents the
+eventual syscall, and every such failure is retained as post-effect rather than
+falling back to the legacy pre-release writer. The bound command runner seals
+the exact executable, argv, opening environment projection and digest, timeout,
+and output bounds. The
+fresh pre-effect pass also requires all deadline, release, and ready final and
+staging names to be absent. The exact in-container release command first
+publishes owner-only contract
+`phase6d-post-enrollment-start-sequence-two-deadline-v1`, binding an absolute
+Linux `CLOCK_BOOTTIME` deadline exactly 120 seconds after its issued instant,
+the current Linux boot identity by digest, and the fixed release-marker digest;
+only then does it publish the release marker. PID 1 reads that same deadline
+immediately after release admission and before signal-handler or runtime
+composition. Any stale final name, live or abandoned staging name, reboot,
+clock regression, or late release fails closed and leaves no readable success
+barrier.
+
+The normal supervisor gives its initial full-audit `epoch_rotation` attempt the
+same absolute deadline minus five seconds, so runtime initialization cannot
+restart or widen the window. One process-bound startup-effect guard is shared by
+the repository attempt and a deadline-bound provider wrapper. It requires 50
+seconds before a durable SQL call and 16 seconds before bounded provider I/O,
+checks again afterward, detects clock regression, fork, or deadline crossing,
+and is retired only after exact ready publication. The resulting maximum worker
+window is 115 seconds; every work selection checks that cutoff, timeout latches
+fatal/abort, and transient startup retry cannot cross it. Long-lived local
+probing does not begin until that initial audit succeeds and the owner-only
+`phase6d-post-enrollment-start-sequence-two-ready-v1` marker is atomically
+published. Marker publication is itself limited by both a five-second local
+bound and the shared absolute deadline; a late visibility commit is poisoned so
+the reader cannot mistake it for success.
+
+The image-only inspection executable
+`autoquant-trusted-time-post-enrollment-runtime-state` implements
+`phase6d-post-enrollment-runtime-state-v1`. It validates the release marker and
+canonical boot-bound deadline, waits only to that exact 120-second
+`CLOCK_BOOTTIME` deadline, validates the sequence-two-ready marker, and then
+revalidates all three identities and the still-open deadline before emitting one
+bounded nonsecret `sequence_two_ready_observed` receipt. That receipt includes
+only `sequence_two_deadline_marker_sha256`, not its numeric instant or boot
+identity. The
+host controller allows at most 122 seconds for that one Docker exec, while the
+in-container absolute deadline remains stronger. The controller separately
+requires at least 130 seconds after runtime-state observation, at least 50
+seconds after the first successor and persistent-topology pass, and five seconds
+before terminal outcome retention; those later reserves are why the pre-effect
+gate is 260 seconds rather than merely the 120-second in-container window.
+
+Sequence-2 qualification is not delegated to a caller-supplied repository
+attempt. Contract `phase6d-post-enrollment-start-sequence-two-verifier-v1` is a
+process-private, exact two-call verifier prepared before the effect from the
+admission, issuer, lease, recovery capability, roots, PID/thread, retained
+claim, original action deadline, database identity, and exact read-only
+configuration. It lazily constructs its private SQL and Supabase resources on
+the first call. Its SQL router admits only deadline-guarded verification reads;
+its provider wrapper exposes no upload, and it has only the public Ed25519
+verifier, never a signer or private key. The verifier uses the exact clock
+object sealed into the topology issuer, so its phase cutoffs and the issuer's
+original action deadline remain in one host clock domain. The first exact
+verification must finish before the original deadline minus 85 seconds and the
+second before that deadline minus eight seconds. Only two identical results
+plus confirmed cleanup produce `verification_transcript_sha256`. A wrong or
+replayed call while the live origin still exists closes the verifier and
+poisons the topology issuer.
+Every terminal zero-, one-, or two-call path then erases admission, binding,
+claim, issuer reference, lease, recovery capability, deadline, PID/thread, and
+resources; only inert terminal status plus the binding, configuration, and
+optional completed-transcript digest projections remain. A later replay still
+rejects but cannot poison an issuer whose reference has already been erased.
+The preparer, verifier, and its digests remain non-authorizing and have no CLI,
+Make, Compose, launcher, or host-runtime surface.
+
+After that receipt, the controller authenticates the sequence-2 successor
+twice around one persistent-topology pass containing stable before/after post-
+release namespace observations and binds contract
+`phase6d-post-enrollment-start-persistent-topology-snapshot-v1`, whose snapshot
+status remains `persistent_topology_snapshot_unqualified` in isolation. That
+pass contains three equal database/deadline/release/ready/staging-absence
+barriers: the third and final barrier runs after every other topology read, so
+later marker drift cannot be hidden behind the final daemon, volume, network,
+or inventory observations. After the second equal verifier read, the controller
+performs one final runtime-state observation capped at two seconds and requires
+its complete receipt and digest to equal the first runtime-state evidence
+exactly. Only then may it publish the verifier transcript, successor, or other
+success facts. It then
+retains exactly one owner-only terminal artifact under
+`phase6d-post-enrollment-start-retained-controller-outcome-v1`: either
+`post_enrollment_start_confirmed` with the exact pre-effect observation digest,
+release/runtime/successor/persistent-topology evidence and persistent-topology
+transcript digest, or a fixed progress-sensitive
+`recovery_required` outcome after the effect boundary. Reason progression is
+exactly `release_outcome_unconfirmed` → `sequence_2_unconfirmed` →
+`success_outcome_unconfirmed` → `post_enrollment_start_confirmed`. Sequence
+qualification remains unconfirmed until the second equal verifier read after
+persistent topology; there is no separate `persistent_topology_unconfirmed`
+terminal reason. Reason
+`success_outcome_unconfirmed` applies only after two matching sequence reads and
+persistent topology qualify but durable success retention has not: those
+sequence/runtime/topology facts remain true while overall qualification and
+controller success remain false. A post-effect failure is truthful, terminal,
+and never authorizes retry; inability to confirm that retention remains an
+explicit unconfirmed hard failure. Retention is deliberately two-phase. Both
+the controller writer and legacy recovery writer atomically reserve the same
+never-removed owner-only global `O_EXCL` slot,
+`.post-enrollment-start-controller-outcome-slot`; either writer's partial
+reservation excludes the other. Controller preparation makes the slot and
+content-addressed outcome durable but keeps that `prepared` artifact publicly
+ineligible. Only after the issuer's process-private registry reaches
+`post_effect_confirmed` does the publisher, while holding the slot lock
+exclusively, move from
+`.post-enrollment-start-controller-outcome-commit-staging` to fixed commit
+marker `.post-enrollment-start-controller-outcome-committed` and fsync the final
+directory entry. Public `committed` load and revalidation hold the slot lock in
+shared mode, require commit staging absent, and revalidate the exact slot,
+prepared artifact, and commit-marker bytes and inode. Commit failure downgrades
+the registry to `post_effect_unconfirmed`; asynchronous interruption after the
+exact publicly committed receipt revalidates instead preserves
+`post_effect_confirmed`. The legacy recovery writer creates the shared slot with
+legacy status `reserved` and keeps that exact inode exclusively locked through
+fixed hidden staging-name
+`.post-enrollment-start-recovery-outcome-staging` write and file fsync, final
+hard-link, first directory fsync, staging unlink, identity check, second
+directory fsync, and final byte readback. Only after those checks does it rewrite
+and fsync the same locked slot as `retained`, fsync the directory, and read back
+the exact slot bytes and inode. Legacy recovery load and revalidation take the
+slot lock in shared mode, fsync both slot and directory, require exact
+`retained` status with staging absent, and bind both final and slot identities;
+a controller-contract slot cannot validate a legacy final. A `reserved` or
+partial slot therefore keeps an ambiguous final ineligible even if cleanup
+cannot restore staging. Cleanup first renames the final to staging, then tries a
+staging sentinel, and finally unlinks the final, accepting only staging-present
+or final-absent state. Conversely, a later loader may independently fsync and
+confirm a completely written final whose exact locked slot already reached
+`retained`.
+
+This is implemented code, not an admitted live operation. No supported host
+surface invokes the controller, no immutable revision/image set has been
+operationally admitted for it, and no release was executed while implementing
+this slice. Every readiness, re-arm, exposure, broker, paper-trading, live-
+trading, and operational-control authority remains false. The next approval
+boundary is fresh immutable-image/runtime admission and an explicit operational
+execution decision. Only after a confirmed start may a separate sealed
+watchdog provider-terminal issuer authenticate the complete new suffix,
 bind two stable namespace passes to their exact digest/count/terminal identity,
 prove that no higher sequence exists, and capture its own independent
 monotonic instant. That future deployed runtime, not dormant v1, must apply the
@@ -3066,9 +3262,10 @@ unavailable before any watchdog consumer is designed or qualified. See
   the binder, and then revalidates the claim again. Pre-arm failure revokes and
   poisons; post-arm ambiguity is `unconfirmed`. It never unlinks, replaces, or
   retries a possibly durable outcome and never restores action authority. The
-  claim, recovery, and final action-topology seams do not create or mutate
-  topology, publish or execute the release marker, observe or mutate sequence 2,
-  or grant authority. The distinct final observation performs one exact 16-read
+  claim, recovery, final action-topology, and controller-admission seams do not
+  create or mutate topology, publish or execute the release marker, observe or
+  mutate sequence 2, or grant authority. The distinct final observation
+  performs one exact 16-read
   staged-unreleased pass under the same active lease after ordinal 2 and cursor
   3, and the claimed action fence consumes the claimed result's private one-shot
   issuer/lease/armed-recovery/roots/PID/thread origin tuple before binding the
@@ -3076,16 +3273,27 @@ unavailable before any watchdog consumer is designed or qualified. See
   requires the recovery capability to remain armed under the same live lock and
   deadline, without creating ordinal 3 or cursor 4. Full origin material is
   erased at consumption; only a non-authorizing weak issuer tombstone remains
-  for replay poisoning. Neither enters a public payload. There is no CLI, Make,
-  Compose, launcher, worker,
-  release, or trading wiring. A later exact-outcome-bound host controller,
-  admission for its exact revision, and separate
-  operational approval must keep this same callback, flock, and action deadline
-  from fresh topology creation through the now-implemented claimed action fence,
-  then through exact release, bounded sequence 2, persistent-topology
-  qualification, and durable success retention. The topology creation/start,
-  release, runtime, post-release topology, and success-outcome contracts remain
-  missing before the normal worker may create sequence 2.
+  for replay poisoning. The active-controller admission consumes the next exact
+  action-fence origin tuple, repeats the claim/lease/armed-recovery/root checks,
+  removes that full registration, retains a weak issuer tombstone for replay
+  poison, and transfers the tuple only to its exact process-private one-shot
+  controller continuation. None enters a public payload. The code-only
+  effecting controller is now the sole consumer: it keeps the same callback,
+  flock, roots, PID/thread, issuer session, and original deadline, refreshes the
+  16-read pre-effect topology, then transitions from pre-release recovery to
+  post-effect outcome retention before invoking exact release. Its 260-second
+  pre-effect gate preserves the canonical shared 120-second `CLOCK_BOOTTIME`
+  deadline, 115-second worker cutoff, 122-second host runtime-state command
+  ceiling, then separate 130-second, 50-second, and five-second later-phase
+  reserves. The two verifier calls use the issuer's exact sealed suspend-aware
+  host clock and cut off at action-deadline minus 85 and eight seconds; the
+  persistent pass ends with a third marker barrier, and a final at-most-two-
+  second runtime-state receipt must exactly match the first before success.
+  Sequence-2 successor, persistent-topology, and exclusive terminal outcome
+  contracts are implemented, with post-effect failure truthful and
+  non-retryable. There is still no CLI, Make, Compose, launcher, supported host
+  command, or trading wiring for the controller; its exact revision and images
+  require fresh admission and separate operational approval before execution.
   Complete that boundary before adding an
   independent watchdog, readiness,
   final new-exposure, alert, and exact-head manual re-arm consumers. The local
