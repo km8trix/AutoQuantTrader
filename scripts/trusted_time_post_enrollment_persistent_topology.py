@@ -33,7 +33,6 @@ from packages.domain.trusted_time_post_enrollment_start import (
     TrustedTimePostEnrollmentStartSuccessor,
 )
 from scripts.start_trusted_time_supervisor import (
-    COMPOSE_NETWORK_NAME,
     LocalDockerDaemonIdentity,
     TrustedTimeApprovedLaunch,
     TrustedTimeVolumeIdentities,
@@ -61,9 +60,11 @@ from scripts.trusted_time_post_enrollment_staged_topology import (
 )
 from scripts.trusted_time_post_enrollment_topology import (
     POST_ENROLLMENT_CREATED_TOPOLOGY_COMPOSE_PROJECT,
+    POST_ENROLLMENT_CREATED_TOPOLOGY_INVOCATION_LABEL,
     _isolated_json_projection,
     _valid_daemon_identity,
     _validated_container_inventory,
+    post_enrollment_created_topology_network_name,
 )
 
 POST_ENROLLMENT_PERSISTENT_TOPOLOGY_CONTRACT_VERSION = (
@@ -587,6 +588,8 @@ def _validated_network(
     candidate: object,
     *,
     expected_inventory: frozenset[str],
+    expected_network_name: str,
+    expected_create_invocation_sha256: str,
 ) -> tuple[str, str]:
     isolated, projection_sha256 = _isolated_json_projection(candidate, expected_type=dict)
     network = cast(dict[str, object], isolated)
@@ -598,7 +601,7 @@ def _validated_network(
         set(network) != _NETWORK_KEYS
         or type(network_id) is not str
         or _FULL_ID_PATTERN.fullmatch(network_id) is None
-        or network.get("Name") != COMPOSE_NETWORK_NAME
+        or network.get("Name") != expected_network_name
         or network.get("Driver") != "bridge"
         or network.get("Scope") != "local"
         or network.get("Internal") is not False
@@ -617,6 +620,8 @@ def _validated_network(
         or labels.get("com.docker.compose.project")
         != POST_ENROLLMENT_CREATED_TOPOLOGY_COMPOSE_PROJECT
         or labels.get("com.docker.compose.network") != "default"
+        or labels.get(POST_ENROLLMENT_CREATED_TOPOLOGY_INVOCATION_LABEL)
+        != expected_create_invocation_sha256
         or type(containers) is not dict
         or frozenset(containers) != expected_inventory
     ):
@@ -706,6 +711,9 @@ def validate_post_enrollment_start_persistent_topology(
         ):
             raise ValueError
         admission_sha256, action_fence = _validated_admission_sha256(admission)
+        expected_network_name = post_enrollment_created_topology_network_name(
+            admission.session_sha256
+        )
         final_action_staged_topology.__post_init__()
         successor.__post_init__()
         approved_launch.__post_init__()
@@ -780,10 +788,14 @@ def validate_post_enrollment_start_persistent_topology(
         network_id_before, network_sha256_before = _validated_network(
             project_network_before,
             expected_inventory=expected_inventory,
+            expected_network_name=expected_network_name,
+            expected_create_invocation_sha256=admission.session_sha256,
         )
         network_id_after, network_sha256_after = _validated_network(
             project_network_after,
             expected_inventory=expected_inventory,
+            expected_network_name=expected_network_name,
+            expected_create_invocation_sha256=admission.session_sha256,
         )
         if network_id_before != network_id_after or network_sha256_before != network_sha256_after:
             raise ValueError
@@ -864,6 +876,7 @@ def validate_post_enrollment_start_persistent_topology(
             expected_image_id=approved_launch.source_image_id,
             expected_image_configuration=source_configuration,
             expected_service=_SOURCE_SERVICE,
+            expected_network_name=expected_network_name,
         )
         validate_exact_staged_running_container(
             supervisor_inspection,
@@ -871,6 +884,7 @@ def validate_post_enrollment_start_persistent_topology(
             expected_image_id=approved_launch.supervisor_image_id,
             expected_image_configuration=supervisor_configuration,
             expected_service=_SUPERVISOR_SERVICE,
+            expected_network_name=expected_network_name,
             expected_database_secret_file=expected_database_secret_file,
             expected_head_anchor_authority_file=expected_head_anchor_authority_file,
             expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,

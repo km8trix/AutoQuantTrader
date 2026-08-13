@@ -46,6 +46,15 @@ TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_PATH = Path("/run/secrets/trusted_time_head
 TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_SECRET_PATH = Path(
     "/run/secrets/trusted_time_head_anchor_signing_key"
 )
+TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_EXPECTED_SHA256_ENVIRONMENT = (
+    "AQT_TRUSTED_TIME_EXPECTED_HEAD_ANCHOR_AUTHORITY_SHA256"
+)
+TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_EXPECTED_SHA256_ENVIRONMENT = (
+    "AQT_TRUSTED_TIME_EXPECTED_HEAD_ANCHOR_AUTH_SECRET_SHA256"
+)
+TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_EXPECTED_SHA256_ENVIRONMENT = (
+    "AQT_TRUSTED_TIME_EXPECTED_HEAD_ANCHOR_SIGNING_KEY_SHA256"
+)
 TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS = 300
 TRUSTED_TIME_HEAD_ANCHOR_STALE_AFTER_SECONDS = 360
 MAXIMUM_HEAD_ANCHOR_AUTHORITY_BYTES = 16_384
@@ -585,13 +594,34 @@ def load_trusted_time_head_anchor_runtime_configuration(
     signing_key_secret_path: Path = TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_SECRET_PATH,
     authority_owner_uid: int = 0,
     secret_owner_uid: int = 10001,
+    expected_authority_sha256: str | None = None,
+    expected_auth_secret_sha256: str | None = None,
+    expected_signing_key_sha256: str | None = None,
 ) -> TrustedTimeHeadAnchorRuntimeConfiguration:
+    expected_digests = (
+        expected_authority_sha256,
+        expected_auth_secret_sha256,
+        expected_signing_key_sha256,
+    )
+    if any(value is None for value in expected_digests) != all(
+        value is None for value in expected_digests
+    ) or any(value is not None and _SHA256.fullmatch(value) is None for value in expected_digests):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time head-anchor staged-input binding is invalid"
+        )
     authority_payload = _read_protected_file(
         authority_path,
         maximum_bytes=MAXIMUM_HEAD_ANCHOR_AUTHORITY_BYTES,
         expected_owner_uid=authority_owner_uid,
         label="trusted-time head-anchor authority",
     )
+    if (
+        expected_authority_sha256 is not None
+        and hashlib.sha256(authority_payload).hexdigest() != expected_authority_sha256
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time head-anchor authority differs from its staged-input binding"
+        )
     authority = decode_trusted_time_head_anchor_authority(
         authority_payload,
         database_url=database_url,
@@ -604,12 +634,26 @@ def load_trusted_time_head_anchor_runtime_configuration(
         expected_owner_uid=secret_owner_uid,
         label="trusted-time head-anchor Auth secret",
     )
+    if (
+        expected_auth_secret_sha256 is not None
+        and hashlib.sha256(auth_payload).hexdigest() != expected_auth_secret_sha256
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time head-anchor Auth secret differs from its staged-input binding"
+        )
     private_key = _read_protected_file(
         signing_key_secret_path,
         maximum_bytes=ED25519_PRIVATE_KEY_BYTES,
         expected_owner_uid=secret_owner_uid,
         label="trusted-time head-anchor signing secret",
     )
+    if (
+        expected_signing_key_sha256 is not None
+        and hashlib.sha256(private_key).hexdigest() != expected_signing_key_sha256
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time head-anchor signing secret differs from its staged-input binding"
+        )
     if len(private_key) != ED25519_PRIVATE_KEY_BYTES:
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time head-anchor signing secret is malformed"
@@ -646,10 +690,13 @@ __all__ = [
     "MAXIMUM_HEAD_ANCHOR_AUTHORITY_BYTES",
     "MAXIMUM_HEAD_ANCHOR_AUTH_SECRET_BYTES",
     "TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_CONTRACT_VERSION",
+    "TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_EXPECTED_SHA256_ENVIRONMENT",
     "TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_PATH",
     "TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_CONTRACT_VERSION",
+    "TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_EXPECTED_SHA256_ENVIRONMENT",
     "TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_PATH",
     "TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS",
+    "TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_EXPECTED_SHA256_ENVIRONMENT",
     "TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_SECRET_PATH",
     "TRUSTED_TIME_HEAD_ANCHOR_STALE_AFTER_SECONDS",
     "TrustedTimeHeadAnchorAuthority",

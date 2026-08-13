@@ -36,6 +36,7 @@ from scripts.start_trusted_time_supervisor import (
     HEAD_ANCHOR_SIGNING_KEY_SOURCE_ENVIRONMENT,
     MAXIMUM_SUPERVISOR_TERMINAL_LINE_BYTES,
     MAXIMUM_UNENROLLED_ADMISSION_ARTIFACT_BYTES,
+    POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT,
     UNENROLLED_ADMISSION_CONTRACT_VERSION,
     LocalDockerDaemonIdentity,
     MaterializedDatabaseSecret,
@@ -94,6 +95,7 @@ from scripts.start_trusted_time_supervisor import (
     validate_chrony_state_volume_inspection,
     validate_created_container,
     validate_exact_never_started_created_container,
+    validate_exact_post_start_exited_supervisor_container,
     validate_exact_staged_running_container,
     validate_materialized_database_secret,
     validate_materialized_trusted_time_head_anchor_inputs,
@@ -105,6 +107,7 @@ from scripts.verify_trusted_time_images import (
     TrustedTimeImageAdmission,
     TrustedTimeImageIdentities,
     TrustedTimeImageVerificationError,
+    _OwnedFileDescriptor,
     _ReviewedInputBindings,
     write_image_admission_artifact,
 )
@@ -1851,6 +1854,7 @@ def test_unenrolled_admission_artifact_success_is_not_cancelled_by_final_close_e
     artifact_dir.chmod(0o700)
     encoded = _admitted_receipt()
     directory_descriptor = os.open(artifact_dir, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    directory_owner = _OwnedFileDescriptor(directory_descriptor)
     real_close = os.close
     close_failed = False
 
@@ -1865,7 +1869,7 @@ def test_unenrolled_admission_artifact_success_is_not_cancelled_by_final_close_e
         with (
             patch(
                 "scripts.start_trusted_time_supervisor._open_owner_only_artifact_directory",
-                return_value=directory_descriptor,
+                return_value=directory_owner,
             ),
             patch(
                 "scripts.start_trusted_time_supervisor.os.close",
@@ -3119,6 +3123,31 @@ def _validate_exact_source_observation_fixture(
         service="chrony-nts",
         staged=staged,
     )
+
+
+_POST_ENROLLMENT_NETWORK_NAME = "aqt-trusted-time-post-enrollment-" + "a" * 64
+_POST_ENROLLMENT_STAGED_INPUT_SHA256S = tuple(character * 64 for character in "1234")
+
+
+def _bind_post_enrollment_supervisor_runtime(
+    inspection: list[dict[str, object]],
+) -> None:
+    container = inspection[0]
+    configuration = cast(dict[str, object], container["Config"])
+    runtime_environment = cast(list[str], configuration["Env"])
+    runtime_environment.extend(
+        f"{name}={value}"
+        for name, value in zip(
+            POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT,
+            _POST_ENROLLMENT_STAGED_INPUT_SHA256S,
+            strict=True,
+        )
+    )
+    host = cast(dict[str, object], container["HostConfig"])
+    host["NetworkMode"] = _POST_ENROLLMENT_NETWORK_NAME
+    network_settings = cast(dict[str, object], container["NetworkSettings"])
+    networks = cast(dict[str, object], network_settings["Networks"])
+    networks[_POST_ENROLLMENT_NETWORK_NAME] = networks.pop(COMPOSE_NETWORK_NAME)
 
 
 def test_admission_reuses_approved_images_with_exact_docker_environment_before_env() -> None:
@@ -5149,6 +5178,126 @@ def test_exact_never_started_created_container_rejects_network_or_binding_drift(
             expected_image_configuration=_image_configuration("chrony-nts"),
             expected_service="chrony-nts",
         )
+
+
+def test_legacy_supervisor_validator_requires_post_enrollment_digest_environment_absent() -> None:
+    inspection = _never_started_container_inspection(
+        container_id=SUPERVISOR_CONTAINER_ID,
+        image_id=SUPERVISOR_IMAGE_ID,
+        service="trusted-time-supervisor",
+    )
+    configuration = cast(dict[str, object], inspection[0]["Config"])
+    environment = cast(list[str], configuration["Env"])
+    environment.append(f"{POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT[0]}=" + "1" * 64)
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="runtime environment allowlist drifted",
+    ):
+        _validate_created_fixture(inspection, service="trusted-time-supervisor")
+
+
+def test_dynamic_post_enrollment_supervisor_requires_all_four_exact_digest_bindings() -> None:
+    inspection = _never_started_container_inspection(
+        container_id=SUPERVISOR_CONTAINER_ID,
+        image_id=SUPERVISOR_IMAGE_ID,
+        service="trusted-time-supervisor",
+    )
+    _add_safe_exact_docker_observation_boundary(
+        inspection,
+        service="trusted-time-supervisor",
+        running_endpoint=False,
+    )
+    _bind_post_enrollment_supervisor_runtime(inspection)
+    database, authority, auth, signing = _staged_supervisor_input_paths()
+    arguments = {
+        "expected_container_id": SUPERVISOR_CONTAINER_ID,
+        "expected_image_id": SUPERVISOR_IMAGE_ID,
+        "expected_image_configuration": _image_configuration("trusted-time-supervisor"),
+        "expected_service": "trusted-time-supervisor",
+        "expected_network_name": _POST_ENROLLMENT_NETWORK_NAME,
+        "expected_staged_input_sha256s": _POST_ENROLLMENT_STAGED_INPUT_SHA256S,
+        "expected_database_secret_file": database,
+        "expected_head_anchor_authority_file": authority,
+        "expected_head_anchor_auth_secret_file": auth,
+        "expected_head_anchor_signing_key_secret_file": signing,
+        "require_live_observation_fields": True,
+    }
+
+    validate_exact_never_started_created_container(inspection, **arguments)
+
+    configuration = cast(dict[str, object], inspection[0]["Config"])
+    environment = cast(list[str], configuration["Env"])
+    original = list(environment)
+    environment[:] = [
+        entry
+        for entry in environment
+        if not entry.startswith(POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT[3] + "=")
+    ]
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="digest environment drifted",
+    ):
+        validate_exact_never_started_created_container(inspection, **arguments)
+    environment[:] = original
+    arguments["expected_staged_input_sha256s"] = (
+        *_POST_ENROLLMENT_STAGED_INPUT_SHA256S[:3],
+        "f" * 64,
+    )
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="digest environment drifted",
+    ):
+        validate_exact_never_started_created_container(inspection, **arguments)
+
+
+def test_exact_post_start_exited_supervisor_is_removable_only_for_bounded_current_attempt() -> None:
+    inspection = _never_started_container_inspection(
+        container_id=SUPERVISOR_CONTAINER_ID,
+        image_id=SUPERVISOR_IMAGE_ID,
+        service="trusted-time-supervisor",
+    )
+    _add_safe_exact_docker_observation_boundary(
+        inspection,
+        service="trusted-time-supervisor",
+        running_endpoint=False,
+    )
+    _bind_post_enrollment_supervisor_runtime(inspection)
+    state = cast(dict[str, object], inspection[0]["State"])
+    state.update(
+        {
+            "ExitCode": 2,
+            "FinishedAt": "2026-08-09T12:34:57.123456789Z",
+            "StartedAt": "2026-08-09T12:34:56.123456789Z",
+            "Status": "exited",
+        }
+    )
+    database, authority, auth, signing = _staged_supervisor_input_paths()
+    arguments = {
+        "expected_container_id": SUPERVISOR_CONTAINER_ID,
+        "expected_image_id": SUPERVISOR_IMAGE_ID,
+        "expected_image_configuration": _image_configuration("trusted-time-supervisor"),
+        "expected_network_name": _POST_ENROLLMENT_NETWORK_NAME,
+        "expected_staged_input_sha256s": _POST_ENROLLMENT_STAGED_INPUT_SHA256S,
+        "expected_database_secret_file": database,
+        "expected_head_anchor_authority_file": authority,
+        "expected_head_anchor_auth_secret_file": auth,
+        "expected_head_anchor_signing_key_secret_file": signing,
+        "require_live_observation_fields": True,
+    }
+
+    validate_exact_post_start_exited_supervisor_container(inspection, **arguments)
+
+    for field_name, value in (
+        ("ExitCode", 1),
+        ("Restarting", True),
+        ("FinishedAt", "0001-01-01T00:00:00Z"),
+    ):
+        original = state[field_name]
+        state[field_name] = value
+        with pytest.raises(TrustedTimeSupervisorConfigurationError):
+            validate_exact_post_start_exited_supervisor_container(inspection, **arguments)
+        state[field_name] = original
 
 
 @pytest.mark.parametrize(

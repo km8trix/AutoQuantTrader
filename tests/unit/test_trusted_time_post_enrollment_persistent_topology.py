@@ -37,6 +37,8 @@ from scripts.trusted_time_post_enrollment_staged_topology import (
     validate_post_enrollment_start_staged_unreleased_topology,
 )
 from scripts.trusted_time_post_enrollment_topology import (
+    POST_ENROLLMENT_CREATED_TOPOLOGY_INVOCATION_LABEL,
+    post_enrollment_created_topology_network_name,
     validate_post_enrollment_start_created_topology,
 )
 from scripts.trusted_time_post_enrollment_topology_fence import (
@@ -92,8 +94,12 @@ def _release_marker(
     return persistent.TrustedTimePostEnrollmentReleaseMarkerCandidate(**values)  # type: ignore[arg-type]
 
 
-def _network() -> dict[str, object]:
-    return reader_fixtures._network("staged_unreleased")
+def _network(session_sha256: str = "a" * 64) -> dict[str, object]:
+    network = reader_fixtures._network("staged_unreleased")
+    network["Name"] = post_enrollment_created_topology_network_name(session_sha256)
+    labels = cast(dict[str, object], network["Labels"])
+    labels[POST_ENROLLMENT_CREATED_TOPOLOGY_INVOCATION_LABEL] = session_sha256
+    return network
 
 
 def _exact_staged_inputs(
@@ -138,6 +144,7 @@ def _exact_staged_inputs(
         },
         source_image_configuration=staged_fixtures._image_configuration("source"),
         supervisor_image_configuration=staged_fixtures._image_configuration("supervisor"),
+        expected_network_name=staged_fixtures.NETWORK_NAME,
         expected_database_secret_file=paths["database"],
         expected_head_anchor_authority_file=paths["authority"],
         expected_head_anchor_auth_secret_file=paths["auth"],
@@ -184,6 +191,7 @@ def _exact_staged_inputs(
         },
         "source_image_configuration": staged_fixtures._image_configuration("source"),
         "supervisor_image_configuration": staged_fixtures._image_configuration("supervisor"),
+        "expected_network_name": staged_fixtures.NETWORK_NAME,
         "expected_database_secret_file": paths["database"],
         "expected_head_anchor_authority_file": paths["authority"],
         "expected_head_anchor_auth_secret_file": paths["auth"],
@@ -467,6 +475,9 @@ def test_persistent_topology_rejects_daemon_volume_or_inventory_drift(
         (("Internal",), True),
         (("Containers", staged_fixtures.SOURCE_CONTAINER_ID, "EndpointID"), "e" * 64),
         (("Labels", "com.docker.compose.project"), "wrong-project"),
+        (("Labels", POST_ENROLLMENT_CREATED_TOPOLOGY_INVOCATION_LABEL), "b" * 64),
+        (("Name",), "autoquanttrader-trusted-time_default"),
+        (("Name",), post_enrollment_created_topology_network_name("b" * 64)),
     ],
 )
 def test_persistent_topology_rejects_network_drift_or_unsafe_shape(

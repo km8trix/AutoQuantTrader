@@ -269,6 +269,69 @@ def test_runtime_loader_binds_secret_key_and_redacts_repr(tmp_path: Path) -> Non
         )
 
 
+def test_runtime_loader_binds_each_exact_payload_before_decoding(tmp_path: Path) -> None:
+    authority_path = tmp_path / "authority.json"
+    auth_path = tmp_path / "auth.json"
+    key_path = tmp_path / "signing-key"
+    payloads = (_authority_payload(), _auth_secret_payload(), PRIVATE_KEY)
+    for path, payload in zip(
+        (authority_path, auth_path, key_path),
+        payloads,
+        strict=True,
+    ):
+        path.write_bytes(payload)
+        path.chmod(0o600)
+    digests = tuple(hashlib.sha256(payload).hexdigest() for payload in payloads)
+    arguments = {
+        "database_url": DATABASE_URL,
+        "expected_host_id": HOST_ID,
+        "expected_source_authority_sha256": SOURCE_AUTHORITY_SHA256,
+        "authority_path": authority_path,
+        "auth_secret_path": auth_path,
+        "signing_key_secret_path": key_path,
+        "authority_owner_uid": os.getuid(),
+        "secret_owner_uid": os.getuid(),
+    }
+
+    load_trusted_time_head_anchor_runtime_configuration(
+        **arguments,
+        expected_authority_sha256=digests[0],
+        expected_auth_secret_sha256=digests[1],
+        expected_signing_key_sha256=digests[2],
+    )
+
+    for index, name in enumerate(
+        (
+            "expected_authority_sha256",
+            "expected_auth_secret_sha256",
+            "expected_signing_key_sha256",
+        )
+    ):
+        expected = {
+            "expected_authority_sha256": digests[0],
+            "expected_auth_secret_sha256": digests[1],
+            "expected_signing_key_sha256": digests[2],
+        }
+        expected[name] = str(index) * 64
+        with pytest.raises(
+            TrustedTimeSupervisorConfigurationError,
+            match="differs from its staged-input binding",
+        ):
+            load_trusted_time_head_anchor_runtime_configuration(
+                **arguments,
+                **expected,
+            )
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="staged-input binding is invalid",
+    ):
+        load_trusted_time_head_anchor_runtime_configuration(
+            **arguments,
+            expected_authority_sha256=digests[0],
+        )
+
+
 def test_runtime_loader_rejects_writable_or_symlinked_secret(tmp_path: Path) -> None:
     authority_path = tmp_path / "authority.json"
     auth_path = tmp_path / "auth.json"

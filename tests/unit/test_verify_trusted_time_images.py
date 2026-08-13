@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import ctypes
+import dis
+import gc
 import hashlib
 import io
 import json
 import os
 import stat
 import subprocess
+import sys
 import tarfile
 from collections.abc import Iterator
 from dataclasses import replace
@@ -51,6 +54,7 @@ from scripts.verify_trusted_time_images import (
     build_trusted_time_images,
     build_verify_and_write_image_admission,
     load_image_admission_artifact,
+    load_image_admission_provenance_artifact,
     resolve_image_id,
     reviewed_input_bindings,
     validate_ca_trust_store,
@@ -1396,6 +1400,60 @@ def test_existing_image_readmission_reverifies_exact_ids_without_building(
     assert reviewed.call_count == 4
 
 
+def test_existing_image_readmission_uses_caller_pinned_docker_environment(
+    tmp_path: Path,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    artifact_path = ignored_root / "trusted-time" / "image-admission.json"
+    bindings = reviewed_input_bindings()
+    identities = TrustedTimeImageIdentities(
+        source_id=SOURCE_ID,
+        supervisor_id=SUPERVISOR_ID,
+    )
+    exact_environment = {
+        "DOCKER_CONTEXT": "qualified-context",
+        "PATH": "/qualified/docker/path",
+    }
+    with (
+        patch(
+            "scripts.verify_trusted_time_images._current_clean_git_revision",
+            return_value="a" * 40,
+        ),
+        patch("scripts.verify_trusted_time_images._minimal_docker_environment") as ambient,
+        patch(
+            "scripts.verify_trusted_time_images.reviewed_input_bindings",
+            return_value=bindings,
+        ),
+        patch("scripts.verify_trusted_time_images.validate_prebuild_compose_contract") as compose,
+        patch(
+            "scripts.verify_trusted_time_images.verify_images",
+            return_value=identities,
+        ) as verify,
+        patch(
+            "scripts.verify_trusted_time_images.write_image_admission_artifact",
+            return_value=object(),
+        ),
+    ):
+        verify_and_write_existing_image_admission(
+            artifact_path,
+            SOURCE_ID,
+            SUPERVISOR_ID,
+            ignored_root=ignored_root,
+            docker_environment=exact_environment,
+        )
+
+    ambient.assert_not_called()
+    compose.assert_called_once_with(
+        git_revision="a" * 40,
+        docker_environment=exact_environment,
+    )
+    verify.assert_called_once_with(
+        SOURCE_ID,
+        SUPERVISOR_ID,
+        docker_environment=exact_environment,
+    )
+
+
 def test_existing_image_readmission_rejects_identity_drift_before_write(
     tmp_path: Path,
 ) -> None:
@@ -1525,6 +1583,77 @@ def test_atomic_image_admission_is_canonical_owner_only_and_source_bound(
     )
     assert "password" not in encoded.decode().lower()
     assert not tuple(path.parent.glob(".*.tmp"))
+
+
+def test_static_provenance_loader_accepts_stale_cross_boot_exact_archive_only(
+    tmp_path: Path,
+) -> None:
+    path, ignored_root, created = _write_admission(tmp_path)
+    encoded = path.read_bytes()
+    artifact_sha256 = hashlib.sha256(encoded).hexdigest()
+    archive = path.with_name(f"image-admission-{artifact_sha256}.json")
+
+    with patch(
+        "scripts.verify_trusted_time_images._current_boot_session_id",
+        return_value=NEXT_BOOT_SESSION_ID,
+    ):
+        provenance = load_image_admission_provenance_artifact(
+            archive,
+            ignored_root=ignored_root,
+        )
+        with pytest.raises(TrustedTimeImageVerificationError, match="different boot session"):
+            load_image_admission_artifact(
+                archive,
+                ignored_root=ignored_root,
+                monotonic_ns=(created + (IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS + 1) * 1_000_000_000),
+            )
+
+    assert provenance.artifact_sha256 == artifact_sha256
+    assert provenance.encoded == encoded
+    assert provenance.path == archive
+    assert provenance.admission().artifact_sha256 == artifact_sha256
+    with pytest.raises(TrustedTimeImageVerificationError, match="provenance binding"):
+        load_image_admission_provenance_artifact(
+            path,
+            ignored_root=ignored_root,
+        )
+
+
+@pytest.mark.parametrize("mutation", ["tamper", "mode", "replacement"])
+def test_static_provenance_loader_rejects_archive_drift(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    path, ignored_root, _ = _write_admission(tmp_path)
+    encoded = path.read_bytes()
+    archive = path.with_name(f"image-admission-{hashlib.sha256(encoded).hexdigest()}.json")
+    if mutation == "tamper":
+        archive.write_bytes(b"x" + encoded[1:])
+        archive.chmod(0o600)
+    elif mutation == "mode":
+        archive.chmod(0o640)
+    else:
+        replacement = archive.with_name(".replacement-provenance")
+        replacement.write_bytes(encoded)
+        replacement.chmod(0o600)
+        replacement.replace(archive)
+
+    if mutation == "replacement":
+        # Replacement before the read is safe because the exact bytes, owner,
+        # mode, link count, and content-addressed name are reauthenticated.
+        assert (
+            load_image_admission_provenance_artifact(
+                archive,
+                ignored_root=ignored_root,
+            ).encoded
+            == encoded
+        )
+    else:
+        with pytest.raises(TrustedTimeImageVerificationError):
+            load_image_admission_provenance_artifact(
+                archive,
+                ignored_root=ignored_root,
+            )
 
 
 def test_current_loader_rejects_superseded_v1_admission_without_git_revision(
@@ -1664,6 +1793,262 @@ def test_content_addressed_image_admission_archive_is_never_overwritten(
             utc_now=datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
             monotonic_ns=created,
         )
+
+
+def test_exact_archive_retry_reestablishes_file_and_directory_durability(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    ignored_root.mkdir(mode=0o700)
+    artifact_directory = ignored_root / "trusted-time"
+    artifact_directory.mkdir(mode=0o700)
+    canonical_path = artifact_directory / "image-admission.json"
+    encoded = b'{"exact":true}\n'
+    archive_path = canonical_path.with_name(
+        f"image-admission-{hashlib.sha256(encoded).hexdigest()}.json"
+    )
+    real_fsync = os.fsync
+    failed_directory_fsync = False
+
+    def fail_first_directory_fsync(descriptor: int) -> None:
+        nonlocal failed_directory_fsync
+        metadata = os.fstat(descriptor)
+        if stat.S_ISDIR(metadata.st_mode) and not failed_directory_fsync:
+            failed_directory_fsync = True
+            raise OSError("injected directory fsync failure")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", fail_first_directory_fsync)
+    with pytest.raises(TrustedTimeImageVerificationError, match="archive write failed"):
+        image_verifier._retain_content_addressed_image_admission(
+            canonical_path,
+            encoded,
+            ignored_root=ignored_root,
+        )
+
+    archive_identity = (archive_path.stat().st_dev, archive_path.stat().st_ino)
+    assert archive_path.read_bytes() == encoded
+
+    def fail_retry_directory_fsync(descriptor: int) -> None:
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            raise OSError("injected retry directory fsync failure")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", fail_retry_directory_fsync)
+    with pytest.raises(TrustedTimeImageVerificationError, match="archive is invalid"):
+        image_verifier._retain_content_addressed_image_admission(
+            canonical_path,
+            encoded,
+            ignored_root=ignored_root,
+        )
+
+    observed_fsync_kinds: list[str] = []
+
+    def observe_retry_fsync(descriptor: int) -> None:
+        metadata = os.fstat(descriptor)
+        observed_fsync_kinds.append("directory" if stat.S_ISDIR(metadata.st_mode) else "file")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", observe_retry_fsync)
+    retained = image_verifier._retain_content_addressed_image_admission(
+        canonical_path,
+        encoded,
+        ignored_root=ignored_root,
+    )
+
+    assert retained == archive_path
+    assert observed_fsync_kinds == ["file", "directory"]
+    assert (archive_path.stat().st_dev, archive_path.stat().st_ino) == archive_identity
+    assert archive_path.read_bytes() == encoded
+
+
+@pytest.mark.parametrize(
+    ("interrupted_creation", "creation_occurrence", "expected_archive_count"),
+    (("archive", 1, 0), ("canonical", 2, 1)),
+)
+def test_image_admission_temporary_owned_fd_call_store_interrupt_cleans_exact_name_and_fd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    interrupted_creation: str,
+    creation_occurrence: int,
+    expected_archive_count: int,
+) -> None:
+    target = image_verifier._OwnedTemporaryImageAdmissionArtifact.create
+    instructions = list(dis.get_instructions(target))
+    store_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_ATTR" and instruction.argval == "_file_owner"
+    )
+    target_offset = instructions[store_index - 1].offset
+    real_open_owned_file = image_verifier._open_owned_file
+    temporary_descriptors: list[int] = []
+
+    def observed_open_owned_file(
+        path: str | Path,
+        *,
+        dir_fd: int | None = None,
+        exclusive: bool = False,
+    ) -> Any:
+        owner = real_open_owned_file(path, dir_fd=dir_fd, exclusive=exclusive)
+        if exclusive:
+            temporary_descriptors.append(owner.fileno())
+        return owner
+
+    monkeypatch.setattr(image_verifier, "_open_owned_file", observed_open_owned_file)
+    observed_creations = 0
+    interrupted = False
+
+    def interrupt_after_fileio_call(_: object, instruction_offset: int) -> None:
+        nonlocal interrupted, observed_creations
+        if instruction_offset != target_offset:
+            return
+        observed_creations += 1
+        if observed_creations == creation_occurrence:
+            interrupted = True
+            raise KeyboardInterrupt
+
+    tool_id = next(
+        candidate
+        for candidate in range(sys.monitoring.OPTIMIZER_ID + 1)
+        if sys.monitoring.get_tool(candidate) is None
+    )
+    sys.monitoring.use_tool_id(tool_id, f"image-admission-{interrupted_creation}-temp-test")
+    sys.monitoring.register_callback(
+        tool_id,
+        sys.monitoring.events.INSTRUCTION,
+        interrupt_after_fileio_call,
+    )
+    sys.monitoring.set_local_events(
+        tool_id,
+        target.__code__,
+        sys.monitoring.events.INSTRUCTION,
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            _write_admission(tmp_path)
+    finally:
+        sys.monitoring.set_local_events(tool_id, target.__code__, 0)
+        sys.monitoring.register_callback(tool_id, sys.monitoring.events.INSTRUCTION, None)
+        sys.monitoring.free_tool_id(tool_id)
+
+    artifact_directory = tmp_path / "artifacts" / "trusted-time"
+    assert interrupted
+    assert observed_creations == creation_occurrence
+    assert len(list(artifact_directory.glob("image-admission-*.json"))) == (expected_archive_count)
+    assert not list(artifact_directory.glob(".*.tmp"))
+    assert temporary_descriptors
+    for descriptor in temporary_descriptors:
+        with pytest.raises(OSError):
+            os.fstat(descriptor)
+
+
+@pytest.mark.parametrize("relative", [False, True])
+def test_image_verifier_owned_descriptor_call_store_interrupt_closes_native_result(
+    tmp_path: Path,
+    relative: bool,
+) -> None:
+    target = image_verifier._open_owned_descriptor
+    stores = [
+        instruction.offset
+        for instruction in dis.get_instructions(target)
+        if instruction.opname == "STORE_FAST" and instruction.argval == "owner"
+    ]
+    parent_owner = target(
+        tmp_path,
+        flags=os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+    )
+    descriptor_root = Path("/proc/self/fd")
+    if not descriptor_root.exists():
+        descriptor_root = Path("/dev/fd")
+    before = {entry.name for entry in descriptor_root.iterdir()}
+    tool_id = next(
+        candidate
+        for candidate in range(sys.monitoring.OPTIMIZER_ID + 1)
+        if sys.monitoring.get_tool(candidate) is None
+    )
+
+    def interrupt(_: object, offset: int) -> None:
+        if offset == stores[1 if relative else 0]:
+            raise KeyboardInterrupt
+
+    sys.monitoring.use_tool_id(tool_id, "image-verifier-owned-descriptor-test")
+    sys.monitoring.register_callback(
+        tool_id,
+        sys.monitoring.events.INSTRUCTION,
+        interrupt,
+    )
+    sys.monitoring.set_local_events(
+        tool_id,
+        target.__code__,
+        sys.monitoring.events.INSTRUCTION,
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            target(
+                "." if relative else tmp_path,
+                flags=os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+                dir_fd=parent_owner.fileno() if relative else None,
+            )
+    finally:
+        sys.monitoring.set_local_events(tool_id, target.__code__, 0)
+        sys.monitoring.register_callback(tool_id, sys.monitoring.events.INSTRUCTION, None)
+        sys.monitoring.free_tool_id(tool_id)
+
+    gc.collect()
+    assert {entry.name for entry in descriptor_root.iterdir()} == before
+    parent_owner.close()
+
+
+def test_image_verifier_owned_descriptor_close_covers_retired_store_edge(
+    tmp_path: Path,
+) -> None:
+    owner = image_verifier._open_owned_descriptor(
+        tmp_path,
+        flags=os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+    )
+    descriptor = owner.fileno()
+    target = image_verifier._OwnedFileDescriptor.close
+    instructions = list(dis.get_instructions(target))
+    store_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_ATTR" and instruction.argval == "value"
+    )
+    interrupt_offset = instructions[store_index + 1].offset
+    tool_id = next(
+        candidate
+        for candidate in range(sys.monitoring.OPTIMIZER_ID + 1)
+        if sys.monitoring.get_tool(candidate) is None
+    )
+
+    def interrupt(_: object, offset: int) -> None:
+        if offset == interrupt_offset:
+            raise KeyboardInterrupt
+
+    sys.monitoring.use_tool_id(tool_id, "image-verifier-owned-close-store-test")
+    sys.monitoring.register_callback(
+        tool_id,
+        sys.monitoring.events.INSTRUCTION,
+        interrupt,
+    )
+    sys.monitoring.set_local_events(
+        tool_id,
+        target.__code__,
+        sys.monitoring.events.INSTRUCTION,
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            owner.close()
+    finally:
+        sys.monitoring.set_local_events(tool_id, target.__code__, 0)
+        sys.monitoring.register_callback(tool_id, sys.monitoring.events.INSTRUCTION, None)
+        sys.monitoring.free_tool_id(tool_id)
+
+    assert owner.value == -1
+    with pytest.raises(OSError):
+        os.fstat(descriptor)
 
 
 def test_second_generation_retains_both_exact_admission_artifacts(tmp_path: Path) -> None:

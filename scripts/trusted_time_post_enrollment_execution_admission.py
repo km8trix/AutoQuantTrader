@@ -9,8 +9,10 @@ authority.
 
 from __future__ import annotations
 
+import ctypes
+import errno
+import fcntl
 import hashlib
-import io
 import json
 import os
 import stat
@@ -37,20 +39,23 @@ from packages.domain.trusted_time_post_enrollment_start import (
 )
 from scripts.verify_trusted_time_images import (
     IGNORED_ARTIFACT_ROOT,
+    IMAGE_ADMISSION_CONTRACT_VERSION,
     IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS,
     TrustedTimeImageAdmission,
+    TrustedTimeImageAdmissionProvenance,
     _suspend_aware_monotonic_ns,
     load_image_admission_artifact,
+    load_image_admission_provenance_artifact,
 )
 
 POST_ENROLLMENT_EXECUTION_APPROVAL_CONTRACT_VERSION = (
-    "phase6d-post-enrollment-start-execution-approval-v1"
+    "phase6d-post-enrollment-start-execution-approval-v2"
 )
 POST_ENROLLMENT_EXECUTION_ATTEMPT_CONTRACT_VERSION = (
-    "phase6d-post-enrollment-start-execution-attempt-v1"
+    "phase6d-post-enrollment-start-execution-attempt-v2"
 )
 POST_ENROLLMENT_EXECUTION_ADMISSION_CONTRACT_VERSION = (
-    "phase6d-post-enrollment-start-execution-admission-v1"
+    "phase6d-post-enrollment-start-execution-admission-v2"
 )
 POST_ENROLLMENT_EXECUTION_APPROVAL_SERVICE = "trusted-time-post-enrollment-start-execution-approval"
 POST_ENROLLMENT_EXECUTION_ADMISSION_SERVICE = (
@@ -148,9 +153,9 @@ def _require_approval(
 def _tuple_payload(approval: TrustedTimePostEnrollmentStartApproval) -> dict[str, object]:
     return {
         "approval_sha256": approval.approval_sha256,
+        "approved_image_provenance_sha256": (approval.proposed_launch.image_admission_sha256),
         "confirmed_enrollment_evidence_sha256": (approval.confirmed_enrollment.evidence_sha256),
         "git_revision": approval.proposed_launch.git_revision,
-        "image_admission_sha256": approval.proposed_launch.image_admission_sha256,
         "operation_id": approval.operation_id,
         "review_projection_sha256": approval.review.projection_sha256,
         "source_image_id": approval.proposed_launch.source_image_id,
@@ -167,7 +172,8 @@ def _execution_approval_payload(
         {
             "approval": approval.payload(),
             "contract_version": POST_ENROLLMENT_EXECUTION_APPROVAL_CONTRACT_VERSION,
-            "image_admission_minimum_headroom_seconds": (
+            "image_witness_contract_version": IMAGE_ADMISSION_CONTRACT_VERSION,
+            "image_witness_minimum_headroom_seconds": (
                 POST_ENROLLMENT_EXECUTION_MINIMUM_IMAGE_ADMISSION_HEADROOM_SECONDS
             ),
             "service": POST_ENROLLMENT_EXECUTION_APPROVAL_SERVICE,
@@ -282,54 +288,129 @@ def _exact_artifact_roots(
     return absolute_directory, absolute_root
 
 
-def _open_owner_only_artifact_directory(path: Path, *, ignored_root: Path) -> int:
+class _OwnedFileDescriptor(ctypes.c_int):
+    """Own one libc-opened descriptor before the Python CALL can return."""
+
+    def __index__(self) -> int:
+        return self.fileno()
+
+    def fileno(self) -> int:
+        descriptor = self.value
+        if descriptor < 0:
+            raise OSError
+        return descriptor
+
+    def close(self) -> None:
+        descriptor = self.value
+        if descriptor < 0:
+            return
+        try:
+            self.value = -1
+            os.close(descriptor)
+        except OSError:
+            raise
+        except BaseException:
+            with suppress(OSError):
+                os.close(descriptor)
+            raise
+
+    def __del__(self) -> None:
+        with suppress(BaseException):
+            self.close()
+
+
+_LIBC = ctypes.CDLL(None, use_errno=True)
+_OWNED_OPEN = _LIBC.open
+_OWNED_OPEN.argtypes = (ctypes.c_char_p, ctypes.c_int)
+_OWNED_OPEN.restype = _OwnedFileDescriptor
+_OWNED_OPENAT = _LIBC.openat
+_OWNED_OPENAT.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int)
+_OWNED_OPENAT.restype = _OwnedFileDescriptor
+
+
+def _open_owned_descriptor(
+    path: str | Path,
+    *,
+    flags: int,
+    mode: int = 0,
+    dir_fd: int | None = None,
+) -> _OwnedFileDescriptor:
+    """Open directly into a VM-owned descriptor object or raise exact errno."""
+
+    ctypes.set_errno(0)
+    if dir_fd is None:
+        owner = cast(
+            _OwnedFileDescriptor,
+            _OWNED_OPEN(os.fsencode(path), flags, ctypes.c_int(mode)),
+        )
+    else:
+        owner = cast(
+            _OwnedFileDescriptor,
+            _OWNED_OPENAT(dir_fd, os.fsencode(path), flags, ctypes.c_int(mode)),
+        )
+    if owner.value >= 0:
+        return owner
+    error_number = ctypes.get_errno() or errno.EIO
+    if error_number == errno.EEXIST:
+        raise FileExistsError(error_number, os.strerror(error_number), os.fspath(path))
+    if error_number == errno.ENOENT:
+        raise FileNotFoundError(error_number, os.strerror(error_number), os.fspath(path))
+    raise OSError(error_number, os.strerror(error_number), os.fspath(path))
+
+
+def _open_owner_only_artifact_directory(
+    path: Path,
+    *,
+    ignored_root: Path,
+) -> _OwnedFileDescriptor:
     """Open an existing canonical owner-only directory without following links."""
 
     if path != ignored_root / "trusted-time":
         raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
             "trusted-time post-enrollment execution artifact directory is unavailable"
         )
-    descriptor: int | None = None
-    next_descriptor: int | None = None
-    prior_descriptor: int | None = None
+    directory_owner: _OwnedFileDescriptor | None = None
     current = Path(path.anchor)
     try:
-        descriptor = os.open(
+        directory_owner = _open_owned_descriptor(
             path.anchor,
-            os.O_RDONLY
-            | getattr(os, "O_DIRECTORY", 0)
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0),
+            flags=(
+                os.O_RDONLY
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0)
+            ),
         )
         for part in path.parts[1:]:
             current /= part
-            next_descriptor = os.open(
+            next_owner = _open_owned_descriptor(
                 part,
-                os.O_RDONLY
-                | getattr(os, "O_DIRECTORY", 0)
-                | getattr(os, "O_CLOEXEC", 0)
-                | getattr(os, "O_NOFOLLOW", 0),
-                dir_fd=descriptor,
+                flags=(
+                    os.O_RDONLY
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_DIRECTORY", 0)
+                    | getattr(os, "O_NOFOLLOW", 0)
+                ),
+                dir_fd=directory_owner.fileno(),
             )
-            metadata = os.fstat(next_descriptor)
-            protected = current == ignored_root or current.is_relative_to(ignored_root)
-            if protected and (
-                not stat.S_ISDIR(metadata.st_mode)
-                or metadata.st_uid != os.geteuid()
-                or stat.S_IMODE(metadata.st_mode) != 0o700
-            ):
-                raise OSError
-            prior_descriptor = descriptor
-            descriptor = next_descriptor
-            next_descriptor = None
-            os.close(prior_descriptor)
-            prior_descriptor = None
-        return descriptor
+            try:
+                metadata = os.fstat(next_owner.fileno())
+                protected = current == ignored_root or current.is_relative_to(ignored_root)
+                if protected and (
+                    not stat.S_ISDIR(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or stat.S_IMODE(metadata.st_mode) != 0o700
+                ):
+                    raise OSError
+            except BaseException:
+                next_owner.close()
+                raise
+            directory_owner.close()
+            directory_owner = next_owner
+        return directory_owner
     except BaseException as error:
-        for candidate in {descriptor, next_descriptor, prior_descriptor}:
-            if candidate is not None:
-                with suppress(OSError):
-                    os.close(candidate)
+        if directory_owner is not None:
+            directory_owner.close()
         if isinstance(error, OSError):
             raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
                 "trusted-time post-enrollment execution artifact directory is unavailable"
@@ -342,23 +423,24 @@ def _open_owner_only_file(
     file_name: str,
     *,
     exclusive: bool,
-) -> io.FileIO:
+) -> _OwnedFileDescriptor:
     """Return a VM-owned descriptor so async CALL/STORE loss closes it."""
 
-    mode = "x+b" if exclusive else "rb"
-
-    def opener(path: str, flags: int) -> int:
-        return os.open(
-            path,
-            flags
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0)
-            | (0 if exclusive else getattr(os, "O_NONBLOCK", 0)),
-            0o600,
-            dir_fd=directory_descriptor,
+    flags = (
+        (
+            (os.O_RDWR | os.O_CREAT | os.O_EXCL)
+            if exclusive
+            else (os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
         )
-
-    return io.FileIO(file_name, mode=mode, opener=opener)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    return _open_owned_descriptor(
+        file_name,
+        flags=flags,
+        mode=0o600,
+        dir_fd=directory_descriptor,
+    )
 
 
 def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
@@ -380,7 +462,7 @@ def _read_owner_only_artifact(
     *,
     file_name: str,
 ) -> tuple[bytes, tuple[int, ...]]:
-    file_owner: io.FileIO | None = None
+    file_owner: _OwnedFileDescriptor | None = None
     try:
         directory_before = os.fstat(directory_descriptor)
         file_owner = _open_owner_only_file(
@@ -427,6 +509,99 @@ def _read_owner_only_artifact(
         raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
             "trusted-time post-enrollment execution approval artifact is unavailable"
         ) from None
+    finally:
+        if file_owner is not None:
+            with suppress(OSError):
+                file_owner.close()
+
+
+def _confirm_owner_only_artifact_durable(
+    directory_descriptor: int,
+    *,
+    file_name: str,
+    expected_encoded: bytes | None,
+    exclusive_flock: bool = False,
+) -> tuple[bytes, tuple[int, ...]]:
+    """Fsync and read back one exact held owner-only artifact and its name."""
+
+    file_owner: _OwnedFileDescriptor | None = None
+
+    def readback(descriptor: int) -> bytes:
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        retained = bytearray()
+        while len(retained) <= MAXIMUM_POST_ENROLLMENT_EXECUTION_ARTIFACT_BYTES:
+            chunk = os.read(
+                descriptor,
+                min(
+                    65_536,
+                    MAXIMUM_POST_ENROLLMENT_EXECUTION_ARTIFACT_BYTES + 1 - len(retained),
+                ),
+            )
+            if not chunk:
+                break
+            retained.extend(chunk)
+        return bytes(retained)
+
+    try:
+        directory_before = os.fstat(directory_descriptor)
+        file_owner = _open_owner_only_file(
+            directory_descriptor,
+            file_name,
+            exclusive=False,
+        )
+        descriptor = file_owner.fileno()
+        if exclusive_flock:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            locked = os.fstat(descriptor)
+            named_locked = os.stat(
+                file_name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if _stable_file_identity(locked) != _stable_file_identity(named_locked):
+                raise OSError
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.geteuid()
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_nlink != 1
+            or before.st_size < 1
+            or before.st_size > MAXIMUM_POST_ENROLLMENT_EXECUTION_ARTIFACT_BYTES
+        ):
+            raise OSError
+        encoded = readback(descriptor)
+        after_read = os.fstat(descriptor)
+        named_before = os.stat(
+            file_name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            len(encoded) != before.st_size
+            or (expected_encoded is not None and encoded != expected_encoded)
+            or _stable_file_identity(before) != _stable_file_identity(after_read)
+            or _stable_file_identity(after_read) != _stable_file_identity(named_before)
+        ):
+            raise OSError
+        os.fsync(descriptor)
+        os.fsync(directory_descriptor)
+        final_encoded = readback(descriptor)
+        final = os.fstat(descriptor)
+        named_final = os.stat(
+            file_name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        directory_final = os.fstat(directory_descriptor)
+        if (
+            final_encoded != encoded
+            or _stable_file_identity(before) != _stable_file_identity(final)
+            or _stable_file_identity(final) != _stable_file_identity(named_final)
+            or _stable_file_identity(directory_before) != _stable_file_identity(directory_final)
+        ):
+            raise OSError
+        return final_encoded, _stable_file_identity(final)
     finally:
         if file_owner is not None:
             with suppress(OSError):
@@ -741,6 +916,7 @@ class LoadedTrustedTimePostEnrollmentExecutionApproval:
     """Exact bytes and inode of one externally retained closed approval."""
 
     approval: TrustedTimePostEnrollmentStartApproval
+    image_provenance: TrustedTimeImageAdmissionProvenance
     artifact_sha256: str
     artifact_path: Path
     encoded: bytes = field(repr=False)
@@ -757,6 +933,7 @@ class LoadedTrustedTimePostEnrollmentExecutionApproval:
             ) from None
         if (
             type(self.approval) is not TrustedTimePostEnrollmentStartApproval
+            or type(self.image_provenance) is not TrustedTimeImageAdmissionProvenance
             or not _is_sha256(self.artifact_sha256)
             or type(self.artifact_path) is not type(Path())
             or not self.artifact_path.is_absolute()
@@ -778,6 +955,22 @@ class LoadedTrustedTimePostEnrollmentExecutionApproval:
             raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
                 "trusted-time post-enrollment execution approval receipt is invalid"
             )
+        launch = self.approval.proposed_launch
+        try:
+            self.image_provenance.__post_init__()
+        except Exception:
+            raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
+                "trusted-time post-enrollment execution approval receipt is invalid"
+            ) from None
+        if (
+            self.image_provenance.artifact_sha256 != launch.image_admission_sha256
+            or self.image_provenance.git_revision != launch.git_revision
+            or self.image_provenance.identities.source_id != launch.source_image_id
+            or self.image_provenance.identities.supervisor_id != launch.supervisor_image_id
+        ):
+            raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
+                "trusted-time post-enrollment execution approval receipt is invalid"
+            )
 
 
 def load_post_enrollment_execution_approval(
@@ -785,6 +978,9 @@ def load_post_enrollment_execution_approval(
     approval_artifact: Path,
     artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
     ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+    image_provenance_loader: Callable[..., TrustedTimeImageAdmissionProvenance] = (
+        load_image_admission_provenance_artifact
+    ),
 ) -> LoadedTrustedTimePostEnrollmentExecutionApproval:
     """Load and reconstruct one self-contained exact approval artifact."""
 
@@ -803,20 +999,19 @@ def load_post_enrollment_execution_approval(
         )
     file_name = approval_artifact.name
     artifact_sha256 = _approval_artifact_sha256_from_name(file_name)
-    directory_descriptor: int | None = None
+    directory_owner: _OwnedFileDescriptor | None = None
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             exact_directory,
             ignored_root=exact_root,
         )
         encoded, identity = _read_owner_only_artifact(
-            directory_descriptor,
+            directory_owner.fileno(),
             file_name=file_name,
         )
     finally:
-        if directory_descriptor is not None:
-            with suppress(OSError):
-                os.close(directory_descriptor)
+        if directory_owner is not None:
+            directory_owner.close()
     payload = _decode_canonical_json(encoded)
     exact = _decode_execution_approval_artifact(payload)
     expected_encoded = post_enrollment_execution_approval_bytes(
@@ -827,13 +1022,151 @@ def load_post_enrollment_execution_approval(
         raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
             "trusted-time post-enrollment execution approval artifact differs from expectation"
         )
+    try:
+        provenance = image_provenance_loader(
+            _image_admission_artifact_path(
+                exact,
+                artifact_directory=exact_directory,
+            ),
+            ignored_root=exact_root,
+        )
+        if type(provenance) is not TrustedTimeImageAdmissionProvenance:
+            raise ValueError
+        provenance.__post_init__()
+    except Exception:
+        raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
+            "trusted-time post-enrollment execution image provenance is invalid"
+        ) from None
     return LoadedTrustedTimePostEnrollmentExecutionApproval(
         approval=exact,
+        image_provenance=provenance,
         artifact_sha256=artifact_sha256,
         artifact_path=exact_directory / file_name,
         encoded=encoded,
         file_identity=identity,
     )
+
+
+def retain_post_enrollment_execution_approval(
+    approval: TrustedTimePostEnrollmentStartApproval,
+    *,
+    expected_approval_sha256: str,
+    artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+) -> LoadedTrustedTimePostEnrollmentExecutionApproval:
+    """Durably retain one stable approval, accepting only exact idempotence."""
+
+    exact_directory, exact_root = _exact_artifact_roots(
+        artifact_directory,
+        ignored_root=ignored_root,
+    )
+    encoded = post_enrollment_execution_approval_bytes(
+        approval,
+        expected_approval_sha256=expected_approval_sha256,
+    )
+    artifact_sha256 = hashlib.sha256(encoded).hexdigest()
+    path = exact_directory / _approval_file_name(artifact_sha256)
+
+    # Authenticate the approved stable provenance before creating approval bytes.
+    try:
+        provenance = load_image_admission_provenance_artifact(
+            _image_admission_artifact_path(
+                approval,
+                artifact_directory=exact_directory,
+            ),
+            ignored_root=exact_root,
+        )
+        if (
+            provenance.artifact_sha256 != approval.proposed_launch.image_admission_sha256
+            or provenance.git_revision != approval.proposed_launch.git_revision
+            or provenance.identities.source_id != approval.proposed_launch.source_image_id
+            or provenance.identities.supervisor_id != approval.proposed_launch.supervisor_image_id
+        ):
+            raise ValueError
+    except Exception:
+        raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
+            "trusted-time post-enrollment execution image provenance is invalid"
+        ) from None
+
+    directory_owner: _OwnedFileDescriptor | None = None
+    file_owner: _OwnedFileDescriptor | None = None
+    creation_call_started = False
+    created = False
+    try:
+        directory_owner = _open_owner_only_artifact_directory(
+            exact_directory,
+            ignored_root=exact_root,
+        )
+        directory_descriptor = directory_owner.fileno()
+        try:
+            creation_call_started = True
+            file_owner = _open_owner_only_file(
+                directory_descriptor,
+                path.name,
+                exclusive=True,
+            )
+        except FileExistsError:
+            creation_call_started = False
+            file_owner = None
+            try:
+                existing, _ = _read_owner_only_artifact(
+                    directory_descriptor,
+                    file_name=path.name,
+                )
+            except BaseException as error:
+                raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
+                    "trusted-time post-enrollment execution approval retention is unconfirmed"
+                ) from error
+            if existing != encoded:
+                raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
+                    "trusted-time post-enrollment execution approval differs from expectation"
+                ) from None
+            try:
+                _confirm_owner_only_artifact_durable(
+                    directory_descriptor,
+                    file_name=path.name,
+                    expected_encoded=encoded,
+                )
+            except BaseException as error:
+                raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
+                    "trusted-time post-enrollment execution approval retention is unconfirmed"
+                ) from error
+        if file_owner is not None:
+            created = True
+            descriptor = file_owner.fileno()
+            view = memoryview(encoded)
+            while view:
+                written = os.write(descriptor, view)
+                if written <= 0:
+                    raise OSError
+                view = view[written:]
+            os.ftruncate(descriptor, len(encoded))
+            os.fchmod(descriptor, 0o600)
+            os.fsync(descriptor)
+            os.fsync(directory_descriptor)
+    except BaseException as error:
+        if creation_call_started or created:
+            raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
+                "trusted-time post-enrollment execution approval retention is unconfirmed"
+            ) from error
+        raise
+    finally:
+        if file_owner is not None:
+            with suppress(OSError):
+                file_owner.close()
+        if directory_owner is not None:
+            directory_owner.close()
+
+    loaded = load_post_enrollment_execution_approval(
+        approval_artifact=path,
+        artifact_directory=exact_directory,
+        ignored_root=exact_root,
+    )
+    if loaded.approval != approval or loaded.encoded != encoded:
+        raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
+            "trusted-time post-enrollment execution approval differs from expectation"
+        )
+    return loaded
 
 
 def _image_admission_artifact_path(
@@ -846,35 +1179,79 @@ def _image_admission_artifact_path(
     )
 
 
-def _load_exact_image_admission(
+def _image_witness_artifact_path(
+    image_admission: TrustedTimeImageAdmission,
+    *,
+    artifact_directory: Path,
+) -> Path:
+    return artifact_directory / f"image-admission-{image_admission.artifact_sha256}.json"
+
+
+def _same_image_admission(
+    left: TrustedTimeImageAdmission,
+    right: TrustedTimeImageAdmission,
+) -> bool:
+    return (
+        left.identities == right.identities
+        and left.boot_session_id == right.boot_session_id
+        and left.git_revision == right.git_revision
+        and left.source_revision_sha256 == right.source_revision_sha256
+        and left.artifact_sha256 == right.artifact_sha256
+        and left.created_at_utc == right.created_at_utc
+        and left.created_monotonic_ns == right.created_monotonic_ns
+    )
+
+
+def _load_exact_image_witness(
     *,
     approval: TrustedTimePostEnrollmentStartApproval,
+    image_provenance: TrustedTimeImageAdmissionProvenance,
+    image_admission: TrustedTimeImageAdmission,
     artifact_directory: Path,
     ignored_root: Path,
     observed_monotonic_ns: int,
-    loader: Callable[..., TrustedTimeImageAdmission],
-) -> tuple[TrustedTimeImageAdmission, int]:
+    admission_loader: Callable[..., TrustedTimeImageAdmission],
+    provenance_loader: Callable[..., TrustedTimeImageAdmissionProvenance],
+) -> tuple[TrustedTimeImageAdmissionProvenance, int]:
     if type(observed_monotonic_ns) is not int or observed_monotonic_ns < 0:
         raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
             "trusted-time post-enrollment execution admission clock is unavailable"
         )
-    expected_path = _image_admission_artifact_path(
-        approval,
+    if type(image_admission) is not TrustedTimeImageAdmission:
+        raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
+            "trusted-time post-enrollment execution image witness is invalid"
+        )
+    expected_path = _image_witness_artifact_path(
+        image_admission,
         artifact_directory=artifact_directory,
     )
     try:
-        admission = loader(
+        before = provenance_loader(
+            expected_path,
+            ignored_root=ignored_root,
+        )
+        admission = admission_loader(
             expected_path,
             ignored_root=ignored_root,
             monotonic_ns=observed_monotonic_ns,
         )
-        if type(admission) is not TrustedTimeImageAdmission:
+        after = provenance_loader(
+            expected_path,
+            ignored_root=ignored_root,
+        )
+        if (
+            type(before) is not TrustedTimeImageAdmissionProvenance
+            or type(admission) is not TrustedTimeImageAdmission
+            or type(after) is not TrustedTimeImageAdmissionProvenance
+        ):
             raise ValueError
+        before.__post_init__()
         admission.__post_init__()
         admission.identities.__post_init__()
+        after.__post_init__()
     except Exception:
         raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
-            "trusted-time post-enrollment execution image admission is invalid"
+            "trusted-time post-enrollment execution image witness is invalid"
         ) from None
     launch = approval.proposed_launch
     maximum_age_ns = IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS * 1_000_000_000
@@ -885,25 +1262,29 @@ def _load_exact_image_admission(
         observed_monotonic_ns - admission.created_monotonic_ns
     )
     if (
-        admission.path != expected_path
-        or admission.artifact_sha256 != launch.image_admission_sha256
+        before != after
+        or before.admission() != admission
+        or admission.path != expected_path
+        or not _same_image_admission(image_admission, admission)
         or admission.git_revision != launch.git_revision
         or admission.identities.source_id != launch.source_image_id
         or admission.identities.supervisor_id != launch.supervisor_image_id
+        or admission.source_revision_sha256 != image_provenance.source_revision_sha256
         or observed_monotonic_ns < admission.created_monotonic_ns
         or remaining_headroom_ns < required_headroom_ns
     ):
         raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
-            "trusted-time post-enrollment execution image admission lacks exact headroom"
+            "trusted-time post-enrollment execution image witness lacks exact headroom"
         )
-    return admission, remaining_headroom_ns
+    return before, remaining_headroom_ns
 
 
 def _attempt_slot_payload(
     *,
     approval: TrustedTimePostEnrollmentStartApproval,
     approval_artifact_sha256: str,
-    image_admission: TrustedTimeImageAdmission,
+    image_provenance: TrustedTimeImageAdmissionProvenance,
+    image_witness: TrustedTimeImageAdmissionProvenance,
     observed_monotonic_ns: int,
     remaining_headroom_ns: int,
 ) -> dict[str, object]:
@@ -913,19 +1294,93 @@ def _attempt_slot_payload(
         {
             "approval_artifact_sha256": approval_artifact_sha256,
             "contract_version": POST_ENROLLMENT_EXECUTION_ATTEMPT_CONTRACT_VERSION,
-            "image_admission_boot_session_id": image_admission.boot_session_id,
-            "image_admission_checked_monotonic_ns": observed_monotonic_ns,
-            "image_admission_created_monotonic_ns": (image_admission.created_monotonic_ns),
-            "image_admission_minimum_headroom_seconds": (
+            "approved_image_provenance_source_revision_sha256": (
+                image_provenance.source_revision_sha256
+            ),
+            "image_witness_boot_session_id": image_witness.boot_session_id,
+            "image_witness_checked_monotonic_ns": observed_monotonic_ns,
+            "image_witness_contract_version": IMAGE_ADMISSION_CONTRACT_VERSION,
+            "image_witness_created_monotonic_ns": image_witness.created_monotonic_ns,
+            "image_witness_minimum_headroom_seconds": (
                 POST_ENROLLMENT_EXECUTION_MINIMUM_IMAGE_ADMISSION_HEADROOM_SECONDS
             ),
-            "image_admission_remaining_headroom_nanoseconds": remaining_headroom_ns,
-            "image_admission_source_revision_sha256": (image_admission.source_revision_sha256),
+            "image_witness_remaining_headroom_nanoseconds": remaining_headroom_ns,
+            "image_witness_sha256": image_witness.artifact_sha256,
+            "image_witness_source_revision_sha256": (image_witness.source_revision_sha256),
             "service": POST_ENROLLMENT_EXECUTION_ADMISSION_SERVICE,
             "status": "execution_attempt_reserved",
         }
     )
     return payload
+
+
+_ATTEMPT_SLOT_FIELDS = frozenset(
+    {
+        *_closed_payload(),
+        "approval_artifact_sha256",
+        "approval_sha256",
+        "approved_image_provenance_sha256",
+        "approved_image_provenance_source_revision_sha256",
+        "confirmed_enrollment_evidence_sha256",
+        "contract_version",
+        "git_revision",
+        "image_witness_boot_session_id",
+        "image_witness_checked_monotonic_ns",
+        "image_witness_contract_version",
+        "image_witness_created_monotonic_ns",
+        "image_witness_minimum_headroom_seconds",
+        "image_witness_remaining_headroom_nanoseconds",
+        "image_witness_sha256",
+        "image_witness_source_revision_sha256",
+        "operation_id",
+        "review_projection_sha256",
+        "service",
+        "source_image_id",
+        "status",
+        "supervisor_image_id",
+    }
+)
+_ATTEMPT_SLOT_SHA256_FIELDS = (
+    "approval_artifact_sha256",
+    "approval_sha256",
+    "approved_image_provenance_sha256",
+    "approved_image_provenance_source_revision_sha256",
+    "confirmed_enrollment_evidence_sha256",
+    "image_witness_sha256",
+    "image_witness_source_revision_sha256",
+    "review_projection_sha256",
+)
+
+
+def _is_complete_attempt_slot_artifact(encoded: bytes) -> bool:
+    """Classify only one complete canonical v2 attempt as confirmed consumed."""
+
+    try:
+        payload = _decode_canonical_json(encoded)
+    except TrustedTimePostEnrollmentExecutionAdmissionRejected:
+        return False
+    return (
+        set(payload) == _ATTEMPT_SLOT_FIELDS
+        and all(payload.get(field_name) is False for field_name in _closed_payload())
+        and all(_is_sha256(payload.get(field_name)) for field_name in _ATTEMPT_SLOT_SHA256_FIELDS)
+        and payload.get("contract_version") == POST_ENROLLMENT_EXECUTION_ATTEMPT_CONTRACT_VERSION
+        and payload.get("image_witness_contract_version") == IMAGE_ADMISSION_CONTRACT_VERSION
+        and payload.get("image_witness_minimum_headroom_seconds")
+        == POST_ENROLLMENT_EXECUTION_MINIMUM_IMAGE_ADMISSION_HEADROOM_SECONDS
+        and payload.get("service") == POST_ENROLLMENT_EXECUTION_ADMISSION_SERVICE
+        and payload.get("status") == "execution_attempt_reserved"
+        and type(payload.get("git_revision")) is str
+        and type(payload.get("image_witness_boot_session_id")) is str
+        and type(payload.get("operation_id")) is str
+        and type(payload.get("source_image_id")) is str
+        and type(payload.get("supervisor_image_id")) is str
+        and type(payload.get("image_witness_checked_monotonic_ns")) is int
+        and cast(int, payload["image_witness_checked_monotonic_ns"]) >= 0
+        and type(payload.get("image_witness_created_monotonic_ns")) is int
+        and cast(int, payload["image_witness_created_monotonic_ns"]) >= 0
+        and type(payload.get("image_witness_remaining_headroom_nanoseconds")) is int
+        and cast(int, payload["image_witness_remaining_headroom_nanoseconds"]) >= 0
+    )
 
 
 def _reserve_attempt_slot(
@@ -943,9 +1398,16 @@ def _reserve_attempt_slot(
         raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
             "trusted-time post-enrollment execution attempt binding is invalid"
         )
-    file_owner: io.FileIO | None = None
+    file_owner: _OwnedFileDescriptor | None = None
+    creation_call_started = False
     created = False
+    directory_lock_call_started = False
     try:
+        # The directory lock bridges O_EXCL creation to the inode flock.  The
+        # inode flock remains the durable-record serialization primitive.
+        directory_lock_call_started = True
+        fcntl.flock(directory_descriptor, fcntl.LOCK_EX)
+        creation_call_started = True
         file_owner = _open_owner_only_file(
             directory_descriptor,
             POST_ENROLLMENT_EXECUTION_ATTEMPT_SLOT_FILE_NAME,
@@ -953,6 +1415,22 @@ def _reserve_attempt_slot(
         )
         created = True
         descriptor = file_owner.fileno()
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        locked = os.fstat(descriptor)
+        named_locked = os.stat(
+            POST_ENROLLMENT_EXECUTION_ATTEMPT_SLOT_FILE_NAME,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(locked.st_mode)
+            or locked.st_uid != os.geteuid()
+            or stat.S_IMODE(locked.st_mode) != 0o600
+            or locked.st_nlink != 1
+            or locked.st_size != 0
+            or _stable_file_identity(locked) != _stable_file_identity(named_locked)
+        ):
+            raise OSError
         view = memoryview(encoded)
         while view:
             written = os.write(descriptor, view)
@@ -996,11 +1474,33 @@ def _reserve_attempt_slot(
             raise OSError
         return _stable_file_identity(after), hashlib.sha256(encoded).hexdigest()
     except FileExistsError:
+        creation_call_started = False
+        try:
+            retained, _ = _confirm_owner_only_artifact_durable(
+                directory_descriptor,
+                file_name=POST_ENROLLMENT_EXECUTION_ATTEMPT_SLOT_FILE_NAME,
+                expected_encoded=None,
+                exclusive_flock=True,
+            )
+        except BaseException as error:
+            raise TrustedTimePostEnrollmentExecutionAttemptRetentionUnconfirmed(
+                "trusted-time post-enrollment execution attempt retention is unconfirmed"
+            ) from error
+        if not _is_complete_attempt_slot_artifact(retained):
+            raise TrustedTimePostEnrollmentExecutionAttemptRetentionUnconfirmed(
+                "trusted-time post-enrollment execution attempt retention is unconfirmed"
+            ) from None
         raise TrustedTimePostEnrollmentExecutionAttemptConsumed(
             "trusted-time post-enrollment execution attempt was already consumed"
         ) from None
-    except OSError:
-        if created:
+    except BaseException as error:
+        if not isinstance(error, OSError):
+            if creation_call_started or created:
+                raise TrustedTimePostEnrollmentExecutionAttemptRetentionUnconfirmed(
+                    "trusted-time post-enrollment execution attempt retention is unconfirmed"
+                ) from error
+            raise
+        if creation_call_started or created:
             raise TrustedTimePostEnrollmentExecutionAttemptRetentionUnconfirmed(
                 "trusted-time post-enrollment execution attempt retention is unconfirmed"
             ) from None
@@ -1011,6 +1511,9 @@ def _reserve_attempt_slot(
         if file_owner is not None:
             with suppress(OSError):
                 file_owner.close()
+        if directory_lock_call_started:
+            with suppress(OSError):
+                fcntl.flock(directory_descriptor, fcntl.LOCK_UN)
 
 
 class _ExecutionAdmissionCapability:
@@ -1047,7 +1550,10 @@ def _admission_payload(
     approval: TrustedTimePostEnrollmentStartApproval,
     approval_artifact_sha256: str,
     attempt_slot_sha256: str,
-    image_admission_remaining_headroom_nanoseconds: int,
+    image_provenance_source_revision_sha256: str,
+    image_witness_sha256: str,
+    image_witness_source_revision_sha256: str,
+    image_witness_remaining_headroom_nanoseconds: int,
 ) -> dict[str, object]:
     payload = _closed_payload()
     payload.update(_tuple_payload(approval))
@@ -1056,16 +1562,23 @@ def _admission_payload(
             "approval_artifact_authenticated": True,
             "approval_artifact_sha256": approval_artifact_sha256,
             "attempt_slot_sha256": attempt_slot_sha256,
+            "approved_image_provenance_authenticated": True,
+            "approved_image_provenance_source_revision_sha256": (
+                image_provenance_source_revision_sha256
+            ),
             "contract_version": POST_ENROLLMENT_EXECUTION_ADMISSION_CONTRACT_VERSION,
             "execution_attempt_retained": True,
-            "image_admission_authenticated": True,
-            "image_admission_headroom_authenticated": True,
-            "image_admission_minimum_headroom_seconds": (
+            "image_witness_authenticated": True,
+            "image_witness_contract_version": IMAGE_ADMISSION_CONTRACT_VERSION,
+            "image_witness_headroom_authenticated": True,
+            "image_witness_minimum_headroom_seconds": (
                 POST_ENROLLMENT_EXECUTION_MINIMUM_IMAGE_ADMISSION_HEADROOM_SECONDS
             ),
-            "image_admission_remaining_headroom_nanoseconds": (
-                image_admission_remaining_headroom_nanoseconds
+            "image_witness_remaining_headroom_nanoseconds": (
+                image_witness_remaining_headroom_nanoseconds
             ),
+            "image_witness_sha256": image_witness_sha256,
+            "image_witness_source_revision_sha256": (image_witness_source_revision_sha256),
             "owner_only_artifacts_authenticated": True,
             "service": POST_ENROLLMENT_EXECUTION_ADMISSION_SERVICE,
             "status": "execution_admission_unqualified",
@@ -1081,7 +1594,10 @@ class TrustedTimePostEnrollmentExecutionAdmission:
     approval: TrustedTimePostEnrollmentStartApproval = field(repr=False)
     approval_artifact_sha256: str
     attempt_slot_sha256: str
-    image_admission_remaining_headroom_nanoseconds: int
+    image_provenance_source_revision_sha256: str
+    image_witness_sha256: str
+    image_witness_source_revision_sha256: str
+    image_witness_remaining_headroom_nanoseconds: int
     _capability: object = field(repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -1095,8 +1611,13 @@ class TrustedTimePostEnrollmentExecutionAdmission:
                 approval=self.approval,
                 approval_artifact_sha256=self.approval_artifact_sha256,
                 attempt_slot_sha256=self.attempt_slot_sha256,
-                image_admission_remaining_headroom_nanoseconds=(
-                    self.image_admission_remaining_headroom_nanoseconds
+                image_provenance_source_revision_sha256=(
+                    self.image_provenance_source_revision_sha256
+                ),
+                image_witness_sha256=self.image_witness_sha256,
+                image_witness_source_revision_sha256=(self.image_witness_source_revision_sha256),
+                image_witness_remaining_headroom_nanoseconds=(
+                    self.image_witness_remaining_headroom_nanoseconds
                 ),
             )
         except Exception:
@@ -1107,8 +1628,13 @@ class TrustedTimePostEnrollmentExecutionAdmission:
             type(self.approval) is not TrustedTimePostEnrollmentStartApproval
             or not _is_sha256(self.approval_artifact_sha256)
             or not _is_sha256(self.attempt_slot_sha256)
-            or type(self.image_admission_remaining_headroom_nanoseconds) is not int
-            or self.image_admission_remaining_headroom_nanoseconds
+            or not _is_sha256(self.image_provenance_source_revision_sha256)
+            or not _is_sha256(self.image_witness_sha256)
+            or not _is_sha256(self.image_witness_source_revision_sha256)
+            or self.image_witness_source_revision_sha256
+            != self.image_provenance_source_revision_sha256
+            or type(self.image_witness_remaining_headroom_nanoseconds) is not int
+            or self.image_witness_remaining_headroom_nanoseconds
             < POST_ENROLLMENT_EXECUTION_MINIMUM_IMAGE_ADMISSION_HEADROOM_SECONDS * 1_000_000_000
             or not _valid_execution_admission_capability(
                 self._capability,
@@ -1140,8 +1666,11 @@ class TrustedTimePostEnrollmentExecutionAdmission:
             approval=self.approval,
             approval_artifact_sha256=self.approval_artifact_sha256,
             attempt_slot_sha256=self.attempt_slot_sha256,
-            image_admission_remaining_headroom_nanoseconds=(
-                self.image_admission_remaining_headroom_nanoseconds
+            image_provenance_source_revision_sha256=(self.image_provenance_source_revision_sha256),
+            image_witness_sha256=self.image_witness_sha256,
+            image_witness_source_revision_sha256=(self.image_witness_source_revision_sha256),
+            image_witness_remaining_headroom_nanoseconds=(
+                self.image_witness_remaining_headroom_nanoseconds
             ),
         )
 
@@ -1170,9 +1699,10 @@ class TrustedTimePostEnrollmentExecutionAdmission:
         )
 
     approval_artifact_authenticated = property(_authenticated_fact)
+    approved_image_provenance_authenticated = property(_authenticated_fact)
     execution_attempt_retained = property(_authenticated_fact)
-    image_admission_authenticated = property(_authenticated_fact)
-    image_admission_headroom_authenticated = property(_authenticated_fact)
+    image_witness_authenticated = property(_authenticated_fact)
+    image_witness_headroom_authenticated = property(_authenticated_fact)
     owner_only_artifacts_authenticated = property(_authenticated_fact)
     active_controller_authorized = property(_authority_is_never_granted)
     authority_granted = property(_authority_is_never_granted)
@@ -1211,6 +1741,23 @@ def _validate_execution_admission(value: object) -> None:
 
 
 _ImageAdmissionLoader = Callable[..., TrustedTimeImageAdmission]
+_ImageProvenanceLoader = Callable[..., TrustedTimeImageAdmissionProvenance]
+
+
+@dataclass(frozen=True, slots=True)
+class _ExecutionAdmissionContinuation:
+    admission_reference: weakref.ReferenceType[TrustedTimePostEnrollmentExecutionAdmission]
+    approval_artifact: Path
+    artifact_directory: Path
+    ignored_root: Path
+    approval_receipt: LoadedTrustedTimePostEnrollmentExecutionApproval
+    image_admission: TrustedTimeImageAdmission
+    image_witness: TrustedTimeImageAdmissionProvenance
+    slot_encoded: bytes
+    slot_identity: tuple[int, ...]
+    process_id: int
+    thread: threading.Thread
+
 
 _CAPABILITY_VALIDATOR_LOCK = threading.Lock()
 _CAPABILITY_VALIDATORS: dict[
@@ -1239,6 +1786,7 @@ def _valid_execution_admission_capability(
 def _build_execution_admitter(
     *,
     image_admission_loader: _ImageAdmissionLoader = load_image_admission_artifact,
+    image_provenance_loader: _ImageProvenanceLoader = (load_image_admission_provenance_artifact),
     monotonic_ns: Callable[[], int] = _suspend_aware_monotonic_ns,
     process_id: Callable[[], int] = os.getpid,
     current_thread: Callable[[], threading.Thread] = threading.current_thread,
@@ -1258,19 +1806,7 @@ def _build_execution_admitter(
             weakref.ReferenceType[TrustedTimePostEnrollmentExecutionAdmission] | None,
         ],
     ] = {}
-    continuations: dict[
-        _ExecutionAdmissionCapability,
-        tuple[
-            weakref.ReferenceType[TrustedTimePostEnrollmentExecutionAdmission],
-            Path,
-            Path,
-            Path,
-            bytes,
-            tuple[int, ...],
-            int,
-            threading.Thread,
-        ],
-    ] = {}
+    continuations: dict[_ExecutionAdmissionCapability, _ExecutionAdmissionContinuation] = {}
 
     def valid_capability(candidate: object, material: dict[str, object], result: object) -> bool:
         if (
@@ -1329,9 +1865,10 @@ def _build_execution_admitter(
             )
         return observed
 
-    def admit(
+    def reserve(
         *,
-        approval_artifact: Path,
+        loaded_approval: LoadedTrustedTimePostEnrollmentExecutionApproval,
+        image_admission: TrustedTimeImageAdmission,
         artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
         ignored_root: Path = IGNORED_ARTIFACT_ROOT,
     ) -> TrustedTimePostEnrollmentExecutionAdmission:
@@ -1344,24 +1881,42 @@ def _build_execution_admitter(
             artifact_directory,
             ignored_root=ignored_root,
         )
-        loaded = load_post_enrollment_execution_approval(
-            approval_artifact=approval_artifact,
+        if (
+            type(loaded_approval) is not LoadedTrustedTimePostEnrollmentExecutionApproval
+            or type(image_admission) is not TrustedTimeImageAdmission
+            or loaded_approval.artifact_path.parent != exact_directory
+        ):
+            raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
+                "trusted-time post-enrollment execution late admission is invalid"
+            )
+        loaded_approval.__post_init__()
+        reloaded = load_post_enrollment_execution_approval(
+            approval_artifact=loaded_approval.artifact_path,
             artifact_directory=exact_directory,
             ignored_root=exact_root,
+            image_provenance_loader=image_provenance_loader,
         )
-        exact = loaded.approval
+        if reloaded != loaded_approval:
+            raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
+                "trusted-time post-enrollment execution approval changed before reservation"
+            )
+        exact = reloaded.approval
         observed = observe_monotonic_ns()
-        image_admission, initial_remaining_headroom_ns = _load_exact_image_admission(
+        image_witness, initial_remaining_headroom_ns = _load_exact_image_witness(
             approval=exact,
+            image_provenance=reloaded.image_provenance,
+            image_admission=image_admission,
             artifact_directory=exact_directory,
             ignored_root=exact_root,
             observed_monotonic_ns=observed,
-            loader=image_admission_loader,
+            admission_loader=image_admission_loader,
+            provenance_loader=image_provenance_loader,
         )
         slot_payload = _attempt_slot_payload(
             approval=exact,
-            approval_artifact_sha256=loaded.artifact_sha256,
-            image_admission=image_admission,
+            approval_artifact_sha256=reloaded.artifact_sha256,
+            image_provenance=reloaded.image_provenance,
+            image_witness=image_witness,
             observed_monotonic_ns=observed,
             remaining_headroom_ns=initial_remaining_headroom_ns,
         )
@@ -1371,45 +1926,51 @@ def _build_execution_admitter(
             raise TrustedTimePostEnrollmentExecutionAdmissionRejected(
                 "trusted-time post-enrollment execution attempt binding is invalid"
             ) from None
-        directory_descriptor: int | None = None
+        directory_owner: _OwnedFileDescriptor | None = None
         try:
-            directory_descriptor = _open_owner_only_artifact_directory(
+            directory_owner = _open_owner_only_artifact_directory(
                 exact_directory,
                 ignored_root=exact_root,
             )
             slot_identity, slot_sha256 = _reserve_attempt_slot(
-                directory_descriptor,
+                directory_owner.fileno(),
                 encoded=slot_encoded,
             )
         finally:
-            if directory_descriptor is not None:
-                with suppress(OSError):
-                    os.close(directory_descriptor)
+            if directory_owner is not None:
+                directory_owner.close()
         try:
-            reloaded = load_post_enrollment_execution_approval(
-                approval_artifact=approval_artifact,
+            final_approval = load_post_enrollment_execution_approval(
+                approval_artifact=reloaded.artifact_path,
                 artifact_directory=exact_directory,
                 ignored_root=exact_root,
+                image_provenance_loader=image_provenance_loader,
             )
-            if (
-                reloaded.artifact_sha256 != loaded.artifact_sha256
-                or reloaded.file_identity != loaded.file_identity
-                or reloaded.encoded != loaded.encoded
-            ):
+            if final_approval != reloaded:
                 raise ValueError
             final_observed = observe_monotonic_ns()
-            _, final_remaining_headroom_ns = _load_exact_image_admission(
+            final_witness, final_remaining_headroom_ns = _load_exact_image_witness(
                 approval=exact,
+                image_provenance=reloaded.image_provenance,
+                image_admission=image_admission,
                 artifact_directory=exact_directory,
                 ignored_root=exact_root,
                 observed_monotonic_ns=final_observed,
-                loader=image_admission_loader,
+                admission_loader=image_admission_loader,
+                provenance_loader=image_provenance_loader,
             )
+            if final_witness != image_witness:
+                raise ValueError
             material = _admission_payload(
                 approval=exact,
-                approval_artifact_sha256=loaded.artifact_sha256,
+                approval_artifact_sha256=reloaded.artifact_sha256,
                 attempt_slot_sha256=slot_sha256,
-                image_admission_remaining_headroom_nanoseconds=(final_remaining_headroom_ns),
+                image_provenance_source_revision_sha256=(
+                    reloaded.image_provenance.source_revision_sha256
+                ),
+                image_witness_sha256=image_witness.artifact_sha256,
+                image_witness_source_revision_sha256=(image_witness.source_revision_sha256),
+                image_witness_remaining_headroom_nanoseconds=(final_remaining_headroom_ns),
             )
             capability = object.__new__(_ExecutionAdmissionCapability)
             material_sha256 = hashlib.sha256(
@@ -1421,9 +1982,14 @@ def _build_execution_admitter(
                 _CAPABILITY_VALIDATORS[capability] = valid_capability
             result = TrustedTimePostEnrollmentExecutionAdmission(
                 approval=exact,
-                approval_artifact_sha256=loaded.artifact_sha256,
+                approval_artifact_sha256=reloaded.artifact_sha256,
                 attempt_slot_sha256=slot_sha256,
-                image_admission_remaining_headroom_nanoseconds=(final_remaining_headroom_ns),
+                image_provenance_source_revision_sha256=(
+                    reloaded.image_provenance.source_revision_sha256
+                ),
+                image_witness_sha256=image_witness.artifact_sha256,
+                image_witness_source_revision_sha256=(image_witness.source_revision_sha256),
+                image_witness_remaining_headroom_nanoseconds=(final_remaining_headroom_ns),
                 _capability=capability,
             )
             with registry_lock:
@@ -1434,15 +2000,18 @@ def _build_execution_admitter(
                     or registration[1]() is not result
                 ):
                     raise ValueError
-                continuations[capability] = (
-                    registration[1],
-                    approval_artifact,
-                    exact_directory,
-                    exact_root,
-                    slot_encoded,
-                    slot_identity,
-                    process_id(),
-                    current_thread(),
+                continuations[capability] = _ExecutionAdmissionContinuation(
+                    admission_reference=registration[1],
+                    approval_artifact=reloaded.artifact_path,
+                    artifact_directory=exact_directory,
+                    ignored_root=exact_root,
+                    approval_receipt=reloaded,
+                    image_admission=image_admission,
+                    image_witness=image_witness,
+                    slot_encoded=slot_encoded,
+                    slot_identity=slot_identity,
+                    process_id=process_id(),
+                    thread=current_thread(),
                 )
             return result
         except BaseException:
@@ -1471,17 +2040,17 @@ def _build_execution_admitter(
         if continuation is None:
             return False
         try:
-            retained = continuation[0]()
+            retained = continuation.admission_reference()
             accepted = (
                 retained is candidate
                 and type(approval_artifact) is type(Path())
-                and continuation[1] == approval_artifact
+                and continuation.approval_artifact == approval_artifact
                 and type(artifact_directory) is type(Path())
                 and type(ignored_root) is type(Path())
-                and continuation[2] == artifact_directory
-                and continuation[3] == ignored_root
-                and continuation[6] == process_id()
-                and continuation[7] is current_thread()
+                and continuation.artifact_directory == artifact_directory
+                and continuation.ignored_root == ignored_root
+                and continuation.process_id == process_id()
+                and continuation.thread is current_thread()
             )
             if not accepted:
                 return False
@@ -1493,53 +2062,65 @@ def _build_execution_admitter(
                 approval_artifact=exact_approval_artifact,
                 artifact_directory=exact_artifact_directory,
                 ignored_root=exact_ignored_root,
+                image_provenance_loader=image_provenance_loader,
             )
             exact = loaded.approval
             if (
-                loaded.artifact_sha256 != candidate.approval_artifact_sha256
+                loaded != continuation.approval_receipt
+                or loaded.artifact_sha256 != candidate.approval_artifact_sha256
                 or exact != candidate.approval
             ):
                 return False
-            directory_descriptor: int | None = None
+            directory_owner: _OwnedFileDescriptor | None = None
             try:
-                directory_descriptor = _open_owner_only_artifact_directory(
+                directory_owner = _open_owner_only_artifact_directory(
                     exact_artifact_directory,
                     ignored_root=exact_ignored_root,
                 )
                 slot_encoded, slot_identity = _read_owner_only_artifact(
-                    directory_descriptor,
+                    directory_owner.fileno(),
                     file_name=POST_ENROLLMENT_EXECUTION_ATTEMPT_SLOT_FILE_NAME,
                 )
             finally:
-                if directory_descriptor is not None:
-                    with suppress(OSError):
-                        os.close(directory_descriptor)
+                if directory_owner is not None:
+                    directory_owner.close()
             if (
-                slot_encoded != continuation[4]
-                or slot_identity != continuation[5]
+                slot_encoded != continuation.slot_encoded
+                or slot_identity != continuation.slot_identity
                 or hashlib.sha256(slot_encoded).hexdigest() != candidate.attempt_slot_sha256
             ):
                 return False
             observed = observe_monotonic_ns()
-            _load_exact_image_admission(
+            witness, remaining_headroom_ns = _load_exact_image_witness(
                 approval=exact,
+                image_provenance=loaded.image_provenance,
+                image_admission=continuation.image_admission,
                 artifact_directory=exact_artifact_directory,
                 ignored_root=exact_ignored_root,
                 observed_monotonic_ns=observed,
-                loader=image_admission_loader,
+                admission_loader=image_admission_loader,
+                provenance_loader=image_provenance_loader,
             )
-            return True
+            return not (
+                witness != continuation.image_witness
+                or remaining_headroom_ns
+                < POST_ENROLLMENT_EXECUTION_MINIMUM_IMAGE_ADMISSION_HEADROOM_SECONDS * 1_000_000_000
+            )
         except Exception:
             return False
 
-    return admit, valid_capability, consume
+    return reserve, valid_capability, consume
 
 
 (
-    admit_post_enrollment_execution_attempt,
+    reserve_post_enrollment_execution_attempt,
     _production_valid_execution_admission_capability,
     _consume_post_enrollment_execution_admission,
 ) = _build_execution_admitter()
+
+# Transitional import name with the v2 late-reservation signature.  It does not
+# accept the v1 approval-artifact-only call shape.
+admit_post_enrollment_execution_attempt = reserve_post_enrollment_execution_attempt
 
 
 __all__ = [
@@ -1561,4 +2142,6 @@ __all__ = [
     "load_post_enrollment_execution_approval",
     "post_enrollment_execution_approval_artifact_path",
     "post_enrollment_execution_approval_bytes",
+    "reserve_post_enrollment_execution_attempt",
+    "retain_post_enrollment_execution_approval",
 ]

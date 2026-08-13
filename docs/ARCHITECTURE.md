@@ -3597,7 +3597,7 @@ persistent start, release, sequence 2, shutdown, and every operational/trading
 authority remain false.
 
 The distinct dormant raw boundary is
-`phase6d-post-enrollment-topology-observation-reader-v1`. One exact production
+`phase6d-post-enrollment-topology-observation-reader-v2`. One exact production
 open owns the global launcher lock, a canonical absolute and metadata-pinned
 Docker executable, the qualified local Unix socket and daemon identity, and a
 PID-bound non-copyable lifecycle guarded against concurrent use. The guarded
@@ -3876,44 +3876,85 @@ trading authority field remains false. The payload and result explicitly expose
 `active_controller_authorized=false` and
 `controller_execution_authorized=false`; admission is not controller execution.
 
-Contract `phase6d-post-enrollment-start-host-orchestrator-v1` is now the only
+Contract `phase6d-post-enrollment-start-host-orchestrator-v2` is now the only
 supported composition surface for this start choreography. Its separate outer
 field `orchestrator_status=terminal_outcome_retained` never replaces the nested
 controller or legacy terminal `status`. Its standalone
 isolated host input boundary accepts only a canonical
 owner-only, content-addressed execution-approval artifact and one owner-only
 runtime environment file. Contracts
-`phase6d-post-enrollment-start-execution-approval-v1`,
-`phase6d-post-enrollment-start-execution-attempt-v1`, and
-`phase6d-post-enrollment-start-execution-admission-v1` bind the exact approval,
-merged revision, immutable images, and a fresh image admission with at least the
-full 605-second outer-window headroom. Image-admission creation/load and
-execution admission use the same native suspend-aware clock domain as the
-choreography, so suspend consumes that headroom. Admission durably reserves the permanent
-global slot `.post-enrollment-start-execution-attempt-slot` with owner-only
-`O_EXCL`, fsync, and exact readback before production topology creation; its
-first reservation consumes the host-wide opportunity, not only one approval.
-The immutable-image verifier may run its isolated Docker probe after reservation
-but cannot create the approved project. One-shot consume immediately before
-reviewed Compose `create` revalidates the exact approval, slot bytes/inode, and
-605-second headroom. Preflight or suspend can therefore burn the slot without
-production mutation. The process-sealed result is not authority by itself.
+`phase6d-post-enrollment-start-execution-approval-v2`,
+`phase6d-post-enrollment-start-execution-attempt-v2`, and
+`phase6d-post-enrollment-start-execution-admission-v2` separate stable approval
+from current-attempt freshness. The domain approval binds the exact merged
+revision, immutable images, and content-addressed base image provenance; its
+archive is authenticated without treating its original clock as current
+authority. `retain_post_enrollment_execution_approval` creates or accepts only
+the exact idempotent artifact, and `load_post_enrollment_execution_approval`
+reauthenticates its approval bytes, inode, and stable provenance. After owner-
+held staging and every reversible daemon, Compose,
+runtime-input, and isolated existing-image diagnostic succeeds, the host writes
+an independent just-in-time image witness for the same clean revision, image
+IDs, reviewed-source digest, and stable provenance. The witness and execution
+admission use the choreography's native suspend-aware clock domain and must
+retain the full 605-second outer-window headroom.
 
-The topology issuer owns the sole launcher flock from before exact empty-
-inventory validation and collision-nondestructive reviewed Compose
-`create --no-recreate` through complete callback
+Still under the same issuer flock, the choreography acquires its lease,
+prepares the signer-free sequence-1 verifier, and calls
+`_prepare_reviewed_topology_creation` to bind the owner-held staged paths,
+effect-only Compose projection, and exact-empty container/network inventory
+without mutation. Only after that prepared-create fence returns does
+`reserve_post_enrollment_execution_attempt` durably create the permanent global
+slot `.post-enrollment-start-execution-attempt-slot` with owner-only `O_EXCL`,
+fsync, and exact readback. One-shot consume revalidates the stable approval,
+fresh witness, and exact slot bytes/inode; the host then stores its conservative
+mutation flag before `_execute_prepared_reviewed_topology_creation` can issue
+the effect-only reviewed Compose `create`. A confirmed failure before slot
+reservation leaves the slot absent and the same stable approval reusable; it
+does not require another human approval. Reservation or later ambiguity is
+permanent and never a retry permit. V1 execution wrappers and the former
+approval-artifact-only admission call shape are rejected; the compatibility
+`admit_post_enrollment_execution_attempt` import is only an alias for the v2
+late-reservation signature. The process-sealed result is not authority by
+itself.
+
+The topology issuer owns the sole launcher flock from before owner-held staging,
+reversible preflight, exact-empty prepared-create validation, and reviewed
+Compose `create --no-recreate` through complete callback
 unwind and exact close, whether the path confirms teardown, retains a terminal,
 or ends in fatal manual classification. Its narrow state machine exposes no caller-selected
 argv, environment, or runner: it creates exactly the reviewed stopped pair,
 starts and qualifies the source first, starts the supervisor second, proves the
 consumed-input barrier, and permits exact volume-preserving teardown only before
 the claim boundary. The effect-only Compose projection labels both services
-and the default network with the issuer session's unpredictable invocation
-digest; every later reviewed observation requires it, so matching resources
-raced into place cannot be reused or replaced. Teardown removes only the
-authenticated container IDs and exact network ID and never invokes broad
-Compose down. It seals the authenticated created observation before
+and assigns the default attachment a full domain-separated,
+issuer-session-derived network name plus the exact issuer-session invocation
+label. The exact derived-name collision is checked before create; every later
+reviewed observation requires both the name and label, so a wrong-session or
+missing-label resource fails closed. The fixed legacy Compose network is never
+selected or mutated. Teardown removes only authenticated container IDs and the
+exact authenticated network ID and never invokes broad Compose down or
+name-based removal. It seals the authenticated created observation before
 return, so a lost return can still select only that exact pre-claim teardown.
+If create leaves only the exact empty, invocation-labeled dynamic network and
+zero project containers, teardown authenticates two stable inventory reads and
+removes only that network ID without issuing a container removal. Created
+topology truth, its digest, and the four private staged-input digests are
+registered as one atomic in-process value rather than as separately writable
+facts.
+
+The post-enrollment projection injects four private expected SHA-256 bindings
+into the supervisor environment: one for the database URL bytes and one for
+each of the three head-anchor inputs. These variables are forbidden by the
+fixed legacy/base Compose validator; that surface has no start authority. The
+supervisor main path requires all four because only the dynamic post-enrollment
+topology may start it. Each loader compares the binding with the SHA-256 of the
+exact bytes it read, before decoding or use. The fixed nonsecret consumed-input
+marker is published only after all four comparisons succeed. A mismatch exits
+with code 2 before marker, readiness, or claim and leaves the authenticated
+current-attempt exited supervisor eligible for exact pre-claim ID-only
+teardown. Restoring the staged path later cannot qualify that failed attempt,
+and neither the marker nor command output exposes the private digests.
 The boundary is stored before the claimed-preparer call;
 after that store, no ordinary or asynchronous failure can re-enable teardown.
 The four staged inputs are adopted inside their materializers by an exact inode
@@ -3927,14 +3968,17 @@ Ed25519 verifier; contains no signer or upload port; is invoked after exact
 staged-input retirement; and completes before the controller's unchanged
 260-second reserve. Retirement is descriptor-anchored and restartable from a
 partially unlinked exact inode without converting interruption into
-continuation. The orchestrator fixes one order under the same flock: exact create,
-source-ready, supervisor-consumed, staged-input retirement, staged ordinal 1,
-pre-claim fence, conservative no-teardown marker CALL, sequence-1 verification
-while recovery remains `unbound`, binder transition to `claim_admitted`
-immediately before claim `O_EXCL`, retained claim and armed recovery, ordinal-2 chronology,
-final action fence, active-controller admission, read-only sequence-2 verifier,
-and effecting controller. Action expires at 600 seconds and recovery retention
-at 605 seconds from one suspend-aware origin.
+continuation. The orchestrator fixes one order under the same flock: prepare
+sequence 1; return the exact-empty prepared-create fence; reserve the permanent
+attempt slot; consume and revalidate its approval/witness/slot continuation;
+store the mutation-may-have-begun flag; execute only the prepared Compose create;
+source-ready; supervisor-consumed; staged-input retirement; staged ordinal 1;
+pre-claim fence; conservative no-teardown marker CALL; sequence-1 verification
+while recovery remains `unbound`; binder transition to `claim_admitted`
+immediately before claim `O_EXCL`; retained claim and armed recovery; ordinal-2
+chronology; final action fence; active-controller admission; read-only
+sequence-2 verifier; and effecting controller. Action expires at 600 seconds and
+recovery retention at 605 seconds from one suspend-aware origin.
 
 The claim writer reads back its exact fsynced receipt and consumes the private
 binder before returning it. Claim-bound fields are populated first and
@@ -3949,8 +3993,11 @@ The effecting function rejects ordinary import calls; only the attested isolated
 never tears down. It retains legacy recovery only when an exact read-only state
 query reports `armed`; otherwise it preserves the topology and already-durable
 evidence and emits fatal manual review. The same conservative fatal projection
-applies after confirmed pre-mutation failure or pre-claim teardown because the
-permanent attempt slot has already been consumed.
+applies after failure at or beyond reservation because the permanent attempt
+slot is consumed or ambiguous. Confirmed staging, diagnostic, witness,
+verifier-preparation, or prepared-create failure before reservation instead
+retires owned inputs, leaves the slot absent, and preserves the same stable
+approval for a later explicit attempt.
 Only a terminal returned or raised by the current process-sealed invocation is
 eligible for CLI output; durable evidence from an earlier invocation cannot
 mask current preflight, cleanup, close, replay, or asynchronous failure. The
@@ -4124,14 +4171,19 @@ a later loader. Either incomplete path blocks concurrent, legacy, or later
 retry. Outcome-
 retention ambiguity remains hard closed and is never promoted to success.
 
-Code-only contract `phase6d-post-enrollment-start-host-orchestrator-v1` now
+Code-only contract `phase6d-post-enrollment-start-host-orchestrator-v2` now
 composes the complete start-only chain. Before
 mutation it consumes contracts
-`phase6d-post-enrollment-start-execution-approval-v1`,
-`phase6d-post-enrollment-start-execution-attempt-v1`, and
-`phase6d-post-enrollment-start-execution-admission-v1`; requires 605 seconds of
-image-admission headroom; and permanently reserves the owner-only execution-
-attempt slot. One topology issuer flock then spans reviewed Compose creation,
+`phase6d-post-enrollment-start-execution-approval-v2`,
+`phase6d-post-enrollment-start-execution-attempt-v2`, and
+`phase6d-post-enrollment-start-execution-admission-v2`. It authenticates the
+approval-bound stable base-image provenance without freshness authority, then,
+under the issuer flock, completes owner-held staging and reversible diagnostics
+before creating an independent just-in-time image witness with 605 seconds of
+headroom. The same flock and choreography lease then span sequence-1
+preparation; the exact-empty prepared-create fence; permanent owner-only attempt
+reservation; one-shot consume/revalidation; the conservative mutation flag;
+effect-only reviewed Compose creation;
 source-first and supervisor-second readiness, exact retirement of owner-adopted
 staged-input inodes, signer-free read-only sequence-1 reauthentication, claim,
 action fence, controller admission, and terminal outcome. Action/recovery
@@ -4145,9 +4197,12 @@ canonical execution approval and `--runtime-env-file` for the owner-only runtime
 environment file. No Make target, Compose
 service, worker, trader, ordinary launcher, shutdown, readiness, exposure,
 broker, or trading path invokes it, and implementation did not execute release.
-The exact merged revision and immutable images still require fresh admission,
-a new exact external execution approval, and an explicit operational execution
-decision. All readiness, control, re-arm,
+The exact merged revision, immutable images, and stable provenance still require
+one exact external execution approval, while every attempt requires a fresh
+just-in-time witness and an explicit operational execution decision. A
+confirmed failure before permanent slot reservation does not require a repeated
+human approval; the same stable approval remains eligible. Slot reservation or
+uncertainty permanently consumes the host-wide opportunity. All readiness, control, re-arm,
 exposure, broker, paper-trading, and live-trading authority remains false. Only
 after a separately confirmed start may a sealed watchdog provider-terminal issuer
 authenticate the complete new suffix, bind two stable namespace passes to their

@@ -25,7 +25,8 @@ head-anchor worker. Starting that worker automatically queues a full-audit
 also treats a running Compose topology as startup success and releases its
 global lock without authenticating a sequence-2 terminal. Simply removing the
 retained-claim quarantine would therefore cross the external mutation boundary
-without a single-use approval, durable claim, or qualified outcome.
+without stable approval-bound provenance, a single-attempt reservation, a
+durable claim, or a qualified outcome.
 
 ## Decision
 
@@ -35,18 +36,22 @@ Freeze a distinct post-enrollment start operation. Its exact approval binds:
 - the confirmed enrollment operation ID, claim SHA-256, outcome SHA-256, and
   reduced evidence SHA-256;
 - the ADR-0098 review-projection SHA-256;
-- one later Git revision, image-admission SHA-256, and immutable source and
-  supervisor image IDs, distinct from the enrollment launch;
+- one later Git revision, stable content-addressed base-image-provenance
+  SHA-256, and immutable source and supervisor image IDs, distinct from the
+  enrollment launch;
 - every sequence-1 intent, receipt, readback, current-anchor, semantic,
   current-host-head, deployment-identity, and remote-namespace digest; and
 - the only permitted first successor: exact integer sequence `2` with reason
   `epoch_rotation`.
 
-The approval is single use. All readiness, operational-control, arming,
-exposure, new-exposure, broker-action, alert-delivery, re-arm/resume, paper-
-trading, and live-trading authority fields remain false. Start approval is not
-trading authority, shutdown authority, or permission to create any successor
-other than the bound sequence 2.
+The approval is stable domain authority for that exact provenance tuple, not a
+freshness witness or an attempt record. It may be presented again only after a
+confirmed pre-slot failure left the permanent attempt slot absent; it never
+survives reservation or reservation ambiguity. All readiness, operational-
+control, arming, exposure, new-exposure, broker-action, alert-delivery, re-arm/
+resume, paper-trading, and live-trading authority fields remain false. Start
+approval is not trading authority, shutdown authority, or permission to create
+any successor other than the bound sequence 2.
 
 Before any epoch registration, signing, or provider mutation, the one-shot host
 runtime must hold the host's global trusted-time launcher lock and freshly
@@ -60,25 +65,34 @@ must equal them.
 
 The host executor must use this staged release protocol:
 
-1. create an admitted topology whose supervisor cannot register an epoch,
-   sign, or contact the provider before an exact release marker;
-2. authenticate retained enrollment evidence and the proposed launch, perform
-   the fresh read-only runtime reauthentication, and retire all staged host
-   inputs;
-3. retain an owner-only mode-`0600`, `O_EXCL`, fsync-confirmed start claim that
+1. authenticate the stable approval/provenance, hold owner responsibility for
+   every staged input, complete reversible daemon/Compose/image diagnostics,
+   and issue an independent fresh image witness;
+2. under the same launcher flock and choreography lease, prepare an exact-empty
+   reviewed create, reserve and revalidate the permanent attempt slot, store the
+   mutation flag, and execute only that prepared create; the stopped supervisor
+   cannot register an epoch, sign, or contact the provider before an exact
+   release marker;
+3. authenticate retained enrollment evidence and the proposed launch, perform
+   the fresh read-only runtime reauthentication, retire all staged host inputs,
+   and retain an owner-only mode-`0600`, `O_EXCL`, fsync-confirmed start claim that
    binds the exact approval and fresh reauthentication digest;
-4. revalidate every approval, image, daemon, topology, mount, and retained-
+4. revalidate every approval, witness, image, daemon, topology, mount, and retained-
    evidence binding, then publish the one exact release marker;
 5. require the runtime to register its epoch and confirm sequence 2 as
    `epoch_rotation`; and
 6. authenticate that SQL/remote successor and the still-qualified persistent
    topology before retaining a content-addressed confirmed host outcome.
 
-Compose `running` state is never a confirmed start outcome. Before claim and
-release, failure must tear down without sequence 2. Once the claim is retained,
-any uncertain release, runtime exit, sequence-2 result, teardown, outcome
-retention, or lock release consumes the approval and is recovery-required. A
-missing confirmed outcome must never be retried as a new start. Recovery needs
+Compose `running` state is never a confirmed start outcome. A confirmed failure
+before permanent attempt-slot reservation cleans owner-held inputs, leaves the
+slot absent, and keeps the same stable approval eligible; it does not trigger a
+new human approval. Once reservation may have begun, slot state is permanent.
+Before claim and release, a post-slot failure must tear down without sequence 2
+but still consumes the attempt. Once the claim is retained, any uncertain
+release, runtime exit, sequence-2 result, teardown, outcome retention, or lock
+release is recovery-required. A missing confirmed outcome must never be retried
+as a new start. Recovery needs
 a separately reviewed approval bound to the exact claim, outcome if any, SQL
 state, remote state, and topology state.
 
@@ -178,7 +192,7 @@ inspection, image-configuration, marker, staged-path, environment, mount, or
 state objects.
 
 The separate dormant raw issuer now implements contract
-`phase6d-post-enrollment-topology-observation-reader-v1`. Its production open
+`phase6d-post-enrollment-topology-observation-reader-v2`. Its production open
 owns the global launcher lock, pins one canonical absolute Docker executable,
 local Unix socket, and daemon identity, and binds one non-copyable session to
 its creating process with serialized lifecycle state. Its guarded production
@@ -592,31 +606,47 @@ outcome; it is terminal and never a retry permit. Failure to confirm retention
 remains a distinct hard-closed error. Poisoning still leaves the owning callback
 and outer flock live until owner unwind and never restores action authority.
 
-Code-only contract `phase6d-post-enrollment-start-host-orchestrator-v1` now
+Code-only contract `phase6d-post-enrollment-start-host-orchestrator-v2` now
 implements the one-shot host execution boundary. Its separate outer field
 `orchestrator_status=terminal_outcome_retained` never replaces the nested
 controller or legacy terminal `status`. Canonical
-owner-only contract `phase6d-post-enrollment-start-execution-approval-v1` binds
-the exact approval and proposed merged-revision image tuple in one content-
-addressed external artifact. Contract
-`phase6d-post-enrollment-start-execution-attempt-v1` permanently reserves
-`.post-enrollment-start-execution-attempt-slot` with owner-only `O_EXCL`, fsync,
-and exact readback before reviewed production topology creation. Its first
-reservation consumes the host-wide execution opportunity, not merely one
-approval artifact. The existing immutable-image admission may perform its
-isolated Docker probe after reservation, but it cannot create the approved
-project. One-shot consume immediately before reviewed Compose `create`
-revalidates the exact approval, slot bytes/inode, and 605-second headroom.
-Contract
-`phase6d-post-enrollment-start-execution-admission-v1` is process sealed and
-one-shot; it requires the exact immutable-image admission to retain at least
-605 seconds of headroom on the same native suspend-aware clock domain later
-used by the choreography, so system sleep consumes admission freshness. It
-grants no release, topology, runtime, outcome, or
-trading authority by itself.
+owner-only contract `phase6d-post-enrollment-start-execution-approval-v2` binds
+the exact domain approval, proposed merged-revision image tuple, and its stable
+content-addressed base provenance in one external artifact. Loading that
+provenance authenticates its bytes and inode without promoting its original
+timestamp to current authority. `retain_post_enrollment_execution_approval`
+creates or accepts only the exact idempotent approval artifact, while
+`load_post_enrollment_execution_approval` reauthenticates its bytes, inode, and
+stable provenance. Owner-held staging and reversible daemon,
+Compose, runtime-input, and isolated existing-image probes complete first. Only
+then does `verify_and_write_existing_image_admission` write an independent
+just-in-time witness for the same clean revision, immutable IDs, reviewed-source
+digest, and approved provenance.
 
-One topology issuer owns the sole launcher flock from exact empty-inventory
-preflight through collision-nondestructive reviewed Compose
+Under the already-held launcher flock, the choreography lease first prepares
+the sequence-1 verifier and `_prepare_reviewed_topology_creation` binds the
+staged paths and effect-only Compose projection while confirming the exact
+container/network inventory is empty. Contract
+`phase6d-post-enrollment-start-execution-attempt-v2` then permanently reserves
+`.post-enrollment-start-execution-attempt-slot` with owner-only `O_EXCL`, fsync,
+and exact readback. Its first reservation consumes the host-wide execution
+opportunity, not the reusable pre-slot approval artifact. Contract
+`phase6d-post-enrollment-start-execution-admission-v2` is process sealed and
+one-shot: `reserve_post_enrollment_execution_attempt` binds the stable approval
+to the independent witness, and consume immediately revalidates those exact
+artifacts, the slot bytes/inode, and at least 605 seconds of witness headroom on
+the choreography's native suspend-aware clock. The host stores its mutation
+flag before `_execute_prepared_reviewed_topology_creation` issues the effect-only
+create. Confirmed failure before reservation leaves the slot absent and the
+same stable approval reusable; reservation ambiguity is permanent. V1 wrappers
+and the former approval-artifact-only call shape are rejected. The compatibility
+`admit_post_enrollment_execution_attempt` name is only a v2 late-reservation
+alias. Admission grants no release, topology, runtime, outcome, or trading
+authority by itself.
+
+One topology issuer owns the sole launcher flock from owner-held staging and
+reversible preflight through the exact-empty prepared-create fence and
+reviewed Compose
 `create --no-recreate`, complete callback unwind, and exact close, whether the path
 confirms teardown, retains a terminal, or ends in fatal manual classification.
 The private mutation
@@ -624,15 +654,37 @@ state machine accepts no caller-selected argv, environment, or runner. It
 performs the reviewed Compose create, authenticates the stopped two-container
 topology, starts and qualifies the source first, starts the supervisor second,
 and authenticates its consumed-input barrier. Its effect-only Compose bytes
-label both services and the default network with the unpredictable issuer-
-session invocation digest; all later reviewed observations require the exact
-label. Raced or reused project resources therefore fail closed without
-replacement. Pre-claim teardown authenticates and removes only the sealed
-container IDs and exact network ID, never broad Compose-down targets or named
-volumes. The issuer seals the exact
+label both services and assign the default attachment a full domain-separated,
+issuer-session-derived network name plus the exact issuer-session invocation
+label. The exact derived-name collision is checked before create; later
+reviewed observations require both the name and label, so wrong-session or
+missing-label resources fail closed. The fixed legacy network remains untouched.
+Pre-claim teardown authenticates and removes only the sealed container IDs and
+exact authenticated network ID, never a name, broad Compose-down targets, or
+named volumes. The issuer seals the exact
 created observation before returning it, so lost-return ambiguity can recover
-only the exact pre-claim teardown. A live materialization owner
-adopts each of the four exact staged-input inode records before its materializer
+only the exact pre-claim teardown. It also handles one bounded network-only
+partial-create state: two stable inventory
+reads must show the exact derived name and invocation label with zero
+containers, after which teardown removes only that network ID and skips
+container removal. Created topology truth, its digest, and all four private
+staged-input digests are registered as one atomic in-process value.
+
+The effect-only post-enrollment projection injects four private expected
+SHA-256 bindings into the supervisor environment, covering the exact database
+URL bytes and the three exact head-anchor inputs. The fixed legacy/base Compose
+validator requires these variables absent and grants no start authority;
+supervisor main requires all four because only the dynamic post-enrollment
+topology may start it. Each loader hashes the exact bytes it read and compares
+the binding before decode or use. Only after all four comparisons succeed is
+the fixed nonsecret consumed-input marker published. A mismatch exits with code
+2 before marker, readiness, or claim, while the authenticated current-attempt
+exited supervisor remains eligible for exact pre-claim ID-only teardown.
+Restoring the path bytes cannot qualify that failed attempt. The private
+digests are not exposed in the marker or command output.
+
+A live materialization owner adopts each of the four exact staged-input inode
+records before its materializer
 returns, so asynchronous CALL-to-STORE interruption cannot orphan an unknown
 secret. It later retires only those adopted records; it never sweeps a runtime-
 secret directory.
@@ -644,8 +696,11 @@ It binds the same issuer, lease, still-`unbound` recovery capability, roots,
 PID/thread, and deadline before topology mutation, is invoked only after exact
 staged-input retirement, and must finish before the unchanged 260-second
 controller reserve. Retirement is descriptor-anchored and restartable across
-partial unlink/rmdir progress while interruption still escapes. The fixed chronology is exact create; source-ready; supervisor-
-consumed; four-input retirement; staged ordinal 1 and pre-claim fence;
+partial unlink/rmdir progress while interruption still escapes. The fixed
+chronology is sequence-1 preparation; exact-empty prepared-create fence;
+permanent reservation; consume/revalidation; mutation-flag store; effect-only
+prepared create; source-ready; supervisor-consumed; four-input retirement;
+staged ordinal 1 and pre-claim fence;
 conservative no-teardown marker CALL; sequence-1 verification while recovery
 remains `unbound`; binder transition to `claim_admitted` immediately before
 claim `O_EXCL`; retained/read-back claim, in-writer binder consumption, and
@@ -660,9 +715,11 @@ no-teardown flag before that CALL, so every ordinary or asynchronous failure at
 or after the boundary preserves the topology and whatever evidence is already
 durable. An exact read-only state query retains legacy recovery only when the
 capability is `armed`; unarmed, advanced, ambiguous, or unclassifiable state is
-fatal and requires manual review without claiming a terminal. Confirmed
-pre-mutation failure or pre-claim teardown is also projected conservatively as
-fatal because the permanent attempt slot is consumed. The standalone isolated
+fatal and requires manual review without claiming a terminal. Failure at or
+after reservation, including pre-claim teardown, is projected conservatively as
+fatal because the permanent attempt slot is consumed or ambiguous. A confirmed
+pre-slot failure instead cleans owner-held inputs, leaves the slot absent, and
+preserves the same stable approval for a later explicit attempt. The standalone isolated
 host CLI exposes only `--approval-artifact` for the canonical execution approval
 and `--runtime-env-file` for the owner-only runtime environment file. It is not
 wired into Make, Compose, worker, trader,
@@ -679,9 +736,11 @@ CALL/STORE or CALL/RETURN handoff; they never search globally for a prior
 receipt.
 The in-image worker and inspection executable remain reachable only after the
 private effect boundary. `trusted-time-start` and shutdown remain hard closed;
-no release was executed while implementing this ADR, and the exact merged
-revision/images require fresh admission, a new external execution approval, and
-an explicit operational decision.
+no release was executed while implementing this ADR. The exact merged revision,
+immutable images, and stable provenance require one exact external execution
+approval; each attempt separately requires a fresh just-in-time witness and an
+explicit operational decision. A confirmed pre-slot retry does not require
+repeated human approval.
 
 ## Consequences
 

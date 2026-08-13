@@ -7,9 +7,10 @@ import os
 import signal
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from types import FrameType
+from typing import cast
 
 from sqlalchemy import Engine, create_engine
 
@@ -17,6 +18,7 @@ from apps.trusted_time_supervisor.config import (
     AUTHORITY_PATH,
     CHRONY_CONFIG_PATH,
     DATABASE_CA_PATH,
+    DATABASE_URL_EXPECTED_SHA256_ENVIRONMENT,
     DATABASE_URL_SECRET_PATH,
     TrustedTimeDeploymentAuthority,
     TrustedTimeSupervisorConfigurationError,
@@ -29,8 +31,11 @@ from apps.trusted_time_supervisor.head_anchor_attempt import (
     TrustedTimeHeadAnchorStartupEffectDeadlineGuard,
 )
 from apps.trusted_time_supervisor.head_anchor_config import (
+    TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_EXPECTED_SHA256_ENVIRONMENT,
     TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_PATH,
+    TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_EXPECTED_SHA256_ENVIRONMENT,
     TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_PATH,
+    TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_EXPECTED_SHA256_ENVIRONMENT,
     TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_SECRET_PATH,
     TrustedTimeHeadAnchorRuntimeConfiguration,
     load_trusted_time_head_anchor_runtime_configuration,
@@ -93,6 +98,12 @@ _DATABASE_STATEMENT_TIMEOUT_MILLISECONDS = 3_000
 _DATABASE_LOCK_TIMEOUT_MILLISECONDS = 1_000
 DATABASE_SECRET_CONSUMED_PATH = "/tmp/database-secret-consumed"
 DATABASE_SECRET_CONSUMED_BYTES = b"phase6c-database-secret-consumed-v1\n"
+_EXPECTED_STAGED_INPUT_SHA256_ENVIRONMENT = (
+    DATABASE_URL_EXPECTED_SHA256_ENVIRONMENT,
+    TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_EXPECTED_SHA256_ENVIRONMENT,
+    TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_EXPECTED_SHA256_ENVIRONMENT,
+    TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_EXPECTED_SHA256_ENVIRONMENT,
+)
 
 
 def _utc_now() -> datetime:
@@ -185,6 +196,24 @@ def _require_fixed_runtime_paths() -> None:
             raise TrustedTimeSupervisorConfigurationError(
                 "trusted-time runtime path differs from the reviewed image contract"
             )
+
+
+def _expected_staged_input_sha256s(
+    environment: Mapping[str, str] = os.environ,
+) -> tuple[str, str, str, str]:
+    """Read only the four private post-enrollment input bindings."""
+
+    values = tuple(environment.get(name) for name in _EXPECTED_STAGED_INPUT_SHA256_ENVIRONMENT)
+    if any(
+        type(value) is not str
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+        for value in values
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time staged-input digest environment is invalid"
+        )
+    return cast(tuple[str, str, str, str], values)
 
 
 def _record_database_secret_consumed() -> None:
@@ -598,14 +627,18 @@ def main() -> None:
     previous_handlers: dict[signal.Signals, signal._HANDLER] = {}
     try:
         _require_fixed_runtime_paths()
+        staged_input_sha256s = _expected_staged_input_sha256s()
         authority = load_trusted_time_authority()
-        database_url = load_database_url_secret()
+        database_url = load_database_url_secret(expected_sha256=staged_input_sha256s[0])
         head_anchor_configuration = load_trusted_time_head_anchor_runtime_configuration(
             database_url=database_url,
             expected_host_id=authority.host_id,
             expected_source_authority_sha256=(authority.source_authority_sha256),
             authority_owner_uid=os.geteuid(),
             secret_owner_uid=os.geteuid(),
+            expected_authority_sha256=staged_input_sha256s[1],
+            expected_auth_secret_sha256=staged_input_sha256s[2],
+            expected_signing_key_sha256=staged_input_sha256s[3],
         )
         _record_database_secret_consumed()
         wait_for_post_enrollment_start_release()

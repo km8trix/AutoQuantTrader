@@ -13,6 +13,7 @@ import pytest
 
 from apps.trusted_time_supervisor.config import (
     DATABASE_CA_PATH,
+    DATABASE_URL_EXPECTED_SHA256_ENVIRONMENT,
     TrustedTimeDeploymentAuthority,
     TrustedTimeSupervisorConfigurationError,
     decode_trusted_time_authority,
@@ -22,6 +23,9 @@ from apps.trusted_time_supervisor.head_anchor_attempt import (
     TrustedTimeHeadAnchorStartupEffectDeadlineGuard,
 )
 from apps.trusted_time_supervisor.head_anchor_config import (
+    TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_EXPECTED_SHA256_ENVIRONMENT,
+    TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_EXPECTED_SHA256_ENVIRONMENT,
+    TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_EXPECTED_SHA256_ENVIRONMENT,
     TrustedTimeHeadAnchorRuntimeConfiguration,
 )
 from apps.trusted_time_supervisor.head_anchor_worker import (
@@ -63,12 +67,25 @@ from packages.domain.trusted_time import evaluate_trusted_time
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = datetime(2026, 7, 31, 18, 0, tzinfo=UTC)
+_STAGED_INPUT_SHA256_ENVIRONMENT = (
+    DATABASE_URL_EXPECTED_SHA256_ENVIRONMENT,
+    TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_EXPECTED_SHA256_ENVIRONMENT,
+    TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_EXPECTED_SHA256_ENVIRONMENT,
+    TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_EXPECTED_SHA256_ENVIRONMENT,
+)
+_STAGED_INPUT_SHA256S = tuple(character * 64 for character in "1234")
 
 
 @pytest.fixture(autouse=True)
 def _released_post_enrollment_start(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep existing service tests focused beyond the separately tested barrier."""
 
+    for name, value in zip(
+        _STAGED_INPUT_SHA256_ENVIRONMENT,
+        _STAGED_INPUT_SHA256S,
+        strict=True,
+    ):
+        monkeypatch.setenv(name, value)
     monkeypatch.setattr(
         "apps.trusted_time_supervisor.main.wait_for_post_enrollment_start_release",
         lambda: None,
@@ -940,7 +957,8 @@ def test_main_waits_after_input_consumption_and_before_runtime_composition(
         events.append("authority")
         return authority
 
-    def load_database_secret() -> str:
+    def load_database_secret(*, expected_sha256: str) -> str:
+        assert expected_sha256 == _STAGED_INPUT_SHA256S[0]
         events.append("database_secret")
         return "postgresql+psycopg://db/runtime"
 
@@ -1199,8 +1217,43 @@ def test_main_requires_runtime_uid_for_all_file_backed_head_anchor_inputs(
         expected_source_authority_sha256=authority.source_authority_sha256,
         authority_owner_uid=os.geteuid(),
         secret_owner_uid=os.geteuid(),
+        expected_authority_sha256=_STAGED_INPUT_SHA256S[1],
+        expected_auth_secret_sha256=_STAGED_INPUT_SHA256S[2],
+        expected_signing_key_sha256=_STAGED_INPUT_SHA256S[3],
     )
     assert json.loads(capsys.readouterr().out)["status"] == "stopped"
+
+
+@pytest.mark.parametrize("malformed", [None, "A" * 64, "0" * 63, "0" * 65])
+def test_main_rejects_missing_or_malformed_staged_input_digest_before_consumption(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    malformed: str | None,
+) -> None:
+    if malformed is None:
+        monkeypatch.delenv(DATABASE_URL_EXPECTED_SHA256_ENVIRONMENT)
+    else:
+        monkeypatch.setenv(DATABASE_URL_EXPECTED_SHA256_ENVIRONMENT, malformed)
+    load_authority = Mock(side_effect=AssertionError("authority loaded before digest validation"))
+    consumed = Mock(side_effect=AssertionError("consumed marker crossed digest validation"))
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main.load_trusted_time_authority",
+        load_authority,
+    )
+    monkeypatch.setattr(
+        "apps.trusted_time_supervisor.main._record_database_secret_consumed",
+        consumed,
+    )
+
+    with pytest.raises(SystemExit) as captured:
+        main()
+
+    assert captured.value.code == 2
+    load_authority.assert_not_called()
+    consumed.assert_not_called()
+    output = capsys.readouterr()
+    assert json.loads(output.out)["reason"] == "configuration_rejected"
+    assert all(value not in output.out for value in _STAGED_INPUT_SHA256S)
 
 
 def test_database_secret_consumption_marker_is_exact_owner_only_and_one_shot(
