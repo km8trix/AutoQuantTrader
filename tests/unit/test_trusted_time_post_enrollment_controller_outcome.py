@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import dis
 import hashlib
-import inspect
 import json
 import sys
 import threading
@@ -875,49 +875,101 @@ def test_final_commit_directory_fsync_failure_remains_publicly_unconfirmed(
         )
 
 
+@pytest.mark.parametrize("outcome_kind", ["success", "failure"])
 def test_async_interruption_after_durable_commit_returns_exact_confirmed_receipt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    outcome_kind: str,
 ) -> None:
-    context, lease, _, admission, retained = _admission(monkeypatch, tmp_path)
+    if outcome_kind == "success":
+        inputs, context = persistent_fx._valid_inputs(monkeypatch, tmp_path)
+        admission = cast(
+            admission_module.TrustedTimePostEnrollmentStartActiveControllerAdmission,
+            inputs["admission"],
+        )
+        retained = cast(Any, admission)._action_fence._claimed_fence._handoff.retained_claim
+        origin = next(
+            candidate
+            for candidate in admission_fx._registry_state()[1].values()
+            if cast(tuple[object, ...], candidate)[0] is admission
+        )
+        lease = cast(tuple[object, ...], origin)[2]
+        evidence = controller_outcome.TrustedTimePostEnrollmentStartControllerOutcomeEvidence(
+            admission=admission,
+            status=controller_outcome.TrustedTimePostEnrollmentStartControllerOutcomeStatus.CONFIRMED,
+            reason=controller_outcome.TrustedTimePostEnrollmentStartControllerOutcomeReason.POST_ENROLLMENT_START_CONFIRMED,
+            pre_effect_observation_sha256="a" * 64,
+            verifier_binding_sha256="e" * 64,
+            read_only_configuration_sha256="f" * 64,
+            verification_transcript_sha256="9" * 64,
+            release_execution_sha256="b" * 64,
+            runtime_state_sha256="c" * 64,
+            successor=cast(Any, inputs["successor"]),
+            persistent_topology=persistent_fx._validate(inputs),
+            persistent_topology_transcript_sha256="d" * 64,
+        )
+    else:
+        context, lease, _, admission, retained = _admission(monkeypatch, tmp_path)
+        evidence = _release_unconfirmed_evidence(admission)
     capability, completed = _install_retention(
         monkeypatch,
         retained=retained,
         artifact_directory=context.artifact_directory,
         ignored_root=context.ignored_root,
+        expected_outcome_kind=outcome_kind,
     )
     retain = controller_outcome.retain_post_enrollment_start_controller_outcome
-    source, first_line = inspect.getsourcelines(retain)
-    return_line = first_line + next(
-        offset for offset, line in enumerate(source) if line.strip() == "return retained_outcome"
+    instructions = list(dis.get_instructions(retain))
+    load_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "LOAD_GLOBAL"
+        and instruction.argval == "_commit_prepared_controller_outcome"
     )
+    call_index = next(
+        index
+        for index in range(load_index + 1, len(instructions))
+        if instructions[index].opname == "CALL"
+    )
+    assert instructions[call_index + 1].opname == "POP_TOP"
+    target_offset = instructions[call_index + 1].offset
     interrupted = False
+    tool_id = next(
+        candidate
+        for candidate in range(sys.monitoring.OPTIMIZER_ID + 1)
+        if sys.monitoring.get_tool(candidate) is None
+    )
+    sys.monitoring.use_tool_id(tool_id, "trusted-time-controller-commit-return-test")
 
-    def interrupt_before_return(frame: object, event: str, _arg: object) -> object:
+    def interrupt_after_commit(code: object, instruction_offset: int) -> None:
         nonlocal interrupted
-        if (
-            not interrupted
-            and event == "line"
-            and getattr(frame, "f_code", None) is retain.__code__
-            and getattr(frame, "f_lineno", None) == return_line
-        ):
+        if not interrupted and code is retain.__code__ and instruction_offset == target_offset:
             interrupted = True
-            sys.settrace(None)
             raise KeyboardInterrupt
-        return interrupt_before_return
 
-    sys.settrace(interrupt_before_return)
+    sys.monitoring.register_callback(
+        tool_id,
+        sys.monitoring.events.INSTRUCTION,
+        interrupt_after_commit,
+    )
+    sys.monitoring.set_local_events(
+        tool_id,
+        retain.__code__,
+        sys.monitoring.events.INSTRUCTION,
+    )
     try:
         receipt = retain(
             topology_issuer=context.topology_issuer,
             choreography_lease=lease,
             post_effect_outcome_capability=capability,
-            evidence=_release_unconfirmed_evidence(admission),
+            evidence=evidence,
             artifact_directory=context.artifact_directory,
             ignored_root=context.ignored_root,
         )
     finally:
-        sys.settrace(None)
+        sys.monitoring.set_local_events(tool_id, retain.__code__, 0)
+        sys.monitoring.register_callback(tool_id, sys.monitoring.events.INSTRUCTION, None)
+        sys.monitoring.free_tool_id(tool_id)
 
     assert interrupted is True
     assert completed == [receipt]

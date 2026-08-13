@@ -1610,6 +1610,7 @@ def test_separate_network_inspection_rejects_boundary_drift(
             value,
             expected_inventory=frozenset({SOURCE_CONTAINER_ID, SUPERVISOR_CONTAINER_ID}),
             expected_state=state,
+            expected_create_invocation_sha256=None,
         )
 
 

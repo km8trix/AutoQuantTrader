@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import io
 import json
@@ -14,12 +15,12 @@ import subprocess
 import sys
 import tarfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Never
 
 
 def _require_isolated_cli_source_runtime(
@@ -178,8 +179,11 @@ _REVIEWED_FIXED_RELATIVE_PATHS = (
     "scripts/trusted_time_post_enrollment_claimed_fence.py",
     "scripts/trusted_time_post_enrollment_controller_outcome.py",
     "scripts/trusted_time_post_enrollment_evidence.py",
+    "scripts/trusted_time_post_enrollment_execution_admission.py",
+    "scripts/trusted_time_post_enrollment_host_orchestrator.py",
     "scripts/trusted_time_post_enrollment_outcome.py",
     "scripts/trusted_time_post_enrollment_persistent_topology.py",
+    "scripts/trusted_time_post_enrollment_sequence_one_reauthentication.py",
     "scripts/trusted_time_post_enrollment_sequence_two_verifier.py",
     "scripts/trusted_time_post_enrollment_staged_topology.py",
     "scripts/trusted_time_post_enrollment_staging.py",
@@ -358,6 +362,88 @@ print(
 
 class TrustedTimeImageVerificationError(RuntimeError):
     """A built image differs from the reviewed evidence-only contract."""
+
+
+class _DarwinMachTimebaseInfo(ctypes.Structure):
+    _fields_ = (("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32))
+
+
+def _build_suspend_aware_monotonic_clock(
+    *,
+    platform_name: object,
+    clock_gettime_ns: object,
+    clock_boottime: object,
+    darwin_library_loader: object,
+) -> Callable[[], int]:
+    """Seal one native clock whose elapsed time includes system suspend."""
+
+    maximum_observation = (1 << 63) - 1
+
+    def unavailable() -> Never:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time suspend-aware monotonic clock is unavailable"
+        ) from None
+
+    def validate(observed: object) -> int:
+        if type(observed) is not int or observed < 0 or observed > maximum_observation:
+            unavailable()
+        return observed
+
+    if platform_name == "linux" and callable(clock_gettime_ns) and type(clock_boottime) is int:
+        captured_clock_gettime_ns = clock_gettime_ns
+        captured_clock_boottime = clock_boottime
+
+        def linux_clock() -> int:
+            try:
+                observed = captured_clock_gettime_ns(captured_clock_boottime)
+            except BaseException:
+                unavailable()
+            return validate(observed)
+
+        return linux_clock
+
+    if platform_name == "darwin" and callable(darwin_library_loader):
+        try:
+            library = darwin_library_loader(None)
+            continuous_time = library.mach_continuous_time
+            continuous_time.argtypes = []
+            continuous_time.restype = ctypes.c_uint64
+            timebase_info = library.mach_timebase_info
+            timebase_info.argtypes = [ctypes.POINTER(_DarwinMachTimebaseInfo)]
+            timebase_info.restype = ctypes.c_int
+            timebase = _DarwinMachTimebaseInfo()
+            if timebase_info(ctypes.byref(timebase)) != 0:
+                raise ValueError
+            numerator = int(timebase.numer)
+            denominator = int(timebase.denom)
+            if numerator <= 0 or denominator <= 0:
+                raise ValueError
+        except BaseException:
+            return unavailable
+
+        def darwin_clock() -> int:
+            try:
+                ticks = continuous_time()
+                if type(ticks) is not int:
+                    unavailable()
+                observed = ticks * numerator // denominator
+            except TrustedTimeImageVerificationError:
+                raise
+            except BaseException:
+                unavailable()
+            return validate(observed)
+
+        return darwin_clock
+
+    return unavailable
+
+
+_suspend_aware_monotonic_ns = _build_suspend_aware_monotonic_clock(
+    platform_name=sys.platform,
+    clock_gettime_ns=getattr(time, "clock_gettime_ns", None),
+    clock_boottime=getattr(time, "CLOCK_BOOTTIME", None),
+    darwin_library_loader=ctypes.CDLL,
+)
 
 
 def _canonical_boot_session_id(platform_name: str, encoded_uuid: bytes) -> str:
@@ -993,7 +1079,7 @@ def write_image_admission_artifact(
         raise TrustedTimeImageVerificationError("trusted-time image admission inputs are invalid")
     observed_boot_session = _current_boot_session_id()
     observed_utc = datetime.now(UTC) if utc_now is None else utc_now
-    observed_monotonic = time.monotonic_ns() if monotonic_ns is None else monotonic_ns
+    observed_monotonic = _suspend_aware_monotonic_ns() if monotonic_ns is None else monotonic_ns
     if (
         type(observed_utc) is not datetime
         or observed_utc.tzinfo is None
@@ -1323,7 +1409,7 @@ def load_image_admission_artifact(
         path=absolute,
         artifact_sha256=hashlib.sha256(encoded).hexdigest(),
         boot_session_id=observed_boot_session,
-        monotonic_ns=time.monotonic_ns() if monotonic_ns is None else monotonic_ns,
+        monotonic_ns=(_suspend_aware_monotonic_ns() if monotonic_ns is None else monotonic_ns),
     )
     _validate_content_addressed_image_admission(
         absolute,

@@ -417,7 +417,7 @@ def test_exact_retained_claim_binder_is_preflighted_and_consumed_once_after_reva
         nonlocal binder_active
         assert binder_active
         assert candidate is binder
-        assert events[-1] == "revalidate"
+        assert events[-1] == "claim_o_excl"
         assert retained_seen == []
         binder_active = False
         events.append("retained_claim_binder")
@@ -459,8 +459,8 @@ def test_exact_retained_claim_binder_is_preflighted_and_consumed_once_after_reva
         "retain",
         "binder_checkpoint",
         "claim_o_excl",
-        "revalidate",
         "retained_claim_binder",
+        "revalidate",
         "load_enrollment",
         "revalidate",
     ]

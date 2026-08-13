@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import io
 import json
@@ -12,11 +13,12 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
 
+from scripts import verify_trusted_time_images as image_verifier
 from scripts.verify_trusted_time_images import (
     AUTHORITY_SHA256,
     CONFIG_SHA256,
@@ -29,8 +31,10 @@ from scripts.verify_trusted_time_images import (
     SUPERVISOR_APPLICATION_PYTHON,
     TrustedTimeImageIdentities,
     TrustedTimeImageVerificationError,
+    _build_suspend_aware_monotonic_clock,
     _current_boot_session_id,
     _current_clean_git_revision,
+    _DarwinMachTimebaseInfo,
     _decode_admission_payload,
     _head_reviewed_input_payload,
     _minimal_git_environment,
@@ -78,6 +82,97 @@ def _stable_boot_session_identity() -> Iterator[None]:
         return_value=BOOT_SESSION_ID,
     ):
         yield
+
+
+def test_linux_image_admission_clock_uses_exact_suspend_aware_clock_id() -> None:
+    calls: list[int] = []
+
+    def clock_gettime_ns(clock_id: int) -> int:
+        calls.append(clock_id)
+        return 41 + len(calls)
+
+    clock = _build_suspend_aware_monotonic_clock(
+        platform_name="linux",
+        clock_gettime_ns=clock_gettime_ns,
+        clock_boottime=7,
+        darwin_library_loader=lambda _: (_ for _ in ()).throw(AssertionError),
+    )
+
+    assert clock() == 42
+    assert clock() == 43
+    assert calls == [7, 7]
+
+
+def test_darwin_image_admission_clock_captures_validated_timebase_once() -> None:
+    calls: list[str] = []
+
+    def continuous_time() -> int:
+        calls.append("continuous")
+        return 10
+
+    def timebase_info(pointer: Any) -> int:
+        calls.append("timebase")
+        timebase = ctypes.cast(
+            pointer,
+            ctypes.POINTER(_DarwinMachTimebaseInfo),
+        ).contents
+        timebase.numer = 3
+        timebase.denom = 2
+        return 0
+
+    clock = _build_suspend_aware_monotonic_clock(
+        platform_name="darwin",
+        clock_gettime_ns=None,
+        clock_boottime=None,
+        darwin_library_loader=lambda _: SimpleNamespace(
+            mach_continuous_time=continuous_time,
+            mach_timebase_info=timebase_info,
+        ),
+    )
+
+    assert clock() == 15
+    assert clock() == 15
+    assert calls == ["timebase", "continuous", "continuous"]
+
+
+@pytest.mark.parametrize(("numerator", "denominator"), [(0, 1), (1, 0)])
+def test_darwin_image_admission_clock_rejects_invalid_timebase(
+    numerator: int,
+    denominator: int,
+) -> None:
+    def timebase_info(pointer: Any) -> int:
+        timebase = ctypes.cast(
+            pointer,
+            ctypes.POINTER(_DarwinMachTimebaseInfo),
+        ).contents
+        timebase.numer = numerator
+        timebase.denom = denominator
+        return 0
+
+    clock = _build_suspend_aware_monotonic_clock(
+        platform_name="darwin",
+        clock_gettime_ns=None,
+        clock_boottime=None,
+        darwin_library_loader=lambda _: SimpleNamespace(
+            mach_continuous_time=lambda: 1,
+            mach_timebase_info=timebase_info,
+        ),
+    )
+
+    with pytest.raises(TrustedTimeImageVerificationError, match="suspend-aware"):
+        clock()
+
+
+def test_unsupported_image_admission_clock_fails_closed() -> None:
+    clock = _build_suspend_aware_monotonic_clock(
+        platform_name="unsupported",
+        clock_gettime_ns=None,
+        clock_boottime=None,
+        darwin_library_loader=None,
+    )
+
+    with pytest.raises(TrustedTimeImageVerificationError, match="suspend-aware"):
+        clock()
 
 
 def test_cli_runtime_attestation_accepts_isolated_source_execution(
@@ -371,8 +466,14 @@ def test_reviewed_inputs_bind_launch_entrypoint_and_strict_environment_loader() 
     assert ROOT / "scripts" / "trusted_time_post_enrollment_claimed_fence.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_controller_outcome.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_evidence.py" in reviewed
+    assert ROOT / "scripts" / "trusted_time_post_enrollment_execution_admission.py" in reviewed
+    assert ROOT / "scripts" / "trusted_time_post_enrollment_host_orchestrator.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_outcome.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_persistent_topology.py" in reviewed
+    assert (
+        ROOT / "scripts" / "trusted_time_post_enrollment_sequence_one_reauthentication.py"
+        in reviewed
+    )
     assert ROOT / "scripts" / "trusted_time_post_enrollment_sequence_two_verifier.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_staged_topology.py" in reviewed
     assert ROOT / "scripts" / "trusted_time_post_enrollment_staging.py" in reviewed
@@ -1701,6 +1802,39 @@ def test_image_admission_rejects_stale_clock_regression_and_noncanonical_tamperi
             ignored_root=ignored_root,
             monotonic_ns=created + 1,
         )
+
+
+def test_image_admission_default_clock_counts_simulated_system_suspend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    path = ignored_root / "trusted-time" / "image-admission.json"
+    created = 10_000_000_000
+    observations = iter(
+        [
+            created,
+            created + (IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS + 1) * 1_000_000_000,
+        ]
+    )
+    monkeypatch.setattr(
+        image_verifier,
+        "_suspend_aware_monotonic_ns",
+        lambda: next(observations),
+    )
+    write_image_admission_artifact(
+        path,
+        TrustedTimeImageIdentities(
+            source_id=SOURCE_ID,
+            supervisor_id=SUPERVISOR_ID,
+        ),
+        git_revision="a" * 40,
+        ignored_root=ignored_root,
+        utc_now=datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+    )
+
+    with pytest.raises(TrustedTimeImageVerificationError, match="stale"):
+        load_image_admission_artifact(path, ignored_root=ignored_root)
 
 
 def test_image_admission_rejects_broad_mode_symlink_and_lookalike_path(

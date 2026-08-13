@@ -61,12 +61,14 @@ from scripts.start_trusted_time_supervisor import (
     _emit_unenrolled_admission_receipt,
     _inspect_supervisor_narrow_state,
     _load_approved_image_admission,
+    _MaterializedRuntimeInputOwner,
     _read_owner_only_source_file,
     _read_supervisor_terminal_evidence,
     _release_trusted_time_launch_lock,
     _require_isolated_cli_source_runtime,
     _require_no_retained_first_enrollment_claim,
     _require_repository_first_party_sources,
+    _retire_materialized_runtime_input_restartably,
     _run_docker,
     _run_docker_bounded,
     _run_local_topology_under_lock,
@@ -1359,6 +1361,191 @@ def test_database_secret_is_exact_owner_only_inode_and_cleanup_is_complete(
     cleanup_materialized_database_secret(secret)
     assert not os.path.lexists(secret.path)
     assert not os.path.lexists(secret.directory)
+
+
+def test_runtime_input_owner_retains_exact_materializations_before_caller_store(
+    tmp_path: Path,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    root = ignored_root / "trusted-time" / "runtime-secrets"
+    owner = _MaterializedRuntimeInputOwner()
+
+    materialize_database_secret(
+        DATABASE_URL,
+        root=root,
+        ignored_root=ignored_root,
+        _owner=owner,
+    )
+    materialize_trusted_time_head_anchor_inputs(
+        _head_anchor_payloads(),
+        root=root,
+        ignored_root=ignored_root,
+        _owner=owner,
+    )
+
+    assert not owner._is_empty()
+    assert len(tuple(root.iterdir())) == 4
+    owner._retire_all()
+    assert owner._is_empty()
+    assert tuple(root.iterdir()) == ()
+
+
+@pytest.mark.parametrize("resource_kind", ["database", "head-anchor"])
+def test_runtime_input_owner_rejects_whole_directory_rename_without_own_progress(
+    tmp_path: Path,
+    resource_kind: str,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    root = ignored_root / "trusted-time" / "runtime-secrets"
+    owner = _MaterializedRuntimeInputOwner()
+    if resource_kind == "database":
+        target: MaterializedDatabaseSecret | MaterializedHeadAnchorFile = (
+            materialize_database_secret(
+                DATABASE_URL,
+                root=root,
+                ignored_root=ignored_root,
+                _owner=owner,
+            )
+        )
+        expected_payload = DATABASE_URL.encode()
+    else:
+        inputs = materialize_trusted_time_head_anchor_inputs(
+            _head_anchor_payloads(),
+            root=root,
+            ignored_root=ignored_root,
+            _owner=owner,
+        )
+        target = inputs.auth_secret
+        expected_payload = HEAD_ANCHOR_AUTH_SECRET
+    renamed_directory = root / f"{target.directory.name}.same-uid-rename"
+    target.directory.rename(renamed_directory)
+
+    with pytest.raises(
+        TrustedTimeSupervisorConfigurationError,
+        match="staged-input retirement is unconfirmed",
+    ):
+        owner._retire_all_confirmed()
+
+    assert not owner._is_empty()
+    assert not target.directory.exists()
+    assert (renamed_directory / target.path.name).read_bytes() == expected_payload
+
+    renamed_directory.rename(target.directory)
+    owner._retire_all_confirmed()
+
+    assert owner._is_empty()
+    assert tuple(root.iterdir()) == ()
+
+
+@pytest.mark.parametrize("resource_kind", ["database", "head-anchor"])
+@pytest.mark.parametrize("interrupted_call", ["file-unlink", "directory-rmdir"])
+def test_runtime_input_owner_resumes_only_after_its_own_interrupted_cleanup_call(
+    tmp_path: Path,
+    resource_kind: str,
+    interrupted_call: str,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    root = ignored_root / "trusted-time" / "runtime-secrets"
+    owner = _MaterializedRuntimeInputOwner()
+    if resource_kind == "database":
+        target: MaterializedDatabaseSecret | MaterializedHeadAnchorFile = (
+            materialize_database_secret(
+                DATABASE_URL,
+                root=root,
+                ignored_root=ignored_root,
+                _owner=owner,
+            )
+        )
+    else:
+        inputs = materialize_trusted_time_head_anchor_inputs(
+            _head_anchor_payloads(),
+            root=root,
+            ignored_root=ignored_root,
+            _owner=owner,
+        )
+        target = inputs.auth_secret
+    interrupted = False
+    real_unlink = os.unlink
+    real_rmdir = os.rmdir
+
+    def unlink_then_interrupt(path: str, *args: object, **kwargs: object) -> None:
+        nonlocal interrupted
+        real_unlink(path, *args, **kwargs)
+        if not interrupted and path == target.path.name:
+            interrupted = True
+            raise KeyboardInterrupt
+
+    def rmdir_then_interrupt(path: str, *args: object, **kwargs: object) -> None:
+        nonlocal interrupted
+        real_rmdir(path, *args, **kwargs)
+        if not interrupted and path == target.directory.name:
+            interrupted = True
+            raise KeyboardInterrupt
+
+    patched_call = "os.unlink" if interrupted_call == "file-unlink" else "os.rmdir"
+    side_effect = (
+        unlink_then_interrupt if interrupted_call == "file-unlink" else rmdir_then_interrupt
+    )
+    with (
+        patch(f"scripts.start_trusted_time_supervisor.{patched_call}", side_effect=side_effect),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        owner._retire_all_confirmed()
+
+    assert interrupted
+    assert owner._is_empty()
+    assert tuple(root.iterdir()) == ()
+
+
+def test_runtime_input_owner_drains_four_inputs_in_reverse_after_mid_list_interruption(
+    tmp_path: Path,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    root = ignored_root / "trusted-time" / "runtime-secrets"
+    owner = _MaterializedRuntimeInputOwner()
+    database = materialize_database_secret(
+        DATABASE_URL,
+        root=root,
+        ignored_root=ignored_root,
+        _owner=owner,
+    )
+    inputs = materialize_trusted_time_head_anchor_inputs(
+        _head_anchor_payloads(),
+        root=root,
+        ignored_root=ignored_root,
+        _owner=owner,
+    )
+    labels = {
+        id(database): "database",
+        id(inputs.authority): "authority",
+        id(inputs.auth_secret): "auth",
+        id(inputs.signing_key): "signing-key",
+    }
+    calls: list[str] = []
+    interrupted = False
+    retire = _retire_materialized_runtime_input_restartably
+
+    def interrupt_after_auth_retirement(retirement: Any) -> None:
+        nonlocal interrupted
+        label = labels[id(retirement.resource)]
+        calls.append(label)
+        retire(retirement)
+        if label == "auth" and not interrupted:
+            interrupted = True
+            raise KeyboardInterrupt
+
+    with (
+        patch(
+            "scripts.start_trusted_time_supervisor._retire_materialized_runtime_input_restartably",
+            side_effect=interrupt_after_auth_retirement,
+        ),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        owner._retire_all_confirmed()
+
+    assert calls == ["signing-key", "auth", "auth", "authority", "database"]
+    assert owner._is_empty()
+    assert tuple(root.iterdir()) == ()
 
 
 def test_database_secret_recheck_rejects_mode_tamper_and_symlink_swap(

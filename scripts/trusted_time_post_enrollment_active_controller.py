@@ -68,6 +68,8 @@ from scripts.trusted_time_post_enrollment_controller_outcome import (
     retain_post_enrollment_start_controller_outcome,
 )
 from scripts.trusted_time_post_enrollment_outcome import (
+    RetainedTrustedTimePostEnrollmentStartOutcome,
+    TrustedTimePostEnrollmentStartRecoveryOutcomeRetained,
     retain_post_enrollment_start_recovery_required_outcome,
 )
 from scripts.trusted_time_post_enrollment_persistent_topology import (
@@ -96,6 +98,7 @@ from scripts.trusted_time_post_enrollment_topology_reader import (
     TrustedTimePostEnrollmentCreatedTopologyObservation,
     TrustedTimePostEnrollmentFinalActionTopologyObservation,
     TrustedTimePostEnrollmentTopologyObservationIssuer,
+    TrustedTimePostEnrollmentTopologyReaderError,
     _decode_strict_json,
     _network_identity,
     _NetworkObservation,
@@ -187,6 +190,38 @@ class TrustedTimePostEnrollmentStartActiveControllerRecoveryRequired(RuntimeErro
         retained_outcome.__post_init__()
         self.retained_outcome = retained_outcome
         super().__init__("trusted-time active-controller recovery is required")
+
+
+def _adopt_current_scope_terminal_controller_outcome(
+    topology_issuer: TrustedTimePostEnrollmentTopologyObservationIssuer,
+    choreography_lease: object,
+    recovery_retention_capability: object,
+    *,
+    artifact_directory: Path,
+    ignored_root: Path,
+) -> RetainedTrustedTimePostEnrollmentStartControllerOutcome | None:
+    """Adopt only a durable receipt registered by this exact live controller scope."""
+
+    if type(topology_issuer) is not TrustedTimePostEnrollmentTopologyObservationIssuer:
+        return None
+    try:
+        retained = topology_issuer._adopt_registered_confirmed_terminal_outcome(
+            choreography_lease,
+            recovery_retention_capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+    except TrustedTimePostEnrollmentTopologyReaderError:
+        return None
+    if type(retained) is RetainedTrustedTimePostEnrollmentStartControllerOutcome:
+        if retained.status is TrustedTimePostEnrollmentStartControllerOutcomeStatus.CONFIRMED:
+            return retained
+        raise TrustedTimePostEnrollmentStartActiveControllerRecoveryRequired(retained)
+    if type(retained) is RetainedTrustedTimePostEnrollmentStartOutcome:
+        raise TrustedTimePostEnrollmentStartRecoveryOutcomeRetained(retained)
+    raise TrustedTimePostEnrollmentTopologyReaderError(
+        "trusted-time confirmed terminal outcome is unavailable"
+    )
 
 
 def _canonical_sha256(payload: object) -> str:
@@ -650,6 +685,7 @@ def _observe_network_raw(
     receipts: list[_ReadReceipt],
     *,
     inventory: tuple[str, str],
+    expected_create_invocation_sha256: str,
 ) -> tuple[dict[str, object], _NetworkObservation]:
     observed = issuer._run_json(
         receipts,
@@ -669,6 +705,7 @@ def _observe_network_raw(
         observed,
         expected_inventory=frozenset(inventory),
         expected_state="staged_unreleased",
+        expected_create_invocation_sha256=expected_create_invocation_sha256,
     )
     return observed, identity
 
@@ -887,6 +924,7 @@ def _fresh_persistent_topology(
             issuer,
             receipts,
             inventory=inventory_before,
+            expected_create_invocation_sha256=final.session_sha256,
         )
         retirements_before = _observe_host_retirements(staged_paths)
         deadline_marker_sha256 = runtime_state.get("sequence_two_deadline_marker_sha256")
@@ -921,6 +959,7 @@ def _fresh_persistent_topology(
             source_configuration=source_configuration,
             supervisor_configuration=supervisor_configuration,
             staged_paths=staged_paths,
+            expected_create_invocation_sha256=final.session_sha256,
         )
         retirements_after = _observe_host_retirements(staged_paths)
         inventory_after = issuer._observe_inventory(receipts)
@@ -928,6 +967,7 @@ def _fresh_persistent_topology(
             issuer,
             receipts,
             inventory=inventory_after,
+            expected_create_invocation_sha256=final.session_sha256,
         )
         volumes_after = issuer._observe_volumes(receipts)
         daemon_after = issuer._observe_daemon(receipts)
@@ -1360,6 +1400,15 @@ def run_post_enrollment_start_active_controller(
             abort_sequence_two_verifier_once()
         except BaseException as close_error:
             causal_error = close_error
+        adopted_terminal = _adopt_current_scope_terminal_controller_outcome(
+            topology_issuer,
+            choreography_lease,
+            recovery_retention_capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        if adopted_terminal is not None:
+            return adopted_terminal
         if not exact_admission_established:
             raise TrustedTimePostEnrollmentStartActiveControllerRejected(
                 "trusted-time active-controller admission is unavailable"
@@ -1421,6 +1470,15 @@ def run_post_enrollment_start_active_controller(
                 "trusted-time recovery outcome retention unexpectedly returned"
             ) from None
         except BaseException as retention_error:
+            adopted_terminal = _adopt_current_scope_terminal_controller_outcome(
+                topology_issuer,
+                choreography_lease,
+                recovery_retention_capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+            if adopted_terminal is not None:
+                return adopted_terminal
             if isinstance(
                 retention_error,
                 TrustedTimePostEnrollmentStartControllerOutcomeRetentionUnconfirmed,
@@ -1437,6 +1495,15 @@ def run_post_enrollment_start_active_controller(
             if confirmed_failure is not retained_failure:
                 raise ValueError
         except BaseException as handoff_error:
+            adopted_terminal = _adopt_current_scope_terminal_controller_outcome(
+                topology_issuer,
+                choreography_lease,
+                recovery_retention_capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+            if adopted_terminal is not None:
+                return adopted_terminal
             raise TrustedTimePostEnrollmentStartControllerOutcomeRetentionUnconfirmed(
                 "trusted-time controller failure outcome retention is unconfirmed"
             ) from handoff_error
