@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import io
 import ipaddress
 import json
 import math
@@ -16,6 +17,7 @@ import secrets
 import stat
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from collections.abc import Callable, Mapping
@@ -488,6 +490,285 @@ class MaterializedHeadAnchorInputs:
     authority: MaterializedHeadAnchorFile
     auth_secret: MaterializedHeadAnchorFile = field(repr=False)
     signing_key: MaterializedHeadAnchorFile = field(repr=False)
+
+
+@dataclass(slots=True)
+class _OwnedMaterializedRuntimeInput:
+    """One adopted input and this owner's exact retirement progress."""
+
+    resource: MaterializedDatabaseSecret | MaterializedHeadAnchorFile
+    file_owner: io.FileIO = field(repr=False)
+
+
+class _MaterializedRuntimeInputOwner:
+    """Own exact staged-input records across return-to-caller ambiguity.
+
+    Materializers adopt each record before returning it.  If an asynchronous
+    exception lands after the materializer's CALL returns but before its caller
+    stores the result, this already-live owner still knows the exact inode that
+    must be retired.  The owner is deliberately process/thread local and has no
+    path-discovery or broad cleanup operation.
+    """
+
+    __slots__ = ("_owner_pid", "_owner_thread", "_resources")
+
+    def __init__(self) -> None:
+        self._owner_pid = os.getpid()
+        self._owner_thread = threading.get_ident()
+        self._resources: list[_OwnedMaterializedRuntimeInput] = []
+
+    def _require_owner(self) -> None:
+        if os.getpid() != self._owner_pid or threading.get_ident() != self._owner_thread:
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time staged-input owner is unavailable"
+            )
+
+    def _adopt(
+        self,
+        resource: MaterializedDatabaseSecret | MaterializedHeadAnchorFile,
+    ) -> None:
+        self._require_owner()
+        if type(resource) not in (MaterializedDatabaseSecret, MaterializedHeadAnchorFile):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time staged-input ownership is invalid"
+            )
+        if any(candidate.resource is resource for candidate in self._resources):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time staged-input ownership is invalid"
+            )
+        file_owner: io.FileIO | None = None
+        try:
+            opened = open(  # noqa: SIM115 -- ownership transfers into the live owner
+                resource.path,
+                "rb",
+                buffering=0,
+                opener=lambda path, flags: os.open(
+                    path,
+                    flags | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+                ),
+            )
+            if type(opened) is not io.FileIO:
+                raise OSError
+            file_owner = opened
+            metadata = os.fstat(file_owner.fileno())
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o400
+                or metadata.st_dev != resource.file_device
+                or metadata.st_ino != resource.file_inode
+                or metadata.st_nlink != 1
+                or metadata.st_size != resource.size
+            ):
+                raise OSError
+            self._resources.append(
+                _OwnedMaterializedRuntimeInput(resource=resource, file_owner=file_owner)
+            )
+            file_owner = None
+        except OSError:
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time staged-input ownership is invalid"
+            ) from None
+        finally:
+            if file_owner is not None:
+                file_owner.close()
+
+    def _owns(
+        self,
+        resource: MaterializedDatabaseSecret | MaterializedHeadAnchorFile,
+    ) -> bool:
+        self._require_owner()
+        return any(candidate.resource is resource for candidate in self._resources)
+
+    def _retire_all(self) -> None:
+        """Restartably retire only exact adopted records in reverse creation order."""
+
+        self._retire_all_confirmed()
+
+    def _retire_all_confirmed(self) -> None:
+        """Retry exact retirement and prove every adopted record disappeared."""
+
+        self._require_owner()
+        first_error: BaseException | None = None
+        cleanup_error: BaseException | None = None
+        for retirement in tuple(reversed(self._resources)):
+            retired = False
+            try:
+                _retire_materialized_runtime_input_restartably(retirement)
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+                try:
+                    _retire_materialized_runtime_input_restartably(retirement)
+                except BaseException as error:
+                    if cleanup_error is None:
+                        cleanup_error = error
+                else:
+                    retired = True
+            else:
+                retired = True
+            if retired:
+                retirement.file_owner.close()
+                for index, candidate in enumerate(self._resources):
+                    if candidate is retirement:
+                        del self._resources[index]
+                        break
+                else:  # pragma: no cover - owner-local exact snapshot
+                    raise TrustedTimeSupervisorConfigurationError(
+                        "trusted-time staged-input retirement is unconfirmed"
+                    )
+        if cleanup_error is not None:
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time staged-input retirement is unconfirmed"
+            ) from cleanup_error
+        if self._resources:
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time staged-input retirement is unconfirmed"
+            )
+        if first_error is not None:
+            raise first_error
+
+    def _is_empty(self) -> bool:
+        self._require_owner()
+        return not self._resources
+
+
+def _retire_materialized_runtime_input_restartably(
+    retirement: _OwnedMaterializedRuntimeInput,
+) -> None:
+    """Resume exact staged-input retirement from every partial progress state."""
+
+    if type(retirement) is not _OwnedMaterializedRuntimeInput:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time staged-input retirement is unconfirmed"
+        )
+    resource = retirement.resource
+    file_name: str | None
+    if type(resource) is MaterializedDatabaseSecret:
+        file_name = DATABASE_SECRET_FILE_NAME
+    elif type(resource) is MaterializedHeadAnchorFile:
+        file_name = _HEAD_ANCHOR_FILE_NAMES.get(resource.kind)
+    else:
+        file_name = None
+    if (
+        file_name is None
+        or resource.directory.parent != resource.root
+        or resource.path != resource.directory / file_name
+        or not resource.root.is_relative_to(resource.ignored_root)
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time staged-input retirement is unconfirmed"
+        )
+    root_descriptor: int | None = None
+    directory_descriptor: int | None = None
+    file_descriptor: int | None = None
+    try:
+        held_file_metadata = os.fstat(retirement.file_owner.fileno())
+        if (
+            not stat.S_ISREG(held_file_metadata.st_mode)
+            or held_file_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(held_file_metadata.st_mode) != 0o400
+            or held_file_metadata.st_dev != resource.file_device
+            or held_file_metadata.st_ino != resource.file_inode
+            or held_file_metadata.st_nlink not in {0, 1}
+            or held_file_metadata.st_size != resource.size
+        ):
+            raise OSError
+        root_descriptor = _open_owner_only_artifact_directory(
+            resource.root,
+            ignored_root=resource.ignored_root,
+            create=False,
+        )
+        try:
+            directory_descriptor = os.open(
+                resource.directory.name,
+                os.O_RDONLY
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=root_descriptor,
+            )
+        except FileNotFoundError:
+            directory_descriptor = None
+        if directory_descriptor is None:
+            if os.fstat(retirement.file_owner.fileno()).st_nlink != 0:
+                raise OSError
+        else:
+            directory_metadata = os.fstat(directory_descriptor)
+            if (
+                not stat.S_ISDIR(directory_metadata.st_mode)
+                or directory_metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(directory_metadata.st_mode) != 0o700
+                or directory_metadata.st_dev != resource.directory_device
+                or directory_metadata.st_ino != resource.directory_inode
+            ):
+                raise OSError
+            try:
+                file_descriptor = os.open(
+                    file_name,
+                    os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+                    dir_fd=directory_descriptor,
+                )
+            except FileNotFoundError:
+                file_descriptor = None
+            if file_descriptor is None:
+                if os.fstat(retirement.file_owner.fileno()).st_nlink != 0:
+                    raise OSError
+            else:
+                file_metadata = os.fstat(file_descriptor)
+                if (
+                    not stat.S_ISREG(file_metadata.st_mode)
+                    or file_metadata.st_uid != os.geteuid()
+                    or stat.S_IMODE(file_metadata.st_mode) != 0o400
+                    or file_metadata.st_dev != resource.file_device
+                    or file_metadata.st_ino != resource.file_inode
+                    or file_metadata.st_nlink != 1
+                    or file_metadata.st_size != resource.size
+                ):
+                    raise OSError
+                os.close(file_descriptor)
+                file_descriptor = None
+                os.unlink(file_name, dir_fd=directory_descriptor)
+                if os.fstat(retirement.file_owner.fileno()).st_nlink != 0:
+                    raise OSError
+            repeated_directory_metadata = os.stat(
+                resource.directory.name,
+                dir_fd=root_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                not stat.S_ISDIR(repeated_directory_metadata.st_mode)
+                or repeated_directory_metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(repeated_directory_metadata.st_mode) != 0o700
+                or repeated_directory_metadata.st_dev != resource.directory_device
+                or repeated_directory_metadata.st_ino != resource.directory_inode
+            ):
+                raise OSError
+            os.close(directory_descriptor)
+            directory_descriptor = None
+            os.rmdir(resource.directory.name, dir_fd=root_descriptor)
+        os.fsync(root_descriptor)
+        try:
+            os.stat(
+                resource.directory.name,
+                dir_fd=root_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            pass
+        else:
+            raise OSError
+    except (OSError, TrustedTimeImageVerificationError):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time staged-input retirement is unconfirmed"
+        ) from None
+    finally:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+        if directory_descriptor is not None:
+            os.close(directory_descriptor)
+        if root_descriptor is not None:
+            os.close(root_descriptor)
 
 
 def _safe_payload(status: str, reason: str) -> str:
@@ -1130,9 +1411,12 @@ def materialize_database_secret(
     *,
     root: Path = DATABASE_SECRET_ROOT,
     ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+    _owner: _MaterializedRuntimeInputOwner | None = None,
 ) -> MaterializedDatabaseSecret:
     """Create one 0400 secret below a fresh owner-only directory."""
 
+    if _owner is not None and type(_owner) is not _MaterializedRuntimeInputOwner:
+        raise TrustedTimeSupervisorConfigurationError("trusted-time staged-input owner is invalid")
     validated = validate_database_url(database_url)
     encoded = validated.encode("utf-8")
     root_descriptor: int | None = None
@@ -1141,6 +1425,7 @@ def materialize_database_secret(
     directory_name = f".database-secret-{secrets.token_hex(16)}"
     directory_created = False
     file_created = False
+    materialized: MaterializedDatabaseSecret | None = None
     try:
         root_descriptor = _open_owner_only_artifact_directory(
             root,
@@ -1186,7 +1471,7 @@ def materialize_database_secret(
         ):
             raise OSError
         os.fsync(directory_descriptor)
-        return MaterializedDatabaseSecret(
+        materialized = MaterializedDatabaseSecret(
             root=root,
             ignored_root=ignored_root,
             directory=root / directory_name,
@@ -1198,16 +1483,25 @@ def materialize_database_secret(
             size=len(encoded),
             sha256=hashlib.sha256(encoded).hexdigest(),
         )
-    except (OSError, TrustedTimeImageVerificationError):
-        if file_created and directory_descriptor is not None:
-            with suppress(OSError):
-                os.unlink(DATABASE_SECRET_FILE_NAME, dir_fd=directory_descriptor)
-        if directory_created and root_descriptor is not None:
-            with suppress(OSError):
-                os.rmdir(directory_name, dir_fd=root_descriptor)
-        raise TrustedTimeSupervisorConfigurationError(
-            "trusted-time database secret materialization failed"
-        ) from None
+        if _owner is not None:
+            _owner._adopt(materialized)
+        return materialized
+    except BaseException as error:
+        owner_holds_materialized = (
+            materialized is not None and _owner is not None and _owner._owns(materialized)
+        )
+        if not owner_holds_materialized:
+            if file_created and directory_descriptor is not None:
+                with suppress(OSError):
+                    os.unlink(DATABASE_SECRET_FILE_NAME, dir_fd=directory_descriptor)
+            if directory_created and root_descriptor is not None:
+                with suppress(OSError):
+                    os.rmdir(directory_name, dir_fd=root_descriptor)
+        if isinstance(error, (OSError, TrustedTimeImageVerificationError)):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time database secret materialization failed"
+            ) from None
+        raise
     finally:
         if file_descriptor is not None:
             os.close(file_descriptor)
@@ -1358,9 +1652,15 @@ def _materialize_head_anchor_file(
     kind: str,
     root: Path,
     ignored_root: Path,
+    owner: _MaterializedRuntimeInputOwner | None = None,
 ) -> MaterializedHeadAnchorFile:
     file_name = _HEAD_ANCHOR_FILE_NAMES.get(kind)
-    if file_name is None or type(payload) is not bytes or not payload:
+    if (
+        file_name is None
+        or type(payload) is not bytes
+        or not payload
+        or (owner is not None and type(owner) is not _MaterializedRuntimeInputOwner)
+    ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time head-anchor input materialization failed"
         )
@@ -1370,6 +1670,7 @@ def _materialize_head_anchor_file(
     file_descriptor: int | None = None
     directory_created = False
     file_created = False
+    materialized: MaterializedHeadAnchorFile | None = None
     try:
         root_descriptor = _open_owner_only_artifact_directory(
             root,
@@ -1415,7 +1716,7 @@ def _materialize_head_anchor_file(
         ):
             raise OSError
         os.fsync(directory_descriptor)
-        return MaterializedHeadAnchorFile(
+        materialized = MaterializedHeadAnchorFile(
             root=root,
             ignored_root=ignored_root,
             directory=root / directory_name,
@@ -1428,16 +1729,25 @@ def _materialize_head_anchor_file(
             sha256=hashlib.sha256(payload).hexdigest(),
             kind=kind,
         )
-    except (OSError, TrustedTimeImageVerificationError):
-        if file_created and directory_descriptor is not None:
-            with suppress(OSError):
-                os.unlink(file_name, dir_fd=directory_descriptor)
-        if directory_created and root_descriptor is not None:
-            with suppress(OSError):
-                os.rmdir(directory_name, dir_fd=root_descriptor)
-        raise TrustedTimeSupervisorConfigurationError(
-            "trusted-time head-anchor input materialization failed"
-        ) from None
+        if owner is not None:
+            owner._adopt(materialized)
+        return materialized
+    except BaseException as error:
+        owner_holds_materialized = (
+            materialized is not None and owner is not None and owner._owns(materialized)
+        )
+        if not owner_holds_materialized:
+            if file_created and directory_descriptor is not None:
+                with suppress(OSError):
+                    os.unlink(file_name, dir_fd=directory_descriptor)
+            if directory_created and root_descriptor is not None:
+                with suppress(OSError):
+                    os.rmdir(directory_name, dir_fd=root_descriptor)
+        if isinstance(error, (OSError, TrustedTimeImageVerificationError)):
+            raise TrustedTimeSupervisorConfigurationError(
+                "trusted-time head-anchor input materialization failed"
+            ) from None
+        raise
     finally:
         if file_descriptor is not None:
             os.close(file_descriptor)
@@ -1595,8 +1905,11 @@ def materialize_trusted_time_head_anchor_inputs(
     *,
     root: Path = DATABASE_SECRET_ROOT,
     ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+    _owner: _MaterializedRuntimeInputOwner | None = None,
 ) -> MaterializedHeadAnchorInputs:
-    if type(payloads) is not TrustedTimeHeadAnchorSourcePayloads:
+    if type(payloads) is not TrustedTimeHeadAnchorSourcePayloads or (
+        _owner is not None and type(_owner) is not _MaterializedRuntimeInputOwner
+    ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time head-anchor input materialization failed"
         )
@@ -1613,6 +1926,7 @@ def materialize_trusted_time_head_anchor_inputs(
                     kind=kind,
                     root=root,
                     ignored_root=ignored_root,
+                    owner=_owner,
                 )
             )
         return MaterializedHeadAnchorInputs(
@@ -1621,6 +1935,8 @@ def materialize_trusted_time_head_anchor_inputs(
             signing_key=created[2],
         )
     except BaseException as primary_error:
+        if _owner is not None:
+            raise
         cleanup_error: Exception | None = None
         for materialized in reversed(created):
             try:

@@ -556,16 +556,17 @@ normal supervision or sequence 2.
    receipt, consumed exact `new` approval, owner-only claim, and confirmed
    outcome. The operation confirmed sequence 1 and no sequence 2; production
    still fixes `allow_enrollment=False` with no environment override.
-8. **In progress.** Use ADR 0098's pure exact claim/outcome decoder and
+8. **Implementation complete; operational admission pending.** Use ADR 0098's
+   pure exact claim/outcome decoder and
    non-authorizing old-evidence/new-target review projection with ADR 0099's
    single-use start/graceful-stop contract and read-only sequence-1
-   reauthentication. The code-only boundary now includes a dormant durable
-   owner-only start-claim writer and an atomically published, fixed in-container
-   pre-mutation release barrier. No supported host launcher invokes either
-   primitive; no staged host
-   orchestration, confirmed start outcome, or shutdown operator exists yet. Do
-   not run normal supervision or create sequence 2 until the remaining exact
-   boundary is implemented, admitted, and approved.
+   reauthentication. The code-only boundary now includes the durable owner-only
+   start claim, fixed in-container release barrier, active controller, and one
+   standalone isolated start-only host orchestrator. No merged-revision image
+   admission or external execution approval exists for the new surface, no
+   confirmed start outcome exists, and no shutdown operator exists. Do not run
+   the normal target or the one-shot executor until its exact revision/images,
+   runtime boundary, and operational tuple are freshly admitted and approved.
 
 Administrator/provider access can bypass these writer policies. Record that
 the result is same-provider and potentially same-admin evidence, not WORM or
@@ -1161,15 +1162,13 @@ or recovery operation is authorized. A recovery request is appropriate only
 after a future uncertain attempt and requires a separate approval made after
 inspecting its exact retained claim, outcome, SQL state, and remote state.
 
-No normal post-enrollment start is implemented. A retained claim blocks
-`trusted-time-start` even after a canonical confirmed outcome, so do not invoke
-the normal target after either one-shot mode. Reopening persistent supervision
-requires a later separately reviewed change that binds the exact retained
-claim and confirmed outcome, reauthenticates the resulting sequence-1 state,
-and explicitly defines when the normal worker may create a successor. Until
-that outcome-bound start contract is implemented and separately approved,
-normal recovery, sequence 2, periodic/transition checkpoints, and anchor
-`clean_stop` remain prohibited.
+No reusable normal post-enrollment start is implemented. A retained claim
+blocks `trusted-time-start` even after a canonical confirmed outcome, so do not
+invoke that target after either one-shot mode. The standalone executor described
+below is the only start surface, is one attempt only, and is not yet
+operationally admitted. Until that exact executor is freshly admitted and
+approved, normal recovery, sequence 2, periodic/transition checkpoints, and
+anchor `clean_stop` remain prohibited.
 
 The secretless ADR-0098 evidence review now decodes one exact owner-only
 canonical `new` claim/outcome pair and binds it to a separate proposed launch
@@ -1189,8 +1188,107 @@ and claimed pre-release chronology contract
 callback lease/deadline, claim-bound recovery retention, final action-time
 topology-fence, non-effecting active-controller admission, code-only effecting
 controller, shared sequence-2 deadline/ready protocol, persistent topology, and
-terminal controller-outcome seams described below. Supported host execution is
-still absent.
+terminal controller-outcome seams described below. Standalone isolated contract
+`phase6d-post-enrollment-start-host-orchestrator-v1` now composes them as a
+start-only host executor. Its separate outer field
+`orchestrator_status=terminal_outcome_retained` never replaces the nested
+controller or legacy terminal `status`. It has no Make, Compose, worker,
+trader, ordinary-launcher, shutdown, readiness, exposure, broker, or trading
+wiring and has not been executed.
+
+The executor exposes only `--approval-artifact` for a canonical owner-only,
+content-addressed external execution approval and `--runtime-env-file` for one
+owner-only runtime environment file. Do not substitute a raw approval tuple,
+image-admission path, secret value, Docker argument, or alternate artifact root.
+Contracts
+`phase6d-post-enrollment-start-execution-approval-v1`,
+`phase6d-post-enrollment-start-execution-attempt-v1`, and
+`phase6d-post-enrollment-start-execution-admission-v1` require the exact merged
+revision and immutable images, at least 605 seconds of fresh image-admission
+headroom on the native suspend-aware clock shared by image admission,
+execution admission, and choreography, and a permanent owner-only
+`.post-enrollment-start-execution-attempt-slot`. The slot is reserved with
+`O_EXCL`, fsync, and exact readback before reviewed production topology
+creation. Its first reservation consumes the host-wide opportunity, not merely
+one execution-approval artifact; never delete or replace it to retry. The
+immutable-image verifier may run its existing isolated Docker probe after slot
+reservation, but it cannot create the approved project. At one-shot consume
+immediately before reviewed Compose `create`, the CLI revalidates the exact
+approval, slot bytes/inode, and 605-second headroom. Preflight or suspend can
+therefore consume the slot without production mutation.
+The only supported invocation runs from the canonical repository root and uses
+the standard disposable, isolated, locked/offline uv environment. Inside that
+process the CLI attests canonical
+source, Python isolated/no-bytecode mode, a null pycache target, and a non-
+reusable environment prefix before loading first-party modules; a repository
+environment or direct ordinary Python invocation fails closed. Do not run this
+shape until the fresh admission and explicit operational decision below exist:
+
+```bash
+uv run --isolated --offline --locked --no-env-file \
+  python -I -B -X pycache_prefix=/dev/null \
+  scripts/trusted_time_post_enrollment_host_orchestrator.py \
+  --approval-artifact /absolute/repository/artifacts/trusted-time/trusted-time-post-enrollment-start-execution-approval-<sha256>.json \
+  --runtime-env-file /absolute/operator/trusted-time-launch.env
+```
+
+One topology issuer owns the global launcher flock before exact empty-inventory
+preflight and retains it through collision-nondestructive reviewed Compose
+`create --no-recreate`, the complete callback unwind, and exact close,
+whether that callback confirms pre-claim teardown, retains a terminal, or ends
+in fatal manual classification. The narrow
+mutation state machine uses only the reviewed Compose payload and fixed runner:
+create the stopped two-container topology, authenticate it, start and qualify
+the source first, then start the supervisor and authenticate the consumed-input
+barrier. The effect-only Compose projection labels both services and the
+default network with the unpredictable issuer-session invocation digest, and
+every reviewed created/staged/action/persistent/teardown observation requires
+that exact label. The issuer seals the exact created observation before returning it, so
+a lost return can still select only the exact pre-claim teardown. A
+materialization owner adopts each exact staged-input inode record
+inside its materializer before return. Retirement removes only those four
+adopted records and never sweeps the runtime-secret root.
+
+The sole sequence-1 path is signer-free contract
+`phase6d-post-enrollment-sequence-one-read-only-reauthentication-v1`. It exposes
+only read-only SQL/provider operations and the public Ed25519 verifier; the
+host must never pass the private signing key to it. Prepare it against the exact
+still-`unbound` recovery tuple before topology mutation, invoke it only after
+the four exact staged inputs are retired, and let any interruption escape after
+descriptor-anchored restartable retirement completes. Under the same issuer flock,
+the remaining order is four-input retirement; staged ordinal 1 and pre-claim
+fence; conservative no-teardown marker CALL; invoke sequence 1 while recovery remains `unbound`;
+transition the binder to `claim_admitted` immediately before claim `O_EXCL`;
+retain and read back the claim, consume the exact binder before the writer
+returns, and commit the fully populated recovery tuple with `armed` stored
+last; complete ordinal-2 chronology; final action
+fence; controller admission; read-only sequence-2 verifier; and active
+controller. The one suspend-aware origin sets action expiry at 600 seconds and
+recovery retention at 605 seconds. The controller's 260-second pre-effect gate
+is unchanged.
+
+Only a failure before the conservative marker-call boundary may run exact
+reviewed teardown. It removes only authenticated container IDs and the exact
+network ID; it never calls broad Compose down, and both named volumes must
+survive. The host stores
+its no-teardown flag before calling the authoritative marker. From that CALL
+onward never run automatic or manual teardown as part of this attempt. Retain
+legacy recovery only when the exact read-only state query reports `armed`;
+otherwise preserve the topology and already-durable evidence and classify the
+attempt fatal/manual without claiming a terminal. Confirmed pre-mutation
+failure or pre-claim teardown is also reported conservatively as fatal because
+the permanent slot is consumed. The standalone CLI must
+emit only a terminal returned or raised by this exact process-sealed invocation;
+never substitute an earlier global outcome for current preflight, cleanup,
+close, replay, or asynchronous failure. It must adopt a handoff-interrupted
+terminal only from the exact live issuer registry, after durable revalidation
+of that current-scope receipt; it must never use a global outcome lookup for
+recovery. It must
+remain dormant until a fresh merged-revision image admission, canonical
+execution-approval artifact, exact runtime environment file, and explicit
+operational execution decision all exist.
+The effecting function rejects ordinary import calls; only the attested
+isolated `__main__` path may invoke it.
 
 The reader's process-sealed cursor contract is
 `phase6d-post-enrollment-topology-observation-cursor-v1`, with status
@@ -1208,7 +1306,7 @@ observation, cursor, or choreography. Its non-copyable, nonserializable token is
 bound to the exact issuer, authentication capability, session, creating PID,
 and exact current-thread identity, and is revoked before callback return.
 
-The callback starts one fixed absolute 300-second deadline on the topology
+The callback starts one fixed absolute 600-second deadline on the topology
 issuer's identity-sealed, suspend-aware host action clock. Production uses
 Linux `CLOCK_BOOTTIME` or macOS `mach_continuous_time` scaled with
 `mach_timebase_info`; another or unavailable platform fails closed, while an
@@ -1221,8 +1319,8 @@ cannot release the outer flock before callback unwind. This token cannot be
 manually retained or used as an operator permit.
 
 The same callback acquisition fixes recovery retention at absolute
-`start + 305 seconds`, from the identical monotonic origin. Neither claim
-retention, poison, 300-second action expiry, capability arming, nor retention
+`start + 605 seconds`, from the identical monotonic origin. Neither claim
+retention, poison, 600-second action expiry, capability arming, nor retention
 start resets either deadline. Equality is expired at both boundaries. Only an
 already claim-bound recovery capability may survive action expiry; an `unbound`
 or `claim_admitted` capability is revoked and cannot be armed afterward.
@@ -1262,11 +1360,11 @@ The callback-local recovery seam can arm only from the exact retained claim.
 Its sole durable contract is
 `phase6d-post-enrollment-start-retained-recovery-outcome-v1`, with status
 `recovery_required`. Before the claim writer's `O_EXCL` boundary, its opaque
-binder checkpoints the live lease, flock, artifact roots, and 300-second action
+binder checkpoints the live lease, flock, artifact roots, and 600-second action
 deadline. After claim retention, binding revalidates the claim, atomically arms
 the recovery capability while revoking the binder, then revalidates the claim
 again. The armed capability can be consumed once before equality with
-`start + 305 seconds`. It has no observation, mutation, release, retry, or
+`start + 605 seconds`. It has no observation, mutation, release, retry, or
 authority surface and never removes or replaces a possibly durable artifact.
 Unconfirmed retention leaves the exact consumed claim as the hard-closed fact.
 
@@ -1331,8 +1429,9 @@ partially installed admission-result and continuation state while leaving the
 action-fence registry's weak tombstone intact. No lease, recovery, root, PID,
 thread, or deadline material enters its public payload; private
 `_consume_active_controller_continuation` is called only by the code-only
-`run_post_enrollment_start_active_controller` tail and has no supported operator
-entrypoint. The seam is pop-before-validation and one-shot: an exact-result
+`run_post_enrollment_start_active_controller` tail, which is reachable only
+through the one-shot host orchestrator. The seam is pop-before-validation and
+one-shot: an exact-result
 attempt replaces the continuation's full origin tuple with an admission-local
 weak issuer tombstone across ordinary or asynchronous failure, and makes replay
 fail closed and poison the origin without granting an effect. The result
@@ -1355,17 +1454,16 @@ trading authority fields remain false. The payload and result explicitly expose
 `active_controller_authorized=false` and
 `controller_execution_authorized=false`; admission is not controller execution.
 
-The code-only effecting tail now implements
-`phase6d-post-enrollment-start-active-controller-v1`, but it remains an
-unsupported operator surface. Do not import or call
+The code-only effecting tail implements
+`phase6d-post-enrollment-start-active-controller-v1`. Do not import or call
 `run_post_enrollment_start_active_controller`, publish either marker manually,
-or invoke its projected Docker commands as a workaround. There is still no Make
-target, Compose operation, host launcher, supported CLI, or runbook command that
-enters the private continuation.
+or invoke its projected Docker commands as a workaround. Only the standalone
+one-shot host orchestrator may enter its private continuation; there is no Make,
+Compose, worker, trader, normal-start, or other reusable path.
 
 Inside that private choreography, the controller consumes the exact admission
 continuation under the same callback, live lease, PID/thread, issuer session,
-named outer lock, roots, and original 300-second deadline; performs a fresh
+named outer lock, roots, and original 600-second deadline; performs a fresh
 16-read pre-effect observation; verifies all deadline/release/ready final and
 staging names are absent; and requires at least 260 seconds of lease budget
 before release. The effect boundary uses a caller-owned candidate to atomically
@@ -1433,8 +1531,9 @@ material remains closes it and poisons the issuer. Every terminal zero-, one-,
 or two-call path erases admission, binding, claim, issuer reference, lease,
 recovery capability, deadline, PID/thread, and resources, retaining only inert
 status plus binding, configuration, and optional completed-transcript digests.
-A later replay still rejects but has no erased issuer reference to poison.
-There is no supported command to prepare or invoke it.
+A later replay still rejects but has no erased issuer reference to poison. Only
+the one-shot host orchestrator may prepare and invoke it inside the live
+callback.
 
 The controller then requires two matching sequence-2 successor observations
 around one persistent-topology pass containing stable before/after namespace
@@ -1491,9 +1590,10 @@ operational-control, readiness, re-arm, exposure, broker, paper-trading, and
 live-trading authority remains false.
 
 No release was executed while this code was implemented. The exact merged
-revision, immutable images, runtime inputs, and one operational execution still
-require fresh admission and explicit approval. Until then, `trusted-time-start`
-and shutdown remain hard closed.
+revision, immutable images, runtime inputs, canonical content-addressed
+execution-approval artifact, and one operational execution still require fresh
+admission and explicit approval. Until then, both the standalone executor and
+`trusted-time-start` must remain unused, and shutdown remains hard closed.
 
 The hard closure is unconditional in this phase: persistent start is rejected
 even before claim lookup. The retained-claim check remains defense in depth,

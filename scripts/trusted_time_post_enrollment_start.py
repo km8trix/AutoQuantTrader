@@ -9,6 +9,7 @@ import uuid
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol, cast
 
 from packages.domain.trusted_time_enrollment_evidence import (
     FIRST_ENROLLMENT_AUTHORITY_FIELDS,
@@ -445,6 +446,22 @@ def _read_retained_claim(
                 os.close(descriptor)
 
 
+class _RetainedClaimBinder(Protocol):
+    """Static shape used only after the exact process-private binder type check."""
+
+    def _checkpoint(
+        self,
+        *,
+        artifact_directory: Path,
+        ignored_root: Path,
+    ) -> None: ...
+
+    def __call__(
+        self,
+        retained_claim: RetainedTrustedTimePostEnrollmentStartClaim,
+    ) -> None: ...
+
+
 def retain_post_enrollment_start_claim(
     claim: TrustedTimePostEnrollmentStartClaim,
     *,
@@ -465,6 +482,7 @@ def retain_post_enrollment_start_claim(
     directory_descriptor: int | None = None
     file_descriptor: int | None = None
     created_file_identity: tuple[int, ...] | None = None
+    exact_binder: _RetainedClaimBinder | None = None
     try:
         directory_descriptor = _open_owner_only_artifact_directory(
             absolute_directory,
@@ -486,7 +504,7 @@ def retain_post_enrollment_start_claim(
                     is not _TrustedTimePostEnrollmentRecoveryClaimBinder
                 ):
                     raise ValueError
-                exact_binder = _retained_claim_binder
+                exact_binder = cast(_RetainedClaimBinder, _retained_claim_binder)
                 exact_binder._checkpoint(
                     artifact_directory=absolute_directory,
                     ignored_root=ignored_root,
@@ -590,7 +608,7 @@ def retain_post_enrollment_start_claim(
         if directory_descriptor is not None:
             with suppress(OSError):
                 os.close(directory_descriptor)
-    return RetainedTrustedTimePostEnrollmentStartClaim(
+    retained_claim = RetainedTrustedTimePostEnrollmentStartClaim(
         claim=claim,
         operation_id=operation_id,
         claim_projection_sha256=claim.claim_sha256,
@@ -599,6 +617,12 @@ def retain_post_enrollment_start_claim(
         encoded=encoded,
         file_identity=created_file_identity,
     )
+    if exact_binder is not None:
+        # Bind the exact fsynced receipt before it can cross this function's
+        # return boundary.  A caller-side CALL/STORE interruption must leave
+        # recovery armed instead of stranding a durable unbound claim.
+        exact_binder(retained_claim)
+    return retained_claim
 
 
 def revalidate_retained_post_enrollment_start_claim(

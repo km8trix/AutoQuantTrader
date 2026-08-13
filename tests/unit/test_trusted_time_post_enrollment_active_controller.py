@@ -1040,6 +1040,31 @@ def test_wrong_issuer_consumes_the_exact_continuation_and_poisons_its_origin(
     assert release_calls == []
 
 
+def test_current_scope_adoption_never_swallows_an_async_query_interruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    topology_issuer = object.__new__(reader.TrustedTimePostEnrollmentTopologyObservationIssuer)
+
+    def interrupt_query(*_: object, **__: object) -> object:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_adopt_registered_confirmed_terminal_outcome",
+        interrupt_query,
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        controller._adopt_current_scope_terminal_controller_outcome(
+            topology_issuer,
+            object(),
+            object(),
+            artifact_directory=tmp_path / "trusted-time",
+            ignored_root=tmp_path,
+        )
+
+
 def test_pre_effect_probe_requires_all_six_runtime_names_absent() -> None:
     compile(controller._PRE_EFFECT_RUNTIME_ABSENCE_PROBE_SOURCE, "<pre-effect>", "exec")
     compile(controller._PERSISTENT_BARRIER_PROBE_SOURCE, "<persistent>", "exec")

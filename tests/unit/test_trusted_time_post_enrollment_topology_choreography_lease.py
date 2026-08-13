@@ -1,26 +1,34 @@
 from __future__ import annotations
 
 import ctypes
+import dis
+import gc
 import inspect
+import io
+import json
 import os
 import pickle
+import subprocess
 import sys
 import threading
 from collections.abc import Callable
 from copy import copy, deepcopy
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Never, cast
+from typing import Any, Literal, Never, cast
 
 import pytest
 
+import scripts.trusted_time_post_enrollment_active_controller as active_controller
 import scripts.trusted_time_post_enrollment_claimed_fence as claimed_fence
 import scripts.trusted_time_post_enrollment_controller_outcome as controller_outcome
 import scripts.trusted_time_post_enrollment_staging as staging
+import scripts.trusted_time_post_enrollment_start as claim_persistence
 import scripts.trusted_time_post_enrollment_topology_reader as reader
 from apps.trusted_time_supervisor.config import TrustedTimeSupervisorConfigurationError
 from scripts import trusted_time_post_enrollment_outcome as recovery_outcome
 from scripts.start_trusted_time_supervisor import (
+    LocalDockerDaemonIdentity,
     _acquire_trusted_time_launch_lock,
     _release_trusted_time_launch_lock,
 )
@@ -184,6 +192,7 @@ def _open_issuer(
     *,
     outputs: list[bytes | BaseException] | None = None,
     monotonic_clock: _MonotonicClock | None = None,
+    bind_reviewed_create_outputs: bool = False,
 ) -> tuple[
     reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
     fixtures._QueuedRunner,
@@ -201,6 +210,8 @@ def _open_issuer(
         socket_path,
         executable,
     )
+    if bind_reviewed_create_outputs:
+        _bind_reviewed_create_outputs_to_invocation(issuer, queued)
     return issuer, queued
 
 
@@ -249,6 +260,184 @@ def _close_and_assert_launch_lock_is_reacquirable(
     descriptor = _acquire_trusted_time_launch_lock(
         path=issuer._lock_path,
         ignored_root=issuer._ignored_root,
+    )
+    _release_trusted_time_launch_lock(descriptor)
+
+
+def test_reader_deadlines_are_exact_six_hundred_plus_five_second_tail() -> None:
+    assert reader._POST_ENROLLMENT_START_CHOREOGRAPHY_DEADLINE_SECONDS == 600
+    assert reader._POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_SECONDS == 605
+    assert (
+        reader._POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_NANOSECONDS
+        - reader._POST_ENROLLMENT_START_CHOREOGRAPHY_DEADLINE_NANOSECONDS
+        == 5_000_000_000
+    )
+
+
+def test_lock_fileio_owner_closes_on_call_store_interruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    lock_path = ignored_root / "trusted-time" / "trusted-time-launch.lock"
+    executable = tmp_path / "unreached-docker"
+    fixtures._make_executable(executable)
+    opened: list[int] = []
+    real_open = reader._open_trusted_time_launch_lock_owner
+
+    def tracked_open(*, path: Path, ignored_root: Path) -> io.FileIO:
+        owner = real_open(path=path, ignored_root=ignored_root)
+        opened.append(owner.fileno())
+        return owner
+
+    instructions = list(
+        dis.get_instructions(
+            reader.TrustedTimePostEnrollmentTopologyObservationIssuer._open_with_dependencies
+        )
+    )
+    store_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_FAST"
+        and instruction.argval == "lock_owner"
+        and index > 0
+        and instructions[index - 1].opname == "CALL"
+    )
+    store_offset = instructions[store_index].offset
+    target_code = (
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer._open_with_dependencies.__code__
+    )
+
+    def interrupt_before_store(_: object, instruction_offset: int) -> None:
+        if instruction_offset == store_offset:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(reader, "_open_trusted_time_launch_lock_owner", tracked_open)
+    tool_id = next(
+        candidate
+        for candidate in range(sys.monitoring.OPTIMIZER_ID + 1)
+        if sys.monitoring.get_tool(candidate) is None
+    )
+    sys.monitoring.use_tool_id(tool_id, "trusted-time-reader-lock-test")
+    interrupted = False
+    try:
+        sys.monitoring.register_callback(
+            tool_id,
+            sys.monitoring.events.INSTRUCTION,
+            interrupt_before_store,
+        )
+        sys.monitoring.set_local_events(
+            tool_id,
+            target_code,
+            sys.monitoring.events.INSTRUCTION,
+        )
+        try:
+            reader.TrustedTimePostEnrollmentTopologyObservationIssuer._open_with_dependencies(
+                expected_daemon_identity=LocalDockerDaemonIdentity(
+                    context_name="<DOCKER_HOST>",
+                    endpoint="unix:///tmp/unreached.sock",
+                    daemon_id="LOCAL:DAEMON:1",
+                ),
+                docker_environment={},
+                docker_executable=executable,
+                lock_path=lock_path,
+                ignored_root=ignored_root,
+                runner=fixtures._QueuedRunner([]),
+                session_token_factory=lambda: b"x" * 32,
+            )
+        except reader.TrustedTimePostEnrollmentTopologyReaderError:
+            interrupted = True
+    finally:
+        sys.monitoring.set_local_events(tool_id, target_code, 0)
+        sys.monitoring.register_callback(tool_id, sys.monitoring.events.INSTRUCTION, None)
+        sys.monitoring.free_tool_id(tool_id)
+    gc.collect()
+
+    assert interrupted is True
+    assert len(opened) == 1
+    with pytest.raises(OSError):
+        os.fstat(opened[0])
+    descriptor = _acquire_trusted_time_launch_lock(
+        path=lock_path,
+        ignored_root=ignored_root,
+    )
+    _release_trusted_time_launch_lock(descriptor)
+
+
+def test_authenticated_open_lost_return_releases_named_flock(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A caller-side CALL/STORE interruption cannot be retained by the registry."""
+
+    socket_path = fixtures._short_socket_path(tmp_path)
+    executable = tmp_path / "trusted-docker"
+    fixtures._make_executable(executable)
+    queued = fixtures._QueuedRunner([fixtures._json_line("LOCAL:DAEMON:1")])
+    ignored_root = tmp_path / "artifacts"
+    lock_path = ignored_root / "trusted-time" / "trusted-time-launch.lock"
+    capability_registry = cast(
+        dict[object, object],
+        inspect.getclosurevars(reader._authenticated_issuer_capability_is_active).nonlocals[
+            "active_capabilities"
+        ],
+    )
+    registrations_before = len(capability_registry)
+
+    def interrupted_caller() -> None:
+        issuer = fixtures._public_open(
+            monkeypatch,
+            tmp_path,
+            queued,
+            socket_path,
+            executable,
+        )
+        issuer.close()
+
+    instructions = list(dis.get_instructions(interrupted_caller))
+    store_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_FAST"
+        and instruction.argval == "issuer"
+        and index > 0
+        and instructions[index - 1].opname == "CALL"
+    )
+    store_offset = instructions[store_index].offset
+
+    def interrupt_before_store(_: object, instruction_offset: int) -> None:
+        if instruction_offset == store_offset:
+            raise KeyboardInterrupt
+
+    tool_id = next(
+        candidate
+        for candidate in range(sys.monitoring.OPTIMIZER_ID + 1)
+        if sys.monitoring.get_tool(candidate) is None
+    )
+    sys.monitoring.use_tool_id(tool_id, "trusted-time-reader-open-return-test")
+    try:
+        sys.monitoring.register_callback(
+            tool_id,
+            sys.monitoring.events.INSTRUCTION,
+            interrupt_before_store,
+        )
+        sys.monitoring.set_local_events(
+            tool_id,
+            interrupted_caller.__code__,
+            sys.monitoring.events.INSTRUCTION,
+        )
+        with pytest.raises(KeyboardInterrupt):
+            interrupted_caller()
+    finally:
+        sys.monitoring.set_local_events(tool_id, interrupted_caller.__code__, 0)
+        sys.monitoring.register_callback(tool_id, sys.monitoring.events.INSTRUCTION, None)
+        sys.monitoring.free_tool_id(tool_id)
+    gc.collect()
+
+    assert len(capability_registry) == registrations_before
+    descriptor = _acquire_trusted_time_launch_lock(
+        path=lock_path,
+        ignored_root=ignored_root,
     )
     _release_trusted_time_launch_lock(descriptor)
 
@@ -335,6 +524,69 @@ def _active_choreography_registration(
     return registrations[issuer]
 
 
+def _instruction_offset(
+    callable_object: Callable[..., object],
+    *,
+    opname: str,
+    argval: object,
+    occurrence: Literal["first", "last"] = "first",
+) -> int:
+    """Locate one exact bytecode boundary used by async-interruption tests."""
+
+    matching = [
+        instruction.offset
+        for instruction in dis.get_instructions(callable_object)
+        if instruction.opname == opname and instruction.argval == argval
+    ]
+    assert matching
+    return matching[0] if occurrence == "first" else matching[-1]
+
+
+def _enable_instruction_interrupt(
+    callable_object: Callable[..., object],
+    offset: int,
+    *,
+    tool_name: str,
+) -> int:
+    """Raise once immediately before the selected instruction executes."""
+
+    target_code = callable_object.__code__
+    injected = False
+
+    def interrupt(_: object, instruction_offset: int) -> None:
+        nonlocal injected
+        if not injected and instruction_offset == offset:
+            injected = True
+            raise KeyboardInterrupt
+
+    tool_id = next(
+        candidate
+        for candidate in range(sys.monitoring.OPTIMIZER_ID + 1)
+        if sys.monitoring.get_tool(candidate) is None
+    )
+    sys.monitoring.use_tool_id(tool_id, tool_name)
+    sys.monitoring.register_callback(
+        tool_id,
+        sys.monitoring.events.INSTRUCTION,
+        interrupt,
+    )
+    sys.monitoring.set_local_events(
+        tool_id,
+        target_code,
+        sys.monitoring.events.INSTRUCTION,
+    )
+    return tool_id
+
+
+def _disable_instruction_interrupt(
+    tool_id: int,
+    callable_object: Callable[..., object],
+) -> None:
+    sys.monitoring.set_local_events(tool_id, callable_object.__code__, 0)
+    sys.monitoring.register_callback(tool_id, sys.monitoring.events.INSTRUCTION, None)
+    sys.monitoring.free_tool_id(tool_id)
+
+
 def _transition_registered_post_effect_retention(
     issuer: reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
     lease: object,
@@ -402,6 +654,73 @@ def _recovery_controller_receipt(
     object.__setattr__(retained, "reason", reason)
     object.__setattr__(retained, "artifact_path", artifact_directory / "exact-failure.json")
     return retained
+
+
+def _interrupt_next_choreography_action_result_store(
+    interruption_type: type[BaseException] = KeyboardInterrupt,
+) -> Callable[[], None]:
+    """Interrupt exactly after the recovery-retention callback CALL returns."""
+
+    issuer_type = reader.TrustedTimePostEnrollmentTopologyObservationIssuer
+    target_code = issuer_type._run_authenticated_choreography_scope.__code__
+    instructions = list(dis.get_instructions(target_code))
+    target_offset = next(
+        instruction.offset
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_FAST"
+        and instruction.argval == "result"
+        and index > 0
+        and instructions[index - 1].opname == "CALL"
+    )
+    return _interrupt_exact_instruction(
+        target_code,
+        target_offset,
+        tool_name="trusted-time-terminal-action-return-test",
+        interruption_type=interruption_type,
+    )
+
+
+def _interrupt_exact_instruction(
+    target_code: Any,
+    target_offset: int,
+    *,
+    tool_name: str,
+    interruption_type: type[BaseException] = KeyboardInterrupt,
+) -> Callable[[], None]:
+    """Install one self-verifying instruction-boundary interruption."""
+
+    injected = False
+    tool_id = next(
+        candidate
+        for candidate in range(sys.monitoring.OPTIMIZER_ID + 1)
+        if sys.monitoring.get_tool(candidate) is None
+    )
+    sys.monitoring.use_tool_id(tool_id, tool_name)
+
+    def interrupt(code: object, instruction_offset: int) -> None:
+        nonlocal injected
+        if not injected and code is target_code and instruction_offset == target_offset:
+            injected = True
+            raise interruption_type
+
+    sys.monitoring.register_callback(
+        tool_id,
+        sys.monitoring.events.INSTRUCTION,
+        interrupt,
+    )
+    sys.monitoring.set_local_events(
+        tool_id,
+        target_code,
+        sys.monitoring.events.INSTRUCTION,
+    )
+
+    def close() -> None:
+        sys.monitoring.set_local_events(tool_id, target_code, 0)
+        sys.monitoring.register_callback(tool_id, sys.monitoring.events.INSTRUCTION, None)
+        sys.monitoring.free_tool_id(tool_id)
+        assert injected is True
+
+    return close
 
 
 def test_nominal_callback_uses_one_private_lease_for_exact_observation_chain(
@@ -1039,6 +1358,840 @@ class _RecoveryRetentionTerminal(BaseException):
     pass
 
 
+def test_unbound_recovery_preparation_authenticates_exact_inert_tuple(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, queued = _open_issuer(monkeypatch, tmp_path)
+
+    def inspect(lease: object, capability: object) -> object:
+        assert reader._authenticated_recovery_retention_is_available(
+            issuer,
+            capability,
+            expected_state="unbound",
+            choreography_lease=lease,
+        )
+        checkpoint = issuer._require_unbound_recovery_retention_preparation(
+            lease,
+            capability,
+        )
+        assert reader._authenticated_recovery_retention_is_available(
+            issuer,
+            capability,
+            expected_state="unbound",
+            choreography_lease=lease,
+        )
+        assert not reader._authenticated_recovery_retention_is_available(
+            issuer,
+            capability,
+            expected_state="armed",
+            artifact_directory=issuer._ignored_root / "trusted-time",
+            ignored_root=issuer._ignored_root,
+        )
+        return checkpoint
+
+    checkpoint = issuer._run_exclusive_choreography_with_recovery_retention(inspect)
+
+    assert type(checkpoint) is reader._ChoreographyCheckpoint
+    assert checkpoint.deadline_monotonic_ns - checkpoint.started_monotonic_ns == (
+        reader._POST_ENROLLMENT_START_CHOREOGRAPHY_DEADLINE_NANOSECONDS
+    )
+    assert issuer._poisoned is False
+    assert len(queued.calls) == 1
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_recovery_armed_query_is_read_only_across_live_pre_effect_states(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, queued = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+
+    def inspect(lease: object, capability: object) -> tuple[bool, ...]:
+        registration = _active_choreography_registration(issuer)
+
+        def classify() -> bool:
+            before = tuple(
+                getattr(registration, name) for name in registration.__dataclass_fields__
+            )
+            poisoned_before = issuer._poisoned
+            result = issuer._recovery_outcome_retention_is_armed(
+                lease,
+                capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+            assert (
+                tuple(getattr(registration, name) for name in registration.__dataclass_fields__)
+                == before
+            )
+            assert issuer._poisoned is poisoned_before
+            return result
+
+        states = [classify()]
+        binder = _issue_registered_recovery_claim_binder(
+            issuer,
+            lease,
+            capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        states.append(classify())
+        binder._checkpoint(
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        states.append(classify())
+        binder(retained)
+        states.append(classify())
+        candidate = issuer._issue_post_effect_outcome_retention_candidate()
+        issuer._transition_to_post_effect_outcome_retention(
+            lease,
+            capability,
+            retained,
+            post_effect_outcome_candidate=candidate,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        states.append(classify())
+        return tuple(states)
+
+    assert issuer._run_exclusive_choreography_with_recovery_retention(inspect) == (
+        False,
+        False,
+        False,
+        True,
+        False,
+    )
+    assert issuer._poisoned is False
+    assert len(queued.calls) == 1
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_claim_persistence_interruption_before_o_excl_cannot_arm_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    ignored_root = issuer._ignored_root
+    artifact_directory = ignored_root / "trusted-time"
+    instructions = list(dis.get_instructions(claim_persistence.retain_post_enrollment_start_claim))
+    descriptor_store_index = max(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_FAST" and instruction.argval == "file_descriptor"
+    )
+    create_call = instructions[descriptor_store_index - 1]
+    assert create_call.opname == "CALL"
+
+    def interrupt_before_create(lease: object, capability: object) -> None:
+        binder = _issue_registered_recovery_claim_binder(
+            issuer,
+            lease,
+            capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        tool_id = _enable_instruction_interrupt(
+            claim_persistence.retain_post_enrollment_start_claim,
+            create_call.offset,
+            tool_name="trusted-time-claim-before-o-excl-test",
+        )
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                claim_persistence.retain_post_enrollment_start_claim(
+                    claim_fixtures._claim(),
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                    _retained_claim_binder=binder,
+                )
+        finally:
+            _disable_instruction_interrupt(
+                tool_id,
+                claim_persistence.retain_post_enrollment_start_claim,
+            )
+
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "claim_admitted"
+        assert registration.retained_claim is None
+        assert registration.retained_claim_binding_sha256 is None
+        assert registration.recovery_claim_binder is binder
+        assert not (
+            artifact_directory / claim_persistence.POST_ENROLLMENT_START_CLAIM_FILE_NAME
+        ).exists()
+        assert not issuer._recovery_outcome_retention_is_armed(
+            lease,
+            capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        raise _RecoveryRetentionTerminal
+
+    with pytest.raises(_RecoveryRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(interrupt_before_create)
+
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_durable_claim_call_to_staging_store_interruption_leaves_recovery_armed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    ignored_root = issuer._ignored_root
+    artifact_directory = ignored_root / "trusted-time"
+    approval = claim_fixtures._approval()
+    reauthentication_issuer = claim_fixtures._Issuer(claim_fixtures._observed_postcondition())
+    monkeypatch.setattr(
+        staging,
+        "load_confirmed_first_enrollment_evidence",
+        lambda **_: approval.confirmed_enrollment,
+    )
+    retained_store = _instruction_offset(
+        staging.prepare_post_enrollment_start_release_under_lock,
+        opname="STORE_FAST",
+        argval="retained",
+    )
+
+    def interrupt_caller_store(lease: object, capability: object) -> None:
+        binder = _issue_registered_recovery_claim_binder(
+            issuer,
+            lease,
+            capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        tool_id = _enable_instruction_interrupt(
+            staging.prepare_post_enrollment_start_release_under_lock,
+            retained_store,
+            tool_name="trusted-time-durable-claim-caller-store-test",
+        )
+        try:
+            with pytest.raises(staging.TrustedTimePostEnrollmentStartClaimedRecoveryRequired):
+                staging.prepare_post_enrollment_start_release_under_lock(
+                    approval=approval,
+                    expected_approval_sha256=approval.approval_sha256,
+                    supervisor_container_id=claim_fixtures.SUPERVISOR_CONTAINER_ID,
+                    reauthentication_issuer=reauthentication_issuer,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                    _retained_claim_binder=binder,
+                )
+        finally:
+            _disable_instruction_interrupt(
+                tool_id,
+                staging.prepare_post_enrollment_start_release_under_lock,
+            )
+
+        registration = _active_choreography_registration(issuer)
+        retained = registration.retained_claim
+        assert registration.retention_state == "armed"
+        assert registration.action_active is True
+        assert type(retained) is RetainedTrustedTimePostEnrollmentStartClaim
+        assert registration.recovery_claim_binder is None
+        assert claim_persistence.revalidate_retained_post_enrollment_start_claim(
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        assert issuer._recovery_outcome_retention_is_armed(
+            lease,
+            capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        raise _RecoveryRetentionTerminal
+
+    with pytest.raises(_RecoveryRetentionTerminal):
+        issuer._run_exclusive_choreography_with_recovery_retention(interrupt_caller_store)
+
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+@pytest.mark.parametrize(
+    "binding_store",
+    [
+        "last_monotonic_ns",
+        "retained_claim",
+        "retained_claim_binding_sha256",
+        "artifact_directory",
+        "ignored_root",
+        "retention_state",
+    ],
+)
+def test_interruption_before_internal_binding_commit_never_exposes_armed_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    binding_store: str,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    bind_recovery_retention = cast(
+        Callable[..., object],
+        inspect.getclosurevars(reader._consume_authenticated_recovery_claim_binder).nonlocals[
+            "bind_recovery_retention"
+        ],
+    )
+    store_offset = _instruction_offset(
+        bind_recovery_retention,
+        opname="STORE_ATTR",
+        argval=binding_store,
+        occurrence="last",
+    )
+
+    def interrupt_internal_store(lease: object, capability: object) -> str:
+        binder = _issue_registered_recovery_claim_binder(
+            issuer,
+            lease,
+            capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        binder._checkpoint(
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        tool_id = _enable_instruction_interrupt(
+            bind_recovery_retention,
+            store_offset,
+            tool_name=f"trusted-time-binding-{binding_store}-test",
+        )
+        try:
+            with pytest.raises(
+                reader.TrustedTimePostEnrollmentTopologyReaderError,
+                match="recovery claim binder is unavailable",
+            ):
+                binder(retained)
+        finally:
+            _disable_instruction_interrupt(tool_id, bind_recovery_retention)
+
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "revoked"
+        assert registration.action_active is False
+        assert registration.recovery_claim_binder is None
+        assert issuer._poisoned is True
+        try:
+            armed = issuer._recovery_outcome_retention_is_armed(
+                lease,
+                capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        except reader.TrustedTimePostEnrollmentTopologyReaderError:
+            pass
+        else:
+            assert armed is False
+        return "must not escape"
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._run_exclusive_choreography_with_recovery_retention(interrupt_internal_store)
+
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_interruption_after_bind_before_return_preserves_exact_armed_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    monitored = cast(
+        Callable[..., object],
+        reader._consume_authenticated_recovery_claim_binder,
+    )
+    instructions = list(dis.get_instructions(monitored))
+    bind_load_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "LOAD_DEREF" and instruction.argval == "bind_recovery_retention"
+    )
+    bind_call_index = next(
+        index
+        for index in range(bind_load_index + 1, len(instructions))
+        if instructions[index].opname == "CALL"
+    )
+    interrupt_offset = instructions[bind_call_index + 1].offset
+
+    def interrupt_after_commit(lease: object, capability: object) -> str:
+        binder = _issue_registered_recovery_claim_binder(
+            issuer,
+            lease,
+            capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        binder._checkpoint(
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        tool_id = _enable_instruction_interrupt(
+            monitored,
+            interrupt_offset,
+            tool_name="trusted-time-binding-after-bind-test",
+        )
+        try:
+            with pytest.raises(
+                reader.TrustedTimePostEnrollmentTopologyReaderError,
+                match="recovery claim binder is unavailable",
+            ):
+                binder(retained)
+        finally:
+            _disable_instruction_interrupt(tool_id, monitored)
+
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "armed"
+        assert registration.action_active is False
+        assert registration.retained_claim is retained
+        assert registration.recovery_claim_binder is None
+        assert issuer._poisoned is True
+        assert claim_persistence.revalidate_retained_post_enrollment_start_claim(
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        assert issuer._recovery_outcome_retention_is_armed(
+            lease,
+            capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        return "must not escape"
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._run_exclusive_choreography_with_recovery_retention(interrupt_after_commit)
+
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_recovery_armed_query_returns_false_for_consuming_and_terminal_states(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    classifications: list[bool] = []
+
+    def consume_then_abandon(lease: object, capability: object) -> None:
+        _bind_registered_recovery_claim(
+            issuer,
+            lease,
+            capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_recovery_outcome_retention(
+            capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        registration = _active_choreography_registration(issuer)
+        before = tuple(getattr(registration, name) for name in registration.__dataclass_fields__)
+        classifications.append(
+            issuer._recovery_outcome_retention_is_armed(
+                lease,
+                capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        )
+        assert (
+            tuple(getattr(registration, name) for name in registration.__dataclass_fields__)
+            == before
+        )
+        issuer._abandon_recovery_outcome_retention(capability, checkpoint)
+        before = tuple(getattr(registration, name) for name in registration.__dataclass_fields__)
+        classifications.append(
+            issuer._recovery_outcome_retention_is_armed(
+                lease,
+                capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        )
+        assert (
+            tuple(getattr(registration, name) for name in registration.__dataclass_fields__)
+            == before
+        )
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._run_exclusive_choreography_with_recovery_retention(consume_then_abandon)
+
+    assert classifications == [False, False]
+    assert issuer._poisoned is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_recovery_armed_query_recognizes_armed_escape_after_action_poison(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    classifications: list[bool] = []
+
+    def poison_after_arming(lease: object, capability: object) -> None:
+        _bind_registered_recovery_claim(
+            issuer,
+            lease,
+            capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        with issuer._lifecycle_lock:
+            issuer._poison_locked()
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "armed"
+        assert registration.action_active is False
+        before = tuple(getattr(registration, name) for name in registration.__dataclass_fields__)
+        classifications.append(
+            issuer._recovery_outcome_retention_is_armed(
+                lease,
+                capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        )
+        assert (
+            tuple(getattr(registration, name) for name in registration.__dataclass_fields__)
+            == before
+        )
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._run_exclusive_choreography_with_recovery_retention(poison_after_arming)
+
+    assert classifications == [True]
+    assert issuer._poisoned is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_recovery_armed_query_returns_false_for_post_effect_terminal_states(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    classifications: list[bool] = []
+
+    def retain_controller_outcome(lease: object, capability: object) -> None:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="failure",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        classifications.append(
+            issuer._recovery_outcome_retention_is_armed(
+                lease,
+                capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        )
+        retained_outcome_receipt = object()
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            retained_outcome_receipt,
+        )
+        classifications.append(
+            issuer._recovery_outcome_retention_is_armed(
+                lease,
+                capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        )
+        issuer._abandon_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            retained_outcome_receipt,
+        )
+        classifications.append(
+            issuer._recovery_outcome_retention_is_armed(
+                lease,
+                capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+        )
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._run_exclusive_choreography_with_recovery_retention(retain_controller_outcome)
+
+    assert classifications == [False, False, False]
+    assert issuer._poisoned is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_recovery_armed_query_rejects_forged_or_inconsistent_tuple_without_poison(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    artifact_directory = issuer._ignored_root / "trusted-time"
+    ignored_root = issuer._ignored_root
+
+    def inspect(lease: object, capability: object) -> None:
+        registration = _active_choreography_registration(issuer)
+
+        def rejected(candidate_lease: object, candidate_capability: object) -> None:
+            before = tuple(
+                getattr(registration, name) for name in registration.__dataclass_fields__
+            )
+            with pytest.raises(
+                reader.TrustedTimePostEnrollmentTopologyReaderError,
+                match="recovery retention state is unavailable",
+            ):
+                issuer._recovery_outcome_retention_is_armed(
+                    candidate_lease,
+                    candidate_capability,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                )
+            assert (
+                tuple(getattr(registration, name) for name in registration.__dataclass_fields__)
+                == before
+            )
+            assert issuer._poisoned is False
+
+        rejected(object(), capability)
+        rejected(lease, object())
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="recovery retention state is unavailable",
+        ):
+            issuer._recovery_outcome_retention_is_armed(
+                lease,
+                capability,
+                artifact_directory=tmp_path / "forged-root" / "trusted-time",
+                ignored_root=tmp_path / "forged-root",
+            )
+        assert issuer._poisoned is False
+
+        corruptions = (
+            (registration, "lock_identity", (0, 0, 0, 0, 0)),
+            (issuer, "_choreography_scope_nonce", object()),
+            (registration, "retention_state", "impossible"),
+            (registration, "artifact_directory", artifact_directory),
+        )
+        for target, attribute, forged in corruptions:
+            original = getattr(target, attribute)
+            setattr(target, attribute, forged)
+            try:
+                with pytest.raises(
+                    reader.TrustedTimePostEnrollmentTopologyReaderError,
+                    match="recovery retention state is unavailable",
+                ):
+                    issuer._recovery_outcome_retention_is_armed(
+                        lease,
+                        capability,
+                        artifact_directory=artifact_directory,
+                        ignored_root=ignored_root,
+                    )
+                assert getattr(target, attribute) is forged
+                assert issuer._poisoned is False
+            finally:
+                setattr(target, attribute, original)
+
+    issuer._run_exclusive_choreography_with_recovery_retention(inspect)
+    assert issuer._poisoned is False
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_recovery_armed_query_rejects_foreign_thread_without_poison(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    artifact_directory = issuer._ignored_root / "trusted-time"
+    ignored_root = issuer._ignored_root
+
+    def inspect(lease: object, capability: object) -> None:
+        failures: list[BaseException] = []
+
+        def foreign_query() -> None:
+            try:
+                issuer._recovery_outcome_retention_is_armed(
+                    lease,
+                    capability,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                )
+            except BaseException as error:
+                failures.append(error)
+
+        worker = threading.Thread(target=foreign_query)
+        worker.start()
+        worker.join()
+        assert len(failures) == 1
+        assert type(failures[0]) is reader.TrustedTimePostEnrollmentTopologyReaderError
+        assert issuer._poisoned is False
+        assert (
+            issuer._recovery_outcome_retention_is_armed(
+                lease,
+                capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+            is False
+        )
+
+    issuer._run_exclusive_choreography_with_recovery_retention(inspect)
+    assert issuer._poisoned is False
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+@pytest.mark.parametrize("forged_member", ["lease", "capability"])
+def test_unbound_recovery_preparation_rejects_every_forged_tuple_member(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    forged_member: str,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+
+    def reject(lease: object, capability: object) -> None:
+        issuer._require_unbound_recovery_retention_preparation(
+            object() if forged_member == "lease" else lease,
+            object() if forged_member == "capability" else capability,
+        )
+
+    with pytest.raises(
+        reader.TrustedTimePostEnrollmentTopologyReaderError,
+        match="unbound recovery preparation is unavailable",
+    ):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject)
+
+    assert issuer._poisoned is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_unbound_recovery_preparation_rejects_foreign_thread(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    errors: list[BaseException] = []
+
+    def reject_foreign_thread(lease: object, capability: object) -> None:
+        def worker() -> None:
+            try:
+                issuer._require_unbound_recovery_retention_preparation(lease, capability)
+            except BaseException as error:
+                errors.append(error)
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join()
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_foreign_thread)
+
+    assert len(errors) == 1
+    assert isinstance(errors[0], reader.TrustedTimePostEnrollmentTopologyReaderError)
+    assert issuer._poisoned is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_unbound_recovery_preparation_rejects_at_exact_action_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    started = 7_000_000_000
+    deadline = started + reader._POST_ENROLLMENT_START_CHOREOGRAPHY_DEADLINE_NANOSECONDS
+    clock = _MonotonicClock([started, started + 1, deadline])
+    issuer, _ = _open_issuer(monkeypatch, tmp_path, monotonic_clock=clock)
+
+    def reject_at_deadline(lease: object, capability: object) -> None:
+        issuer._require_unbound_recovery_retention_preparation(lease, capability)
+
+    with pytest.raises(
+        reader.TrustedTimePostEnrollmentTopologyReaderError,
+        match="unbound recovery preparation is unavailable",
+    ):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_at_deadline)
+
+    assert clock.calls == [started, started + 1, deadline]
+    assert issuer._poisoned is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_unbound_recovery_preparation_revalidates_lock_after_deadline_checkpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    validation_calls = 0
+
+    def reject_second_validation(lease: object, capability: object) -> None:
+        nonlocal validation_calls
+        issuer_type = type(issuer)
+        original_validate_lock = issuer_type._validate_lock
+
+        def fail_fourth(
+            candidate: reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        ) -> None:
+            nonlocal validation_calls
+            validation_calls += 1
+            if validation_calls == 4:
+                raise OSError("lock identity changed after the second checkpoint")
+            original_validate_lock(candidate)
+
+        with monkeypatch.context() as scoped:
+            scoped.setattr(issuer_type, "_validate_lock", fail_fourth)
+            issuer._require_unbound_recovery_retention_preparation(lease, capability)
+
+    with pytest.raises(
+        reader.TrustedTimePostEnrollmentTopologyReaderError,
+        match="unbound recovery preparation is unavailable",
+    ):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_second_validation)
+
+    assert validation_calls == 4
+    assert issuer._poisoned is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_unbound_recovery_preparation_rejects_claim_armed_capability(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+
+    def reject_armed(lease: object, capability: object) -> None:
+        _bind_registered_recovery_claim(
+            issuer,
+            lease,
+            capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._require_unbound_recovery_retention_preparation(lease, capability)
+
+    with pytest.raises(
+        reader.TrustedTimePostEnrollmentTopologyReaderError,
+        match="unbound recovery preparation is unavailable",
+    ):
+        issuer._run_exclusive_choreography_with_recovery_retention(reject_armed)
+
+    assert issuer._poisoned is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
 def test_recovery_capability_binds_exact_claim_and_uses_same_deadline_origin(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1096,7 +2249,7 @@ def test_recovery_capability_binds_exact_claim_and_uses_same_deadline_origin(
         )
         raise _RecoveryRetentionTerminal
 
-    with pytest.raises(_RecoveryRetentionTerminal):
+    with pytest.raises(recovery_outcome.TrustedTimePostEnrollmentStartRecoveryOutcomeRetained):
         issuer._run_exclusive_choreography_with_recovery_retention(retain_recovery)
 
     assert len(capabilities) == 1
@@ -1691,7 +2844,7 @@ def test_opaque_claim_binder_is_exact_one_shot_and_fixed_to_retention(
         )
         raise _RecoveryRetentionTerminal
 
-    with pytest.raises(_RecoveryRetentionTerminal):
+    with pytest.raises(recovery_outcome.TrustedTimePostEnrollmentStartRecoveryOutcomeRetained):
         issuer._run_exclusive_choreography_with_recovery_retention(bind_and_retain)
 
     assert clock.calls == values
@@ -1846,7 +2999,7 @@ def test_action_deadline_equality_revokes_action_but_preserves_bound_recovery(
         )
         raise _RecoveryRetentionTerminal
 
-    with pytest.raises(_RecoveryRetentionTerminal):
+    with pytest.raises(recovery_outcome.TrustedTimePostEnrollmentStartRecoveryOutcomeRetained):
         issuer._run_exclusive_choreography_with_recovery_retention(retain_after_expiry)
 
     assert clock.calls == values
@@ -1991,7 +3144,7 @@ def test_forged_recovery_capability_cannot_consume_the_exact_bound_capability(
         )
         raise _RecoveryRetentionTerminal
 
-    with pytest.raises(_RecoveryRetentionTerminal):
+    with pytest.raises(recovery_outcome.TrustedTimePostEnrollmentStartRecoveryOutcomeRetained):
         issuer._run_exclusive_choreography_with_recovery_retention(reject_forgery_then_retain)
 
     assert clock.calls == values
@@ -2049,7 +3202,7 @@ def test_cross_thread_recovery_use_poison_does_not_consume_owner_retention(
         )
         raise _RecoveryRetentionTerminal
 
-    with pytest.raises(_RecoveryRetentionTerminal):
+    with pytest.raises(recovery_outcome.TrustedTimePostEnrollmentStartRecoveryOutcomeRetained):
         issuer._run_exclusive_choreography_with_recovery_retention(
             reject_foreign_thread_then_retain
         )
@@ -2162,7 +3315,7 @@ def test_exact_reader_capability_retains_fixed_recovery_outcome_end_to_end(
     _close_and_assert_launch_lock_is_reacquirable(issuer)
 
 
-def test_retention_crossing_305_is_unconfirmed_and_preserves_possible_outcome(
+def test_retention_crossing_605_is_unconfirmed_and_preserves_possible_outcome(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2348,7 +3501,7 @@ def test_close_interference_revokes_action_but_preserves_bound_recovery_and_floc
         )
         raise _RecoveryRetentionTerminal
 
-    with pytest.raises(_RecoveryRetentionTerminal):
+    with pytest.raises(recovery_outcome.TrustedTimePostEnrollmentStartRecoveryOutcomeRetained):
         issuer._run_exclusive_choreography_with_recovery_retention(recover_after_close)
 
     assert clock.calls == values
@@ -2357,6 +3510,10 @@ def test_close_interference_revokes_action_but_preserves_bound_recovery_and_floc
 
 
 class _PostEffectRetentionTerminal(BaseException):
+    pass
+
+
+class _CustomAsyncTerminalInterruption(BaseException):
     pass
 
 
@@ -2520,6 +3677,11 @@ def test_exact_revalidated_confirmed_receipt_is_the_only_normal_terminal_handoff
         "revalidate_retained_post_enrollment_start_controller_outcome",
         revalidate,
     )
+    monkeypatch.setattr(
+        controller_outcome.RetainedTrustedTimePostEnrollmentStartControllerOutcome,
+        "__post_init__",
+        lambda _self: None,
+    )
 
     def retain_success(lease: object, recovery_capability: object) -> object:
         post_effect_capability = _transition_registered_post_effect_retention(
@@ -2552,6 +3714,509 @@ def test_exact_revalidated_confirmed_receipt_is_the_only_normal_terminal_handoff
     assert issuer._poisoned is True
     assert issuer._choreography_inflight is False
     assert issuer._choreography_scope_nonce is None
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+@pytest.mark.parametrize("outcome_kind", ["success", "failure"])
+@pytest.mark.parametrize(
+    "interruption_type",
+    [KeyboardInterrupt, _CustomAsyncTerminalInterruption],
+)
+def test_action_call_store_interruption_adopts_exact_durable_controller_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    outcome_kind: str,
+    interruption_type: type[BaseException],
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    receipt = (
+        _confirmed_controller_receipt(artifact_directory)
+        if outcome_kind == "success"
+        else _recovery_controller_receipt(artifact_directory)
+    )
+    monkeypatch.setattr(
+        controller_outcome,
+        "revalidate_retained_post_enrollment_start_controller_outcome",
+        lambda candidate, **_: candidate is receipt,
+    )
+    if outcome_kind == "failure":
+        monkeypatch.setattr(
+            controller_outcome.RetainedTrustedTimePostEnrollmentStartControllerOutcome,
+            "__post_init__",
+            lambda _self: None,
+        )
+
+    def completed_action(lease: object, recovery_capability: object) -> object:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind=cast(Literal["success", "failure"], outcome_kind),
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+        return receipt
+
+    close_monitor = _interrupt_next_choreography_action_result_store(interruption_type)
+    try:
+        if outcome_kind == "success":
+            returned = issuer._run_exclusive_choreography_with_recovery_retention(completed_action)
+            assert returned is receipt
+        else:
+            with pytest.raises(
+                active_controller.TrustedTimePostEnrollmentStartActiveControllerRecoveryRequired
+            ) as terminal:
+                issuer._run_exclusive_choreography_with_recovery_retention(completed_action)
+            assert terminal.value.retained_outcome is receipt
+    finally:
+        close_monitor()
+
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_outer_scope_retries_one_async_interruption_inside_exact_adopter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    receipt = _confirmed_controller_receipt(artifact_directory)
+    monkeypatch.setattr(
+        controller_outcome,
+        "revalidate_retained_post_enrollment_start_controller_outcome",
+        lambda candidate, **_: candidate is receipt,
+    )
+    real_adopt = reader.TrustedTimePostEnrollmentTopologyObservationIssuer.__dict__[
+        "_adopt_registered_confirmed_terminal_outcome"
+    ]
+    adoption_attempts = 0
+
+    def interrupt_once(candidate: object, *args: object, **kwargs: object) -> object:
+        nonlocal adoption_attempts
+        assert candidate is issuer
+        adoption_attempts += 1
+        if adoption_attempts == 1:
+            raise KeyboardInterrupt
+        return real_adopt(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_adopt_registered_confirmed_terminal_outcome",
+        interrupt_once,
+    )
+
+    def complete_then_fail(lease: object, recovery_capability: object) -> Never:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="success",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            receipt,
+        )
+        raise _CustomAsyncTerminalInterruption
+
+    returned = issuer._run_exclusive_choreography_with_recovery_retention(complete_then_fail)
+
+    assert returned is receipt
+    assert adoption_attempts == 2
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_action_call_store_interruption_adopts_exact_durable_legacy_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    expected: recovery_outcome.RetainedTrustedTimePostEnrollmentStartOutcome | None = None
+
+    def completed_action(lease: object, recovery_capability: object) -> object:
+        nonlocal expected
+        _bind_registered_recovery_claim(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_recovery_outcome_retention(
+            recovery_capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        expected = _persist_recovery_outcome(
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._complete_recovery_outcome_retention(
+            recovery_capability,
+            checkpoint,
+            expected,
+        )
+        return expected
+
+    close_monitor = _interrupt_next_choreography_action_result_store()
+    try:
+        with pytest.raises(
+            recovery_outcome.TrustedTimePostEnrollmentStartRecoveryOutcomeRetained
+        ) as terminal:
+            issuer._run_exclusive_choreography_with_recovery_retention(completed_action)
+    finally:
+        close_monitor()
+
+    assert expected is not None
+    assert terminal.value.retained_outcome is expected
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_legacy_helper_complete_call_return_interruption_adopts_exact_registered_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    target_code = recovery_outcome.retain_post_enrollment_start_recovery_required_outcome.__code__
+    instructions = list(dis.get_instructions(target_code))
+    load_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "LOAD_ATTR"
+        and instruction.argval == "_complete_recovery_outcome_retention"
+    )
+    call_index = next(
+        index
+        for index in range(load_index + 1, len(instructions))
+        if instructions[index].opname == "CALL"
+    )
+    assert instructions[call_index + 1].opname == "POP_TOP"
+
+    def retain_via_helper(lease: object, recovery_capability: object) -> Never:
+        _bind_registered_recovery_claim(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        recovery_outcome.retain_post_enrollment_start_recovery_required_outcome(
+            topology_issuer=issuer,
+            recovery_retention_capability=recovery_capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+
+    close_monitor = _interrupt_exact_instruction(
+        target_code,
+        instructions[call_index + 1].offset,
+        tool_name="trusted-time-legacy-complete-return-test",
+    )
+    try:
+        with pytest.raises(
+            recovery_outcome.TrustedTimePostEnrollmentStartRecoveryOutcomeRetained
+        ) as terminal:
+            issuer._run_exclusive_choreography_with_recovery_retention(retain_via_helper)
+    finally:
+        close_monitor()
+
+    assert terminal.value.retained_outcome.operation_id == retained.operation_id
+    assert recovery_outcome.revalidate_retained_post_enrollment_start_outcome(
+        terminal.value.retained_outcome,
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_legacy_registry_receipt_store_interruption_repairs_exact_confirmed_tuple(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    target_code = reader._complete_authenticated_recovery_retention.__code__
+    instructions = list(dis.get_instructions(target_code))
+    receipt_store_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_ATTR" and instruction.argval == "recovery_outcome_receipt"
+    )
+    state_store = next(
+        instruction
+        for instruction in instructions[receipt_store_index + 1 :]
+        if instruction.opname == "STORE_ATTR" and instruction.argval == "retention_state"
+    )
+
+    def complete_then_interrupt(lease: object, recovery_capability: object) -> Never:
+        _bind_registered_recovery_claim(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_recovery_outcome_retention(
+            recovery_capability,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        exact_receipt = _persist_recovery_outcome(
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._complete_recovery_outcome_retention(
+                recovery_capability,
+                checkpoint,
+                exact_receipt,
+            )
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "confirmed"
+        assert registration.recovery_outcome_receipt is exact_receipt
+        raise KeyboardInterrupt
+
+    close_monitor = _interrupt_exact_instruction(
+        target_code,
+        state_store.offset,
+        tool_name="trusted-time-legacy-registry-commit-test",
+    )
+    try:
+        with pytest.raises(
+            recovery_outcome.TrustedTimePostEnrollmentStartRecoveryOutcomeRetained
+        ) as terminal:
+            issuer._run_exclusive_choreography_with_recovery_retention(complete_then_interrupt)
+    finally:
+        close_monitor()
+
+    assert recovery_outcome.revalidate_retained_post_enrollment_start_outcome(
+        terminal.value.retained_outcome,
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+    )
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+@pytest.mark.parametrize("outcome_kind", ["success", "failure"])
+def test_controller_registry_return_interruption_preserves_exact_confirmed_tuple(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    outcome_kind: str,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    receipt = (
+        _confirmed_controller_receipt(artifact_directory)
+        if outcome_kind == "success"
+        else _recovery_controller_receipt(artifact_directory)
+    )
+    monkeypatch.setattr(
+        controller_outcome,
+        "revalidate_retained_post_enrollment_start_controller_outcome",
+        lambda candidate, **_: candidate is receipt,
+    )
+    if outcome_kind == "failure":
+        monkeypatch.setattr(
+            controller_outcome.RetainedTrustedTimePostEnrollmentStartControllerOutcome,
+            "__post_init__",
+            lambda _self: None,
+        )
+    target_code = reader._complete_authenticated_post_effect_controller_outcome_retention.__code__
+    instructions = list(dis.get_instructions(target_code))
+    action_store_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_ATTR" and instruction.argval == "action_active"
+    )
+    return_instruction = next(
+        instruction
+        for instruction in instructions[action_store_index + 1 :]
+        if instruction.opname in {"RETURN_CONST", "RETURN_VALUE"}
+    )
+
+    def complete_then_adopt(lease: object, recovery_capability: object) -> Never:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind=cast(Literal["success", "failure"], outcome_kind),
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._complete_post_effect_controller_outcome_retention(
+                post_effect_capability,
+                checkpoint,
+                receipt,
+            )
+        registration = _active_choreography_registration(issuer)
+        assert registration.retention_state == "post_effect_confirmed"
+        assert registration.controller_outcome_receipt is receipt
+        assert (
+            issuer._adopt_registered_confirmed_terminal_outcome(
+                lease,
+                recovery_capability,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+            )
+            is receipt
+        )
+        raise KeyboardInterrupt
+
+    close_monitor = _interrupt_exact_instruction(
+        target_code,
+        return_instruction.offset,
+        tool_name="trusted-time-controller-registry-return-test",
+    )
+    try:
+        if outcome_kind == "success":
+            returned = issuer._run_exclusive_choreography_with_recovery_retention(
+                complete_then_adopt
+            )
+            assert returned is receipt
+        else:
+            with pytest.raises(
+                active_controller.TrustedTimePostEnrollmentStartActiveControllerRecoveryRequired
+            ) as terminal:
+                issuer._run_exclusive_choreography_with_recovery_retention(complete_then_adopt)
+            assert terminal.value.retained_outcome is receipt
+    finally:
+        close_monitor()
+
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_current_scope_registry_never_substitutes_a_presented_prior_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    current = _confirmed_controller_receipt(artifact_directory)
+    prior = _recovery_controller_receipt(artifact_directory)
+    monkeypatch.setattr(
+        controller_outcome,
+        "revalidate_retained_post_enrollment_start_controller_outcome",
+        lambda candidate, **_: candidate is current,
+    )
+    monkeypatch.setattr(
+        controller_outcome.RetainedTrustedTimePostEnrollmentStartControllerOutcome,
+        "__post_init__",
+        lambda _self: None,
+    )
+
+    def present_prior(lease: object, recovery_capability: object) -> Never:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="success",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            current,
+        )
+        raise active_controller.TrustedTimePostEnrollmentStartActiveControllerRecoveryRequired(
+            prior
+        )
+
+    returned = issuer._run_exclusive_choreography_with_recovery_retention(present_prior)
+    assert returned is current
+    assert returned is not prior
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_current_scope_adopter_rejects_a_forged_registered_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    retained, artifact_directory, ignored_root = _retain_claim_for_issuer(issuer)
+    current = _confirmed_controller_receipt(artifact_directory)
+    monkeypatch.setattr(
+        controller_outcome,
+        "revalidate_retained_post_enrollment_start_controller_outcome",
+        lambda candidate, **_: candidate is current,
+    )
+
+    def forge_after_completion(lease: object, recovery_capability: object) -> Never:
+        post_effect_capability = _transition_registered_post_effect_retention(
+            issuer,
+            lease,
+            recovery_capability,
+            retained,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        checkpoint = issuer._begin_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            lease,
+            retained,
+            outcome_kind="success",
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        issuer._complete_post_effect_controller_outcome_retention(
+            post_effect_capability,
+            checkpoint,
+            current,
+        )
+        _active_choreography_registration(issuer).controller_outcome_receipt = object()
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        issuer._run_exclusive_choreography_with_recovery_retention(forge_after_completion)
+
     _close_and_assert_launch_lock_is_reacquirable(issuer)
 
 
@@ -2610,7 +4275,7 @@ def test_terminal_success_handoff_rejects_false_or_unrevalidated_authority(
     with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
         issuer._run_exclusive_choreography_with_recovery_retention(reject_false_handoff)
 
-    assert revalidated == ([] if failure == "wrong_identity" else [receipt])
+    assert revalidated == ([receipt] if failure == "wrong_identity" else [receipt, receipt])
     assert issuer._poisoned is True
     assert issuer._choreography_inflight is False
     _close_and_assert_launch_lock_is_reacquirable(issuer)
@@ -2652,6 +4317,11 @@ def test_exact_revalidated_failure_receipt_is_returned_after_issuer_poison(
         "revalidate_retained_post_enrollment_start_controller_outcome",
         revalidate,
     )
+    monkeypatch.setattr(
+        controller_outcome.RetainedTrustedTimePostEnrollmentStartControllerOutcome,
+        "__post_init__",
+        lambda _self: None,
+    )
 
     def retain_failure(lease: object, recovery_capability: object) -> Never:
         post_effect_capability = _transition_registered_post_effect_retention(
@@ -2680,10 +4350,13 @@ def test_exact_revalidated_failure_receipt_is_returned_after_issuer_poison(
         assert returned is receipt
         raise _PostEffectRetentionTerminal
 
-    with pytest.raises(_PostEffectRetentionTerminal):
+    with pytest.raises(
+        active_controller.TrustedTimePostEnrollmentStartActiveControllerRecoveryRequired
+    ) as terminal:
         issuer._run_exclusive_choreography_with_recovery_retention(retain_failure)
 
-    assert revalidated == [receipt]
+    assert terminal.value.retained_outcome is receipt
+    assert revalidated == [receipt, receipt]
     assert issuer._choreography_inflight is False
     assert issuer._choreography_scope_nonce is None
     _close_and_assert_launch_lock_is_reacquirable(issuer)
@@ -2766,16 +4439,27 @@ def test_terminal_failure_handoff_rejects_false_or_unrevalidated_authority(
             issuer._return_confirmed_post_effect_controller_failure(lease, presented)
         raise _PostEffectRetentionTerminal
 
-    with pytest.raises(_PostEffectRetentionTerminal):
-        issuer._run_exclusive_choreography_with_recovery_retention(reject_false_failure)
+    if failure == "wrong_identity":
+        monkeypatch.setattr(
+            controller_outcome.RetainedTrustedTimePostEnrollmentStartControllerOutcome,
+            "__post_init__",
+            lambda _self: None,
+        )
+        with pytest.raises(
+            active_controller.TrustedTimePostEnrollmentStartActiveControllerRecoveryRequired
+        ) as terminal:
+            issuer._run_exclusive_choreography_with_recovery_retention(reject_false_failure)
+        assert terminal.value.retained_outcome is receipt
+    else:
+        with pytest.raises(_PostEffectRetentionTerminal):
+            issuer._run_exclusive_choreography_with_recovery_retention(reject_false_failure)
 
-    rejects_before_revalidation = {
-        "wrong_identity",
-        "success_status",
-        "success_reason",
-        "deadline",
+    expected_revalidations = {
+        "wrong_identity": [receipt],
+        "revalidation": [receipt, receipt],
+        "registry": [receipt],
     }
-    assert revalidated == ([] if failure in rejects_before_revalidation else [receipt])
+    assert revalidated == expected_revalidations.get(failure, [])
     assert issuer._choreography_inflight is False
     _close_and_assert_launch_lock_is_reacquirable(issuer)
 
@@ -3892,4 +5576,1014 @@ def test_async_interruption_after_post_effect_abandonment_keeps_receipt_unconfir
         issuer._run_exclusive_choreography_with_recovery_retention(reject_interrupted_abandonment)
 
     assert interruption_injected is True
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def _reviewed_mutation_arguments(
+    paths: tuple[Path, Path, Path, Path],
+    compose_payload: bytes,
+) -> dict[str, object]:
+    return {
+        **fixtures._issue_arguments(paths),
+        "compose_payload": compose_payload,
+    }
+
+
+_REVIEWED_COMPOSE_PAYLOAD = b"""name: autoquanttrader-trusted-time
+services:
+  chrony-nts:
+    image: source
+  trusted-time-supervisor:
+    image: supervisor
+"""
+
+
+def _bind_reviewed_create_outputs_to_invocation(
+    issuer: reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+    queued: fixtures._QueuedRunner,
+    *,
+    bind_containers: bool = True,
+    bind_network: bool = True,
+) -> None:
+    bound_containers = 0
+    bound_networks = 0
+    for index, output in enumerate(queued.outputs):
+        if type(output) is not bytes or not output.endswith(b"\n"):
+            continue
+        try:
+            value = json.loads(output)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if type(value) is not dict:
+            continue
+        configuration = value.get("Config")
+        labels = configuration.get("Labels") if type(configuration) is dict else None
+        if (
+            bind_containers
+            and type(labels) is dict
+            and labels.get("com.docker.compose.service")
+            in {"chrony-nts", "trusted-time-supervisor"}
+        ):
+            labels[reader._REVIEWED_CREATE_INVOCATION_LABEL] = issuer._session_sha256
+            queued.outputs[index] = fixtures._json_line(value)
+            bound_containers += 1
+            continue
+        network_labels = value.get("Labels")
+        if (
+            bind_network
+            and value.get("Name") == reader.COMPOSE_NETWORK_NAME
+            and type(network_labels) is dict
+            and network_labels.get("com.docker.compose.network") == "default"
+        ):
+            network_labels[reader._REVIEWED_CREATE_INVOCATION_LABEL] = issuer._session_sha256
+            queued.outputs[index] = fixtures._json_line(value)
+            bound_networks += 1
+    if (bind_containers and bound_containers < 1) or (bind_network and bound_networks < 1):
+        raise AssertionError("reviewed create outputs were unavailable")
+
+
+def _reviewed_teardown_container(
+    state: Literal["created", "staged_unreleased"],
+    service: Literal["chrony-nts", "trusted-time-supervisor"],
+) -> dict[str, object]:
+    container = deepcopy(fixtures._container(state, service))
+    image_id = fixtures.SOURCE_IMAGE_ID if service == "chrony-nts" else fixtures.SUPERVISOR_IMAGE_ID
+    container["Image"] = image_id
+    configuration = cast(dict[str, object], container["Config"])
+    configuration["Image"] = image_id
+    return container
+
+
+def _reviewed_teardown_authentication_outputs(
+    *,
+    state: Literal["created", "staged_unreleased"] = "created",
+    services: tuple[
+        Literal["chrony-nts", "trusted-time-supervisor"],
+        ...,
+    ] = ("chrony-nts", "trusted-time-supervisor"),
+) -> list[bytes]:
+    ids = {
+        "chrony-nts": fixtures.SOURCE_CONTAINER_ID,
+        "trusted-time-supervisor": fixtures.SUPERVISOR_CONTAINER_ID,
+    }
+    inventory = b"".join(fixtures._json_line(ids[service]) for service in services)
+    network = deepcopy(fixtures._network(state))
+    if state == "staged_unreleased":
+        network_containers = cast(dict[str, object], network["Containers"])
+        network["Containers"] = {
+            container_id: value
+            for container_id, value in network_containers.items()
+            if container_id in {ids[service] for service in services}
+        }
+    return [
+        inventory,
+        fixtures._json_line({"Config": {}, "Id": fixtures.SOURCE_IMAGE_ID}),
+        fixtures._json_line({"Config": {}, "Id": fixtures.SUPERVISOR_IMAGE_ID}),
+        *(
+            fixtures._json_line(_reviewed_teardown_container(state, service))
+            for service in services
+        ),
+        fixtures._json_line(network),
+        inventory,
+    ]
+
+
+def test_pristine_exact_teardown_is_idempotent_and_never_effects_compose(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    compose_payload = _REVIEWED_COMPOSE_PAYLOAD
+    one_empty_proof = [
+        b"",
+        b"",
+        fixtures._json_line("LOCAL:DAEMON:1"),
+        b"",
+        b"",
+    ]
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[*one_empty_proof, *one_empty_proof],
+    )
+
+    def run(lease: object) -> None:
+        arguments = _reviewed_mutation_arguments(paths, compose_payload)
+        issuer._teardown_reviewed_topology_before_claim(
+            **arguments,  # type: ignore[arg-type]
+            created_observation=None,
+            _choreography_lease=lease,
+        )
+        assert issuer._reviewed_mutation_state == "torn_down"
+        retained_binding = issuer._reviewed_mutation_binding_sha256
+        assert type(retained_binding) is str
+        issuer._teardown_reviewed_topology_before_claim(
+            **arguments,  # type: ignore[arg-type]
+            created_observation=None,
+            _choreography_lease=lease,
+        )
+        assert issuer._reviewed_mutation_state == "torn_down"
+        assert issuer._reviewed_mutation_binding_sha256 == retained_binding
+        observed_call_count = len(queued.calls)
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="teardown is unavailable",
+        ):
+            issuer._teardown_reviewed_topology_before_claim(
+                **{**arguments, "compose_payload": b"different\n"},  # type: ignore[arg-type]
+                created_observation=None,
+                _choreography_lease=lease,
+            )
+        assert len(queued.calls) == observed_call_count
+
+    issuer._run_exclusive_choreography(run)
+
+    mutation_calls = [
+        call
+        for call in queued.calls
+        if any(
+            argument in {"create", "down", "start"}
+            for argument in cast(tuple[str, ...], call["argv"])
+        )
+    ]
+    assert mutation_calls == []
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_async_interruption_after_host_may_mutate_store_uses_pristine_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    compose_payload = _REVIEWED_COMPOSE_PAYLOAD
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[
+            b"",
+            b"",
+            fixtures._json_line("LOCAL:DAEMON:1"),
+            b"",
+            b"",
+        ],
+    )
+    interrupted = False
+
+    def host_like(lease: object) -> None:
+        nonlocal interrupted
+        mutation_may_have_begun = False
+        try:
+            mutation_may_have_begun = True
+            issuer._create_reviewed_topology(
+                **_reviewed_mutation_arguments(paths, compose_payload),  # type: ignore[arg-type]
+                _choreography_lease=lease,
+            )
+        except KeyboardInterrupt:
+            interrupted = True
+            assert mutation_may_have_begun is True
+            issuer._teardown_reviewed_topology_before_claim(
+                **_reviewed_mutation_arguments(paths, compose_payload),  # type: ignore[arg-type]
+                created_observation=None,
+                _choreography_lease=lease,
+            )
+
+    instructions = list(dis.get_instructions(host_like))
+    may_mutate_store = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_FAST"
+        and instruction.argval == "mutation_may_have_begun"
+        and instructions[index - 1].argval is True
+    )
+    interrupt_offset = next(
+        instruction.offset
+        for instruction in instructions[may_mutate_store + 1 :]
+        if instruction.opname == "LOAD_DEREF" and instruction.argval == "issuer"
+    )
+
+    def interrupt_before_create(_: object, instruction_offset: int) -> None:
+        if instruction_offset == interrupt_offset:
+            raise KeyboardInterrupt
+
+    tool_id = next(
+        candidate
+        for candidate in range(sys.monitoring.OPTIMIZER_ID + 1)
+        if sys.monitoring.get_tool(candidate) is None
+    )
+    sys.monitoring.use_tool_id(tool_id, "trusted-time-precreate-interruption-test")
+    try:
+        sys.monitoring.register_callback(
+            tool_id,
+            sys.monitoring.events.INSTRUCTION,
+            interrupt_before_create,
+        )
+        sys.monitoring.set_local_events(
+            tool_id,
+            host_like.__code__,
+            sys.monitoring.events.INSTRUCTION,
+        )
+        issuer._run_exclusive_choreography(host_like)
+    finally:
+        sys.monitoring.set_local_events(tool_id, host_like.__code__, 0)
+        sys.monitoring.register_callback(tool_id, sys.monitoring.events.INSTRUCTION, None)
+        sys.monitoring.free_tool_id(tool_id)
+
+    assert interrupted is True
+    assert issuer._reviewed_mutation_state == "torn_down"
+    assert not any("compose" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_reviewed_mutation_choreography_is_fixed_order_and_claim_boundary_is_irreversible(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = fixtures._short_socket_path(tmp_path)
+    endpoint = f"unix://{socket_path}"
+    fixtures._install_pure_validator_stubs(monkeypatch, endpoint=endpoint)
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    compose_payload = _REVIEWED_COMPOSE_PAYLOAD
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[
+            b"",
+            b"",
+            b"",
+            *fixtures._state_outputs("created"),
+            (fixtures.SOURCE_CONTAINER_ID + "\n").encode("ascii"),
+            (fixtures.SUPERVISOR_CONTAINER_ID + "\n").encode("ascii"),
+            fixtures._json_line(fixtures._barrier()),
+            *fixtures._state_outputs("staged_unreleased"),
+        ],
+        bind_reviewed_create_outputs=True,
+    )
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_observe_exact_started_container",
+        lambda *_args, **_kwargs: True,
+    )
+
+    def run(lease: object) -> None:
+        arguments = _reviewed_mutation_arguments(paths, compose_payload)
+        created = issuer._create_reviewed_topology(
+            **arguments,  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        assert issuer._reviewed_mutation_state == "created"
+        issuer._start_reviewed_source(
+            created_observation=created,
+            expected_database_secret_file=paths[0],
+            expected_head_anchor_authority_file=paths[1],
+            expected_head_anchor_auth_secret_file=paths[2],
+            expected_head_anchor_signing_key_secret_file=paths[3],
+            _choreography_lease=lease,
+        )
+        assert issuer._reviewed_mutation_state == "source_ready"
+        issuer._start_reviewed_supervisor(
+            created_observation=created,
+            expected_database_secret_file=paths[0],
+            expected_head_anchor_authority_file=paths[1],
+            expected_head_anchor_auth_secret_file=paths[2],
+            expected_head_anchor_signing_key_secret_file=paths[3],
+            _choreography_lease=lease,
+        )
+        assert issuer._reviewed_mutation_state == "staged_ready"
+        issuer.issue_staged_unreleased_snapshot(
+            created_observation=created,
+            **fixtures._issue_arguments(paths),
+            _choreography_lease=lease,
+        )
+        issuer._mark_reviewed_topology_claim_boundary(
+            created_observation=created,
+            _choreography_lease=lease,
+        )
+        assert issuer._reviewed_mutation_state == "claim_boundary"
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="teardown is unavailable",
+        ):
+            issuer._teardown_reviewed_topology_before_claim(
+                **arguments,  # type: ignore[arg-type]
+                created_observation=created,
+                _choreography_lease=lease,
+            )
+
+    issuer._run_exclusive_choreography(run)
+
+    create_call = queued.calls[3]
+    assert create_call["argv"] == (
+        os.fspath(issuer._docker_executable_path),
+        "compose",
+        "--env-file",
+        os.devnull,
+        "--project-directory",
+        os.fspath(reader.COMPOSE_PATH.parent),
+        "--file",
+        "-",
+        "create",
+        "--no-build",
+        "--pull",
+        "never",
+        "--no-recreate",
+        "chrony-nts",
+        "trusted-time-supervisor",
+    )
+    effecting_payload = cast(bytes, create_call["stdin_bytes"])
+    assert effecting_payload != compose_payload
+    assert effecting_payload.count(reader._REVIEWED_CREATE_INVOCATION_LABEL.encode("ascii")) == 3
+    assert effecting_payload.count(issuer._session_sha256.encode("ascii")) == 3
+    assert create_call["maximum_stdin_bytes"] == 8_192
+    source_start = queued.calls[18]
+    supervisor_start = queued.calls[19]
+    assert source_start["argv"] == (
+        os.fspath(issuer._docker_executable_path),
+        "container",
+        "start",
+        fixtures.SOURCE_CONTAINER_ID,
+    )
+    assert supervisor_start["argv"] == (
+        os.fspath(issuer._docker_executable_path),
+        "container",
+        "start",
+        fixtures.SUPERVISOR_CONTAINER_ID,
+    )
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_reviewed_create_collision_fails_without_replacement_or_removal_command(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _CollisionRunner(fixtures._QueuedRunner):
+        def __call__(
+            self,
+            argv: tuple[str, ...],
+            **kwargs: Any,
+        ) -> subprocess.CompletedProcess[bytes]:
+            if "compose" in argv and "create" in argv:
+                self.calls.append({"argv": argv, **kwargs})
+                return subprocess.CompletedProcess(
+                    argv,
+                    1,
+                    b"",
+                    b"container name is already in use by inserted topology",
+                )
+            return super().__call__(argv, **kwargs)
+
+    socket_path = fixtures._short_socket_path(tmp_path)
+    executable = tmp_path / "trusted-docker"
+    fixtures._make_executable(executable)
+    queued = _CollisionRunner(
+        [
+            fixtures._json_line("LOCAL:DAEMON:1"),
+            b"",
+            b"",
+        ]
+    )
+    issuer = fixtures._public_open(
+        monkeypatch,
+        tmp_path,
+        queued,
+        socket_path,
+        executable,
+    )
+    paths = fixtures._staged_paths(tmp_path / "retired")
+
+    def reject_collision(lease: object) -> None:
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="creation is unconfirmed",
+        ):
+            issuer._create_reviewed_topology(
+                **_reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD),  # type: ignore[arg-type]
+                _choreography_lease=lease,
+            )
+        assert issuer._reviewed_mutation_state == "create_effecting"
+
+    issuer._run_exclusive_choreography(reject_collision)
+
+    compose_calls = [
+        cast(tuple[str, ...], call["argv"])
+        for call in queued.calls
+        if "compose" in cast(tuple[str, ...], call["argv"])
+    ]
+    assert len(compose_calls) == 1
+    assert "create" in compose_calls[0]
+    assert "--force-recreate" not in compose_calls[0]
+    assert "--no-recreate" in compose_calls[0]
+    assert "--remove-orphans" not in compose_calls[0]
+    assert not any(
+        any(argument in {"down", "rm", "remove"} for argument in argv) for argv in compose_calls
+    )
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_reviewed_create_rejects_successfully_reused_exact_unlabeled_race(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = fixtures._short_socket_path(tmp_path)
+    endpoint = f"unix://{socket_path}"
+    fixtures._install_pure_validator_stubs(monkeypatch, endpoint=endpoint)
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[
+            b"",
+            b"",
+            b"",
+            *fixtures._state_outputs("created"),
+        ],
+    )
+    _bind_reviewed_create_outputs_to_invocation(
+        issuer,
+        queued,
+        bind_containers=False,
+    )
+
+    def reject_reused_race(lease: object) -> None:
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="created topology observation is unavailable",
+        ):
+            issuer._create_reviewed_topology(
+                **_reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD),  # type: ignore[arg-type]
+                _choreography_lease=lease,
+            )
+        assert issuer._reviewed_mutation_state == "create_effected"
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._run_exclusive_choreography(reject_reused_race)
+
+    create_call = next(
+        call
+        for call in queued.calls
+        if "compose" in cast(tuple[str, ...], call["argv"])
+        and "create" in cast(tuple[str, ...], call["argv"])
+    )
+    create_argv = cast(tuple[str, ...], create_call["argv"])
+    effecting_payload = cast(bytes, create_call["stdin_bytes"])
+    assert "--no-recreate" in create_argv
+    assert "--force-recreate" not in create_argv
+    assert effecting_payload.count(reader._REVIEWED_CREATE_INVOCATION_LABEL.encode("ascii")) == 3
+    assert effecting_payload.count(issuer._session_sha256.encode("ascii")) == 3
+    assert not any(
+        any(
+            argument in {"down", "rm", "remove"} for argument in cast(tuple[str, ...], call["argv"])
+        )
+        for call in queued.calls
+    )
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_reviewed_create_rejects_successfully_reused_exact_unlabeled_network_race(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = fixtures._short_socket_path(tmp_path)
+    endpoint = f"unix://{socket_path}"
+    fixtures._install_pure_validator_stubs(monkeypatch, endpoint=endpoint)
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[
+            b"",
+            b"",
+            b"",
+            *fixtures._state_outputs("created"),
+        ],
+    )
+    _bind_reviewed_create_outputs_to_invocation(
+        issuer,
+        queued,
+        bind_network=False,
+    )
+
+    def reject_reused_network(lease: object) -> None:
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="created topology observation is unavailable",
+        ):
+            issuer._create_reviewed_topology(
+                **_reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD),  # type: ignore[arg-type]
+                _choreography_lease=lease,
+            )
+        assert issuer._reviewed_mutation_state == "create_effected"
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._run_exclusive_choreography(reject_reused_network)
+
+    create_call = next(
+        call
+        for call in queued.calls
+        if "compose" in cast(tuple[str, ...], call["argv"])
+        and "create" in cast(tuple[str, ...], call["argv"])
+    )
+    create_argv = cast(tuple[str, ...], create_call["argv"])
+    effecting_payload = cast(bytes, create_call["stdin_bytes"])
+    assert "--no-recreate" in create_argv
+    assert "--force-recreate" not in create_argv
+    assert effecting_payload.count(reader._REVIEWED_CREATE_INVOCATION_LABEL.encode("ascii")) == 3
+    assert effecting_payload.count(issuer._session_sha256.encode("ascii")) == 3
+    assert b"networks:\n  default:\n    labels:\n" in effecting_payload
+    assert not any(
+        any(
+            argument in {"down", "rm", "remove"} for argument in cast(tuple[str, ...], call["argv"])
+        )
+        for call in queued.calls
+    )
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_reviewed_mutation_wrong_tuple_replay_and_order_fail_before_effect(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = fixtures._short_socket_path(tmp_path)
+    endpoint = f"unix://{socket_path}"
+    fixtures._install_pure_validator_stubs(monkeypatch, endpoint=endpoint)
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    compose_payload = _REVIEWED_COMPOSE_PAYLOAD
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[b"", b"", b"", *fixtures._state_outputs("created")],
+        bind_reviewed_create_outputs=True,
+    )
+
+    def reject(lease: object) -> None:
+        arguments = _reviewed_mutation_arguments(paths, compose_payload)
+        created = issuer._create_reviewed_topology(
+            **arguments,  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        observed_call_count = len(queued.calls)
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._create_reviewed_topology(
+                **arguments,  # type: ignore[arg-type]
+                _choreography_lease=lease,
+            )
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._start_reviewed_supervisor(
+                created_observation=created,
+                expected_database_secret_file=paths[0],
+                expected_head_anchor_authority_file=paths[1],
+                expected_head_anchor_auth_secret_file=paths[2],
+                expected_head_anchor_signing_key_secret_file=paths[3],
+                _choreography_lease=lease,
+            )
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._teardown_reviewed_topology_before_claim(
+                **{**arguments, "compose_payload": b"different\n"},  # type: ignore[arg-type]
+                created_observation=created,
+                _choreography_lease=lease,
+            )
+        assert len(queued.calls) == observed_call_count
+
+    issuer._run_exclusive_choreography(reject)
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_reviewed_mutation_foreign_thread_cannot_use_callback_lease(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, queued = _open_issuer(monkeypatch, tmp_path)
+    errors: list[BaseException] = []
+
+    def reject(lease: object) -> None:
+        def worker() -> None:
+            try:
+                issuer._run_exact_empty_precreate_observation(lease)
+            except BaseException as error:
+                errors.append(error)
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join(timeout=2.0)
+        assert not thread.is_alive()
+        assert len(errors) == 1
+        assert isinstance(errors[0], reader.TrustedTimePostEnrollmentTopologyReaderError)
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._run_exclusive_choreography(reject)
+    assert len(queued.calls) == 1
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_reviewed_mutation_marks_possible_effect_before_interrupted_call(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    issuer, _ = _open_issuer(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_run_exact_empty_precreate_observation",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def interrupt(
+        candidate: reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        operation: object,
+        **_: object,
+    ) -> Never:
+        assert candidate is issuer
+        assert operation == "compose_create"
+        assert issuer._reviewed_mutation_state == "create_effecting"
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_run_reviewed_mutation_command",
+        interrupt,
+    )
+
+    def reject(lease: object) -> None:
+        with pytest.raises(KeyboardInterrupt):
+            issuer._create_reviewed_topology(
+                **_reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD),  # type: ignore[arg-type]
+                _choreography_lease=lease,
+            )
+        assert issuer._reviewed_mutation_state == "create_effecting"
+
+    issuer._run_exclusive_choreography(reject)
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_lost_created_return_uses_only_retained_observation_for_exact_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = fixtures._short_socket_path(tmp_path)
+    endpoint = f"unix://{socket_path}"
+    fixtures._install_pure_validator_stubs(monkeypatch, endpoint=endpoint)
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    compose_payload = _REVIEWED_COMPOSE_PAYLOAD
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[
+            b"",
+            b"",
+            b"",
+            *fixtures._state_outputs("created"),
+            *_reviewed_teardown_authentication_outputs(),
+            (fixtures.SOURCE_CONTAINER_ID + "\n" + fixtures.SUPERVISOR_CONTAINER_ID + "\n").encode(
+                "ascii"
+            ),
+            (fixtures.NETWORK_ID + "\n").encode("ascii"),
+            b"",
+            b"",
+            fixtures._json_line({"volume": "socket"}),
+            fixtures._json_line({"volume": "state"}),
+            fixtures._json_line("LOCAL:DAEMON:1"),
+        ],
+        bind_reviewed_create_outputs=True,
+    )
+    arguments = _reviewed_mutation_arguments(paths, compose_payload)
+    interrupted = False
+    retained_created: list[reader.TrustedTimePostEnrollmentCreatedTopologyObservation] = []
+
+    def run(lease: object) -> str:
+        nonlocal interrupted
+        try:
+            created = issuer._create_reviewed_topology(  # noqa: F841
+                **arguments,  # type: ignore[arg-type]
+                _choreography_lease=lease,
+            )
+        except KeyboardInterrupt:
+            interrupted = True
+            retained = issuer._reviewed_mutation_created_observation
+            assert type(retained) is reader.TrustedTimePostEnrollmentCreatedTopologyObservation
+            assert issuer._reviewed_mutation_state == "created"
+            assert (
+                retained.observation_sha256 == issuer._reviewed_mutation_created_observation_sha256
+            )
+            retained_created.append(retained)
+            issuer._teardown_reviewed_topology_before_claim(
+                **arguments,  # type: ignore[arg-type]
+                created_observation=None,
+                _choreography_lease=lease,
+            )
+            assert issuer._reviewed_mutation_state == "torn_down"
+            assert issuer._reviewed_mutation_created_observation is None
+            assert issuer._reviewed_mutation_created_observation_sha256 is None
+            return "exact_teardown_confirmed"
+        raise AssertionError("created observation return was not interrupted")
+
+    instructions = list(dis.get_instructions(run))
+    store_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_FAST"
+        and instruction.argval == "created"
+        and index > 0
+        and instructions[index - 1].opname in {"CALL", "CALL_FUNCTION_EX"}
+    )
+    store_offset = instructions[store_index].offset
+
+    def interrupt_before_store(_: object, instruction_offset: int) -> None:
+        if instruction_offset == store_offset:
+            raise KeyboardInterrupt
+
+    tool_id = next(
+        candidate
+        for candidate in range(sys.monitoring.OPTIMIZER_ID + 1)
+        if sys.monitoring.get_tool(candidate) is None
+    )
+    sys.monitoring.use_tool_id(tool_id, "trusted-time-created-return-test")
+    try:
+        sys.monitoring.register_callback(
+            tool_id,
+            sys.monitoring.events.INSTRUCTION,
+            interrupt_before_store,
+        )
+        sys.monitoring.set_local_events(
+            tool_id,
+            run.__code__,
+            sys.monitoring.events.INSTRUCTION,
+        )
+        result = issuer._run_exclusive_choreography(run)
+    finally:
+        sys.monitoring.set_local_events(tool_id, run.__code__, 0)
+        sys.monitoring.register_callback(tool_id, sys.monitoring.events.INSTRUCTION, None)
+        sys.monitoring.free_tool_id(tool_id)
+
+    assert result == "exact_teardown_confirmed"
+    assert interrupted is True
+    assert len(retained_created) == 1
+    container_remove_calls = [
+        call
+        for call in queued.calls
+        if cast(tuple[str, ...], call["argv"])[1:4] == ("container", "rm", "--force")
+    ]
+    assert len(container_remove_calls) == 1
+    container_remove_argv = cast(tuple[str, ...], container_remove_calls[0]["argv"])
+    assert container_remove_argv[-2:] == (
+        fixtures.SOURCE_CONTAINER_ID,
+        fixtures.SUPERVISOR_CONTAINER_ID,
+    )
+    network_remove_calls = [
+        call
+        for call in queued.calls
+        if cast(tuple[str, ...], call["argv"])[1:3] == ("network", "rm")
+    ]
+    assert len(network_remove_calls) == 1
+    assert cast(tuple[str, ...], network_remove_calls[0]["argv"])[-1] == fixtures.NETWORK_ID
+    assert not any("down" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+    volume_names = {
+        cast(tuple[str, ...], call["argv"])[-1]
+        for call in queued.calls
+        if cast(tuple[str, ...], call["argv"])[1:4] == ("volume", "inspect", "--format")
+    }
+    assert volume_names == {
+        reader.COMPOSE_SOCKET_VOLUME_NAME,
+        reader.COMPOSE_STATE_VOLUME_NAME,
+    }
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+    assert issuer._reviewed_mutation_created_observation is None
+
+
+@pytest.mark.parametrize(
+    "unexpected_inventory",
+    [
+        fixtures._inventory_bytes() + fixtures._json_line("d" * 64),
+        fixtures._json_line(fixtures.SOURCE_CONTAINER_ID) + fixtures._json_line("e" * 64),
+    ],
+    ids=["extra-container", "replaced-container"],
+)
+def test_reviewed_teardown_rejects_unsealed_inventory_before_down(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    unexpected_inventory: bytes,
+) -> None:
+    socket_path = fixtures._short_socket_path(tmp_path)
+    endpoint = f"unix://{socket_path}"
+    fixtures._install_pure_validator_stubs(monkeypatch, endpoint=endpoint)
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    compose_payload = _REVIEWED_COMPOSE_PAYLOAD
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[
+            b"",
+            b"",
+            b"",
+            *fixtures._state_outputs("created"),
+            unexpected_inventory,
+        ],
+        bind_reviewed_create_outputs=True,
+    )
+
+    def reject(lease: object) -> None:
+        arguments = _reviewed_mutation_arguments(paths, compose_payload)
+        created = issuer._create_reviewed_topology(
+            **arguments,  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="teardown inventory is unavailable",
+        ):
+            issuer._teardown_reviewed_topology_before_claim(
+                **arguments,  # type: ignore[arg-type]
+                created_observation=created,
+                _choreography_lease=lease,
+            )
+        assert issuer._reviewed_mutation_state == "created"
+
+    issuer._run_exclusive_choreography(reject)
+
+    down_calls = [call for call in queued.calls if "down" in cast(tuple[str, ...], call["argv"])]
+    assert down_calls == []
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_ambiguous_partial_create_is_exactly_authenticated_before_safe_down(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = fixtures._short_socket_path(tmp_path)
+    endpoint = f"unix://{socket_path}"
+    fixtures._install_pure_validator_stubs(monkeypatch, endpoint=endpoint)
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    compose_payload = _REVIEWED_COMPOSE_PAYLOAD
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[
+            b"",
+            b"",
+            RuntimeError("one container was created before the runner return was lost"),
+            *_reviewed_teardown_authentication_outputs(services=("chrony-nts",)),
+            (fixtures.SOURCE_CONTAINER_ID + "\n").encode("ascii"),
+            (fixtures.NETWORK_ID + "\n").encode("ascii"),
+            b"",
+            b"",
+            fixtures._json_line({"volume": "socket"}),
+            fixtures._json_line({"volume": "state"}),
+            fixtures._json_line("LOCAL:DAEMON:1"),
+        ],
+        bind_reviewed_create_outputs=True,
+    )
+
+    def recover_partial(lease: object) -> None:
+        arguments = _reviewed_mutation_arguments(paths, compose_payload)
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="mutation command is unavailable",
+        ):
+            issuer._create_reviewed_topology(
+                **arguments,  # type: ignore[arg-type]
+                _choreography_lease=lease,
+            )
+        assert issuer._reviewed_mutation_state == "create_effecting"
+        issuer._teardown_reviewed_topology_before_claim(
+            **arguments,  # type: ignore[arg-type]
+            created_observation=None,
+            _choreography_lease=lease,
+        )
+        assert issuer._reviewed_mutation_state == "torn_down"
+
+    issuer._run_exclusive_choreography(recover_partial)
+
+    container_remove_calls = [
+        cast(tuple[str, ...], call["argv"])
+        for call in queued.calls
+        if cast(tuple[str, ...], call["argv"])[1:4] == ("container", "rm", "--force")
+    ]
+    assert len(container_remove_calls) == 1
+    assert container_remove_calls[0][-1:] == (fixtures.SOURCE_CONTAINER_ID,)
+    network_remove_calls = [
+        cast(tuple[str, ...], call["argv"])
+        for call in queued.calls
+        if cast(tuple[str, ...], call["argv"])[1:3] == ("network", "rm")
+    ]
+    assert len(network_remove_calls) == 1
+    assert network_remove_calls[0][-1:] == (fixtures.NETWORK_ID,)
+    assert not any("down" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_insertion_after_final_inventory_read_is_never_targeted_by_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = fixtures._short_socket_path(tmp_path)
+    endpoint = f"unix://{socket_path}"
+    fixtures._install_pure_validator_stubs(monkeypatch, endpoint=endpoint)
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    compose_payload = _REVIEWED_COMPOSE_PAYLOAD
+    inserted_container_id = "d" * 64
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[
+            b"",
+            b"",
+            b"",
+            *fixtures._state_outputs("created"),
+            *_reviewed_teardown_authentication_outputs(),
+            (fixtures.SOURCE_CONTAINER_ID + "\n" + fixtures.SUPERVISOR_CONTAINER_ID + "\n").encode(
+                "ascii"
+            ),
+            RuntimeError(
+                "inserted container attached after final inventory read; exact network rm failed"
+            ),
+        ],
+        bind_reviewed_create_outputs=True,
+    )
+
+    def reject_late_insertion(lease: object) -> None:
+        arguments = _reviewed_mutation_arguments(paths, compose_payload)
+        created = issuer._create_reviewed_topology(
+            **arguments,  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="mutation command is unavailable",
+        ):
+            issuer._teardown_reviewed_topology_before_claim(
+                **arguments,  # type: ignore[arg-type]
+                created_observation=created,
+                _choreography_lease=lease,
+            )
+        assert issuer._reviewed_mutation_state == "teardown_effecting"
+
+    issuer._run_exclusive_choreography(reject_late_insertion)
+
+    container_remove_argv = next(
+        cast(tuple[str, ...], call["argv"])
+        for call in queued.calls
+        if cast(tuple[str, ...], call["argv"])[1:4] == ("container", "rm", "--force")
+    )
+    assert container_remove_argv[-2:] == (
+        fixtures.SOURCE_CONTAINER_ID,
+        fixtures.SUPERVISOR_CONTAINER_ID,
+    )
+    assert inserted_container_id not in container_remove_argv
+    network_remove_argv = next(
+        cast(tuple[str, ...], call["argv"])
+        for call in queued.calls
+        if cast(tuple[str, ...], call["argv"])[1:3] == ("network", "rm")
+    )
+    assert network_remove_argv[-1] == fixtures.NETWORK_ID
+    assert not any(
+        "compose" in cast(tuple[str, ...], call["argv"])
+        and "down" in cast(tuple[str, ...], call["argv"])
+        for call in queued.calls
+    )
+    assert queued.outputs == []
     _close_and_assert_launch_lock_is_reacquirable(issuer)

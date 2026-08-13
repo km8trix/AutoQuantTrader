@@ -387,8 +387,6 @@ def prepare_post_enrollment_start_release_under_lock(
                 ignored_root=ignored_root,
             ):
                 raise RuntimeError
-            if _retained_claim_binder is not None:
-                _retained_claim_binder(retained)
             if (
                 _load_exact_confirmed_enrollment(
                     approval,

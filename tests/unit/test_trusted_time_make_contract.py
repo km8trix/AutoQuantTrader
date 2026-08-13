@@ -76,7 +76,34 @@ def test_every_supported_trusted_time_python_target_uses_isolated_launcher() -> 
         assert script in makefile
 
 
-def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
+def test_post_enrollment_start_is_reachable_only_through_standalone_host_orchestrator() -> None:
+    execution_admission_api_names = (
+        "trusted_time_post_enrollment_execution_admission",
+        "phase6d-post-enrollment-start-execution-approval-v1",
+        "phase6d-post-enrollment-start-execution-attempt-v1",
+        "phase6d-post-enrollment-start-execution-admission-v1",
+        ".post-enrollment-start-execution-attempt-slot",
+        "TrustedTimePostEnrollmentExecutionAdmission",
+        "admit_post_enrollment_execution_attempt",
+        "load_post_enrollment_execution_approval",
+        "_consume_post_enrollment_execution_admission",
+    )
+    sequence_one_reauthentication_api_names = (
+        "trusted_time_post_enrollment_sequence_one_reauthentication",
+        "phase6d-post-enrollment-sequence-one-read-only-reauthentication-v1",
+        "TrustedTimePostEnrollmentSequenceOneReauthenticationIssuer",
+        "prepare_trusted_time_post_enrollment_sequence_one_reauthentication_issuer",
+    )
+    host_orchestrator_api_names = (
+        "trusted_time_post_enrollment_host_orchestrator",
+        "POST_ENROLLMENT_HOST_ORCHESTRATOR_CONTRACT_VERSION",
+        "phase6d-post-enrollment-start-host-orchestrator-v1",
+        "POST_ENROLLMENT_HOST_ORCHESTRATOR_STATUS",
+        "terminal_outcome_retained",
+        '"orchestrator_status"',
+        "TrustedTimePostEnrollmentHostOrchestratorRejected",
+        "run_approved_post_enrollment_start_once",
+    )
     active_controller_api_names = (
         "trusted_time_post_enrollment_active_controller",
         "POST_ENROLLMENT_START_ACTIVE_CONTROLLER_CONTRACT_VERSION",
@@ -154,6 +181,9 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         "_consume_claimed_action_fence_controller_choreography",
         "_issue_claimed_final_action_topology_snapshot",
         "_require_armed_recovery_outcome_retention",
+        "_require_unbound_recovery_retention_preparation",
+        "_recovery_outcome_retention_is_armed",
+        "_adopt_registered_confirmed_terminal_outcome",
     )
     recovery_outcome_api_names = (
         "trusted_time_post_enrollment_outcome",
@@ -202,6 +232,9 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         "bind_post_enrollment_start_pre_release_topology_fence",
     )
     forbidden_names = (
+        *execution_admission_api_names,
+        *sequence_one_reauthentication_api_names,
+        *host_orchestrator_api_names,
         "trusted_time_post_enrollment_topology",
         "validate_post_enrollment_start_created_topology",
         "trusted_time_post_enrollment_staged_topology",
@@ -233,11 +266,18 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         ROOT / "apps" / "trader" / "main.py",
         ROOT / "apps" / "worker" / "main.py",
         *sorted((ROOT / "apps" / "trusted_time_supervisor").glob("*.py")),
+        ROOT / "infra" / "compose" / "compose.yaml",
         ROOT / "infra" / "compose" / "trusted-time.compose.yaml",
+        ROOT / "infra" / "compose" / "trusted-time.defaults.env",
         ROOT / "pyproject.toml",
         ROOT / "scripts" / "diagnose_trusted_time_runtime.py",
         ROOT / "scripts" / "enroll_trusted_time_head_anchor.py",
+        ROOT / "scripts" / "generate_trusted_time_anchor_artifacts.py",
         ROOT / "scripts" / "inspect_trusted_time_qualification.py",
+        ROOT / "scripts" / "migrate_phase6_trusted_time_head_anchors.py",
+        ROOT / "scripts" / "migrate_phase6_trusted_time_uncertainty.py",
+        ROOT / "scripts" / "prove_trusted_time_anchor_storage.py",
+        ROOT / "scripts" / "provision_trusted_time_anchor_project.py",
         ROOT / "scripts" / "start_trusted_time_supervisor.py",
         ROOT / "scripts" / "verify_trusted_time_compose.py",
     )
@@ -248,6 +288,8 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
             assert forbidden_name not in payload
         assert re.search(r"(?<![0-9A-Za-z_])recovery_required(?![0-9A-Za-z_])", payload) is None
         assert re.search(r"(?<![0-9A-Za-z])305(?:\.0)?(?![0-9A-Za-z])", payload) is None
+        assert re.search(r"(?<![0-9A-Za-z])600(?:\.0)?(?![0-9A-Za-z])", payload) is None
+        assert re.search(r"(?<![0-9A-Za-z])605(?:\.0)?(?![0-9A-Za-z])", payload) is None
 
     admission_cli = (ROOT / "scripts" / "verify_trusted_time_images.py").read_text(encoding="utf-8")
     assert '"scripts/trusted_time_post_enrollment_action_topology_fence.py"' in admission_cli
@@ -260,15 +302,26 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
     assert admission_cli.count("trusted_time_post_enrollment_claimed_fence") == 1
     assert '"scripts/trusted_time_post_enrollment_controller_outcome.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_controller_outcome") == 1
+    assert '"scripts/trusted_time_post_enrollment_execution_admission.py"' in admission_cli
+    assert admission_cli.count("trusted_time_post_enrollment_execution_admission") == 1
+    assert '"scripts/trusted_time_post_enrollment_host_orchestrator.py"' in admission_cli
+    assert admission_cli.count("trusted_time_post_enrollment_host_orchestrator") == 1
     assert '"scripts/trusted_time_post_enrollment_outcome.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_outcome") == 1
     assert '"scripts/trusted_time_post_enrollment_persistent_topology.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_persistent_topology") == 1
+    assert (
+        '"scripts/trusted_time_post_enrollment_sequence_one_reauthentication.py"' in admission_cli
+    )
+    assert admission_cli.count("trusted_time_post_enrollment_sequence_one_reauthentication") == 1
     assert '"scripts/trusted_time_post_enrollment_sequence_two_verifier.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_sequence_two_verifier") == 1
     assert '"scripts/trusted_time_post_enrollment_topology_fence.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_topology_fence") == 1
     for forbidden_name in (
+        *execution_admission_api_names[1:],
+        *sequence_one_reauthentication_api_names[1:],
+        *host_orchestrator_api_names[1:],
         *active_controller_api_names[1:],
         *active_controller_admission_api_names[1:],
         *action_topology_fence_api_names[1:],
@@ -283,6 +336,46 @@ def test_post_enrollment_topology_contracts_have_no_runtime_wiring() -> None:
         assert forbidden_name not in admission_cli
     assert re.search(r"(?<![0-9A-Za-z_])recovery_required(?![0-9A-Za-z_])", admission_cli) is None
     assert re.search(r"(?<![0-9A-Za-z])305(?:\.0)?(?![0-9A-Za-z])", admission_cli) is None
+    assert re.search(r"(?<![0-9A-Za-z])600(?:\.0)?(?![0-9A-Za-z])", admission_cli) is None
+    assert re.search(r"(?<![0-9A-Za-z])605(?:\.0)?(?![0-9A-Za-z])", admission_cli) is None
+
+    orchestrator = (
+        ROOT / "scripts" / "trusted_time_post_enrollment_host_orchestrator.py"
+    ).read_text(encoding="utf-8")
+    for required_name in (
+        execution_admission_api_names[0],
+        execution_admission_api_names[-3],
+        execution_admission_api_names[-1],
+        sequence_one_reauthentication_api_names[0],
+        sequence_one_reauthentication_api_names[-1],
+        "trusted_time_post_enrollment_topology_reader",
+        active_controller_api_names[0],
+        active_controller_admission_api_names[0],
+        action_topology_fence_api_names[0],
+        claimed_fence_api_names[-1],
+        sequence_two_verifier_api_names[0],
+        host_orchestrator_api_names[-1],
+        'if __name__ == "__main__"',
+    ):
+        assert required_name in orchestrator
+    assert orchestrator.count("_require_isolated_cli_source_runtime") == 2
+    assert "expected_relative_path=Path" in orchestrator
+    assert '"scripts/trusted_time_post_enrollment_host_orchestrator.py"' in orchestrator
+    assert "sys.flags.isolated != 1" in orchestrator
+    assert "sys.flags.dont_write_bytecode != 1" in orchestrator
+    assert 'sys.pycache_prefix != "/dev/null"' in orchestrator
+    assert orchestrator.count('"--approval-artifact"') == 1
+    assert orchestrator.count('"--runtime-env-file"') == 1
+    assert orchestrator.count("_recovery_outcome_retention_is_armed") == 1
+    assert orchestrator.count("_adopt_registered_confirmed_terminal_outcome") == 1
+    active_controller = (
+        ROOT / "scripts" / "trusted_time_post_enrollment_active_controller.py"
+    ).read_text(encoding="utf-8")
+    assert active_controller.count("_adopt_registered_confirmed_terminal_outcome") == 1
+    sequence_one = (
+        ROOT / "scripts" / "trusted_time_post_enrollment_sequence_one_reauthentication.py"
+    ).read_text(encoding="utf-8")
+    assert sequence_one.count("_require_unbound_recovery_retention_preparation") == 2
 
 
 def test_runtime_state_inspector_is_in_container_only_and_not_a_host_controller() -> None:
