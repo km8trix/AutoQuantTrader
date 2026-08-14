@@ -3205,6 +3205,33 @@ revalidate and adopt only that current-scope identity across CALL/STORE or
 CALL/RETURN interruption; they never search the global artifact directory for
 a substitute.
 
+ADR 0100 implements the public-material provisioning prerequisite for a future
+authenticated external operator attestation. The dedicated private Ed25519 key
+remains outside the repository and runtime; only its exact raw 32-byte public
+key may enter the isolated offline provisioner. Preparation writes an owner-
+only content-addressed candidate outside the source tree. Installation is a
+separate command that requires both the reviewed authority-artifact SHA-256 and
+reviewed raw-public-key SHA-256 before it can copy identical canonical bytes to
+fixed path
+`infra/trusted-time/post-enrollment-operator-attestation-authority.json`.
+The path remains intentionally absent until that explicit operator step.
+
+The eight-field manifest freezes contract
+`phase6d-post-enrollment-operator-attestation-authority-v1`, Ed25519, key ID
+`aqt-post-enrollment-start-operator-ed25519-v1`, the canonical Base64 public
+key and its SHA-256, service/status, and replay domain
+`github.com/km8trix/AutoQuantTrader/production/trusted-time/post-enrollment-start/operator-attestation/v1`.
+The fixed file is excluded from image build context. The workflow provides no
+private-key generator/reader, signer, environment or standard-input key
+channel, Docker, network, database, controller, execution-admission, attempt,
+or runtime effect. No production consumer is wired. Once an operator installs
+the exact reviewed public material, the source diff still requires normal
+review, commit, merge, and rebuilt provenance. A later separately reviewed
+slice must define signed attestation bytes and verification without weakening
+the existing v2 approval, attempt-local witness, or explicit execution
+decision. Public-key installation alone authorizes nothing. See
+[ADR 0100](adr/0100-post-enrollment-operator-public-key-provisioning.md).
+
 This is implemented code, not an admitted live operation. No immutable
 revision/image set or external execution artifact has been operationally
 admitted for this new executor, and no release was executed while implementing

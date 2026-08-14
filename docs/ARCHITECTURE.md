@@ -4197,6 +4197,34 @@ canonical execution approval and `--runtime-env-file` for the owner-only runtime
 environment file. No Make target, Compose
 service, worker, trader, ordinary launcher, shutdown, readiness, exposure,
 broker, or trading path invokes it, and implementation did not execute release.
+
+ADR 0100 adds only the source-review boundary for a future external operator-
+attestation verifier. A dedicated external key system exports one exact raw
+32-byte Ed25519 public key; its private key never enters the repository,
+runtime, environment, standard input, database, container, or provisioning
+command. The pure domain contract
+`phase6d-post-enrollment-operator-attestation-authority-v1` fixes the key ID
+`aqt-post-enrollment-start-operator-ed25519-v1`, service, status, algorithm,
+public-key digest, and replay domain
+`github.com/km8trix/AutoQuantTrader/production/trusted-time/post-enrollment-start/operator-attestation/v1`
+in one exact eight-field canonical manifest.
+
+The only public-material workflow is two-phase and isolated offline. One Make
+target prepares an owner-only content-addressed candidate outside the source
+tree from an absolute public-key file. After independent review of the exact
+authority and public-key SHA-256 values, a separate target installs only
+identical bytes at fixed source path
+`infra/trusted-time/post-enrollment-operator-attestation-authority.json`.
+That path is intentionally absent until the operator installs it and is
+explicitly excluded from Docker build context. The provisioner has no private-
+key generator, private-key reader, signer, environment-file or standard-input
+mode, network, Docker, database, runtime, controller, admission, or attempt
+surface. No production caller consumes the authority yet. Installation is a
+reviewable source change followed by commit, merge, and rebuilt provenance; it
+does not authenticate an execution approval, alter the existing v2 execution
+contracts, or authorize any effect. See
+[ADR 0100](adr/0100-post-enrollment-operator-public-key-provisioning.md).
+
 The exact merged revision, immutable images, and stable provenance still require
 one exact external execution approval, while every attempt requires a fresh
 just-in-time witness and an explicit operational execution decision. A

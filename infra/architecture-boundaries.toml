@@ -159,6 +159,9 @@ side_effect_free_roots = [
   # ADR 0099 binds exact start, reauthentication, claim, and outcome projections
   # but owns no runtime, release, persistence, provider, or lifecycle authority.
   "packages/domain/trusted_time_post_enrollment_start.py",
+  # ADR 0100 canonicalizes one caller-supplied public verification key without
+  # owning filesystem, process, clock, randomness, signer, or runtime authority.
+  "packages/domain/trusted_time_post_enrollment_operator_authority.py",
   "packages/domain/unknown_submission_recovery.py",
 ]
 forbidden_side_effect_imports = [

@@ -135,5 +135,10 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   implemented without an exclusive choreography lease or durable chronology
   result, while supported runtime, release/post-release/outcome orchestration,
   authority, and both lifecycle commands remain hard closed)
+- [ADR 0100: Post-enrollment operator public-key provisioning](0100-post-enrollment-operator-public-key-provisioning.md)
+  (two-phase isolated offline preparation and exact-digest installation of one
+  dedicated public Ed25519 trust root; the fixed source path remains absent
+  until operator installation, private signing material remains external, and
+  no execution approval or controller authority is added)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
