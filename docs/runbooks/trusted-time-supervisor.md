@@ -1197,6 +1197,85 @@ controller or legacy terminal `status`. It has no Make, Compose, worker,
 trader, ordinary-launcher, shutdown, readiness, exposure, broker, or trading
 wiring and has not been executed.
 
+### Prepare and install future operator public authority; do not execute
+
+[ADR 0100](../adr/0100-post-enrollment-operator-public-key-provisioning.md)
+freezes a two-phase source-provisioning workflow for public verification
+material only. No operator authority is currently installed, and no production
+consumer exists. Completing this workflow does not approve or invoke the host
+executor.
+
+Generate and retain the dedicated Ed25519 private key in an independently
+controlled offline or hardware-backed system. It must be distinct from the
+trusted-head checkpoint signing key. From that system, export only its exact
+raw 32-byte public key to a single-link regular file with exact mode `0400` or
+`0600` below a current-user-owned external directory with exact mode `0700`.
+Never copy the private key into this repository, an environment file, a command
+argument, standard input, a container, the database, or an AutoQuantTrader
+artifact.
+
+First pre-create a separate current-user-owned external candidate directory
+with exact mode `0700`, then prepare its content-addressed candidate:
+
+```bash
+make trusted-time-prepare-post-enrollment-operator-authority \
+  TRUSTED_TIME_OPERATOR_PUBLIC_KEY_FILE=/absolute/operator/public-key.raw \
+  TRUSTED_TIME_OPERATOR_CANDIDATE_DIRECTORY=/absolute/operator/authority-candidates
+```
+
+This isolated offline command prepares but does not install. Its canonical
+receipt has status `public_operator_authority_candidate_prepared`, reports only
+the public candidate filename and digests, marks `verification_only=true`, and
+keeps every authority field it exposes false. The candidate has exact mode
+`0600`. Review its exact bytes and confirm all of the following independently:
+
+- the authority SHA-256 reported by the command equals the SHA-256 of the exact
+  canonical candidate bytes;
+- the public-key SHA-256 equals an independent display from the external key
+  system;
+- `algorithm=Ed25519` and the public key is canonical Base64 for exactly 32
+  raw bytes;
+- contract
+  `phase6d-post-enrollment-operator-attestation-authority-v1`, key ID
+  `aqt-post-enrollment-start-operator-ed25519-v1`, service
+  `trusted-time-post-enrollment-operator-attestation-authority`, status
+  `public_operator_authority_material`, and replay domain
+  `github.com/km8trix/AutoQuantTrader/production/trusted-time/post-enrollment-start/operator-attestation/v1`
+  are exact; and
+- the manifest contains exactly `algorithm`, `contract_version`, `key_id`,
+  `public_key_base64`, `public_key_sha256`, `replay_domain`, `service`, and
+  `status`.
+
+Only after that review, install the exact candidate with both reviewed digests:
+
+```bash
+make trusted-time-install-post-enrollment-operator-authority \
+  TRUSTED_TIME_OPERATOR_CANDIDATE_ARTIFACT=/absolute/operator/authority-candidates/trusted-time-post-enrollment-operator-attestation-authority-<sha256>.json \
+  TRUSTED_TIME_OPERATOR_APPROVED_AUTHORITY_SHA256=<reviewed-authority-sha256> \
+  TRUSTED_TIME_OPERATOR_APPROVED_PUBLIC_KEY_SHA256=<reviewed-public-key-sha256>
+```
+
+The installer retains only identical canonical bytes with mode `0644` at fixed path
+`infra/trusted-time/post-enrollment-operator-attestation-authority.json`.
+It uses exclusive creation and durable readback. A repeat is accepted only
+when the existing bytes and mode are already exact; a different file fails
+closed. Its receipt status
+`public_operator_authority_installed_for_source_review` remains verification-
+only with every authority field it exposes false. The fixed path is
+intentionally absent until this operator step is run. Do not add a placeholder,
+hand-edit the manifest, substitute another path, or treat an existing different
+file as a rotation. The fixed path is excluded from Docker build context, and
+this command performs no Docker, database, provider, network, runtime,
+controller, admission, or attempt action.
+
+After install, review the exact source diff and both digests. Commit the source
+change, obtain normal review, merge it, then rebuild image provenance from the
+exact merged revision through the existing secretless image-admission process.
+The installed public material still authorizes nothing: a separate reviewed
+change must define signed operator-attestation bytes, verification and replay
+rules, and their binding to the existing v2 execution approval before any
+effecting path may consume this trust root.
+
 The executor exposes only `--approval-artifact` for a canonical owner-only,
 content-addressed external execution approval and `--runtime-env-file` for one
 owner-only runtime environment file. Do not substitute a raw approval tuple,

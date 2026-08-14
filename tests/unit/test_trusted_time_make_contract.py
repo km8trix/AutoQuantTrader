@@ -64,11 +64,12 @@ def test_trusted_time_python_launcher_is_isolated_and_cannot_be_overridden() -> 
 def test_every_supported_trusted_time_python_target_uses_isolated_launcher() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert makefile.count("$(TRUSTED_TIME_PYTHON)") == 10
+    assert makefile.count("$(TRUSTED_TIME_PYTHON)") == 12
     for script in (
         "diagnose_trusted_time_runtime.py",
         "enroll_trusted_time_head_anchor.py",
         "inspect_trusted_time_qualification.py",
+        "provision_trusted_time_post_enrollment_operator_authority.py",
         "start_trusted_time_supervisor.py",
         "verify_trusted_time_compose.py",
         "verify_trusted_time_images.py",
@@ -573,6 +574,289 @@ def test_runtime_state_inspector_is_in_container_only_and_not_a_host_controller(
         assert command not in payload
         for marker_path in marker_paths:
             assert marker_path not in payload
+
+
+@pytest.mark.parametrize(
+    ("target", "assignments", "expected_flags"),
+    [
+        (
+            "trusted-time-prepare-post-enrollment-operator-authority",
+            (
+                "TRUSTED_TIME_OPERATOR_PUBLIC_KEY_FILE=/private/operator/public-key.raw",
+                "TRUSTED_TIME_OPERATOR_CANDIDATE_DIRECTORY=/private/operator/candidates",
+            ),
+            (
+                '--raw-public-key-file "/private/operator/public-key.raw"',
+                '--candidate-directory "/private/operator/candidates"',
+            ),
+        ),
+        (
+            "trusted-time-install-post-enrollment-operator-authority",
+            (
+                "TRUSTED_TIME_OPERATOR_CANDIDATE_ARTIFACT=/private/operator/candidate.json",
+                f"TRUSTED_TIME_OPERATOR_APPROVED_AUTHORITY_SHA256={'a' * 64}",
+                f"TRUSTED_TIME_OPERATOR_APPROVED_PUBLIC_KEY_SHA256={'b' * 64}",
+            ),
+            (
+                '--candidate-artifact "/private/operator/candidate.json"',
+                f'--expected-authority-sha256 "{"a" * 64}"',
+                f'--expected-public-key-sha256 "{"b" * 64}"',
+            ),
+        ),
+    ],
+)
+def test_operator_authority_make_targets_use_exact_two_phase_cli(
+    target: str,
+    assignments: tuple[str, ...],
+    expected_flags: tuple[str, ...],
+) -> None:
+    completed = subprocess.run(
+        ("make", "-n", target, *assignments),
+        cwd=ROOT,
+        env={"LC_ALL": "C", "PATH": os.defpath},
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+    assert completed.returncode == 0
+    assert "scripts/provision_trusted_time_post_enrollment_operator_authority.py" in (
+        completed.stdout
+    )
+    for expected_flag in expected_flags:
+        assert expected_flag in completed.stdout
+    assert "--env-file" not in completed.stdout
+    assert "docker" not in completed.stdout.lower()
+    if target == "trusted-time-prepare-post-enrollment-operator-authority":
+        assert " install " not in completed.stdout
+        assert "--candidate-artifact" not in completed.stdout
+        assert "--expected-authority-sha256" not in completed.stdout
+        assert "--expected-public-key-sha256" not in completed.stdout
+    else:
+        assert " prepare " not in completed.stdout
+        assert "--raw-public-key-file" not in completed.stdout
+        assert "--candidate-directory" not in completed.stdout
+
+
+@pytest.mark.parametrize(
+    ("target", "assignments", "required_name"),
+    [
+        (
+            "trusted-time-prepare-post-enrollment-operator-authority",
+            (),
+            "TRUSTED_TIME_OPERATOR_PUBLIC_KEY_FILE",
+        ),
+        (
+            "trusted-time-prepare-post-enrollment-operator-authority",
+            ("TRUSTED_TIME_OPERATOR_PUBLIC_KEY_FILE=/private/operator/public-key.raw",),
+            "TRUSTED_TIME_OPERATOR_CANDIDATE_DIRECTORY",
+        ),
+        (
+            "trusted-time-install-post-enrollment-operator-authority",
+            (),
+            "TRUSTED_TIME_OPERATOR_CANDIDATE_ARTIFACT",
+        ),
+        (
+            "trusted-time-install-post-enrollment-operator-authority",
+            ("TRUSTED_TIME_OPERATOR_CANDIDATE_ARTIFACT=/private/operator/candidate.json",),
+            "TRUSTED_TIME_OPERATOR_APPROVED_AUTHORITY_SHA256",
+        ),
+        (
+            "trusted-time-install-post-enrollment-operator-authority",
+            (
+                "TRUSTED_TIME_OPERATOR_CANDIDATE_ARTIFACT=/private/operator/candidate.json",
+                f"TRUSTED_TIME_OPERATOR_APPROVED_AUTHORITY_SHA256={'a' * 64}",
+            ),
+            "TRUSTED_TIME_OPERATOR_APPROVED_PUBLIC_KEY_SHA256",
+        ),
+    ],
+)
+def test_operator_authority_make_guards_run_before_cli(
+    target: str,
+    assignments: tuple[str, ...],
+    required_name: str,
+) -> None:
+    completed = subprocess.run(
+        ("make", target, *assignments),
+        cwd=ROOT,
+        env={"LC_ALL": "C", "PATH": os.defpath},
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+    assert completed.returncode != 0
+    assert required_name in completed.stderr
+    assert "scripts/provision_trusted_time_post_enrollment_operator_authority.py" not in (
+        completed.stdout
+    )
+
+
+def test_operator_authority_contract_and_provisioner_remain_public_only() -> None:
+    from packages.domain.trusted_time_post_enrollment_operator_authority import (
+        POST_ENROLLMENT_OPERATOR_AUTHORITY_ALGORITHM,
+        POST_ENROLLMENT_OPERATOR_AUTHORITY_CONTRACT_VERSION,
+        POST_ENROLLMENT_OPERATOR_AUTHORITY_FIELDS,
+        POST_ENROLLMENT_OPERATOR_AUTHORITY_KEY_ID,
+        POST_ENROLLMENT_OPERATOR_AUTHORITY_REPLAY_DOMAIN,
+        POST_ENROLLMENT_OPERATOR_AUTHORITY_SERVICE,
+        POST_ENROLLMENT_OPERATOR_AUTHORITY_STATUS,
+    )
+
+    assert (
+        frozenset(
+            {
+                "algorithm",
+                "contract_version",
+                "key_id",
+                "public_key_base64",
+                "public_key_sha256",
+                "replay_domain",
+                "service",
+                "status",
+            }
+        )
+        == POST_ENROLLMENT_OPERATOR_AUTHORITY_FIELDS
+    )
+    assert POST_ENROLLMENT_OPERATOR_AUTHORITY_ALGORITHM == "Ed25519"
+    assert (
+        POST_ENROLLMENT_OPERATOR_AUTHORITY_CONTRACT_VERSION
+        == "phase6d-post-enrollment-operator-attestation-authority-v1"
+    )
+    assert (
+        POST_ENROLLMENT_OPERATOR_AUTHORITY_KEY_ID == "aqt-post-enrollment-start-operator-ed25519-v1"
+    )
+    assert (
+        POST_ENROLLMENT_OPERATOR_AUTHORITY_REPLAY_DOMAIN
+        == "github.com/km8trix/AutoQuantTrader/production/trusted-time/"
+        "post-enrollment-start/operator-attestation/v1"
+    )
+    assert (
+        POST_ENROLLMENT_OPERATOR_AUTHORITY_SERVICE
+        == "trusted-time-post-enrollment-operator-attestation-authority"
+    )
+    assert POST_ENROLLMENT_OPERATOR_AUTHORITY_STATUS == "public_operator_authority_material"
+
+    domain_path = ROOT / "packages/domain/trusted_time_post_enrollment_operator_authority.py"
+    provisioner_path = ROOT / "scripts/provision_trusted_time_post_enrollment_operator_authority.py"
+    provisioning_payload = domain_path.read_text(encoding="utf-8") + provisioner_path.read_text(
+        encoding="utf-8"
+    )
+    forbidden_private_or_ambient_tokens = (
+        "Ed25519PrivateKey",
+        "from_private_bytes(",
+        "private_bytes(",
+        ".sign(",
+        "--private-key",
+        "--signing-key",
+        "sys.stdin",
+        "os.environ",
+        "os.getenv",
+        "getenv(",
+        "getpass(",
+        "input(",
+        "import cryptography",
+        "from cryptography",
+        "import nacl",
+        "from nacl",
+        "SigningKey",
+        "import dotenv",
+        "from dotenv",
+        "credential_env",
+        "import docker",
+        "from docker",
+        "import aiohttp",
+        "from aiohttp",
+        "import httpx",
+        "from httpx",
+        "import http.client",
+        "from http",
+        "import requests",
+        "from requests",
+        "import socket",
+        "from socket",
+        "import ssl",
+        "from ssl",
+        "import urllib",
+        "from urllib",
+        "import sqlalchemy",
+        "from sqlalchemy",
+        "import sqlite3",
+        "from sqlite3",
+        "import asyncpg",
+        "from asyncpg",
+        "import psycopg",
+        "from psycopg",
+        "import supabase",
+        "from supabase",
+        "import subprocess",
+        "from subprocess",
+        "os.exec",
+        "os.posix_spawn",
+        "os.spawn",
+        "os.system(",
+        "trusted_time_post_enrollment_active_controller",
+        "trusted_time_post_enrollment_execution_admission",
+        "trusted_time_post_enrollment_host_orchestrator",
+    )
+    for forbidden_token in forbidden_private_or_ambient_tokens:
+        assert forbidden_token not in provisioning_payload
+
+
+def test_operator_authority_has_no_runtime_caller_and_is_excluded_from_images() -> None:
+    module_name = "trusted_time_post_enrollment_operator_authority"
+    manifest_name = "post-enrollment-operator-attestation-authority.json"
+    manifest_path = f"infra/trusted-time/{manifest_name}"
+    provisioner_path = f"scripts/provision_{module_name}.py"
+    allowed_sources = {
+        ROOT / f"packages/domain/{module_name}.py",
+        ROOT / f"scripts/provision_{module_name}.py",
+    }
+    production_python = (
+        tuple((ROOT / "apps").rglob("*.py"))
+        + tuple((ROOT / "packages").rglob("*.py"))
+        + tuple((ROOT / "scripts").glob("*.py"))
+    )
+    for path in production_python:
+        if path not in allowed_sources:
+            assert module_name not in path.read_text(encoding="utf-8")
+
+    dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    assert dockerignore.count(manifest_path) == 1
+    assert dockerignore.count(provisioner_path) == 1
+    trusted_time_dockerignore = (
+        ROOT / "infra/docker/trusted-time.Dockerfile.dockerignore"
+    ).read_text(encoding="utf-8")
+    assert manifest_name not in trusted_time_dockerignore
+    assert Path(provisioner_path).name not in trusted_time_dockerignore
+    runtime_and_image_surfaces = (
+        ROOT / "infra/docker/api.Dockerfile",
+        ROOT / "infra/docker/trusted-time.Dockerfile",
+        ROOT / "infra/compose/compose.yaml",
+        ROOT / "infra/compose/trusted-time.compose.yaml",
+        ROOT / "scripts/start_trusted_time_supervisor.py",
+        ROOT / "scripts/trusted_time_post_enrollment_host_orchestrator.py",
+        ROOT / "scripts/verify_trusted_time_compose.py",
+        ROOT / "scripts/verify_trusted_time_images.py",
+    )
+    for path in runtime_and_image_surfaces:
+        assert manifest_name not in path.read_text(encoding="utf-8")
+
+    premature_admission_contract = "phase6d-post-enrollment-start-execution-admission-" + "v3"
+    reviewed_roots = (
+        ROOT / "apps",
+        ROOT / "packages",
+        ROOT / "scripts",
+        ROOT / "infra",
+        ROOT / "docs",
+    )
+    reviewed_suffixes = {".md", ".py", ".toml", ".yaml", ".yml"}
+    for reviewed_root in reviewed_roots:
+        for path in reviewed_root.rglob("*"):
+            if path.is_file() and path.suffix in reviewed_suffixes:
+                assert premature_admission_contract not in path.read_text(encoding="utf-8")
 
 
 def test_runtime_diagnostic_make_target_emits_only_child_output(tmp_path: Path) -> None:

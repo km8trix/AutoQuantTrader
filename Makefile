@@ -18,6 +18,8 @@ TRUSTED_TIME_UNENROLLED_ADMISSION_ARTIFACT_DIR ?= $(CURDIR)/artifacts/trusted-ti
 	tiingo-eod-semantics-qualify no-exposure-smoke-verify trusted-time-compose-check \
 	trusted-time-images trusted-time-readmit-images trusted-time-start trusted-time-admit-unenrolled \
 	trusted-time-enroll-first trusted-time-recover-first-enrollment \
+	trusted-time-prepare-post-enrollment-operator-authority \
+	trusted-time-install-post-enrollment-operator-authority \
 	trusted-time-runtime-diagnostic trusted-time-inspect trusted-time-stop
 
 help: ## List developer commands.
@@ -314,6 +316,24 @@ trusted-time-recover-first-enrollment: ## Consume a separate approval for sequen
 		--principal-identity-sha256 "$(TRUSTED_TIME_APPROVED_PRINCIPAL_IDENTITY_SHA256)" \
 		--bucket-identity-sha256 "$(TRUSTED_TIME_APPROVED_BUCKET_IDENTITY_SHA256)" \
 		--recover-pending
+
+trusted-time-prepare-post-enrollment-operator-authority: ## Prepare public operator authority for review without installing it.
+	@test -n "$(TRUSTED_TIME_OPERATOR_PUBLIC_KEY_FILE)" || (echo "TRUSTED_TIME_OPERATOR_PUBLIC_KEY_FILE=absolute/path/to/raw-public-key is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_CANDIDATE_DIRECTORY)" || (echo "TRUSTED_TIME_OPERATOR_CANDIDATE_DIRECTORY=absolute/path/to/owner-only-candidates is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
+		scripts/provision_trusted_time_post_enrollment_operator_authority.py prepare \
+		--raw-public-key-file "$(TRUSTED_TIME_OPERATOR_PUBLIC_KEY_FILE)" \
+		--candidate-directory "$(TRUSTED_TIME_OPERATOR_CANDIDATE_DIRECTORY)"
+
+trusted-time-install-post-enrollment-operator-authority: ## Install exact reviewed public operator authority bytes.
+	@test -n "$(TRUSTED_TIME_OPERATOR_CANDIDATE_ARTIFACT)" || (echo "TRUSTED_TIME_OPERATOR_CANDIDATE_ARTIFACT=absolute/path/to/reviewed-candidate.json is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_APPROVED_AUTHORITY_SHA256)" || (echo "TRUSTED_TIME_OPERATOR_APPROVED_AUTHORITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_APPROVED_PUBLIC_KEY_SHA256)" || (echo "TRUSTED_TIME_OPERATOR_APPROVED_PUBLIC_KEY_SHA256 is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
+		scripts/provision_trusted_time_post_enrollment_operator_authority.py install \
+		--candidate-artifact "$(TRUSTED_TIME_OPERATOR_CANDIDATE_ARTIFACT)" \
+		--expected-authority-sha256 "$(TRUSTED_TIME_OPERATOR_APPROVED_AUTHORITY_SHA256)" \
+		--expected-public-key-sha256 "$(TRUSTED_TIME_OPERATOR_APPROVED_PUBLIC_KEY_SHA256)"
 
 trusted-time-runtime-diagnostic: ## Run the bounded read-only trusted-time runtime diagnostic.
 	@test -n "$(TRUSTED_TIME_LAUNCH_ENV_FILE)" || (echo "TRUSTED_TIME_LAUNCH_ENV_FILE=path/to/dedicated-owner-only.env is required" >&2; exit 2)

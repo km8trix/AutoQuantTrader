@@ -25,6 +25,8 @@ apps/web/coverage
 apps/web/playwright-report
 apps/web/test-results
 artifacts
+infra/trusted-time/post-enrollment-operator-attestation-authority.json
+scripts/provision_trusted_time_post_enrollment_operator_authority.py
 logs
 .local
 .DS_Store
