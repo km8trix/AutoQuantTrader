@@ -47,7 +47,6 @@ from packages.domain.trusted_time_post_enrollment_start import (
     TrustedTimePostEnrollmentStartSuccessor,
 )
 from scripts.start_trusted_time_supervisor import (
-    COMPOSE_NETWORK_NAME,
     DATABASE_SECRET_CONSUMED_PATH,
     TrustedTimeApprovedLaunch,
 )
@@ -93,6 +92,9 @@ from scripts.trusted_time_post_enrollment_start import (
     IGNORED_ARTIFACT_ROOT,
     RetainedTrustedTimePostEnrollmentStartClaim,
     revalidate_retained_post_enrollment_start_claim,
+)
+from scripts.trusted_time_post_enrollment_topology import (
+    post_enrollment_created_topology_network_name,
 )
 from scripts.trusted_time_post_enrollment_topology_reader import (
     TrustedTimePostEnrollmentCreatedTopologyObservation,
@@ -687,6 +689,9 @@ def _observe_network_raw(
     inventory: tuple[str, str],
     expected_create_invocation_sha256: str,
 ) -> tuple[dict[str, object], _NetworkObservation]:
+    expected_network_name = post_enrollment_created_topology_network_name(
+        expected_create_invocation_sha256
+    )
     observed = issuer._run_json(
         receipts,
         label="persistent_project_network",
@@ -696,7 +701,7 @@ def _observe_network_raw(
             "inspect",
             "--format",
             "{{json .}}",
-            COMPOSE_NETWORK_NAME,
+            expected_network_name,
         ),
         maximum_stdout_bytes=512 * 1_024,
         expected_type=dict,
@@ -705,6 +710,7 @@ def _observe_network_raw(
         observed,
         expected_inventory=frozenset(inventory),
         expected_state="staged_unreleased",
+        expected_network_name=expected_network_name,
         expected_create_invocation_sha256=expected_create_invocation_sha256,
     )
     return observed, identity
@@ -959,6 +965,9 @@ def _fresh_persistent_topology(
             source_configuration=source_configuration,
             supervisor_configuration=supervisor_configuration,
             staged_paths=staged_paths,
+            expected_network_name=post_enrollment_created_topology_network_name(
+                final.session_sha256
+            ),
             expected_create_invocation_sha256=final.session_sha256,
         )
         retirements_after = _observe_host_retirements(staged_paths)

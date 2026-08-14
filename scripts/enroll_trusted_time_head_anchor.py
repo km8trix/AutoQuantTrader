@@ -205,6 +205,7 @@ from scripts.verify_trusted_time_images import (
     TrustedTimeImageVerificationError,
     _head_reviewed_input_payload,
     _open_owner_only_artifact_directory,
+    _OwnedFileDescriptor,
     load_image_admission_artifact,
     verify_images,
 )
@@ -627,22 +628,24 @@ def _require_new_operation_has_no_prior_claim(
     approval.__post_init__()
     if approval.operation_mode is TrustedTimeFirstEnrollmentOperationMode.RECOVER_PENDING:
         return
+    directory_owner: _OwnedFileDescriptor | None = None
     directory_descriptor: int | None = None
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             artifact_dir,
             ignored_root=IGNORED_ARTIFACT_ROOT,
             create=False,
         )
+        directory_descriptor = directory_owner.fileno()
         entries = os.listdir(directory_descriptor)
     except (OSError, TrustedTimeImageVerificationError):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time first enrollment claim state is unavailable"
         ) from None
     finally:
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
             directory_descriptor = None
     if (
         len(entries) > 4_096
@@ -680,14 +683,16 @@ def _read_owner_only_artifact(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time first enrollment artifact path is invalid"
         )
+    directory_owner: _OwnedFileDescriptor | None = None
     directory_descriptor: int | None = None
     file_descriptor: int | None = None
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             absolute_directory,
             ignored_root=ignored_root,
             create=False,
         )
+        directory_descriptor = directory_owner.fileno()
         file_descriptor = os.open(
             file_name,
             os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
@@ -750,9 +755,9 @@ def _read_owner_only_artifact(
         if file_descriptor is not None:
             with suppress(OSError):
                 os.close(file_descriptor)
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
 
 
 def load_approved_unenrolled_admission(
@@ -1146,14 +1151,16 @@ def _write_exclusive_retained_artifact(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time first enrollment retained artifact is invalid"
         )
+    directory_owner: _OwnedFileDescriptor | None = None
     directory_descriptor: int | None = None
     file_descriptor: int | None = None
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             absolute_directory,
             ignored_root=IGNORED_ARTIFACT_ROOT,
             create=True,
         )
+        directory_descriptor = directory_owner.fileno()
         file_descriptor = os.open(
             file_name,
             os.O_WRONLY
@@ -1194,9 +1201,9 @@ def _write_exclusive_retained_artifact(
         if file_descriptor is not None:
             with suppress(OSError):
                 os.close(file_descriptor)
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
     retained = _read_owner_only_artifact(
         absolute_directory,
         file_name,
@@ -1489,15 +1496,17 @@ def _cleanup_stale_enrollment_input(path: Path, *, file_name: str, kind: str | N
         )
     if not os.path.lexists(path.parent) and not os.path.lexists(path):
         return
+    root_owner: _OwnedFileDescriptor | None = None
     root_descriptor: int | None = None
     directory_descriptor: int | None = None
     file_descriptor: int | None = None
     try:
-        root_descriptor = _open_owner_only_artifact_directory(
+        root_owner = _open_owner_only_artifact_directory(
             DATABASE_SECRET_ROOT,
             ignored_root=IGNORED_ARTIFACT_ROOT,
             create=False,
         )
+        root_descriptor = root_owner.fileno()
         directory_descriptor = os.open(
             path.parent.name,
             os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
@@ -1544,9 +1553,9 @@ def _cleanup_stale_enrollment_input(path: Path, *, file_name: str, kind: str | N
         if directory_descriptor is not None:
             with suppress(OSError):
                 os.close(directory_descriptor)
-        if root_descriptor is not None:
+        if root_owner is not None:
             with suppress(OSError):
-                os.close(root_descriptor)
+                root_owner.close()
     if os.path.lexists(path) or os.path.lexists(path.parent):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time stale first enrollment input cleanup is unconfirmed"
@@ -1558,22 +1567,25 @@ def _cleanup_orphaned_enrollment_inputs_without_container() -> None:
 
     if not os.path.lexists(DATABASE_SECRET_ROOT):
         return
+    directory_owner: _OwnedFileDescriptor | None = None
     directory_descriptor: int | None = None
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             DATABASE_SECRET_ROOT,
             ignored_root=IGNORED_ARTIFACT_ROOT,
             create=False,
         )
+        directory_descriptor = directory_owner.fileno()
         entries = sorted(os.listdir(directory_descriptor))
     except (OSError, TrustedTimeImageVerificationError):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time stale first enrollment input inventory is unavailable"
         ) from None
     finally:
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
+        directory_owner = None
         directory_descriptor = None
     if len(entries) > 128 or any(type(entry) is not str or len(entry) > 96 for entry in entries):
         raise TrustedTimeSupervisorConfigurationError(
@@ -1600,11 +1612,12 @@ def _cleanup_orphaned_enrollment_inputs_without_container() -> None:
     for path, file_name, kind in candidates:
         _cleanup_stale_enrollment_input(path, file_name=file_name, kind=kind)
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             DATABASE_SECRET_ROOT,
             ignored_root=IGNORED_ARTIFACT_ROOT,
             create=False,
         )
+        directory_descriptor = directory_owner.fileno()
         if os.listdir(directory_descriptor):
             raise OSError
     except (OSError, TrustedTimeImageVerificationError):
@@ -1612,9 +1625,9 @@ def _cleanup_orphaned_enrollment_inputs_without_container() -> None:
             "trusted-time stale first enrollment input cleanup is unconfirmed"
         ) from None
     finally:
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
 
 
 def _remove_exact_stale_enrollment_topology(

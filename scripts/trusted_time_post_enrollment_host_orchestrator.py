@@ -173,10 +173,10 @@ from scripts.trusted_time_post_enrollment_controller_outcome import (  # noqa: E
 )
 from scripts.trusted_time_post_enrollment_execution_admission import (  # noqa: E402
     DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
-    TrustedTimePostEnrollmentExecutionAdmission,
+    LoadedTrustedTimePostEnrollmentExecutionApproval,
     _consume_post_enrollment_execution_admission,
-    admit_post_enrollment_execution_attempt,
     load_post_enrollment_execution_approval,
+    reserve_post_enrollment_execution_attempt,
 )
 from scripts.trusted_time_post_enrollment_outcome import (  # noqa: E402
     RetainedTrustedTimePostEnrollmentStartOutcome,
@@ -206,9 +206,11 @@ from scripts.verify_trusted_time_compose import (  # noqa: E402
     validate_compose_model,
 )
 from scripts.verify_trusted_time_images import (  # noqa: E402
+    DEFAULT_IMAGE_ADMISSION_ARTIFACT,
     IGNORED_ARTIFACT_ROOT,
+    TrustedTimeImageAdmission,
     _head_reviewed_input_payload,
-    verify_images,
+    verify_and_write_existing_image_admission,
 )
 
 ROOT = _CLI_REPOSITORY_ROOT or Path(__file__).resolve().parents[1]
@@ -218,7 +220,7 @@ if ROOT != LAUNCHER_ROOT:
     raise RuntimeError("trusted-time post-enrollment source root is unavailable")
 
 POST_ENROLLMENT_HOST_ORCHESTRATOR_CONTRACT_VERSION = (
-    "phase6d-post-enrollment-start-host-orchestrator-v1"
+    "phase6d-post-enrollment-start-host-orchestrator-v2"
 )
 POST_ENROLLMENT_HOST_ORCHESTRATOR_SERVICE = "trusted-time-post-enrollment-start-host-orchestrator"
 POST_ENROLLMENT_HOST_ORCHESTRATOR_STATUS = "terminal_outcome_retained"
@@ -277,9 +279,14 @@ class _RuntimeMaterials:
 
 
 def _approved_launch(
-    admission: TrustedTimePostEnrollmentExecutionAdmission,
+    approval: TrustedTimePostEnrollmentStartApproval,
 ) -> TrustedTimeApprovedLaunch:
-    launch = admission.approval.proposed_launch
+    if type(approval) is not TrustedTimePostEnrollmentStartApproval:
+        raise TrustedTimePostEnrollmentHostOrchestratorRejected(
+            "trusted-time post-enrollment approval is invalid"
+        )
+    approval.__post_init__()
+    launch = approval.proposed_launch
     return TrustedTimeApprovedLaunch(
         git_revision=launch.git_revision,
         image_admission_sha256=launch.image_admission_sha256,
@@ -317,10 +324,14 @@ def _read_reviewed_source_authority(revision: str) -> tuple[bytes, bytes, bytes]
 
 def _build_read_only_configuration(
     *,
-    admission: TrustedTimePostEnrollmentExecutionAdmission,
+    approval: TrustedTimePostEnrollmentStartApproval,
     runtime: TrustedTimeRuntimeConfiguration,
 ) -> TrustedTimePostEnrollmentStartSequenceTwoReadOnlyConfiguration:
-    approval = admission.approval
+    if type(approval) is not TrustedTimePostEnrollmentStartApproval:
+        raise TrustedTimePostEnrollmentHostOrchestratorRejected(
+            "trusted-time post-enrollment approval is invalid"
+        )
+    approval.__post_init__()
     revision = approval.proposed_launch.git_revision
     source_authority, chrony_config, database_ca = _read_reviewed_source_authority(revision)
     deployment = decode_trusted_time_authority(
@@ -391,12 +402,12 @@ def _build_read_only_configuration(
 
 def _materialize_runtime_inputs(
     *,
-    admission: TrustedTimePostEnrollmentExecutionAdmission,
+    approval: TrustedTimePostEnrollmentStartApproval,
     runtime_env_file: Path,
     owner: _MaterializedRuntimeInputOwner,
 ) -> _RuntimeMaterials:
     runtime = load_trusted_time_runtime_configuration(runtime_env_file)
-    configuration = _build_read_only_configuration(admission=admission, runtime=runtime)
+    configuration = _build_read_only_configuration(approval=approval, runtime=runtime)
     database_secret = materialize_database_secret(
         runtime.database_url,
         root=DATABASE_SECRET_ROOT,
@@ -425,19 +436,10 @@ def _validate_compose(
     daemon_identity: LocalDockerDaemonIdentity,
     docker_environment: dict[str, str],
     materials: _RuntimeMaterials,
-) -> bytes:
+) -> tuple[bytes, TrustedTimeImageAdmission]:
     if _current_git_revision() != approved_launch.git_revision:
         raise TrustedTimePostEnrollmentHostOrchestratorRejected(
             "trusted-time approved revision is unavailable"
-        )
-    identities = verify_images(
-        approved_launch.source_image_id,
-        approved_launch.supervisor_image_id,
-        docker_environment=docker_environment,
-    )
-    if identities != approved_launch.identities:
-        raise TrustedTimePostEnrollmentHostOrchestratorRejected(
-            "trusted-time approved images are unavailable"
         )
     _require_same_local_daemon(daemon_identity, environment=docker_environment)
     compose_payload = _validate_runtime_compose_payload(
@@ -467,8 +469,29 @@ def _validate_compose(
     )
     validate_materialized_database_secret(materials.database_secret)
     validate_materialized_trusted_time_head_anchor_inputs(materials.head_anchor_inputs)
+    try:
+        image_witness = verify_and_write_existing_image_admission(
+            DEFAULT_IMAGE_ADMISSION_ARTIFACT,
+            approved_launch.source_image_id,
+            approved_launch.supervisor_image_id,
+            ignored_root=IGNORED_ARTIFACT_ROOT,
+            docker_environment=docker_environment,
+        )
+    except BaseException:
+        raise TrustedTimePostEnrollmentHostOrchestratorRejected(
+            "trusted-time current image witness is unavailable"
+        ) from None
+    if image_witness.identities != approved_launch.identities:
+        raise TrustedTimePostEnrollmentHostOrchestratorRejected(
+            "trusted-time approved images are unavailable"
+        )
     _require_same_local_daemon(daemon_identity, environment=docker_environment)
-    return compose_payload
+    # The isolated image probe is deliberately reversible and precedes the
+    # permanent attempt slot.  Reopen the original named receipts afterwards so
+    # a same-UID replacement cannot ride that probe into the prepared fence.
+    validate_materialized_database_secret(materials.database_secret)
+    validate_materialized_trusted_time_head_anchor_inputs(materials.head_anchor_inputs)
+    return compose_payload, image_witness
 
 
 def _retire_inputs(owner: _MaterializedRuntimeInputOwner, materials: _RuntimeMaterials) -> None:
@@ -481,15 +504,16 @@ def _retire_inputs(owner: _MaterializedRuntimeInputOwner, materials: _RuntimeMat
 
 def _run_post_enrollment_choreography(
     *,
-    admission: TrustedTimePostEnrollmentExecutionAdmission,
-    approval_artifact: Path,
+    loaded_approval: LoadedTrustedTimePostEnrollmentExecutionApproval,
+    image_witness: TrustedTimeImageAdmission,
     materials: _RuntimeMaterials,
     owner: _MaterializedRuntimeInputOwner,
     approved_launch: TrustedTimeApprovedLaunch,
     compose_payload: bytes,
     issuer: TrustedTimePostEnrollmentTopologyObservationIssuer,
 ) -> RetainedTrustedTimePostEnrollmentStartControllerOutcome:
-    approval = admission.approval
+    approval = loaded_approval.approval
+    approval_artifact = loaded_approval.artifact_path
     staged_paths = materials.staged_paths
 
     def choreography(
@@ -518,6 +542,24 @@ def _run_post_enrollment_choreography(
                     ignored_root=IGNORED_ARTIFACT_ROOT,
                 )
             )
+            prepared_creation = issuer._prepare_reviewed_topology_creation(
+                approval=approval,
+                approved_launch=approved_launch,
+                compose_payload=compose_payload,
+                expected_database_secret_file=staged_paths[0],
+                expected_head_anchor_authority_file=staged_paths[1],
+                expected_head_anchor_auth_secret_file=staged_paths[2],
+                expected_head_anchor_signing_key_secret_file=staged_paths[3],
+                database_secret_receipt=materials.database_secret,
+                head_anchor_inputs_receipt=materials.head_anchor_inputs,
+                _choreography_lease=lease,
+            )
+            admission = reserve_post_enrollment_execution_attempt(
+                loaded_approval=loaded_approval,
+                image_admission=image_witness,
+                artifact_directory=DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
+                ignored_root=IGNORED_ARTIFACT_ROOT,
+            )
             if not _consume_post_enrollment_execution_admission(
                 admission,
                 approval_artifact=approval_artifact,
@@ -528,14 +570,8 @@ def _run_post_enrollment_choreography(
                     "trusted-time execution admission is unavailable"
                 )
             mutation_may_have_begun = True
-            created = issuer._create_reviewed_topology(
-                approval=approval,
-                approved_launch=approved_launch,
-                compose_payload=compose_payload,
-                expected_database_secret_file=staged_paths[0],
-                expected_head_anchor_authority_file=staged_paths[1],
-                expected_head_anchor_auth_secret_file=staged_paths[2],
-                expected_head_anchor_signing_key_secret_file=staged_paths[3],
+            created = issuer._execute_prepared_reviewed_topology_creation(
+                prepared_creation,
                 _choreography_lease=lease,
             )
             issuer._start_reviewed_source(
@@ -759,30 +795,30 @@ def _run_post_enrollment_choreography(
 
 def _execute_under_issuer(
     *,
-    admission: TrustedTimePostEnrollmentExecutionAdmission,
-    approval_artifact: Path,
+    loaded_approval: LoadedTrustedTimePostEnrollmentExecutionApproval,
     runtime_env_file: Path,
     issuer: TrustedTimePostEnrollmentTopologyObservationIssuer,
     daemon_identity: LocalDockerDaemonIdentity,
     docker_environment: dict[str, str],
 ) -> RetainedTrustedTimePostEnrollmentStartControllerOutcome:
+    approval = loaded_approval.approval
     owner = _MaterializedRuntimeInputOwner()
     try:
         materials = _materialize_runtime_inputs(
-            admission=admission,
+            approval=approval,
             runtime_env_file=runtime_env_file,
             owner=owner,
         )
-        approved_launch = _approved_launch(admission)
-        compose_payload = _validate_compose(
+        approved_launch = _approved_launch(approval)
+        compose_payload, image_witness = _validate_compose(
             approved_launch=approved_launch,
             daemon_identity=daemon_identity,
             docker_environment=docker_environment,
             materials=materials,
         )
         return _run_post_enrollment_choreography(
-            admission=admission,
-            approval_artifact=approval_artifact,
+            loaded_approval=loaded_approval,
+            image_witness=image_witness,
             materials=materials,
             owner=owner,
             approved_launch=approved_launch,
@@ -810,12 +846,13 @@ def run_approved_post_enrollment_start_once(
             "trusted-time post-enrollment execution is available only through the isolated CLI"
         )
     _require_repository_first_party_sources(_CLI_REPOSITORY_ROOT)
-    admission = admit_post_enrollment_execution_attempt(
+    loaded_approval = load_post_enrollment_execution_approval(
         approval_artifact=approval_artifact,
         artifact_directory=DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
         ignored_root=IGNORED_ARTIFACT_ROOT,
     )
-    approved_launch = _approved_launch(admission)
+    approval = loaded_approval.approval
+    approved_launch = _approved_launch(approval)
     docker_environment = _minimal_docker_environment()
     daemon_identity = qualify_local_docker_daemon(environment=docker_environment)
     issuer: TrustedTimePostEnrollmentTopologyObservationIssuer | None = None
@@ -830,8 +867,7 @@ def run_approved_post_enrollment_start_once(
                 "trusted-time approved revision is unavailable"
             )
         return _execute_under_issuer(
-            admission=admission,
-            approval_artifact=approval_artifact,
+            loaded_approval=loaded_approval,
             runtime_env_file=runtime_env_file,
             issuer=issuer,
             daemon_identity=daemon_identity,

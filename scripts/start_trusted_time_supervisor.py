@@ -24,7 +24,7 @@ from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import unquote, urlsplit
 
 
@@ -115,6 +115,7 @@ _CLI_REPOSITORY_ROOT = (
 )
 
 from apps.trusted_time_supervisor.config import (
+    DATABASE_URL_EXPECTED_SHA256_ENVIRONMENT,
     TrustedTimeSupervisorConfigurationError,
     validate_database_url,
 )
@@ -122,6 +123,9 @@ from apps.trusted_time_supervisor.head_anchor_config import (
     ED25519_PRIVATE_KEY_BYTES,
     MAXIMUM_HEAD_ANCHOR_AUTH_SECRET_BYTES,
     MAXIMUM_HEAD_ANCHOR_AUTHORITY_BYTES,
+    TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_EXPECTED_SHA256_ENVIRONMENT,
+    TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_EXPECTED_SHA256_ENVIRONMENT,
+    TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_EXPECTED_SHA256_ENVIRONMENT,
 )
 from scripts.bounded_subprocess import BoundedSubprocessError, run_bounded_subprocess
 from scripts.credential_env import load_owner_only_environment
@@ -145,6 +149,7 @@ from scripts.verify_trusted_time_images import (
     TrustedTimeImageVerificationError,
     _head_reviewed_input_payload,
     _open_owner_only_artifact_directory,
+    _OwnedFileDescriptor,
     _require_head_reviewed_inputs,
     _require_ordinary_git_index_flags,
     load_image_admission_artifact,
@@ -210,6 +215,12 @@ _SUPERVISOR_RUNTIME_ENVIRONMENT = {
     "AQT_TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_FILE": HEAD_ANCHOR_AUTH_SECRET_RUNTIME_PATH,
     "AQT_TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_FILE": HEAD_ANCHOR_SIGNING_KEY_RUNTIME_PATH,
 }
+POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT = (
+    DATABASE_URL_EXPECTED_SHA256_ENVIRONMENT,
+    TRUSTED_TIME_HEAD_ANCHOR_AUTHORITY_EXPECTED_SHA256_ENVIRONMENT,
+    TRUSTED_TIME_HEAD_ANCHOR_AUTH_SECRET_EXPECTED_SHA256_ENVIRONMENT,
+    TRUSTED_TIME_HEAD_ANCHOR_SIGNING_KEY_EXPECTED_SHA256_ENVIRONMENT,
+)
 FIRST_ENROLLMENT_SERVICE = "trusted-time-first-enrollment"
 FIRST_ENROLLMENT_COMMAND = "/opt/venv/bin/autoquant-trusted-time-first-enrollment"
 _FIRST_ENROLLMENT_RUNTIME_ENVIRONMENT = {
@@ -659,6 +670,7 @@ def _retire_materialized_runtime_input_restartably(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time staged-input retirement is unconfirmed"
         )
+    root_owner: _OwnedFileDescriptor | None = None
     root_descriptor: int | None = None
     directory_descriptor: int | None = None
     file_descriptor: int | None = None
@@ -674,11 +686,12 @@ def _retire_materialized_runtime_input_restartably(
             or held_file_metadata.st_size != resource.size
         ):
             raise OSError
-        root_descriptor = _open_owner_only_artifact_directory(
+        root_owner = _open_owner_only_artifact_directory(
             resource.root,
             ignored_root=resource.ignored_root,
             create=False,
         )
+        root_descriptor = root_owner.fileno()
         try:
             directory_descriptor = os.open(
                 resource.directory.name,
@@ -767,8 +780,8 @@ def _retire_materialized_runtime_input_restartably(
             os.close(file_descriptor)
         if directory_descriptor is not None:
             os.close(directory_descriptor)
-        if root_descriptor is not None:
-            os.close(root_descriptor)
+        if root_owner is not None:
+            root_owner.close()
 
 
 def _safe_payload(status: str, reason: str) -> str:
@@ -1030,6 +1043,7 @@ def write_unenrolled_admission_receipt(
     artifact_sha256 = hashlib.sha256(encoded).hexdigest()
     file_name = f"trusted-time-unenrolled-launch-admission-{artifact_sha256}.json"
     temporary_name = f".{file_name}.{os.getpid()}.{secrets.token_hex(16)}.tmp"
+    directory_owner: _OwnedFileDescriptor | None = None
     directory_descriptor: int | None = None
     file_descriptor: int | None = None
     verification_descriptor: int | None = None
@@ -1038,11 +1052,12 @@ def write_unenrolled_admission_receipt(
     published = False
     written_identity: tuple[int, int] | None = None
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             absolute_directory,
             ignored_root=absolute_ignored_root,
             create=True,
         )
+        directory_descriptor = directory_owner.fileno()
         file_descriptor = os.open(
             temporary_name,
             os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
@@ -1160,7 +1175,7 @@ def write_unenrolled_admission_receipt(
         if file_descriptor is not None:
             with suppress(OSError):
                 os.close(file_descriptor)
-        if directory_descriptor is not None:
+        if directory_owner is not None and directory_descriptor is not None:
             rollback_attempted = False
             if temporary_created:
                 rollback_attempted = True
@@ -1180,7 +1195,7 @@ def write_unenrolled_admission_receipt(
                 except OSError:
                     retention_unconfirmed = True
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
         if retention_unconfirmed:
             raise TrustedTimeSupervisorAdmissionRetentionUnconfirmed(
                 "trusted-time unenrolled admission retention is unconfirmed"
@@ -1419,6 +1434,7 @@ def materialize_database_secret(
         raise TrustedTimeSupervisorConfigurationError("trusted-time staged-input owner is invalid")
     validated = validate_database_url(database_url)
     encoded = validated.encode("utf-8")
+    root_owner: _OwnedFileDescriptor | None = None
     root_descriptor: int | None = None
     directory_descriptor: int | None = None
     file_descriptor: int | None = None
@@ -1427,11 +1443,12 @@ def materialize_database_secret(
     file_created = False
     materialized: MaterializedDatabaseSecret | None = None
     try:
-        root_descriptor = _open_owner_only_artifact_directory(
+        root_owner = _open_owner_only_artifact_directory(
             root,
             ignored_root=ignored_root,
             create=True,
         )
+        root_descriptor = root_owner.fileno()
         os.mkdir(directory_name, 0o700, dir_fd=root_descriptor)
         directory_created = True
         directory_descriptor = os.open(
@@ -1507,8 +1524,8 @@ def materialize_database_secret(
             os.close(file_descriptor)
         if directory_descriptor is not None:
             os.close(directory_descriptor)
-        if root_descriptor is not None:
-            os.close(root_descriptor)
+        if root_owner is not None:
+            root_owner.close()
 
 
 def validate_materialized_database_secret(secret: MaterializedDatabaseSecret) -> None:
@@ -1576,15 +1593,17 @@ def cleanup_materialized_database_secret(secret: MaterializedDatabaseSecret) -> 
         or not secret.root.is_relative_to(secret.ignored_root)
     ):
         raise TrustedTimeSupervisorConfigurationError("trusted-time database secret cleanup failed")
+    root_owner: _OwnedFileDescriptor | None = None
     root_descriptor: int | None = None
     directory_descriptor: int | None = None
     file_descriptor: int | None = None
     try:
-        root_descriptor = _open_owner_only_artifact_directory(
+        root_owner = _open_owner_only_artifact_directory(
             secret.root,
             ignored_root=secret.ignored_root,
             create=False,
         )
+        root_descriptor = root_owner.fileno()
         directory_descriptor = os.open(
             secret.directory.name,
             os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
@@ -1633,8 +1652,8 @@ def cleanup_materialized_database_secret(secret: MaterializedDatabaseSecret) -> 
             os.close(file_descriptor)
         if directory_descriptor is not None:
             os.close(directory_descriptor)
-        if root_descriptor is not None:
-            os.close(root_descriptor)
+        if root_owner is not None:
+            root_owner.close()
     if secret.path.exists() or secret.directory.exists():
         raise TrustedTimeSupervisorConfigurationError("trusted-time database secret cleanup failed")
 
@@ -1665,6 +1684,7 @@ def _materialize_head_anchor_file(
             "trusted-time head-anchor input materialization failed"
         )
     directory_name = f".head-anchor-{kind}-{secrets.token_hex(16)}"
+    root_owner: _OwnedFileDescriptor | None = None
     root_descriptor: int | None = None
     directory_descriptor: int | None = None
     file_descriptor: int | None = None
@@ -1672,11 +1692,12 @@ def _materialize_head_anchor_file(
     file_created = False
     materialized: MaterializedHeadAnchorFile | None = None
     try:
-        root_descriptor = _open_owner_only_artifact_directory(
+        root_owner = _open_owner_only_artifact_directory(
             root,
             ignored_root=ignored_root,
             create=True,
         )
+        root_descriptor = root_owner.fileno()
         os.mkdir(directory_name, 0o700, dir_fd=root_descriptor)
         directory_created = True
         directory_descriptor = os.open(
@@ -1753,8 +1774,8 @@ def _materialize_head_anchor_file(
             os.close(file_descriptor)
         if directory_descriptor is not None:
             os.close(directory_descriptor)
-        if root_descriptor is not None:
-            os.close(root_descriptor)
+        if root_owner is not None:
+            root_owner.close()
 
 
 def validate_materialized_head_anchor_file(
@@ -1837,15 +1858,17 @@ def cleanup_materialized_head_anchor_file(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time head-anchor staged input cleanup failed"
         )
+    root_owner: _OwnedFileDescriptor | None = None
     root_descriptor: int | None = None
     directory_descriptor: int | None = None
     file_descriptor: int | None = None
     try:
-        root_descriptor = _open_owner_only_artifact_directory(
+        root_owner = _open_owner_only_artifact_directory(
             materialized.root,
             ignored_root=materialized.ignored_root,
             create=False,
         )
+        root_descriptor = root_owner.fileno()
         directory_descriptor = os.open(
             materialized.directory.name,
             os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
@@ -1892,8 +1915,8 @@ def cleanup_materialized_head_anchor_file(
             os.close(file_descriptor)
         if directory_descriptor is not None:
             os.close(directory_descriptor)
-        if root_descriptor is not None:
-            os.close(root_descriptor)
+        if root_owner is not None:
+            root_owner.close()
     if materialized.path.exists() or materialized.directory.exists():
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time head-anchor staged input cleanup failed"
@@ -2012,14 +2035,16 @@ def _acquire_trusted_time_launch_lock(
         or path.name != TRUSTED_TIME_LAUNCH_LOCK_PATH.name
     ):
         raise TrustedTimeSupervisorConfigurationError("trusted-time launcher lock path is invalid")
+    directory_owner: _OwnedFileDescriptor | None = None
     directory_descriptor: int | None = None
     lock_descriptor: int | None = None
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             path.parent,
             ignored_root=ignored_root,
             create=True,
         )
+        directory_descriptor = directory_owner.fileno()
         lock_descriptor = os.open(
             path.name,
             os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
@@ -2046,9 +2071,9 @@ def _acquire_trusted_time_launch_lock(
             "another trusted-time launcher is active"
         ) from None
     finally:
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
 
 
 def _release_trusted_time_launch_lock(lock_descriptor: int) -> None:
@@ -2078,22 +2103,24 @@ def _require_no_retained_first_enrollment_claim(
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time first enrollment claim boundary is invalid"
         )
+    directory_owner: _OwnedFileDescriptor | None = None
     directory_descriptor: int | None = None
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             artifact_dir,
             ignored_root=ignored_root,
             create=False,
         )
+        directory_descriptor = directory_owner.fileno()
         entries = os.listdir(directory_descriptor)
     except (OSError, TrustedTimeImageVerificationError):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time first enrollment claim state is unavailable"
         ) from None
     finally:
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
     if (
         len(entries) > 4_096
         or any(type(entry) is not str or len(entry) > 255 for entry in entries)
@@ -3630,6 +3657,7 @@ def _validate_host_hardening(
     host: Mapping[str, object],
     *,
     expected_service: str,
+    expected_network_name: str,
     expected_database_secret_file: Path | None,
     expected_head_anchor_authority_file: Path | None,
     expected_head_anchor_auth_secret_file: Path | None,
@@ -3646,7 +3674,7 @@ def _validate_host_hardening(
         or host.get("NanoCpus") != (250_000_000 if source else 500_000_000)
         or host.get("Memory") != (67_108_864 if source else 268_435_456)
         or host.get("Init") is not True
-        or host.get("NetworkMode") != COMPOSE_NETWORK_NAME
+        or host.get("NetworkMode") != expected_network_name
         or host.get("PublishAllPorts") is not False
         or host.get("PortBindings") not in (None, {})
         or host.get("Devices") not in (None, [])
@@ -3728,6 +3756,8 @@ def _validate_trusted_time_container_runtime_policy(
     expected_head_anchor_authority_file: Path | None,
     expected_head_anchor_auth_secret_file: Path | None,
     expected_head_anchor_signing_key_secret_file: Path | None,
+    expected_network_name: str = COMPOSE_NETWORK_NAME,
+    expected_staged_input_sha256s: tuple[str, str, str, str] | None = None,
 ) -> None:
     """Validate the shared image, environment, hardening, and mount policy."""
 
@@ -3757,14 +3787,45 @@ def _validate_trusted_time_container_runtime_policy(
         expected_image_configuration.get("Env"),
         "trusted-time admitted image environment",
     )
-    if expected_service == "trusted-time-supervisor":
-        expected_environment.update(_SUPERVISOR_RUNTIME_ENVIRONMENT)
-    elif expected_service == FIRST_ENROLLMENT_SERVICE:
-        expected_environment.update(_FIRST_ENROLLMENT_RUNTIME_ENVIRONMENT)
     runtime_environment = _environment_mapping(
         configuration.get("Env"),
         "trusted-time runtime environment",
     )
+    if expected_service == "trusted-time-supervisor":
+        expected_environment.update(_SUPERVISOR_RUNTIME_ENVIRONMENT)
+        if expected_network_name == COMPOSE_NETWORK_NAME:
+            if expected_staged_input_sha256s is not None:
+                raise TrustedTimeSupervisorConfigurationError(
+                    "trusted-time staged-input digest binding crossed legacy topology"
+                )
+        else:
+            observed_sha256s = tuple(
+                runtime_environment.get(name)
+                for name in POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT
+            )
+            if any(
+                type(value) is not str or _SHA256_PATTERN.fullmatch(value) is None
+                for value in observed_sha256s
+            ) or (
+                expected_staged_input_sha256s is not None
+                and observed_sha256s != expected_staged_input_sha256s
+            ):
+                raise TrustedTimeSupervisorConfigurationError(
+                    "trusted-time staged-input digest environment drifted"
+                )
+            expected_environment.update(
+                zip(
+                    POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT,
+                    cast(tuple[str, str, str, str], observed_sha256s),
+                    strict=True,
+                )
+            )
+    elif expected_service == FIRST_ENROLLMENT_SERVICE:
+        expected_environment.update(_FIRST_ENROLLMENT_RUNTIME_ENVIRONMENT)
+    elif expected_staged_input_sha256s is not None:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time staged-input digest binding crossed service identity"
+        )
     if runtime_environment != expected_environment:
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time runtime environment allowlist drifted"
@@ -3773,6 +3834,7 @@ def _validate_trusted_time_container_runtime_policy(
     _validate_host_hardening(
         host,
         expected_service=expected_service,
+        expected_network_name=expected_network_name,
         expected_database_secret_file=expected_database_secret_file,
         expected_head_anchor_authority_file=expected_head_anchor_authority_file,
         expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
@@ -3968,6 +4030,7 @@ _EXACT_CONTAINER_NETWORK_ATTACHMENT_KEYS = frozenset(
 )
 _EXACT_CONTAINER_MAXIMUM_NETWORK_NAMES = 8
 _EXACT_CONTAINER_MAXIMUM_NETWORK_NAME_CHARACTERS = 255
+_EXACT_DOCKER_NETWORK_NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}")
 _EXACT_CONTAINER_MAXIMUM_HEALTH_LOG_ENTRIES = 5
 _EXACT_CONTAINER_MAXIMUM_HEALTH_OUTPUT_BYTES = 4_096
 _EXACT_CONTAINER_MAXIMUM_SANDBOX_KEY_CHARACTERS = 128
@@ -3996,6 +4059,10 @@ _EXACT_CREATED_MINIMUM_READONLY_PATHS = frozenset(
         "/proc/sysrq-trigger",
     }
 )
+
+
+def _is_exact_docker_network_name(value: object) -> bool:
+    return type(value) is str and _EXACT_DOCKER_NETWORK_NAME_PATTERN.fullmatch(value) is not None
 
 
 def _expected_container_path_and_args(
@@ -4148,6 +4215,36 @@ def _validate_exact_staged_running_state(
     _validate_exact_staged_health_log(health.get("Log"))
 
 
+def _validate_exact_post_start_exited_supervisor_state(
+    container: Mapping[str, object],
+    state: Mapping[str, object],
+) -> None:
+    """Accept only the supervisor's bounded fail-closed startup exit."""
+
+    if (
+        set(state) != _NEVER_STARTED_CREATED_STATE_KEYS
+        or state.get("Status") != "exited"
+        or state.get("Running") is not False
+        or state.get("Paused") is not False
+        or state.get("Restarting") is not False
+        or state.get("OOMKilled") is not False
+        or state.get("Dead") is not False
+        or type(state.get("Pid")) is not int
+        or state.get("Pid") != 0
+        or type(state.get("ExitCode")) is not int
+        or state.get("ExitCode") != 2
+        or state.get("Error") != ""
+        or not _is_concrete_docker_timestamp(state.get("StartedAt"))
+        or not _is_concrete_docker_timestamp(state.get("FinishedAt"))
+        or state.get("FinishedAt") == state.get("StartedAt")
+        or type(container.get("RestartCount")) is not int
+        or container.get("RestartCount") != 0
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time supervisor is not exact post-start exited state"
+        )
+
+
 def _validate_exact_never_started_projection_presence(
     configuration: Mapping[str, object],
     host: Mapping[str, object],
@@ -4216,6 +4313,7 @@ def _validate_exact_network_observation_boundary(
     networks: Mapping[str, object],
     *,
     expected_service: str,
+    expected_network_name: str,
     require_running_endpoint: bool,
     require_live_observation_fields: bool,
 ) -> None:
@@ -4224,12 +4322,12 @@ def _validate_exact_network_observation_boundary(
         or any(type(key) is not str for key in network_settings)
         or len(networks) != 1
         or any(type(key) is not str for key in networks)
-        or COMPOSE_NETWORK_NAME not in networks
+        or expected_network_name not in networks
     ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time exact container network attachment drifted"
         )
-    attachment = networks.get(COMPOSE_NETWORK_NAME)
+    attachment = networks.get(expected_network_name)
     if type(attachment) is not dict:
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time exact container network attachment drifted"
@@ -4412,6 +4510,7 @@ def _validate_exact_container_observation_boundary(
     networks: Mapping[str, object],
     *,
     expected_service: str,
+    expected_network_name: str,
     require_running_endpoint: bool,
     require_live_observation_fields: bool,
 ) -> None:
@@ -4452,6 +4551,7 @@ def _validate_exact_container_observation_boundary(
         network_settings,
         networks,
         expected_service=expected_service,
+        expected_network_name=expected_network_name,
         require_running_endpoint=require_running_endpoint,
         require_live_observation_fields=require_live_observation_fields,
     )
@@ -4591,6 +4691,8 @@ def validate_exact_never_started_created_container(
     expected_image_id: str,
     expected_image_configuration: Mapping[str, object],
     expected_service: str,
+    expected_network_name: str = COMPOSE_NETWORK_NAME,
+    expected_staged_input_sha256s: tuple[str, str, str, str] | None = None,
     expected_database_secret_file: Path | None = None,
     expected_head_anchor_authority_file: Path | None = None,
     expected_head_anchor_auth_secret_file: Path | None = None,
@@ -4635,6 +4737,7 @@ def validate_exact_never_started_created_container(
         or _FULL_CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None
         or type(expected_image_id) is not str
         or _IMAGE_ID_PATTERN.fullmatch(expected_image_id) is None
+        or not _is_exact_docker_network_name(expected_network_name)
         or type(require_live_observation_fields) is not bool
     ):
         raise TrustedTimeSupervisorConfigurationError(
@@ -4678,6 +4781,7 @@ def validate_exact_never_started_created_container(
         network_settings,
         networks,
         expected_service=expected_service,
+        expected_network_name=expected_network_name,
         require_running_endpoint=False,
         require_live_observation_fields=require_live_observation_fields,
     )
@@ -4707,6 +4811,8 @@ def validate_exact_never_started_created_container(
         expected_head_anchor_authority_file=expected_head_anchor_authority_file,
         expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
         expected_head_anchor_signing_key_secret_file=(expected_head_anchor_signing_key_secret_file),
+        expected_network_name=expected_network_name,
+        expected_staged_input_sha256s=expected_staged_input_sha256s,
     )
 
 
@@ -4717,6 +4823,8 @@ def validate_exact_staged_running_container(
     expected_image_id: str,
     expected_image_configuration: Mapping[str, object],
     expected_service: str,
+    expected_network_name: str = COMPOSE_NETWORK_NAME,
+    expected_staged_input_sha256s: tuple[str, str, str, str] | None = None,
     expected_database_secret_file: Path | None = None,
     expected_head_anchor_authority_file: Path | None = None,
     expected_head_anchor_auth_secret_file: Path | None = None,
@@ -4761,6 +4869,7 @@ def validate_exact_staged_running_container(
         or _FULL_CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None
         or type(expected_image_id) is not str
         or _IMAGE_ID_PATTERN.fullmatch(expected_image_id) is None
+        or not _is_exact_docker_network_name(expected_network_name)
         or type(require_live_observation_fields) is not bool
     ):
         raise TrustedTimeSupervisorConfigurationError(
@@ -4804,6 +4913,7 @@ def validate_exact_staged_running_container(
         network_settings,
         networks,
         expected_service=expected_service,
+        expected_network_name=expected_network_name,
         require_running_endpoint=True,
         require_live_observation_fields=require_live_observation_fields,
     )
@@ -4837,6 +4947,137 @@ def validate_exact_staged_running_container(
         expected_head_anchor_authority_file=expected_head_anchor_authority_file,
         expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
         expected_head_anchor_signing_key_secret_file=(expected_head_anchor_signing_key_secret_file),
+        expected_network_name=expected_network_name,
+        expected_staged_input_sha256s=expected_staged_input_sha256s,
+    )
+
+
+def validate_exact_post_start_exited_supervisor_container(
+    inspection: object,
+    *,
+    expected_container_id: str,
+    expected_image_id: str,
+    expected_image_configuration: Mapping[str, object],
+    expected_network_name: str,
+    expected_staged_input_sha256s: tuple[str, str, str, str],
+    expected_database_secret_file: Path,
+    expected_head_anchor_authority_file: Path,
+    expected_head_anchor_auth_secret_file: Path,
+    expected_head_anchor_signing_key_secret_file: Path,
+    require_live_observation_fields: bool = False,
+) -> None:
+    """Validate the exact current-attempt supervisor after fail-closed startup."""
+
+    if type(inspection) is not list or len(inspection) != 1:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time post-start exited supervisor inspection is malformed"
+        )
+    container = _mapping(inspection[0], "trusted-time post-start exited supervisor")
+    configuration = _mapping(
+        container.get("Config"),
+        "trusted-time post-start exited supervisor Config",
+    )
+    host = _mapping(
+        container.get("HostConfig"),
+        "trusted-time post-start exited supervisor HostConfig",
+    )
+    _validate_exact_never_started_projection_presence(configuration, host)
+    network_settings = _mapping(
+        container.get("NetworkSettings"),
+        "trusted-time post-start exited supervisor NetworkSettings",
+    )
+    networks = _mapping(
+        network_settings.get("Networks"),
+        "trusted-time post-start exited supervisor networks",
+    )
+    labels = _mapping(
+        configuration.get("Labels"),
+        "trusted-time post-start exited supervisor labels",
+    )
+    state = _mapping(
+        container.get("State"),
+        "trusted-time post-start exited supervisor state",
+    )
+    staged_paths = (
+        expected_database_secret_file,
+        expected_head_anchor_authority_file,
+        expected_head_anchor_auth_secret_file,
+        expected_head_anchor_signing_key_secret_file,
+    )
+    if (
+        type(expected_container_id) is not str
+        or _FULL_CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None
+        or type(expected_image_id) is not str
+        or _IMAGE_ID_PATTERN.fullmatch(expected_image_id) is None
+        or not _is_exact_docker_network_name(expected_network_name)
+        or expected_network_name == COMPOSE_NETWORK_NAME
+        or type(expected_staged_input_sha256s) is not tuple
+        or len(expected_staged_input_sha256s) != 4
+        or any(
+            type(value) is not str or _SHA256_PATTERN.fullmatch(value) is None
+            for value in expected_staged_input_sha256s
+        )
+        or not all(_is_absolute_lexically_canonical_path(path) for path in staged_paths)
+        or len(set(staged_paths)) != len(staged_paths)
+        or type(require_live_observation_fields) is not bool
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time post-start exited supervisor binding is invalid"
+        )
+    expected_path, expected_args = _expected_container_path_and_args(expected_image_configuration)
+    if (
+        container.get("Id") != expected_container_id
+        or container.get("Image") != expected_image_id
+        or configuration.get("Image") != expected_image_id
+        or container.get("Path") != expected_path
+        or type(container.get("Args")) is not list
+        or container.get("Args") != expected_args
+        or labels.get("com.docker.compose.project") != "autoquanttrader-trusted-time"
+        or labels.get("com.docker.compose.service") != "trusted-time-supervisor"
+        or labels.get("com.docker.compose.oneoff") != "False"
+        or labels.get("com.docker.compose.container-number") != "1"
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time post-start exited supervisor identity drifted"
+        )
+    _validate_exact_container_observation_boundary(
+        container,
+        host,
+        network_settings,
+        networks,
+        expected_service="trusted-time-supervisor",
+        expected_network_name=expected_network_name,
+        require_running_endpoint=False,
+        require_live_observation_fields=require_live_observation_fields,
+    )
+    _validate_exact_post_start_exited_supervisor_state(container, state)
+    _validate_exact_never_started_host_boundary(host)
+    _validate_exact_never_started_high_risk_boundary(
+        configuration,
+        host,
+        expected_image_configuration=expected_image_configuration,
+        expected_service="trusted-time-supervisor",
+        require_live_observation_fields=require_live_observation_fields,
+    )
+    _validate_exact_never_started_numeric_types(
+        configuration,
+        host,
+        expected_service="trusted-time-supervisor",
+    )
+    _validate_trusted_time_container_runtime_policy(
+        container,
+        configuration,
+        host,
+        state,
+        expected_image_configuration=expected_image_configuration,
+        expected_service="trusted-time-supervisor",
+        require_healthy=False,
+        expected_database_secret_file=expected_database_secret_file,
+        expected_head_anchor_authority_file=expected_head_anchor_authority_file,
+        expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
+        expected_head_anchor_signing_key_secret_file=(expected_head_anchor_signing_key_secret_file),
+        expected_network_name=expected_network_name,
+        expected_staged_input_sha256s=expected_staged_input_sha256s,
     )
 
 

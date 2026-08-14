@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import dis
 import gc
+import hashlib
 import inspect
 import io
 import json
@@ -28,6 +29,8 @@ import scripts.trusted_time_post_enrollment_topology_reader as reader
 from apps.trusted_time_supervisor.config import TrustedTimeSupervisorConfigurationError
 from scripts import trusted_time_post_enrollment_outcome as recovery_outcome
 from scripts.start_trusted_time_supervisor import (
+    COMPOSE_NETWORK_NAME,
+    POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT,
     LocalDockerDaemonIdentity,
     _acquire_trusted_time_launch_lock,
     _release_trusted_time_launch_lock,
@@ -35,6 +38,9 @@ from scripts.start_trusted_time_supervisor import (
 from scripts.trusted_time_post_enrollment_start import (
     RetainedTrustedTimePostEnrollmentStartClaim,
     retain_post_enrollment_start_claim,
+)
+from scripts.trusted_time_post_enrollment_topology import (
+    post_enrollment_created_topology_network_name,
 )
 from tests.unit import test_trusted_time_post_enrollment_claimed_fence as claimed_fixtures
 from tests.unit import test_trusted_time_post_enrollment_staging as claim_fixtures
@@ -540,6 +546,11 @@ def _instruction_offset(
     ]
     assert matching
     return matching[0] if occurrence == "first" else matching[-1]
+
+
+def _open_descriptor_count() -> int:
+    descriptor_root = Path("/dev/fd") if Path("/dev/fd").is_dir() else Path("/proc/self/fd")
+    return len(os.listdir(descriptor_root))
 
 
 def _enable_instruction_interrupt(
@@ -5583,10 +5594,56 @@ def _reviewed_mutation_arguments(
     paths: tuple[Path, Path, Path, Path],
     compose_payload: bytes,
 ) -> dict[str, object]:
+    for path, payload in zip(
+        paths,
+        (b"database", b"authority", b"auth-secret", b"s" * 32),
+        strict=True,
+    ):
+        path.parent.mkdir(mode=0o700, exist_ok=True)
+        if not path.exists():
+            path.write_bytes(payload)
+            path.chmod(0o400)
     return {
         **fixtures._issue_arguments(paths),
         "compose_payload": compose_payload,
     }
+
+
+def _reviewed_prepare_arguments(
+    paths: tuple[Path, Path, Path, Path],
+    compose_payload: bytes,
+) -> dict[str, object]:
+    arguments = _reviewed_mutation_arguments(paths, compose_payload)
+    database_secret, head_anchor_inputs = reader._snapshot_reviewed_staged_input_receipts(paths)
+    arguments.update(
+        {
+            "database_secret_receipt": database_secret,
+            "head_anchor_inputs_receipt": head_anchor_inputs,
+        }
+    )
+    return arguments
+
+
+def _drift_staged_input(path: Path, drift: str) -> None:
+    if drift == "same_bytes_replacement":
+        replacement = path.with_name(path.name + ".replacement")
+        replacement.write_bytes(path.read_bytes())
+        replacement.chmod(0o400)
+        original_inode = path.stat().st_ino
+        path.unlink()
+        replacement.rename(path)
+        assert path.stat().st_ino != original_inode
+    elif drift == "removal":
+        path.unlink()
+    elif drift == "content":
+        original = path.read_bytes()
+        path.chmod(0o600)
+        path.write_bytes(bytes(byte ^ 0xFF for byte in original))
+        path.chmod(0o400)
+    elif drift == "mode":
+        path.chmod(0o600)
+    else:  # pragma: no cover - test helper is closed above
+        raise AssertionError("unsupported staged-input drift")
 
 
 _REVIEWED_COMPOSE_PAYLOAD = b"""name: autoquanttrader-trusted-time
@@ -5607,6 +5664,7 @@ def _bind_reviewed_create_outputs_to_invocation(
 ) -> None:
     bound_containers = 0
     bound_networks = 0
+    expected_network_name = post_enrollment_created_topology_network_name(issuer._session_sha256)
     for index, output in enumerate(queued.outputs):
         if type(output) is not bytes or not output.endswith(b"\n"):
             continue
@@ -5631,7 +5689,7 @@ def _bind_reviewed_create_outputs_to_invocation(
         network_labels = value.get("Labels")
         if (
             bind_network
-            and value.get("Name") == reader.COMPOSE_NETWORK_NAME
+            and value.get("Name") == expected_network_name
             and type(network_labels) is dict
             and network_labels.get("com.docker.compose.network") == "default"
         ):
@@ -5686,6 +5744,1124 @@ def _reviewed_teardown_authentication_outputs(
         fixtures._json_line(network),
         inventory,
     ]
+
+
+def test_split_reviewed_creation_finishes_inert_work_before_one_shot_effect(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = fixtures._short_socket_path(tmp_path)
+    fixtures._install_pure_validator_stubs(
+        monkeypatch,
+        endpoint=f"unix://{socket_path}",
+    )
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[b"", b"", b"", *fixtures._state_outputs("created")],
+        bind_reviewed_create_outputs=True,
+    )
+    events: list[str] = []
+    issuer_type = reader.TrustedTimePostEnrollmentTopologyObservationIssuer
+    original_material = issuer_type._reviewed_mutation_material
+    original_empty = issuer_type._run_exact_empty_precreate_observation
+    original_transform = issuer_type._reviewed_compose_create_payload
+    original_prepare_fence = reader._reviewed_staged_input_seals_from_materialized_receipts
+    original_execute_fence = reader._revalidate_reviewed_staged_input_seals
+    original_mutation = issuer_type._run_reviewed_mutation_command
+
+    def track_material(*args: Any, **kwargs: Any) -> tuple[str, dict[str, str]]:
+        events.append("binding")
+        return original_material(*args, **kwargs)
+
+    def track_empty(*args: Any, **kwargs: Any) -> None:
+        events.append("empty_observation")
+        original_empty(*args, **kwargs)
+
+    def track_transform(*args: Any, **kwargs: Any) -> bytes:
+        events.append("compose_transform")
+        return original_transform(*args, **kwargs)
+
+    def track_prepare_fence(*args: Any, **kwargs: Any) -> object:
+        events.append("prepare_input_fence")
+        return original_prepare_fence(*args, **kwargs)
+
+    def track_execute_fence(*args: Any, **kwargs: Any) -> None:
+        events.append("execute_input_fence")
+        original_execute_fence(*args, **kwargs)
+
+    def track_mutation(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        events.append("docker_create")
+        return original_mutation(*args, **kwargs)
+
+    monkeypatch.setattr(issuer_type, "_reviewed_mutation_material", track_material)
+    monkeypatch.setattr(issuer_type, "_run_exact_empty_precreate_observation", track_empty)
+    monkeypatch.setattr(issuer_type, "_reviewed_compose_create_payload", track_transform)
+    monkeypatch.setattr(
+        reader,
+        "_reviewed_staged_input_seals_from_materialized_receipts",
+        track_prepare_fence,
+    )
+    monkeypatch.setattr(reader, "_revalidate_reviewed_staged_input_seals", track_execute_fence)
+    monkeypatch.setattr(issuer_type, "_run_reviewed_mutation_command", track_mutation)
+
+    def run(lease: object) -> None:
+        prepared = issuer._prepare_reviewed_topology_creation(
+            **_reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD),  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        assert type(prepared) is reader._TrustedTimePostEnrollmentPreparedReviewedTopologyCreation
+        assert issuer._reviewed_mutation_state == "prepared"
+        registration = issuer._reviewed_mutation_prepared_registration
+        assert type(registration) is reader._PreparedReviewedTopologyCreationRegistration
+        assert tuple(seal.path for seal in registration.staged_input_seals) == paths
+        assert tuple(seal.sha256 for seal in registration.staged_input_seals) == tuple(
+            hashlib.sha256(payload).hexdigest()
+            for payload in (b"database", b"authority", b"auth-secret", b"s" * 32)
+        )
+        assert all(
+            not hasattr(seal, "payload") and not hasattr(seal, "content")
+            for seal in registration.staged_input_seals
+        )
+        assert events == [
+            "binding",
+            "empty_observation",
+            "prepare_input_fence",
+            "compose_transform",
+        ]
+        assert not any("compose" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+        for operation in (
+            lambda: copy(prepared),
+            lambda: deepcopy(prepared),
+            lambda: pickle.dumps(prepared),
+        ):
+            with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+                operation()
+
+        created = issuer._execute_prepared_reviewed_topology_creation(
+            prepared,
+            _choreography_lease=lease,
+        )
+        assert issuer._reviewed_mutation_state == "created"
+        assert events == [
+            "binding",
+            "empty_observation",
+            "prepare_input_fence",
+            "compose_transform",
+            "execute_input_fence",
+            "docker_create",
+        ]
+        observed_call_count = len(queued.calls)
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="prepared reviewed topology creation is unavailable",
+        ):
+            issuer._execute_prepared_reviewed_topology_creation(
+                prepared,
+                _choreography_lease=lease,
+            )
+        assert len(queued.calls) == observed_call_count
+        assert created is issuer._reviewed_mutation_created_observation
+
+    issuer._run_exclusive_choreography(run)
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_created_truth_is_one_atomic_registration_across_store_interruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = fixtures._short_socket_path(tmp_path)
+    fixtures._install_pure_validator_stubs(
+        monkeypatch,
+        endpoint=f"unix://{socket_path}",
+    )
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[b"", b"", b"", *fixtures._state_outputs("created")],
+        bind_reviewed_create_outputs=True,
+    )
+    issuer_type = reader.TrustedTimePostEnrollmentTopologyObservationIssuer
+    execute = issuer_type._execute_prepared_reviewed_topology_creation
+    interrupt_offset = _instruction_offset(
+        execute,
+        opname="STORE_ATTR",
+        argval="_reviewed_mutation_state",
+        occurrence="last",
+    )
+
+    def run(lease: object) -> None:
+        prepared = issuer._prepare_reviewed_topology_creation(
+            **_reviewed_prepare_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD),  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        tool_id = _enable_instruction_interrupt(
+            execute,
+            interrupt_offset,
+            tool_name="trusted-time-created-registration-store-test",
+        )
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                issuer._execute_prepared_reviewed_topology_creation(
+                    prepared,
+                    _choreography_lease=lease,
+                )
+        finally:
+            _disable_instruction_interrupt(tool_id, execute)
+
+        registration = issuer._reviewed_mutation_created_registration
+        assert type(registration) is reader._ReviewedCreatedTopologyRegistration
+        assert issuer._reviewed_mutation_state == "create_effected"
+        assert issuer._reviewed_mutation_created_observation is registration.observation
+        assert (
+            issuer._reviewed_mutation_created_observation_sha256
+            == registration.observation_sha256
+            == registration.observation.observation_sha256
+        )
+        assert registration.staged_input_sha256s == tuple(
+            hashlib.sha256(payload).hexdigest()
+            for payload in (b"database", b"authority", b"auth-secret", b"s" * 32)
+        )
+
+    issuer._run_exclusive_choreography(run)
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_staged_input_file_descriptor_owner_closes_on_call_store_interruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    _reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD)
+    opened_descriptors: list[int] = []
+    real_open = reader._open_reviewed_staged_input_owner
+
+    def tracked_open(
+        file_name: str,
+        *,
+        directory_descriptor: int,
+    ) -> reader._ReviewedStagedInputDescriptorOwner:
+        owner = real_open(
+            file_name,
+            directory_descriptor=directory_descriptor,
+        )
+        opened_descriptors.append(owner.fileno())
+        return owner
+
+    monkeypatch.setattr(reader, "_open_reviewed_staged_input_owner", tracked_open)
+    observe = reader._observe_reviewed_staged_input_seal
+    interrupt_offset = _instruction_offset(
+        observe,
+        opname="STORE_FAST",
+        argval="file_owner",
+        occurrence="last",
+    )
+    tool_id = _enable_instruction_interrupt(
+        observe,
+        interrupt_offset,
+        tool_name="trusted-time-staged-input-file-owner-store-test",
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            observe(paths[0])
+    finally:
+        _disable_instruction_interrupt(tool_id, observe)
+    gc.collect()
+
+    assert len(opened_descriptors) == 1
+    with pytest.raises(OSError):
+        os.fstat(opened_descriptors[0])
+
+
+def test_staged_input_directory_owner_closes_on_call_store_interruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    _reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD)
+    opened_descriptors: list[int] = []
+    real_open = reader._open_reviewed_staged_input_directory_owner
+
+    def tracked_open(path: Path) -> reader._ReviewedStagedInputDescriptorOwner:
+        owner = real_open(path)
+        opened_descriptors.append(owner.fileno())
+        return owner
+
+    monkeypatch.setattr(
+        reader,
+        "_open_reviewed_staged_input_directory_owner",
+        tracked_open,
+    )
+    observe = reader._observe_reviewed_staged_input_seal
+    interrupt_offset = _instruction_offset(
+        observe,
+        opname="STORE_FAST",
+        argval="directory_owner",
+        occurrence="last",
+    )
+    tool_id = _enable_instruction_interrupt(
+        observe,
+        interrupt_offset,
+        tool_name="trusted-time-staged-input-directory-owner-store-test",
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            observe(paths[0])
+    finally:
+        _disable_instruction_interrupt(tool_id, observe)
+    gc.collect()
+
+    assert len(opened_descriptors) == 1
+    with pytest.raises(OSError):
+        os.fstat(opened_descriptors[0])
+
+
+def test_staged_input_directory_libc_owner_closes_inside_wrapper_call_store(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    _reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD)
+    opened_descriptors: list[int] = []
+    real_open = reader._REVIEWED_DESCRIPTOR_OPEN
+
+    def tracked_open(*arguments: object) -> reader._ReviewedStagedInputDescriptorOwner:
+        owner = real_open(*arguments)
+        opened_descriptors.append(owner.fileno())
+        return owner
+
+    monkeypatch.setattr(reader, "_REVIEWED_DESCRIPTOR_OPEN", tracked_open)
+    wrapper = reader._open_reviewed_staged_input_directory_owner
+    interrupt_offset = _instruction_offset(
+        wrapper,
+        opname="STORE_FAST",
+        argval="owner",
+    )
+    tool_id = _enable_instruction_interrupt(
+        wrapper,
+        interrupt_offset,
+        tool_name="trusted-time-staged-input-directory-libc-store-test",
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            wrapper(paths[0].parent)
+    finally:
+        _disable_instruction_interrupt(tool_id, wrapper)
+    gc.collect()
+
+    assert len(opened_descriptors) == 1
+    with pytest.raises(OSError):
+        os.fstat(opened_descriptors[0])
+
+
+def test_reviewed_descriptor_owner_close_retries_one_shot_call_interruption(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "reviewed"
+    directory.mkdir(mode=0o700)
+    owner = reader._open_reviewed_staged_input_directory_owner(directory)
+    descriptor = owner.fileno()
+    close = reader._ReviewedStagedInputDescriptorOwner.close
+    instructions = list(dis.get_instructions(close))
+    store_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_ATTR" and instruction.argval == "value"
+    )
+    interrupt_offset = instructions[store_index + 1].offset
+    tool_id = _enable_instruction_interrupt(
+        close,
+        interrupt_offset,
+        tool_name="trusted-time-reviewed-descriptor-close-retry-test",
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            owner.close()
+    finally:
+        _disable_instruction_interrupt(tool_id, close)
+
+    assert owner.value == -1
+    with pytest.raises(OSError):
+        os.fstat(descriptor)
+    owner.close()
+
+
+def test_staged_input_file_libc_owner_closes_inside_wrapper_call_store(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    _reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD)
+    directory_owner = reader._open_reviewed_staged_input_directory_owner(paths[0].parent)
+    opened_descriptors: list[int] = []
+    real_open = reader._REVIEWED_DESCRIPTOR_OPENAT
+
+    def tracked_open(*arguments: object) -> reader._ReviewedStagedInputDescriptorOwner:
+        owner = real_open(*arguments)
+        opened_descriptors.append(owner.fileno())
+        return owner
+
+    monkeypatch.setattr(reader, "_REVIEWED_DESCRIPTOR_OPENAT", tracked_open)
+    wrapper = reader._open_reviewed_staged_input_owner
+    interrupt_offset = _instruction_offset(
+        wrapper,
+        opname="STORE_FAST",
+        argval="owner",
+    )
+    tool_id = _enable_instruction_interrupt(
+        wrapper,
+        interrupt_offset,
+        tool_name="trusted-time-staged-input-file-libc-store-test",
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            wrapper(
+                paths[0].name,
+                directory_descriptor=directory_owner.fileno(),
+            )
+    finally:
+        _disable_instruction_interrupt(tool_id, wrapper)
+        directory_owner.close()
+    gc.collect()
+
+    assert len(opened_descriptors) == 1
+    with pytest.raises(OSError):
+        os.fstat(opened_descriptors[0])
+
+
+def test_host_retirement_root_owner_closes_on_call_store_interruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    observe = reader._observe_host_retirements
+    interrupt_offset = _instruction_offset(
+        observe,
+        opname="STORE_FAST",
+        argval="descriptor_owner",
+        occurrence="last",
+    )
+    descriptor_count = _open_descriptor_count()
+    tool_id = _enable_instruction_interrupt(
+        observe,
+        interrupt_offset,
+        tool_name="trusted-time-retirement-root-owner-store-test",
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            observe(paths)
+    finally:
+        _disable_instruction_interrupt(tool_id, observe)
+    gc.collect()
+
+    assert _open_descriptor_count() == descriptor_count
+
+
+def test_host_retirement_parent_owner_closes_before_registration_store_interruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    paths[0].parent.mkdir(mode=0o700)
+    observe = reader._observe_host_retirements
+    interrupt_offset = _instruction_offset(
+        observe,
+        opname="STORE_SUBSCR",
+        argval=None,
+    )
+    descriptor_count = _open_descriptor_count()
+    tool_id = _enable_instruction_interrupt(
+        observe,
+        interrupt_offset,
+        tool_name="trusted-time-retirement-parent-registration-store-test",
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            observe(paths)
+    finally:
+        _disable_instruction_interrupt(tool_id, observe)
+    gc.collect()
+
+    assert _open_descriptor_count() == descriptor_count
+
+
+def test_host_retirement_parent_owner_closes_on_call_store_interruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    paths[0].parent.mkdir(mode=0o700)
+    opened_descriptors: list[int] = []
+    real_open = reader._open_reviewed_staged_input_directory_at_owner
+
+    def tracked_open(
+        directory_name: str,
+        *,
+        directory_descriptor: int,
+    ) -> reader._ReviewedStagedInputDescriptorOwner:
+        owner = real_open(
+            directory_name,
+            directory_descriptor=directory_descriptor,
+        )
+        opened_descriptors.append(owner.fileno())
+        return owner
+
+    monkeypatch.setattr(
+        reader,
+        "_open_reviewed_staged_input_directory_at_owner",
+        tracked_open,
+    )
+    observe = reader._observe_host_retirements
+    interrupt_offset = _instruction_offset(
+        observe,
+        opname="STORE_FAST",
+        argval="parent_owner",
+        occurrence="last",
+    )
+    tool_id = _enable_instruction_interrupt(
+        observe,
+        interrupt_offset,
+        tool_name="trusted-time-retirement-parent-owner-store-test",
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            observe(paths)
+    finally:
+        _disable_instruction_interrupt(tool_id, observe)
+    gc.collect()
+
+    assert len(opened_descriptors) == 1
+    with pytest.raises(OSError):
+        os.fstat(opened_descriptors[0])
+
+
+def test_host_retirement_parent_libc_owner_closes_inside_wrapper_call_store(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    paths[0].parent.mkdir(mode=0o700)
+    root_owner = reader._open_reviewed_staged_input_directory_owner(paths[0].parent.parent)
+    opened_descriptors: list[int] = []
+    real_open = reader._REVIEWED_DESCRIPTOR_OPENAT
+
+    def tracked_open(*arguments: object) -> reader._ReviewedStagedInputDescriptorOwner:
+        owner = real_open(*arguments)
+        opened_descriptors.append(owner.fileno())
+        return owner
+
+    monkeypatch.setattr(reader, "_REVIEWED_DESCRIPTOR_OPENAT", tracked_open)
+    wrapper = reader._open_reviewed_staged_input_directory_at_owner
+    interrupt_offset = _instruction_offset(
+        wrapper,
+        opname="STORE_FAST",
+        argval="owner",
+    )
+    tool_id = _enable_instruction_interrupt(
+        wrapper,
+        interrupt_offset,
+        tool_name="trusted-time-retirement-parent-libc-store-test",
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            wrapper(
+                paths[0].parent.name,
+                directory_descriptor=root_owner.fileno(),
+            )
+    finally:
+        _disable_instruction_interrupt(tool_id, wrapper)
+        root_owner.close()
+    gc.collect()
+
+    assert len(opened_descriptors) == 1
+    with pytest.raises(OSError):
+        os.fstat(opened_descriptors[0])
+
+
+def test_lock_guard_libc_owner_closes_inside_wrapper_call_store(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    lock_path = tmp_path / "trusted-time-launch.lock"
+    lock_path.touch(mode=0o600)
+    lock_path.chmod(0o600)
+    opened_descriptors: list[int] = []
+    real_open = reader._REVIEWED_DESCRIPTOR_OPEN
+
+    def tracked_open(*arguments: object) -> reader._ReviewedStagedInputDescriptorOwner:
+        owner = real_open(*arguments)
+        opened_descriptors.append(owner.fileno())
+        return owner
+
+    monkeypatch.setattr(reader, "_REVIEWED_DESCRIPTOR_OPEN", tracked_open)
+    wrapper = reader._open_reviewed_lock_guard_owner
+    interrupt_offset = _instruction_offset(
+        wrapper,
+        opname="STORE_FAST",
+        argval="owner",
+    )
+    tool_id = _enable_instruction_interrupt(
+        wrapper,
+        interrupt_offset,
+        tool_name="trusted-time-lock-guard-libc-store-test",
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            wrapper(lock_path)
+    finally:
+        _disable_instruction_interrupt(tool_id, wrapper)
+    gc.collect()
+
+    assert len(opened_descriptors) == 1
+    with pytest.raises(OSError):
+        os.fstat(opened_descriptors[0])
+
+
+def test_validate_lock_guard_owner_closes_on_call_store_interruption(
+    tmp_path: Path,
+) -> None:
+    lock_path = tmp_path / "trusted-time-launch.lock"
+    lock_path.touch(mode=0o600)
+    lock_path.chmod(0o600)
+    lock_owner = io.FileIO(lock_path, mode="r+b")
+    reader.fcntl.flock(lock_owner.fileno(), reader.fcntl.LOCK_EX | reader.fcntl.LOCK_NB)
+    metadata = os.fstat(lock_owner.fileno())
+    issuer = object.__new__(reader.TrustedTimePostEnrollmentTopologyObservationIssuer)
+    issuer._lock_descriptor = lock_owner.fileno()
+    issuer._lock_owner = lock_owner
+    issuer._lock_path = lock_path
+    issuer._lock_identity = (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_uid,
+        metadata.st_gid,
+    )
+    validate = reader.TrustedTimePostEnrollmentTopologyObservationIssuer._validate_lock
+    interrupt_offset = _instruction_offset(
+        validate,
+        opname="STORE_FAST",
+        argval="guard_owner",
+        occurrence="last",
+    )
+    descriptor_count = _open_descriptor_count()
+    tool_id = _enable_instruction_interrupt(
+        validate,
+        interrupt_offset,
+        tool_name="trusted-time-lock-guard-owner-store-test",
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            issuer._validate_lock()
+    finally:
+        _disable_instruction_interrupt(tool_id, validate)
+    gc.collect()
+
+    assert _open_descriptor_count() == descriptor_count
+    lock_owner.close()
+
+
+@pytest.mark.parametrize(
+    ("drift", "path_index"),
+    [
+        ("same_bytes_replacement", 0),
+        ("same_bytes_replacement", 1),
+        ("removal", 2),
+        ("content", 1),
+        ("mode", 3),
+    ],
+)
+def test_prepare_revalidates_original_staged_receipts_after_exact_empty_observation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    drift: str,
+    path_index: int,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    arguments = _reviewed_prepare_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD)
+    issuer, queued = _open_issuer(monkeypatch, tmp_path, outputs=[b"", b""])
+    issuer_type = reader.TrustedTimePostEnrollmentTopologyObservationIssuer
+    exact_empty = issuer_type._run_exact_empty_precreate_observation
+
+    def drift_after_exact_empty(*args: Any, **kwargs: Any) -> None:
+        exact_empty(*args, **kwargs)
+        _drift_staged_input(paths[path_index], drift)
+
+    monkeypatch.setattr(
+        issuer_type,
+        "_run_exact_empty_precreate_observation",
+        drift_after_exact_empty,
+    )
+
+    def run(lease: object) -> None:
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="staged-input fence is unavailable",
+        ):
+            issuer._prepare_reviewed_topology_creation(
+                **arguments,  # type: ignore[arg-type]
+                _choreography_lease=lease,
+            )
+        assert issuer._reviewed_mutation_state == "pristine"
+        assert issuer._reviewed_mutation_prepared_registration is None
+        assert issuer._reviewed_mutation_binding_sha256 is None
+
+    issuer._run_exclusive_choreography(run)
+    assert not any("compose" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+@pytest.mark.parametrize(
+    ("drift", "path_index"),
+    [
+        ("same_bytes_replacement", 0),
+        ("same_bytes_replacement", 1),
+        ("removal", 2),
+        ("content", 1),
+        ("mode", 3),
+    ],
+)
+def test_execute_revalidates_prepared_staged_seals_before_create_state_or_docker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    drift: str,
+    path_index: int,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    arguments = _reviewed_prepare_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD)
+    issuer, queued = _open_issuer(monkeypatch, tmp_path, outputs=[b"", b""])
+
+    def run(lease: object) -> None:
+        prepared = issuer._prepare_reviewed_topology_creation(
+            **arguments,  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        _drift_staged_input(paths[path_index], drift)
+        call_count_before_execute = len(queued.calls)
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="staged-input fence is unavailable",
+        ):
+            issuer._execute_prepared_reviewed_topology_creation(
+                prepared,
+                _choreography_lease=lease,
+            )
+        assert len(queued.calls) == call_count_before_execute
+        assert issuer._reviewed_mutation_state == "prepared"
+        assert issuer._reviewed_mutation_prepared_registration is not None
+        del prepared
+        gc.collect()
+        assert issuer._reviewed_mutation_state == "pristine"
+        assert issuer._reviewed_mutation_prepared_registration is None
+
+    issuer._run_exclusive_choreography(run)
+    assert not any("compose" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_execute_input_revalidation_interruption_leaves_prepared_state_inert(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    arguments = _reviewed_prepare_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD)
+    issuer, queued = _open_issuer(monkeypatch, tmp_path, outputs=[b"", b""])
+
+    def interrupt_revalidation(*_: object, **__: object) -> None:
+        raise KeyboardInterrupt
+
+    def run(lease: object) -> None:
+        prepared = issuer._prepare_reviewed_topology_creation(
+            **arguments,  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        call_count_before_execute = len(queued.calls)
+        monkeypatch.setattr(
+            reader,
+            "_revalidate_reviewed_staged_input_seals",
+            interrupt_revalidation,
+        )
+        with pytest.raises(KeyboardInterrupt):
+            issuer._execute_prepared_reviewed_topology_creation(
+                prepared,
+                _choreography_lease=lease,
+            )
+        assert len(queued.calls) == call_count_before_execute
+        assert issuer._reviewed_mutation_state == "prepared"
+        assert issuer._reviewed_mutation_prepared_registration is not None
+        del prepared
+        gc.collect()
+        assert issuer._reviewed_mutation_state == "pristine"
+
+    issuer._run_exclusive_choreography(run)
+    assert not any("compose" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_lost_prepared_return_restores_pristine_before_caller_store(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    issuer, queued = _open_issuer(monkeypatch, tmp_path, outputs=[b"", b""])
+    interrupted = False
+
+    def host_like(lease: object) -> None:
+        nonlocal interrupted
+        try:
+            prepared = issuer._prepare_reviewed_topology_creation(  # noqa: F841
+                **_reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD),  # type: ignore[arg-type]
+                _choreography_lease=lease,
+            )
+        except KeyboardInterrupt:
+            interrupted = True
+            gc.collect()
+            assert issuer._reviewed_mutation_state == "pristine"
+            assert issuer._reviewed_mutation_binding_sha256 is None
+            assert issuer._reviewed_mutation_prepared_registration is None
+            return
+        raise AssertionError("prepared creation return was not interrupted")
+
+    instructions = list(dis.get_instructions(host_like))
+    store_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_FAST"
+        and instruction.argval == "prepared"
+        and index > 0
+        and instructions[index - 1].opname in {"CALL", "CALL_FUNCTION_EX"}
+    )
+    tool_id = _enable_instruction_interrupt(
+        host_like,
+        instructions[store_index].offset,
+        tool_name="trusted-time-prepared-create-return-test",
+    )
+    try:
+        issuer._run_exclusive_choreography(host_like)
+    finally:
+        _disable_instruction_interrupt(tool_id, host_like)
+
+    assert interrupted is True
+    assert not any("compose" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_interrupted_prepared_consume_before_effect_commit_uses_inert_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    one_empty_proof = [
+        b"",
+        b"",
+        fixtures._json_line("LOCAL:DAEMON:1"),
+        b"",
+        b"",
+    ]
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[b"", b"", *one_empty_proof],
+    )
+
+    def run(lease: object) -> None:
+        arguments = _reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD)
+        prepared = issuer._prepare_reviewed_topology_creation(
+            **arguments,  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        issuer_type = reader.TrustedTimePostEnrollmentTopologyObservationIssuer
+        execute = issuer_type._execute_prepared_reviewed_topology_creation
+        interrupt_offset = _instruction_offset(
+            execute,
+            opname="STORE_ATTR",
+            argval="_reviewed_mutation_state",
+            occurrence="first",
+        )
+        tool_id = _enable_instruction_interrupt(
+            execute,
+            interrupt_offset,
+            tool_name="trusted-time-prepared-create-consume-test",
+        )
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                issuer._execute_prepared_reviewed_topology_creation(
+                    prepared,
+                    _choreography_lease=lease,
+                )
+        finally:
+            _disable_instruction_interrupt(tool_id, execute)
+        assert issuer._reviewed_mutation_state == "prepared"
+        assert issuer._reviewed_mutation_prepared_registration is None
+        issuer._teardown_reviewed_topology_before_claim(
+            **arguments,  # type: ignore[arg-type]
+            created_observation=None,
+            _choreography_lease=lease,
+        )
+        assert issuer._reviewed_mutation_state == "torn_down"
+
+    issuer._run_exclusive_choreography(run)
+    assert not any("compose" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_prepared_reviewed_creation_teardown_is_inert_and_invalidates_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    one_empty_proof = [
+        b"",
+        b"",
+        fixtures._json_line("LOCAL:DAEMON:1"),
+        b"",
+        b"",
+    ]
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[b"", b"", *one_empty_proof],
+    )
+
+    def run(lease: object) -> None:
+        arguments = _reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD)
+        prepared = issuer._prepare_reviewed_topology_creation(
+            **arguments,  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        issuer._teardown_reviewed_topology_before_claim(
+            **arguments,  # type: ignore[arg-type]
+            created_observation=None,
+            _choreography_lease=lease,
+        )
+        assert issuer._reviewed_mutation_state == "torn_down"
+        assert issuer._reviewed_mutation_prepared_registration is None
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._execute_prepared_reviewed_topology_creation(
+                prepared,
+                _choreography_lease=lease,
+            )
+
+    issuer._run_exclusive_choreography(run)
+    assert not any("compose" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_prepared_reviewed_creation_rejects_wrong_issuer_before_effect(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_root.mkdir()
+    second_root.mkdir()
+    paths = fixtures._staged_paths(first_root / "retired")
+    one_empty_proof = [
+        b"",
+        b"",
+        fixtures._json_line("LOCAL:DAEMON:1"),
+        b"",
+        b"",
+    ]
+    first, first_queued = _open_issuer(
+        monkeypatch,
+        first_root,
+        outputs=[b"", b"", *one_empty_proof],
+    )
+    second, second_queued = _open_issuer(monkeypatch, second_root)
+
+    def first_action(first_lease: object) -> None:
+        arguments = _reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD)
+        prepared = first._prepare_reviewed_topology_creation(
+            **arguments,  # type: ignore[arg-type]
+            _choreography_lease=first_lease,
+        )
+
+        def second_action(second_lease: object) -> None:
+            with pytest.raises(
+                reader.TrustedTimePostEnrollmentTopologyReaderError,
+                match="prepared reviewed topology creation is unavailable",
+            ):
+                second._execute_prepared_reviewed_topology_creation(
+                    prepared,
+                    _choreography_lease=second_lease,
+                )
+
+        second._run_exclusive_choreography(second_action)
+        first._teardown_reviewed_topology_before_claim(
+            **arguments,  # type: ignore[arg-type]
+            created_observation=None,
+            _choreography_lease=first_lease,
+        )
+
+    first._run_exclusive_choreography(first_action)
+    assert not any("compose" in cast(tuple[str, ...], call["argv"]) for call in first_queued.calls)
+    assert len(second_queued.calls) == 1
+    assert first_queued.outputs == []
+    assert second_queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(second)
+    _close_and_assert_launch_lock_is_reacquirable(first)
+
+
+@pytest.mark.parametrize("foreign_context", ["wrong-lease", "foreign-thread"])
+def test_prepared_reviewed_creation_rejects_foreign_context_before_effect(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    foreign_context: Literal["wrong-lease", "foreign-thread"],
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    issuer, queued = _open_issuer(monkeypatch, tmp_path, outputs=[b"", b""])
+    errors: list[BaseException] = []
+
+    def action(lease: object) -> None:
+        prepared = issuer._prepare_reviewed_topology_creation(
+            **_reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD),  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        if foreign_context == "wrong-lease":
+            with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+                issuer._execute_prepared_reviewed_topology_creation(
+                    prepared,
+                    _choreography_lease=object(),
+                )
+            return
+
+        def worker() -> None:
+            try:
+                issuer._execute_prepared_reviewed_topology_creation(
+                    prepared,
+                    _choreography_lease=lease,
+                )
+            except BaseException as error:
+                errors.append(error)
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join(timeout=2.0)
+        assert not thread.is_alive()
+        assert len(errors) == 1
+        assert isinstance(errors[0], reader.TrustedTimePostEnrollmentTopologyReaderError)
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._run_exclusive_choreography(action)
+    assert issuer._reviewed_mutation_prepared_registration is None
+    assert not any("compose" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_forked_child_cannot_execute_parent_prepared_creation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not hasattr(os, "fork"):
+        pytest.skip("fork is unavailable")
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    one_empty_proof = [
+        b"",
+        b"",
+        fixtures._json_line("LOCAL:DAEMON:1"),
+        b"",
+        b"",
+    ]
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[b"", b"", *one_empty_proof],
+    )
+
+    def action(lease: object) -> None:
+        arguments = _reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD)
+        prepared = issuer._prepare_reviewed_topology_creation(
+            **arguments,  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        read_descriptor, write_descriptor = os.pipe()
+        child_pid = os.fork()
+        if child_pid == 0:  # pragma: no cover - asserted through the pipe
+            os.close(read_descriptor)
+            try:
+                try:
+                    issuer._execute_prepared_reviewed_topology_creation(
+                        prepared,
+                        _choreography_lease=lease,
+                    )
+                except BaseException:
+                    payload = (
+                        b"safe"
+                        if issuer._reviewed_mutation_prepared_registration is None
+                        and issuer._reviewed_mutation_state == "forked"
+                        else b"unsafe"
+                    )
+                else:
+                    payload = b"unsafe"
+                os.write(write_descriptor, payload)
+            finally:
+                os.close(write_descriptor)
+            os._exit(0)
+
+        os.close(write_descriptor)
+        try:
+            assert os.read(read_descriptor, 16) == b"safe"
+        finally:
+            os.close(read_descriptor)
+            os.waitpid(child_pid, 0)
+        assert issuer._reviewed_mutation_state == "prepared"
+        issuer._teardown_reviewed_topology_before_claim(
+            **arguments,  # type: ignore[arg-type]
+            created_observation=None,
+            _choreography_lease=lease,
+        )
+
+    issuer._run_exclusive_choreography(action)
+    assert not any("compose" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_close_invalidates_escaped_prepared_creation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    issuer, queued = _open_issuer(monkeypatch, tmp_path, outputs=[b"", b""])
+    escaped: list[tuple[object, object]] = []
+
+    def action(lease: object) -> None:
+        prepared = issuer._prepare_reviewed_topology_creation(
+            **_reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD),  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        escaped.append((prepared, lease))
+
+    issuer._run_exclusive_choreography(action)
+    assert issuer._reviewed_mutation_state == "prepared"
+    issuer.close()
+    assert issuer._reviewed_mutation_state == "closed"
+    assert issuer._reviewed_mutation_prepared_registration is None
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._execute_prepared_reviewed_topology_creation(
+            escaped[0][0],
+            _choreography_lease=escaped[0][1],
+        )
+    descriptor = _acquire_trusted_time_launch_lock(
+        path=issuer._lock_path,
+        ignored_root=issuer._ignored_root,
+    )
+    _release_trusted_time_launch_lock(descriptor)
+    assert not any("compose" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+    assert queued.outputs == []
 
 
 def test_pristine_exact_teardown_is_idempotent_and_never_effects_compose(
@@ -5891,6 +7067,9 @@ def test_reviewed_mutation_choreography_is_fixed_order_and_claim_boundary_is_irr
             _choreography_lease=lease,
         )
         assert issuer._reviewed_mutation_state == "staged_ready"
+        for staged_path in paths:
+            staged_path.unlink()
+            staged_path.parent.rmdir()
         issuer.issue_staged_unreleased_snapshot(
             created_observation=created,
             **fixtures._issue_arguments(paths),
@@ -5932,9 +7111,29 @@ def test_reviewed_mutation_choreography_is_fixed_order_and_claim_boundary_is_irr
         "trusted-time-supervisor",
     )
     effecting_payload = cast(bytes, create_call["stdin_bytes"])
+    expected_network_name = post_enrollment_created_topology_network_name(issuer._session_sha256)
     assert effecting_payload != compose_payload
     assert effecting_payload.count(reader._REVIEWED_CREATE_INVOCATION_LABEL.encode("ascii")) == 3
     assert effecting_payload.count(issuer._session_sha256.encode("ascii")) == 3
+    assert effecting_payload.count(expected_network_name.encode("ascii")) == 1
+    expected_input_sha256s = tuple(
+        hashlib.sha256(payload).hexdigest()
+        for payload in (b"database", b"authority", b"auth-secret", b"s" * 32)
+    )
+    for name, value in zip(
+        POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT,
+        expected_input_sha256s,
+        strict=True,
+    ):
+        assert effecting_payload.count(name.encode("ascii")) == 1
+        assert effecting_payload.count(value.encode("ascii")) == 1
+    assert COMPOSE_NETWORK_NAME.encode("ascii") not in effecting_payload
+    precreate_network_argv = cast(tuple[str, ...], queued.calls[2]["argv"])
+    assert precreate_network_argv[-1] == f"name=^{expected_network_name}$"
+    assert COMPOSE_NETWORK_NAME not in precreate_network_argv
+    assert all(
+        COMPOSE_NETWORK_NAME not in cast(tuple[str, ...], call["argv"]) for call in queued.calls
+    )
     assert create_call["maximum_stdin_bytes"] == 8_192
     source_start = queued.calls[18]
     supervisor_start = queued.calls[19]
@@ -6132,7 +7331,12 @@ def test_reviewed_create_rejects_successfully_reused_exact_unlabeled_network_rac
     assert "--force-recreate" not in create_argv
     assert effecting_payload.count(reader._REVIEWED_CREATE_INVOCATION_LABEL.encode("ascii")) == 3
     assert effecting_payload.count(issuer._session_sha256.encode("ascii")) == 3
-    assert b"networks:\n  default:\n    labels:\n" in effecting_payload
+    expected_network_name = post_enrollment_created_topology_network_name(
+        issuer._session_sha256
+    ).encode("ascii")
+    assert (
+        b'networks:\n  default:\n    name: "' + expected_network_name + b'"\n    labels:\n'
+    ) in effecting_payload
     assert not any(
         any(
             argument in {"down", "rm", "remove"} for argument in cast(tuple[str, ...], call["argv"])
@@ -6512,6 +7716,287 @@ def test_ambiguous_partial_create_is_exactly_authenticated_before_safe_down(
     assert len(network_remove_calls) == 1
     assert network_remove_calls[0][-1:] == (fixtures.NETWORK_ID,)
     assert not any("down" in cast(tuple[str, ...], call["argv"]) for call in queued.calls)
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_network_only_partial_create_removes_exact_session_network_without_container_rm(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = fixtures._short_socket_path(tmp_path)
+    fixtures._install_pure_validator_stubs(
+        monkeypatch,
+        endpoint=f"unix://{socket_path}",
+    )
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[b"", b"", RuntimeError("network created before Compose return was lost")],
+    )
+    expected_network_name = post_enrollment_created_topology_network_name(issuer._session_sha256)
+    network = deepcopy(fixtures._network("created"))
+    network["Name"] = expected_network_name
+    labels = cast(dict[str, object], network["Labels"])
+    labels[reader._REVIEWED_CREATE_INVOCATION_LABEL] = issuer._session_sha256
+    queued.outputs.extend(
+        [
+            b"",
+            fixtures._json_line(fixtures.NETWORK_ID),
+            fixtures._json_line(network),
+            b"",
+            fixtures._json_line(fixtures.NETWORK_ID),
+            (fixtures.NETWORK_ID + "\n").encode("ascii"),
+            b"",
+            b"",
+            fixtures._json_line({"volume": "socket"}),
+            fixtures._json_line({"volume": "state"}),
+            fixtures._json_line("LOCAL:DAEMON:1"),
+        ]
+    )
+
+    def recover_network_only(lease: object) -> None:
+        arguments = _reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD)
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="mutation command is unavailable",
+        ):
+            issuer._create_reviewed_topology(
+                **arguments,  # type: ignore[arg-type]
+                _choreography_lease=lease,
+            )
+        assert issuer._reviewed_mutation_state == "create_effecting"
+        issuer._teardown_reviewed_topology_before_claim(
+            **arguments,  # type: ignore[arg-type]
+            created_observation=None,
+            _choreography_lease=lease,
+        )
+        assert issuer._reviewed_mutation_state == "torn_down"
+
+    issuer._run_exclusive_choreography(recover_network_only)
+    assert not any(
+        cast(tuple[str, ...], call["argv"])[1:4] == ("container", "rm", "--force")
+        for call in queued.calls
+    )
+    network_remove_calls = [
+        cast(tuple[str, ...], call["argv"])
+        for call in queued.calls
+        if cast(tuple[str, ...], call["argv"])[1:3] == ("network", "rm")
+    ]
+    assert network_remove_calls == [
+        (os.fspath(issuer._docker_executable_path), "network", "rm", fixtures.NETWORK_ID)
+    ]
+    assert all(
+        COMPOSE_NETWORK_NAME not in cast(tuple[str, ...], call["argv"]) for call in queued.calls
+    )
+    assert queued.outputs == []
+    _close_and_assert_launch_lock_is_reacquirable(issuer)
+
+
+def test_post_create_staged_input_replacement_exits_before_marker_and_exactly_tears_down(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = fixtures._short_socket_path(tmp_path)
+    fixtures._install_pure_validator_stubs(
+        monkeypatch,
+        endpoint=f"unix://{socket_path}",
+    )
+    paths = fixtures._staged_paths(tmp_path / "retired")
+    expected_sha256s = tuple(
+        hashlib.sha256(payload).hexdigest()
+        for payload in (b"database", b"authority", b"auth-secret", b"s" * 32)
+    )
+    source_running = _reviewed_teardown_container("staged_unreleased", "chrony-nts")
+    supervisor_exited = _reviewed_teardown_container("created", "trusted-time-supervisor")
+    supervisor_configuration = cast(dict[str, object], supervisor_exited["Config"])
+    supervisor_configuration["Env"] = [
+        f"{name}={value}"
+        for name, value in zip(
+            POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT,
+            expected_sha256s,
+            strict=True,
+        )
+    ]
+    supervisor_exited["State"] = {
+        "Dead": False,
+        "Error": "",
+        "ExitCode": 2,
+        "FinishedAt": "2026-08-09T12:34:57.123456789Z",
+        "OOMKilled": False,
+        "Paused": False,
+        "Pid": 0,
+        "Restarting": False,
+        "Running": False,
+        "StartedAt": "2026-08-09T12:34:56.123456789Z",
+        "Status": "exited",
+    }
+    network = deepcopy(fixtures._network("staged_unreleased"))
+    network_containers = cast(dict[str, object], network["Containers"])
+    network["Containers"] = {
+        fixtures.SOURCE_CONTAINER_ID: network_containers[fixtures.SOURCE_CONTAINER_ID]
+    }
+    inventory = fixtures._inventory_bytes()
+    issuer, queued = _open_issuer(
+        monkeypatch,
+        tmp_path,
+        outputs=[
+            b"",
+            b"",
+            b"",
+            *fixtures._state_outputs("created"),
+            (fixtures.SOURCE_CONTAINER_ID + "\n").encode("ascii"),
+            (fixtures.SUPERVISOR_CONTAINER_ID + "\n").encode("ascii"),
+            inventory,
+            fixtures._json_line({"Config": {}, "Id": fixtures.SOURCE_IMAGE_ID}),
+            fixtures._json_line({"Config": {}, "Id": fixtures.SUPERVISOR_IMAGE_ID}),
+            fixtures._json_line(source_running),
+            fixtures._json_line(supervisor_exited),
+            fixtures._json_line(network),
+            inventory,
+            (fixtures.SOURCE_CONTAINER_ID + "\n" + fixtures.SUPERVISOR_CONTAINER_ID + "\n").encode(
+                "ascii"
+            ),
+            (fixtures.NETWORK_ID + "\n").encode("ascii"),
+            b"",
+            b"",
+            fixtures._json_line({"volume": "socket"}),
+            fixtures._json_line({"volume": "state"}),
+            fixtures._json_line("LOCAL:DAEMON:1"),
+        ],
+        bind_reviewed_create_outputs=True,
+    )
+    barrier_attempts = 0
+    exited_validation_calls: list[dict[str, object]] = []
+
+    def observe_started(
+        _candidate: object,
+        *,
+        service: str,
+        **_kwargs: object,
+    ) -> bool:
+        if service != "chrony-nts":
+            raise AssertionError("supervisor state was observed without its consumed marker")
+        return True
+
+    def reject_missing_marker(
+        _candidate: object,
+        _receipts: object,
+        *,
+        supervisor_container_id: str,
+    ) -> Never:
+        nonlocal barrier_attempts
+        barrier_attempts += 1
+        assert supervisor_container_id == fixtures.SUPERVISOR_CONTAINER_ID
+        registration = issuer._reviewed_mutation_created_registration
+        assert type(registration) is reader._ReviewedCreatedTopologyRegistration
+        assert (
+            hashlib.sha256(paths[0].read_bytes()).hexdigest()
+            != registration.staged_input_sha256s[0]
+        )
+        raise reader.TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time staged barrier observation is unavailable"
+        )
+
+    def validate_exited(inspection: object, **kwargs: object) -> None:
+        assert type(inspection) is list and len(inspection) == 1
+        observed = cast(dict[str, object], inspection[0])
+        state = cast(dict[str, object], observed["State"])
+        configuration = cast(dict[str, object], observed["Config"])
+        assert observed["Id"] == fixtures.SUPERVISOR_CONTAINER_ID
+        assert state["Status"] == "exited"
+        assert state["ExitCode"] == 2
+        assert configuration["Env"] == supervisor_configuration["Env"]
+        assert kwargs["expected_staged_input_sha256s"] == expected_sha256s
+        assert kwargs["expected_network_name"] == post_enrollment_created_topology_network_name(
+            issuer._session_sha256
+        )
+        exited_validation_calls.append(dict(kwargs))
+
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_observe_exact_started_container",
+        observe_started,
+    )
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_observe_barrier",
+        reject_missing_marker,
+    )
+    monkeypatch.setattr(
+        reader,
+        "validate_exact_post_start_exited_supervisor_container",
+        validate_exited,
+    )
+
+    def reject_then_teardown(lease: object) -> None:
+        arguments = _reviewed_mutation_arguments(paths, _REVIEWED_COMPOSE_PAYLOAD)
+        original_database_bytes = paths[0].read_bytes()
+        created = issuer._create_reviewed_topology(
+            **arguments,  # type: ignore[arg-type]
+            _choreography_lease=lease,
+        )
+        registration = issuer._reviewed_mutation_created_registration
+        assert type(registration) is reader._ReviewedCreatedTopologyRegistration
+        assert registration.staged_input_sha256s == expected_sha256s
+        issuer._start_reviewed_source(
+            created_observation=created,
+            expected_database_secret_file=paths[0],
+            expected_head_anchor_authority_file=paths[1],
+            expected_head_anchor_auth_secret_file=paths[2],
+            expected_head_anchor_signing_key_secret_file=paths[3],
+            _choreography_lease=lease,
+        )
+        paths[0].chmod(0o600)
+        paths[0].write_bytes(b"post-create replacement")
+        paths[0].chmod(0o400)
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="supervisor readiness is unconfirmed",
+        ):
+            issuer._start_reviewed_supervisor(
+                created_observation=created,
+                expected_database_secret_file=paths[0],
+                expected_head_anchor_authority_file=paths[1],
+                expected_head_anchor_auth_secret_file=paths[2],
+                expected_head_anchor_signing_key_secret_file=paths[3],
+                _choreography_lease=lease,
+            )
+        assert issuer._reviewed_mutation_state == "supervisor_start_effecting"
+        issuer._teardown_reviewed_topology_before_claim(
+            **arguments,  # type: ignore[arg-type]
+            created_observation=created,
+            _choreography_lease=lease,
+        )
+        assert issuer._reviewed_mutation_state == "torn_down"
+
+        # Restoring the original bytes cannot turn this failed attempt into a
+        # qualifying topology: its exact IDs and network are already retired.
+        paths[0].chmod(0o600)
+        paths[0].write_bytes(original_database_bytes)
+        paths[0].chmod(0o400)
+        call_count = len(queued.calls)
+        with pytest.raises(
+            reader.TrustedTimePostEnrollmentTopologyReaderError,
+            match="created topology is unavailable",
+        ):
+            issuer._start_reviewed_supervisor(
+                created_observation=created,
+                expected_database_secret_file=paths[0],
+                expected_head_anchor_authority_file=paths[1],
+                expected_head_anchor_auth_secret_file=paths[2],
+                expected_head_anchor_signing_key_secret_file=paths[3],
+                _choreography_lease=lease,
+            )
+        assert len(queued.calls) == call_count
+
+    issuer._run_exclusive_choreography(reject_then_teardown)
+    assert barrier_attempts == reader._MAXIMUM_SUPERVISOR_READINESS_ATTEMPTS
+    assert len(exited_validation_calls) == 1
+    assert not any(
+        cast(tuple[str, ...], call["argv"])[1:3] == ("container", "exec") for call in queued.calls
+    )
     assert queued.outputs == []
     _close_and_assert_launch_lock_is_reacquirable(issuer)
 

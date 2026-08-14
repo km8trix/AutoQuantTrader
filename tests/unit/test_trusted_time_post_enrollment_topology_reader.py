@@ -41,6 +41,7 @@ from scripts.trusted_time_post_enrollment_staged_topology import (
 from scripts.trusted_time_post_enrollment_topology import (
     TrustedTimePostEnrollmentCreatedContainerSnapshot,
     TrustedTimePostEnrollmentCreatedTopologySnapshot,
+    post_enrollment_created_topology_network_name,
 )
 
 SOURCE_CONTAINER_ID = "a" * 64
@@ -530,14 +531,43 @@ def _public_open(
         "_socket_identity",
         lambda _path: (1, 2, 0o140700, os.geteuid(), os.getegid()),
     )
-    return reader.TrustedTimePostEnrollmentTopologyObservationIssuer.open(
-        expected_daemon_identity=LocalDockerDaemonIdentity(
-            context_name="<DOCKER_HOST>",
-            endpoint=f"unix://{socket_path}",
-            daemon_id="LOCAL:DAEMON:1",
+    issuer = cast(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer.open(
+            expected_daemon_identity=LocalDockerDaemonIdentity(
+                context_name="<DOCKER_HOST>",
+                endpoint=f"unix://{socket_path}",
+                daemon_id="LOCAL:DAEMON:1",
+            ),
+            docker_environment={"PATH": os.fspath(tmp_path / "attacker-bin"), "LANG": "C"},
         ),
-        docker_environment={"PATH": os.fspath(tmp_path / "attacker-bin"), "LANG": "C"},
     )
+    network_name = post_enrollment_created_topology_network_name(issuer._session_sha256)
+    for index, output in enumerate(runner.outputs):
+        if type(output) is not bytes or not output.endswith(b"\n"):
+            continue
+        try:
+            value = json.loads(output)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if type(value) is not dict:
+            continue
+        labels = value.get("Labels")
+        if (
+            value.get("Name") == COMPOSE_NETWORK_NAME
+            and type(labels) is dict
+            and labels.get("com.docker.compose.network") == "default"
+        ):
+            value["Name"] = network_name
+        network_settings = value.get("NetworkSettings")
+        networks = network_settings.get("Networks") if type(network_settings) is dict else None
+        if type(networks) is dict and COMPOSE_NETWORK_NAME in networks:
+            networks[network_name] = networks.pop(COMPOSE_NETWORK_NAME)
+        host = value.get("HostConfig")
+        if type(host) is dict and host.get("NetworkMode") == COMPOSE_NETWORK_NAME:
+            host["NetworkMode"] = network_name
+        runner.outputs[index] = _json_line(value)
+    return issuer
 
 
 def _issue_arguments(paths: tuple[Path, Path, Path, Path]) -> dict[str, object]:
@@ -1537,6 +1567,7 @@ def test_container_raw_boundary_rejects_live_field_drift(
             expected_container_id=SOURCE_CONTAINER_ID,
             expected_service="chrony-nts",
             expected_state=state,
+            expected_network_name=COMPOSE_NETWORK_NAME,
         )
 
 
@@ -1548,12 +1579,14 @@ def test_container_raw_boundary_accepts_exact_created_and_staged_shapes() -> Non
         expected_container_id=SOURCE_CONTAINER_ID,
         expected_service="chrony-nts",
         expected_state="created",
+        expected_network_name=COMPOSE_NETWORK_NAME,
     )
     staged_attachment = reader._validate_container_reader_boundary(
         _container("staged_unreleased", "trusted-time-supervisor"),
         expected_container_id=SUPERVISOR_CONTAINER_ID,
         expected_service="trusted-time-supervisor",
         expected_state="staged_unreleased",
+        expected_network_name=COMPOSE_NETWORK_NAME,
     )
     assert created_attachment.network_id == staged_attachment.network_id == NETWORK_ID
     assert created_attachment.endpoint_id == ""
@@ -1610,6 +1643,7 @@ def test_separate_network_inspection_rejects_boundary_drift(
             value,
             expected_inventory=frozenset({SOURCE_CONTAINER_ID, SUPERVISOR_CONTAINER_ID}),
             expected_state=state,
+            expected_network_name=COMPOSE_NETWORK_NAME,
             expected_create_invocation_sha256=None,
         )
 

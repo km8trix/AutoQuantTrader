@@ -29,7 +29,6 @@ from packages.domain.trusted_time_post_enrollment_start import (
 )
 from scripts import trusted_time_post_enrollment_start as post_enrollment_start_script
 from scripts.start_trusted_time_supervisor import (
-    COMPOSE_NETWORK_NAME,
     COMPOSE_SOCKET_VOLUME_NAME,
     COMPOSE_STATE_VOLUME_NAME,
     DATABASE_SECRET_CONSUMED_PATH,
@@ -38,6 +37,7 @@ from scripts.start_trusted_time_supervisor import (
     HEAD_ANCHOR_AUTH_SECRET_RUNTIME_PATH,
     HEAD_ANCHOR_AUTHORITY_RUNTIME_PATH,
     HEAD_ANCHOR_SIGNING_KEY_RUNTIME_PATH,
+    POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT,
     LocalDockerDaemonIdentity,
     TrustedTimeApprovedLaunch,
     TrustedTimeVolumeIdentities,
@@ -53,6 +53,7 @@ from scripts.trusted_time_post_enrollment_staged_topology import (
 )
 from scripts.trusted_time_post_enrollment_topology import (
     TrustedTimePostEnrollmentCreatedTopologySnapshot,
+    post_enrollment_created_topology_network_name,
     validate_post_enrollment_start_created_topology,
 )
 
@@ -65,6 +66,9 @@ PROJECT_NAME = "autoquanttrader-trusted-time"
 ZERO_DOCKER_TIMESTAMP = "0001-01-01T00:00:00Z"
 STARTED_AT = "2026-08-09T12:34:56.123456789Z"
 OPERATION_ID = "223e4567-e89b-42d3-a456-426614174001"
+SESSION_SHA256 = "a" * 64
+NETWORK_NAME = post_enrollment_created_topology_network_name(SESSION_SHA256)
+STAGED_INPUT_SHA256S = tuple(character * 64 for character in "1234")
 
 
 class _EqualString(str):
@@ -323,6 +327,14 @@ def _container_inspection(
     runtime_environment = cast(list[str], image_configuration["Env"]).copy()
     if not source:
         runtime_environment.extend(_SUPERVISOR_RUNTIME_ENVIRONMENT)
+        runtime_environment.extend(
+            f"{name}={value}"
+            for name, value in zip(
+                POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT,
+                STAGED_INPUT_SHA256S,
+                strict=True,
+            )
+        )
 
     socket_request = _volume_request(
         source=COMPOSE_SOCKET_VOLUME_NAME,
@@ -412,7 +424,7 @@ def _container_inspection(
                 "Memory": 67_108_864 if source else 268_435_456,
                 "Mounts": [socket_request] if source else [socket_request, *input_requests],
                 "NanoCpus": 250_000_000 if source else 500_000_000,
-                "NetworkMode": COMPOSE_NETWORK_NAME,
+                "NetworkMode": NETWORK_NAME,
                 "OomKillDisable": False,
                 "PidMode": "",
                 "PidsLimit": 32 if source else 64,
@@ -456,7 +468,7 @@ def _container_inspection(
                     else runtime_inputs
                 ),
             ],
-            "NetworkSettings": {"Networks": {COMPOSE_NETWORK_NAME: {}}},
+            "NetworkSettings": {"Networks": {NETWORK_NAME: {}}},
             "Path": "/usr/sbin/chronyd" if source else "autoquant-trusted-time-supervisor",
             "RestartCount": 0,
             "State": _state(role, running=running),
@@ -520,6 +532,7 @@ def _valid_inputs(root: Path) -> dict[str, object]:
         },
         source_image_configuration=_image_configuration("source"),
         supervisor_image_configuration=_image_configuration("supervisor"),
+        expected_network_name=NETWORK_NAME,
         expected_database_secret_file=paths["database"],
         expected_head_anchor_authority_file=paths["authority"],
         expected_head_anchor_auth_secret_file=paths["auth"],
@@ -558,6 +571,7 @@ def _valid_inputs(root: Path) -> dict[str, object]:
         },
         "source_image_configuration": _image_configuration("source"),
         "supervisor_image_configuration": _image_configuration("supervisor"),
+        "expected_network_name": NETWORK_NAME,
         "expected_database_secret_file": paths["database"],
         "expected_head_anchor_authority_file": paths["authority"],
         "expected_head_anchor_auth_secret_file": paths["auth"],
@@ -1467,8 +1481,8 @@ def test_staged_snapshot_has_frozen_golden_digest() -> None:
         ).hexdigest()
     )
     assert snapshot.stable_topology_sha256 == (
-        "06131fba5c6ea0c0a49837dd585de0bd6f244b100add10cbd0a0c22ba504ebcf"
+        "e61bcb3b73e6e5f5e7f78de8e9a74a65d56ecf4602b9fc52dbca2ceda1852ef8"
     )
     assert snapshot.snapshot_sha256 == (
-        "4e365aadfa588ec40897cd0ed007cebf46bc4f03b02e8051dbe6dfea8d22df89"
+        "4952e0da8aa0c24d04d5d7d49f5d9425f9280a0ef804fb5ce6656d70813070e8"
     )

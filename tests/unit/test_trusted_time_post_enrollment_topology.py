@@ -21,13 +21,13 @@ from packages.domain.trusted_time_post_enrollment_start import (
     TrustedTimePostEnrollmentStartApproval,
 )
 from scripts.start_trusted_time_supervisor import (
-    COMPOSE_NETWORK_NAME,
     COMPOSE_SOCKET_VOLUME_NAME,
     COMPOSE_STATE_VOLUME_NAME,
     DATABASE_SECRET_RUNTIME_PATH,
     HEAD_ANCHOR_AUTH_SECRET_RUNTIME_PATH,
     HEAD_ANCHOR_AUTHORITY_RUNTIME_PATH,
     HEAD_ANCHOR_SIGNING_KEY_RUNTIME_PATH,
+    POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT,
     LocalDockerDaemonIdentity,
     TrustedTimeApprovedLaunch,
     TrustedTimeVolumeIdentities,
@@ -36,10 +36,12 @@ from scripts.trusted_time_post_enrollment_topology import (
     _MAXIMUM_JSON_PROJECTION_BYTES,
     _MAXIMUM_JSON_PROJECTION_NODES,
     POST_ENROLLMENT_CREATED_TOPOLOGY_CONTRACT_VERSION,
+    POST_ENROLLMENT_CREATED_TOPOLOGY_NETWORK_NAME_PREFIX,
     POST_ENROLLMENT_CREATED_TOPOLOGY_STATUS,
     TrustedTimePostEnrollmentCreatedTopologyRejected,
     TrustedTimePostEnrollmentCreatedTopologySnapshot,
     _require_exact_json_tree,
+    post_enrollment_created_topology_network_name,
     validate_post_enrollment_start_created_topology,
 )
 
@@ -51,6 +53,9 @@ SUPERVISOR_IMAGE_ID = "sha256:" + "2" * 64
 PROJECT_NAME = "autoquanttrader-trusted-time"
 ZERO_DOCKER_TIMESTAMP = "0001-01-01T00:00:00Z"
 OPERATION_ID = "223e4567-e89b-42d3-a456-426614174001"
+SESSION_SHA256 = "7" * 64
+NETWORK_NAME = post_enrollment_created_topology_network_name(SESSION_SHA256)
+STAGED_INPUT_SHA256S = tuple(character * 64 for character in "1234")
 
 
 class _EqualString(str):
@@ -374,6 +379,14 @@ def _created_container_inspection(
     runtime_environment = cast(list[str], image_configuration["Env"]).copy()
     if not source:
         runtime_environment.extend(_SUPERVISOR_RUNTIME_ENVIRONMENT)
+        runtime_environment.extend(
+            f"{name}={value}"
+            for name, value in zip(
+                POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT,
+                STAGED_INPUT_SHA256S,
+                strict=True,
+            )
+        )
 
     socket_request = _volume_request(
         source=COMPOSE_SOCKET_VOLUME_NAME,
@@ -463,7 +476,7 @@ def _created_container_inspection(
                 "Memory": 67_108_864 if source else 268_435_456,
                 "Mounts": [socket_request] if source else [socket_request, *input_requests],
                 "NanoCpus": 250_000_000 if source else 500_000_000,
-                "NetworkMode": COMPOSE_NETWORK_NAME,
+                "NetworkMode": NETWORK_NAME,
                 "OomKillDisable": False,
                 "PidMode": "",
                 "PidsLimit": 32 if source else 64,
@@ -507,7 +520,7 @@ def _created_container_inspection(
                     else runtime_inputs
                 ),
             ],
-            "NetworkSettings": {"Networks": {COMPOSE_NETWORK_NAME: {}}},
+            "NetworkSettings": {"Networks": {NETWORK_NAME: {}}},
             "Path": "/usr/sbin/chronyd" if source else "autoquant-trusted-time-supervisor",
             "RestartCount": 0,
             "State": _created_state(),
@@ -576,6 +589,7 @@ def _valid_inputs(
         "container_inspections": dict(ordered_inspections),
         "source_image_configuration": _image_configuration("source"),
         "supervisor_image_configuration": _image_configuration("supervisor"),
+        "expected_network_name": NETWORK_NAME,
         "expected_database_secret_file": paths["database"],
         "expected_head_anchor_authority_file": paths["authority"],
         "expected_head_anchor_auth_secret_file": paths["auth"],
@@ -743,7 +757,7 @@ def test_created_topology_snapshot_has_frozen_golden_digest() -> None:
     snapshot = _validate(_valid_inputs(Path("/private/autoquant-golden/runtime-secrets")))
 
     assert snapshot.snapshot_sha256 == (
-        "140b48178091967c3fd99e8db8883e9c32eb7ddcd4bfd19003f619dcaca69ec1"
+        "47758517c3c5a96e29c326ef5a37939d6b09dc3490f65fdc352640e6fe2da3c7"
     )
 
 
@@ -1162,7 +1176,7 @@ def test_created_topology_rejects_supervisor_healthcheck_or_network_drift(
         (
             SOURCE_CONTAINER_ID,
             (0, "NetworkSettings", "Networks"),
-            {COMPOSE_NETWORK_NAME: {}, "other-network": {}},
+            {NETWORK_NAME: {}, "other-network": {}},
         ),
         (
             SUPERVISOR_CONTAINER_ID,
@@ -1757,3 +1771,34 @@ def test_created_topology_validation_performs_no_execution_claim_or_release_muta
     retain_claim.assert_not_called()
     release.assert_not_called()
     assert list(tmp_path.iterdir()) == []
+
+
+def test_session_network_name_is_full_domain_separated_and_session_unique() -> None:
+    first = post_enrollment_created_topology_network_name("1" * 64)
+    second = post_enrollment_created_topology_network_name("2" * 64)
+
+    assert first.startswith(POST_ENROLLMENT_CREATED_TOPOLOGY_NETWORK_NAME_PREFIX)
+    assert len(first.removeprefix(POST_ENROLLMENT_CREATED_TOPOLOGY_NETWORK_NAME_PREFIX)) == 64
+    assert first == post_enrollment_created_topology_network_name("1" * 64)
+    assert first != second
+    assert "1" * 64 not in first
+    with pytest.raises(ValueError):
+        post_enrollment_created_topology_network_name("1" * 63)
+
+
+@pytest.mark.parametrize(
+    "wrong_network_name",
+    [
+        "autoquanttrader-trusted-time_default",
+        post_enrollment_created_topology_network_name("8" * 64),
+    ],
+)
+def test_created_topology_rejects_fixed_or_wrong_session_network_name(
+    tmp_path: Path,
+    wrong_network_name: str,
+) -> None:
+    inputs = _valid_inputs(tmp_path)
+    inputs["expected_network_name"] = wrong_network_name
+
+    with pytest.raises(TrustedTimePostEnrollmentCreatedTopologyRejected):
+        _validate(inputs)

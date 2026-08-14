@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -248,6 +249,28 @@ def test_database_secret_loader_accepts_only_complete_psycopg_postgres_dsn(
     )
 
     assert database_url.startswith("postgresql+psycopg://")
+
+
+def test_database_secret_loader_binds_the_exact_bytes_it_decodes(tmp_path: Path) -> None:
+    secret_path = tmp_path / "database-url"
+    payload = (
+        b"postgresql+psycopg://postgres.abcdefghijklmnopqrst:secret"
+        b"@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=verify-full"
+    )
+    secret_path.write_bytes(payload)
+    secret_path.chmod(0o600)
+
+    assert load_database_url_secret(
+        secret_path,
+        expected_owner_uid=os.getuid(),
+        expected_sha256=hashlib.sha256(payload).hexdigest(),
+    ).startswith("postgresql+psycopg://")
+    with pytest.raises(TrustedTimeSupervisorConfigurationError, match="staged-input binding"):
+        load_database_url_secret(
+            secret_path,
+            expected_owner_uid=os.getuid(),
+            expected_sha256="0" * 64,
+        )
 
 
 @pytest.mark.parametrize(

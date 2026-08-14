@@ -77,16 +77,34 @@ def test_every_supported_trusted_time_python_target_uses_isolated_launcher() -> 
 
 
 def test_post_enrollment_start_is_reachable_only_through_standalone_host_orchestrator() -> None:
-    execution_admission_api_names = (
-        "trusted_time_post_enrollment_execution_admission",
+    legacy_execution_contracts = (
         "phase6d-post-enrollment-start-execution-approval-v1",
         "phase6d-post-enrollment-start-execution-attempt-v1",
         "phase6d-post-enrollment-start-execution-admission-v1",
+    )
+    legacy_host_orchestrator_contract = "phase6d-post-enrollment-start-host-orchestrator-v1"
+    execution_admission_api_names = (
+        "trusted_time_post_enrollment_execution_admission",
+        "phase6d-post-enrollment-start-execution-approval-v2",
+        "phase6d-post-enrollment-start-execution-attempt-v2",
+        "phase6d-post-enrollment-start-execution-admission-v2",
         ".post-enrollment-start-execution-attempt-slot",
+        "LoadedTrustedTimePostEnrollmentExecutionApproval",
         "TrustedTimePostEnrollmentExecutionAdmission",
         "admit_post_enrollment_execution_attempt",
         "load_post_enrollment_execution_approval",
+        "reserve_post_enrollment_execution_attempt",
+        "retain_post_enrollment_execution_approval",
         "_consume_post_enrollment_execution_admission",
+    )
+    image_provenance_api_names = (
+        "TrustedTimeImageAdmissionProvenance",
+        "load_image_admission_provenance_artifact",
+    )
+    prepared_creation_api_names = (
+        "_TrustedTimePostEnrollmentPreparedReviewedTopologyCreation",
+        "_prepare_reviewed_topology_creation",
+        "_execute_prepared_reviewed_topology_creation",
     )
     sequence_one_reauthentication_api_names = (
         "trusted_time_post_enrollment_sequence_one_reauthentication",
@@ -97,7 +115,7 @@ def test_post_enrollment_start_is_reachable_only_through_standalone_host_orchest
     host_orchestrator_api_names = (
         "trusted_time_post_enrollment_host_orchestrator",
         "POST_ENROLLMENT_HOST_ORCHESTRATOR_CONTRACT_VERSION",
-        "phase6d-post-enrollment-start-host-orchestrator-v1",
+        "phase6d-post-enrollment-start-host-orchestrator-v2",
         "POST_ENROLLMENT_HOST_ORCHESTRATOR_STATUS",
         "terminal_outcome_retained",
         '"orchestrator_status"',
@@ -232,7 +250,11 @@ def test_post_enrollment_start_is_reachable_only_through_standalone_host_orchest
         "bind_post_enrollment_start_pre_release_topology_fence",
     )
     forbidden_names = (
+        *legacy_execution_contracts,
+        legacy_host_orchestrator_contract,
         *execution_admission_api_names,
+        *image_provenance_api_names,
+        *prepared_creation_api_names,
         *sequence_one_reauthentication_api_names,
         *host_orchestrator_api_names,
         "trusted_time_post_enrollment_topology",
@@ -240,7 +262,7 @@ def test_post_enrollment_start_is_reachable_only_through_standalone_host_orchest
         "trusted_time_post_enrollment_staged_topology",
         "validate_post_enrollment_start_staged_unreleased_topology",
         "trusted_time_post_enrollment_topology_reader",
-        "phase6d-post-enrollment-topology-observation-reader-v1",
+        "phase6d-post-enrollment-topology-observation-reader-v2",
         "TrustedTimePostEnrollmentTopologyObservationIssuer",
         "TrustedTimePostEnrollmentCreatedTopologyObservation",
         "TrustedTimePostEnrollmentStagedTopologyObservation",
@@ -291,6 +313,68 @@ def test_post_enrollment_start_is_reachable_only_through_standalone_host_orchest
         assert re.search(r"(?<![0-9A-Za-z])600(?:\.0)?(?![0-9A-Za-z])", payload) is None
         assert re.search(r"(?<![0-9A-Za-z])605(?:\.0)?(?![0-9A-Za-z])", payload) is None
 
+    network_owned_sources = (
+        ROOT / "scripts" / "trusted_time_post_enrollment_topology_reader.py",
+        ROOT / "scripts" / "trusted_time_post_enrollment_active_controller.py",
+        ROOT / "scripts" / "trusted_time_post_enrollment_persistent_topology.py",
+    )
+    for path in network_owned_sources:
+        payload = path.read_text(encoding="utf-8")
+        assert "COMPOSE_NETWORK_NAME" not in payload
+        assert "post_enrollment_created_topology_network_name" in payload
+    reader_payload = network_owned_sources[0].read_text(encoding="utf-8")
+    assert "phase6d-post-enrollment-topology-observation-reader-v2" in reader_payload
+    assert "phase6d-post-enrollment-topology-observation-reader-v1" not in reader_payload
+    network_contract_docs = (
+        ROOT / "docs" / "ARCHITECTURE.md",
+        ROOT / "docs" / "IMPLEMENTATION_PLAN.md",
+        ROOT / "docs" / "adr" / "0099-approval-bound-post-enrollment-start-and-graceful-stop.md",
+        ROOT / "docs" / "runbooks" / "trusted-time-supervisor.md",
+    )
+    for path in network_contract_docs:
+        payload = path.read_text(encoding="utf-8")
+        normalized_payload = " ".join(payload.split())
+        assert "issuer-session-derived network name" in normalized_payload
+        assert "fixed legacy" in payload
+        assert "phase6d-post-enrollment-topology-observation-reader-v1" not in payload
+    assert all(
+        "phase6d-post-enrollment-topology-observation-reader-v2" in path.read_text(encoding="utf-8")
+        for path in network_contract_docs
+    )
+
+    staged_input_digest_environment = (
+        "AQT_TRUSTED_TIME_EXPECTED_DATABASE_URL_SHA256",
+        "AQT_TRUSTED_TIME_EXPECTED_HEAD_ANCHOR_AUTHORITY_SHA256",
+        "AQT_TRUSTED_TIME_EXPECTED_HEAD_ANCHOR_AUTH_SECRET_SHA256",
+        "AQT_TRUSTED_TIME_EXPECTED_HEAD_ANCHOR_SIGNING_KEY_SHA256",
+    )
+    supervisor_main = (ROOT / "apps" / "trusted_time_supervisor" / "main.py").read_text(
+        encoding="utf-8"
+    )
+    supervisor_configuration = (ROOT / "apps" / "trusted_time_supervisor" / "config.py").read_text(
+        encoding="utf-8"
+    ) + (ROOT / "apps" / "trusted_time_supervisor" / "head_anchor_config.py").read_text(
+        encoding="utf-8"
+    )
+    supervisor_start = (ROOT / "scripts" / "start_trusted_time_supervisor.py").read_text(
+        encoding="utf-8"
+    )
+    for environment_name in staged_input_digest_environment:
+        assert environment_name in supervisor_configuration
+    assert "_EXPECTED_STAGED_INPUT_SHA256_ENVIRONMENT" in supervisor_main
+    assert "POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT" in supervisor_start
+    assert "POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT" in reader_payload
+    assert "validate_exact_post_start_exited_supervisor_container" in reader_payload
+    assert "_ReviewedCreatedTopologyRegistration" in reader_payload
+    normalized_contract_docs = tuple(
+        " ".join(path.read_text(encoding="utf-8").split()) for path in network_contract_docs
+    )
+    for normalized_payload in normalized_contract_docs:
+        assert "four private expected SHA-256 bindings" in normalized_payload
+        assert "exact bytes" in normalized_payload
+        assert "before marker, readiness, or claim" in normalized_payload
+        assert "private digests" in normalized_payload
+
     admission_cli = (ROOT / "scripts" / "verify_trusted_time_images.py").read_text(encoding="utf-8")
     assert '"scripts/trusted_time_post_enrollment_action_topology_fence.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_action_topology_fence") == 1
@@ -319,7 +403,10 @@ def test_post_enrollment_start_is_reachable_only_through_standalone_host_orchest
     assert '"scripts/trusted_time_post_enrollment_topology_fence.py"' in admission_cli
     assert admission_cli.count("trusted_time_post_enrollment_topology_fence") == 1
     for forbidden_name in (
+        *legacy_execution_contracts,
+        legacy_host_orchestrator_contract,
         *execution_admission_api_names[1:],
+        *prepared_creation_api_names,
         *sequence_one_reauthentication_api_names[1:],
         *host_orchestrator_api_names[1:],
         *active_controller_api_names[1:],
@@ -344,11 +431,17 @@ def test_post_enrollment_start_is_reachable_only_through_standalone_host_orchest
     ).read_text(encoding="utf-8")
     for required_name in (
         execution_admission_api_names[0],
-        execution_admission_api_names[-3],
-        execution_admission_api_names[-1],
+        "LoadedTrustedTimePostEnrollmentExecutionApproval",
+        "load_post_enrollment_execution_approval",
+        "reserve_post_enrollment_execution_attempt",
+        "_consume_post_enrollment_execution_admission",
+        "verify_and_write_existing_image_admission",
+        "_prepare_reviewed_topology_creation",
+        "_execute_prepared_reviewed_topology_creation",
         sequence_one_reauthentication_api_names[0],
         sequence_one_reauthentication_api_names[-1],
         "trusted_time_post_enrollment_topology_reader",
+        host_orchestrator_api_names[2],
         active_controller_api_names[0],
         active_controller_admission_api_names[0],
         action_topology_fence_api_names[0],
@@ -368,6 +461,85 @@ def test_post_enrollment_start_is_reachable_only_through_standalone_host_orchest
     assert orchestrator.count('"--runtime-env-file"') == 1
     assert orchestrator.count("_recovery_outcome_retention_is_armed") == 1
     assert orchestrator.count("_adopt_registered_confirmed_terminal_outcome") == 1
+    assert "admit_post_enrollment_execution_attempt" not in orchestrator
+    assert legacy_host_orchestrator_contract not in orchestrator
+
+    validation_start = orchestrator.index("def _validate_compose(")
+    validation_end = orchestrator.index("\ndef _retire_inputs(", validation_start)
+    validation_body = orchestrator[validation_start:validation_end]
+    assert validation_body.index("render_compose_model(") < validation_body.index(
+        "validate_compose_model("
+    )
+    assert validation_body.index("validate_materialized_database_secret(") < validation_body.index(
+        "verify_and_write_existing_image_admission("
+    )
+    assert validation_body.index(
+        "validate_materialized_trusted_time_head_anchor_inputs("
+    ) < validation_body.index("verify_and_write_existing_image_admission(")
+
+    execution_start = orchestrator.index("def _execute_under_issuer(")
+    execution_end = orchestrator.index("\ndef run_approved_post_enrollment_start_once(")
+    execution_body = orchestrator[execution_start:execution_end]
+    assert (
+        execution_body.index("_MaterializedRuntimeInputOwner()")
+        < execution_body.index("_materialize_runtime_inputs(")
+        < execution_body.index("_validate_compose(")
+        < execution_body.index("_run_post_enrollment_choreography(")
+    )
+
+    run_start = execution_end + 1
+    run_end = orchestrator.index("\ndef _safe_terminal_payload(", run_start)
+    run_body = orchestrator[run_start:run_end]
+    assert run_body.index(
+        "TrustedTimePostEnrollmentTopologyObservationIssuer.open("
+    ) < run_body.index("_execute_under_issuer(")
+
+    choreography_start = orchestrator.index("    def choreography(")
+    choreography_end = orchestrator.index(
+        "    result = issuer._run_exclusive_choreography_with_recovery_retention(",
+        choreography_start,
+    )
+    choreography_body = orchestrator[choreography_start:choreography_end]
+    ordered_late_attempt_markers = (
+        "prepare_trusted_time_post_enrollment_sequence_one_reauthentication_issuer(",
+        "issuer._prepare_reviewed_topology_creation(",
+        "reserve_post_enrollment_execution_attempt(",
+        "_consume_post_enrollment_execution_admission(",
+        "mutation_may_have_begun = True",
+        "issuer._execute_prepared_reviewed_topology_creation(",
+    )
+    marker_offsets = tuple(
+        choreography_body.index(marker) for marker in ordered_late_attempt_markers
+    )
+    assert marker_offsets == tuple(sorted(marker_offsets))
+
+    execution_admission = (
+        ROOT / "scripts" / "trusted_time_post_enrollment_execution_admission.py"
+    ).read_text(encoding="utf-8")
+    for contract in execution_admission_api_names[1:4]:
+        assert contract in execution_admission
+    for legacy_contract in legacy_execution_contracts:
+        assert legacy_contract not in execution_admission
+    reserve_signature = re.search(
+        r"    def reserve\(\n(?P<parameters>.*?)\n    \) -> ",
+        execution_admission,
+        flags=re.DOTALL,
+    )
+    assert reserve_signature is not None
+    reserve_parameters = reserve_signature.group("parameters")
+    assert "loaded_approval:" in reserve_parameters
+    assert "image_admission:" in reserve_parameters
+    assert "approval_artifact:" not in reserve_parameters
+    assert (
+        "admit_post_enrollment_execution_attempt = reserve_post_enrollment_execution_attempt"
+    ) in execution_admission
+    assert '"retain_post_enrollment_execution_approval"' in execution_admission
+
+    image_admission = (ROOT / "scripts" / "verify_trusted_time_images.py").read_text(
+        encoding="utf-8"
+    )
+    for required_name in image_provenance_api_names:
+        assert required_name in image_admission
     active_controller = (
         ROOT / "scripts" / "trusted_time_post_enrollment_active_controller.py"
     ).read_text(encoding="utf-8")

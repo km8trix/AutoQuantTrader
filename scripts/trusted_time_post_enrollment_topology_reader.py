@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, Literal, Never, Protocol, SupportsIndex, cast
 from urllib.parse import unquote, urlsplit
 
+from apps.trusted_time_supervisor.config import TrustedTimeSupervisorConfigurationError
 from packages.domain.trusted_time_enrollment_evidence import (
     FIRST_ENROLLMENT_AUTHORITY_FIELDS,
     canonical_first_enrollment_json_bytes,
@@ -43,7 +44,6 @@ from packages.domain.trusted_time_post_enrollment_start import (
 )
 from scripts.bounded_subprocess import run_bounded_subprocess
 from scripts.start_trusted_time_supervisor import (
-    COMPOSE_NETWORK_NAME,
     COMPOSE_PATH,
     COMPOSE_SOCKET_VOLUME_NAME,
     COMPOSE_STATE_VOLUME_NAME,
@@ -57,15 +57,22 @@ from scripts.start_trusted_time_supervisor import (
     HEAD_ANCHOR_INPUT_DIRECTORY_PATTERN,
     HEAD_ANCHOR_SIGNING_KEY_FILE_NAME,
     HEAD_ANCHOR_SIGNING_KEY_SOURCE_ENVIRONMENT,
+    POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT,
     TRUSTED_TIME_LAUNCH_LOCK_PATH,
     LocalDockerDaemonIdentity,
+    MaterializedDatabaseSecret,
+    MaterializedHeadAnchorFile,
+    MaterializedHeadAnchorInputs,
     TrustedTimeApprovedLaunch,
     TrustedTimeVolumeIdentities,
     _acquire_trusted_time_launch_lock,
     _stable_volume_identity_sha256,
     validate_chrony_state_volume_inspection,
     validate_exact_never_started_created_container,
+    validate_exact_post_start_exited_supervisor_container,
     validate_exact_staged_running_container,
+    validate_materialized_database_secret,
+    validate_materialized_trusted_time_head_anchor_inputs,
 )
 from scripts.trusted_time_post_enrollment_staged_topology import (
     POST_ENROLLMENT_STAGED_TOPOLOGY_CONTRACT_VERSION,
@@ -81,8 +88,10 @@ from scripts.trusted_time_post_enrollment_start import (
 from scripts.trusted_time_post_enrollment_topology import (
     POST_ENROLLMENT_CREATED_TOPOLOGY_COMPOSE_PROJECT,
     POST_ENROLLMENT_CREATED_TOPOLOGY_CONTRACT_VERSION,
+    POST_ENROLLMENT_CREATED_TOPOLOGY_INVOCATION_LABEL,
     TrustedTimePostEnrollmentCreatedTopologySnapshot,
     _valid_daemon_identity,
+    post_enrollment_created_topology_network_name,
     validate_post_enrollment_start_created_topology,
 )
 from scripts.verify_trusted_time_images import (
@@ -96,7 +105,7 @@ from scripts.verify_trusted_time_images import (
 ROOT = Path(__file__).resolve().parents[1]
 
 POST_ENROLLMENT_TOPOLOGY_READER_CONTRACT_VERSION = (
-    "phase6d-post-enrollment-topology-observation-reader-v1"
+    "phase6d-post-enrollment-topology-observation-reader-v2"
 )
 POST_ENROLLMENT_CREATED_TOPOLOGY_OBSERVATION_STATUS = "created_topology_observation_unqualified"
 POST_ENROLLMENT_STAGED_TOPOLOGY_OBSERVATION_STATUS = (
@@ -130,9 +139,7 @@ _MAXIMUM_MUTATION_STDERR_BYTES = 1 * 1_024 * 1_024
 _MAXIMUM_REVIEWED_COMPOSE_PAYLOAD_BYTES = 8 * 1_024
 _MAXIMUM_SOURCE_READINESS_ATTEMPTS = 32
 _MAXIMUM_SUPERVISOR_READINESS_ATTEMPTS = 32
-_REVIEWED_CREATE_INVOCATION_LABEL = (
-    "com.autoquanttrader.trusted-time.post-enrollment-create-invocation"
-)
+_REVIEWED_CREATE_INVOCATION_LABEL = POST_ENROLLMENT_CREATED_TOPOLOGY_INVOCATION_LABEL
 _REVIEWED_CREATE_SERVICES = ("chrony-nts", "trusted-time-supervisor")
 _MAXIMUM_JSON_DEPTH = 64
 _MAXIMUM_JSON_NODES = 131_072
@@ -445,6 +452,37 @@ class _TrustedTimePostEnrollmentTopologyChoreographyLease:
         )
 
 
+class _TrustedTimePostEnrollmentPreparedReviewedTopologyCreation:
+    """Opaque one-shot identity for one fully reviewed, still inert create."""
+
+    __slots__ = ("__weakref__",)
+
+    def __new__(cls) -> _TrustedTimePostEnrollmentPreparedReviewedTopologyCreation:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time prepared reviewed topology creation is unavailable"
+        )
+
+    def __copy__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time prepared reviewed topology creation cannot be copied"
+        )
+
+    def __deepcopy__(self, _: object) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time prepared reviewed topology creation cannot be copied"
+        )
+
+    def __reduce__(self) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time prepared reviewed topology creation cannot be serialized"
+        )
+
+    def __reduce_ex__(self, _: SupportsIndex) -> Never:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time prepared reviewed topology creation cannot be serialized"
+        )
+
+
 class _TrustedTimePostEnrollmentRecoveryRetentionCapability:
     """Opaque one-shot authority for one fixed local recovery outcome only."""
 
@@ -562,6 +600,58 @@ class _ChoreographyCheckpoint:
     started_monotonic_ns: int
     deadline_monotonic_ns: int
     observed_monotonic_ns: int
+
+
+@dataclass(frozen=True, slots=True)
+class _ReviewedStagedInputSeal:
+    """One secret-free exact named-file identity and content binding."""
+
+    path: Path
+    directory: Path
+    directory_device: int
+    directory_inode: int
+    file_device: int
+    file_inode: int
+    size: int
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedReviewedTopologyCreationRegistration:
+    """Issuer-private immutable material for one inert prepared create."""
+
+    candidate_reference: weakref.ReferenceType[
+        _TrustedTimePostEnrollmentPreparedReviewedTopologyCreation
+    ]
+    registration_nonce: object
+    approval: TrustedTimePostEnrollmentStartApproval
+    approved_launch: TrustedTimeApprovedLaunch
+    compose_environment_identity: tuple[tuple[str, str], ...]
+    effecting_compose_payload: bytes
+    staged_paths: tuple[Path, Path, Path, Path]
+    staged_input_seals: tuple[
+        _ReviewedStagedInputSeal,
+        _ReviewedStagedInputSeal,
+        _ReviewedStagedInputSeal,
+        _ReviewedStagedInputSeal,
+    ]
+    network_name: str
+    binding_sha256: str
+    session_sha256: str
+    choreography_lease: object
+    choreography_scope_nonce: object
+    lease_sha256: str
+    owner_pid: int
+    owner_thread: threading.Thread
+
+
+@dataclass(frozen=True, slots=True)
+class _ReviewedCreatedTopologyRegistration:
+    """One atomically stored created observation and its private input binding."""
+
+    observation: TrustedTimePostEnrollmentCreatedTopologyObservation
+    observation_sha256: str
+    staged_input_sha256s: tuple[str, str, str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -4194,9 +4284,13 @@ def _validate_container_reader_boundary(
     expected_container_id: str,
     expected_service: Literal["chrony-nts", "trusted-time-supervisor"],
     expected_state: Literal["created", "staged_unreleased"],
+    expected_network_name: str,
 ) -> _ContainerNetworkAttachment:
     if (
         container.get("Id") != expected_container_id
+        or type(expected_network_name) is not str
+        or not expected_network_name
+        or len(expected_network_name) > 255
         or container.get("Platform") != "linux"
         or type(container.get("Platform")) is not str
         or "ExecIDs" not in container
@@ -4225,7 +4319,7 @@ def _validate_container_reader_boundary(
     if (
         set(network_settings) != _NETWORK_SETTINGS_REQUIRED_KEYS
         or type(networks) is not dict
-        or set(networks) != {COMPOSE_NETWORK_NAME}
+        or set(networks) != {expected_network_name}
         or network_settings.get("HairpinMode") is not False
         or network_settings.get("Ports") != {}
         or type(network_settings.get("Ports")) is not dict
@@ -4244,7 +4338,7 @@ def _validate_container_reader_boundary(
         raise TrustedTimePostEnrollmentTopologyReaderError(
             "trusted-time Docker observation is unavailable"
         )
-    attachment = networks.get(COMPOSE_NETWORK_NAME)
+    attachment = networks.get(expected_network_name)
     if (
         type(attachment) is not dict
         or set(attachment) != _NETWORK_ATTACHMENT_REQUIRED_KEYS
@@ -4362,6 +4456,7 @@ def _network_identity(
     *,
     expected_inventory: frozenset[str],
     expected_state: Literal["created", "staged_unreleased"],
+    expected_network_name: str,
     expected_create_invocation_sha256: str | None,
 ) -> _NetworkObservation:
     network_id = network.get("Id")
@@ -4374,12 +4469,17 @@ def _network_identity(
             and (
                 type(expected_create_invocation_sha256) is not str
                 or _SHA256_PATTERN.fullmatch(expected_create_invocation_sha256) is None
+                or expected_network_name
+                != post_enrollment_created_topology_network_name(expected_create_invocation_sha256)
             )
         )
+        or type(expected_network_name) is not str
+        or not expected_network_name
+        or len(expected_network_name) > 255
         or set(network) != _NETWORK_IDENTITY_ALLOWED_KEYS
         or type(network_id) is not str
         or _FULL_ID_PATTERN.fullmatch(network_id) is None
-        or network.get("Name") != COMPOSE_NETWORK_NAME
+        or network.get("Name") != expected_network_name
         or network.get("Driver") != "bridge"
         or network.get("Scope") != "local"
         or network.get("Internal") is not False
@@ -4487,21 +4587,391 @@ def _validate_staged_paths(paths: tuple[Path, Path, Path, Path]) -> Path:
     return root
 
 
+class _ReviewedStagedInputDescriptorOwner(ctypes.c_int):
+    """Own one libc-opened fd before the Python CALL can return."""
+
+    def fileno(self) -> int:
+        descriptor = self.value
+        if descriptor < 0:
+            raise OSError
+        return descriptor
+
+    def __index__(self) -> int:
+        return self.fileno()
+
+    def close(self) -> None:
+        descriptor = self.value
+        if descriptor < 0:
+            return
+        try:
+            self.value = -1
+            os.close(descriptor)
+        except OSError:
+            raise
+        except BaseException as interruption:
+            # The descriptor is already retired from this owner, so a one-shot
+            # instruction interruption can retry cleanup without exposing it to
+            # later owner use.  EBADF means the first close took effect before
+            # the interruption became visible; either way, preserve the
+            # interruption after cleanup.
+            try:
+                os.close(descriptor)
+            except OSError as retry_error:
+                if retry_error.errno != errno.EBADF:
+                    raise interruption from retry_error
+            raise interruption
+
+    def __del__(self) -> None:
+        with suppress(BaseException):
+            self.close()
+
+
+_REVIEWED_DESCRIPTOR_OPEN = ctypes.CDLL(None, use_errno=True).open
+_REVIEWED_DESCRIPTOR_OPEN.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_uint]
+_REVIEWED_DESCRIPTOR_OPEN.restype = _ReviewedStagedInputDescriptorOwner
+_REVIEWED_DESCRIPTOR_OPENAT = ctypes.CDLL(None, use_errno=True).openat
+_REVIEWED_DESCRIPTOR_OPENAT.argtypes = [
+    ctypes.c_int,
+    ctypes.c_char_p,
+    ctypes.c_int,
+    ctypes.c_uint,
+]
+_REVIEWED_DESCRIPTOR_OPENAT.restype = _ReviewedStagedInputDescriptorOwner
+
+
+def _open_reviewed_staged_input_directory_owner(
+    path: Path,
+) -> _ReviewedStagedInputDescriptorOwner:
+    ctypes.set_errno(0)
+    owner = _REVIEWED_DESCRIPTOR_OPEN(
+        os.fsencode(path),
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+        0,
+    )
+    if owner.value < 0:
+        error_number = ctypes.get_errno() or errno.EIO
+        raise OSError(error_number, os.strerror(error_number), path)
+    return cast(_ReviewedStagedInputDescriptorOwner, owner)
+
+
+def _open_reviewed_staged_input_directory_at_owner(
+    directory_name: str,
+    *,
+    directory_descriptor: int,
+) -> _ReviewedStagedInputDescriptorOwner:
+    ctypes.set_errno(0)
+    owner = _REVIEWED_DESCRIPTOR_OPENAT(
+        directory_descriptor,
+        os.fsencode(directory_name),
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+        0,
+    )
+    if owner.value < 0:
+        error_number = ctypes.get_errno() or errno.EIO
+        raise OSError(error_number, os.strerror(error_number), directory_name)
+    return cast(_ReviewedStagedInputDescriptorOwner, owner)
+
+
+def _open_reviewed_staged_input_owner(
+    file_name: str,
+    *,
+    directory_descriptor: int,
+) -> _ReviewedStagedInputDescriptorOwner:
+    """Open one input directly into a VM-owned file object."""
+
+    ctypes.set_errno(0)
+    owner = _REVIEWED_DESCRIPTOR_OPENAT(
+        directory_descriptor,
+        os.fsencode(file_name),
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0),
+        0,
+    )
+    if owner.value < 0:
+        error_number = ctypes.get_errno() or errno.EIO
+        raise OSError(error_number, os.strerror(error_number), file_name)
+    return cast(_ReviewedStagedInputDescriptorOwner, owner)
+
+
+def _open_reviewed_lock_guard_owner(path: Path) -> _ReviewedStagedInputDescriptorOwner:
+    ctypes.set_errno(0)
+    owner = _REVIEWED_DESCRIPTOR_OPEN(
+        os.fsencode(path),
+        os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+        0,
+    )
+    if owner.value < 0:
+        error_number = ctypes.get_errno() or errno.EIO
+        raise OSError(error_number, os.strerror(error_number), path)
+    return cast(_ReviewedStagedInputDescriptorOwner, owner)
+
+
+def _observe_reviewed_staged_input_seal(path: Path) -> _ReviewedStagedInputSeal:
+    """Read one exact named staged input without retaining its secret bytes."""
+
+    directory_owner: _ReviewedStagedInputDescriptorOwner | None = None
+    file_owner: _ReviewedStagedInputDescriptorOwner | None = None
+    try:
+        directory_owner = _open_reviewed_staged_input_directory_owner(path.parent)
+        directory_descriptor = directory_owner.fileno()
+        directory_before = os.fstat(directory_descriptor)
+        file_owner = _open_reviewed_staged_input_owner(
+            path.name,
+            directory_descriptor=directory_descriptor,
+        )
+        file_descriptor = file_owner.fileno()
+        file_before = os.fstat(file_descriptor)
+        digest = hashlib.sha256()
+        observed_size = 0
+        while True:
+            chunk = os.read(file_descriptor, 8_192)
+            if not chunk:
+                break
+            observed_size += len(chunk)
+            digest.update(chunk)
+        file_after = os.fstat(file_descriptor)
+        named_file = os.stat(
+            path.name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        directory_after = os.stat(path.parent, follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(directory_before.st_mode)
+            or directory_before.st_uid != os.geteuid()
+            or stat.S_IMODE(directory_before.st_mode) != 0o700
+            or directory_before.st_dev != directory_after.st_dev
+            or directory_before.st_ino != directory_after.st_ino
+            or directory_before.st_mode != directory_after.st_mode
+            or directory_before.st_uid != directory_after.st_uid
+            or not stat.S_ISREG(file_before.st_mode)
+            or file_before.st_uid != os.geteuid()
+            or stat.S_IMODE(file_before.st_mode) != 0o400
+            or file_before.st_nlink != 1
+            or file_before.st_size <= 0
+            or observed_size != file_before.st_size
+            or file_before.st_dev != file_after.st_dev
+            or file_before.st_ino != file_after.st_ino
+            or file_before.st_mode != file_after.st_mode
+            or file_before.st_uid != file_after.st_uid
+            or file_before.st_nlink != file_after.st_nlink
+            or file_before.st_size != file_after.st_size
+            or file_before.st_mtime_ns != file_after.st_mtime_ns
+            or file_before.st_ctime_ns != file_after.st_ctime_ns
+            or file_after.st_dev != named_file.st_dev
+            or file_after.st_ino != named_file.st_ino
+            or file_after.st_mode != named_file.st_mode
+            or file_after.st_uid != named_file.st_uid
+            or file_after.st_nlink != named_file.st_nlink
+            or file_after.st_size != named_file.st_size
+        ):
+            raise OSError
+        return _ReviewedStagedInputSeal(
+            path=path,
+            directory=path.parent,
+            directory_device=directory_before.st_dev,
+            directory_inode=directory_before.st_ino,
+            file_device=file_before.st_dev,
+            file_inode=file_before.st_ino,
+            size=file_before.st_size,
+            sha256=digest.hexdigest(),
+        )
+    except OSError:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time reviewed staged-input fence is unavailable"
+        ) from None
+    finally:
+        if file_owner is not None:
+            file_owner.close()
+        if directory_owner is not None:
+            directory_owner.close()
+
+
+def _valid_reviewed_staged_input_seals(
+    seals: object,
+    *,
+    staged_paths: tuple[Path, Path, Path, Path],
+) -> bool:
+    return (
+        type(seals) is tuple
+        and len(seals) == 4
+        and all(type(seal) is _ReviewedStagedInputSeal for seal in seals)
+        and tuple(cast(_ReviewedStagedInputSeal, seal).path for seal in seals) == staged_paths
+        and all(
+            seal.directory == seal.path.parent
+            and type(seal.directory_device) is int
+            and seal.directory_device >= 0
+            and type(seal.directory_inode) is int
+            and seal.directory_inode > 0
+            and type(seal.file_device) is int
+            and seal.file_device >= 0
+            and type(seal.file_inode) is int
+            and seal.file_inode > 0
+            and type(seal.size) is int
+            and seal.size > 0
+            and type(seal.sha256) is str
+            and _SHA256_PATTERN.fullmatch(seal.sha256) is not None
+            for seal in cast(tuple[_ReviewedStagedInputSeal, ...], seals)
+        )
+    )
+
+
+def _revalidate_reviewed_staged_input_seals(
+    seals: object,
+    *,
+    staged_paths: tuple[Path, Path, Path, Path],
+) -> None:
+    """Require the exact named identities and content sealed by preparation."""
+
+    if not _valid_reviewed_staged_input_seals(seals, staged_paths=staged_paths):
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time reviewed staged-input fence is unavailable"
+        )
+    exact_seals = cast(tuple[_ReviewedStagedInputSeal, ...], seals)
+    for expected in exact_seals:
+        if _observe_reviewed_staged_input_seal(expected.path) != expected:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time reviewed staged-input fence is unavailable"
+            )
+
+
+def _reviewed_staged_input_seals_from_materialized_receipts(
+    *,
+    database_secret: object,
+    head_anchor_inputs: object,
+    staged_paths: tuple[Path, Path, Path, Path],
+) -> tuple[
+    _ReviewedStagedInputSeal,
+    _ReviewedStagedInputSeal,
+    _ReviewedStagedInputSeal,
+    _ReviewedStagedInputSeal,
+]:
+    """Revalidate original launcher receipts and project only secret-free seals."""
+
+    if (
+        type(database_secret) is not MaterializedDatabaseSecret
+        or type(head_anchor_inputs) is not MaterializedHeadAnchorInputs
+        or type(head_anchor_inputs.authority) is not MaterializedHeadAnchorFile
+        or type(head_anchor_inputs.auth_secret) is not MaterializedHeadAnchorFile
+        or type(head_anchor_inputs.signing_key) is not MaterializedHeadAnchorFile
+        or (
+            database_secret.path,
+            head_anchor_inputs.authority.path,
+            head_anchor_inputs.auth_secret.path,
+            head_anchor_inputs.signing_key.path,
+        )
+        != staged_paths
+    ):
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time reviewed staged-input fence is unavailable"
+        )
+    try:
+        validate_materialized_database_secret(database_secret)
+        validate_materialized_trusted_time_head_anchor_inputs(head_anchor_inputs)
+    except TrustedTimeSupervisorConfigurationError:
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time reviewed staged-input fence is unavailable"
+        ) from None
+    resources = (
+        database_secret,
+        head_anchor_inputs.authority,
+        head_anchor_inputs.auth_secret,
+        head_anchor_inputs.signing_key,
+    )
+    seals = tuple(
+        _ReviewedStagedInputSeal(
+            path=resource.path,
+            directory=resource.directory,
+            directory_device=resource.directory_device,
+            directory_inode=resource.directory_inode,
+            file_device=resource.file_device,
+            file_inode=resource.file_inode,
+            size=resource.size,
+            sha256=resource.sha256,
+        )
+        for resource in resources
+    )
+    if not _valid_reviewed_staged_input_seals(seals, staged_paths=staged_paths):
+        raise TrustedTimePostEnrollmentTopologyReaderError(
+            "trusted-time reviewed staged-input fence is unavailable"
+        )
+    return cast(
+        tuple[
+            _ReviewedStagedInputSeal,
+            _ReviewedStagedInputSeal,
+            _ReviewedStagedInputSeal,
+            _ReviewedStagedInputSeal,
+        ],
+        seals,
+    )
+
+
+def _snapshot_reviewed_staged_input_receipts(
+    staged_paths: tuple[Path, Path, Path, Path],
+) -> tuple[MaterializedDatabaseSecret, MaterializedHeadAnchorInputs]:
+    """Adapt the legacy one-call wrapper to the exact receipt-bound prepare path."""
+
+    root = _validate_staged_paths(staged_paths)
+    seals = tuple(_observe_reviewed_staged_input_seal(path) for path in staged_paths)
+    database_seal = seals[0]
+    database_secret = MaterializedDatabaseSecret(
+        root=root,
+        ignored_root=root,
+        directory=database_seal.directory,
+        path=database_seal.path,
+        directory_device=database_seal.directory_device,
+        directory_inode=database_seal.directory_inode,
+        file_device=database_seal.file_device,
+        file_inode=database_seal.file_inode,
+        size=database_seal.size,
+        sha256=database_seal.sha256,
+    )
+    head_files = tuple(
+        MaterializedHeadAnchorFile(
+            root=root,
+            ignored_root=root,
+            directory=seal.directory,
+            path=seal.path,
+            directory_device=seal.directory_device,
+            directory_inode=seal.directory_inode,
+            file_device=seal.file_device,
+            file_inode=seal.file_inode,
+            size=seal.size,
+            sha256=seal.sha256,
+            kind=kind,
+        )
+        for seal, kind in zip(
+            seals[1:],
+            ("authority", "auth", "signing-key"),
+            strict=True,
+        )
+    )
+    return database_secret, MaterializedHeadAnchorInputs(
+        authority=head_files[0],
+        auth_secret=head_files[1],
+        signing_key=head_files[2],
+    )
+
+
 def _observe_host_retirements(
     paths: tuple[Path, Path, Path, Path],
 ) -> _AnchoredRetirementObservation:
     root = _validate_staged_paths(paths)
-    descriptor: int | None = None
-    parent_descriptors: dict[str, int] = {}
+    descriptor_owner: _ReviewedStagedInputDescriptorOwner | None = None
+    parent_owner: _ReviewedStagedInputDescriptorOwner | None = None
+    parent_owners: dict[str, _ReviewedStagedInputDescriptorOwner] = {}
     absent_parents: set[str] = set()
     try:
-        descriptor = os.open(
-            root,
-            os.O_RDONLY
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_DIRECTORY", 0)
-            | getattr(os, "O_NOFOLLOW", 0),
-        )
+        descriptor_owner = _open_reviewed_staged_input_directory_owner(root)
+        descriptor = descriptor_owner.fileno()
         before = os.fstat(descriptor)
         if (
             not stat.S_ISDIR(before.st_mode)
@@ -4511,21 +4981,20 @@ def _observe_host_retirements(
             raise OSError
         for path in paths:
             parent_name = path.parent.name
+            parent_owner = None
             try:
-                parent_descriptor = os.open(
+                parent_owner = _open_reviewed_staged_input_directory_at_owner(
                     parent_name,
-                    os.O_RDONLY
-                    | getattr(os, "O_CLOEXEC", 0)
-                    | getattr(os, "O_DIRECTORY", 0)
-                    | getattr(os, "O_NOFOLLOW", 0),
-                    dir_fd=descriptor,
+                    directory_descriptor=descriptor,
                 )
             except FileNotFoundError as error:
                 if error.errno != errno.ENOENT:
                     raise OSError from error
                 absent_parents.add(parent_name)
                 continue
-            parent_descriptors[parent_name] = parent_descriptor
+            parent_owners[parent_name] = parent_owner
+            parent_descriptor = parent_owner.fileno()
+            parent_owner = None
             parent_before = os.fstat(parent_descriptor)
             if (
                 not stat.S_ISDIR(parent_before.st_mode)
@@ -4549,9 +5018,10 @@ def _observe_host_retirements(
             else:
                 raise OSError
         for path in paths:
-            held_parent_descriptor = parent_descriptors.get(path.parent.name)
-            if held_parent_descriptor is None:
+            held_parent_owner = parent_owners.get(path.parent.name)
+            if held_parent_owner is None:
                 continue
+            held_parent_descriptor = held_parent_owner.fileno()
             held = os.fstat(held_parent_descriptor)
             named = os.stat(path.parent.name, dir_fd=descriptor, follow_symlinks=False)
             if (
@@ -4584,12 +5054,15 @@ def _observe_host_retirements(
             "trusted-time staged input retirement observation is unavailable"
         ) from None
     finally:
-        for parent_descriptor in parent_descriptors.values():
+        if parent_owner is not None:
             with suppress(OSError):
-                os.close(parent_descriptor)
-        if descriptor is not None:
+                parent_owner.close()
+        for retained_parent_owner in parent_owners.values():
             with suppress(OSError):
-                os.close(descriptor)
+                retained_parent_owner.close()
+        if descriptor_owner is not None:
+            with suppress(OSError):
+                descriptor_owner.close()
     candidates = tuple(
         TrustedTimePostEnrollmentAbsentPathCandidate(path=os.fspath(path)) for path in paths
     )
@@ -4681,10 +5154,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
     _owner_pid: int
     _poisoned: bool
     _reviewed_mutation_binding_sha256: str | None
-    _reviewed_mutation_created_observation: (
-        TrustedTimePostEnrollmentCreatedTopologyObservation | None
-    )
-    _reviewed_mutation_created_observation_sha256: str | None
+    _reviewed_mutation_created_registration: _ReviewedCreatedTopologyRegistration | None
+    _reviewed_mutation_prepared_registration: _PreparedReviewedTopologyCreationRegistration | None
     _reviewed_mutation_state: str
     _runner: _BoundedRunner
     _runner_identity_value: _BoundedRunner
@@ -4722,8 +5193,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         "_owner_pid",
         "_poisoned",
         "_reviewed_mutation_binding_sha256",
-        "_reviewed_mutation_created_observation",
-        "_reviewed_mutation_created_observation_sha256",
+        "_reviewed_mutation_created_registration",
+        "_reviewed_mutation_prepared_registration",
         "_reviewed_mutation_state",
         "_runner",
         "_runner_identity_value",
@@ -4737,6 +5208,18 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         raise TrustedTimePostEnrollmentTopologyReaderError(
             "trusted-time topology observation issuer must be opened"
         )
+
+    @property
+    def _reviewed_mutation_created_observation(
+        self,
+    ) -> TrustedTimePostEnrollmentCreatedTopologyObservation | None:
+        registration = self._reviewed_mutation_created_registration
+        return None if registration is None else registration.observation
+
+    @property
+    def _reviewed_mutation_created_observation_sha256(self) -> str | None:
+        registration = self._reviewed_mutation_created_registration
+        return None if registration is None else registration.observation_sha256
 
     @classmethod
     @_authenticated_observation_open
@@ -4856,8 +5339,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             instance._owner_pid = os.getpid()
             instance._poisoned = False
             instance._reviewed_mutation_binding_sha256 = None
-            instance._reviewed_mutation_created_observation = None
-            instance._reviewed_mutation_created_observation_sha256 = None
+            instance._reviewed_mutation_created_registration = None
+            instance._reviewed_mutation_prepared_registration = None
             instance._reviewed_mutation_state = "pristine"
             instance._runner = runner
             instance._runner_identity_value = runner
@@ -4886,8 +5369,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 inherited._lock_owner = None
                 inherited._poisoned = True
                 inherited._reviewed_mutation_binding_sha256 = None
-                inherited._reviewed_mutation_created_observation = None
-                inherited._reviewed_mutation_created_observation_sha256 = None
+                inherited._reviewed_mutation_created_registration = None
+                inherited._reviewed_mutation_prepared_registration = None
                 inherited._reviewed_mutation_state = "forked"
                 if type(owner) is io.FileIO and type(descriptor) is int and descriptor >= 0:
                     try:
@@ -4992,7 +5475,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             raise TrustedTimePostEnrollmentTopologyReaderError(
                 "trusted-time topology observation session is unavailable"
             )
-        guard: int | None = None
+        guard_owner: _ReviewedStagedInputDescriptorOwner | None = None
         try:
             if owner.fileno() != descriptor:
                 raise OSError
@@ -5016,10 +5499,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 or held.st_size != 0
             ):
                 raise OSError
-            guard = os.open(
-                self._lock_path,
-                os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
-            )
+            guard_owner = _open_reviewed_lock_guard_owner(self._lock_path)
+            guard = guard_owner.fileno()
             try:
                 fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
@@ -5032,9 +5513,9 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 "trusted-time topology observation session is unavailable"
             ) from None
         finally:
-            if guard is not None:
+            if guard_owner is not None:
                 with suppress(OSError):
-                    os.close(guard)
+                    guard_owner.close()
 
     def _validate_session(self) -> None:
         if type(self._owner_pid) is not int or self._owner_pid != os.getpid():
@@ -5142,6 +5623,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         """Revoke process capabilities without releasing the outer flock."""
 
         self._poisoned = True
+        self._reviewed_mutation_prepared_registration = None
         capability = self._authentication_capability
         self._authentication_capability = None
         with suppress(BaseException):
@@ -6210,6 +6692,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     HEAD_ANCHOR_SIGNING_KEY_SOURCE_ENVIRONMENT: os.fspath(staged_paths[3]),
                 }
             )
+            network_name = post_enrollment_created_topology_network_name(self._session_sha256)
             binding_sha256 = _canonical_sha256(
                 {
                     "approval_sha256": approval.approval_sha256,
@@ -6223,6 +6706,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     "docker_executable_identity": list(self._docker_executable_identity_value),
                     "docker_executable_path": os.fspath(self._docker_executable_path),
                     "environment_sha256": _canonical_sha256(environment),
+                    "network_name": network_name,
                     "session_sha256": self._session_sha256,
                     "staged_paths": [os.fspath(path) for path in staged_paths],
                 }
@@ -6255,11 +6739,17 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             "trusted-time-supervisor",
         )
 
-    def _reviewed_compose_create_payload(self, compose_payload: bytes) -> bytes:
+    def _reviewed_compose_create_payload(
+        self,
+        compose_payload: bytes,
+        *,
+        staged_input_sha256s: tuple[str, str, str, str],
+    ) -> bytes:
         """Bind created services and network without mutating reviewed bytes."""
 
         try:
             invocation_sha256 = self._session_sha256
+            network_name = post_enrollment_created_topology_network_name(invocation_sha256)
             if (
                 type(compose_payload) is not bytes
                 or not compose_payload
@@ -6267,12 +6757,22 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 or b"\r" in compose_payload
                 or type(invocation_sha256) is not str
                 or _SHA256_PATTERN.fullmatch(invocation_sha256) is None
+                or type(staged_input_sha256s) is not tuple
+                or len(staged_input_sha256s) != 4
+                or any(
+                    type(value) is not str or _SHA256_PATTERN.fullmatch(value) is None
+                    for value in staged_input_sha256s
+                )
             ):
                 raise ValueError
             lines = compose_payload.splitlines(keepends=True)
             label_key = _REVIEWED_CREATE_INVOCATION_LABEL.encode("ascii")
+            digest_names = tuple(
+                name.encode("ascii") for name in POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT
+            )
             if (
                 label_key in compose_payload
+                or any(name in compose_payload for name in digest_names)
                 or any(line.startswith(b"    labels:") for line in lines)
                 or any(line.startswith(b"networks:") for line in lines)
             ):
@@ -6289,14 +6789,39 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             }
             if any(lines.count(service_line) != 1 for service_line in service_lines):
                 raise ValueError
+            supervisor_index = lines.index(b"  trusted-time-supervisor:\n")
+            next_service_index = next(
+                (
+                    index
+                    for index in range(supervisor_index + 1, len(lines))
+                    if lines[index].startswith(b"  ") and not lines[index].startswith(b"    ")
+                ),
+                len(lines),
+            )
+            environment_indices = [
+                index
+                for index in range(supervisor_index + 1, next_service_index)
+                if lines[index] == b"    environment:\n"
+            ]
+            if len(environment_indices) > 1:
+                raise ValueError
+            digest_environment = b"".join(
+                b"      " + name + b': "' + value.encode("ascii") + b'"\n'
+                for name, value in zip(digest_names, staged_input_sha256s, strict=True)
+            )
             bound_lines: list[bytes] = []
-            for line in lines:
+            for index, line in enumerate(lines):
                 bound_lines.append(line)
                 if line in service_lines:
                     bound_lines.append(invocation_label)
+                    if line == b"  trusted-time-supervisor:\n" and not environment_indices:
+                        bound_lines.append(b"    environment:\n" + digest_environment)
+                if environment_indices and index == environment_indices[0]:
+                    bound_lines.append(digest_environment)
             bound_payload = b"".join(bound_lines) + (
                 b"networks:\n"
                 b"  default:\n"
+                b'    name: "' + network_name.encode("ascii") + b'"\n'
                 b"    labels:\n"
                 b"      " + label_key + b': "' + invocation_sha256.encode("ascii") + b'"\n'
             )
@@ -6304,6 +6829,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 len(bound_payload) > _MAXIMUM_REVIEWED_COMPOSE_PAYLOAD_BYTES
                 or bound_payload == compose_payload
                 or bound_payload.count(label_key) != len(_REVIEWED_CREATE_SERVICES) + 1
+                or bound_payload.count(network_name.encode("ascii")) != 1
+                or any(bound_payload.count(name) != 1 for name in digest_names)
             ):
                 raise ValueError
             return bound_payload
@@ -6680,6 +7207,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         *,
         inventory: tuple[str, str],
         expected_state: Literal["created", "staged_unreleased"],
+        expected_network_name: str,
         expected_create_invocation_sha256: str | None,
     ) -> _NetworkObservation:
         observed = self._run_json(
@@ -6691,7 +7219,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 "inspect",
                 "--format",
                 "{{json .}}",
-                COMPOSE_NETWORK_NAME,
+                expected_network_name,
             ),
             maximum_stdout_bytes=_MAXIMUM_NETWORK_STDOUT_BYTES,
             expected_type=dict,
@@ -6700,6 +7228,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             observed,
             expected_inventory=frozenset(inventory),
             expected_state=expected_state,
+            expected_network_name=expected_network_name,
             expected_create_invocation_sha256=expected_create_invocation_sha256,
         )
 
@@ -6752,7 +7281,9 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         source_configuration: dict[str, object],
         supervisor_configuration: dict[str, object],
         staged_paths: tuple[Path, Path, Path, Path],
+        expected_network_name: str,
         expected_create_invocation_sha256: str | None,
+        expected_staged_input_sha256s: tuple[str, str, str, str] | None = None,
     ) -> dict[str, object]:
         if expected_create_invocation_sha256 is not None and (
             type(expected_create_invocation_sha256) is not str
@@ -6807,6 +7338,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 expected_container_id=container_id,
                 expected_service=typed_service,
                 expected_state=expected_state,
+                expected_network_name=expected_network_name,
             )
             if attachment.network_id != network.network_id:
                 raise TrustedTimePostEnrollmentTopologyReaderError(
@@ -6862,6 +7394,12 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 expected_image_id=image_id,
                 expected_image_configuration=image_configuration,
                 expected_service=typed_service,
+                expected_network_name=expected_network_name,
+                expected_staged_input_sha256s=(
+                    expected_staged_input_sha256s
+                    if typed_service == "trusted-time-supervisor"
+                    else None
+                ),
                 require_live_observation_fields=True,
                 **path_arguments,
             )
@@ -6974,6 +7512,10 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         """Run the one shared raw-first 16-read staged topology recipe."""
 
         with self._lifecycle_lock:
+            expected_network_name = post_enrollment_created_topology_network_name(
+                self._session_sha256
+            )
+            created_registration = self._reviewed_mutation_created_registration
             reviewed_mutation_state = self._reviewed_mutation_state
             if reviewed_mutation_state == "pristine":
                 expected_create_invocation_sha256 = None
@@ -6992,6 +7534,9 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time staged topology observation is unavailable"
                 )
+            expected_staged_input_sha256s = (
+                None if created_registration is None else created_registration.staged_input_sha256s
+            )
 
         receipts: list[_ReadReceipt] = []
         daemon_before = self._observe_daemon(receipts)
@@ -7009,6 +7554,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             receipts,
             inventory=inventory_before,
             expected_state="staged_unreleased",
+            expected_network_name=expected_network_name,
             expected_create_invocation_sha256=expected_create_invocation_sha256,
         )
         retirements_before = _observe_host_retirements(staged_paths)
@@ -7033,7 +7579,9 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             source_configuration=source_configuration,
             supervisor_configuration=supervisor_configuration,
             staged_paths=staged_paths,
+            expected_network_name=expected_network_name,
             expected_create_invocation_sha256=expected_create_invocation_sha256,
+            expected_staged_input_sha256s=expected_staged_input_sha256s,
         )
         retirements_after = _observe_host_retirements(staged_paths)
         if retirements_after.root_identity != retirements_before.root_identity:
@@ -7045,6 +7593,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             receipts,
             inventory=inventory_after,
             expected_state="staged_unreleased",
+            expected_network_name=expected_network_name,
             expected_create_invocation_sha256=expected_create_invocation_sha256,
         )
         volumes_after = self._observe_volumes(receipts)
@@ -7069,6 +7618,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             container_inspections=inspections,
             source_image_configuration=source_configuration,
             supervisor_image_configuration=supervisor_configuration,
+            expected_network_name=expected_network_name,
             expected_database_secret_file=staged_paths[0],
             expected_head_anchor_authority_file=staged_paths[1],
             expected_head_anchor_auth_secret_file=staged_paths[2],
@@ -7709,6 +8259,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
     ) -> None:
         """Require no project container and no project network before create."""
 
+        expected_network_name = post_enrollment_created_topology_network_name(self._session_sha256)
         commands = (
             (
                 os.fspath(self._docker_executable_path),
@@ -7730,7 +8281,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 "ls",
                 "--quiet",
                 "--filter",
-                f"name=^{COMPOSE_NETWORK_NAME}$",
+                f"name=^{expected_network_name}$",
             ),
         )
         for argv in commands:
@@ -7814,6 +8365,62 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             )
         return container_ids
 
+    def _observe_exact_reviewed_network_inventory(
+        self,
+        choreography_lease: object,
+    ) -> tuple[str, ...]:
+        """Return zero or one full ID for this session-derived network name."""
+
+        self._require_active_choreography_lease(choreography_lease)
+        expected_network_name = post_enrollment_created_topology_network_name(self._session_sha256)
+        argv = (
+            os.fspath(self._docker_executable_path),
+            "network",
+            "ls",
+            "--no-trunc",
+            "--filter",
+            f"name=^{expected_network_name}$",
+            "--format",
+            "{{json .ID}}",
+        )
+        completed = self._run_bound_control(
+            argv,
+            timeout_seconds=self._choreography_command_timeout_seconds(),
+            maximum_stdout_bytes=_MAXIMUM_INVENTORY_STDOUT_BYTES,
+            maximum_stderr_bytes=_MAXIMUM_STDERR_BYTES,
+        )
+        raw = completed.stdout
+        if (
+            type(completed) is not subprocess.CompletedProcess
+            or completed.args != argv
+            or completed.returncode != 0
+            or type(raw) is not bytes
+            or completed.stderr
+            or b"\r" in raw
+            or (raw and not raw.endswith(b"\n"))
+        ):
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time reviewed topology teardown network is unavailable"
+            )
+        lines = raw.splitlines()
+        if len(lines) > 1:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time reviewed topology teardown network is unavailable"
+            )
+        ids = tuple(
+            _decode_strict_json(
+                line,
+                expected_type=str,
+                maximum_bytes=_MAXIMUM_INVENTORY_STDOUT_BYTES,
+            )
+            for line in lines
+        )
+        if any(_FULL_ID_PATTERN.fullmatch(network_id) is None for network_id in ids):
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time reviewed topology teardown network is unavailable"
+            )
+        return ids
+
     def _authenticate_reviewed_teardown_inventory(
         self,
         *,
@@ -7824,6 +8431,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
     ) -> tuple[tuple[str, ...], str] | None:
         """Authenticate the exact live project immediately before a preclaim down."""
 
+        expected_network_name = post_enrollment_created_topology_network_name(self._session_sha256)
         inventory_before = self._observe_reviewed_teardown_inventory(choreography_lease)
         if created_observation is not None:
             expected_inventory = {
@@ -7835,11 +8443,46 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     "trusted-time reviewed topology teardown inventory is unavailable"
                 )
         elif not inventory_before:
-            # A lost create CALL that had no effect must remain a no-effect
-            # teardown.  Prove both the project inventory and network empty a
-            # second time rather than issuing a broad Compose mutation.
-            self._run_exact_empty_precreate_observation(choreography_lease)
-            return None
+            network_ids = self._observe_exact_reviewed_network_inventory(choreography_lease)
+            if not network_ids:
+                # A lost create CALL that had no effect must remain a no-effect
+                # teardown. Prove both inventories empty again.
+                self._run_exact_empty_precreate_observation(choreography_lease)
+                return None
+            network = self._run_json(
+                [],
+                label="reviewed_teardown_network_only",
+                argv=(
+                    os.fspath(self._docker_executable_path),
+                    "network",
+                    "inspect",
+                    "--format",
+                    "{{json .}}",
+                    expected_network_name,
+                ),
+                maximum_stdout_bytes=_MAXIMUM_NETWORK_STDOUT_BYTES,
+                expected_type=dict,
+            )
+            network_observation = _network_identity(
+                network,
+                expected_inventory=frozenset(),
+                expected_state="created",
+                expected_network_name=expected_network_name,
+                expected_create_invocation_sha256=self._session_sha256,
+            )
+            if network_ids != (network_observation.network_id,):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time reviewed topology teardown network is unavailable"
+                )
+            if self._observe_reviewed_teardown_inventory(choreography_lease):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time reviewed topology teardown inventory is unavailable"
+                )
+            if self._observe_exact_reviewed_network_inventory(choreography_lease) != network_ids:
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time reviewed topology teardown network is unavailable"
+                )
+            return (), network_observation.network_id
 
         source_configuration, supervisor_configuration = self._observe_image_configurations(
             [],
@@ -7863,6 +8506,17 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 "chrony-nts": created_observation.snapshot.source.container_id,
                 "trusted-time-supervisor": (created_observation.snapshot.supervisor.container_id),
             }
+        with self._lifecycle_lock:
+            created_registration = self._reviewed_mutation_created_registration
+        expected_staged_input_sha256s = (
+            created_registration.staged_input_sha256s
+            if created_registration is not None
+            and (
+                created_observation is None
+                or created_registration.observation is created_observation
+            )
+            else None
+        )
 
         observed_services: set[str] = set()
         running_container_ids: set[str] = set()
@@ -7925,11 +8579,24 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             sandbox_id = (
                 network_settings.get("SandboxID") if type(network_settings) is dict else None
             )
-            expected_state: Literal["created", "staged_unreleased"]
-            if sandbox_id == "":
-                expected_state = "created"
+            raw_state = container.get("State")
+            status = raw_state.get("Status") if type(raw_state) is dict else None
+            attachment_state: Literal["created", "staged_unreleased"]
+            lifecycle_state: Literal["created", "running", "exited"]
+            if (
+                typed_service == "trusted-time-supervisor"
+                and status == "exited"
+                and sandbox_id == ""
+                and expected_staged_input_sha256s is not None
+            ):
+                attachment_state = "created"
+                lifecycle_state = "exited"
+            elif sandbox_id == "":
+                attachment_state = "created"
+                lifecycle_state = "created"
             elif type(sandbox_id) is str and _FULL_ID_PATTERN.fullmatch(sandbox_id) is not None:
-                expected_state = "staged_unreleased"
+                attachment_state = "staged_unreleased"
+                lifecycle_state = "running"
                 running_container_ids.add(container_id)
             else:
                 raise TrustedTimePostEnrollmentTopologyReaderError(
@@ -7939,7 +8606,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 container,
                 expected_container_id=container_id,
                 expected_service=typed_service,
-                expected_state=expected_state,
+                expected_state=attachment_state,
+                expected_network_name=expected_network_name,
             )
             attachment_network_ids.add(attachment.network_id)
             path_arguments: dict[str, Path | None] = {
@@ -7955,21 +8623,53 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     "expected_head_anchor_auth_secret_file": expected_paths[2],
                     "expected_head_anchor_signing_key_secret_file": expected_paths[3],
                 }
-            validator = (
-                validate_exact_never_started_created_container
-                if expected_state == "created"
-                else validate_exact_staged_running_container
-            )
             try:
-                validator(
-                    [container],
-                    expected_container_id=container_id,
-                    expected_image_id=expected_image_id,
-                    expected_image_configuration=expected_configuration,
-                    expected_service=typed_service,
-                    require_live_observation_fields=True,
-                    **path_arguments,
-                )
+                if lifecycle_state == "exited":
+                    validate_exact_post_start_exited_supervisor_container(
+                        [container],
+                        expected_container_id=container_id,
+                        expected_image_id=expected_image_id,
+                        expected_image_configuration=expected_configuration,
+                        expected_network_name=expected_network_name,
+                        expected_staged_input_sha256s=cast(
+                            tuple[str, str, str, str],
+                            expected_staged_input_sha256s,
+                        ),
+                        expected_database_secret_file=cast(
+                            Path, path_arguments["expected_database_secret_file"]
+                        ),
+                        expected_head_anchor_authority_file=cast(
+                            Path, path_arguments["expected_head_anchor_authority_file"]
+                        ),
+                        expected_head_anchor_auth_secret_file=cast(
+                            Path, path_arguments["expected_head_anchor_auth_secret_file"]
+                        ),
+                        expected_head_anchor_signing_key_secret_file=cast(
+                            Path, path_arguments["expected_head_anchor_signing_key_secret_file"]
+                        ),
+                        require_live_observation_fields=True,
+                    )
+                else:
+                    validator = (
+                        validate_exact_never_started_created_container
+                        if lifecycle_state == "created"
+                        else validate_exact_staged_running_container
+                    )
+                    validator(
+                        [container],
+                        expected_container_id=container_id,
+                        expected_image_id=expected_image_id,
+                        expected_image_configuration=expected_configuration,
+                        expected_service=typed_service,
+                        expected_network_name=expected_network_name,
+                        expected_staged_input_sha256s=(
+                            expected_staged_input_sha256s
+                            if typed_service == "trusted-time-supervisor"
+                            else None
+                        ),
+                        require_live_observation_fields=True,
+                        **path_arguments,
+                    )
             except Exception:
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time reviewed topology teardown inventory is unavailable"
@@ -7985,7 +8685,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 "inspect",
                 "--format",
                 "{{json .}}",
-                COMPOSE_NETWORK_NAME,
+                expected_network_name,
             ),
             maximum_stdout_bytes=_MAXIMUM_NETWORK_STDOUT_BYTES,
             expected_type=dict,
@@ -7994,6 +8694,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             network,
             expected_inventory=frozenset(running_container_ids),
             expected_state=("staged_unreleased" if running_container_ids else "created"),
+            expected_network_name=expected_network_name,
             expected_create_invocation_sha256=self._session_sha256,
         )
         if attachment_network_ids != {network_observation.network_id}:
@@ -8016,6 +8717,15 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
     ) -> bool:
         """Return True only for one exact running container (and healthy source)."""
 
+        expected_network_name = post_enrollment_created_topology_network_name(self._session_sha256)
+        with self._lifecycle_lock:
+            created_registration = self._reviewed_mutation_created_registration
+        expected_staged_input_sha256s = (
+            created_registration.staged_input_sha256s
+            if created_registration is not None
+            and created_registration.observation is created_observation
+            else None
+        )
         snapshot = created_observation.snapshot
         expected = snapshot.source if service == "chrony-nts" else snapshot.supervisor
         image_configuration = self._run_json(
@@ -8095,6 +8805,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             expected_container_id=expected.container_id,
             expected_service=service,
             expected_state="staged_unreleased",
+            expected_network_name=expected_network_name,
         )
         validate_exact_staged_running_container(
             [container],
@@ -8102,6 +8813,10 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             expected_image_id=expected.image_id,
             expected_image_configuration=image_configuration,
             expected_service=service,
+            expected_network_name=expected_network_name,
+            expected_staged_input_sha256s=(
+                expected_staged_input_sha256s if service == "trusted-time-supervisor" else None
+            ),
             expected_database_secret_file=(staged_paths[0] if service != "chrony-nts" else None),
             expected_head_anchor_authority_file=(
                 staged_paths[1] if service != "chrony-nts" else None
@@ -8116,7 +8831,33 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         )
         return True
 
-    def _create_reviewed_topology(
+    def _retire_lost_prepared_reviewed_topology_creation(
+        self,
+        candidate_reference: weakref.ReferenceType[
+            _TrustedTimePostEnrollmentPreparedReviewedTopologyCreation
+        ],
+        registration_nonce: object,
+    ) -> None:
+        """Restore the inert state when a prepared return is lost before STORE."""
+
+        if type(self._owner_pid) is not int or self._owner_pid != os.getpid():
+            return
+        with suppress(BaseException), self._lifecycle_lock:
+            registration = self._reviewed_mutation_prepared_registration
+            if (
+                type(registration) is _PreparedReviewedTopologyCreationRegistration
+                and registration.candidate_reference is candidate_reference
+                and registration.registration_nonce is registration_nonce
+                and self._reviewed_mutation_state in {"pristine", "prepared"}
+                and self._reviewed_mutation_created_observation is None
+                and self._reviewed_mutation_created_observation_sha256 is None
+                and self._issued_created_observation_sha256 is None
+            ):
+                self._reviewed_mutation_prepared_registration = None
+                self._reviewed_mutation_binding_sha256 = None
+                self._reviewed_mutation_state = "pristine"
+
+    def _prepare_reviewed_topology_creation(
         self,
         *,
         approval: TrustedTimePostEnrollmentStartApproval,
@@ -8126,10 +8867,13 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         expected_head_anchor_authority_file: Path,
         expected_head_anchor_auth_secret_file: Path,
         expected_head_anchor_signing_key_secret_file: Path,
+        database_secret_receipt: MaterializedDatabaseSecret | None = None,
+        head_anchor_inputs_receipt: MaterializedHeadAnchorInputs | None = None,
         _choreography_lease: object,
-    ) -> TrustedTimePostEnrollmentCreatedTopologyObservation:
-        """Create exactly two stopped services, then authenticate that mutation."""
+    ) -> _TrustedTimePostEnrollmentPreparedReviewedTopologyCreation:
+        """Review every inert input and observation needed by one later create."""
 
+        first_checkpoint = self._require_active_choreography_lease(_choreography_lease)
         staged_paths = (
             expected_database_secret_file,
             expected_head_anchor_authority_file,
@@ -8142,34 +8886,211 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             compose_payload=compose_payload,
             staged_paths=staged_paths,
         )
-        self._require_active_choreography_lease(_choreography_lease)
         with self._lifecycle_lock:
             if (
                 self._reviewed_mutation_state != "pristine"
                 or self._reviewed_mutation_binding_sha256 is not None
                 or self._reviewed_mutation_created_observation is not None
                 or self._reviewed_mutation_created_observation_sha256 is not None
+                or self._reviewed_mutation_prepared_registration is not None
             ):
                 raise TrustedTimePostEnrollmentTopologyReaderError(
-                    "trusted-time reviewed topology creation is unavailable"
+                    "trusted-time reviewed topology creation preparation is unavailable"
                 )
         self._run_exact_empty_precreate_observation(_choreography_lease)
-        effecting_compose_payload = self._reviewed_compose_create_payload(compose_payload)
-        self._require_active_choreography_lease(_choreography_lease)
-        with self._lifecycle_lock:
-            if self._reviewed_mutation_state != "pristine":
-                raise TrustedTimePostEnrollmentTopologyReaderError(
-                    "trusted-time reviewed topology creation is unavailable"
+        if database_secret_receipt is None and head_anchor_inputs_receipt is None:
+            database_secret_receipt, head_anchor_inputs_receipt = (
+                _snapshot_reviewed_staged_input_receipts(staged_paths)
+            )
+        elif database_secret_receipt is None or head_anchor_inputs_receipt is None:
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time reviewed staged-input fence is unavailable"
+            )
+        staged_input_seals = _reviewed_staged_input_seals_from_materialized_receipts(
+            database_secret=database_secret_receipt,
+            head_anchor_inputs=head_anchor_inputs_receipt,
+            staged_paths=staged_paths,
+        )
+        staged_input_sha256s = cast(
+            tuple[str, str, str, str],
+            tuple(seal.sha256 for seal in staged_input_seals),
+        )
+        effecting_compose_payload = self._reviewed_compose_create_payload(
+            compose_payload,
+            staged_input_sha256s=staged_input_sha256s,
+        )
+        network_name = post_enrollment_created_topology_network_name(self._session_sha256)
+        final_checkpoint = self._require_active_choreography_lease(_choreography_lease)
+        if (
+            final_checkpoint.lease_sha256 != first_checkpoint.lease_sha256
+            or final_checkpoint.started_monotonic_ns != first_checkpoint.started_monotonic_ns
+            or final_checkpoint.deadline_monotonic_ns != first_checkpoint.deadline_monotonic_ns
+        ):
+            raise TrustedTimePostEnrollmentTopologyReaderError(
+                "trusted-time reviewed topology creation preparation is unavailable"
+            )
+        candidate = object.__new__(_TrustedTimePostEnrollmentPreparedReviewedTopologyCreation)
+        registration_nonce = object()
+        owner_reference = weakref.ref(self)
+
+        def retire_lost_prepared_creation(
+            candidate_reference: weakref.ReferenceType[
+                _TrustedTimePostEnrollmentPreparedReviewedTopologyCreation
+            ],
+        ) -> None:
+            owner = owner_reference()
+            if owner is not None:
+                owner._retire_lost_prepared_reviewed_topology_creation(
+                    candidate_reference,
+                    registration_nonce,
                 )
-            # This is deliberately before the effecting CALL.  An interruption
-            # after this store is conservatively treated as a possible create.
+
+        candidate_reference = weakref.ref(candidate, retire_lost_prepared_creation)
+        registration = _PreparedReviewedTopologyCreationRegistration(
+            candidate_reference=candidate_reference,
+            registration_nonce=registration_nonce,
+            approval=approval,
+            approved_launch=approved_launch,
+            compose_environment_identity=tuple(sorted(compose_environment.items())),
+            effecting_compose_payload=effecting_compose_payload,
+            staged_paths=staged_paths,
+            staged_input_seals=staged_input_seals,
+            network_name=network_name,
+            binding_sha256=binding_sha256,
+            session_sha256=self._session_sha256,
+            choreography_lease=_choreography_lease,
+            choreography_scope_nonce=self._choreography_scope_nonce,
+            lease_sha256=final_checkpoint.lease_sha256,
+            owner_pid=os.getpid(),
+            owner_thread=threading.current_thread(),
+        )
+        with self._lifecycle_lock:
+            if (
+                self._reviewed_mutation_state != "pristine"
+                or self._reviewed_mutation_binding_sha256 is not None
+                or self._reviewed_mutation_created_observation is not None
+                or self._reviewed_mutation_created_observation_sha256 is not None
+                or self._reviewed_mutation_prepared_registration is not None
+                or self._session_sha256 != registration.session_sha256
+                or self._choreography_scope_nonce is not registration.choreography_scope_nonce
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time reviewed topology creation preparation is unavailable"
+                )
+            # STORE the weak registration first and the state last.  If an
+            # asynchronous exception loses the return before caller STORE, the
+            # candidate's weakref callback restores the exact inert state.
+            self._reviewed_mutation_prepared_registration = registration
             self._reviewed_mutation_binding_sha256 = binding_sha256
+            self._reviewed_mutation_state = "prepared"
+        return candidate
+
+    def _execute_prepared_reviewed_topology_creation(
+        self,
+        prepared_creation: object,
+        *,
+        _choreography_lease: object,
+    ) -> TrustedTimePostEnrollmentCreatedTopologyObservation:
+        """Consume one exact prepared identity and perform its sole create."""
+
+        checkpoint = self._require_active_choreography_lease(_choreography_lease)
+        with self._lifecycle_lock:
+            registration = self._reviewed_mutation_prepared_registration
+            if (
+                type(prepared_creation)
+                is not _TrustedTimePostEnrollmentPreparedReviewedTopologyCreation
+                or type(registration) is not _PreparedReviewedTopologyCreationRegistration
+                or registration.candidate_reference() is not prepared_creation
+                or type(registration.registration_nonce) is not object
+                or type(registration.approval) is not TrustedTimePostEnrollmentStartApproval
+                or type(registration.approved_launch) is not TrustedTimeApprovedLaunch
+                or type(registration.compose_environment_identity) is not tuple
+                or not registration.compose_environment_identity
+                or tuple(sorted(registration.compose_environment_identity))
+                != registration.compose_environment_identity
+                or len(dict(registration.compose_environment_identity))
+                != len(registration.compose_environment_identity)
+                or any(
+                    type(item) is not tuple
+                    or len(item) != 2
+                    or type(item[0]) is not str
+                    or type(item[1]) is not str
+                    for item in registration.compose_environment_identity
+                )
+                or type(registration.effecting_compose_payload) is not bytes
+                or not registration.effecting_compose_payload
+                or len(registration.effecting_compose_payload)
+                > _MAXIMUM_REVIEWED_COMPOSE_PAYLOAD_BYTES
+                or registration.effecting_compose_payload.count(
+                    _REVIEWED_CREATE_INVOCATION_LABEL.encode("ascii")
+                )
+                != len(_REVIEWED_CREATE_SERVICES) + 1
+                or type(registration.staged_paths) is not tuple
+                or len(registration.staged_paths) != 4
+                or any(type(path) is not type(Path()) for path in registration.staged_paths)
+                or not _valid_reviewed_staged_input_seals(
+                    registration.staged_input_seals,
+                    staged_paths=registration.staged_paths,
+                )
+                or any(
+                    registration.effecting_compose_payload.count(
+                        b"      "
+                        + name.encode("ascii")
+                        + b': "'
+                        + seal.sha256.encode("ascii")
+                        + b'"\n'
+                    )
+                    != 1
+                    for name, seal in zip(
+                        POST_ENROLLMENT_STAGED_INPUT_SHA256_ENVIRONMENT,
+                        registration.staged_input_seals,
+                        strict=True,
+                    )
+                )
+                or type(registration.session_sha256) is not str
+                or _SHA256_PATTERN.fullmatch(registration.session_sha256) is None
+                or type(registration.network_name) is not str
+                or registration.network_name
+                != post_enrollment_created_topology_network_name(registration.session_sha256)
+                or registration.effecting_compose_payload.count(
+                    registration.network_name.encode("ascii")
+                )
+                != 1
+                or type(registration.binding_sha256) is not str
+                or _SHA256_PATTERN.fullmatch(registration.binding_sha256) is None
+                or registration.binding_sha256 != self._reviewed_mutation_binding_sha256
+                or registration.session_sha256 != self._session_sha256
+                or registration.effecting_compose_payload.count(
+                    registration.session_sha256.encode("ascii")
+                )
+                != len(_REVIEWED_CREATE_SERVICES) + 1
+                or registration.choreography_lease is not _choreography_lease
+                or registration.choreography_scope_nonce is not self._choreography_scope_nonce
+                or registration.lease_sha256 != checkpoint.lease_sha256
+                or registration.owner_pid != os.getpid()
+                or registration.owner_pid != self._owner_pid
+                or registration.owner_thread is not threading.current_thread()
+                or self._reviewed_mutation_state != "prepared"
+                or self._reviewed_mutation_created_observation is not None
+                or self._reviewed_mutation_created_observation_sha256 is not None
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time prepared reviewed topology creation is unavailable"
+                )
+            _revalidate_reviewed_staged_input_seals(
+                registration.staged_input_seals,
+                staged_paths=registration.staged_paths,
+            )
+            # Commit possible effect immediately before the effecting runner
+            # CALL.  Candidate replay and CALL/STORE interruption can never
+            # re-enter the inert prepared state after this point.
+            self._reviewed_mutation_prepared_registration = None
             self._reviewed_mutation_state = "create_effecting"
         completed = self._run_reviewed_mutation_command(
             "compose_create",
             choreography_lease=_choreography_lease,
-            compose_environment=compose_environment,
-            compose_payload=effecting_compose_payload,
+            compose_environment=dict(registration.compose_environment_identity),
+            compose_payload=registration.effecting_compose_payload,
         )
         if completed.returncode != 0:
             raise TrustedTimePostEnrollmentTopologyReaderError(
@@ -8184,13 +9105,15 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         created = cast(
             TrustedTimePostEnrollmentCreatedTopologyObservation,
             self.issue_created_snapshot(
-                approval=approval,
-                approved_launch=approved_launch,
-                expected_database_secret_file=expected_database_secret_file,
-                expected_head_anchor_authority_file=expected_head_anchor_authority_file,
-                expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
-                expected_head_anchor_signing_key_secret_file=(
-                    expected_head_anchor_signing_key_secret_file
+                approval=registration.approval,
+                approved_launch=registration.approved_launch,
+                expected_database_secret_file=registration.staged_paths[0],
+                expected_head_anchor_authority_file=registration.staged_paths[1],
+                expected_head_anchor_auth_secret_file=registration.staged_paths[2],
+                expected_head_anchor_signing_key_secret_file=(registration.staged_paths[3]),
+                _expected_staged_input_sha256s=cast(
+                    tuple[str, str, str, str],
+                    tuple(seal.sha256 for seal in registration.staged_input_seals),
                 ),
                 _choreography_lease=_choreography_lease,
             ),
@@ -8198,8 +9121,9 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         with self._lifecycle_lock:
             if (
                 self._reviewed_mutation_state != "create_effected"
-                or self._reviewed_mutation_binding_sha256 != binding_sha256
+                or self._reviewed_mutation_binding_sha256 != registration.binding_sha256
                 or self._issued_created_observation_sha256 != created.observation_sha256
+                or self._reviewed_mutation_prepared_registration is not None
             ):
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time reviewed topology creation is unavailable"
@@ -8207,10 +9131,58 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             # Retain the exact sealed observation before returning it.  If an
             # asynchronous exception lands in the caller between CALL and
             # STORE, pre-claim teardown can still resolve only this object.
-            self._reviewed_mutation_created_observation = created
-            self._reviewed_mutation_created_observation_sha256 = created.observation_sha256
+            self._reviewed_mutation_created_registration = _ReviewedCreatedTopologyRegistration(
+                observation=created,
+                observation_sha256=created.observation_sha256,
+                staged_input_sha256s=cast(
+                    tuple[str, str, str, str],
+                    tuple(seal.sha256 for seal in registration.staged_input_seals),
+                ),
+            )
             self._reviewed_mutation_state = "created"
         return created
+
+    def _create_reviewed_topology(
+        self,
+        *,
+        approval: TrustedTimePostEnrollmentStartApproval,
+        approved_launch: TrustedTimeApprovedLaunch,
+        compose_payload: bytes,
+        expected_database_secret_file: Path,
+        expected_head_anchor_authority_file: Path,
+        expected_head_anchor_auth_secret_file: Path,
+        expected_head_anchor_signing_key_secret_file: Path,
+        _choreography_lease: object,
+    ) -> TrustedTimePostEnrollmentCreatedTopologyObservation:
+        """Compatibility wrapper for the split prepare/execute choreography."""
+
+        staged_paths = (
+            expected_database_secret_file,
+            expected_head_anchor_authority_file,
+            expected_head_anchor_auth_secret_file,
+            expected_head_anchor_signing_key_secret_file,
+        )
+        database_secret_receipt, head_anchor_inputs_receipt = (
+            _snapshot_reviewed_staged_input_receipts(staged_paths)
+        )
+        prepared_creation = self._prepare_reviewed_topology_creation(
+            approval=approval,
+            approved_launch=approved_launch,
+            compose_payload=compose_payload,
+            expected_database_secret_file=expected_database_secret_file,
+            expected_head_anchor_authority_file=expected_head_anchor_authority_file,
+            expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
+            expected_head_anchor_signing_key_secret_file=(
+                expected_head_anchor_signing_key_secret_file
+            ),
+            database_secret_receipt=database_secret_receipt,
+            head_anchor_inputs_receipt=head_anchor_inputs_receipt,
+            _choreography_lease=_choreography_lease,
+        )
+        return self._execute_prepared_reviewed_topology_creation(
+            prepared_creation,
+            _choreography_lease=_choreography_lease,
+        )
 
     def _start_reviewed_source(
         self,
@@ -8395,23 +9367,61 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             retained_created_observation = self._reviewed_mutation_created_observation
             retained_created_observation_sha256 = self._reviewed_mutation_created_observation_sha256
             retained_binding_sha256 = self._reviewed_mutation_binding_sha256
-        if mutation_state in {"pristine", "torn_down"}:
+            retained_prepared_registration = self._reviewed_mutation_prepared_registration
+        if mutation_state in {"pristine", "prepared", "torn_down"}:
             if (
                 created_observation is not None
                 or retained_created_observation is not None
                 or retained_created_observation_sha256 is not None
-                or (mutation_state == "pristine" and retained_binding_sha256 is not None)
+                or (
+                    mutation_state == "pristine"
+                    and (
+                        retained_binding_sha256 is not None
+                        or retained_prepared_registration is not None
+                    )
+                )
+                or (
+                    mutation_state == "prepared"
+                    and (
+                        retained_binding_sha256 != binding_sha256
+                        or (
+                            retained_prepared_registration is not None
+                            and (
+                                type(retained_prepared_registration)
+                                is not _PreparedReviewedTopologyCreationRegistration
+                                or type(retained_prepared_registration.candidate_reference())
+                                is not _TrustedTimePostEnrollmentPreparedReviewedTopologyCreation
+                                or retained_prepared_registration.binding_sha256 != binding_sha256
+                                or retained_prepared_registration.staged_paths != staged_paths
+                                or retained_prepared_registration.network_name
+                                != post_enrollment_created_topology_network_name(
+                                    self._session_sha256
+                                )
+                                or retained_prepared_registration.session_sha256
+                                != self._session_sha256
+                                or retained_prepared_registration.choreography_lease
+                                is not _choreography_lease
+                                or retained_prepared_registration.choreography_scope_nonce
+                                is not self._choreography_scope_nonce
+                                or retained_prepared_registration.owner_pid != os.getpid()
+                                or retained_prepared_registration.owner_thread
+                                is not threading.current_thread()
+                            )
+                        )
+                    )
+                )
                 or (mutation_state == "torn_down" and retained_binding_sha256 != binding_sha256)
+                or (mutation_state == "torn_down" and retained_prepared_registration is not None)
             ):
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time reviewed topology teardown is unavailable"
                 )
-            # A caller can conservatively decide that mutation may have begun
-            # immediately before the create CALL.  If interruption lands before
-            # this issuer records ``create_effecting``, authenticate an empty
-            # topology twice around the exact daemon observation and finish with
-            # no mutation.  Repeating the same exact tuple is intentionally
-            # idempotent for a CALL/STORE interruption of this no-effect result.
+            # Pristine and prepared states are both provably pre-effect.  This
+            # includes the single instruction edge where prepared registration
+            # was consumed but ``create_effecting`` was not yet stored.  A caller
+            # can request cleanup across every CALL/STORE edge; authenticate
+            # emptiness twice around the exact daemon read.  Repeating the
+            # resulting torn-down tuple remains idempotent.
             self._run_exact_empty_precreate_observation(_choreography_lease)
             self._observe_daemon([])
             self._run_exact_empty_precreate_observation(_choreography_lease)
@@ -8423,16 +9433,31 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     or self._reviewed_mutation_created_observation_sha256 is not None
                     or (
                         mutation_state == "pristine"
-                        and self._reviewed_mutation_binding_sha256 is not None
+                        and (
+                            self._reviewed_mutation_binding_sha256 is not None
+                            or self._reviewed_mutation_prepared_registration is not None
+                        )
+                    )
+                    or (
+                        mutation_state == "prepared"
+                        and (
+                            self._reviewed_mutation_binding_sha256 != binding_sha256
+                            or self._reviewed_mutation_prepared_registration
+                            is not retained_prepared_registration
+                        )
                     )
                     or (
                         mutation_state == "torn_down"
-                        and self._reviewed_mutation_binding_sha256 != binding_sha256
+                        and (
+                            self._reviewed_mutation_binding_sha256 != binding_sha256
+                            or self._reviewed_mutation_prepared_registration is not None
+                        )
                     )
                 ):
                     raise TrustedTimePostEnrollmentTopologyReaderError(
                         "trusted-time reviewed topology teardown is unavailable"
                     )
+                self._reviewed_mutation_prepared_registration = None
                 self._reviewed_mutation_binding_sha256 = binding_sha256
                 self._reviewed_mutation_state = "torn_down"
             return
@@ -8455,6 +9480,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             if (
                 self._reviewed_mutation_binding_sha256 != binding_sha256
                 or self._reviewed_mutation_state not in allowed_states
+                or self._reviewed_mutation_prepared_registration is not None
                 or (
                     self._reviewed_mutation_created_observation_sha256 is not None
                     and created is None
@@ -8478,6 +9504,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
             if (
                 self._reviewed_mutation_binding_sha256 != binding_sha256
                 or self._reviewed_mutation_state not in allowed_states
+                or self._reviewed_mutation_prepared_registration is not None
                 or self._reviewed_mutation_created_observation is not retained_created_observation
                 or self._reviewed_mutation_created_observation_sha256
                 != retained_created_observation_sha256
@@ -8491,24 +9518,25 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         if teardown_target is None:
             return
         teardown_container_ids, teardown_network_id = teardown_target
-        removed_containers = self._run_reviewed_mutation_command(
-            "container_remove",
-            choreography_lease=_choreography_lease,
-            compose_environment={},
-            compose_payload=b"",
-            teardown_container_ids=teardown_container_ids,
-        )
-        expected_container_stdout = b"".join(
-            (container_id + "\n").encode("ascii") for container_id in teardown_container_ids
-        )
-        if (
-            removed_containers.returncode != 0
-            or removed_containers.stdout != expected_container_stdout
-            or removed_containers.stderr
-        ):
-            raise TrustedTimePostEnrollmentTopologyReaderError(
-                "trusted-time reviewed topology teardown is unconfirmed"
+        if teardown_container_ids:
+            removed_containers = self._run_reviewed_mutation_command(
+                "container_remove",
+                choreography_lease=_choreography_lease,
+                compose_environment={},
+                compose_payload=b"",
+                teardown_container_ids=teardown_container_ids,
             )
+            expected_container_stdout = b"".join(
+                (container_id + "\n").encode("ascii") for container_id in teardown_container_ids
+            )
+            if (
+                removed_containers.returncode != 0
+                or removed_containers.stdout != expected_container_stdout
+                or removed_containers.stderr
+            ):
+                raise TrustedTimePostEnrollmentTopologyReaderError(
+                    "trusted-time reviewed topology teardown is unconfirmed"
+                )
         removed_network = self._run_reviewed_mutation_command(
             "network_remove",
             choreography_lease=_choreography_lease,
@@ -8539,8 +9567,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 raise TrustedTimePostEnrollmentTopologyReaderError(
                     "trusted-time reviewed topology teardown is unavailable"
                 )
-            self._reviewed_mutation_created_observation = None
-            self._reviewed_mutation_created_observation_sha256 = None
+            self._reviewed_mutation_created_registration = None
+            self._reviewed_mutation_prepared_registration = None
             self._reviewed_mutation_state = "torn_down"
 
     def _begin_observation(self, choreography_lease: object | None = None) -> None:
@@ -8681,6 +9709,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
         expected_head_anchor_authority_file: Path,
         expected_head_anchor_auth_secret_file: Path,
         expected_head_anchor_signing_key_secret_file: Path,
+        _expected_staged_input_sha256s: tuple[str, str, str, str] | None = None,
         _choreography_lease: object | None = None,
     ) -> TrustedTimePostEnrollmentCreatedTopologyObservation:
         """Observe a created topology without starting or mutating it."""
@@ -8694,6 +9723,9 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 staged_observation_count = self._staged_observation_count
                 cursor_count = self._cursor_count
                 session_sha256 = self._session_sha256
+                expected_network_name = post_enrollment_created_topology_network_name(
+                    session_sha256
+                )
                 authentication_capability = self._authentication_capability
                 reviewed_mutation_state = self._reviewed_mutation_state
                 expected_create_invocation_sha256 = (
@@ -8709,6 +9741,21 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     or staged_observation_count != 0
                     or cursor_count != 0
                     or reviewed_mutation_state not in {"pristine", "create_effected"}
+                    or (
+                        reviewed_mutation_state == "create_effected"
+                        and (
+                            type(_expected_staged_input_sha256s) is not tuple
+                            or len(_expected_staged_input_sha256s) != 4
+                            or any(
+                                type(value) is not str or _SHA256_PATTERN.fullmatch(value) is None
+                                for value in _expected_staged_input_sha256s
+                            )
+                        )
+                    )
+                    or (
+                        reviewed_mutation_state == "pristine"
+                        and _expected_staged_input_sha256s is not None
+                    )
                     or not _authenticated_issuer_capability_is_active(
                         self,
                         authentication_capability,
@@ -8724,6 +9771,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 receipts,
                 inventory=inventory_before,
                 expected_state="created",
+                expected_network_name=expected_network_name,
                 expected_create_invocation_sha256=expected_create_invocation_sha256,
             )
             source_configuration, supervisor_configuration = self._observe_image_configurations(
@@ -8744,13 +9792,16 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                     expected_head_anchor_auth_secret_file,
                     expected_head_anchor_signing_key_secret_file,
                 ),
+                expected_network_name=expected_network_name,
                 expected_create_invocation_sha256=expected_create_invocation_sha256,
+                expected_staged_input_sha256s=_expected_staged_input_sha256s,
             )
             inventory_after = self._observe_inventory(receipts)
             network_after = self._observe_network(
                 receipts,
                 inventory=inventory_after,
                 expected_state="created",
+                expected_network_name=expected_network_name,
                 expected_create_invocation_sha256=expected_create_invocation_sha256,
             )
             volumes_after = self._observe_volumes(receipts)
@@ -8772,6 +9823,7 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 container_inspections=inspections,
                 source_image_configuration=source_configuration,
                 supervisor_image_configuration=supervisor_configuration,
+                expected_network_name=expected_network_name,
                 expected_database_secret_file=expected_database_secret_file,
                 expected_head_anchor_authority_file=expected_head_anchor_authority_file,
                 expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
@@ -9217,8 +10269,8 @@ class TrustedTimePostEnrollmentTopologyObservationIssuer:
                 self._issued_created_observation_sha256 = None
                 self._last_observation_sha256 = None
                 self._reviewed_mutation_binding_sha256 = None
-                self._reviewed_mutation_created_observation = None
-                self._reviewed_mutation_created_observation_sha256 = None
+                self._reviewed_mutation_created_registration = None
+                self._reviewed_mutation_prepared_registration = None
                 self._reviewed_mutation_state = "closed"
             except BaseException:
                 state_cleanup_failed = True

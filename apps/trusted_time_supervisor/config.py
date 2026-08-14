@@ -21,6 +21,7 @@ AUTHORITY_PATH = Path("/etc/autoquant/trusted-time/source-authority.json")
 CHRONY_CONFIG_PATH = Path("/etc/autoquant/trusted-time/chrony.conf")
 DATABASE_CA_PATH = Path("/etc/autoquant/trusted-time/supabase-prod-ca-2021.crt")
 DATABASE_URL_SECRET_PATH = Path("/run/secrets/trusted_time_database_url")
+DATABASE_URL_EXPECTED_SHA256_ENVIRONMENT = "AQT_TRUSTED_TIME_EXPECTED_DATABASE_URL_SHA256"
 MAXIMUM_AUTHORITY_BYTES = 32_768
 MAXIMUM_CHRONY_CONFIG_BYTES = 16_384
 MAXIMUM_DATABASE_CA_BYTES = 8_192
@@ -436,6 +437,7 @@ def load_database_url_secret(
     path: Path = DATABASE_URL_SECRET_PATH,
     *,
     expected_owner_uid: int = 10001,
+    expected_sha256: str | None = None,
 ) -> str:
     payload = _read_protected_file(
         path,
@@ -443,6 +445,15 @@ def load_database_url_secret(
         expected_owner_uid=expected_owner_uid,
         label="trusted-time database secret",
     )
+    if expected_sha256 is not None and (
+        type(expected_sha256) is not str
+        or len(expected_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in expected_sha256)
+        or hashlib.sha256(payload).hexdigest() != expected_sha256
+    ):
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time database secret differs from its staged-input binding"
+        )
     try:
         database_url = payload.decode("utf-8")
     except UnicodeDecodeError:
@@ -488,6 +499,7 @@ __all__ = [
     "AUTHORITY_PATH",
     "CHRONY_CONFIG_PATH",
     "DATABASE_CA_PATH",
+    "DATABASE_URL_EXPECTED_SHA256_ENVIRONMENT",
     "DATABASE_URL_SECRET_PATH",
     "TrustedTimeDeploymentAuthority",
     "TrustedTimeSupervisorConfigurationError",

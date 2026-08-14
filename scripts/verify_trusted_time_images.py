@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import errno
 import hashlib
 import io
 import json
@@ -20,7 +21,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Never
+from typing import Any, Never, cast
 
 
 def _require_isolated_cli_source_runtime(
@@ -364,6 +365,99 @@ class TrustedTimeImageVerificationError(RuntimeError):
     """A built image differs from the reviewed evidence-only contract."""
 
 
+class _OwnedFileDescriptor(ctypes.c_int):
+    """Own one libc-opened descriptor before the Python CALL can return."""
+
+    def fileno(self) -> int:
+        descriptor = self.value
+        if descriptor < 0:
+            raise OSError
+        return descriptor
+
+    def __index__(self) -> int:
+        return self.fileno()
+
+    def close(self) -> None:
+        descriptor = self.value
+        if descriptor < 0:
+            return
+        try:
+            self.value = -1
+            os.close(descriptor)
+        except OSError:
+            raise
+        except BaseException:
+            with suppress(OSError):
+                os.close(descriptor)
+            raise
+
+    def __del__(self) -> None:
+        with suppress(BaseException):
+            self.close()
+
+
+_LIBC = ctypes.CDLL(None, use_errno=True)
+_OWNED_OPEN = _LIBC.open
+_OWNED_OPEN.argtypes = (ctypes.c_char_p, ctypes.c_int)
+_OWNED_OPEN.restype = _OwnedFileDescriptor
+_OWNED_OPENAT = _LIBC.openat
+_OWNED_OPENAT.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int)
+_OWNED_OPENAT.restype = _OwnedFileDescriptor
+
+
+def _open_owned_descriptor(
+    path: str | Path,
+    *,
+    flags: int,
+    mode: int = 0,
+    dir_fd: int | None = None,
+) -> _OwnedFileDescriptor:
+    """Open directly into a VM-owned descriptor object or raise exact errno."""
+
+    ctypes.set_errno(0)
+    if dir_fd is None:
+        owner = cast(
+            _OwnedFileDescriptor,
+            _OWNED_OPEN(os.fsencode(path), flags, ctypes.c_int(mode)),
+        )
+    else:
+        owner = cast(
+            _OwnedFileDescriptor,
+            _OWNED_OPENAT(dir_fd, os.fsencode(path), flags, ctypes.c_int(mode)),
+        )
+    if owner.value >= 0:
+        return owner
+    error_number = ctypes.get_errno() or errno.EIO
+    if error_number == errno.EEXIST:
+        raise FileExistsError(error_number, os.strerror(error_number), os.fspath(path))
+    if error_number == errno.ENOENT:
+        raise FileNotFoundError(error_number, os.strerror(error_number), os.fspath(path))
+    raise OSError(error_number, os.strerror(error_number), os.fspath(path))
+
+
+def _open_owned_file(
+    path: str | Path,
+    *,
+    dir_fd: int | None = None,
+    exclusive: bool = False,
+) -> _OwnedFileDescriptor:
+    """Return an already-owning descriptor directly from libc open/openat."""
+
+    flags = (
+        ((os.O_RDWR | os.O_CREAT | os.O_EXCL) if exclusive else os.O_RDONLY)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    if not exclusive:
+        flags |= getattr(os, "O_NONBLOCK", 0)
+    return _open_owned_descriptor(
+        path,
+        flags=flags,
+        mode=0o600,
+        dir_fd=dir_fd,
+    )
+
+
 class _DarwinMachTimebaseInfo(ctypes.Structure):
     _fields_ = (("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32))
 
@@ -467,12 +561,10 @@ def _canonical_boot_session_id(platform_name: str, encoded_uuid: bytes) -> str:
 
 
 def _linux_boot_session_id() -> str:
-    descriptor: int | None = None
+    file_owner: _OwnedFileDescriptor | None = None
     try:
-        descriptor = os.open(
-            _LINUX_BOOT_ID_PATH,
-            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
-        )
+        file_owner = _open_owned_file(_LINUX_BOOT_ID_PATH)
+        descriptor = file_owner.fileno()
         before = os.fstat(descriptor)
         encoded_uuid = os.read(descriptor, 38)
         if os.read(descriptor, 1) != b"":
@@ -494,8 +586,8 @@ def _linux_boot_session_id() -> str:
             "trusted-time boot session identity is unavailable"
         ) from None
     finally:
-        if descriptor is not None:
-            os.close(descriptor)
+        if file_owner is not None:
+            file_owner.close()
     return _canonical_boot_session_id("linux", encoded_uuid)
 
 
@@ -583,6 +675,73 @@ class TrustedTimeImageAdmission:
 
 
 @dataclass(frozen=True, slots=True)
+class TrustedTimeImageAdmissionProvenance:
+    """Exact owner-only archive bytes, authenticated without freshness authority."""
+
+    path: Path
+    identities: TrustedTimeImageIdentities
+    boot_session_id: str
+    git_revision: str
+    source_revision_sha256: str
+    artifact_sha256: str
+    created_at_utc: str
+    created_monotonic_ns: int
+    encoded: bytes
+    file_identity: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        try:
+            admission = TrustedTimeImageAdmission(
+                path=self.path,
+                identities=self.identities,
+                boot_session_id=self.boot_session_id,
+                git_revision=self.git_revision,
+                source_revision_sha256=self.source_revision_sha256,
+                artifact_sha256=self.artifact_sha256,
+                created_at_utc=self.created_at_utc,
+                created_monotonic_ns=self.created_monotonic_ns,
+            )
+            admission.__post_init__()
+        except Exception:
+            raise TrustedTimeImageVerificationError(
+                "trusted-time image admission provenance is malformed"
+            ) from None
+        if (
+            type(self.path) is not type(Path())
+            or self.path.name != f"image-admission-{self.artifact_sha256}.json"
+            or type(self.encoded) is not bytes
+            or not self.encoded
+            or len(self.encoded) > MAXIMUM_IMAGE_ADMISSION_BYTES
+            or hashlib.sha256(self.encoded).hexdigest() != self.artifact_sha256
+            or type(self.file_identity) is not tuple
+            or len(self.file_identity) != 9
+            or any(type(item) is not int for item in self.file_identity)
+            or not stat.S_ISREG(self.file_identity[2])
+            or stat.S_IMODE(self.file_identity[2]) != 0o600
+            or self.file_identity[3] != os.geteuid()
+            or self.file_identity[5] != 1
+            or self.file_identity[6] != len(self.encoded)
+        ):
+            raise TrustedTimeImageVerificationError(
+                "trusted-time image admission provenance is malformed"
+            )
+
+    def admission(self) -> TrustedTimeImageAdmission:
+        """Return the non-authorizing decoded admission projection."""
+
+        return TrustedTimeImageAdmission(
+            path=self.path,
+            identities=self.identities,
+            boot_session_id=self.boot_session_id,
+            git_revision=self.git_revision,
+            source_revision_sha256=self.source_revision_sha256,
+            artifact_sha256=self.artifact_sha256,
+            created_at_utc=self.created_at_utc,
+            created_monotonic_ns=self.created_monotonic_ns,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class _ReviewedInputBindings:
     authority_sha256: str
     chrony_config_sha256: str
@@ -655,10 +814,12 @@ def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def _stable_file_sha256(path: Path) -> str:
+    file_owner: _OwnedFileDescriptor | None = None
     try:
         if path.resolve(strict=True) != path:
             raise OSError
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        file_owner = _open_owned_file(path)
+        descriptor = file_owner.fileno()
     except OSError:
         raise TrustedTimeImageVerificationError(
             "trusted-time reviewed input is unavailable"
@@ -688,7 +849,8 @@ def _stable_file_sha256(path: Path) -> str:
             )
         return digest.hexdigest()
     finally:
-        os.close(descriptor)
+        if file_owner is not None:
+            file_owner.close()
 
 
 def _reviewed_input_paths() -> tuple[Path, ...]:
@@ -797,45 +959,51 @@ def _open_owner_only_artifact_directory(
     *,
     ignored_root: Path,
     create: bool,
-) -> int:
+) -> _OwnedFileDescriptor:
     absolute = Path(os.path.abspath(path))
     root = Path(os.path.abspath(ignored_root))
     if absolute != path or (absolute != root and not absolute.is_relative_to(root)):
         raise TrustedTimeImageVerificationError(
             "trusted-time image admission artifact directory is invalid"
         )
-    try:
-        descriptor = os.open(
-            absolute.anchor,
-            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-        )
-    except OSError:
-        raise TrustedTimeImageVerificationError(
-            "trusted-time image admission artifact directory is invalid"
-        ) from None
+    directory_owner: _OwnedFileDescriptor | None = None
     current = Path(absolute.anchor)
     try:
+        directory_owner = _open_owned_descriptor(
+            absolute.anchor,
+            flags=(
+                os.O_RDONLY
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0)
+            ),
+        )
         for part in absolute.parts[1:]:
             current /= part
             protected = current == root or current.is_relative_to(root)
             if protected and create:
                 try:
-                    os.mkdir(part, 0o700, dir_fd=descriptor)
+                    os.mkdir(part, 0o700, dir_fd=directory_owner.fileno())
                     created = True
                 except FileExistsError:
                     created = False
             else:
                 created = False
-            next_descriptor = os.open(
+            next_owner = _open_owned_descriptor(
                 part,
-                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-                dir_fd=descriptor,
+                flags=(
+                    os.O_RDONLY
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_DIRECTORY", 0)
+                    | getattr(os, "O_NOFOLLOW", 0)
+                ),
+                dir_fd=directory_owner.fileno(),
             )
             try:
-                metadata = os.fstat(next_descriptor)
+                metadata = os.fstat(next_owner.fileno())
                 if created:
-                    os.fchmod(next_descriptor, 0o700)
-                    metadata = os.fstat(next_descriptor)
+                    os.fchmod(next_owner.fileno(), 0o700)
+                    metadata = os.fstat(next_owner.fileno())
                 if protected and (
                     metadata.st_uid != os.geteuid()
                     or stat.S_IMODE(metadata.st_mode) != 0o700
@@ -845,19 +1013,22 @@ def _open_owner_only_artifact_directory(
                         "trusted-time image admission artifact directory is invalid"
                     )
                 if created:
-                    os.fsync(next_descriptor)
-                    os.fsync(descriptor)
-            except (OSError, TrustedTimeImageVerificationError):
-                os.close(next_descriptor)
+                    os.fsync(next_owner.fileno())
+                    os.fsync(directory_owner.fileno())
+            except BaseException:
+                next_owner.close()
                 raise
-            os.close(descriptor)
-            descriptor = next_descriptor
-        return descriptor
-    except (OSError, TrustedTimeImageVerificationError):
-        os.close(descriptor)
-        raise TrustedTimeImageVerificationError(
-            "trusted-time image admission artifact directory is invalid"
-        ) from None
+            directory_owner.close()
+            directory_owner = next_owner
+        return directory_owner
+    except BaseException as error:
+        if directory_owner is not None:
+            directory_owner.close()
+        if isinstance(error, (OSError, TrustedTimeImageVerificationError)):
+            raise TrustedTimeImageVerificationError(
+                "trusted-time image admission artifact directory is invalid"
+            ) from None
+        raise
 
 
 def _read_existing_owner_only_artifact(
@@ -866,12 +1037,10 @@ def _read_existing_owner_only_artifact(
     *,
     label: str,
 ) -> bytes | None:
+    file_owner: _OwnedFileDescriptor | None = None
     try:
-        descriptor = os.open(
-            file_name,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=directory_descriptor,
-        )
+        file_owner = _open_owned_file(file_name, dir_fd=directory_descriptor)
+        descriptor = file_owner.fileno()
     except FileNotFoundError:
         return None
     except OSError:
@@ -917,7 +1086,196 @@ def _read_existing_owner_only_artifact(
             )
         return encoded
     finally:
-        os.close(descriptor)
+        if file_owner is not None:
+            file_owner.close()
+
+
+def _confirm_exact_existing_owner_only_artifact_durable(
+    directory_descriptor: int,
+    file_name: str,
+    *,
+    expected_encoded: bytes,
+    label: str,
+) -> None:
+    """Fsync and read back one exact held owner-only artifact and its name."""
+
+    file_owner: _OwnedFileDescriptor | None = None
+
+    def readback(descriptor: int) -> bytes:
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        retained = bytearray()
+        while len(retained) <= MAXIMUM_IMAGE_ADMISSION_BYTES:
+            chunk = os.read(
+                descriptor,
+                min(65_536, MAXIMUM_IMAGE_ADMISSION_BYTES + 1 - len(retained)),
+            )
+            if not chunk:
+                break
+            retained.extend(chunk)
+        return bytes(retained)
+
+    try:
+        directory_before = os.fstat(directory_descriptor)
+        file_owner = _open_owned_file(file_name, dir_fd=directory_descriptor)
+        descriptor = file_owner.fileno()
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.geteuid()
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_nlink != 1
+            or before.st_size != len(expected_encoded)
+            or before.st_size <= 0
+            or before.st_size > MAXIMUM_IMAGE_ADMISSION_BYTES
+        ):
+            raise OSError
+        encoded = readback(descriptor)
+        after_read = os.fstat(descriptor)
+        named_before = os.stat(
+            file_name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            encoded != expected_encoded
+            or _stable_image_admission_file_identity(before)
+            != _stable_image_admission_file_identity(after_read)
+            or _stable_image_admission_file_identity(after_read)
+            != _stable_image_admission_file_identity(named_before)
+        ):
+            raise OSError
+        os.fsync(descriptor)
+        os.fsync(directory_descriptor)
+        final_encoded = readback(descriptor)
+        final = os.fstat(descriptor)
+        named_final = os.stat(
+            file_name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        directory_final = os.fstat(directory_descriptor)
+        if (
+            final_encoded != expected_encoded
+            or _stable_image_admission_file_identity(before)
+            != _stable_image_admission_file_identity(final)
+            or _stable_image_admission_file_identity(final)
+            != _stable_image_admission_file_identity(named_final)
+            or _stable_image_admission_file_identity(directory_before)
+            != _stable_image_admission_file_identity(directory_final)
+        ):
+            raise OSError
+    except OSError:
+        raise TrustedTimeImageVerificationError(
+            f"trusted-time image admission {label} is invalid"
+        ) from None
+    finally:
+        if file_owner is not None:
+            with suppress(OSError):
+                file_owner.close()
+
+
+class _OwnedTemporaryImageAdmissionArtifact:
+    """Own one random O_EXCL temporary name across every CALL/STORE edge."""
+
+    __slots__ = (
+        "_creation_call_started",
+        "_directory_descriptor",
+        "_file_identity",
+        "_file_name",
+        "_file_owner",
+        "_name_retirement_started",
+    )
+
+    def __init__(self, directory_descriptor: int, file_name: str) -> None:
+        self._creation_call_started = False
+        self._directory_descriptor = directory_descriptor
+        self._file_identity: tuple[int, int] | None = None
+        self._file_name = file_name
+        self._file_owner: _OwnedFileDescriptor | None = None
+        self._name_retirement_started = False
+
+    def create(self) -> _OwnedFileDescriptor:
+        if self._creation_call_started or self._file_owner is not None:
+            raise TrustedTimeImageVerificationError(
+                "trusted-time image admission temporary artifact is invalid"
+            )
+
+        self._creation_call_started = True
+        try:
+            self._file_owner = _open_owned_file(
+                self._file_name,
+                dir_fd=self._directory_descriptor,
+                exclusive=True,
+            )
+        except FileExistsError:
+            self._creation_call_started = False
+            raise
+        metadata = os.fstat(self._file_owner.fileno())
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_nlink != 1
+            or metadata.st_size != 0
+        ):
+            raise OSError
+        self._file_identity = (metadata.st_dev, metadata.st_ino)
+        return self._file_owner
+
+    def close_file(self) -> None:
+        owner = self._file_owner
+        if owner is not None:
+            owner.close()
+            self._file_owner = None
+
+    def _validate_named_identity(self) -> None:
+        if self._file_identity is None:
+            return
+        named = os.stat(
+            self._file_name,
+            dir_fd=self._directory_descriptor,
+            follow_symlinks=False,
+        )
+        if (named.st_dev, named.st_ino) != self._file_identity:
+            raise OSError
+
+    def unlink_name(self) -> None:
+        self.close_file()
+        self._validate_named_identity()
+        self._name_retirement_started = True
+        os.unlink(self._file_name, dir_fd=self._directory_descriptor)
+        self._creation_call_started = False
+
+    def replace_name(self, target_name: str) -> None:
+        self.close_file()
+        self._validate_named_identity()
+        self._name_retirement_started = True
+        os.replace(
+            self._file_name,
+            target_name,
+            src_dir_fd=self._directory_descriptor,
+            dst_dir_fd=self._directory_descriptor,
+        )
+        self._creation_call_started = False
+
+    def cleanup(self) -> None:
+        """Close and durably unlink only the exact temporary name this owner created."""
+
+        try:
+            self.close_file()
+            if self._creation_call_started:
+                try:
+                    self._validate_named_identity()
+                    os.unlink(self._file_name, dir_fd=self._directory_descriptor)
+                except FileNotFoundError:
+                    if not self._name_retirement_started:
+                        raise
+                os.fsync(self._directory_descriptor)
+                self._creation_call_started = False
+        except OSError:
+            raise TrustedTimeImageVerificationError(
+                "trusted-time image admission temporary artifact cleanup failed"
+            ) from None
 
 
 def _retain_content_addressed_image_admission(
@@ -930,16 +1288,16 @@ def _retain_content_addressed_image_admission(
 
     artifact_sha256 = hashlib.sha256(encoded).hexdigest()
     archive = canonical_path.with_name(f"image-admission-{artifact_sha256}.json")
-    directory_descriptor: int | None = None
-    file_descriptor: int | None = None
-    temporary_created = False
+    directory_owner: _OwnedFileDescriptor | None = None
+    temporary_owner: _OwnedTemporaryImageAdmissionArtifact | None = None
     temporary_name = f".{archive.name}.{os.getpid()}.{secrets.token_hex(16)}.tmp"
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             archive.parent,
             ignored_root=ignored_root,
             create=True,
         )
+        directory_descriptor = directory_owner.fileno()
         existing = _read_existing_owner_only_artifact(
             directory_descriptor,
             archive.name,
@@ -950,15 +1308,20 @@ def _retain_content_addressed_image_admission(
                 raise TrustedTimeImageVerificationError(
                     "trusted-time image admission archive is invalid"
                 )
+            _confirm_exact_existing_owner_only_artifact_durable(
+                directory_descriptor,
+                archive.name,
+                expected_encoded=encoded,
+                label="archive",
+            )
             return archive
 
-        file_descriptor = os.open(
+        temporary_owner = _OwnedTemporaryImageAdmissionArtifact(
+            directory_descriptor,
             temporary_name,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
-            0o600,
-            dir_fd=directory_descriptor,
         )
-        temporary_created = True
+        file_owner = temporary_owner.create()
+        file_descriptor = file_owner.fileno()
         view = memoryview(encoded)
         while view:
             written = os.write(file_descriptor, view)
@@ -967,8 +1330,7 @@ def _retain_content_addressed_image_admission(
             view = view[written:]
         os.fchmod(file_descriptor, 0o600)
         os.fsync(file_descriptor)
-        os.close(file_descriptor)
-        file_descriptor = None
+        temporary_owner.close_file()
         os.link(
             temporary_name,
             archive.name,
@@ -976,9 +1338,14 @@ def _retain_content_addressed_image_admission(
             dst_dir_fd=directory_descriptor,
             follow_symlinks=False,
         )
-        os.unlink(temporary_name, dir_fd=directory_descriptor)
-        temporary_created = False
+        temporary_owner.unlink_name()
         os.fsync(directory_descriptor)
+        _confirm_exact_existing_owner_only_artifact_durable(
+            directory_descriptor,
+            archive.name,
+            expected_encoded=encoded,
+            label="archive",
+        )
         return archive
     except TrustedTimeImageVerificationError:
         raise
@@ -987,13 +1354,10 @@ def _retain_content_addressed_image_admission(
             "trusted-time image admission archive write failed"
         ) from None
     finally:
-        if file_descriptor is not None:
-            os.close(file_descriptor)
-        if temporary_created and directory_descriptor is not None:
-            with suppress(OSError):
-                os.unlink(temporary_name, dir_fd=directory_descriptor)
-        if directory_descriptor is not None:
-            os.close(directory_descriptor)
+        if temporary_owner is not None:
+            temporary_owner.cleanup()
+        if directory_owner is not None:
+            directory_owner.close()
 
 
 def _validate_content_addressed_image_admission(
@@ -1004,13 +1368,14 @@ def _validate_content_addressed_image_admission(
 ) -> None:
     artifact_sha256 = hashlib.sha256(encoded).hexdigest()
     archive = canonical_path.with_name(f"image-admission-{artifact_sha256}.json")
-    directory_descriptor: int | None = None
+    directory_owner: _OwnedFileDescriptor | None = None
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             archive.parent,
             ignored_root=ignored_root,
             create=False,
         )
+        directory_descriptor = directory_owner.fileno()
         existing = _read_existing_owner_only_artifact(
             directory_descriptor,
             archive.name,
@@ -1021,8 +1386,8 @@ def _validate_content_addressed_image_admission(
                 "trusted-time image admission archive is invalid"
             )
     finally:
-        if directory_descriptor is not None:
-            os.close(directory_descriptor)
+        if directory_owner is not None:
+            directory_owner.close()
 
 
 def _admission_payload(
@@ -1108,21 +1473,21 @@ def write_image_admission_artifact(
             "trusted-time image admission artifact is malformed"
         )
 
-    prior_directory_descriptor: int | None = None
+    prior_directory_owner: _OwnedFileDescriptor | None = None
     try:
-        prior_directory_descriptor = _open_owner_only_artifact_directory(
+        prior_directory_owner = _open_owner_only_artifact_directory(
             absolute.parent,
             ignored_root=ignored_root,
             create=True,
         )
         prior_encoded = _read_existing_owner_only_artifact(
-            prior_directory_descriptor,
+            prior_directory_owner.fileno(),
             absolute.name,
             label="artifact target",
         )
     finally:
-        if prior_directory_descriptor is not None:
-            os.close(prior_directory_descriptor)
+        if prior_directory_owner is not None:
+            prior_directory_owner.close()
     if prior_encoded is not None:
         _retain_content_addressed_image_admission(
             absolute,
@@ -1135,16 +1500,16 @@ def write_image_admission_artifact(
         ignored_root=ignored_root,
     )
 
-    directory_descriptor: int | None = None
-    file_descriptor: int | None = None
-    temporary_created = False
+    directory_owner: _OwnedFileDescriptor | None = None
+    temporary_owner: _OwnedTemporaryImageAdmissionArtifact | None = None
     temporary_name = f".{absolute.name}.{os.getpid()}.{secrets.token_hex(16)}.tmp"
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             absolute.parent,
             ignored_root=ignored_root,
             create=True,
         )
+        directory_descriptor = directory_owner.fileno()
         if (
             _read_existing_owner_only_artifact(
                 directory_descriptor,
@@ -1156,13 +1521,12 @@ def write_image_admission_artifact(
             raise TrustedTimeImageVerificationError(
                 "trusted-time image admission artifact target is invalid"
             )
-        file_descriptor = os.open(
+        temporary_owner = _OwnedTemporaryImageAdmissionArtifact(
+            directory_descriptor,
             temporary_name,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
-            0o600,
-            dir_fd=directory_descriptor,
         )
-        temporary_created = True
+        file_owner = temporary_owner.create()
+        file_descriptor = file_owner.fileno()
         view = memoryview(encoded)
         while view:
             written = os.write(file_descriptor, view)
@@ -1171,15 +1535,9 @@ def write_image_admission_artifact(
             view = view[written:]
         os.fchmod(file_descriptor, 0o600)
         os.fsync(file_descriptor)
-        os.close(file_descriptor)
-        file_descriptor = None
-        os.replace(
-            temporary_name,
+        temporary_owner.replace_name(
             absolute.name,
-            src_dir_fd=directory_descriptor,
-            dst_dir_fd=directory_descriptor,
         )
-        temporary_created = False
         os.fsync(directory_descriptor)
     except TrustedTimeImageVerificationError:
         raise
@@ -1188,13 +1546,10 @@ def write_image_admission_artifact(
             "trusted-time image admission artifact write failed"
         ) from None
     finally:
-        if file_descriptor is not None:
-            os.close(file_descriptor)
-        if temporary_created and directory_descriptor is not None:
-            with suppress(OSError):
-                os.unlink(temporary_name, dir_fd=directory_descriptor)
-        if directory_descriptor is not None:
-            os.close(directory_descriptor)
+        if temporary_owner is not None:
+            temporary_owner.cleanup()
+        if directory_owner is not None:
+            directory_owner.close()
 
     if reviewed_input_bindings() != reviewed:
         raise TrustedTimeImageVerificationError(
@@ -1217,20 +1572,12 @@ def write_image_admission_artifact(
     return admission
 
 
-def _decode_admission_payload(
+def _decode_structural_admission_payload(
     payload: object,
     *,
     path: Path,
     artifact_sha256: str,
-    boot_session_id: str,
-    monotonic_ns: int,
 ) -> TrustedTimeImageAdmission:
-    if (
-        type(boot_session_id) is not str
-        or _BOOT_SESSION_ID_PATTERN.fullmatch(boot_session_id) is None
-        or boot_session_id.partition(":")[2].replace("-", "") == "0" * 32
-    ):
-        raise TrustedTimeImageVerificationError("trusted-time boot session identity is unavailable")
     root = _mapping(payload, "trusted-time image admission")
     if set(root) != {
         "authority_granted",
@@ -1283,17 +1630,10 @@ def _decode_admission_payload(
         raise TrustedTimeImageVerificationError(
             "trusted-time image admission artifact is malformed"
         )
-    if artifact_boot_session != boot_session_id:
+    if created_monotonic < 0:
         raise TrustedTimeImageVerificationError(
-            "trusted-time image admission artifact belongs to a different boot session"
+            "trusted-time image admission artifact is malformed"
         )
-    if (
-        created_monotonic < 0
-        or type(monotonic_ns) is not int
-        or monotonic_ns < created_monotonic
-        or monotonic_ns - created_monotonic > IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS * 1_000_000_000
-    ):
-        raise TrustedTimeImageVerificationError("trusted-time image admission artifact is stale")
     try:
         parsed_created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
     except ValueError:
@@ -1323,6 +1663,182 @@ def _decode_admission_payload(
     )
 
 
+def _decode_admission_payload(
+    payload: object,
+    *,
+    path: Path,
+    artifact_sha256: str,
+    boot_session_id: str,
+    monotonic_ns: int,
+) -> TrustedTimeImageAdmission:
+    if (
+        type(boot_session_id) is not str
+        or _BOOT_SESSION_ID_PATTERN.fullmatch(boot_session_id) is None
+        or boot_session_id.partition(":")[2].replace("-", "") == "0" * 32
+    ):
+        raise TrustedTimeImageVerificationError("trusted-time boot session identity is unavailable")
+    admission = _decode_structural_admission_payload(
+        payload,
+        path=path,
+        artifact_sha256=artifact_sha256,
+    )
+    if admission.boot_session_id != boot_session_id:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact belongs to a different boot session"
+        )
+    if (
+        type(monotonic_ns) is not int
+        or monotonic_ns < admission.created_monotonic_ns
+        or monotonic_ns - admission.created_monotonic_ns
+        > IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS * 1_000_000_000
+    ):
+        raise TrustedTimeImageVerificationError("trusted-time image admission artifact is stale")
+    return admission
+
+
+def _stable_image_admission_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _read_exact_image_admission_archive(
+    path: Path,
+    *,
+    ignored_root: Path,
+) -> tuple[bytes, tuple[int, ...]]:
+    absolute, _ = _absolute_artifact_path(path, ignored_root=ignored_root)
+    directory_owner: _OwnedFileDescriptor | None = None
+    file_owner: _OwnedFileDescriptor | None = None
+    try:
+        directory_owner = _open_owner_only_artifact_directory(
+            absolute.parent,
+            ignored_root=ignored_root,
+            create=False,
+        )
+        directory_descriptor = directory_owner.fileno()
+        directory_before = os.fstat(directory_descriptor)
+        file_owner = _open_owned_file(absolute.name, dir_fd=directory_descriptor)
+        file_descriptor = file_owner.fileno()
+        before = os.fstat(file_descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.geteuid()
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_nlink != 1
+            or before.st_size <= 0
+            or before.st_size > MAXIMUM_IMAGE_ADMISSION_BYTES
+        ):
+            raise OSError
+        chunks: list[bytes] = []
+        remaining = MAXIMUM_IMAGE_ADMISSION_BYTES + 1
+        while remaining:
+            chunk = os.read(file_descriptor, min(65_536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        encoded = b"".join(chunks)
+        after = os.fstat(file_descriptor)
+        named = os.stat(
+            absolute.name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        directory_after = os.fstat(directory_descriptor)
+        if (
+            len(encoded) != before.st_size
+            or len(encoded) > MAXIMUM_IMAGE_ADMISSION_BYTES
+            or _stable_image_admission_file_identity(before)
+            != _stable_image_admission_file_identity(after)
+            or _stable_image_admission_file_identity(after)
+            != _stable_image_admission_file_identity(named)
+            or _stable_image_admission_file_identity(directory_before)
+            != _stable_image_admission_file_identity(directory_after)
+        ):
+            raise OSError
+        return encoded, _stable_image_admission_file_identity(before)
+    except TrustedTimeImageVerificationError:
+        raise
+    except OSError:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance is unavailable"
+        ) from None
+    finally:
+        if file_owner is not None:
+            file_owner.close()
+        if directory_owner is not None:
+            directory_owner.close()
+
+
+def load_image_admission_provenance_artifact(
+    path: Path,
+    *,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+) -> TrustedTimeImageAdmissionProvenance:
+    """Authenticate one exact content-addressed archive without freshness authority."""
+
+    absolute, _ = _absolute_artifact_path(path, ignored_root=ignored_root)
+    prefix = "image-admission-"
+    suffix = ".json"
+    if (
+        not absolute.name.startswith(prefix)
+        or not absolute.name.endswith(suffix)
+        or len(absolute.name) != len(prefix) + 64 + len(suffix)
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance binding is invalid"
+        )
+    expected_sha256 = absolute.name[len(prefix) : -len(suffix)]
+    if _SHA256_PATTERN.fullmatch(expected_sha256) is None:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance binding is invalid"
+        )
+    encoded, file_identity = _read_exact_image_admission_archive(
+        absolute,
+        ignored_root=ignored_root,
+    )
+    if hashlib.sha256(encoded).hexdigest() != expected_sha256:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance binding is invalid"
+        )
+    try:
+        payload: Any = json.loads(encoded, object_pairs_hook=_unique_json_object)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact is malformed"
+        ) from None
+    if _canonical_json_bytes(payload) != encoded:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact is not canonical"
+        )
+    admission = _decode_structural_admission_payload(
+        payload,
+        path=absolute,
+        artifact_sha256=expected_sha256,
+    )
+    return TrustedTimeImageAdmissionProvenance(
+        path=absolute,
+        identities=admission.identities,
+        boot_session_id=admission.boot_session_id,
+        git_revision=admission.git_revision,
+        source_revision_sha256=admission.source_revision_sha256,
+        artifact_sha256=admission.artifact_sha256,
+        created_at_utc=admission.created_at_utc,
+        created_monotonic_ns=admission.created_monotonic_ns,
+        encoded=encoded,
+        file_identity=file_identity,
+    )
+
+
 def load_image_admission_artifact(
     path: Path = DEFAULT_IMAGE_ADMISSION_ARTIFACT,
     *,
@@ -1333,19 +1849,17 @@ def load_image_admission_artifact(
 
     absolute, _ = _absolute_artifact_path(path, ignored_root=ignored_root)
     observed_boot_session = _current_boot_session_id()
-    directory_descriptor: int | None = None
-    file_descriptor: int | None = None
+    directory_owner: _OwnedFileDescriptor | None = None
+    file_owner: _OwnedFileDescriptor | None = None
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             absolute.parent,
             ignored_root=ignored_root,
             create=False,
         )
-        file_descriptor = os.open(
-            absolute.name,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=directory_descriptor,
-        )
+        directory_descriptor = directory_owner.fileno()
+        file_owner = _open_owned_file(absolute.name, dir_fd=directory_descriptor)
+        file_descriptor = file_owner.fileno()
         before = os.fstat(file_descriptor)
         if (
             not stat.S_ISREG(before.st_mode)
@@ -1390,10 +1904,10 @@ def load_image_admission_artifact(
             "trusted-time image admission artifact is unavailable"
         ) from None
     finally:
-        if file_descriptor is not None:
-            os.close(file_descriptor)
-        if directory_descriptor is not None:
-            os.close(directory_descriptor)
+        if file_owner is not None:
+            file_owner.close()
+        if directory_owner is not None:
+            directory_owner.close()
     try:
         payload: Any = json.loads(encoded, object_pairs_hook=_unique_json_object)
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -1614,10 +2128,12 @@ def _stable_reviewed_file_sha256(path: Path, *, required_mode: int) -> str:
         raise TrustedTimeImageVerificationError(
             "trusted-time reviewed inputs do not match Git HEAD"
         )
+    file_owner: _OwnedFileDescriptor | None = None
     try:
         if path.resolve(strict=True) != path:
             raise OSError
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        file_owner = _open_owned_file(path)
+        descriptor = file_owner.fileno()
     except OSError:
         raise TrustedTimeImageVerificationError(
             "trusted-time reviewed inputs do not match Git HEAD"
@@ -1658,7 +2174,8 @@ def _stable_reviewed_file_sha256(path: Path, *, required_mode: int) -> str:
             )
         return digest.hexdigest()
     finally:
-        os.close(descriptor)
+        if file_owner is not None:
+            file_owner.close()
 
 
 def _head_reviewed_input_entries(
@@ -2870,6 +3387,7 @@ def verify_and_write_existing_image_admission(
     supervisor_image_id: str,
     *,
     ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+    docker_environment: Mapping[str, str] | None = None,
 ) -> TrustedTimeImageAdmission:
     """Freshly admit an already immutable pair without rebuilding either image."""
 
@@ -2879,11 +3397,13 @@ def verify_and_write_existing_image_admission(
         supervisor_id=supervisor_image_id,
     )
     git_revision = _current_clean_git_revision()
-    docker_environment = _minimal_docker_environment()
+    environment = (
+        _minimal_docker_environment() if docker_environment is None else dict(docker_environment)
+    )
     before = reviewed_input_bindings()
     validate_prebuild_compose_contract(
         git_revision=git_revision,
-        docker_environment=docker_environment,
+        docker_environment=environment,
     )
     if reviewed_input_bindings() != before:
         raise TrustedTimeImageVerificationError(
@@ -2892,7 +3412,7 @@ def verify_and_write_existing_image_admission(
     verified = verify_images(
         requested.source_id,
         requested.supervisor_id,
-        docker_environment=docker_environment,
+        docker_environment=environment,
     )
     if verified != requested:
         raise TrustedTimeImageVerificationError(

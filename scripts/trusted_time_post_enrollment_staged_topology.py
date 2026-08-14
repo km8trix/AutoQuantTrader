@@ -41,6 +41,7 @@ from scripts.start_trusted_time_supervisor import (
 from scripts.trusted_time_post_enrollment_topology import (
     POST_ENROLLMENT_CREATED_TOPOLOGY_COMPOSE_PROJECT,
     TrustedTimePostEnrollmentCreatedTopologySnapshot,
+    _is_post_enrollment_created_topology_network_name,
     _is_uuid4,
     _isolated_json_projection,
     _valid_daemon_identity,
@@ -598,6 +599,7 @@ def validate_post_enrollment_start_staged_unreleased_topology(
     container_inspections: dict[str, object],
     source_image_configuration: dict[str, object],
     supervisor_image_configuration: dict[str, object],
+    expected_network_name: str,
     expected_database_secret_file: Path,
     expected_head_anchor_authority_file: Path,
     expected_head_anchor_auth_secret_file: Path,
@@ -648,6 +650,7 @@ def validate_post_enrollment_start_staged_unreleased_topology(
             or created_topology.daemon_id != daemon_identity_before.daemon_id
             or type(volume_identities_before) is not TrustedTimeVolumeIdentities
             or type(volume_identities_after) is not TrustedTimeVolumeIdentities
+            or not _is_post_enrollment_created_topology_network_name(expected_network_name)
         ):
             raise ValueError
         volume_identities_before.__post_init__()
@@ -758,6 +761,7 @@ def validate_post_enrollment_start_staged_unreleased_topology(
             expected_image_id=approved_launch.source_image_id,
             expected_image_configuration=source_configuration,
             expected_service=_SOURCE_SERVICE,
+            expected_network_name=expected_network_name,
         )
         validate_exact_staged_running_container(
             supervisor_inspection,
@@ -765,6 +769,7 @@ def validate_post_enrollment_start_staged_unreleased_topology(
             expected_image_id=approved_launch.supervisor_image_id,
             expected_image_configuration=supervisor_configuration,
             expected_service=_SUPERVISOR_SERVICE,
+            expected_network_name=expected_network_name,
             expected_database_secret_file=expected_database_secret_file,
             expected_head_anchor_authority_file=expected_head_anchor_authority_file,
             expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,

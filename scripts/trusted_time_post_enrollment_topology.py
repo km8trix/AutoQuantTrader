@@ -41,6 +41,15 @@ POST_ENROLLMENT_CREATED_TOPOLOGY_CONTRACT_VERSION = (
 )
 POST_ENROLLMENT_CREATED_TOPOLOGY_STATUS = "created_topology_snapshot_unqualified"
 POST_ENROLLMENT_CREATED_TOPOLOGY_COMPOSE_PROJECT = "autoquanttrader-trusted-time"
+POST_ENROLLMENT_CREATED_TOPOLOGY_INVOCATION_LABEL = (
+    "com.autoquanttrader.trusted-time.post-enrollment-create-invocation"
+)
+POST_ENROLLMENT_CREATED_TOPOLOGY_NETWORK_NAME_CONTRACT_VERSION = (
+    "phase6d-post-enrollment-start-created-topology-network-name-v1"
+)
+POST_ENROLLMENT_CREATED_TOPOLOGY_NETWORK_NAME_PREFIX = (
+    "autoquanttrader-trusted-time-post-enrollment-"
+)
 
 _SOURCE_SERVICE = "chrony-nts"
 _SUPERVISOR_SERVICE = "trusted-time-supervisor"
@@ -53,6 +62,35 @@ _CONTEXT_NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,255}")
 _DAEMON_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9:._-]{0,255}")
 _MAXIMUM_JSON_PROJECTION_NODES = 131_072
 _MAXIMUM_JSON_INTEGER_BITS = 256
+
+
+def post_enrollment_created_topology_network_name(session_sha256: str) -> str:
+    """Return the full domain-separated network name for one reader session."""
+
+    if type(session_sha256) is not str or _SHA256_PATTERN.fullmatch(session_sha256) is None:
+        raise ValueError("trusted-time post-enrollment network session is invalid")
+    digest = hashlib.sha256(
+        canonical_first_enrollment_json_bytes(
+            {
+                "contract_version": (
+                    POST_ENROLLMENT_CREATED_TOPOLOGY_NETWORK_NAME_CONTRACT_VERSION
+                ),
+                "session_sha256": session_sha256,
+            }
+        )
+    ).hexdigest()
+    return f"{POST_ENROLLMENT_CREATED_TOPOLOGY_NETWORK_NAME_PREFIX}{digest}"
+
+
+def _is_post_enrollment_created_topology_network_name(value: object) -> bool:
+    return (
+        type(value) is str
+        and value.startswith(POST_ENROLLMENT_CREATED_TOPOLOGY_NETWORK_NAME_PREFIX)
+        and _SHA256_PATTERN.fullmatch(
+            value.removeprefix(POST_ENROLLMENT_CREATED_TOPOLOGY_NETWORK_NAME_PREFIX)
+        )
+        is not None
+    )
 
 
 def _authority_is_never_granted(_: object) -> bool:
@@ -518,6 +556,7 @@ def validate_post_enrollment_start_created_topology(
     container_inspections: dict[str, object],
     source_image_configuration: dict[str, object],
     supervisor_image_configuration: dict[str, object],
+    expected_network_name: str,
     expected_database_secret_file: Path,
     expected_head_anchor_authority_file: Path,
     expected_head_anchor_auth_secret_file: Path,
@@ -544,6 +583,7 @@ def validate_post_enrollment_start_created_topology(
             or daemon_identity_after != daemon_identity_before
             or type(volume_identities_before) is not TrustedTimeVolumeIdentities
             or type(volume_identities_after) is not TrustedTimeVolumeIdentities
+            or not _is_post_enrollment_created_topology_network_name(expected_network_name)
         ):
             raise ValueError
         volume_identities_before.__post_init__()
@@ -607,6 +647,7 @@ def validate_post_enrollment_start_created_topology(
             expected_image_id=approved_launch.source_image_id,
             expected_image_configuration=source_configuration,
             expected_service=_SOURCE_SERVICE,
+            expected_network_name=expected_network_name,
         )
         validate_exact_never_started_created_container(
             supervisor_inspection,
@@ -614,6 +655,7 @@ def validate_post_enrollment_start_created_topology(
             expected_image_id=approved_launch.supervisor_image_id,
             expected_image_configuration=supervisor_configuration,
             expected_service=_SUPERVISOR_SERVICE,
+            expected_network_name=expected_network_name,
             expected_database_secret_file=expected_database_secret_file,
             expected_head_anchor_authority_file=expected_head_anchor_authority_file,
             expected_head_anchor_auth_secret_file=expected_head_anchor_auth_secret_file,
@@ -660,9 +702,13 @@ def validate_post_enrollment_start_created_topology(
 
 __all__ = [
     "POST_ENROLLMENT_CREATED_TOPOLOGY_CONTRACT_VERSION",
+    "POST_ENROLLMENT_CREATED_TOPOLOGY_INVOCATION_LABEL",
+    "POST_ENROLLMENT_CREATED_TOPOLOGY_NETWORK_NAME_CONTRACT_VERSION",
+    "POST_ENROLLMENT_CREATED_TOPOLOGY_NETWORK_NAME_PREFIX",
     "POST_ENROLLMENT_CREATED_TOPOLOGY_STATUS",
     "TrustedTimePostEnrollmentCreatedContainerSnapshot",
     "TrustedTimePostEnrollmentCreatedTopologyRejected",
     "TrustedTimePostEnrollmentCreatedTopologySnapshot",
+    "post_enrollment_created_topology_network_name",
     "validate_post_enrollment_start_created_topology",
 ]
