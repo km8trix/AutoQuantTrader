@@ -52,3 +52,5 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+psupabase-prod-ca-2021.crt
