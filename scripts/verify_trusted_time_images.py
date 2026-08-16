@@ -3389,7 +3389,7 @@ def verify_and_write_existing_image_admission(
     ignored_root: Path = IGNORED_ARTIFACT_ROOT,
     docker_environment: Mapping[str, str] | None = None,
 ) -> TrustedTimeImageAdmission:
-    """Freshly admit an already immutable pair without rebuilding either image."""
+    """Admit an immutable pair only after reproducing it from reviewed inputs."""
 
     _absolute_artifact_path(path, ignored_root=ignored_root)
     requested = TrustedTimeImageIdentities(
@@ -3409,9 +3409,17 @@ def verify_and_write_existing_image_admission(
         raise TrustedTimeImageVerificationError(
             "trusted-time reviewed input changed before existing-image admission"
         )
+    rebuilt = build_trusted_time_images(
+        git_revision,
+        docker_environment=environment,
+    )
+    if rebuilt != requested:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time existing images do not match the reviewed source build"
+        )
     verified = verify_images(
-        requested.source_id,
-        requested.supervisor_id,
+        rebuilt.source_id,
+        rebuilt.supervisor_id,
         docker_environment=environment,
     )
     if verified != requested:
@@ -3447,7 +3455,7 @@ def main() -> None:
     mode.add_argument(
         "--admit-existing",
         action="store_true",
-        help="verify and freshly admit an exact existing immutable image pair",
+        help="rebuild reviewed inputs and admit an exact matching immutable image pair",
     )
     parser.add_argument(
         "--artifact",

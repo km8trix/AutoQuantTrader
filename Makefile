@@ -195,7 +195,7 @@ trusted-time-images: ## Build and admit the local Chrony/source supervisor image
 		scripts/verify_trusted_time_images.py --build \
 		--artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)"
 
-trusted-time-readmit-images: ## Freshly admit an exact existing immutable image pair without rebuilding.
+trusted-time-readmit-images: ## Rebuild reviewed inputs and admit only an exact matching immutable image pair.
 	@test -n "$(TRUSTED_TIME_EXISTING_SOURCE_IMAGE_ID)" || (echo "TRUSTED_TIME_EXISTING_SOURCE_IMAGE_ID is required" >&2; exit 2)
 	@test -n "$(TRUSTED_TIME_EXISTING_SUPERVISOR_IMAGE_ID)" || (echo "TRUSTED_TIME_EXISTING_SUPERVISOR_IMAGE_ID is required" >&2; exit 2)
 	$(TRUSTED_TIME_PYTHON) \

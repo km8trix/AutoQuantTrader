@@ -1335,7 +1335,7 @@ def test_image_admission_rejects_drift_from_captured_build_ids_before_write(
     write.assert_not_called()
 
 
-def test_existing_image_readmission_reverifies_exact_ids_without_building(
+def test_existing_image_readmission_rebuilds_and_reverifies_exact_ids(
     tmp_path: Path,
 ) -> None:
     ignored_root = tmp_path / "artifacts"
@@ -1369,7 +1369,10 @@ def test_existing_image_readmission_reverifies_exact_ids_without_building(
             "scripts.verify_trusted_time_images.write_image_admission_artifact",
             return_value=retained,
         ) as write,
-        patch("scripts.verify_trusted_time_images.build_trusted_time_images") as build,
+        patch(
+            "scripts.verify_trusted_time_images.build_trusted_time_images",
+            return_value=identities,
+        ) as build,
     ):
         result = verify_and_write_existing_image_admission(
             artifact_path,
@@ -1379,7 +1382,10 @@ def test_existing_image_readmission_reverifies_exact_ids_without_building(
         )
 
     assert result is retained
-    build.assert_not_called()
+    build.assert_called_once_with(
+        "a" * 40,
+        docker_environment=exact_environment,
+    )
     compose.assert_called_once_with(
         git_revision="a" * 40,
         docker_environment=exact_environment,
@@ -1426,6 +1432,10 @@ def test_existing_image_readmission_uses_caller_pinned_docker_environment(
         ),
         patch("scripts.verify_trusted_time_images.validate_prebuild_compose_contract") as compose,
         patch(
+            "scripts.verify_trusted_time_images.build_trusted_time_images",
+            return_value=identities,
+        ) as build,
+        patch(
             "scripts.verify_trusted_time_images.verify_images",
             return_value=identities,
         ) as verify,
@@ -1443,6 +1453,10 @@ def test_existing_image_readmission_uses_caller_pinned_docker_environment(
         )
 
     ambient.assert_not_called()
+    build.assert_called_once_with(
+        "a" * 40,
+        docker_environment=exact_environment,
+    )
     compose.assert_called_once_with(
         git_revision="a" * 40,
         docker_environment=exact_environment,
@@ -1476,6 +1490,10 @@ def test_existing_image_readmission_rejects_identity_drift_before_write(
         ),
         patch("scripts.verify_trusted_time_images.validate_prebuild_compose_contract"),
         patch(
+            "scripts.verify_trusted_time_images.build_trusted_time_images",
+            return_value=requested,
+        ),
+        patch(
             "scripts.verify_trusted_time_images.verify_images",
             return_value=drifted,
         ),
@@ -1492,6 +1510,48 @@ def test_existing_image_readmission_rejects_identity_drift_before_write(
             ignored_root=ignored_root,
         )
 
+    write.assert_not_called()
+
+
+def test_existing_image_readmission_rejects_images_not_reproduced_from_reviewed_source(
+    tmp_path: Path,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    artifact_path = ignored_root / "trusted-time" / "image-admission.json"
+    requested = TrustedTimeImageIdentities(
+        source_id=SOURCE_ID,
+        supervisor_id=SUPERVISOR_ID,
+    )
+    rebuilt = replace(requested, supervisor_id="sha256:" + "9" * 64)
+    with (
+        patch(
+            "scripts.verify_trusted_time_images._current_clean_git_revision",
+            return_value="a" * 40,
+        ),
+        patch(
+            "scripts.verify_trusted_time_images.reviewed_input_bindings",
+            return_value=reviewed_input_bindings(),
+        ),
+        patch("scripts.verify_trusted_time_images.validate_prebuild_compose_contract"),
+        patch(
+            "scripts.verify_trusted_time_images.build_trusted_time_images",
+            return_value=rebuilt,
+        ),
+        patch("scripts.verify_trusted_time_images.verify_images") as verify,
+        patch("scripts.verify_trusted_time_images.write_image_admission_artifact") as write,
+        pytest.raises(
+            TrustedTimeImageVerificationError,
+            match="existing images do not match the reviewed source build",
+        ),
+    ):
+        verify_and_write_existing_image_admission(
+            artifact_path,
+            SOURCE_ID,
+            SUPERVISOR_ID,
+            ignored_root=ignored_root,
+        )
+
+    verify.assert_not_called()
     write.assert_not_called()
 
 

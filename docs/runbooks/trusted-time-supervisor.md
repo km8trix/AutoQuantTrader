@@ -1031,8 +1031,8 @@ run; `trusted-time-admit-unenrolled` remains quarantined.
 
 For that narrowly scoped recovery preparation, the secretless
 `trusted-time-readmit-images` target verifies the exact already-installed image
-pair and writes a fresh current image admission without rebuilding either
-image:
+pair, reproduces the same image IDs from the sealed reviewed Git context, and
+writes a fresh current image admission:
 
 ```console
 make trusted-time-readmit-images \
