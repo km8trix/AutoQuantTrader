@@ -2318,8 +2318,9 @@ revision, image ID, receipt, or identity digest is outside this recovery
 contract. The reissue is an image-admission artifact, not another unenrolled
 admission launch; the retained claim keeps that normal target quarantined.
 Secretless `trusted-time-readmit-images` verifies and freshly admits only the
-exact already-installed source/supervisor pair without a rebuild; recovery
-binds its new admission SHA and the original receipt/prior-claim tuple.
+exact already-installed source/supervisor pair after reproducing the same image
+IDs from the sealed reviewed Git context; recovery binds its new admission SHA
+and the original receipt/prior-claim tuple.
 
 The launcher holds the global trusted-time launcher lock shared with normal
 start and unenrolled admission, so no host launcher can overlap it, and

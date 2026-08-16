@@ -154,9 +154,10 @@ reviewed recovery or handoff design. This is compatibility with a current
 `image-admission` artifact, not permission to run fail-closed unenrolled
 admission again; the normal admission target remains quarantined by the claim.
 Secretless Make target `trusted-time-readmit-images` may verify and freshly
-admit the exact already-installed image pair without rebuilding it. The
-separate recovery approval binds that new content-addressed image-admission SHA
-and the original receipt/prior-claim tuple.
+admit the exact already-installed image pair only after reproducing the same
+image IDs from the sealed reviewed Git context. The separate recovery approval
+binds that new content-addressed image-admission SHA and the original
+receipt/prior-claim tuple.
 
 The launcher must reserve enough of the image-admission monotonic freshness
 window to cross the irreversible boundary. It repeats the exact Git revision,
