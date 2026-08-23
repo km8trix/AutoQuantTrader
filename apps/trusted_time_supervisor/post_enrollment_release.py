@@ -291,6 +291,7 @@ def write_post_enrollment_start_sequence_two_deadline(
             | getattr(os, "O_NOFOLLOW", 0),
             0o400,
         )
+        os.fchown(descriptor, os.geteuid(), os.getegid())
         view = memoryview(payload)
         while view:
             written = os.write(descriptor, view)
@@ -512,6 +513,7 @@ def write_post_enrollment_start_release(
             | getattr(os, "O_NOFOLLOW", 0),
             0o400,
         )
+        os.fchown(descriptor, os.geteuid(), os.getegid())
         view = memoryview(POST_ENROLLMENT_START_RELEASE_BYTES)
         while view:
             written = os.write(descriptor, view)

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import tomllib
 from pathlib import Path
 from types import SimpleNamespace
@@ -308,7 +307,10 @@ def _model() -> dict[str, object]:
             "dockerfile": "infra/docker/trusted-time.Dockerfile",
             "target": "trusted-time-supervisor",
         },
-        "command": ["/opt/venv/bin/autoquant-trusted-time-first-enrollment"],
+        "command": [
+            "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+            "first-enrollment",
+        ],
         "profiles": ["trusted-time-first-enrollment"],
         "environment": {
             "AQT_TRUSTED_TIME_DATABASE_URL_FILE": "/run/secrets/trusted_time_database_url",
@@ -383,7 +385,7 @@ def _model() -> dict[str, object]:
                 "driver_opts": {
                     "type": "tmpfs",
                     "device": "tmpfs",
-                    "o": "size=8m,uid=10001,gid=10001,mode=0750",
+                    "o": "rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0750",
                 },
             },
             "chrony_state": {"name": "autoquanttrader-trusted-time_chrony_state"},
@@ -405,7 +407,10 @@ def test_first_enrollment_service_requires_explicit_profile_and_no_chrony_depend
     first_enrollment = _service(model, "trusted-time-first-enrollment")
 
     assert first_enrollment["profiles"] == ["trusted-time-first-enrollment"]
-    assert first_enrollment["command"] == ["/opt/venv/bin/autoquant-trusted-time-first-enrollment"]
+    assert first_enrollment["command"] == [
+        "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+        "first-enrollment",
+    ]
     assert "depends_on" not in first_enrollment
     assert "volumes" not in first_enrollment
     validate_compose_model(model)
@@ -466,9 +471,11 @@ def test_compose_renderer_uses_only_nonsecret_docker_environment(
     monkeypatch.setenv("AQT_DATABASE_URL", "must-not-be-forwarded")
     observed: dict[str, str] = {}
 
-    def fake_run(argv: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+    def fake_run(
+        argv: tuple[str, ...], **kwargs: object
+    ) -> tuple[tuple[str, ...], int, bytes, bytes]:
         observed.update(cast(dict[str, str], kwargs["environment"]))
-        return subprocess.CompletedProcess(argv, 0, json.dumps(_model()).encode(), b"")
+        return argv, 0, json.dumps(_model()).encode(), b""
 
     with patch(
         "scripts.verify_trusted_time_compose.run_bounded_subprocess",
@@ -513,10 +520,12 @@ def test_frozen_compose_renderer_uses_exact_payload_and_environment(
     }
     observed: dict[str, object] = {}
 
-    def fake_run(argv: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+    def fake_run(
+        argv: tuple[str, ...], **kwargs: object
+    ) -> tuple[tuple[str, ...], int, bytes, bytes]:
         observed["argv"] = argv
         observed.update(kwargs)
-        return subprocess.CompletedProcess(
+        return (
             argv,
             0,
             json.dumps(_model()).encode("utf-8"),

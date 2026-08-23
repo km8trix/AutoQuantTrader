@@ -3586,6 +3586,176 @@ def verify_bounded_post_enrollment_start_remote_postcondition(
     return remote.namespace_sha256
 
 
+def verify_bounded_clean_stop_terminal_remote_postcondition(
+    authenticated_journal_tip: AuthenticatedTrustedTimeHeadJournalTip,
+    *,
+    provider: TrustedTimeHeadAnchorProvider,
+    verifier: TrustedTimeHeadAnchorEd25519Verifier,
+    signing_key_id: str,
+    signing_public_key_sha256: str,
+    checkpoint_interval_seconds: int,
+    anchor_authority_sha256: str,
+) -> str:
+    """Reauthenticate an arbitrary clean-stop terminal and its empty successor.
+
+    The complete remote namespace is authenticated in two stable passes before
+    a late exact terminal listing/GET and empty-next observation.  The returned
+    digest commits only that bounded remote observation; it grants no stop,
+    durability, readiness, or operational authority.
+    """
+
+    if type(authenticated_journal_tip) is not AuthenticatedTrustedTimeHeadJournalTip:
+        raise TrustedTimeHeadAnchorError(
+            "trusted-time clean-stop terminal postcondition requires an authenticated journal tip"
+        )
+    authenticated_journal_tip.__post_init__()
+    tip = authenticated_journal_tip
+    terminal = tip.confirmed_anchor_tip
+    terminal_ordinal = tip.confirmed_anchor_local_transition_ordinal
+    if (
+        terminal is None
+        or tip.confirmed_anchor_count < 3
+        or terminal.anchor_sequence != tip.confirmed_anchor_count
+    ):
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time clean-stop terminal postcondition requires arbitrary sequence "
+            "three or later"
+        )
+    terminal.__post_init__()
+    if terminal.checkpoint_reason is not TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP:
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time clean-stop terminal postcondition reason conflicts"
+        )
+    if terminal.anchor_sequence > TRUSTED_TIME_HEAD_ANCHOR_FULL_AUDIT_MAX_OBJECTS:
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time clean-stop terminal postcondition exceeds the bounded full-audit horizon"
+        )
+    if terminal.anchor_sequence >= MAX_TRUSTED_TIME_HEAD_ANCHOR_SEQUENCE:
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time clean-stop terminal postcondition cannot authenticate an "
+            "unrepresentable next sequence"
+        )
+    current = tip.current_transition
+    if (
+        type(terminal_ordinal) is not int
+        or terminal_ordinal != tip.local_transition_count
+        or terminal.previous_anchor_sha256 is None
+        or terminal.current_host_head_sha256 != tip.current_local_host_head_sha256
+        or terminal.current_host_head_sha256 != current.current_host_head_sha256
+        or not _anchor_record_matches_transition(terminal, current)
+    ):
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time clean-stop terminal postcondition is not current in SQL"
+        )
+    authority_sha256 = _require_sha256(
+        anchor_authority_sha256,
+        "trusted-time anchor authority SHA-256",
+    )
+    key_id = _require_text(signing_key_id, "trusted-time anchor signing-key ID")
+    public_key_sha256 = _require_sha256(
+        signing_public_key_sha256,
+        "trusted-time anchor signing public-key SHA-256",
+    )
+    if (
+        type(checkpoint_interval_seconds) is not int
+        or checkpoint_interval_seconds != TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS
+        or terminal.signing_key_id != key_id
+        or terminal.signing_public_key_sha256 != public_key_sha256
+        or terminal.checkpoint_interval_seconds != checkpoint_interval_seconds
+        or terminal.anchor_authority_sha256 != authority_sha256
+    ):
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time clean-stop terminal postcondition crosses admitted authority"
+        )
+
+    provider_identity = _attest_provider_identity(provider, transition=current)
+    prefix = trusted_time_head_anchor_object_prefix(
+        deployment_identity_sha256=current.deployment_identity_sha256,
+        host_id=current.host_id,
+    )
+    remote = _audit_remote_records_bounded(
+        provider,
+        current_transition=current,
+        prefix=prefix,
+        signing_key_id=key_id,
+        signing_public_key_sha256=public_key_sha256,
+        checkpoint_interval_seconds=checkpoint_interval_seconds,
+        anchor_authority_sha256=authority_sha256,
+        verifier=verifier,
+    )
+    sequence = terminal.anchor_sequence
+    if remote.record_count != sequence or remote.terminal_record != terminal:
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time clean-stop terminal postcondition conflicts with the complete "
+            "remote namespace"
+        )
+
+    terminal_name = trusted_time_head_anchor_object_name(
+        prefix=prefix,
+        anchor_sequence=sequence,
+        signed_envelope_sha256=terminal.byte_sha256,
+    )
+    terminal_names = _list_sequence_names(
+        provider,
+        bucket_name=current.bucket_name,
+        prefix=prefix,
+        anchor_sequence=sequence,
+    )
+    if terminal_names != (terminal_name,):
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time clean-stop terminal sequence changed after its full audit"
+        )
+    _download_expected_record(
+        provider,
+        bucket_name=current.bucket_name,
+        prefix=prefix,
+        record=terminal,
+        verifier=verifier,
+    )
+    next_sequence = sequence + 1
+    next_names = _list_sequence_names(
+        provider,
+        bucket_name=current.bucket_name,
+        prefix=prefix,
+        anchor_sequence=next_sequence,
+    )
+    if next_names != ():
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time clean-stop terminal next sequence is not empty"
+        )
+    final_provider_identity = _attest_provider_identity(provider, transition=current)
+    if final_provider_identity != provider_identity:
+        raise TrustedTimeHeadAnchorConflict(
+            "trusted-time clean-stop terminal provider identity changed during verification"
+        )
+
+    return _sha256(
+        (
+            TRUSTED_TIME_HEAD_ANCHOR_CONTRACT_VERSION,
+            "trusted_time_head_anchor_clean_stop_terminal_remote_postcondition_v1",
+            provider_identity.anchor_project_identity_sha256,
+            provider_identity.anchor_project_ref,
+            provider_identity.principal_id,
+            provider_identity.bucket_name,
+            remote.record_count,
+            remote.namespace_sha256,
+            terminal_name,
+            terminal.canonical_bytes,
+            terminal.byte_sha256,
+            terminal.semantic_sha256,
+            terminal.current_host_head_sha256,
+            sequence,
+            1,
+            next_sequence,
+            0,
+            authority_sha256,
+            key_id,
+            public_key_sha256,
+            checkpoint_interval_seconds,
+        )
+    )
+
+
 def prepare_incremental_trusted_time_head_anchor_reconciliation(
     authenticated_journal_tip: AuthenticatedTrustedTimeHeadJournalTip,
     *,

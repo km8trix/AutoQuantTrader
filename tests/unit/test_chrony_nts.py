@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, Inexact, localcontext
+from pathlib import Path
 
 import pytest
 
@@ -23,6 +24,14 @@ from packages.application.trusted_time_monitor import TrustedTimeSourceReading
 
 BASE = datetime(2026, 7, 31, 14, 0, tzinfo=UTC)
 AUTHORITY_SHA256 = "a" * 64
+
+
+def _base_python_executable() -> str:
+    candidate = (
+        Path(sys.base_prefix) / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    )
+    assert candidate.is_file() and not candidate.is_symlink()
+    return str(candidate)
 
 
 class SequenceClock:
@@ -665,7 +674,13 @@ def test_regressing_or_late_inner_observation_interval_is_rejected(
 def test_default_runner_captures_one_small_no_shell_process() -> None:
     monotonic_clock = time.monotonic_ns
     result = _run_bounded_chronyc(
-        (sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'ok')"),
+        (
+            _base_python_executable(),
+            "-I",
+            "-B",
+            "-c",
+            "import sys; sys.stdout.buffer.write(b'ok')",
+        ),
         deadline_monotonic_ns=monotonic_clock() + 1_000_000_000,
         monotonic_clock=monotonic_clock,
         max_output_bytes=8,
@@ -679,7 +694,13 @@ def test_default_runner_enforces_output_and_time_bounds() -> None:
     monotonic_clock = time.monotonic_ns
     with pytest.raises(ChronyNtsError, match="output exceeded"):
         _run_bounded_chronyc(
-            (sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'x' * 10000)"),
+            (
+                _base_python_executable(),
+                "-I",
+                "-B",
+                "-c",
+                "import sys; sys.stdout.buffer.write(b'x' * 10000)",
+            ),
             deadline_monotonic_ns=monotonic_clock() + 1_000_000_000,
             monotonic_clock=monotonic_clock,
             max_output_bytes=16,
@@ -687,7 +708,13 @@ def test_default_runner_enforces_output_and_time_bounds() -> None:
         )
     with pytest.raises(ChronyNtsError, match="exceeded its deadline"):
         _run_bounded_chronyc(
-            (sys.executable, "-c", "import time; time.sleep(1)"),
+            (
+                _base_python_executable(),
+                "-I",
+                "-B",
+                "-c",
+                "import time; time.sleep(1)",
+            ),
             deadline_monotonic_ns=monotonic_clock() + 10_000_000,
             monotonic_clock=monotonic_clock,
             max_output_bytes=16,
@@ -700,7 +727,13 @@ def test_default_runner_uses_injected_suspend_aware_deadline() -> None:
 
     with pytest.raises(ChronyNtsError, match="exceeded its deadline"):
         _run_bounded_chronyc(
-            (sys.executable, "-c", "import time; time.sleep(10)"),
+            (
+                _base_python_executable(),
+                "-I",
+                "-B",
+                "-c",
+                "import time; time.sleep(10)",
+            ),
             deadline_monotonic_ns=1_000_000_010,
             monotonic_clock=monotonic_clock,  # type: ignore[arg-type]
             max_output_bytes=16,
@@ -715,7 +748,13 @@ def test_default_runner_rejects_more_than_one_second_before_process_launch() -> 
 
     with pytest.raises(ChronyNtsError, match="process deadline is invalid"):
         _run_bounded_chronyc(
-            (sys.executable, "-c", "raise SystemExit('must not launch')"),
+            (
+                _base_python_executable(),
+                "-I",
+                "-B",
+                "-c",
+                "raise SystemExit('must not launch')",
+            ),
             deadline_monotonic_ns=1_000_000_011,
             monotonic_clock=monotonic_clock,  # type: ignore[arg-type]
             max_output_bytes=16,

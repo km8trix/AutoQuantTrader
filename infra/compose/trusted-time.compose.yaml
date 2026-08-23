@@ -96,7 +96,8 @@ services:
       dockerfile: infra/docker/trusted-time.Dockerfile
       target: trusted-time-supervisor
     command:
-      - /opt/venv/bin/autoquant-trusted-time-first-enrollment
+      - /opt/autoquant/trusted-time/bin/autoquant-trusted-time-python
+      - first-enrollment
     user: "10001:10001"
     read_only: true
     cap_drop:
@@ -145,5 +146,5 @@ volumes:
     driver_opts:
       type: tmpfs
       device: tmpfs
-      o: size=8m,uid=10001,gid=10001,mode=0750
+      o: rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0750
   chrony_state:

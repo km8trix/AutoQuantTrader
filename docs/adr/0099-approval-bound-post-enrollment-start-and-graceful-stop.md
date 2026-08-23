@@ -7,10 +7,12 @@
   callback-scoped lease/deadline, retained recovery-outcome, final claimed
   action-time topology-fence, active-controller admission, code-only effecting
   controller, shared sequence-2 deadline/ready protocol, persistent-topology
-  binder, terminal controller outcome, and standalone one-shot host executor;
-  no live execution)
+  binder, terminal controller outcome, and ADR-0103 v3-only standalone one-shot
+  host executor; no live execution)
 - Date: 2026-08-08
 - Extends: [ADR 0098](0098-canonical-post-enrollment-start-evidence-review.md)
+- Extended by:
+  [ADR 0111](0111-dormant-operation-bound-clean-stop-supervisor-bridge.md)
 
 ## Context
 
@@ -107,6 +109,41 @@ volumes. It must never use `down --volumes`. Any uncertain clean-stop or
 teardown result is retained as nonconfirmed evidence and requires review, not
 an automatic stop retry.
 
+[ADR 0104](0104-durable-non-authorizing-post-enrollment-graceful-stop-targeting.md)
+now implements only the durable evidence prerequisite for that future path.
+Controller outcome v2 embeds the complete canonical persistent-topology
+locator; historical v1 outcomes remain valid terminal evidence but have no
+locator and cannot construct the normal confirmed-start stop target. A separate
+canonical stop target and decision freeze exact bindings plus a stop-only replay
+domain and decision while every authority and authentication fact remains
+false. [ADR 0105](0105-inert-post-enrollment-graceful-stop-operator-attestation.md)
+now adds only a separate strict public stop authority identity, canonical
+statement/envelope, explicit public verifier, and offline public candidate
+workflows. The real authority remains absent, and there is still no signer,
+reviewed-Git runtime loader, replay slot, currentness verifier, admission,
+outcome writer, effecting CLI, Docker caller, or shutdown effect.
+[ADR 0106](0106-authenticated-historical-start-chain-graceful-stop-decision-candidate.md)
+now adds only the strict current-v3 start-attempt loader and an offline binder
+that reloads and cross-binds the committed confirmed outcome v2, locator,
+attempt slot, and signed start envelope before publishing an inert
+content-addressed decision-v1 candidate. It adds no stop signature,
+currentness, replay reservation, admission, outcome/recovery, or effect.
+[ADR 0107](0107-fail-closed-clean-stop-completion-invariant.md) now additionally
+requires the exact current `clean_stop` request to produce its own paired remote
+readback and durable receipt before the worker can report clean completion. An
+unchanged-head no-candidate result or a receipt recovered for an older intent
+is unconfirmed and cannot substitute. This adds no no-record success protocol,
+stop outcome, slot, admission, or effect.
+[ADR 0108](0108-sealed-new-record-clean-stop-terminal-result.md) now preserves
+that exact new-record completion as a PID- and identity-sealed process-local
+result. It binds the request schedule, sequence, predecessor, current head and
+anchor, reconciliation counts, current intent/readback/receipt, and a semantic
+digest, then permits one atomic consume by the exact request object. The
+background worker exposes an additive exact-result accessor, but main does not
+call it and no authenticated live wire handoff or transport,
+provider-terminal currentness, durable stop outcome, reservation, admission,
+signal, Docker, or teardown surface exists.
+
 The implementation now contains the dependency-neutral, non-authorizing
 approval, claim, reauthentication, successor-candidate, and unconfirmed-outcome
 projections plus the reusable read-only sequence-1 observation path. It also
@@ -148,8 +185,9 @@ contains five independently fail-closed protocol seams:
 The handoff returns only `claimed_release_handoff_unqualified` and these exact
 inert argv elements, in order: `docker`, `container`, `exec`, `--user`,
 `10001:10001`, the full 64-character lowercase-hex container-ID candidate, and
-`/opt/venv/bin/autoquant-trusted-time-post-enrollment-release`, with no
-additional arguments. It authenticates neither container nor topology identity;
+`/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python`, followed by the
+fixed target ID `post-enrollment-release`, with no additional arguments. It
+authenticates neither container nor topology identity;
 `container_identity_authenticated` and `topology_authenticated` remain false.
 The ID remains untrusted until the topology issuer independently revalidates the
 exact topology immediately before release. The handoff never executes or
@@ -192,8 +230,9 @@ inspection, image-configuration, marker, staged-path, environment, mount, or
 state objects.
 
 The separate dormant raw issuer now implements contract
-`phase6d-post-enrollment-topology-observation-reader-v2`. Its production open
-owns the global launcher lock, pins one canonical absolute Docker executable,
+`phase6d-post-enrollment-topology-observation-reader-v3`. Its exact caller-owned
+inert issuer is activated in place, owns one opaque native global launcher-lock
+lease, and pins one canonical absolute Docker executable,
 local Unix socket, and daemon identity, and binds one non-copyable session to
 its creating process with serialized lifecycle state. Its guarded production
 signer is bound to the exact issuer owner, session, and creating PID. The
@@ -204,8 +243,10 @@ must have no prior created or staged observation, cursor, active operation, or
 consumed choreography. Its opaque token is bound to the exact issuer,
 authentication capability, session, creating PID, and exact current-thread
 identity. It cannot be copied or serialized, is valid only inside that callback, and
-is revoked before callback return can escape. A child at-fork hook closes the
-inherited global-lock descriptor without acquiring inherited Python locks.
+is revoked before callback return can escape. The C at-fork handler closes the
+child's inherited lease descriptor first; the sole Python child callback then
+scrubs closure and heap state without native calls or inherited-lock
+acquisition.
 
 The callback fixes one absolute 600-second deadline at acquisition on the
 topology issuer's identity-sealed, suspend-aware host action clock. Production
@@ -554,7 +595,103 @@ namespace observations. That pass contains three equal
 database/deadline/release/ready/staging-absence barriers, with the third and
 final barrier after every other topology read. It binds
 `phase6d-post-enrollment-start-persistent-topology-snapshot-v1`, and exclusively
-retains `phase6d-post-enrollment-start-retained-controller-outcome-v1`.
+retains current contract
+`phase6d-post-enrollment-start-retained-controller-outcome-v2`. V2 embeds the
+complete canonical `phase6d-post-enrollment-start-durable-shutdown-locator-v1`
+payload and its SHA-256 whenever persistent topology is present. Exact v1
+payloads and their v1 slot/commit markers remain loadable as immutable
+historical terminal evidence; they are never migrated and expose no locator.
+
+Those repeated marker equalities prove conditional currentness only while each
+final marker pathname is governed by a trusted write-once publisher and no
+hostile same-UID writer can replace or modify a marker during the sequential
+multi-marker probe. This code does not claim an aggregate atomic filesystem
+snapshot; it makes several bounded sequential observations. Production
+activation remains blocked until admission establishes that
+write-once/no-hostile-writer boundary or a future compound native snapshot
+transaction replaces the sequence.
+
+Fixed-probe semantic validation is also conditional on explicitly excluded
+selection and spawn boundaries. Each producer captures its stdout/stderr sinks
+before any filesystem or schema callback; the process-entry stream selection
+must therefore already be trusted. The caller captures daemon/environment
+primitives before resolver callbacks and binds an exact executable string plus
+`Stat9`, but same-inode executable bytes, loader closure, and hostile external
+replacement remain admission responsibilities. Topology, active-controller,
+and schema-verifier probes still cross the legacy Python runner/Popen boundary,
+which reconstructs mutable environment/cwd state and does not establish an immutable aggregate spawn transaction.
+Production activation remains blocked
+until the admitted native broker/launcher closes that host-spawn boundary; the
+current tuple/parser repair does not claim otherwise.
+
+Closure-owned issuance/choreography live-call tokens and the callback-only exact `RLock` runner are audited here solely for opaque-lease retention and close disposition, not as authentication of mutable choreography, checkpoint, retention, recovery, or effect authority. No held lock or opaque-lease authority crosses a function `RETURN`, generator `yield`, or context-manager handoff.
+
+Mutable `ChoreographyRegistration`, `_ChoreographyCheckpoint`, recovery, post-effect, and controller retention checkpoints/outcome state, and the effect-authority graph are a separate production-activation blocker outside this signoff. Every effect remains blocked until their tuple state is hardened and their entire transitive path proves exact `KeyboardInterrupt`/`SystemExit` identity and cleanup. The legacy unenrolled/enrollment Python launch-lock and runner/Popen spawn paths, hostile same-UID writer/path replacement after validation, and executable/tool-byte admission also remain explicit blockers.
+
+The final TEST-only native issuer choreography freeze now covers Checkpoints
+A–O and operation tags 1–15. It retains native ownership of the opaque launcher
+lease: Python receives no descriptor, `fileno`, or `detach`, and the registered
+C at-fork handler closes and scrubs the child's inherited lease before the
+Python child callback clears its closure and heap views. The `inert` →
+`activating` → `active` → `burned` lifecycle, exact PID/interpreter/thread
+and `RLock` binding, closure-owned live-call tokens, choreography checkpoints,
+and recovery, post-effect, and controller-retention records are now covered by
+the complete TEST matrix. No held lock or opaque authority crosses `RETURN`,
+generator `yield`, or a context-manager handoff.
+
+The exact evidence cut pins native source SHA-256
+`da2bc638b92b49a4c1c747d02983558d1dbff80fa7c7c64e16bbefa669e051d5`,
+final Checkpoint-O contract SHA-256
+`fbe300d11a721bff67329394a00a1be7337de96de23ed816a2ec877d2dbca388`,
+and owned-test candidate SHA-256
+`65be32ea883ceee022d2ba88781a5342190bf98f5b68c51beee9deeedb3b598d`.
+Checkpoint O is TEST-only tag 15, `formal_force_revoke`. It accepts only an
+exact empty built-in tuple, covers all 13 phases, requires a completely zero
+fail-closed origin and `1 <= q <= UINT64_MAX-3`, and admits exact `ACTIVE` or
+`BURNED` outer lifecycle state. `REVOKED` is a real revision-advancing
+self-edge, not an inert replay.
+
+Normal O publication installs the canonical `REVOKED` State at `q+1`.
+Every attached authority becomes `REVOKED` at `q+1`, every attached witness
+becomes `CLEARED` at `q+1`, and every State summary and dependency tombstone is
+zeroed. A pre-store hard row publishes State and attached-record terminal
+revisions at `q+1`; a post-store hard row advances only State to `q+2` while
+the already-detached records remain terminal at their actual `q+1` publication.
+Every attached non-durable record has exact `prepared_at_revision + 1`
+lineage; a prepared controller receipt is at exact current revision `q`, and a
+durable controller receipt is the sole exact `prepared_at_revision + 2`
+exception. Its immutable historical/current lifecycle relation permits only
+`ACTIVE` → `ACTIVE`, `ACTIVE` → `BURNED`, or `BURNED` → `BURNED`; resurrection
+from historical `BURNED` to current `ACTIVE` is rejected.
+
+O performs no clock sample, filesystem or path proof, external-barrier action,
+or durability reproof. Repairable semantic mismatches reconcile once to the
+exact pre-store or post-store hard row and surface as `OSError`; organically
+unreachable persistent corruption of captured immutable record or binding
+bytes is never restored or rebound, and forced complete/raw confirmation of
+that impossible state fail-stops. Exact `KeyboardInterrupt` and `SystemExit`
+identity and cleanup precedence remain covered.
+
+On CPython 3.12.13 and 3.13.3, the isolated O behavior matrix passed 541 tests
+per minor (1,082 total), and the full plugin-free A–O suite passed 1,993 tests
+per minor with only the same two inherited `os.fork()` warnings. Strict TEST
+and production builds passed on both minors (the TEST build retained seven
+audited inherited warnings; production retained zero), and `_self_test()`
+returned `None` on both. The CPython 3.12 ASan+UBSan run passed; leak checking
+alone was disabled because Darwin does not support that sanitizer mode.
+Production preprocessing, string, and symbol audits found no Checkpoint-O or
+tag-15 identifiers, tokens, methods, or exported symbols.
+
+This closes only the guarded TEST choreography matrix; it does not constitute
+runtime or production admission. No issuer caller is operationally admitted,
+and the guarded TEST-only native surface grants no Docker, spawn, mutation,
+retention, release, or effect authority. The reviewed but non-admitted host
+allocates and activates explicitly and closes in `try/finally`.
+Validation and a later Docker effect are not atomic, and hostile same-UID path
+replacement, the legacy Python runner/Popen environment and spawn boundary,
+executable/tool/loader-byte admission, remaining process-callsite migration,
+containment, immutable image and effective-mount receipts, and root-owned
+read-only deployment remain explicit production-activation blockers.
 
 `post_enrollment_start_confirmed` is possible only with the complete fresh pre-
 effect digest, release/runtime-state/sequence-2 successor/persistent-topology
@@ -606,19 +743,21 @@ outcome; it is terminal and never a retry permit. Failure to confirm retention
 remains a distinct hard-closed error. Poisoning still leaves the owning callback
 and outer flock live until owner unwind and never restores action authority.
 
-Code-only contract `phase6d-post-enrollment-start-host-orchestrator-v2` now
-implements the one-shot host execution boundary. Its separate outer field
+Code-only contract `phase6d-post-enrollment-start-host-orchestrator-v3` now
+implements the operator-attested one-shot host execution boundary. Its separate outer field
 `orchestrator_status=terminal_outcome_retained` never replaces the nested
 controller or legacy terminal `status`. Canonical
 owner-only contract `phase6d-post-enrollment-start-execution-approval-v2` binds
 the exact domain approval, proposed merged-revision image tuple, and its stable
-content-addressed base provenance in one external artifact. Loading that
-provenance authenticates its bytes and inode without promoting its original
-timestamp to current authority. `retain_post_enrollment_execution_approval`
-creates or accepts only the exact idempotent approval artifact, while
-`load_post_enrollment_execution_approval` reauthenticates its bytes, inode, and
-stable provenance. Owner-held staging and reversible daemon,
-Compose, runtime-input, and isolated existing-image probes complete first. Only
+content-addressed base provenance in one exact nested artifact. ADR 0103 wraps
+those canonical bytes in the signed v3 envelope and makes
+`load_post_enrollment_operator_attested_execution_approval` the only
+execution-facing loader. It authenticates the exact reviewed Git authority,
+plain-Ed25519 statement, complete v2 semantics, bytes/inode, and stable
+provenance before Docker, issuer, runtime-input, or reversible preflight. The
+host requires current `HEAD` to equal the nested v2-approved revision at that
+same early boundary. Owner-held staging and reversible daemon, Compose,
+runtime-input, and isolated existing-image probes then complete. Only
 then does `verify_and_write_existing_image_admission` write an independent
 just-in-time witness for the same clean revision, immutable IDs, reviewed-source
 digest, and approved provenance.
@@ -627,22 +766,25 @@ Under the already-held launcher flock, the choreography lease first prepares
 the sequence-1 verifier and `_prepare_reviewed_topology_creation` binds the
 staged paths and effect-only Compose projection while confirming the exact
 container/network inventory is empty. Contract
-`phase6d-post-enrollment-start-execution-attempt-v2` then permanently reserves
+`phase6d-post-enrollment-start-execution-attempt-v3` then permanently reserves
 `.post-enrollment-start-execution-attempt-slot` with owner-only `O_EXCL`, fsync,
 and exact readback. Its first reservation consumes the host-wide execution
 opportunity, not the reusable pre-slot approval artifact. Contract
-`phase6d-post-enrollment-start-execution-admission-v2` is process sealed and
-one-shot: `reserve_post_enrollment_execution_attempt` binds the stable approval
-to the independent witness, and consume immediately revalidates those exact
-artifacts, the slot bytes/inode, and at least 605 seconds of witness headroom on
-the choreography's native suspend-aware clock. The host stores its mutation
+`phase6d-post-enrollment-start-execution-admission-v3` is process sealed and
+one-shot: `reserve_post_enrollment_execution_attempt` binds the complete
+operator-attested receipt to the independent witness, and consume immediately
+revalidates the reviewed authority, envelope, exact nested v2 approval,
+provenance, witness, slot bytes/inode, and at least 605 seconds of witness
+headroom on the choreography's native suspend-aware clock. The host stores its mutation
 flag before `_execute_prepared_reviewed_topology_creation` issues the effect-only
 create. Confirmed failure before reservation leaves the slot absent and the
 same stable approval reusable; reservation ambiguity is permanent. V1 wrappers
-and the former approval-artifact-only call shape are rejected. The compatibility
-`admit_post_enrollment_execution_attempt` name is only a v2 late-reservation
-alias. Admission grants no release, topology, runtime, outcome, or trading
-authority by itself.
+and every unsigned-v2 execution shape are rejected. Exact complete historical
+`phase6d-post-enrollment-start-execution-attempt-v2` slot bytes remain
+permanently consumed under the unchanged filename; partial or unknown slot
+state remains retention-unconfirmed. Admission grants no
+release, topology, runtime, outcome, or trading authority by itself. See
+[ADR 0103](0103-atomic-operator-attested-post-enrollment-execution-admission.md).
 
 One topology issuer owns the sole launcher flock from owner-held staging and
 reversible preflight through the exact-empty prepared-create fence and
@@ -719,10 +861,12 @@ fatal and requires manual review without claiming a terminal. Failure at or
 after reservation, including pre-claim teardown, is projected conservatively as
 fatal because the permanent attempt slot is consumed or ambiguous. A confirmed
 pre-slot failure instead cleans owner-held inputs, leaves the slot absent, and
-preserves the same stable approval for a later explicit attempt. The standalone isolated
-host CLI exposes only `--approval-artifact` for the canonical execution approval
-and `--runtime-env-file` for the owner-only runtime environment file. It is not
-wired into Make, Compose, worker, trader,
+preserves the same stable approval for a later explicit attempt. The standalone
+isolated host CLI uses `allow_abbrev=False` and exposes only
+`--operator-attested-approval-artifact` for the canonical v3 envelope and
+`--runtime-env-file` for the owner-only runtime environment file. Its sole
+public entry is `run_operator_attested_post_enrollment_start_once`; the old
+entry and flag are absent. It is not wired into Make, Compose, worker, trader,
 ordinary startup, shutdown, readiness, exposure, broker, or trading surfaces.
 The effecting function rejects ordinary import calls; only the attested isolated
 `__main__` path may invoke it.
@@ -741,6 +885,25 @@ immutable images, and stable provenance require one exact external execution
 approval; each attempt separately requires a fresh just-in-time witness and an
 explicit operational decision. A confirmed pre-slot retry does not require
 repeated human approval.
+
+The ADR-0104 locator, target, and stop decision, ADR-0105 public signature
+authentication, and ADR-0106 authenticated historical-chain candidate do not
+weaken that closure. They are canonical, sealed, non-authorizing evidence only.
+The pure target builder's caller-supplied v3 start slot/envelope digests remain
+unqualified outside ADR 0106's supported artifact-derived binder. Even an
+ADR-0106 candidate plus a valid stop signature is not current start-chain or
+stop-admission evidence, and `durable_shutdown_locator_available` reports only
+structural presence. `trusted-time-stop` remains an exit-2 target with no
+effecting caller.
+
+[ADR 0111](0111-dormant-operation-bound-clean-stop-supervisor-bridge.md) now
+implements the missing ADR-0108/ADR-0109 correlation as a dormant code-only
+seam. One exact request is registered before worker selection, bound to the
+exact selected work object, issued from the immutable second-consume ADR-0108
+projection, and cross-bound once on the host to ADR 0109. It adds no production
+caller, authenticated transport, topology lease, lifecycle-v2 advance, durable
+outcome, signal, or teardown, so the graceful-stop operation defined here
+remains hard closed.
 
 ## Consequences
 
@@ -763,6 +926,33 @@ The controller code can create and authenticate exact sequence 2 and retain a
 confirmed start only when the complete private choreography is invoked. This
 ADR supplies one narrowly supported start-only host invocation but creates no
 live start evidence.
-`clean_stop`, a provider-terminal observer, watchdog deployment, readiness,
-alert delivery, new-exposure gating, trading authority, and Phase 6 exit
-evidence remain outside this slice.
+ADR 0107 prevents a no-receipt reconciliation or recovered older receipt from
+being reported as a completed `clean_stop`. ADR 0108 preserves only the exact
+current new-record result inside the worker process and prevents copy, replay,
+cross-core scalar-equal substitution, drift, serialization, and post-fork use.
+ADR 0109 adds one code-only host reauthentication with no live or effect
+consumer except ADR 0111's dormant zero-caller composition: fresh equal SQL
+projections bracket a full
+authenticated two-pass provider audit, late terminal GET, empty-next check, and
+final identity reattestation under one suspend-aware deadline. It is a bounded
+point-in-time observation only.
+
+[ADR 0110](0110-dormant-durable-graceful-stop-lifecycle-repository.md) now
+freezes the first durable lifecycle primitive without connecting it to an
+operation. One fixed immutable ordinal-zero attempt root is also the permanent
+global replay slot, and every admitted later stage must be a typed, gap-free,
+predecessor-bound immutable record. There is no second slot, per-operation
+root, mutable current-state file, generic append, reset, deletion, retry, or
+resume surface. The dormant repository has no production caller, so it reserves
+no real attempt. It can retain only a non-authorizing `recovery_required`
+terminal for the missing live operation-bound supervisor integration. ADR 0111
+now supplies dormant unqualified ADR-0108 correlation and one-shot ADR-0109
+consumption seams. Positive post-signal and confirmed-success constructors
+remain absent or unreachable until authenticated live transport, same-lock
+authority/topology admission, and lifecycle-v2 integration are reviewed
+together.
+
+These ADRs still supply no exact current stop-operation binding, stable
+currentness lease, production reservation, post-signal durable outcome,
+effecting shutdown, independent watchdog deployment, readiness, alert
+delivery, new-exposure gate, trading authority, or Phase 6 exit evidence.

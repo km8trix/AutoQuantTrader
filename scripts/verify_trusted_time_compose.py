@@ -115,7 +115,10 @@ SUPERVISOR_IMAGE = "autoquanttrader-trusted-time-supervisor:phase6d-v1"
 _SENTINEL_SOURCE_IMAGE = "sha256:" + "0" * 64
 _SENTINEL_SUPERVISOR_IMAGE = "sha256:" + "f" * 64
 _FIRST_ENROLLMENT_PROFILE = "trusted-time-first-enrollment"
-_FIRST_ENROLLMENT_COMMAND = "/opt/venv/bin/autoquant-trusted-time-first-enrollment"
+_FIRST_ENROLLMENT_COMMAND = (
+    "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+    "first-enrollment",
+)
 _MAXIMUM_COMPOSE_PAYLOAD_BYTES = 1_048_576
 _COMPOSE_RENDER_TIMEOUT_SECONDS = 15
 _MAXIMUM_DOCKER_ENVIRONMENT_VARIABLES = 64
@@ -391,7 +394,7 @@ def validate_compose_model(
         first_enrollment,
         expected_keys=_FIRST_ENROLLMENT_SERVICE_KEYS,
         expected_stop_grace_period="40s",
-        expected_command=[_FIRST_ENROLLMENT_COMMAND],
+        expected_command=list(_FIRST_ENROLLMENT_COMMAND),
     )
 
     if source.get("image") != expected_source_image:
@@ -517,7 +520,7 @@ def validate_compose_model(
         "driver_opts": {
             "type": "tmpfs",
             "device": "tmpfs",
-            "o": "size=8m,uid=10001,gid=10001,mode=0750",
+            "o": "rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0750",
         },
     }:
         raise TrustedTimeComposeVerificationError("Chrony command scratch volume hardening drifted")
@@ -678,10 +681,10 @@ def render_compose_model(
             )
         except BoundedSubprocessError:
             raise TrustedTimeComposeVerificationError("Docker Compose validation failed") from None
-        if completed.returncode != 0 or completed.stderr:
+        if completed[1] != 0 or completed[3]:
             raise TrustedTimeComposeVerificationError("Docker Compose validation failed")
         try:
-            rendered_json = completed.stdout.decode("utf-8", errors="strict")
+            rendered_json = completed[2].decode("utf-8", errors="strict")
         except UnicodeDecodeError:
             raise TrustedTimeComposeVerificationError(
                 "Docker Compose returned malformed JSON"
@@ -717,10 +720,10 @@ def render_compose_model(
             )
         except BoundedSubprocessError:
             raise TrustedTimeComposeVerificationError("Docker Compose validation failed") from None
-        if completed_bytes.returncode != 0 or completed_bytes.stderr:
+        if completed_bytes[1] != 0 or completed_bytes[3]:
             raise TrustedTimeComposeVerificationError("Docker Compose validation failed")
         try:
-            rendered_json = completed_bytes.stdout.decode("utf-8", errors="strict")
+            rendered_json = completed_bytes[2].decode("utf-8", errors="strict")
         except UnicodeDecodeError:
             raise TrustedTimeComposeVerificationError(
                 "Docker Compose returned malformed JSON"

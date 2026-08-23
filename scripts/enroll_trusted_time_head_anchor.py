@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 
 def _require_isolated_cli_source_runtime(
@@ -201,21 +201,32 @@ from scripts.verify_trusted_time_images import (
     IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS,
     SOURCE_IMAGE_ENVIRONMENT,
     SUPERVISOR_IMAGE_ENVIRONMENT,
-    TrustedTimeImageAdmission,
     TrustedTimeImageVerificationError,
     _head_reviewed_input_payload,
+    _load_current_image_admission_snapshot,
     _open_owner_only_artifact_directory,
     _OwnedFileDescriptor,
-    load_image_admission_artifact,
-    verify_images,
+    _require_current_admission_snapshot,
+    _require_verified_images,
+    _verify_images_with_manifest,
 )
+
+if TYPE_CHECKING:
+    from scripts.verify_trusted_time_images import _CurrentTrustedTimeImageAdmissionSnapshot
 
 ROOT = _CLI_REPOSITORY_ROOT or Path(__file__).resolve().parents[1]
 if _CLI_REPOSITORY_ROOT is not None:
     _require_repository_first_party_sources(ROOT)
 
 FIRST_ENROLLMENT_PROFILE = "trusted-time-first-enrollment"
-FIRST_ENROLLMENT_RELEASE_COMMAND = "/opt/venv/bin/autoquant-trusted-time-first-enrollment-release"
+FIRST_ENROLLMENT_RELEASE_COMMAND = (
+    "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+    "first-enrollment-release",
+)
+FIRST_ENROLLMENT_RECOVERY_RELEASE_COMMAND = (
+    "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+    "first-enrollment-recovery-release",
+)
 FIRST_ENROLLMENT_MINIMUM_IMAGE_ADMISSION_RESERVE_SECONDS = 300
 FIRST_ENROLLMENT_TERMINAL_TIMEOUT_SECONDS = 180.0
 FIRST_ENROLLMENT_TERMINAL_POLL_SECONDS = 0.1
@@ -1044,42 +1055,47 @@ def _require_same_runtime_inputs(
         )
 
 
-def _require_image_admission_reserve(admission: TrustedTimeImageAdmission) -> None:
-    if type(admission) is not TrustedTimeImageAdmission:
+def _require_image_admission_reserve(
+    admission: _CurrentTrustedTimeImageAdmissionSnapshot,
+) -> None:
+    try:
+        admission = _require_current_admission_snapshot(admission)
+    except TrustedTimeImageVerificationError:
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time first enrollment image admission is invalid"
-        )
+        ) from None
     observed = time.monotonic_ns()
     maximum_age_ns = IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS * 1_000_000_000
     reserve_ns = FIRST_ENROLLMENT_MINIMUM_IMAGE_ADMISSION_RESERVE_SECONDS * 1_000_000_000
     if (
         type(observed) is not int
-        or observed < admission.created_monotonic_ns
-        or maximum_age_ns - (observed - admission.created_monotonic_ns) < reserve_ns
+        or observed < admission[12]
+        or maximum_age_ns - (observed - admission[12]) < reserve_ns
     ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time first enrollment image admission lacks release reserve"
         )
 
 
-def _image_admission_is_fresh(admission: TrustedTimeImageAdmission) -> bool:
+def _image_admission_is_fresh(
+    admission: _CurrentTrustedTimeImageAdmissionSnapshot,
+) -> bool:
     try:
+        admission = _require_current_admission_snapshot(admission)
         observed = time.monotonic_ns()
-    except Exception:
+    except (Exception, TrustedTimeImageVerificationError):
         return False
     return (
-        type(admission) is TrustedTimeImageAdmission
-        and type(observed) is int
-        and admission.created_monotonic_ns <= observed
-        and observed - admission.created_monotonic_ns
-        <= IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS * 1_000_000_000
+        type(observed) is int
+        and admission[12] <= observed
+        and observed - admission[12] <= IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS * 1_000_000_000
     )
 
 
 def _final_approval_state_is_valid(
     *,
     approval: TrustedTimeFirstEnrollmentApproval,
-    admission: TrustedTimeImageAdmission,
+    admission: _CurrentTrustedTimeImageAdmissionSnapshot,
     receipt_encoded: bytes,
     prior_new_claim_encoded: bytes | None,
     image_admission_artifact: Path,
@@ -1095,18 +1111,26 @@ def _final_approval_state_is_valid(
             image_admission_artifact,
             approval.approved_launch,
         )
-        observed_admission = load_image_admission_artifact(
-            admission_path,
-            monotonic_ns=admission.created_monotonic_ns,
+        admission = _require_current_admission_snapshot(admission)
+        observed_admission = _require_current_admission_snapshot(
+            _load_current_image_admission_snapshot(
+                admission_path,
+                monotonic_ns=admission[12],
+            )
         )
         if observed_admission != admission:
             return False
-        observed_identities = verify_images(
-            approval.approved_launch.source_image_id,
-            approval.approved_launch.supervisor_image_id,
-            docker_environment=docker_environment,
+        observed_images = _require_verified_images(
+            _verify_images_with_manifest(
+                approval.approved_launch.source_image_id,
+                approval.approved_launch.supervisor_image_id,
+                docker_environment=docker_environment,
+            )
         )
-        if observed_identities != approval.approved_launch.identities:
+        if (
+            observed_images[1] != approval.approved_launch.source_image_id
+            or observed_images[2] != approval.approved_launch.supervisor_image_id
+        ):
             return False
         _require_same_local_daemon(daemon_identity, environment=docker_environment)
         observed_receipt = load_approved_unenrolled_admission(
@@ -1288,7 +1312,7 @@ def _stop_enrollment_topology(
         )
     except TrustedTimeSupervisorConfigurationError:
         return False
-    return completed.returncode == 0
+    return completed[1] == 0
 
 
 def _compose_project_container_ids(
@@ -1302,10 +1326,10 @@ def _compose_project_container_ids(
         timeout_seconds=10,
         compose_payload=compose_payload,
     )
-    lines = completed.stdout.splitlines()
+    lines = completed[2].splitlines()
     if (
-        completed.returncode != 0
-        or completed.stderr
+        completed[1] != 0
+        or completed[3]
         or any(
             len(line) != 64 or any(character not in _SHA256_CHARACTERS for character in line)
             for line in lines
@@ -1727,10 +1751,10 @@ def _enrollment_container_id(
         timeout_seconds=10,
         compose_payload=compose_payload,
     )
-    lines = completed.stdout.splitlines()
+    lines = completed[2].splitlines()
     if (
-        completed.returncode != 0
-        or completed.stderr
+        completed[1] != 0
+        or completed[3]
         or len(lines) != 1
         or len(lines[0]) != 64
         or any(character not in _SHA256_CHARACTERS for character in lines[0])
@@ -1824,11 +1848,14 @@ def _release_enrollment_container(
     operation_mode: TrustedTimeFirstEnrollmentOperationMode,
     environment: Mapping[str, str],
 ) -> None:
-    mode_argument = (
-        ("--recover-pending",)
-        if operation_mode is TrustedTimeFirstEnrollmentOperationMode.RECOVER_PENDING
-        else ()
-    )
+    if operation_mode is TrustedTimeFirstEnrollmentOperationMode.NEW:
+        release_command = FIRST_ENROLLMENT_RELEASE_COMMAND
+    elif operation_mode is TrustedTimeFirstEnrollmentOperationMode.RECOVER_PENDING:
+        release_command = FIRST_ENROLLMENT_RECOVERY_RELEASE_COMMAND
+    else:
+        raise TrustedTimeSupervisorConfigurationError(
+            "trusted-time first enrollment release mode is invalid"
+        )
     completed = _run_docker(
         (
             "docker",
@@ -1837,13 +1864,12 @@ def _release_enrollment_container(
             "--user",
             "10001:10001",
             container_id,
-            FIRST_ENROLLMENT_RELEASE_COMMAND,
-            *mode_argument,
+            *release_command,
         ),
         environment=environment,
         timeout_seconds=10,
     )
-    if completed.returncode != 0 or completed.stdout or completed.stderr:
+    if completed[1] != 0 or completed[2] or completed[3]:
         raise TrustedTimeFirstEnrollmentPossibleMutation(
             "trusted-time first enrollment release is unconfirmed"
         )
@@ -1881,7 +1907,7 @@ def _terminal_state(
         or container.get("Image") != supervisor_image_id
         or labels.get("com.docker.compose.project") != "autoquanttrader-trusted-time"
         or labels.get("com.docker.compose.service") != FIRST_ENROLLMENT_SERVICE
-        or configuration.get("Cmd") != [FIRST_ENROLLMENT_COMMAND]
+        or configuration.get("Cmd") != list(FIRST_ENROLLMENT_COMMAND)
         or container.get("RestartCount") != 0
         or type(status) is not str
         or type(running) is not bool
@@ -1950,12 +1976,12 @@ def _observe_enrollment_terminal(
         timeout_seconds=10,
     )
     try:
-        encoded = completed.stdout.encode("ascii", errors="strict")
+        encoded = completed[2].encode("ascii", errors="strict")
     except UnicodeError:
         encoded = b""
     if (
-        completed.returncode != 0
-        or completed.stderr
+        completed[1] != 0
+        or completed[3]
         or not encoded
         or len(encoded) > MAXIMUM_FIRST_ENROLLMENT_TERMINAL_BYTES
         or not encoded.endswith(b"\n")
@@ -2165,12 +2191,17 @@ def _run_first_enrollment_under_lock(
         approval.approved_launch,
     )
     _require_image_admission_reserve(admission)
-    verified_identities = verify_images(
-        approval.approved_launch.source_image_id,
-        approval.approved_launch.supervisor_image_id,
-        docker_environment=docker_environment,
+    verified_images = _require_verified_images(
+        _verify_images_with_manifest(
+            approval.approved_launch.source_image_id,
+            approval.approved_launch.supervisor_image_id,
+            docker_environment=docker_environment,
+        )
     )
-    if verified_identities != approval.approved_launch.identities:
+    if (
+        verified_images[1] != approval.approved_launch.source_image_id
+        or verified_images[2] != approval.approved_launch.supervisor_image_id
+    ):
         raise TrustedTimeSupervisorConfigurationError(
             "trusted-time first enrollment image identities changed"
         )
@@ -2298,7 +2329,7 @@ def _run_first_enrollment_under_lock(
             timeout_seconds=60,
             compose_payload=compose_payload,
         )
-        if completed.returncode != 0:
+        if completed[1] != 0:
             raise TrustedTimeSupervisorConfigurationError(
                 "trusted-time first enrollment container creation failed"
             )
@@ -2362,13 +2393,16 @@ def _run_first_enrollment_under_lock(
                 "trusted-time first enrollment image admission changed before release"
             )
         _require_image_admission_reserve(current_admission)
-        if (
-            verify_images(
+        verified_images = _require_verified_images(
+            _verify_images_with_manifest(
                 approval.approved_launch.source_image_id,
                 approval.approved_launch.supervisor_image_id,
                 docker_environment=docker_environment,
             )
-            != approval.approved_launch.identities
+        )
+        if (
+            verified_images[1] != approval.approved_launch.source_image_id
+            or verified_images[2] != approval.approved_launch.supervisor_image_id
         ):
             raise TrustedTimeSupervisorConfigurationError(
                 "trusted-time first enrollment images changed before release"

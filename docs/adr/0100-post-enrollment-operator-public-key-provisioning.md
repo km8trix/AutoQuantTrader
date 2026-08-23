@@ -39,7 +39,11 @@ outside this repository and outside every AutoQuantTrader process, container,
 environment file, database, artifact directory, and image. The external key
 system exports only the exact raw 32-byte Ed25519 public key to an absolute
 operator-owned file. The key must not be the trusted-time head-anchor signing
-key or any broker, deployment, or user-session key.
+key or any broker, deployment, or user-session key. Those 32 bytes must be the
+canonical compressed Edwards25519 encoding of a non-identity point in the
+prime-order subgroup. Identity or other torsion points, mixed-subgroup points,
+noncanonical encodings, and off-curve values are not accepted as public signing
+keys.
 
 The public authority manifest has exactly these eight fields and no extensions:
 
@@ -56,11 +60,13 @@ The public authority manifest has exactly these eight fields and no extensions:
 
 The canonical representation is compact, newline-terminated JSON. It rejects
 duplicate or unknown fields, noncanonical JSON or Base64, a key of any other
-length, digest mismatch, and drift in any frozen string. The manifest is public
-verification material only. Its presence does not authenticate an approval,
-authorize controller execution, reserve an attempt, establish freshness, or
-grant runtime, readiness, exposure, broker, paper-trading, or live-trading
-authority.
+length, identity, torsion, mixed-subgroup, noncanonical or off-curve point
+encoding, digest mismatch, and drift in any frozen string. Full prime-subgroup
+membership is checked instead of relying on a 32-byte length check or a
+backend's permissive public-key parser. The manifest is public verification
+material only. Its presence does not authenticate an approval, authorize
+controller execution, reserve an attempt, establish freshness, or grant
+runtime, readiness, exposure, broker, paper-trading, or live-trading authority.
 
 Provisioning has two deliberately separate offline phases.
 
@@ -78,9 +84,11 @@ make trusted-time-prepare-post-enrollment-operator-authority \
 ```
 
 The isolated, offline command reads exactly 32 bytes from the public-key file,
-builds and decodes the canonical manifest, and publishes one owner-only,
-content-addressed mode-`0600` candidate. It does not install the candidate. Its
-stdout is a canonical public receipt with status
+requires the strict canonical non-identity prime-subgroup point, builds and
+decodes the canonical manifest, and publishes one owner-only, content-addressed
+mode-`0600` candidate. Any identity, torsion, mixed-subgroup, noncanonical, or
+off-curve encoding fails before candidate publication. The command does not
+install the candidate. Its stdout is a canonical public receipt with status
 `public_operator_authority_candidate_prepared`, the candidate filename, both
 digests, fixed key/replay identities, `verification_only=true`, and every
 authority field false. Review the reported authority-artifact SHA-256,
@@ -105,8 +113,9 @@ make trusted-time-install-post-enrollment-operator-authority \
   TRUSTED_TIME_OPERATOR_APPROVED_PUBLIC_KEY_SHA256=<reviewed-public-key-sha256>
 ```
 
-Installation reopens and revalidates the candidate, requires both supplied
-digests to match, and installs identical bytes at the one fixed path:
+Installation reopens and revalidates the candidate, including the strict
+public-point rule, requires both supplied digests to match, and installs
+identical bytes at the one fixed path:
 
 `infra/trusted-time/post-enrollment-operator-attestation-authority.json`
 
@@ -143,6 +152,10 @@ separate ADR. The v1 installer cannot be used as a mutable key registry.
   and compromise boundaries.
 - **Install directly from a public-key file.** This would remove review of the
   exact canonical manifest and its content address before the source change.
+- **Treat every 32-byte value accepted by a crypto backend as an Ed25519 public
+  key.** Permissive parsers can accept identity, torsion, mixed-subgroup,
+  noncanonical, or off-curve encodings; an identity authority can admit a
+  universal no-private-key forgery under permissive verification.
 - **Accept key material through environment variables or standard input.** This
   would add unnecessary process and shell secret-adjacent surfaces and weaken
   reproducible review.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -46,6 +47,20 @@ from packages.domain.strategy_supervision import (
 from packages.persistence.strategy_invocation_lifecycle import (
     _StrategyInvocationStartAuthorizationUse,
 )
+
+
+def _base_python_executable() -> str:
+    candidate = (
+        Path(sys.base_prefix) / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    )
+    assert candidate.is_file()
+    assert not candidate.is_symlink()
+    return str(candidate)
+
+
+@pytest.fixture(autouse=True)
+def _install_base_python_executable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "executable", _base_python_executable())
 
 
 def _plain_json_bytes(value: object) -> bytes:
@@ -176,6 +191,7 @@ def test_checked_in_manifest_binds_exact_artifact_and_is_deterministic() -> None
         first.subprocess_spec.artifact_sha256
         == hashlib.sha256(artifact_path.read_bytes()).hexdigest()
     )
+    assert first.subprocess_spec.argv[0] == _base_python_executable()
     assert first.subprocess_spec.argv[1:4] == ("-I", "-S", "-c")
     assert Path(first.subprocess_spec.argv[5]) == artifact_path.resolve()
     assert first.subprocess_spec.argv[6] == first.subprocess_spec.artifact_sha256

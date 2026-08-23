@@ -3,8 +3,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import stat
-import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -35,7 +35,21 @@ from scripts.start_trusted_time_supervisor import (
 from scripts.verify_trusted_time_images import (
     TrustedTimeImageAdmission,
     TrustedTimeImageIdentities,
+    _CurrentTrustedTimeImageAdmissionSnapshot,
+    _make_current_admission_snapshot,
+    _make_verified_images,
+    _VerifiedTrustedTimeImages,
 )
+
+
+def _process_result[T: (bytes, str)](
+    args: list[str] | tuple[str, ...],
+    returncode: int,
+    stdout: T,
+    stderr: T,
+) -> tuple[tuple[str, ...], int, T, T]:
+    return (tuple(args), returncode, stdout, stderr)
+
 
 GIT_REVISION = "a" * 40
 IMAGE_ADMISSION_SHA256 = "b" * 64
@@ -154,6 +168,42 @@ def _image_admission(*, created_monotonic_ns: int = 1_000_000_000) -> TrustedTim
     )
 
 
+def _image_admission_snapshot(
+    *,
+    created_monotonic_ns: int = 1_000_000_000,
+) -> _CurrentTrustedTimeImageAdmissionSnapshot:
+    admission = _image_admission(created_monotonic_ns=created_monotonic_ns)
+    path = os.fspath(admission.path)
+    identity = (1, 2, stat.S_IFREG | 0o600, os.geteuid(), os.getegid(), 1, 2, 3, 4)
+    return _make_current_admission_snapshot(
+        path=path,
+        ignored_root=os.fspath(launcher.IGNORED_ARTIFACT_ROOT),
+        archive_path=path,
+        source_id=admission.identities.source_id,
+        supervisor_id=admission.identities.supervisor_id,
+        boot_session_id=admission.boot_session_id,
+        git_revision=admission.git_revision,
+        source_revision_sha256=admission.source_revision_sha256,
+        supervisor_executable_import_manifest_sha256="d" * 64,
+        artifact_sha256=admission.artifact_sha256,
+        created_at_utc=admission.created_at_utc,
+        created_monotonic_ns=admission.created_monotonic_ns,
+        encoded=b"{}",
+        directory_identity=identity,
+        file_identity=identity,
+        archive_directory_identity=identity,
+        archive_file_identity=identity,
+    )
+
+
+def _verified_images() -> _VerifiedTrustedTimeImages:
+    return _make_verified_images(
+        source_id=SOURCE_IMAGE_ID,
+        supervisor_id=SUPERVISOR_IMAGE_ID,
+        supervisor_manifest_sha256="d" * 64,
+    )
+
+
 def _terminal_payload(
     approval: launcher.TrustedTimeFirstEnrollmentApproval,
     *,
@@ -250,7 +300,7 @@ def _terminal_inspection(*, exit_code: int) -> list[dict[str, object]]:
     return [
         {
             "Config": {
-                "Cmd": [FIRST_ENROLLMENT_COMMAND],
+                "Cmd": list(FIRST_ENROLLMENT_COMMAND),
                 "Labels": {
                     "com.docker.compose.project": "autoquanttrader-trusted-time",
                     "com.docker.compose.service": FIRST_ENROLLMENT_SERVICE,
@@ -310,7 +360,10 @@ def _stale_enrollment_image_configuration() -> dict[str, object]:
     return {
         "Cmd": ["autoquant-trusted-time-supervisor"],
         "Entrypoint": None,
-        "Env": ["PATH=/opt/venv/bin:/usr/local/bin:/usr/bin"],
+        "Env": [
+            "PATH=/opt/autoquant/trusted-time/bin:/usr/local/bin:/usr/local/sbin:"
+            "/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
         "ExposedPorts": None,
         "User": "10001:10001",
         "WorkingDir": "/workspace",
@@ -362,7 +415,7 @@ def _stale_enrollment_inspection(
         {
             "Config": {
                 **image_configuration,
-                "Cmd": [FIRST_ENROLLMENT_COMMAND],
+                "Cmd": list(FIRST_ENROLLMENT_COMMAND),
                 "Env": runtime_environment,
                 "Healthcheck": None,
                 "Labels": {
@@ -447,7 +500,7 @@ def _configure_stale_enrollment_preflight(
         socket_sha256="5" * 64,
         state_sha256="6" * 64,
     )
-    admission = _image_admission()
+    admission = _image_admission_snapshot()
     prior_claim = _claim_artifact_bytes(_approval())
     monkeypatch.setattr(
         supervisor_launcher,
@@ -503,8 +556,8 @@ def _configure_stale_enrollment_preflight(
     monkeypatch.setattr(launcher, "_require_image_admission_reserve", Mock())
     monkeypatch.setattr(
         launcher,
-        "verify_images",
-        Mock(return_value=approval.approved_launch.identities),
+        "_verify_images_with_manifest",
+        Mock(return_value=_verified_images()),
     )
     monkeypatch.setattr(launcher, "_require_same_local_daemon", Mock())
     monkeypatch.setattr(
@@ -1429,7 +1482,7 @@ def test_recovery_pairs_the_original_receipt_with_a_fresh_same_image_admission(
 def test_image_admission_reserve_accepts_the_exact_boundary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admission = _image_admission()
+    admission = _image_admission_snapshot()
     maximum_release_age = (
         launcher.IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS
         - launcher.FIRST_ENROLLMENT_MINIMUM_IMAGE_ADMISSION_RESERVE_SECONDS
@@ -1437,7 +1490,7 @@ def test_image_admission_reserve_accepts_the_exact_boundary(
     monkeypatch.setattr(
         launcher.time,
         "monotonic_ns",
-        lambda: admission.created_monotonic_ns + maximum_release_age * 1_000_000_000,
+        lambda: admission[12] + maximum_release_age * 1_000_000_000,
     )
 
     launcher._require_image_admission_reserve(admission)
@@ -1448,11 +1501,11 @@ def test_image_admission_reserve_rejects_clock_regression_or_insufficient_reserv
     observed_offset_ns: int,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admission = _image_admission()
+    admission = _image_admission_snapshot()
     monkeypatch.setattr(
         launcher.time,
         "monotonic_ns",
-        lambda: admission.created_monotonic_ns + observed_offset_ns,
+        lambda: admission[12] + observed_offset_ns,
     )
 
     with pytest.raises(TrustedTimeSupervisorConfigurationError) as captured:
@@ -1460,6 +1513,51 @@ def test_image_admission_reserve_rejects_clock_regression_or_insufficient_reserv
 
     assert (
         str(captured.value) == "trusted-time first enrollment image admission lacks release reserve"
+    )
+
+
+@pytest.mark.parametrize(
+    ("operation_mode", "release_target"),
+    [
+        (
+            TrustedTimeFirstEnrollmentOperationMode.NEW,
+            "first-enrollment-release",
+        ),
+        (
+            TrustedTimeFirstEnrollmentOperationMode.RECOVER_PENDING,
+            "first-enrollment-recovery-release",
+        ),
+    ],
+)
+def test_release_enrollment_container_uses_fixed_native_launcher_target(
+    operation_mode: TrustedTimeFirstEnrollmentOperationMode,
+    release_target: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = {"DOCKER_HOST": "unix:///private/tmp/approved-docker.sock"}
+    expected_argv = (
+        "docker",
+        "container",
+        "exec",
+        "--user",
+        "10001:10001",
+        CONTAINER_ID,
+        "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+        release_target,
+    )
+    docker = Mock(return_value=_process_result(expected_argv, 0, "", ""))
+    monkeypatch.setattr(launcher, "_run_docker", docker)
+
+    launcher._release_enrollment_container(
+        container_id=CONTAINER_ID,
+        operation_mode=operation_mode,
+        environment=environment,
+    )
+
+    docker.assert_called_once_with(
+        expected_argv,
+        environment=environment,
+        timeout_seconds=10,
     )
 
 
@@ -1527,7 +1625,7 @@ def test_terminal_observation_binds_mode_and_disposition_without_docker(
         Mock(return_value=_terminal_inspection(exit_code=0)),
     )
     docker = Mock(
-        return_value=subprocess.CompletedProcess(
+        return_value=_process_result(
             args=("docker",),
             returncode=0,
             stdout=encoded.decode("ascii"),
@@ -1562,7 +1660,7 @@ def test_terminal_observation_accepts_one_exact_bound_success_without_docker(
         launcher,
         "_run_docker",
         Mock(
-            return_value=subprocess.CompletedProcess(
+            return_value=_process_result(
                 args=("docker",),
                 returncode=0,
                 stdout=encoded.decode("ascii"),

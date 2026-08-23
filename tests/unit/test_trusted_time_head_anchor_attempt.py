@@ -27,10 +27,12 @@ from apps.trusted_time_supervisor.head_anchor_config import (
 from packages.application.trusted_time_head_anchor import (
     TRUSTED_TIME_HEAD_ANCHOR_BUCKET_NAME,
     TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS,
+    PreparedTrustedTimeHeadAnchorReconciliation,
     TrustedTimeHeadAnchorCheckpointReason,
     TrustedTimeHeadAnchorConflict,
     TrustedTimeHeadAnchorEnrollmentNotApproved,
     TrustedTimeHeadAnchorProviderUnavailable,
+    TrustedTimeHeadAnchorReconciliationResult,
 )
 from packages.application.trusted_time_head_anchor_worker import (
     TrustedTimeHeadAnchorEnrollmentNotApprovedFailure,
@@ -43,6 +45,7 @@ from packages.domain.trusted_time_enrollment_evidence import (
 )
 from packages.persistence.trusted_time import SqlTrustedTimeRepository
 from packages.persistence.trusted_time_head_anchor import (
+    PersistedTrustedTimeHeadAnchorReceipt,
     SqlTrustedTimeHeadAnchorRepository,
     TrustedTimeHeadAnchorPersistenceConflict,
     TrustedTimeHeadAnchorPersistenceSnapshot,
@@ -111,13 +114,93 @@ def _snapshot(
     return snapshot
 
 
-def _request(*, sequence: int = 1, full_audit: bool = True):  # type: ignore[no-untyped-def]
+def _request(
+    *,
+    sequence: int = 1,
+    full_audit: bool = True,
+    checkpoint_reason: TrustedTimeHeadAnchorCheckpointReason = (
+        TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION
+    ),
+) -> TrustedTimeHeadAnchorWorkRequest:
     return TrustedTimeHeadAnchorWorkRequest(
         request_sequence=sequence,
-        checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.EPOCH_ROTATION,
+        checkpoint_reason=checkpoint_reason,
         full_audit=full_audit,
         allow_enrollment=False,
         scheduled_monotonic_ns=0,
+    )
+
+
+def _clean_stop_attempt_bindings() -> SimpleNamespace:
+    previous_record = SimpleNamespace(
+        anchor_sequence=2,
+        byte_sha256="a" * 64,
+    )
+    record = SimpleNamespace(
+        anchor_sequence=3,
+        checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP,
+        previous_anchor_sha256=previous_record.byte_sha256,
+        current_host_head_sha256="4" * 64,
+        byte_sha256="5" * 64,
+        semantic_sha256="6" * 64,
+    )
+    prepared = object.__new__(PreparedTrustedTimeHeadAnchorReconciliation)
+    object.__setattr__(prepared, "confirmed_anchor_records", (previous_record,))
+    object.__setattr__(prepared, "confirmed_anchor_count", 2)
+    object.__setattr__(prepared, "candidate_record", record)
+    object.__setattr__(prepared, "local_transition_count", 3)
+    object.__setattr__(prepared, "current_host_head_sha256", record.current_host_head_sha256)
+    object.__setattr__(prepared, "full_audit", False)
+
+    reconciliation = object.__new__(TrustedTimeHeadAnchorReconciliationResult)
+    object.__setattr__(reconciliation, "anchor_records", (previous_record, record))
+    object.__setattr__(reconciliation, "local_transition_count", 3)
+    object.__setattr__(reconciliation, "first_anchored_local_transition_ordinal", 1)
+    object.__setattr__(reconciliation, "uploaded_anchor_count", 1)
+    object.__setattr__(reconciliation, "idempotent_duplicate_count", 0)
+    object.__setattr__(reconciliation, "external_head_anchor_evidence", True)
+
+    receipt = object.__new__(PersistedTrustedTimeHeadAnchorReceipt)
+    object.__setattr__(
+        receipt,
+        "intent",
+        SimpleNamespace(record=record, semantic_sha256="7" * 64),
+    )
+    object.__setattr__(receipt, "readback_bytes_sha256", record.byte_sha256)
+    object.__setattr__(receipt, "observed_at_utc", BASE)
+    object.__setattr__(receipt, "semantic_sha256", "8" * 64)
+
+    snapshot = _snapshot(
+        complete_replay=False,
+        confirmed_anchor_count=3,
+        confirmed_anchor_receipt=receipt,
+    )
+    object.__setattr__(snapshot, "local_transition_count", 3)
+    object.__setattr__(snapshot, "current_host_head_sha256", record.current_host_head_sha256)
+    object.__setattr__(
+        snapshot,
+        "authenticated_journal_tip",
+        SimpleNamespace(
+            confirmed_anchor_count=3,
+            confirmed_anchor_tip=record,
+            confirmed_anchor_local_transition_ordinal=3,
+            local_transition_count=3,
+            current_local_host_head_sha256=record.current_host_head_sha256,
+            __post_init__=lambda: None,
+        ),
+    )
+    return SimpleNamespace(
+        request=_request(
+            sequence=11,
+            full_audit=False,
+            checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP,
+        ),
+        previous_record=previous_record,
+        record=record,
+        prepared=prepared,
+        reconciliation=reconciliation,
+        receipt=receipt,
+        snapshot=snapshot,
     )
 
 
@@ -782,6 +865,427 @@ def test_attempt_commits_before_upload_then_confirms_a_second_exact_readback() -
         "rearm_authorized",
     ):
         assert getattr(attempt, field_name) is False
+
+
+def test_current_clean_stop_issues_a_new_record_terminal_result_without_new_effects() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    bindings = _clean_stop_attempt_bindings()
+    anchor.load_head_anchor_startup_snapshot.return_value = bindings.snapshot
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with (
+        patch.object(
+            PreparedTrustedTimeHeadAnchorReconciliation,
+            "__post_init__",
+            return_value=None,
+        ),
+        patch.object(
+            TrustedTimeHeadAnchorReconciliationResult,
+            "__post_init__",
+            return_value=None,
+        ),
+        patch.object(
+            PersistedTrustedTimeHeadAnchorReceipt,
+            "__post_init__",
+            return_value=None,
+        ),
+    ):
+        terminal = attempt._issue_current_clean_stop_terminal_result(
+            request=bindings.request,
+            prepared=bindings.prepared,
+            reconciliation=bindings.reconciliation,
+            receipt=bindings.receipt,
+            full_audit_completed=False,
+            prior_pending_intent_recovered=False,
+        )
+
+    assert terminal.request_sequence == 11
+    assert terminal.request_scheduled_monotonic_ns == 0
+    assert terminal.anchor_sequence == 3
+    assert terminal.confirmed_anchor_count == 3
+    assert terminal.local_transition_count == 3
+    assert terminal.confirmed_anchor_local_transition_ordinal == 3
+    assert terminal.predecessor_anchor_sha256 == "a" * 64
+    assert terminal.current_host_head_sha256 == "4" * 64
+    assert terminal.current_anchor_sha256 == "5" * 64
+    assert terminal.current_anchor_semantic_sha256 == "6" * 64
+    assert terminal.current_anchor_intent_semantic_sha256 == "7" * 64
+    assert terminal.current_candidate_remote_readback_sha256 == "5" * 64
+    assert terminal.current_receipt_semantic_sha256 == "8" * 64
+    assert terminal.prior_pending_intent_recovered is False
+    signer.sign_ed25519.assert_not_called()
+    provider.upload_object_no_overwrite.assert_not_called()
+    anchor.commit_prepared_intent.assert_not_called()
+    anchor.confirm_remote_readback_from_snapshot.assert_not_called()
+
+
+def test_clean_stop_attempt_attaches_the_exact_current_terminal_result() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    bindings = _clean_stop_attempt_bindings()
+    anchor.load_head_anchor_startup_snapshot.return_value = bindings.snapshot
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with (
+        patch.object(
+            PreparedTrustedTimeHeadAnchorReconciliation,
+            "__post_init__",
+            return_value=None,
+        ),
+        patch.object(
+            TrustedTimeHeadAnchorReconciliationResult,
+            "__post_init__",
+            return_value=None,
+        ),
+        patch.object(
+            PersistedTrustedTimeHeadAnchorReceipt,
+            "__post_init__",
+            return_value=None,
+        ),
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_prepare_current",
+            return_value=bindings.prepared,
+        ),
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_complete_current",
+            return_value=(bindings.reconciliation, bindings.receipt),
+        ),
+    ):
+        result = attempt(bindings.request)
+
+    terminal = result.clean_stop_terminal_result
+    assert terminal is not None
+    assert terminal.request_sequence == bindings.request.request_sequence
+    assert terminal.request_scheduled_monotonic_ns == bindings.request.scheduled_monotonic_ns
+    assert terminal.current_anchor_sha256 == bindings.receipt.readback_bytes_sha256
+    assert terminal.current_receipt_semantic_sha256 == bindings.receipt.semantic_sha256
+    assert result.pending_intent_recovered is False
+    assert result.candidate_remote_readback_sha256 == bindings.receipt.readback_bytes_sha256
+    assert result.receipt_semantic_sha256 == bindings.receipt.semantic_sha256
+    signer.sign_ed25519.assert_not_called()
+    provider.upload_object_no_overwrite.assert_not_called()
+    anchor.commit_prepared_intent.assert_not_called()
+    anchor.confirm_remote_readback_from_snapshot.assert_not_called()
+
+
+def test_recovered_prior_receipt_is_only_a_flag_when_current_clean_stop_receipt_exists() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    bindings = _clean_stop_attempt_bindings()
+    pending = _snapshot(
+        pending=object(),
+        evidence=object(),
+        complete_replay=True,
+    )
+    anchor.load_head_anchor_startup_snapshot.return_value = pending
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+    prior_receipt = SimpleNamespace(
+        readback_bytes_sha256="e" * 64,
+        semantic_sha256="f" * 64,
+    )
+
+    def recover_current_snapshot(
+        _: object,
+    ) -> tuple[SimpleNamespace, SimpleNamespace]:
+        object.__setattr__(attempt, "_snapshot", bindings.snapshot)
+        return _application_result(), prior_receipt
+
+    with (
+        patch.object(
+            PreparedTrustedTimeHeadAnchorReconciliation,
+            "__post_init__",
+            return_value=None,
+        ),
+        patch.object(
+            TrustedTimeHeadAnchorReconciliationResult,
+            "__post_init__",
+            return_value=None,
+        ),
+        patch.object(
+            PersistedTrustedTimeHeadAnchorReceipt,
+            "__post_init__",
+            return_value=None,
+        ),
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_prepare_recovery",
+            return_value=SimpleNamespace(full_audit=False),
+        ),
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_complete_pending",
+            side_effect=recover_current_snapshot,
+        ),
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_prepare_current",
+            return_value=bindings.prepared,
+        ),
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_complete_current",
+            return_value=(bindings.reconciliation, bindings.receipt),
+        ),
+    ):
+        result = attempt(bindings.request)
+
+    terminal = result.clean_stop_terminal_result
+    assert terminal is not None
+    assert terminal.prior_pending_intent_recovered is True
+    assert terminal.current_candidate_remote_readback_sha256 == "5" * 64
+    assert terminal.current_receipt_semantic_sha256 == "8" * 64
+    assert result.pending_intent_recovered is True
+    assert result.candidate_remote_readback_sha256 == "5" * 64
+    assert result.receipt_semantic_sha256 == "8" * 64
+    assert result.receipt_semantic_sha256 != prior_receipt.semantic_sha256
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    (
+        "request_reason",
+        "prepared_candidate",
+        "prepared_count",
+        "prepared_predecessor",
+        "prepared_local_count",
+        "prepared_current_head",
+        "result_terminal",
+        "result_local_count",
+        "result_completion_count",
+        "record_reason",
+        "record_sequence",
+        "record_predecessor",
+        "snapshot_receipt",
+        "snapshot_pending",
+        "snapshot_count",
+        "snapshot_local_count",
+        "snapshot_current_head",
+        "tip_count",
+        "tip_terminal",
+        "tip_local_count",
+        "tip_terminal_ordinal",
+        "tip_current_head",
+        "receipt_readback",
+    ),
+)
+def test_current_clean_stop_rejects_every_crossbinding_or_compact_snapshot_mismatch(
+    mismatch: str,
+) -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    bindings = _clean_stop_attempt_bindings()
+    foreign_record = SimpleNamespace(
+        anchor_sequence=3,
+        checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP,
+        previous_anchor_sha256="a" * 64,
+        current_host_head_sha256="4" * 64,
+        byte_sha256="5" * 64,
+        semantic_sha256="f" * 64,
+    )
+    if mismatch == "request_reason":
+        bindings.request = replace(
+            bindings.request,
+            checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.PERIODIC,
+        )
+    elif mismatch == "prepared_candidate":
+        object.__setattr__(bindings.prepared, "candidate_record", foreign_record)
+    elif mismatch == "prepared_count":
+        object.__setattr__(bindings.prepared, "confirmed_anchor_count", 1)
+    elif mismatch == "prepared_predecessor":
+        object.__setattr__(
+            bindings.prepared,
+            "confirmed_anchor_records",
+            (SimpleNamespace(anchor_sequence=2, byte_sha256="b" * 64),),
+        )
+    elif mismatch == "prepared_local_count":
+        object.__setattr__(bindings.prepared, "local_transition_count", 4)
+    elif mismatch == "prepared_current_head":
+        object.__setattr__(bindings.prepared, "current_host_head_sha256", "f" * 64)
+    elif mismatch == "result_terminal":
+        object.__setattr__(
+            bindings.reconciliation,
+            "anchor_records",
+            (bindings.previous_record, foreign_record),
+        )
+    elif mismatch == "result_local_count":
+        object.__setattr__(bindings.reconciliation, "local_transition_count", 4)
+    elif mismatch == "result_completion_count":
+        object.__setattr__(bindings.reconciliation, "uploaded_anchor_count", 0)
+    elif mismatch == "record_reason":
+        bindings.record.checkpoint_reason = TrustedTimeHeadAnchorCheckpointReason.PERIODIC
+    elif mismatch == "record_sequence":
+        bindings.record.anchor_sequence = 2
+    elif mismatch == "record_predecessor":
+        bindings.record.previous_anchor_sha256 = None
+    elif mismatch == "snapshot_receipt":
+        object.__setattr__(bindings.snapshot, "confirmed_anchor_receipt", object())
+    elif mismatch == "snapshot_pending":
+        object.__setattr__(bindings.snapshot, "pending_intent", object())
+    elif mismatch == "snapshot_count":
+        object.__setattr__(bindings.snapshot, "confirmed_anchor_count", 2)
+    elif mismatch == "snapshot_local_count":
+        object.__setattr__(bindings.snapshot, "local_transition_count", 4)
+    elif mismatch == "snapshot_current_head":
+        object.__setattr__(bindings.snapshot, "current_host_head_sha256", "f" * 64)
+    elif mismatch == "tip_count":
+        bindings.snapshot.authenticated_journal_tip.confirmed_anchor_count = 2
+    elif mismatch == "tip_terminal":
+        bindings.snapshot.authenticated_journal_tip.confirmed_anchor_tip = foreign_record
+    elif mismatch == "tip_local_count":
+        bindings.snapshot.authenticated_journal_tip.local_transition_count = 4
+    elif mismatch == "tip_terminal_ordinal":
+        bindings.snapshot.authenticated_journal_tip.confirmed_anchor_local_transition_ordinal = 2
+    elif mismatch == "tip_current_head":
+        bindings.snapshot.authenticated_journal_tip.current_local_host_head_sha256 = "f" * 64
+    elif mismatch == "receipt_readback":
+        object.__setattr__(bindings.receipt, "readback_bytes_sha256", "f" * 64)
+    else:  # pragma: no cover - closed parameter set
+        raise AssertionError(mismatch)
+
+    anchor.load_head_anchor_startup_snapshot.return_value = bindings.snapshot
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+    with (
+        patch.object(
+            PreparedTrustedTimeHeadAnchorReconciliation,
+            "__post_init__",
+            return_value=None,
+        ),
+        patch.object(
+            TrustedTimeHeadAnchorReconciliationResult,
+            "__post_init__",
+            return_value=None,
+        ),
+        patch.object(
+            PersistedTrustedTimeHeadAnchorReceipt,
+            "__post_init__",
+            return_value=None,
+        ),
+        pytest.raises(
+            TrustedTimeHeadAnchorFatalFailure,
+            match="clean stop terminal result",
+        ),
+    ):
+        attempt._issue_current_clean_stop_terminal_result(
+            request=bindings.request,
+            prepared=bindings.prepared,
+            reconciliation=bindings.reconciliation,
+            receipt=bindings.receipt,
+            full_audit_completed=False,
+            prior_pending_intent_recovered=False,
+        )
+
+    signer.sign_ed25519.assert_not_called()
+    provider.upload_object_no_overwrite.assert_not_called()
+    anchor.commit_prepared_intent.assert_not_called()
+    anchor.confirm_remote_readback_from_snapshot.assert_not_called()
+
+
+def test_clean_stop_requires_an_exact_receipt_from_its_current_completion() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    full = _snapshot(complete_replay=True)
+    prepared = SimpleNamespace(candidate_record=None, full_audit=True)
+    anchor.load_head_anchor_startup_snapshot.return_value = full
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with (
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_prepare_current",
+            return_value=prepared,
+        ),
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_complete_current",
+            return_value=(_application_result(), None),
+        ),
+        pytest.raises(
+            TrustedTimeHeadAnchorFatalFailure,
+            match="clean stop lacks an exact current receipt",
+        ),
+    ):
+        attempt(
+            _request(
+                checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP,
+            )
+        )
+
+
+def test_clean_stop_never_substitutes_a_recovered_prior_receipt() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    recovered_receipt = SimpleNamespace(
+        readback_bytes_sha256="7" * 64,
+        semantic_sha256="8" * 64,
+    )
+    pending = _snapshot(
+        pending=object(),
+        evidence=object(),
+        complete_replay=True,
+    )
+    anchor.load_head_anchor_startup_snapshot.return_value = pending
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with (
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_prepare_recovery",
+            return_value=SimpleNamespace(full_audit=True),
+        ),
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_complete_pending",
+            return_value=(_application_result(), recovered_receipt),
+        ),
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_prepare_current",
+            return_value=SimpleNamespace(candidate_record=None, full_audit=False),
+        ),
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_complete_current",
+            return_value=(_application_result(), None),
+        ),
+        pytest.raises(
+            TrustedTimeHeadAnchorFatalFailure,
+            match="clean stop lacks an exact current receipt",
+        ),
+    ):
+        attempt(
+            _request(
+                checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP,
+            )
+        )
+
+
+def test_non_clean_stop_no_candidate_result_remains_valid_without_a_terminal_result() -> None:
+    local, anchor, provider, signer, verifier = _dependencies()
+    full = _snapshot(complete_replay=True)
+    anchor.load_head_anchor_startup_snapshot.return_value = full
+    attempt = _attempt(local, anchor, provider, signer, verifier)
+    attempt.prime_startup()
+
+    with (
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_prepare_current",
+            return_value=SimpleNamespace(candidate_record=None, full_audit=True),
+        ),
+        patch.object(
+            RepositoryBackedTrustedTimeHeadAnchorAttempt,
+            "_complete_current",
+            return_value=(_application_result(), None),
+        ),
+    ):
+        result = attempt(_request(checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.PERIODIC))
+
+    assert result.receipt_semantic_sha256 is None
+    assert result.candidate_remote_readback_sha256 is None
+    assert result.clean_stop_terminal_result is None
 
 
 def test_retry_recovers_durable_pending_before_incremental_successor_without_resigning() -> None:

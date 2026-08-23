@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-import subprocess
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, cast
@@ -21,19 +21,12 @@ from apps.trusted_time_supervisor.head_anchor_attempt import (
 )
 from apps.trusted_time_supervisor.post_enrollment_release import (
     POST_ENROLLMENT_START_RELEASE_PATH,
-    POST_ENROLLMENT_START_RELEASE_SHA256,
     POST_ENROLLMENT_START_RELEASE_STAGING_PATH,
     POST_ENROLLMENT_START_SEQUENCE_TWO_DEADLINE_PATH,
     POST_ENROLLMENT_START_SEQUENCE_TWO_DEADLINE_STAGING_PATH,
 )
-from apps.trusted_time_supervisor.post_enrollment_runtime_state import (
-    POST_ENROLLMENT_RUNTIME_STATE_CONTRACT_VERSION,
-    POST_ENROLLMENT_RUNTIME_STATE_STATUS,
-)
 from apps.trusted_time_supervisor.post_enrollment_sequence_two_ready import (
-    POST_ENROLLMENT_START_SEQUENCE_TWO_READY_BYTES,
     POST_ENROLLMENT_START_SEQUENCE_TWO_READY_PATH,
-    POST_ENROLLMENT_START_SEQUENCE_TWO_READY_SHA256,
     POST_ENROLLMENT_START_SEQUENCE_TWO_READY_STAGING_PATH,
 )
 from apps.trusted_time_supervisor.post_enrollment_start import (
@@ -47,7 +40,7 @@ from packages.domain.trusted_time_post_enrollment_start import (
     TrustedTimePostEnrollmentStartSuccessor,
 )
 from scripts.start_trusted_time_supervisor import (
-    DATABASE_SECRET_CONSUMED_PATH,
+    LocalDockerDaemonIdentity,
     TrustedTimeApprovedLaunch,
 )
 from scripts.trusted_time_post_enrollment_active_controller_admission import (
@@ -73,19 +66,17 @@ from scripts.trusted_time_post_enrollment_outcome import (
 )
 from scripts.trusted_time_post_enrollment_persistent_topology import (
     TrustedTimePostEnrollmentPersistentTopologySnapshot,
-    TrustedTimePostEnrollmentReleaseMarkerCandidate,
+    TrustedTimePostEnrollmentReleaseMarkerProjection,
     validate_post_enrollment_start_persistent_topology,
 )
 from scripts.trusted_time_post_enrollment_sequence_two_verifier import (
     TrustedTimePostEnrollmentStartSequenceTwoVerifier,
 )
 from scripts.trusted_time_post_enrollment_staged_topology import (
-    TrustedTimePostEnrollmentAbsentPathCandidate,
-    TrustedTimePostEnrollmentConsumedMarkerCandidate,
+    _EXACT_IMMUTABLE_JSON_SERIALIZER,
+    TrustedTimePostEnrollmentAbsentPathProjection,
+    TrustedTimePostEnrollmentConsumedMarkerProjection,
     TrustedTimePostEnrollmentStagedUnreleasedTopologySnapshot,
-)
-from scripts.trusted_time_post_enrollment_staging import (
-    post_enrollment_start_release_argv,
 )
 from scripts.trusted_time_post_enrollment_start import (
     DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
@@ -101,11 +92,24 @@ from scripts.trusted_time_post_enrollment_topology_reader import (
     TrustedTimePostEnrollmentFinalActionTopologyObservation,
     TrustedTimePostEnrollmentTopologyObservationIssuer,
     TrustedTimePostEnrollmentTopologyReaderError,
-    _decode_strict_json,
+    _authenticated_issuer_runtime_provenance,
+    _daemon_identity_view,
+    _FixedMarkerProjection,
     _network_identity,
     _NetworkObservation,
     _observe_host_retirements,
+    _parse_persistent_barrier_probe,
+    _parse_pre_effect_absence_probe,
+    _PersistentBarrierProbeProjection,
+    _PreEffectAbsenceProbeProjection,
+    _raw_sha256,
+    _read_receipt_immutable_json,
     _ReadReceipt,
+    _ReadReceipts,
+    _require_anchored_retirement_observation,
+    _require_read_receipt,
+    _require_reviewed_created_registration,
+    _RuntimeMarkerProjection,
     _validate_staged_paths,
 )
 
@@ -121,7 +125,18 @@ _PERSISTENT_BARRIER_PROBE_CONTRACT_VERSION = (
 _PRE_EFFECT_RUNTIME_ABSENCE_PROBE_CONTRACT_VERSION = (
     "phase6d-post-enrollment-pre-effect-runtime-absence-probe-v1"
 )
-_RUNTIME_STATE_COMMAND = "/opt/venv/bin/autoquant-trusted-time-post-enrollment-runtime-state"
+_PRE_EFFECT_RUNTIME_ABSENCE_COMMAND = (
+    "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+    "post-enrollment-pre-effect-runtime-absence",
+)
+_PERSISTENT_BARRIER_COMMAND = (
+    "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+    "post-enrollment-persistent-barrier-read",
+)
+_RUNTIME_STATE_COMMAND = (
+    "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+    "post-enrollment-runtime-state",
+)
 _RUNTIME_STATE_MAXIMUM_STDOUT_BYTES = 4 * 1_024
 _RUNTIME_STATE_TIMEOUT_SECONDS = 122.0
 _FINAL_RUNTIME_STATE_TIMEOUT_SECONDS = 2.0
@@ -238,6 +253,252 @@ def _is_sha256(value: object) -> bool:
     )
 
 
+_RuntimeStateProjection = tuple[str, int, str, str]
+
+_RUNTIME_STATE_PREFIX = (
+    b'{"alert_delivery_authorized":false,"arming_authorized":false,'
+    b'"automatic_rearm_authorized":false,"automatic_resume_authorized":false,'
+    b'"broker_action_authorized":false,"contract_version":'
+    b'"phase6d-post-enrollment-runtime-state-v1","exposure_authorized":false,'
+    b'"live_trading_authorized":false,"new_exposure_authorized":false,'
+    b'"operational_control_authorized":false,"paper_trading_authorized":false,'
+    b'"readiness_authorized":false,"rearm_authorized":false,'
+    b'"release_marker_sha256":'
+    b'"0207100f7073e92f22a5acf8ae06e0735ac33e8dfaef7e60c62d387cd0355731",'
+    b'"sequence_two_deadline_marker_sha256":"'
+)
+_RUNTIME_STATE_SUFFIX = (
+    b'","sequence_two_ready_marker_sha256":'
+    b'"f8faaa629107c4b26b7c70677ee8cc98d67a69741c21fb91300e78b2d9bf5c6d",'
+    b'"service":"trusted-time-supervisor",'
+    b'"status":"sequence_two_ready_observed"}\n'
+)
+
+
+def _parse_runtime_state_probe(
+    raw: object,
+    *,
+    _prefix: bytes = _RUNTIME_STATE_PREFIX,
+    _suffix: bytes = _RUNTIME_STATE_SUFFIX,
+    _sha256: Callable[[bytes], str] = _raw_sha256,
+) -> _RuntimeStateProjection:
+    if (
+        type(raw) is not bytes
+        or not raw.startswith(_prefix)
+        or not raw.endswith(_suffix)
+        or len(raw) != len(_prefix) + 64 + len(_suffix)
+    ):
+        raise ValueError
+    deadline_bytes = raw[len(_prefix) : len(_prefix) + 64]
+    if any(character not in b"0123456789abcdef" for character in deadline_bytes):
+        raise ValueError
+    deadline_sha256 = deadline_bytes.decode("ascii", errors="strict")
+    if _prefix + deadline_bytes + _suffix != raw:
+        raise ValueError
+    return (
+        "trusted-time-runtime-state-projection-v1",
+        len(raw),
+        _sha256(raw),
+        deadline_sha256,
+    )
+
+
+def _require_runtime_state_projection(
+    value: object,
+    *,
+    _expected_size: int = len(_RUNTIME_STATE_PREFIX) + 64 + len(_RUNTIME_STATE_SUFFIX),
+    _is_digest: Callable[[object], bool] = _is_sha256,
+) -> _RuntimeStateProjection:
+    if (
+        type(value) is not tuple
+        or len(value) != 4
+        or tuple.__getitem__(value, 0) != "trusted-time-runtime-state-projection-v1"
+        or type(tuple.__getitem__(value, 1)) is not int
+        or tuple.__getitem__(value, 1) != _expected_size
+        or not _is_digest(tuple.__getitem__(value, 2))
+        or not _is_digest(tuple.__getitem__(value, 3))
+    ):
+        raise ValueError
+    return cast(_RuntimeStateProjection, value)
+
+
+def _runtime_state_immutable_json(
+    value: object,
+    *,
+    _require: Callable[[object], _RuntimeStateProjection] = (_require_runtime_state_projection),
+) -> object:
+    projection = _require(value)
+    return (
+        0,
+        (
+            ("alert_delivery_authorized", False),
+            ("arming_authorized", False),
+            ("automatic_rearm_authorized", False),
+            ("automatic_resume_authorized", False),
+            ("broker_action_authorized", False),
+            ("contract_version", "phase6d-post-enrollment-runtime-state-v1"),
+            ("exposure_authorized", False),
+            ("live_trading_authorized", False),
+            ("new_exposure_authorized", False),
+            ("operational_control_authorized", False),
+            ("paper_trading_authorized", False),
+            ("readiness_authorized", False),
+            ("rearm_authorized", False),
+            (
+                "release_marker_sha256",
+                "0207100f7073e92f22a5acf8ae06e0735ac33e8dfaef7e60c62d387cd0355731",
+            ),
+            ("sequence_two_deadline_marker_sha256", tuple.__getitem__(projection, 3)),
+            (
+                "sequence_two_ready_marker_sha256",
+                "f8faaa629107c4b26b7c70677ee8cc98d67a69741c21fb91300e78b2d9bf5c6d",
+            ),
+            ("service", "trusted-time-supervisor"),
+            ("status", "sequence_two_ready_observed"),
+        ),
+    )
+
+
+def _marker_immutable_json(
+    value: object,
+    *,
+    _is_digest: Callable[[object], bool] = _is_sha256,
+) -> object:
+    if type(value) is not tuple:
+        raise ValueError
+    tag = tuple.__getitem__(value, 0) if value else None
+    if tag == "trusted-time-deadline-marker-projection-v1" and len(value) == 7:
+        sha256 = tuple.__getitem__(value, 1)
+        size = tuple.__getitem__(value, 2)
+        device = tuple.__getitem__(value, 3)
+        inode = tuple.__getitem__(value, 4)
+        modified = tuple.__getitem__(value, 5)
+        changed = tuple.__getitem__(value, 6)
+        path = "/tmp/post-enrollment-start-sequence-two-deadline"
+    elif tag == "trusted-time-ready-marker-projection-v1" and len(value) == 5:
+        sha256 = "f8faaa629107c4b26b7c70677ee8cc98d67a69741c21fb91300e78b2d9bf5c6d"
+        size = 52
+        device = tuple.__getitem__(value, 1)
+        inode = tuple.__getitem__(value, 2)
+        modified = tuple.__getitem__(value, 3)
+        changed = tuple.__getitem__(value, 4)
+        path = "/tmp/post-enrollment-start-sequence-two-ready"
+    else:
+        raise ValueError
+    if (
+        not _is_digest(sha256)
+        or type(size) is not int
+        or not 0 < size <= 512
+        or type(device) is not int
+        or device < 0
+        or type(inode) is not int
+        or inode < 1
+        or type(modified) is not int
+        or modified < 0
+        or type(changed) is not int
+        or changed < 0
+    ):
+        raise ValueError
+    return (
+        0,
+        (
+            ("byte_sha256", sha256),
+            ("changed_time_ns", changed),
+            ("device", device),
+            ("inode", inode),
+            ("link_count", 1),
+            ("mode", 0o400),
+            ("modified_time_ns", modified),
+            ("owner_gid", 10_001),
+            ("owner_uid", 10_001),
+            ("path", path),
+            ("regular", True),
+            ("size", size),
+        ),
+    )
+
+
+def _absence_projections_immutable_json(value: object) -> object:
+    if type(value) is not tuple:
+        raise ValueError
+    result: tuple[object, ...] = ()
+    for projection in value:
+        if (
+            type(projection) is not tuple
+            or len(projection) != 2
+            or tuple.__getitem__(projection, 0) != "trusted-time-absent-path-projection-v1"
+            or type(tuple.__getitem__(projection, 1)) is not str
+        ):
+            raise ValueError
+        result += (
+            (
+                0,
+                (
+                    ("path", tuple.__getitem__(projection, 1)),
+                    ("status", "absent"),
+                ),
+            ),
+        )
+    return (1, result)
+
+
+def _receipts_immutable_json(
+    receipts: object,
+    *,
+    _receipt_json: Callable[..., object] = _read_receipt_immutable_json,
+) -> object:
+    if type(receipts) is not tuple:
+        raise ValueError
+    return (
+        1,
+        tuple(
+            _receipt_json(receipt, expected_ordinal=ordinal)
+            for ordinal, receipt in enumerate(receipts, start=1)
+        ),
+    )
+
+
+def _registered_fixed_probe_coordinates(
+    issuer: TrustedTimePostEnrollmentTopologyObservationIssuer,
+    *,
+    _require_registration: Callable[..., tuple[object, ...]] = (
+        _require_reviewed_created_registration
+    ),
+    _runtime_provenance: Callable[..., tuple[object, ...]] = (
+        _authenticated_issuer_runtime_provenance
+    ),
+    _is_digest: Callable[[object], bool] = _is_sha256,
+    _fspath: Callable[[os.PathLike[str]], str] = os.fspath,
+) -> tuple[str, str, str]:
+    with issuer._lifecycle_lock:
+        registration = _require_registration(issuer._reviewed_mutation_created_registration)
+        runtime_registration = _runtime_provenance(
+            issuer,
+            issuer._authentication_capability,
+        )
+        docker_executable = tuple.__getitem__(runtime_registration, 4)
+        session_sha256 = tuple.__getitem__(runtime_registration, 5)
+        container_ids = tuple.__getitem__(runtime_registration, 6)
+        if type(container_ids) is not tuple or len(container_ids) != 2:
+            raise ValueError
+        container_id = tuple.__getitem__(container_ids, 1)
+    if (
+        type(container_id) is not str
+        or not _is_digest(container_id)
+        or type(docker_executable) is not str
+        or not docker_executable.startswith("/")
+        or tuple.__getitem__(registration, 5) != docker_executable
+        or tuple.__getitem__(registration, 4) != container_ids
+        or docker_executable != issuer._docker_executable_path_value
+        or _fspath(issuer._docker_executable_path) != docker_executable
+        or type(session_sha256) is not str
+        or not _is_digest(session_sha256)
+        or session_sha256 != issuer._session_sha256
+    ):
+        raise ValueError
+    return docker_executable, container_id, session_sha256
+
+
 def _require_remaining_budget(checkpoint: object, minimum_nanoseconds: int) -> None:
     observed = cast(Any, checkpoint)
     if (
@@ -250,114 +511,6 @@ def _require_remaining_budget(checkpoint: object, minimum_nanoseconds: int) -> N
         raise _TrustedTimePostEnrollmentStartActiveControllerExecutionFailed(
             "trusted-time active-controller remaining budget is unavailable"
         )
-
-
-def _build_persistent_barrier_probe_source() -> str:
-    template = r"""import hashlib,json,os,stat,sys
-CONTRACT=__CONTRACT__
-PATHS=(__DATABASE__,__DEADLINE__,__RELEASE__,__SEQUENCE__)
-STAGINGS=__STAGINGS__
-def ident(value):
-    return (value.st_dev,value.st_ino,value.st_mode,value.st_nlink,value.st_uid,
-            value.st_gid,value.st_size,value.st_mtime_ns,value.st_ctime_ns)
-def absent():
-    result=[]
-    for path in STAGINGS:
-        try:
-            os.stat(path,follow_symlinks=False)
-        except FileNotFoundError:
-            result.append({"path":path,"status":"absent"})
-            continue
-        raise OSError
-    return result
-def read(path):
-    descriptor=os.open(path,os.O_RDONLY|getattr(os,"O_CLOEXEC",0)|
-                       getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_NONBLOCK",0))
-    try:
-        before=os.fstat(descriptor)
-        chunks=[]
-        observed=0
-        while True:
-            chunk=os.read(descriptor,min(4097-observed,4096))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            observed+=len(chunk)
-            if observed>4096:
-                raise OSError
-        after=os.fstat(descriptor)
-        named=os.stat(path,follow_symlinks=False)
-    finally:
-        os.close(descriptor)
-    if (ident(before)!=ident(after) or ident(after)!=ident(named)
-            or not stat.S_ISREG(before.st_mode)):
-        raise OSError
-    payload=b"".join(chunks)
-    return {"byte_sha256":hashlib.sha256(payload).hexdigest(),
-            "changed_time_ns":before.st_ctime_ns,"device":before.st_dev,
-            "inode":before.st_ino,"link_count":before.st_nlink,
-            "mode":stat.S_IMODE(before.st_mode),"modified_time_ns":before.st_mtime_ns,
-            "owner_gid":before.st_gid,"owner_uid":before.st_uid,"path":path,
-            "regular":True,"size":len(payload)}
-def main():
-    before=absent()
-    database,deadline,release,sequence=(read(path) for path in PATHS)
-    after=absent()
-    if before!=after:
-        raise OSError
-    result={"contract_version":CONTRACT,"database_marker":database,
-            "deadline_marker":deadline,"release_marker":release,
-            "runtime_staging_absences":before,"sequence_marker":sequence}
-    sys.stdout.write(json.dumps(result,allow_nan=False,ensure_ascii=True,
-                                separators=(",",":"),sort_keys=True)+"\n")
-try:
-    main()
-except BaseException:
-    sys.stderr.write("trusted-time persistent topology probe failed\n")
-    raise SystemExit(2)
-"""
-    return (
-        template.replace("__CONTRACT__", repr(_PERSISTENT_BARRIER_PROBE_CONTRACT_VERSION))
-        .replace("__DATABASE__", repr(DATABASE_SECRET_CONSUMED_PATH))
-        .replace("__DEADLINE__", repr(POST_ENROLLMENT_START_SEQUENCE_TWO_DEADLINE_PATH))
-        .replace("__RELEASE__", repr(POST_ENROLLMENT_START_RELEASE_PATH))
-        .replace("__SEQUENCE__", repr(POST_ENROLLMENT_START_SEQUENCE_TWO_READY_PATH))
-        .replace("__STAGINGS__", repr(_POST_EFFECT_RUNTIME_STAGING_PATHS))
-    )
-
-
-def _build_pre_effect_runtime_absence_probe_source() -> str:
-    template = r"""import json,os,sys
-CONTRACT=__CONTRACT__
-PATHS=__PATHS__
-def main():
-    absences=[]
-    for path in PATHS:
-        try:
-            os.stat(path,follow_symlinks=False)
-        except FileNotFoundError:
-            absences.append({"path":path,"status":"absent"})
-            continue
-        raise OSError
-    sys.stdout.write(json.dumps({"absences":absences,"contract_version":CONTRACT},
-                                allow_nan=False,ensure_ascii=True,
-                                separators=(",",":"),sort_keys=True)+"\n")
-try:
-    main()
-except BaseException:
-    sys.stderr.write("trusted-time pre-effect runtime absence probe failed\n")
-    raise SystemExit(2)
-"""
-    return template.replace(
-        "__CONTRACT__",
-        repr(_PRE_EFFECT_RUNTIME_ABSENCE_PROBE_CONTRACT_VERSION),
-    ).replace("__PATHS__", repr(_PRE_EFFECT_RUNTIME_PATHS))
-
-
-_PERSISTENT_BARRIER_PROBE_SOURCE = _build_persistent_barrier_probe_source()
-_PRE_EFFECT_RUNTIME_ABSENCE_PROBE_SOURCE = _build_pre_effect_runtime_absence_probe_source()
-del _build_persistent_barrier_probe_source
-del _build_pre_effect_runtime_absence_probe_source
 
 
 def _retained_claim(
@@ -461,48 +614,40 @@ def _require_claim(
 
 def _observe_pre_effect_runtime_absences(
     issuer: TrustedTimePostEnrollmentTopologyObservationIssuer,
-    receipts: list[_ReadReceipt],
+    receipts: _ReadReceipts,
     *,
-    supervisor_container_id: str,
-) -> tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...]:
-    root = issuer._run_json(
+    _coordinates: Callable[..., tuple[str, str, str]] = (_registered_fixed_probe_coordinates),
+    _parse_probe: Callable[[object], _PreEffectAbsenceProbeProjection] = (
+        _parse_pre_effect_absence_probe
+    ),
+    _require_receipt_exact: Callable[..., _ReadReceipt] = _require_read_receipt,
+) -> tuple[_PreEffectAbsenceProbeProjection, _ReadReceipts]:
+    docker_executable, supervisor_container_id, _ = _coordinates(issuer)
+    raw, updated_receipts = issuer._run_bytes(
         receipts,
         label="pre_effect_runtime_absences",
         argv=(
-            os.fspath(issuer._docker_executable_path),
+            docker_executable,
             "container",
             "exec",
             "--user",
             "10001:10001",
             supervisor_container_id,
-            "/opt/venv/bin/python",
-            "-I",
-            "-S",
-            "-c",
-            _PRE_EFFECT_RUNTIME_ABSENCE_PROBE_SOURCE,
+            "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+            "post-enrollment-pre-effect-runtime-absence",
         ),
-        maximum_stdout_bytes=_PRE_EFFECT_RUNTIME_ABSENCE_MAXIMUM_STDOUT_BYTES,
-        expected_type=dict,
+        maximum_stdout_bytes=4 * 1_024,
     )
-    if (
-        set(root) != {"absences", "contract_version"}
-        or root.get("contract_version") != _PRE_EFFECT_RUNTIME_ABSENCE_PROBE_CONTRACT_VERSION
-        or type(root.get("absences")) is not list
-    ):
+    projection = _parse_probe(raw)
+    receipt = _require_receipt_exact(
+        tuple.__getitem__(updated_receipts, -1),
+        expected_ordinal=len(updated_receipts),
+    )
+    if tuple.__getitem__(projection, 1) != tuple.__getitem__(receipt, 5) or tuple.__getitem__(
+        projection, 2
+    ) != tuple.__getitem__(receipt, 6):
         raise ValueError
-    values = cast(list[object], root["absences"])
-    if len(values) != len(_PRE_EFFECT_RUNTIME_PATHS):
-        raise ValueError
-    candidates: list[TrustedTimePostEnrollmentAbsentPathCandidate] = []
-    for expected_path, value in zip(_PRE_EFFECT_RUNTIME_PATHS, values, strict=True):
-        if type(value) is not dict:
-            raise ValueError
-        candidate = TrustedTimePostEnrollmentAbsentPathCandidate(**cast(dict[str, Any], value))
-        candidate.__post_init__()
-        if candidate.path != expected_path:
-            raise ValueError
-        candidates.append(candidate)
-    return tuple(candidates)
+    return projection, updated_receipts
 
 
 def _fresh_pre_effect_observation(
@@ -514,8 +659,16 @@ def _fresh_pre_effect_observation(
     approval: TrustedTimePostEnrollmentStartApproval,
     approved_launch: TrustedTimeApprovedLaunch,
     staged_paths: tuple[Path, Path, Path, Path],
+    _observe_absences: Callable[..., tuple[_PreEffectAbsenceProbeProjection, _ReadReceipts]] = (
+        _observe_pre_effect_runtime_absences
+    ),
+    _coordinates: Callable[..., tuple[str, str, str]] = (_registered_fixed_probe_coordinates),
+    _serialize: Callable[[object], bytes] = _EXACT_IMMUTABLE_JSON_SERIALIZER,
+    _sha256: Callable[[bytes], str] = _raw_sha256,
+    _receipts_json: Callable[[object], object] = _receipts_immutable_json,
+    _absences_json: Callable[[object], object] = _absence_projections_immutable_json,
 ) -> str:
-    receipts: list[_ReadReceipt] = []
+    receipts: _ReadReceipts = ()
     begun = False
     try:
         issuer._begin_observation(choreography_lease)
@@ -526,10 +679,9 @@ def _fresh_pre_effect_observation(
             approved_launch=approved_launch,
             staged_paths=staged_paths,
         )
-        runtime_absences = _observe_pre_effect_runtime_absences(
+        runtime_absence_probe, receipts = _observe_absences(
             issuer,
             receipts,
-            supervisor_container_id=final.snapshot.supervisor.container_id,
         )
         if (
             type(snapshot) is not TrustedTimePostEnrollmentStagedUnreleasedTopologySnapshot
@@ -539,16 +691,28 @@ def _fresh_pre_effect_observation(
         ):
             raise ValueError
         issuer._validate_session()
-        return _canonical_sha256(
-            {
-                "active_controller_admission_snapshot_sha256": final.snapshot.snapshot_sha256,
-                "contract_version": POST_ENROLLMENT_START_ACTIVE_CONTROLLER_CONTRACT_VERSION,
-                "kind": "final_pre_effect_staged_unreleased",
-                "reads": [receipt.payload() for receipt in receipts],
-                "runtime_path_absences": [candidate.payload() for candidate in runtime_absences],
-                "session_sha256": issuer._session_sha256,
-            }
+        _, _, session_sha256 = _coordinates(issuer)
+        immutable_payload = (
+            0,
+            (
+                (
+                    "active_controller_admission_snapshot_sha256",
+                    final.snapshot.snapshot_sha256,
+                ),
+                (
+                    "contract_version",
+                    "phase6d-post-enrollment-start-active-controller-v1",
+                ),
+                ("kind", "final_pre_effect_staged_unreleased"),
+                ("reads", _receipts_json(receipts)),
+                (
+                    "runtime_path_absences",
+                    _absences_json(tuple.__getitem__(runtime_absence_probe, 3)),
+                ),
+                ("session_sha256", session_sha256),
+            ),
         )
+        return _sha256(_serialize(immutable_payload) + b"\n")
     except BaseException:
         if begun:
             with suppress(BaseException):
@@ -579,54 +743,84 @@ def _run_exact_control(
         maximum_stdout_bytes=maximum_stdout_bytes,
         maximum_stderr_bytes=4 * 1_024,
     )
+    if type(completed) is not tuple or len(completed) != 4:
+        raise _TrustedTimePostEnrollmentStartActiveControllerExecutionFailed(
+            "trusted-time active-controller command was unconfirmed"
+        )
+    completed_argv = tuple.__getitem__(completed, 0)
+    returncode = tuple.__getitem__(completed, 1)
+    stdout = tuple.__getitem__(completed, 2)
+    stderr = tuple.__getitem__(completed, 3)
     if (
-        type(completed) is not subprocess.CompletedProcess
-        or completed.args != argv
-        or type(completed.returncode) is not int
-        or completed.returncode != 0
-        or type(completed.stdout) is not bytes
-        or (require_empty_stdout and completed.stdout)
-        or (not require_empty_stdout and not completed.stdout)
-        or len(completed.stdout) > maximum_stdout_bytes
-        or type(completed.stderr) is not bytes
-        or completed.stderr
+        completed_argv is not argv
+        or type(completed_argv) is not tuple
+        or completed_argv != argv
+        or any(type(argument) is not str or not argument for argument in completed_argv)
+        or type(returncode) is not int
+        or returncode != 0
+        or type(stdout) is not bytes
+        or (require_empty_stdout and stdout)
+        or (not require_empty_stdout and not stdout)
+        or len(stdout) > maximum_stdout_bytes
+        or type(stderr) is not bytes
+        or stderr
     ):
         raise _TrustedTimePostEnrollmentStartActiveControllerExecutionFailed(
             "trusted-time active-controller command was unconfirmed"
         )
-    return completed.stdout
+    return stdout
 
 
 def _execute_release(
     issuer: TrustedTimePostEnrollmentTopologyObservationIssuer,
-    supervisor_container_id: str,
+    *,
+    _coordinates: Callable[..., tuple[str, str, str]] = (_registered_fixed_probe_coordinates),
+    _run_control: Callable[..., bytes] = _run_exact_control,
+    _serialize: Callable[[object], bytes] = _EXACT_IMMUTABLE_JSON_SERIALIZER,
+    _sha256: Callable[[bytes], str] = _raw_sha256,
 ) -> str:
-    handoff_release_argv = post_enrollment_start_release_argv(supervisor_container_id)
-    argv = (os.fspath(issuer._docker_executable_path), *handoff_release_argv[1:])
-    _run_exact_control(
+    docker_executable, supervisor_container_id, session_sha256 = _coordinates(issuer)
+    argv = (
+        docker_executable,
+        "container",
+        "exec",
+        "--user",
+        "10001:10001",
+        supervisor_container_id,
+        "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+        "post-enrollment-release",
+    )
+    _run_control(
         issuer,
         argv=argv,
         timeout_seconds=issuer._choreography_command_timeout_seconds(),
         maximum_stdout_bytes=1,
         require_empty_stdout=True,
     )
-    return _canonical_sha256(
-        {
-            "argv": list(argv),
-            "contract_version": _RELEASE_EXECUTION_CONTRACT_VERSION,
-            "release_marker_sha256": POST_ENROLLMENT_START_RELEASE_SHA256,
-            "session_sha256": issuer._session_sha256,
-        }
+    immutable_payload = (
+        0,
+        (
+            ("argv", (1, argv)),
+            ("contract_version", "phase6d-post-enrollment-release-execution-v1"),
+            (
+                "release_marker_sha256",
+                "0207100f7073e92f22a5acf8ae06e0735ac33e8dfaef7e60c62d387cd0355731",
+            ),
+            ("session_sha256", session_sha256),
+        ),
     )
+    return _sha256(_serialize(immutable_payload) + b"\n")
 
 
 def _observe_runtime_state(
     issuer: TrustedTimePostEnrollmentTopologyObservationIssuer,
-    supervisor_container_id: str,
     checkpoint: object,
     *,
     maximum_timeout_seconds: float = _RUNTIME_STATE_TIMEOUT_SECONDS,
-) -> tuple[dict[str, object], str]:
+    _coordinates: Callable[..., tuple[str, str, str]] = (_registered_fixed_probe_coordinates),
+    _run_control: Callable[..., bytes] = _run_exact_control,
+    _parse_probe: Callable[[object], _RuntimeStateProjection] = _parse_runtime_state_probe,
+) -> tuple[_RuntimeStateProjection, str]:
     observed = cast(Any, checkpoint)
     remaining_seconds = (
         observed.deadline_monotonic_ns - observed.observed_monotonic_ns
@@ -637,62 +831,39 @@ def _observe_runtime_state(
         or not 0 < maximum_timeout_seconds <= _RUNTIME_STATE_TIMEOUT_SECONDS
     ):
         raise ValueError
+    docker_executable, supervisor_container_id, _ = _coordinates(issuer)
     argv = (
-        os.fspath(issuer._docker_executable_path),
+        docker_executable,
         "container",
         "exec",
         "--user",
         "10001:10001",
         supervisor_container_id,
-        _RUNTIME_STATE_COMMAND,
+        "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+        "post-enrollment-runtime-state",
     )
-    raw = _run_exact_control(
+    raw = _run_control(
         issuer,
         argv=argv,
         timeout_seconds=min(maximum_timeout_seconds, remaining_seconds),
-        maximum_stdout_bytes=_RUNTIME_STATE_MAXIMUM_STDOUT_BYTES,
+        maximum_stdout_bytes=4 * 1_024,
         require_empty_stdout=False,
     )
-    payload = _decode_strict_json(
-        raw,
-        expected_type=dict,
-        maximum_bytes=_RUNTIME_STATE_MAXIMUM_STDOUT_BYTES,
-    )
-    expected_keys = {
-        *_RUNTIME_STATE_CLOSED_FIELDS,
-        "contract_version",
-        "release_marker_sha256",
-        "sequence_two_deadline_marker_sha256",
-        "sequence_two_ready_marker_sha256",
-        "service",
-        "status",
-    }
-    if (
-        set(payload) != expected_keys
-        or any(payload[field_name] is not False for field_name in _RUNTIME_STATE_CLOSED_FIELDS)
-        or payload.get("contract_version") != POST_ENROLLMENT_RUNTIME_STATE_CONTRACT_VERSION
-        or payload.get("release_marker_sha256") != POST_ENROLLMENT_START_RELEASE_SHA256
-        or not _is_sha256(payload.get("sequence_two_deadline_marker_sha256"))
-        or payload.get("sequence_two_ready_marker_sha256")
-        != POST_ENROLLMENT_START_SEQUENCE_TWO_READY_SHA256
-        or payload.get("service") != "trusted-time-supervisor"
-        or payload.get("status") != POST_ENROLLMENT_RUNTIME_STATE_STATUS
-    ):
-        raise ValueError
-    return payload, _canonical_sha256(payload)
+    projection = _parse_probe(raw)
+    return projection, projection[2]
 
 
 def _observe_network_raw(
     issuer: TrustedTimePostEnrollmentTopologyObservationIssuer,
-    receipts: list[_ReadReceipt],
+    receipts: _ReadReceipts,
     *,
     inventory: tuple[str, str],
     expected_create_invocation_sha256: str,
-) -> tuple[dict[str, object], _NetworkObservation]:
+) -> tuple[dict[str, object], _NetworkObservation, _ReadReceipts]:
     expected_network_name = post_enrollment_created_topology_network_name(
         expected_create_invocation_sha256
     )
-    observed = issuer._run_json(
+    observed, updated_receipts = issuer._run_json(
         receipts,
         label="persistent_project_network",
         argv=(
@@ -713,198 +884,84 @@ def _observe_network_raw(
         expected_network_name=expected_network_name,
         expected_create_invocation_sha256=expected_create_invocation_sha256,
     )
-    return observed, identity
-
-
-def _exact_sequence_marker(candidate: object) -> dict[str, object]:
-    if type(candidate) is not dict:
-        raise ValueError
-    marker = cast(dict[str, object], candidate)
-    if (
-        set(marker)
-        != {
-            "byte_sha256",
-            "changed_time_ns",
-            "device",
-            "inode",
-            "link_count",
-            "mode",
-            "modified_time_ns",
-            "owner_gid",
-            "owner_uid",
-            "path",
-            "regular",
-            "size",
-        }
-        or marker["path"] != POST_ENROLLMENT_START_SEQUENCE_TWO_READY_PATH
-        or marker["byte_sha256"] != POST_ENROLLMENT_START_SEQUENCE_TWO_READY_SHA256
-        or marker["size"] != len(POST_ENROLLMENT_START_SEQUENCE_TWO_READY_BYTES)
-        or marker["owner_uid"] != 10_001
-        or marker["owner_gid"] != 10_001
-        or marker["mode"] != 0o400
-        or marker["link_count"] != 1
-        or marker["regular"] is not True
-        or any(
-            type(marker[field_name]) is not int or cast(int, marker[field_name]) < minimum
-            for field_name, minimum in (
-                ("device", 0),
-                ("inode", 1),
-                ("modified_time_ns", 0),
-                ("changed_time_ns", 0),
-            )
-        )
-    ):
-        raise ValueError
-    return marker
-
-
-def _exact_deadline_marker(
-    candidate: object,
-    *,
-    expected_sha256: str,
-) -> dict[str, object]:
-    if type(candidate) is not dict or not _is_sha256(expected_sha256):
-        raise ValueError
-    marker = cast(dict[str, object], candidate)
-    if (
-        set(marker)
-        != {
-            "byte_sha256",
-            "changed_time_ns",
-            "device",
-            "inode",
-            "link_count",
-            "mode",
-            "modified_time_ns",
-            "owner_gid",
-            "owner_uid",
-            "path",
-            "regular",
-            "size",
-        }
-        or marker["path"] != POST_ENROLLMENT_START_SEQUENCE_TWO_DEADLINE_PATH
-        or marker["byte_sha256"] != expected_sha256
-        or type(marker["size"]) is not int
-        or not 0 < marker["size"] <= _MAXIMUM_DEADLINE_MARKER_BYTES
-        or marker["owner_uid"] != 10_001
-        or marker["owner_gid"] != 10_001
-        or marker["mode"] != 0o400
-        or marker["link_count"] != 1
-        or marker["regular"] is not True
-        or any(
-            type(marker[field_name]) is not int or cast(int, marker[field_name]) < minimum
-            for field_name, minimum in (
-                ("device", 0),
-                ("inode", 1),
-                ("modified_time_ns", 0),
-                ("changed_time_ns", 0),
-            )
-        )
-    ):
-        raise ValueError
-    return marker
+    return observed, identity, updated_receipts
 
 
 def _require_runtime_marker_chronology(
     *,
-    deadline: dict[str, object],
-    release: TrustedTimePostEnrollmentReleaseMarkerCandidate,
-    sequence: dict[str, object],
+    deadline: _RuntimeMarkerProjection,
+    release: TrustedTimePostEnrollmentReleaseMarkerProjection,
+    sequence: _FixedMarkerProjection,
 ) -> None:
     if (
-        deadline["device"] != release.device
-        or release.device != sequence["device"]
-        or len({deadline["inode"], release.inode, sequence["inode"]}) != 3
-        or cast(int, deadline["modified_time_ns"]) > release.modified_time_ns
-        or cast(int, deadline["changed_time_ns"]) > release.changed_time_ns
-        or release.modified_time_ns > cast(int, sequence["modified_time_ns"])
-        or release.changed_time_ns > cast(int, sequence["changed_time_ns"])
+        type(deadline) is not tuple
+        or len(deadline) != 7
+        or deadline[0] != "trusted-time-deadline-marker-projection-v1"
+        or type(release) is not tuple
+        or len(release) != 5
+        or release[0] != "trusted-time-release-marker-projection-v1"
+        or type(sequence) is not tuple
+        or len(sequence) != 5
+        or sequence[0] != "trusted-time-ready-marker-projection-v1"
+        or deadline[3] != release[1]
+        or release[1] != sequence[1]
+        or deadline[4] == release[2]
+        or deadline[4] == sequence[2]
+        or release[2] == sequence[2]
+        or deadline[5] > release[3]
+        or deadline[6] > release[4]
+        or release[3] > sequence[3]
+        or release[4] > sequence[4]
     ):
         raise ValueError
 
 
 def _observe_persistent_barrier(
     issuer: TrustedTimePostEnrollmentTopologyObservationIssuer,
-    receipts: list[_ReadReceipt],
+    receipts: _ReadReceipts,
     *,
-    supervisor_container_id: str,
     expected_deadline_marker_sha256: str,
-) -> tuple[
-    TrustedTimePostEnrollmentConsumedMarkerCandidate,
-    dict[str, object],
-    TrustedTimePostEnrollmentReleaseMarkerCandidate,
-    dict[str, object],
-    tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...],
-]:
-    root = issuer._run_json(
+    _coordinates: Callable[..., tuple[str, str, str]] = (_registered_fixed_probe_coordinates),
+    _parse_probe: Callable[..., _PersistentBarrierProbeProjection] = (
+        _parse_persistent_barrier_probe
+    ),
+    _require_receipt_exact: Callable[..., _ReadReceipt] = _require_read_receipt,
+    _require_chronology: Callable[..., None] = _require_runtime_marker_chronology,
+) -> tuple[_PersistentBarrierProbeProjection, _ReadReceipts]:
+    docker_executable, supervisor_container_id, _ = _coordinates(issuer)
+    raw, updated_receipts = issuer._run_bytes(
         receipts,
         label="persistent_barrier",
         argv=(
-            os.fspath(issuer._docker_executable_path),
+            docker_executable,
             "container",
             "exec",
             "--user",
             "10001:10001",
             supervisor_container_id,
-            "/opt/venv/bin/python",
-            "-I",
-            "-S",
-            "-c",
-            _PERSISTENT_BARRIER_PROBE_SOURCE,
+            "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+            "post-enrollment-persistent-barrier-read",
         ),
-        maximum_stdout_bytes=_PERSISTENT_BARRIER_MAXIMUM_STDOUT_BYTES,
-        expected_type=dict,
+        maximum_stdout_bytes=8 * 1_024,
     )
-    if (
-        set(root)
-        != {
-            "contract_version",
-            "database_marker",
-            "deadline_marker",
-            "release_marker",
-            "sequence_marker",
-            "runtime_staging_absences",
-        }
-        or root.get("contract_version") != _PERSISTENT_BARRIER_PROBE_CONTRACT_VERSION
-        or type(root.get("database_marker")) is not dict
-        or type(root.get("deadline_marker")) is not dict
-        or type(root.get("release_marker")) is not dict
-        or type(root.get("runtime_staging_absences")) is not list
-    ):
+    projection = _parse_probe(
+        raw,
+        expected_deadline_sha256=expected_deadline_marker_sha256,
+    )
+    receipt = _require_receipt_exact(
+        tuple.__getitem__(updated_receipts, -1),
+        expected_ordinal=len(updated_receipts),
+    )
+    if tuple.__getitem__(projection, 1) != tuple.__getitem__(receipt, 5) or tuple.__getitem__(
+        projection, 2
+    ) != tuple.__getitem__(receipt, 6):
         raise ValueError
-    database = TrustedTimePostEnrollmentConsumedMarkerCandidate(
-        **cast(dict[str, Any], root["database_marker"])
+    _require_chronology(
+        deadline=tuple.__getitem__(projection, 4),
+        release=tuple.__getitem__(projection, 5),
+        sequence=tuple.__getitem__(projection, 6),
     )
-    deadline = _exact_deadline_marker(
-        root["deadline_marker"],
-        expected_sha256=expected_deadline_marker_sha256,
-    )
-    release = TrustedTimePostEnrollmentReleaseMarkerCandidate(
-        **cast(dict[str, Any], root["release_marker"])
-    )
-    sequence = _exact_sequence_marker(root["sequence_marker"])
-    _require_runtime_marker_chronology(
-        deadline=deadline,
-        release=release,
-        sequence=sequence,
-    )
-    absence_values = cast(list[object], root["runtime_staging_absences"])
-    if len(absence_values) != len(_POST_EFFECT_RUNTIME_STAGING_PATHS):
-        raise ValueError
-    absences: list[TrustedTimePostEnrollmentAbsentPathCandidate] = []
-    for expected_path, value in zip(
-        _POST_EFFECT_RUNTIME_STAGING_PATHS,
-        absence_values,
-        strict=True,
-    ):
-        if type(value) is not dict:
-            raise ValueError
-        absence = TrustedTimePostEnrollmentAbsentPathCandidate(**cast(dict[str, Any], value))
-        absence.__post_init__()
-        if absence.path != expected_path:
-            raise ValueError
-        absences.append(absence)
-    return database, deadline, release, sequence, tuple(absences)
+    return projection, updated_receipts
 
 
 def _fresh_persistent_topology(
@@ -914,49 +971,68 @@ def _fresh_persistent_topology(
     admission: TrustedTimePostEnrollmentStartActiveControllerAdmission,
     final: TrustedTimePostEnrollmentFinalActionTopologyObservation,
     successor: TrustedTimePostEnrollmentStartSuccessor,
-    runtime_state: dict[str, object],
+    runtime_state: _RuntimeStateProjection,
     approved_launch: TrustedTimeApprovedLaunch,
     staged_paths: tuple[Path, Path, Path, Path],
+    _require_runtime_state: Callable[[object], _RuntimeStateProjection] = (
+        _require_runtime_state_projection
+    ),
+    _observe_network: Callable[
+        ...,
+        tuple[dict[str, object], _NetworkObservation, _ReadReceipts],
+    ] = _observe_network_raw,
+    _observe_barrier: Callable[..., tuple[_PersistentBarrierProbeProjection, _ReadReceipts]] = (
+        _observe_persistent_barrier
+    ),
+    _observe_retirements: Callable[[tuple[Path, Path, Path, Path]], object] = (
+        _observe_host_retirements
+    ),
+    _require_retirements: Callable[..., tuple[object, ...]] = (
+        _require_anchored_retirement_observation
+    ),
+    _coordinates: Callable[..., tuple[str, str, str]] = (_registered_fixed_probe_coordinates),
+    _serialize: Callable[[object], bytes] = _EXACT_IMMUTABLE_JSON_SERIALIZER,
+    _sha256: Callable[[bytes], str] = _raw_sha256,
+    _receipts_json: Callable[[object], object] = _receipts_immutable_json,
+    _absences_json: Callable[[object], object] = _absence_projections_immutable_json,
+    _runtime_state_json: Callable[[object], object] = _runtime_state_immutable_json,
+    _marker_json: Callable[[object], object] = _marker_immutable_json,
+    _daemon_view: Callable[[object], LocalDockerDaemonIdentity] = _daemon_identity_view,
 ) -> tuple[TrustedTimePostEnrollmentPersistentTopologySnapshot, str]:
-    receipts: list[_ReadReceipt] = []
+    receipts: _ReadReceipts = ()
     begun = False
     try:
         issuer._begin_observation(choreography_lease)
         begun = True
-        daemon_before = issuer._observe_daemon(receipts)
-        volumes_before = issuer._observe_volumes(receipts)
-        inventory_before = issuer._observe_inventory(receipts)
-        network_before_raw, network_before = _observe_network_raw(
+        runtime_state = _require_runtime_state(runtime_state)
+        daemon_before, receipts = issuer._observe_daemon(receipts)
+        volumes_before, receipts = issuer._observe_volumes(receipts)
+        inventory_before, receipts = issuer._observe_inventory(receipts)
+        network_before_raw, network_before, receipts = _observe_network(
             issuer,
             receipts,
             inventory=inventory_before,
             expected_create_invocation_sha256=final.session_sha256,
         )
-        retirements_before = _observe_host_retirements(staged_paths)
-        deadline_marker_sha256 = runtime_state.get("sequence_two_deadline_marker_sha256")
-        if not _is_sha256(deadline_marker_sha256):
-            raise ValueError
-        database_before, deadline_before, release_before, sequence_before, absences_before = (
-            _observe_persistent_barrier(
-                issuer,
-                receipts,
-                supervisor_container_id=final.snapshot.supervisor.container_id,
-                expected_deadline_marker_sha256=cast(str, deadline_marker_sha256),
-            )
-        )
-        source_configuration, supervisor_configuration = issuer._observe_image_configurations(
+        retirements_before = _observe_retirements(staged_paths)
+        deadline_marker_sha256 = tuple.__getitem__(runtime_state, 3)
+        barrier_before, receipts = _observe_barrier(
+            issuer,
             receipts,
-            approved_launch=approved_launch,
+            expected_deadline_marker_sha256=deadline_marker_sha256,
         )
-        database_after, deadline_after, release_after, sequence_after, absences_after = (
-            _observe_persistent_barrier(
-                issuer,
+        source_configuration, supervisor_configuration, receipts = (
+            issuer._observe_image_configurations(
                 receipts,
-                supervisor_container_id=final.snapshot.supervisor.container_id,
-                expected_deadline_marker_sha256=cast(str, deadline_marker_sha256),
+                approved_launch=approved_launch,
             )
         )
-        inspections = issuer._observe_containers(
+        barrier_after, receipts = _observe_barrier(
+            issuer,
+            receipts,
+            expected_deadline_marker_sha256=deadline_marker_sha256,
+        )
+        inspections, receipts = issuer._observe_containers(
             receipts,
             inventory=inventory_before,
             network=network_before,
@@ -970,60 +1046,82 @@ def _fresh_persistent_topology(
             ),
             expected_create_invocation_sha256=final.session_sha256,
         )
-        retirements_after = _observe_host_retirements(staged_paths)
-        inventory_after = issuer._observe_inventory(receipts)
-        network_after_raw, network_after = _observe_network_raw(
+        retirements_after = _observe_retirements(staged_paths)
+        inventory_after, receipts = issuer._observe_inventory(receipts)
+        network_after_raw, network_after, receipts = _observe_network(
             issuer,
             receipts,
             inventory=inventory_after,
             expected_create_invocation_sha256=final.session_sha256,
         )
-        volumes_after = issuer._observe_volumes(receipts)
-        daemon_after = issuer._observe_daemon(receipts)
-        database_final, deadline_final, release_final, sequence_final, absences_final = (
-            _observe_persistent_barrier(
-                issuer,
-                receipts,
-                supervisor_container_id=final.snapshot.supervisor.container_id,
-                expected_deadline_marker_sha256=cast(str, deadline_marker_sha256),
-            )
+        volumes_after, receipts = issuer._observe_volumes(receipts)
+        daemon_after, receipts = issuer._observe_daemon(receipts)
+        barrier_final, receipts = _observe_barrier(
+            issuer,
+            receipts,
+            expected_deadline_marker_sha256=deadline_marker_sha256,
         )
+        retirements_before = _require_retirements(retirements_before)
+        retirements_after = _require_retirements(retirements_after)
         if (
             len(receipts) != 17
-            or retirements_before.root_identity != retirements_after.root_identity
+            or daemon_before != daemon_after
+            or tuple.__getitem__(retirements_before, 1) != tuple.__getitem__(retirements_after, 1)
             or network_before.network_id != network_after.network_id
             or network_before.identity_sha256 != network_after.identity_sha256
-            or database_before != database_after
-            or database_after != database_final
-            or deadline_before != deadline_after
-            or deadline_after != deadline_final
-            or release_before != release_after
-            or release_after != release_final
-            or sequence_before != sequence_after
-            or sequence_after != sequence_final
-            or absences_before != absences_after
-            or absences_after != absences_final
+            or barrier_before != barrier_after
+            or barrier_after != barrier_final
         ):
             raise ValueError
-        release_absences_before = tuple(
-            candidate
-            for candidate in absences_before
-            if candidate.path == POST_ENROLLMENT_START_RELEASE_STAGING_PATH
+        database_before = cast(
+            TrustedTimePostEnrollmentConsumedMarkerProjection,
+            tuple.__getitem__(barrier_before, 3),
         )
-        release_absences_after = tuple(
-            candidate
-            for candidate in absences_final
-            if candidate.path == POST_ENROLLMENT_START_RELEASE_STAGING_PATH
+        database_final = cast(
+            TrustedTimePostEnrollmentConsumedMarkerProjection,
+            tuple.__getitem__(barrier_final, 3),
         )
-        if len(release_absences_before) != 1 or len(release_absences_after) != 1:
-            raise ValueError
+        deadline_final = cast(
+            _RuntimeMarkerProjection,
+            tuple.__getitem__(barrier_final, 4),
+        )
+        release_before = cast(
+            TrustedTimePostEnrollmentReleaseMarkerProjection,
+            tuple.__getitem__(barrier_before, 5),
+        )
+        release_final = cast(
+            TrustedTimePostEnrollmentReleaseMarkerProjection,
+            tuple.__getitem__(barrier_final, 5),
+        )
+        sequence_final = cast(
+            _FixedMarkerProjection,
+            tuple.__getitem__(barrier_final, 6),
+        )
+        absences_before = cast(
+            tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+            tuple.__getitem__(barrier_before, 7),
+        )
+        absences_final = cast(
+            tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+            tuple.__getitem__(barrier_final, 7),
+        )
+        release_absences_before = (tuple.__getitem__(absences_before, 1),)
+        release_absences_after = (tuple.__getitem__(absences_final, 1),)
+        retirement_absences_before = cast(
+            tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+            tuple.__getitem__(retirements_before, 2),
+        )
+        retirement_absences_after = cast(
+            tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+            tuple.__getitem__(retirements_after, 2),
+        )
         snapshot = validate_post_enrollment_start_persistent_topology(
             admission=admission,
             final_action_staged_topology=final.snapshot,
             successor=successor,
             approved_launch=approved_launch,
-            daemon_identity_before=daemon_before,
-            daemon_identity_after=daemon_after,
+            daemon_identity_before=_daemon_view(daemon_before),
+            daemon_identity_after=_daemon_view(daemon_after),
             volume_identities_before=volumes_before,
             volume_identities_after=volumes_after,
             project_container_ids_before=inventory_before,
@@ -1043,22 +1141,34 @@ def _fresh_persistent_topology(
             release_marker_after=release_final,
             release_staging_absences_before=release_absences_before,
             release_staging_absences_after=release_absences_after,
-            staged_input_retirements_before=retirements_before.candidates,
-            staged_input_retirements_after=retirements_after.candidates,
+            staged_input_retirements_before=retirement_absences_before,
+            staged_input_retirements_after=retirement_absences_after,
         )
-        transcript_sha256 = _canonical_sha256(
-            {
-                "contract_version": POST_ENROLLMENT_START_ACTIVE_CONTROLLER_CONTRACT_VERSION,
-                "kind": "persistent_post_effect",
-                "reads": [receipt.payload() for receipt in receipts],
-                "runtime_staging_absences": [candidate.payload() for candidate in absences_before],
-                "runtime_state": runtime_state,
-                "runtime_deadline_marker": deadline_final,
-                "runtime_sequence_marker": sequence_final,
-                "session_sha256": issuer._session_sha256,
-                "snapshot_sha256": snapshot.snapshot_sha256,
-            }
+        if (
+            snapshot.daemon_context_name != tuple.__getitem__(daemon_before, 1)
+            or snapshot.daemon_endpoint != tuple.__getitem__(daemon_before, 2)
+            or snapshot.daemon_id != tuple.__getitem__(daemon_before, 3)
+        ):
+            raise ValueError
+        _, _, session_sha256 = _coordinates(issuer)
+        immutable_payload = (
+            0,
+            (
+                (
+                    "contract_version",
+                    "phase6d-post-enrollment-start-active-controller-v1",
+                ),
+                ("kind", "persistent_post_effect"),
+                ("reads", _receipts_json(receipts)),
+                ("runtime_deadline_marker", _marker_json(deadline_final)),
+                ("runtime_sequence_marker", _marker_json(sequence_final)),
+                ("runtime_staging_absences", _absences_json(absences_before)),
+                ("runtime_state", _runtime_state_json(runtime_state)),
+                ("session_sha256", session_sha256),
+                ("snapshot_sha256", snapshot.snapshot_sha256),
+            ),
         )
+        transcript_sha256 = _sha256(_serialize(immutable_payload) + b"\n")
         return snapshot, transcript_sha256
     except BaseException:
         if begun:
@@ -1148,7 +1258,7 @@ def run_post_enrollment_start_active_controller(
     post_effect_capability: object | None = None
     release_execution_sha256: str | None = None
     runtime_state_sha256: str | None = None
-    runtime_state: dict[str, object] | None = None
+    runtime_state: _RuntimeStateProjection | None = None
     successor: TrustedTimePostEnrollmentStartSuccessor | None = None
     persistent_topology: TrustedTimePostEnrollmentPersistentTopologySnapshot | None = None
     persistent_transcript_sha256: str | None = None
@@ -1259,10 +1369,7 @@ def run_post_enrollment_start_active_controller(
             artifact_directory=artifact_directory,
             ignored_root=ignored_root,
         )
-        release_execution_sha256 = _execute_release(
-            topology_issuer,
-            final.snapshot.supervisor.container_id,
-        )
+        release_execution_sha256 = _execute_release(topology_issuer)
         checkpoint = topology_issuer._require_active_post_effect_outcome_retention(
             post_effect_capability,
             choreography_lease,
@@ -1272,7 +1379,6 @@ def run_post_enrollment_start_active_controller(
         )
         runtime_state, runtime_state_sha256 = _observe_runtime_state(
             topology_issuer,
-            final.snapshot.supervisor.container_id,
             checkpoint,
         )
         checkpoint = topology_issuer._require_active_post_effect_outcome_retention(
@@ -1356,7 +1462,6 @@ def run_post_enrollment_start_active_controller(
             )
             final_runtime_state, final_runtime_state_sha256 = _observe_runtime_state(
                 topology_issuer,
-                final.snapshot.supervisor.container_id,
                 checkpoint,
                 maximum_timeout_seconds=_FINAL_RUNTIME_STATE_TIMEOUT_SECONDS,
             )

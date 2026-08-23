@@ -16,7 +16,6 @@ import os
 import re
 import secrets
 import stat
-import subprocess
 import sys
 import uuid
 from collections.abc import Callable, Iterator, Mapping
@@ -145,8 +144,8 @@ from scripts.bounded_subprocess import BoundedSubprocessError, run_bounded_subpr
 from scripts.credential_env import load_owner_only_environment
 from scripts.start_trusted_time_supervisor import (
     LocalDockerDaemonIdentity,
+    _validate_live_trusted_time_topology_ids,
     qualify_local_docker_daemon,
-    validate_live_trusted_time_topology,
 )
 from scripts.verify_local_paper_smoke_preflight import (
     LocalPaperSmokePreflightError,
@@ -154,10 +153,11 @@ from scripts.verify_local_paper_smoke_preflight import (
 )
 from scripts.verify_trusted_time_images import (
     DEFAULT_IMAGE_ADMISSION_ARTIFACT,
-    TrustedTimeImageIdentities,
     TrustedTimeImageVerificationError,
-    load_image_admission_artifact,
-    verify_images,
+    _load_current_image_admission_snapshot,
+    _require_current_admission_snapshot,
+    _require_verified_images,
+    _verify_images_with_manifest,
 )
 
 ROOT = _CLI_REPOSITORY_ROOT or Path(__file__).resolve().parents[1]
@@ -586,7 +586,7 @@ def _require_same_local_docker_daemon(expected: LocalDockerDaemonIdentity) -> No
         raise TrustedTimeQualificationInspectionError("runtime_daemon_changed_during_inspection")
 
 
-def _docker(*arguments: str) -> subprocess.CompletedProcess[str]:
+def _docker(*arguments: str) -> tuple[tuple[str, ...], int, str, str]:
     try:
         completed = run_bounded_subprocess(
             ("docker", *arguments),
@@ -596,11 +596,21 @@ def _docker(*arguments: str) -> subprocess.CompletedProcess[str]:
             maximum_stderr_bytes=_MAXIMUM_DOCKER_STDERR_BYTES,
             timeout_seconds=20,
         )
-        return subprocess.CompletedProcess(
-            completed.args,
-            completed.returncode,
-            completed.stdout.decode("utf-8", errors="strict"),
-            completed.stderr.decode("utf-8", errors="strict"),
+        if (
+            type(completed) is not tuple
+            or len(completed) != 4
+            or type(completed[0]) is not tuple
+            or any(type(argument) is not str for argument in completed[0])
+            or type(completed[1]) is not int
+            or type(completed[2]) is not bytes
+            or type(completed[3]) is not bytes
+        ):
+            raise UnicodeError("bounded subprocess result is malformed")
+        return (
+            completed[0],
+            completed[1],
+            completed[2].decode("utf-8", errors="strict"),
+            completed[3].decode("utf-8", errors="strict"),
         )
     except (BoundedSubprocessError, UnicodeDecodeError):
         raise TrustedTimeQualificationInspectionError("runtime_images_unavailable") from None
@@ -627,12 +637,12 @@ def _inspected_container_runtime(container_id: str) -> tuple[str, datetime]:
         container_id,
     )
     try:
-        runtime: Any = json.loads(inspected.stdout)
+        runtime: Any = json.loads(inspected[2])
     except json.JSONDecodeError:
         raise TrustedTimeQualificationInspectionError("runtime_images_unavailable") from None
     if (
-        inspected.returncode != 0
-        or inspected.stderr
+        inspected[1] != 0
+        or inspected[3]
         or type(runtime) is not list
         or len(runtime) != 2
         or type(runtime[0]) is not str
@@ -661,15 +671,15 @@ def _pid1_start_ticks(container_id: str) -> int:
         _PID1_CLOCK_IDENTITY_SCRIPT,
     )
     if (
-        completed.returncode != 0
-        or completed.stderr
-        or len(completed.stdout) > 4608
-        or not completed.stdout.endswith("\n")
-        or not completed.stdout.isascii()
-        or "\r" in completed.stdout
+        completed[1] != 0
+        or completed[3]
+        or len(completed[2]) > 4608
+        or not completed[2].endswith("\n")
+        or not completed[2].isascii()
+        or "\r" in completed[2]
     ):
         raise TrustedTimeQualificationInspectionError("runtime_process_identity_unavailable")
-    lines = completed.stdout.splitlines()
+    lines = completed[2].splitlines()
     if (
         len(lines) != 8
         or lines[0] != "pid1-stat-v1"
@@ -718,11 +728,11 @@ def _pid1_time_namespace(container_id: str) -> str:
         "/usr/bin/readlink",
         "/proc/1/ns/time",
     )
-    identity = completed.stdout.strip()
+    identity = completed[2].strip()
     if (
-        completed.returncode != 0
-        or completed.stderr
-        or completed.stdout != f"{identity}\n"
+        completed[1] != 0
+        or completed[3]
+        or completed[2] != f"{identity}\n"
         or _LINUX_TIME_NAMESPACE.fullmatch(identity) is None
     ):
         raise TrustedTimeQualificationInspectionError("runtime_process_identity_unavailable")
@@ -739,11 +749,11 @@ def _linux_boot_id(container_id: str) -> str:
         "/bin/cat",
         "/proc/sys/kernel/random/boot_id",
     )
-    boot_id = completed.stdout.strip()
+    boot_id = completed[2].strip()
     if (
-        completed.returncode != 0
-        or completed.stderr
-        or completed.stdout != f"{boot_id}\n"
+        completed[1] != 0
+        or completed[3]
+        or completed[2] != f"{boot_id}\n"
         or _LINUX_BOOT_ID.fullmatch(boot_id) is None
     ):
         raise TrustedTimeQualificationInspectionError("runtime_process_identity_unavailable")
@@ -759,15 +769,16 @@ def _clock_ticks_per_second(supervisor_container_id: str) -> int:
         supervisor_container_id,
         "/usr/local/bin/python",
         "-I",
+        "-B",
         "-S",
         "-c",
         "import os;print(os.sysconf('SC_CLK_TCK'))",
     )
-    encoded = completed.stdout.strip()
+    encoded = completed[2].strip()
     if (
-        completed.returncode != 0
-        or completed.stderr
-        or completed.stdout != f"{encoded}\n"
+        completed[1] != 0
+        or completed[3]
+        or completed[2] != f"{encoded}\n"
         or not encoded.isascii()
         or not encoded.isdecimal()
         or len(encoded) > 19
@@ -791,10 +802,10 @@ def _listed_service_container_id(service: str) -> str:
         "--format",
         "{{.ID}}",
     )
-    container_ids = listed.stdout.splitlines()
+    container_ids = listed[2].splitlines()
     if (
-        listed.returncode != 0
-        or listed.stderr
+        listed[1] != 0
+        or listed[3]
         or len(container_ids) != 1
         or _CONTAINER_ID.fullmatch(container_ids[0]) is None
     ):
@@ -868,11 +879,9 @@ def _validate_current_runtime_topology(images: RunningImageIds) -> None:
     _require_same_local_docker_daemon(images.docker_daemon)
     source, supervisor = _unchanged_running_containers(images)
     try:
-        validate_live_trusted_time_topology(
-            TrustedTimeImageIdentities(
-                source_id=images.source,
-                supervisor_id=images.supervisor,
-            ),
+        _validate_live_trusted_time_topology_ids(
+            images.source,
+            images.supervisor,
             source_container_id=source.container_id,
             supervisor_container_id=supervisor.container_id,
             environment=_minimal_docker_environment(),
@@ -896,18 +905,19 @@ def _boottime_monotonic_ns(images: RunningImageIds) -> int:
         supervisor.container_id,
         "/usr/local/bin/python",
         "-I",
+        "-B",
         "-S",
         "-c",
         _BOOTTIME_READER_SCRIPT,
     )
-    lines = completed.stdout.splitlines()
+    lines = completed[2].splitlines()
     if (
-        completed.returncode != 0
-        or completed.stderr
-        or len(completed.stdout) > 512
-        or not completed.stdout.endswith("\n")
-        or not completed.stdout.isascii()
-        or "\r" in completed.stdout
+        completed[1] != 0
+        or completed[3]
+        or len(completed[2]) > 512
+        or not completed[2].endswith("\n")
+        or not completed[2].isascii()
+        or "\r" in completed[2]
         or len(lines) != 5
         or lines[0] != "boottime-ns-v1"
         or lines[2] != "reader-offsets-v1"
@@ -941,24 +951,31 @@ def inspect_running_image_ids(
 
     docker_daemon = _qualified_local_docker_daemon()
     try:
-        admission = load_image_admission_artifact(admission_artifact_path)
-        admitted = verify_images(
-            admission.identities.source_id,
-            admission.identities.supervisor_id,
+        admission = _require_current_admission_snapshot(
+            _load_current_image_admission_snapshot(admission_artifact_path)
+        )
+        admitted = _require_verified_images(
+            _verify_images_with_manifest(
+                admission[4],
+                admission[5],
+            )
         )
     except TrustedTimeImageVerificationError:
         raise TrustedTimeQualificationInspectionError("runtime_images_not_admitted") from None
     _require_same_local_docker_daemon(docker_daemon)
-    if type(admitted) is not TrustedTimeImageIdentities or admitted != admission.identities:
+    if admitted[1] != admission[4] or admitted[2] != admission[5]:
         raise TrustedTimeQualificationInspectionError("runtime_images_not_admitted")
     try:
-        if load_image_admission_artifact(admission_artifact_path) != admission:
+        observed_admission = _require_current_admission_snapshot(
+            _load_current_image_admission_snapshot(admission_artifact_path)
+        )
+        if observed_admission != admission:
             raise TrustedTimeQualificationInspectionError("runtime_images_not_admitted")
     except TrustedTimeImageVerificationError:
         raise TrustedTimeQualificationInspectionError("runtime_images_not_admitted") from None
     source = _running_service_container("chrony-nts")
     supervisor = _running_service_container("trusted-time-supervisor")
-    if admitted.source_id != source.image_id or admitted.supervisor_id != supervisor.image_id:
+    if admission[4] != source.image_id or admission[5] != supervisor.image_id:
         raise TrustedTimeQualificationInspectionError("runtime_images_not_admitted")
     if (
         source.time_namespace_offsets != _ZERO_TIME_NAMESPACE_OFFSETS
@@ -987,7 +1004,10 @@ def inspect_running_image_ids(
     )
     _validate_current_runtime_topology(images)
     try:
-        if load_image_admission_artifact(admission_artifact_path) != admission:
+        final_admission = _require_current_admission_snapshot(
+            _load_current_image_admission_snapshot(admission_artifact_path)
+        )
+        if final_admission != admission:
             raise TrustedTimeQualificationInspectionError("runtime_images_not_admitted")
     except TrustedTimeImageVerificationError:
         raise TrustedTimeQualificationInspectionError("runtime_images_not_admitted") from None

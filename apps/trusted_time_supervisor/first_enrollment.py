@@ -135,6 +135,7 @@ def _write_release(mode: TrustedTimeFirstEnrollmentOperationMode) -> None:
             | getattr(os, "O_NOFOLLOW", 0),
             0o400,
         )
+        os.fchown(descriptor, os.geteuid(), os.getegid())
         view = memoryview(payload)
         while view:
             written = os.write(descriptor, view)

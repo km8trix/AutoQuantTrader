@@ -43,6 +43,15 @@ SECRET_DSN = "postgresql+psycopg://secret-user:secret-password@secret.invalid/po
 SECRET_TOKEN = "secret-provider-token-sentinel"
 
 
+def _base_python_executable() -> str:
+    candidate = (
+        Path(sys.base_prefix) / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    )
+    assert candidate.is_file()
+    assert not candidate.is_symlink()
+    return str(candidate)
+
+
 def _authority() -> SimpleNamespace:
     return SimpleNamespace(
         anchor_authority_sha256="c" * 64,
@@ -950,7 +959,7 @@ def test_nonisolated_subprocess_bootstrap_failure_is_one_sanitized_json_object()
     secret_path = f"/private/{SECRET_TOKEN}/trusted-time-launch.env"
     completed = subprocess.run(
         [
-            sys.executable,
+            _base_python_executable(),
             "-B",
             str(ROOT / "scripts" / "diagnose_trusted_time_runtime.py"),
             "--env-file",

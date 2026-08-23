@@ -12,7 +12,6 @@ import os
 import re
 import secrets
 import stat
-import subprocess
 import sys
 import tarfile
 import time
@@ -110,8 +109,36 @@ _CLI_REPOSITORY_ROOT = (
     else None
 )
 
+from packages.adapters.trusted_time._bounded_process import (  # noqa: E402
+    _run_bounded_process,
+)
+from packages.adapters.trusted_time._owned_file_descriptor import (  # noqa: E402
+    _fstat as _native_fstat,
+)
+from packages.adapters.trusted_time._owned_file_descriptor import (  # noqa: E402
+    _list_snapshot as _native_list_snapshot,
+)
+from packages.adapters.trusted_time._owned_file_descriptor import (  # noqa: E402
+    _open_child_directory as _native_open_child_directory,
+)
+from packages.adapters.trusted_time._owned_file_descriptor import (  # noqa: E402
+    _open_child_regular as _native_open_child_regular,
+)
+from packages.adapters.trusted_time._owned_file_descriptor import (  # noqa: E402
+    _open_root_directory as _native_open_root_directory,
+)
+from packages.adapters.trusted_time._owned_file_descriptor import (  # noqa: E402
+    _OwnedFileDescriptor as _NativeOwnedFileDescriptor,
+)
+from packages.adapters.trusted_time._owned_file_descriptor import (  # noqa: E402
+    _read_snapshot as _native_read_snapshot,
+)
+from packages.adapters.trusted_time._owned_file_descriptor import (  # noqa: E402
+    _statat as _native_statat,
+)
 from scripts.bounded_subprocess import (  # noqa: E402
     BoundedSubprocessError,
+    BoundedSubprocessResult,
     run_bounded_subprocess,
 )
 
@@ -136,20 +163,32 @@ SUPERVISOR_IMAGE_ENVIRONMENT = "AQT_TRUSTED_TIME_SUPERVISOR_IMAGE"
 DATABASE_SECRET_FILE_ENVIRONMENT = "AQT_TRUSTED_TIME_DATABASE_SECRET_SOURCE_FILE"
 IGNORED_ARTIFACT_ROOT = ROOT / "artifacts"
 DEFAULT_IMAGE_ADMISSION_ARTIFACT = IGNORED_ARTIFACT_ROOT / "trusted-time" / "image-admission.json"
-IMAGE_ADMISSION_CONTRACT_VERSION = "phase6d-trusted-time-image-admission-v2"
+IMAGE_ADMISSION_CONTRACT_VERSION = "phase6d-trusted-time-image-admission-v3"
 IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS = 900
 MAXIMUM_IMAGE_ADMISSION_BYTES = 65_536
+SUPERVISOR_EXECUTABLE_IMPORT_MANIFEST_PATH = (
+    "/etc/autoquant/native/executable-import-manifest.jsonl"
+)
+SUPERVISOR_EXECUTABLE_IMPORT_MANIFEST_HELPER = "/usr/local/lib/autoquant-native-image-manifest.py"
+SUPERVISOR_EXECUTABLE_IMPORT_MANIFEST_SCHEMA = "autoquant-native-executable-image-manifest-v2"
+_MAXIMUM_EXECUTABLE_IMPORT_MANIFEST_BYTES = 128 * 1_024 * 1_024
 _MAXIMUM_GIT_REVISION_STDOUT_BYTES = 64
 _MAXIMUM_GIT_STATUS_STDOUT_BYTES = 65_536
 _MAXIMUM_GIT_TREE_STDOUT_BYTES = 8 * 1_024 * 1_024
 _MAXIMUM_GIT_BATCH_STDOUT_BYTES = 64 * 1_024 * 1_024
 _MAXIMUM_GIT_BATCH_STDIN_BYTES = 1 * 1_024 * 1_024
 _MAXIMUM_GIT_STDERR_BYTES = 16_384
+_MAXIMUM_OPERATOR_AUTHORITY_GIT_BYTES = 4_096
+_MAXIMUM_OPERATOR_AUTHORITY_GIT_TREE_BYTES = 1_024
+_POST_ENROLLMENT_OPERATOR_AUTHORITY_RELATIVE_PATH = (
+    "infra/trusted-time/post-enrollment-operator-attestation-authority.json"
+)
 _MAXIMUM_DOCKER_BUILD_STDOUT_BYTES = 128
 _MAXIMUM_DOCKER_CONTROL_STDOUT_BYTES = 1 * 1_024 * 1_024
 _MAXIMUM_DOCKER_INSPECTION_STDOUT_BYTES = 4 * 1_024 * 1_024
 _MAXIMUM_DOCKER_STDERR_BYTES = 1 * 1_024 * 1_024
 _MAXIMUM_DOCKER_BUILD_CONTEXT_BYTES = 72 * 1_024 * 1_024
+_MAXIMUM_REVIEWED_INPUT_BYTES = 4 * 1_024 * 1_024
 MIGRATION_PATH = ROOT / "migrations" / "versions" / "0036_phase6_trusted_time_head_anchors.py"
 _TRUSTED_TIME_DOCKERFILE_RELATIVE_PATH = "infra/docker/trusted-time.Dockerfile"
 _TRUSTED_TIME_DOCKERFILE_FRONTEND = (
@@ -160,6 +199,9 @@ _REVIEWED_FIXED_RELATIVE_PATHS = (
     ".dockerignore",
     "Makefile",
     "apps/__init__.py",
+    "build_support/native_build_constraints.txt",
+    "build_support/native_image_manifest.py",
+    "build_support/native_owned_file_descriptor_hook.py",
     "infra/compose/trusted-time.compose.yaml",
     "infra/compose/trusted-time.defaults.env",
     _TRUSTED_TIME_DOCKERFILE_RELATIVE_PATH,
@@ -167,6 +209,9 @@ _REVIEWED_FIXED_RELATIVE_PATHS = (
     "infra/trusted-time/chrony.conf",
     "infra/trusted-time/source-authority.json",
     "migrations/versions/0036_phase6_trusted_time_head_anchors.py",
+    "native/bounded_process.c",
+    "native/owned_file_descriptor.c",
+    "native/trusted_time_python_launcher.c",
     "packages/persistence/certs/supabase-prod-ca-2021.crt",
     "pyproject.toml",
     "scripts/bounded_subprocess.py",
@@ -178,12 +223,17 @@ _REVIEWED_FIXED_RELATIVE_PATHS = (
     "scripts/trusted_time_post_enrollment_active_controller.py",
     "scripts/trusted_time_post_enrollment_active_controller_admission.py",
     "scripts/trusted_time_post_enrollment_claimed_fence.py",
+    "scripts/trusted_time_post_enrollment_clean_stop_terminal_reauthentication.py",
     "scripts/trusted_time_post_enrollment_controller_outcome.py",
     "scripts/trusted_time_post_enrollment_evidence.py",
     "scripts/trusted_time_post_enrollment_execution_admission.py",
+    "scripts/trusted_time_post_enrollment_graceful_stop.py",
+    "scripts/trusted_time_post_enrollment_graceful_stop_lifecycle.py",
+    "scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py",
     "scripts/trusted_time_post_enrollment_host_orchestrator.py",
     "scripts/trusted_time_post_enrollment_outcome.py",
     "scripts/trusted_time_post_enrollment_persistent_topology.py",
+    "scripts/trusted_time_post_enrollment_shutdown_locator.py",
     "scripts/trusted_time_post_enrollment_sequence_one_reauthentication.py",
     "scripts/trusted_time_post_enrollment_sequence_two_verifier.py",
     "scripts/trusted_time_post_enrollment_staged_topology.py",
@@ -205,6 +255,14 @@ _TRUSTED_TIME_DOCKERIGNORE_BYTES = b"""\
 **
 !pyproject.toml
 !uv.lock
+!build_support/
+!build_support/native_image_manifest.py
+!build_support/native_build_constraints.txt
+!build_support/native_owned_file_descriptor_hook.py
+!native/
+!native/bounded_process.c
+!native/owned_file_descriptor.c
+!native/trusted_time_python_launcher.c
 !apps/
 !apps/__init__.py
 !apps/trusted_time_supervisor/
@@ -236,10 +294,16 @@ _TRUSTED_TIME_DOCKERIGNORE_BYTES = b"""\
 _BUILD_CONTEXT_FIXED_RELATIVE_PATHS = frozenset(
     {
         "apps/__init__.py",
+        "build_support/native_build_constraints.txt",
+        "build_support/native_image_manifest.py",
+        "build_support/native_owned_file_descriptor_hook.py",
         _TRUSTED_TIME_DOCKERFILE_RELATIVE_PATH,
         "infra/docker/trusted-time.Dockerfile.dockerignore",
         "infra/trusted-time/chrony.conf",
         "infra/trusted-time/source-authority.json",
+        "native/bounded_process.c",
+        "native/owned_file_descriptor.c",
+        "native/trusted_time_python_launcher.c",
         "packages/persistence/certs/supabase-prod-ca-2021.crt",
         "pyproject.toml",
         "uv.lock",
@@ -250,12 +314,67 @@ EXPECTED_CATALOG_RELATIONS = (
     "phase6_trusted_time_head_anchor_intents",
     "phase6_trusted_time_head_anchor_receipts",
 )
-SUPERVISOR_APPLICATION_PYTHON = "/opt/venv/bin/python"
+SUPERVISOR_SCHEMA_CONTRACT_COMMAND = (
+    "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+    "image-schema-contract",
+)
+SUPERVISOR_BASE_PYTHON = "/usr/local/bin/python"
 SOCKET_VOLUME_DRIVER_OPTIONS = {
     "type": "tmpfs",
     "device": "tmpfs",
-    "o": "size=8m,uid=10001,gid=10001,mode=0750",
+    "o": "rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0750",
 }
+_SOCKET_MOUNTINFO_RECEIPT = "tmpfs:rw:noexec:nosuid:nodev\n"
+_SOCKET_MOUNTINFO_CHECK = r"""
+set -f
+seen=0
+while IFS= read -r line; do
+    field=0
+    mount_point=
+    mount_options=
+    separator=0
+    filesystem_type=
+    super_options=
+    for value in $line; do
+        field=$((field + 1))
+        if [ "$field" -eq 5 ]; then mount_point=$value; fi
+        if [ "$field" -eq 6 ]; then mount_options=$value; fi
+        if [ "$separator" -eq 1 ]; then
+            filesystem_type=$value
+            separator=2
+        elif [ "$separator" -eq 2 ]; then
+            separator=3
+        elif [ "$separator" -eq 3 ]; then
+            super_options=$value
+            separator=4
+        elif [ "$value" = - ]; then
+            separator=1
+        fi
+    done
+    if [ "$mount_point" != /run/chrony ]; then continue; fi
+    seen=$((seen + 1))
+    if [ "$filesystem_type" != tmpfs ]; then exit 41; fi
+    options=,$mount_options,
+    case "$options" in *,rw,*) ;; *) exit 42 ;; esac
+    case "$options" in *,noexec,*) ;; *) exit 43 ;; esac
+    case "$options" in *,nosuid,*) ;; *) exit 44 ;; esac
+    case "$options" in *,nodev,*) ;; *) exit 45 ;; esac
+    case "$options" in *,ro,*|*,exec,*|*,suid,*|*,dev,*) exit 47 ;; esac
+done < /proc/self/mountinfo
+if [ "$seen" -ne 1 ]; then exit 46; fi
+printf 'tmpfs:rw:noexec:nosuid:nodev\n'
+""".strip()
+_IMAGE_INSPECTION_FORMAT = (
+    '{"cmd":{{json (index .Config "Cmd")}},'
+    '"entrypoint":{{json (index .Config "Entrypoint")}},'
+    '"env":{{json (index .Config "Env")}},'
+    '"exposed_ports":{{json (index .Config "ExposedPorts")}},'
+    '"healthcheck":{{json (index .Config "Healthcheck")}},"id":{{json .Id}},'
+    '"shell":{{json (index .Config "Shell")}},'
+    '"user":{{json (index .Config "User")}},'
+    '"volumes":{{json (index .Config "Volumes")}},'
+    '"working_dir":{{json (index .Config "WorkingDir")}}}'
+)
 _IMAGE_ID_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 _GIT_REVISION_PATTERN = re.compile(r"[0-9a-f]{40}")
@@ -336,29 +455,6 @@ except OSError:
     sys.exit(1)
 sys.exit(0 if metadata.st_size > 0 else 1)
 """
-_SCHEMA_CONTRACT_CHECK = """\
-import json
-
-from packages.persistence.database import EXPECTED_SCHEMA_REVISION
-from packages.persistence.schema import metadata
-
-relations = sorted(
-    name
-    for name in metadata.tables
-    if name.startswith("phase6_trusted_time_head_anchor_")
-)
-print(
-    json.dumps(
-        {
-            "catalog_relations": relations,
-            "schema_revision": EXPECTED_SCHEMA_REVISION,
-        },
-        allow_nan=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-)
-"""
 
 
 class TrustedTimeImageVerificationError(RuntimeError):
@@ -377,6 +473,10 @@ class _OwnedFileDescriptor(ctypes.c_int):
     def __index__(self) -> int:
         return self.fileno()
 
+    @property
+    def closed(self) -> bool:
+        return self.value < 0
+
     def close(self) -> None:
         descriptor = self.value
         if descriptor < 0:
@@ -394,6 +494,67 @@ class _OwnedFileDescriptor(ctypes.c_int):
     def __del__(self) -> None:
         with suppress(BaseException):
             self.close()
+
+
+def _preferred_cleanup_exception(
+    primary: BaseException | None,
+    cleanup: BaseException | None,
+) -> BaseException | None:
+    if primary is not None and not isinstance(primary, Exception):
+        return primary
+    if cleanup is not None and not isinstance(cleanup, Exception):
+        return cleanup
+    return primary if primary is not None else cleanup
+
+
+def _preferred_cleanup_exceptions(
+    *errors: BaseException | None,
+) -> BaseException | None:
+    preferred: BaseException | None = None
+    for error in errors:
+        preferred = _preferred_cleanup_exception(preferred, error)
+    return preferred
+
+
+def _cleanup_owned_descriptors(
+    owners: tuple[_OwnedFileDescriptor | None, ...],
+) -> BaseException | None:
+    first_error: BaseException | None = None
+    for owner in owners:
+        if owner is None or owner.closed:
+            continue
+        try:
+            owner.close()
+        except BaseException as error:
+            first_error = _preferred_cleanup_exception(first_error, error)
+    return first_error
+
+
+def _cleanup_native_owned_descriptors(
+    owners: tuple[_NativeOwnedFileDescriptor | None, ...],
+) -> BaseException | None:
+    """Close every native owner and preserve asynchronous-exception priority."""
+
+    first_error: BaseException | None = None
+    for owner in owners:
+        if owner is None:
+            continue
+        for _ in range(2):
+            try:
+                if owner.closed:
+                    break
+                owner.close()
+            except BaseException as error:
+                first_error = _preferred_cleanup_exception(first_error, error)
+        try:
+            if not owner.closed:
+                first_error = _preferred_cleanup_exception(
+                    first_error,
+                    RuntimeError("native owned file descriptor could not be closed"),
+                )
+        except BaseException as error:
+            first_error = _preferred_cleanup_exception(first_error, error)
+    return first_error
 
 
 _LIBC = ctypes.CDLL(None, use_errno=True)
@@ -561,33 +722,98 @@ def _canonical_boot_session_id(platform_name: str, encoded_uuid: bytes) -> str:
 
 
 def _linux_boot_session_id() -> str:
-    file_owner: _OwnedFileDescriptor | None = None
+    boot_id_path = _LINUX_BOOT_ID_PATH
+    directory_owner: _NativeOwnedFileDescriptor | None = None
+    next_directory_owner: _NativeOwnedFileDescriptor | None = None
+    file_owner: _NativeOwnedFileDescriptor | None = None
+    encoded_uuid: bytes | None = None
+    body_error: BaseException | None = None
+    transition_error: BaseException | None = None
+    cleanup_error: BaseException | None = None
+    retry_error: BaseException | None = None
     try:
-        file_owner = _open_owned_file(_LINUX_BOOT_ID_PATH)
-        descriptor = file_owner.fileno()
-        before = os.fstat(descriptor)
-        encoded_uuid = os.read(descriptor, 38)
-        if os.read(descriptor, 1) != b"":
-            raise OSError
-        after = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(before.st_mode)
-            or before.st_dev != after.st_dev
-            or before.st_ino != after.st_ino
-            or before.st_mode != after.st_mode
-            or before.st_uid != after.st_uid
-            or before.st_nlink != after.st_nlink
-            or before.st_mtime_ns != after.st_mtime_ns
-            or before.st_ctime_ns != after.st_ctime_ns
-        ):
-            raise OSError
-    except OSError:
+        try:
+            path = os.fspath(boot_id_path)
+            if (
+                type(boot_id_path) is not type(Path())
+                or type(path) is not str
+                or not os.path.isabs(path)
+                or os.path.abspath(path) != path
+                or os.path.normpath(path) != path
+                or "\x00" in path
+            ):
+                raise OSError
+            components = tuple(path.split(os.sep))[1:]
+            if not components or any(
+                not component
+                or component in {".", ".."}
+                or os.sep in component
+                or "\x00" in component
+                or len(os.fsencode(component)) > 255
+                for component in components
+            ):
+                raise OSError
+            directory_owner = _native_open_root_directory()
+            for component in components[:-1]:
+                next_directory_owner = _native_open_child_directory(
+                    directory_owner,
+                    component,
+                )
+                if not stat.S_ISDIR(_native_fstat(next_directory_owner)[2]):
+                    raise OSError
+                intermediate_error = _cleanup_native_owned_descriptors((directory_owner,))
+                if intermediate_error is not None:
+                    raise intermediate_error
+                directory_owner = next_directory_owner
+                next_directory_owner = None
+            directory_before = _native_fstat(directory_owner)
+            file_name = components[-1]
+            file_owner = _native_open_child_regular(directory_owner, file_name)
+            before = _native_fstat(file_owner)
+            named_before = _native_statat(directory_owner, file_name)
+            if before != named_before or not stat.S_ISREG(before[2]):
+                raise OSError
+            encoded, read_before, read_after = _native_read_snapshot(file_owner, 37)
+            final = _native_fstat(file_owner)
+            named_final = _native_statat(directory_owner, file_name)
+            directory_final = _native_fstat(directory_owner)
+            if (
+                read_before != before
+                or read_after != before
+                or final != before
+                or named_final != before
+                or directory_final != directory_before
+                or _LINUX_BOOT_ID_PATH is not boot_id_path
+                or os.fspath(boot_id_path) != path
+            ):
+                raise OSError
+            encoded_uuid = encoded
+        except BaseException as error:
+            body_error = error
+        finally:
+            cleanup_error = _cleanup_native_owned_descriptors(
+                (file_owner, next_directory_owner, directory_owner)
+            )
+    except BaseException as error:
+        transition_error = error
+    finally:
+        retry_error = _cleanup_native_owned_descriptors(
+            (file_owner, next_directory_owner, directory_owner)
+        )
+    terminal = _preferred_cleanup_exceptions(
+        body_error,
+        transition_error,
+        cleanup_error,
+        retry_error,
+    )
+    if terminal is not None:
+        if not isinstance(terminal, Exception):
+            raise terminal
         raise TrustedTimeImageVerificationError(
             "trusted-time boot session identity is unavailable"
         ) from None
-    finally:
-        if file_owner is not None:
-            file_owner.close()
+    if encoded_uuid is None:
+        raise TrustedTimeImageVerificationError("trusted-time boot session identity is unavailable")
     return _canonical_boot_session_id("linux", encoded_uuid)
 
 
@@ -605,14 +831,9 @@ def _darwin_boot_session_id() -> str:
         raise TrustedTimeImageVerificationError(
             "trusted-time boot session identity is unavailable"
         ) from None
-    if (
-        completed.returncode != 0
-        or type(completed.stdout) is not bytes
-        or type(completed.stderr) is not bytes
-        or completed.stderr != b""
-    ):
+    if _bytes_process_returncode(completed) != 0 or _bytes_process_stderr(completed) != b"":
         raise TrustedTimeImageVerificationError("trusted-time boot session identity is unavailable")
-    return _canonical_boot_session_id("darwin", completed.stdout)
+    return _canonical_boot_session_id("darwin", _bytes_process_stdout(completed))
 
 
 def _current_boot_session_id() -> str:
@@ -641,6 +862,167 @@ class TrustedTimeImageIdentities:
             raise TrustedTimeImageVerificationError(
                 "trusted-time immutable image identities are malformed"
             )
+
+
+type _ResolvedTrustedTimeImageIds = tuple[str, str, str]
+
+type _VerifiedTrustedTimeImages = tuple[str, str, str, str]
+
+type _ImageInspectionProjection = tuple[
+    str,
+    str,
+    str,
+    tuple[str, ...] | None,
+    tuple[str, ...] | None,
+    tuple[str, ...] | None,
+    str,
+]
+
+
+def _make_resolved_image_ids(source_id: str, supervisor_id: str) -> _ResolvedTrustedTimeImageIds:
+    return ("resolved-trusted-time-image-ids-v1", source_id, supervisor_id)
+
+
+def _require_resolved_image_ids(value: object) -> _ResolvedTrustedTimeImageIds:
+    if type(value) is not tuple or len(value) != 3:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time immutable image identities are malformed"
+        )
+    tag = tuple.__getitem__(value, 0)
+    source_id = tuple.__getitem__(value, 1)
+    supervisor_id = tuple.__getitem__(value, 2)
+    if (
+        type(tag) is not str
+        or tag != "resolved-trusted-time-image-ids-v1"
+        or type(source_id) is not str
+        or type(supervisor_id) is not str
+        or _IMAGE_ID_PATTERN.fullmatch(source_id) is None
+        or _IMAGE_ID_PATTERN.fullmatch(supervisor_id) is None
+        or source_id == supervisor_id
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time immutable image identities are malformed"
+        )
+    return cast(_ResolvedTrustedTimeImageIds, value)
+
+
+def _make_verified_images(
+    source_id: str,
+    supervisor_id: str,
+    supervisor_manifest_sha256: str,
+) -> _VerifiedTrustedTimeImages:
+    return (
+        "verified-trusted-time-images-v1",
+        source_id,
+        supervisor_id,
+        supervisor_manifest_sha256,
+    )
+
+
+def _require_verified_images(value: object) -> _VerifiedTrustedTimeImages:
+    if type(value) is not tuple or len(value) != 4:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time immutable image identities are malformed"
+        )
+    tag = tuple.__getitem__(value, 0)
+    source_id = tuple.__getitem__(value, 1)
+    supervisor_id = tuple.__getitem__(value, 2)
+    manifest_sha256 = tuple.__getitem__(
+        value,
+        3,
+    )
+    if (
+        type(tag) is not str
+        or tag != "verified-trusted-time-images-v1"
+        or type(source_id) is not str
+        or type(supervisor_id) is not str
+        or type(manifest_sha256) is not str
+        or _IMAGE_ID_PATTERN.fullmatch(source_id) is None
+        or _IMAGE_ID_PATTERN.fullmatch(supervisor_id) is None
+        or source_id == supervisor_id
+        or _SHA256_PATTERN.fullmatch(manifest_sha256) is None
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time immutable image identities are malformed"
+        )
+    return cast(_VerifiedTrustedTimeImages, value)
+
+
+def _verified_image_source_id(value: object) -> str:
+    return tuple.__getitem__(_require_verified_images(value), 1)
+
+
+def _verified_image_supervisor_id(value: object) -> str:
+    return tuple.__getitem__(
+        _require_verified_images(value),
+        2,
+    )
+
+
+def _verified_image_manifest_sha256(value: object) -> str:
+    return tuple.__getitem__(
+        _require_verified_images(value),
+        3,
+    )
+
+
+def _make_image_inspection_projection(
+    *,
+    image_id: str,
+    user: str,
+    entrypoint: tuple[str, ...] | None,
+    command: tuple[str, ...] | None,
+    environment: tuple[str, ...] | None,
+    working_directory: str,
+) -> _ImageInspectionProjection:
+    return (
+        "trusted-time-image-inspection-projection-v1",
+        image_id,
+        user,
+        entrypoint,
+        command,
+        environment,
+        working_directory,
+    )
+
+
+def _require_image_inspection_projection(value: object) -> _ImageInspectionProjection:
+    if type(value) is not tuple or len(value) != 7:
+        raise TrustedTimeImageVerificationError("Docker image inspection is malformed")
+    tag = tuple.__getitem__(value, 0)
+    image_id = tuple.__getitem__(value, 1)
+    user = tuple.__getitem__(value, 2)
+    entrypoint = tuple.__getitem__(value, 3)
+    command = tuple.__getitem__(value, 4)
+    environment = tuple.__getitem__(value, 5)
+    working_directory = tuple.__getitem__(value, 6)
+    if (
+        type(tag) is not str
+        or tag != "trusted-time-image-inspection-projection-v1"
+        or type(image_id) is not str
+        or type(user) is not str
+        or (
+            entrypoint is not None
+            and (type(entrypoint) is not tuple or any(type(item) is not str for item in entrypoint))
+        )
+        or (
+            command is not None
+            and (type(command) is not tuple or any(type(item) is not str for item in command))
+        )
+        or (
+            environment is not None
+            and (
+                type(environment) is not tuple or any(type(item) is not str for item in environment)
+            )
+        )
+        or type(working_directory) is not str
+    ):
+        raise TrustedTimeImageVerificationError("Docker image inspection is malformed")
+    return cast(_ImageInspectionProjection, value)
+
+
+def _image_inspection_value(value: object, index: int) -> object:
+    return tuple.__getitem__(_require_image_inspection_projection(value), index)
 
 
 @dataclass(frozen=True, slots=True)
@@ -741,49 +1123,148 @@ class TrustedTimeImageAdmissionProvenance:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class _ReviewedInputBindings:
-    authority_sha256: str
-    chrony_config_sha256: str
-    compose_sha256: str
-    database_ca_sha256: str
-    dockerfile_sha256: str
-    migration_sha256: str
-    schema_revision: str
-    catalog_relations: tuple[str, ...]
-    source_revision_sha256: str
-    uv_lock_sha256: str
+type _ReviewedInputBindings = tuple[
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    tuple[str, ...],
+    str,
+    str,
+]
 
-    def payload(self) -> dict[str, object]:
-        return {
-            "authority_sha256": self.authority_sha256,
-            "chrony_config_sha256": self.chrony_config_sha256,
-            "compose_sha256": self.compose_sha256,
-            "database_ca_sha256": self.database_ca_sha256,
-            "dockerfile_sha256": self.dockerfile_sha256,
-            "migration_sha256": self.migration_sha256,
-            "schema_revision": self.schema_revision,
-            "catalog_relations": list(self.catalog_relations),
-            "source_revision_sha256": self.source_revision_sha256,
-            "uv_lock_sha256": self.uv_lock_sha256,
-        }
+
+def _make_reviewed_input_bindings(
+    *,
+    authority_sha256: str,
+    chrony_config_sha256: str,
+    compose_sha256: str,
+    database_ca_sha256: str,
+    dockerfile_sha256: str,
+    migration_sha256: str,
+    schema_revision: str,
+    catalog_relations: tuple[str, ...],
+    source_revision_sha256: str,
+    uv_lock_sha256: str,
+) -> _ReviewedInputBindings:
+    return (
+        "trusted-time-reviewed-input-bindings-v1",
+        authority_sha256,
+        chrony_config_sha256,
+        compose_sha256,
+        database_ca_sha256,
+        dockerfile_sha256,
+        migration_sha256,
+        schema_revision,
+        catalog_relations,
+        source_revision_sha256,
+        uv_lock_sha256,
+    )
+
+
+def _require_reviewed_input_bindings(value: object) -> _ReviewedInputBindings:
+    if type(value) is not tuple or len(value) != 11:
+        raise TrustedTimeImageVerificationError("trusted-time reviewed inputs are malformed")
+    tag = tuple.__getitem__(value, 0)
+    scalar_values = tuple(
+        tuple.__getitem__(value, index)
+        for index in (
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            9,
+            10,
+        )
+    )
+    catalog_relations = tuple.__getitem__(value, 8)
+    if (
+        type(tag) is not str
+        or tag != "trusted-time-reviewed-input-bindings-v1"
+        or any(type(item) is not str for item in scalar_values)
+        or type(catalog_relations) is not tuple
+        or any(type(item) is not str for item in catalog_relations)
+    ):
+        raise TrustedTimeImageVerificationError("trusted-time reviewed inputs are malformed")
+    return cast(_ReviewedInputBindings, value)
+
+
+def _reviewed_input_value(value: object, index: int) -> object:
+    return tuple.__getitem__(_require_reviewed_input_bindings(value), index)
+
+
+def _reviewed_input_payload(bindings: object) -> dict[str, object]:
+    exact = _require_reviewed_input_bindings(bindings)
+    return {
+        "authority_sha256": _reviewed_input_value(exact, 1),
+        "chrony_config_sha256": _reviewed_input_value(exact, 2),
+        "compose_sha256": _reviewed_input_value(exact, 3),
+        "database_ca_sha256": _reviewed_input_value(exact, 4),
+        "dockerfile_sha256": _reviewed_input_value(exact, 5),
+        "migration_sha256": _reviewed_input_value(exact, 6),
+        "schema_revision": _reviewed_input_value(exact, 7),
+        "catalog_relations": list(
+            cast(
+                tuple[str, ...],
+                _reviewed_input_value(exact, 8),
+            )
+        ),
+        "source_revision_sha256": _reviewed_input_value(exact, 9),
+        "uv_lock_sha256": _reviewed_input_value(exact, 10),
+    }
+
+
+def _immutable_reviewed_input_payload(bindings: _ReviewedInputBindings) -> tuple[object, ...]:
+    exact = _require_reviewed_input_bindings(bindings)
+    return _immutable_json_object(
+        (
+            ("authority_sha256", _reviewed_input_value(exact, 1)),
+            (
+                "catalog_relations",
+                _immutable_json_array(
+                    cast(
+                        tuple[str, ...],
+                        _reviewed_input_value(exact, 8),
+                    )
+                ),
+            ),
+            (
+                "chrony_config_sha256",
+                _reviewed_input_value(exact, 2),
+            ),
+            ("compose_sha256", _reviewed_input_value(exact, 3)),
+            (
+                "database_ca_sha256",
+                _reviewed_input_value(exact, 4),
+            ),
+            (
+                "dockerfile_sha256",
+                _reviewed_input_value(exact, 5),
+            ),
+            (
+                "migration_sha256",
+                _reviewed_input_value(exact, 6),
+            ),
+            ("schema_revision", _reviewed_input_value(exact, 7)),
+            (
+                "source_revision_sha256",
+                _reviewed_input_value(exact, 9),
+            ),
+            ("uv_lock_sha256", _reviewed_input_value(exact, 10)),
+        )
+    )
 
 
 def _mapping(value: object, field_name: str) -> Mapping[str, object]:
     if type(value) is not dict:
         raise TrustedTimeImageVerificationError(f"{field_name} must be an object")
-    return value
-
-
-def _string_sequence(value: object, field_name: str) -> Sequence[str]:
-    if type(value) is not list or any(type(item) is not str for item in value):
-        raise TrustedTimeImageVerificationError(f"{field_name} must be a string list")
-    return value
-
-
-def _sequence(value: object, field_name: str) -> Sequence[object]:
-    if type(value) is not list:
-        raise TrustedTimeImageVerificationError(f"{field_name} must be a list")
     return value
 
 
@@ -802,109 +1283,675 @@ def _canonical_json_bytes(value: object) -> bytes:
         ) from None
 
 
-def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, value in pairs:
-        if key in result:
+def _immutable_json_object(items: tuple[tuple[str, object], ...]) -> tuple[object, ...]:
+    return (0, items)
+
+
+def _immutable_json_array(items: tuple[object, ...]) -> tuple[object, ...]:
+    return (1, items)
+
+
+_MAXIMUM_IMMUTABLE_JSON_DEPTH = 64
+_MAXIMUM_IMMUTABLE_JSON_NODES = 100_000
+_JSON_HEXADECIMAL_DIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def _decode_immutable_json_text(
+    encoded: object,
+    *,
+    maximum_characters: int,
+    maximum_nodes: int,
+    label: str,
+) -> object:
+    """Decode bounded JSON directly into recursively immutable primitive nodes."""
+
+    if (
+        type(encoded) is not str
+        or type(maximum_characters) is not int
+        or maximum_characters <= 0
+        or type(maximum_nodes) is not int
+        or not 0 < maximum_nodes <= _MAXIMUM_IMMUTABLE_JSON_NODES
+        or not encoded
+        or len(encoded) > maximum_characters
+        or type(label) is not str
+        or not label
+    ):
+        raise TrustedTimeImageVerificationError(f"{label} returned malformed JSON")
+    text = encoded
+    length = len(text)
+
+    def fail() -> Never:
+        raise TrustedTimeImageVerificationError(f"{label} returned malformed JSON")
+
+    def skip_whitespace(index: int) -> int:
+        while index < length and text[index] in " \t\r\n":
+            index += 1
+        return index
+
+    def hexadecimal_value(index: int) -> int:
+        end = index + 4
+        token = text[index:end]
+        if len(token) != 4 or any(item not in _JSON_HEXADECIMAL_DIGITS for item in token):
+            fail()
+        return int(token, 16)
+
+    def parse_string(index: int) -> tuple[str, int]:
+        if index >= length or text[index] != '"':
+            fail()
+        index += 1
+        result = ""
+        segment_start = index
+        while index < length:
+            character = text[index]
+            ordinal = ord(character)
+            if character == '"':
+                segment = text[segment_start:index]
+                if any(0xD800 <= ord(item) <= 0xDFFF for item in segment):
+                    fail()
+                return result + segment, index + 1
+            if ordinal < 0x20:
+                fail()
+            if character != "\\":
+                if 0xD800 <= ordinal <= 0xDFFF:
+                    fail()
+                index += 1
+                continue
+            result += text[segment_start:index]
+            index += 1
+            if index >= length:
+                fail()
+            escaped = text[index]
+            escape_names = ('"', "/", "\\", "b", "f", "n", "r", "t")
+            escape_values = ('"', "/", "\\", "\b", "\f", "\n", "\r", "\t")
+            if escaped in escape_names:
+                result += escape_values[escape_names.index(escaped)]
+                index += 1
+                segment_start = index
+                continue
+            if escaped != "u":
+                fail()
+            code_point = hexadecimal_value(index + 1)
+            index += 5
+            if 0xD800 <= code_point <= 0xDBFF:
+                if index + 6 > length or text[index : index + 2] != "\\u":
+                    fail()
+                low_surrogate = hexadecimal_value(index + 2)
+                if not 0xDC00 <= low_surrogate <= 0xDFFF:
+                    fail()
+                code_point = 0x10000 + ((code_point - 0xD800) << 10) + (low_surrogate - 0xDC00)
+                index += 6
+            elif 0xDC00 <= code_point <= 0xDFFF:
+                fail()
+            result += chr(code_point)
+            segment_start = index
+        fail()
+
+    def parse_value(
+        index: int,
+        *,
+        depth: int,
+        remaining_nodes: int,
+    ) -> tuple[object, int, int]:
+        if depth > _MAXIMUM_IMMUTABLE_JSON_DEPTH or remaining_nodes <= 0:
+            fail()
+        index = skip_whitespace(index)
+        if index >= length:
+            fail()
+        character = text[index]
+        if character == '"':
+            value, final_index = parse_string(index)
+            return value, final_index, 1
+        if text.startswith("true", index):
+            return True, index + 4, 1
+        if text.startswith("false", index):
+            return False, index + 5, 1
+        if text.startswith("null", index):
+            return None, index + 4, 1
+        if character == "[":
+            array_items: tuple[object, ...] = ()
+            used_nodes = 1
+            index = skip_whitespace(index + 1)
+            if index < length and text[index] == "]":
+                return _immutable_json_array(array_items), index + 1, used_nodes
+            while True:
+                item, index, child_nodes = parse_value(
+                    index,
+                    depth=depth + 1,
+                    remaining_nodes=remaining_nodes - used_nodes,
+                )
+                array_items += (item,)
+                used_nodes += child_nodes
+                index = skip_whitespace(index)
+                if index >= length:
+                    fail()
+                if text[index] == "]":
+                    return _immutable_json_array(array_items), index + 1, used_nodes
+                if text[index] != ",":
+                    fail()
+                index = skip_whitespace(index + 1)
+        if character == "{":
+            object_items: tuple[tuple[str, object], ...] = ()
+            used_nodes = 1
+            index = skip_whitespace(index + 1)
+            if index < length and text[index] == "}":
+                return _immutable_json_object(object_items), index + 1, used_nodes
+            while True:
+                key, index = parse_string(index)
+                if any(existing == key for existing, _ in object_items):
+                    fail()
+                used_nodes += 1
+                if used_nodes >= remaining_nodes:
+                    fail()
+                index = skip_whitespace(index)
+                if index >= length or text[index] != ":":
+                    fail()
+                parsed_value, index, child_nodes = parse_value(
+                    index + 1,
+                    depth=depth + 1,
+                    remaining_nodes=remaining_nodes - used_nodes,
+                )
+                object_items += ((key, parsed_value),)
+                used_nodes += child_nodes
+                index = skip_whitespace(index)
+                if index >= length:
+                    fail()
+                if text[index] == "}":
+                    return _immutable_json_object(object_items), index + 1, used_nodes
+                if text[index] != ",":
+                    fail()
+                index = skip_whitespace(index + 1)
+        number_start = index
+        if character == "-":
+            index += 1
+            if index >= length:
+                fail()
+        if index < length and text[index] == "0":
+            index += 1
+            if index < length and text[index].isdigit():
+                fail()
+        elif index < length and "1" <= text[index] <= "9":
+            index += 1
+            while index < length and text[index].isdigit():
+                index += 1
+        else:
+            fail()
+        if index < length and text[index] in ".eE":
+            fail()
+        token = text[number_start:index]
+        if len(token) > 20:
+            fail()
+        integer_value = int(token)
+        if not -(2**63) <= integer_value <= 2**63 - 1:
+            fail()
+        return integer_value, index, 1
+
+    value, final_index, used_nodes = parse_value(
+        0,
+        depth=0,
+        remaining_nodes=maximum_nodes,
+    )
+    if used_nodes > maximum_nodes or skip_whitespace(final_index) != length:
+        fail()
+    return value
+
+
+def _immutable_json_object_items(value: object, *, label: str) -> tuple[tuple[str, object], ...]:
+    tag = tuple.__getitem__(value, 0) if type(value) is tuple and len(value) == 2 else None
+    if (
+        type(value) is not tuple
+        or len(value) != 2
+        or type(tag) is not int
+        or tag != 0
+        or type(tuple.__getitem__(value, 1)) is not tuple
+    ):
+        raise TrustedTimeImageVerificationError(f"{label} must be an object")
+    items = cast(tuple[tuple[str, object], ...], tuple.__getitem__(value, 1))
+    if type(items) is not tuple or any(type(item) is not tuple or len(item) != 2 for item in items):
+        raise TrustedTimeImageVerificationError(f"{label} must be an object")
+    keys = tuple(tuple.__getitem__(item, 0) for item in items)
+    if any(type(key) is not str for key in keys) or len(frozenset(keys)) != len(keys):
+        raise TrustedTimeImageVerificationError(f"{label} must be an object")
+    return items
+
+
+def _immutable_json_object_keys(value: object, *, label: str) -> frozenset[str]:
+    return frozenset(key for key, _ in _immutable_json_object_items(value, label=label))
+
+
+def _immutable_json_object_value(value: object, key: str, *, label: str) -> object:
+    items = _immutable_json_object_items(value, label=label)
+    matches = tuple(item for item_key, item in items if item_key == key)
+    if len(matches) != 1:
+        raise TrustedTimeImageVerificationError(f"{label} lacks exact field {key}")
+    return matches[0]
+
+
+def _immutable_json_array_items(value: object, *, label: str) -> tuple[object, ...]:
+    tag = tuple.__getitem__(value, 0) if type(value) is tuple and len(value) == 2 else None
+    if (
+        type(value) is not tuple
+        or len(value) != 2
+        or type(tag) is not int
+        or tag != 1
+        or type(tuple.__getitem__(value, 1)) is not tuple
+    ):
+        raise TrustedTimeImageVerificationError(f"{label} must be an array")
+    return cast(tuple[object, ...], tuple.__getitem__(value, 1))
+
+
+def _canonical_immutable_json_bytes(value: object) -> bytes:
+    if value is None:
+        return b"null"
+    if type(value) is bool:
+        return b"true" if value else b"false"
+    if type(value) is int:
+        return str(value).encode("ascii")
+    if type(value) is str:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    if (
+        type(value) is tuple
+        and len(value) == 2
+        and type(tuple.__getitem__(value, 0)) is int
+        and tuple.__getitem__(value, 0) == 1
+        and type(tuple.__getitem__(value, 1)) is tuple
+    ):
+        encoded = b"["
+        separator = b""
+        for item in cast(tuple[object, ...], tuple.__getitem__(value, 1)):
+            encoded += separator + _canonical_immutable_json_bytes(item)
+            separator = b","
+        return encoded + b"]"
+    if (
+        type(value) is tuple
+        and len(value) == 2
+        and type(tuple.__getitem__(value, 0)) is int
+        and tuple.__getitem__(value, 0) == 0
+        and type(tuple.__getitem__(value, 1)) is tuple
+    ):
+        items = _immutable_json_object_items(
+            value,
+            label="trusted-time image admission artifact",
+        )
+        keys = tuple(cast(str, tuple.__getitem__(item, 0)) for item in items)
+        if any(keys[index] >= keys[index + 1] for index in range(len(keys) - 1)) or any(
+            type(key) is not str for key in keys
+        ):
             raise TrustedTimeImageVerificationError(
                 "trusted-time image admission artifact is malformed"
             )
-        result[key] = value
+        encoded = b"{"
+        separator = b""
+        for pair in items:
+            key = cast(str, tuple.__getitem__(pair, 0))
+            item = tuple.__getitem__(pair, 1)
+            encoded += (
+                separator
+                + _canonical_immutable_json_bytes(key)
+                + b":"
+                + _canonical_immutable_json_bytes(item)
+            )
+            separator = b","
+        return encoded + b"}"
+    raise TrustedTimeImageVerificationError("trusted-time image admission artifact is malformed")
+
+
+def _exact_relative_components(relative_path: str) -> tuple[str, ...]:
+    if (
+        type(relative_path) is not str
+        or not relative_path
+        or relative_path.startswith("/")
+        or os.path.normpath(relative_path) != relative_path
+        or "\x00" in relative_path
+    ):
+        raise TrustedTimeImageVerificationError("trusted-time reviewed input is unavailable")
+    components = tuple(relative_path.split("/"))
+    if any(
+        not component
+        or component in {".", ".."}
+        or "/" in component
+        or "\x00" in component
+        or len(os.fsencode(component)) > 255
+        for component in components
+    ):
+        raise TrustedTimeImageVerificationError("trusted-time reviewed input is unavailable")
+    return components
+
+
+def _exact_repository_root_components() -> tuple[str, tuple[str, ...]]:
+    if type(ROOT) is not type(Path()):
+        raise TrustedTimeImageVerificationError("trusted-time reviewed input is unavailable")
+    root = os.fspath(ROOT)
+    if (
+        type(root) is not str
+        or not os.path.isabs(root)
+        or os.path.abspath(root) != root
+        or os.path.normpath(root) != root
+        or "\x00" in root
+    ):
+        raise TrustedTimeImageVerificationError("trusted-time reviewed input is unavailable")
+    components = tuple(root.split(os.sep))[1:]
+    if not components or any(
+        not component
+        or component in {".", ".."}
+        or os.sep in component
+        or "\x00" in component
+        or len(os.fsencode(component)) > 255
+        for component in components
+    ):
+        raise TrustedTimeImageVerificationError("trusted-time reviewed input is unavailable")
+    return root, components
+
+
+def _native_reviewed_file_bytes(
+    relative_path: str,
+    *,
+    required_mode: int | None = None,
+) -> bytes:
+    """Read one reviewed file as exact bytes without exposing its native owner."""
+
+    root, root_components = _exact_repository_root_components()
+    relative_components = _exact_relative_components(relative_path)
+    directory_components = (*root_components, *relative_components[:-1])
+    directory_owner: _NativeOwnedFileDescriptor | None = None
+    next_directory_owner: _NativeOwnedFileDescriptor | None = None
+    file_owner: _NativeOwnedFileDescriptor | None = None
+    result: bytes | None = None
+    body_error: BaseException | None = None
+    transition_error: BaseException | None = None
+    cleanup_error: BaseException | None = None
+    retry_error: BaseException | None = None
+    try:
+        try:
+            directory_owner = _native_open_root_directory()
+            for component in directory_components:
+                next_directory_owner = _native_open_child_directory(
+                    directory_owner,
+                    component,
+                )
+                metadata = _native_fstat(next_directory_owner)
+                if not stat.S_ISDIR(metadata[2]):
+                    raise OSError
+                intermediate_error = _cleanup_native_owned_descriptors((directory_owner,))
+                if intermediate_error is not None:
+                    raise intermediate_error
+                directory_owner = next_directory_owner
+                next_directory_owner = None
+            directory_before = _native_fstat(directory_owner)
+            file_name = relative_components[-1]
+            file_owner = _native_open_child_regular(directory_owner, file_name)
+            before = _native_fstat(file_owner)
+            named_before = _native_statat(directory_owner, file_name)
+            if (
+                before != named_before
+                or not stat.S_ISREG(before[2])
+                or before[5] != 1
+                or before[6] < 0
+                or before[6] > _MAXIMUM_REVIEWED_INPUT_BYTES
+                or (required_mode is not None and stat.S_IMODE(before[2]) != required_mode)
+            ):
+                raise OSError
+            encoded, read_before, read_after = _native_read_snapshot(
+                file_owner,
+                _MAXIMUM_REVIEWED_INPUT_BYTES,
+            )
+            final = _native_fstat(file_owner)
+            named_final = _native_statat(directory_owner, file_name)
+            directory_final = _native_fstat(directory_owner)
+            if (
+                read_before != before
+                or read_after != before
+                or final != before
+                or named_final != before
+                or directory_final != directory_before
+                or len(encoded) != before[6]
+                or os.fspath(ROOT) != root
+            ):
+                raise OSError
+            result = encoded
+        except BaseException as error:
+            body_error = error
+        finally:
+            cleanup_error = _cleanup_native_owned_descriptors(
+                (file_owner, next_directory_owner, directory_owner)
+            )
+    except BaseException as error:
+        transition_error = error
+    finally:
+        retry_error = _cleanup_native_owned_descriptors(
+            (file_owner, next_directory_owner, directory_owner)
+        )
+    terminal = _preferred_cleanup_exceptions(
+        body_error,
+        transition_error,
+        cleanup_error,
+        retry_error,
+    )
+    if terminal is not None:
+        if not isinstance(terminal, Exception):
+            raise terminal
+        raise TrustedTimeImageVerificationError(
+            "trusted-time reviewed inputs are unavailable"
+        ) from None
+    if result is None:
+        raise TrustedTimeImageVerificationError("trusted-time reviewed input is unavailable")
     return result
 
 
 def _stable_file_sha256(path: Path) -> str:
-    file_owner: _OwnedFileDescriptor | None = None
+    if type(path) is not type(Path()):
+        raise TrustedTimeImageVerificationError("trusted-time reviewed input is unavailable")
+    root, _ = _exact_repository_root_components()
+    raw = os.fspath(path)
+    root_boundary = root if root.endswith(os.sep) else root + os.sep
+    if type(raw) is not str or not raw.startswith(root_boundary):
+        raise TrustedTimeImageVerificationError("trusted-time reviewed input is unavailable")
+    relative = raw[len(root_boundary) :]
+    return hashlib.sha256(_native_reviewed_file_bytes(relative)).hexdigest()
+
+
+_IGNORED_REVIEWED_DIRECTORY_NAMES = frozenset(
+    {
+        ".hypothesis",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".venv",
+        "__pycache__",
+        "node_modules",
+    }
+)
+
+
+def _ignore_reviewed_file_name(name: str) -> bool:
+    return (
+        name.endswith(".pyc")
+        or name == ".DS_Store"
+        or name == ".env"
+        or (name.startswith(".env.") and name != ".env.example")
+    )
+
+
+def _native_reviewed_directory_inventory(
+    directory_owner: _NativeOwnedFileDescriptor,
+    *,
+    relative_directory: str,
+    depth: int,
+) -> tuple[str, ...]:
+    if type(depth) is not int or depth < 0 or depth > 64:
+        raise TrustedTimeImageVerificationError("trusted-time reviewed input is unavailable")
+    names, directory_before, directory_after = _native_list_snapshot(directory_owner)
+    if (
+        directory_before != directory_after
+        or directory_before != _native_fstat(directory_owner)
+        or not stat.S_ISDIR(directory_before[2])
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time reviewed input changed during admission"
+        )
+    result: tuple[str, ...] = ()
+    for name in names:
+        relative = f"{relative_directory}/{name}"
+        named_before = _native_statat(directory_owner, name)
+        if stat.S_ISDIR(named_before[2]):
+            if name in _IGNORED_REVIEWED_DIRECTORY_NAMES:
+                continue
+            child_owner: _NativeOwnedFileDescriptor | None = None
+            body_error: BaseException | None = None
+            transition_error: BaseException | None = None
+            cleanup_error: BaseException | None = None
+            retry_error: BaseException | None = None
+            nested: tuple[str, ...] | None = None
+            try:
+                try:
+                    child_owner = _native_open_child_directory(directory_owner, name)
+                    if _native_fstat(child_owner) != named_before:
+                        raise OSError
+                    nested = _native_reviewed_directory_inventory(
+                        child_owner,
+                        relative_directory=relative,
+                        depth=depth + 1,
+                    )
+                    if (
+                        _native_fstat(child_owner) != named_before
+                        or _native_statat(directory_owner, name) != named_before
+                    ):
+                        raise OSError
+                except BaseException as error:
+                    body_error = error
+                finally:
+                    cleanup_error = _cleanup_native_owned_descriptors((child_owner,))
+            except BaseException as error:
+                transition_error = error
+            finally:
+                retry_error = _cleanup_native_owned_descriptors((child_owner,))
+            terminal = _preferred_cleanup_exceptions(
+                body_error,
+                transition_error,
+                cleanup_error,
+                retry_error,
+            )
+            if terminal is not None:
+                if not isinstance(terminal, Exception):
+                    raise terminal
+                raise TrustedTimeImageVerificationError(
+                    "trusted-time reviewed input is unavailable"
+                ) from None
+            if nested is None:
+                raise TrustedTimeImageVerificationError(
+                    "trusted-time reviewed input is unavailable"
+                )
+            result += nested
+        elif stat.S_ISREG(named_before[2]):
+            if not _ignore_reviewed_file_name(name):
+                result += (relative,)
+        else:
+            raise TrustedTimeImageVerificationError(
+                "trusted-time reviewed input cannot contain a symlink"
+            )
+    final_names, final_before, final_after = _native_list_snapshot(directory_owner)
+    if (
+        final_names != names
+        or final_before != directory_before
+        or final_after != directory_before
+        or _native_fstat(directory_owner) != directory_before
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time reviewed input changed during admission"
+        )
+    return result
+
+
+def _native_reviewed_inventory(relative_directory: str) -> tuple[str, ...]:
+    _, root_components = _exact_repository_root_components()
+    relative_components = _exact_relative_components(relative_directory)
+    directory_owner: _NativeOwnedFileDescriptor | None = None
+    next_directory_owner: _NativeOwnedFileDescriptor | None = None
+    result: tuple[str, ...] | None = None
+    body_error: BaseException | None = None
+    transition_error: BaseException | None = None
+    cleanup_error: BaseException | None = None
+    retry_error: BaseException | None = None
     try:
-        if path.resolve(strict=True) != path:
-            raise OSError
-        file_owner = _open_owned_file(path)
-        descriptor = file_owner.fileno()
-    except OSError:
+        try:
+            directory_owner = _native_open_root_directory()
+            for component in (*root_components, *relative_components):
+                next_directory_owner = _native_open_child_directory(
+                    directory_owner,
+                    component,
+                )
+                if not stat.S_ISDIR(_native_fstat(next_directory_owner)[2]):
+                    raise OSError
+                intermediate_error = _cleanup_native_owned_descriptors((directory_owner,))
+                if intermediate_error is not None:
+                    raise intermediate_error
+                directory_owner = next_directory_owner
+                next_directory_owner = None
+            result = _native_reviewed_directory_inventory(
+                directory_owner,
+                relative_directory=relative_directory,
+                depth=0,
+            )
+        except BaseException as error:
+            body_error = error
+        finally:
+            cleanup_error = _cleanup_native_owned_descriptors(
+                (next_directory_owner, directory_owner)
+            )
+    except BaseException as error:
+        transition_error = error
+    finally:
+        retry_error = _cleanup_native_owned_descriptors((next_directory_owner, directory_owner))
+    terminal = _preferred_cleanup_exceptions(
+        body_error,
+        transition_error,
+        cleanup_error,
+        retry_error,
+    )
+    if terminal is not None:
+        if not isinstance(terminal, Exception):
+            raise terminal
         raise TrustedTimeImageVerificationError(
             "trusted-time reviewed input is unavailable"
         ) from None
-    try:
-        before = os.fstat(descriptor)
-        if not stat.S_ISREG(before.st_mode) or before.st_size < 0:
-            raise TrustedTimeImageVerificationError("trusted-time reviewed input is unavailable")
-        digest = hashlib.sha256()
-        observed = 0
-        while True:
-            chunk = os.read(descriptor, 65_536)
-            if not chunk:
-                break
-            observed += len(chunk)
-            digest.update(chunk)
-        after = os.fstat(descriptor)
-        if (
-            observed != before.st_size
-            or before.st_dev != after.st_dev
-            or before.st_ino != after.st_ino
-            or before.st_size != after.st_size
-            or before.st_mtime_ns != after.st_mtime_ns
-        ):
-            raise TrustedTimeImageVerificationError(
-                "trusted-time reviewed input changed during admission"
-            )
-        return digest.hexdigest()
-    finally:
-        if file_owner is not None:
-            file_owner.close()
+    if result is None:
+        raise TrustedTimeImageVerificationError("trusted-time reviewed input is unavailable")
+    return result
+
+
+def _reviewed_input_relative_paths() -> tuple[str, ...]:
+    observed = tuple(_REVIEWED_FIXED_RELATIVE_PATHS)
+    for relative in observed:
+        _exact_relative_components(relative)
+    for relative_directory in _REVIEWED_DIRECTORY_RELATIVE_PATHS:
+        _exact_relative_components(relative_directory)
+        observed += _native_reviewed_inventory(relative_directory)
+    exact = tuple(sorted(frozenset(observed)))
+    if not exact:
+        raise TrustedTimeImageVerificationError("trusted-time reviewed input is unavailable")
+    return exact
 
 
 def _reviewed_input_paths() -> tuple[Path, ...]:
-    fixed = {ROOT / relative for relative in _REVIEWED_FIXED_RELATIVE_PATHS}
-    for relative_directory in _REVIEWED_DIRECTORY_RELATIVE_PATHS:
-        directory = ROOT / relative_directory
-        try:
-            candidates = tuple(directory.rglob("*"))
-        except OSError:
-            raise TrustedTimeImageVerificationError(
-                "trusted-time reviewed input is unavailable"
-            ) from None
-        for candidate in candidates:
-            relative_parts = candidate.relative_to(ROOT).parts
-            if (
-                "__pycache__" in relative_parts
-                or candidate.suffix == ".pyc"
-                or candidate.name == ".DS_Store"
-                or candidate.name == ".env"
-                or (candidate.name.startswith(".env.") and candidate.name != ".env.example")
-                or any(
-                    part
-                    in {
-                        ".hypothesis",
-                        ".mypy_cache",
-                        ".pytest_cache",
-                        ".ruff_cache",
-                        ".venv",
-                        "node_modules",
-                    }
-                    for part in relative_parts
-                )
-            ):
-                continue
-            if candidate.is_symlink():
-                raise TrustedTimeImageVerificationError(
-                    "trusted-time reviewed input cannot contain a symlink"
-                )
-            if candidate.is_file():
-                fixed.add(candidate)
-    return tuple(sorted(fixed, key=lambda item: item.relative_to(ROOT).as_posix()))
+    """Return non-authoritative display paths for tests and Git comparison."""
+
+    return tuple(ROOT / relative for relative in _reviewed_input_relative_paths())
 
 
 def reviewed_input_bindings() -> _ReviewedInputBindings:
     """Hash every reviewed input that can affect this admission boundary."""
 
     entries: list[dict[str, str]] = []
-    hashes: dict[Path, str] = {}
-    for path in _reviewed_input_paths():
-        digest = _stable_file_sha256(path)
-        hashes[path] = digest
+    hashes: dict[str, str] = {}
+    for relative in _reviewed_input_relative_paths():
+        digest = hashlib.sha256(_native_reviewed_file_bytes(relative)).hexdigest()
+        hashes[relative] = digest
         entries.append(
             {
-                "path": path.relative_to(ROOT).as_posix(),
+                "path": relative,
                 "sha256": digest,
             }
         )
@@ -916,19 +1963,17 @@ def reviewed_input_bindings() -> _ReviewedInputBindings:
             }
         )
     ).hexdigest()
-    return _ReviewedInputBindings(
-        authority_sha256=hashes[ROOT / "infra" / "trusted-time" / "source-authority.json"],
-        chrony_config_sha256=hashes[ROOT / "infra" / "trusted-time" / "chrony.conf"],
-        compose_sha256=hashes[ROOT / "infra" / "compose" / "trusted-time.compose.yaml"],
-        database_ca_sha256=hashes[
-            ROOT / "packages" / "persistence" / "certs" / "supabase-prod-ca-2021.crt"
-        ],
-        dockerfile_sha256=hashes[ROOT / "infra" / "docker" / "trusted-time.Dockerfile"],
-        migration_sha256=hashes[MIGRATION_PATH],
+    return _make_reviewed_input_bindings(
+        authority_sha256=hashes["infra/trusted-time/source-authority.json"],
+        chrony_config_sha256=hashes["infra/trusted-time/chrony.conf"],
+        compose_sha256=hashes["infra/compose/trusted-time.compose.yaml"],
+        database_ca_sha256=hashes["packages/persistence/certs/supabase-prod-ca-2021.crt"],
+        dockerfile_sha256=hashes["infra/docker/trusted-time.Dockerfile"],
+        migration_sha256=hashes["migrations/versions/0036_phase6_trusted_time_head_anchors.py"],
         schema_revision=EXPECTED_SCHEMA_REVISION,
         catalog_relations=EXPECTED_CATALOG_RELATIONS,
         source_revision_sha256=source_revision_sha256,
-        uv_lock_sha256=hashes[ROOT / "uv.lock"],
+        uv_lock_sha256=hashes["uv.lock"],
     )
 
 
@@ -952,6 +1997,48 @@ def _absolute_artifact_path(path: Path, *, ignored_root: Path) -> tuple[Path, Pa
             "trusted-time image admission artifact path is invalid"
         )
     return absolute, root
+
+
+def _absolute_artifact_path_strings(
+    path: object,
+    *,
+    ignored_root: object,
+) -> tuple[str, str]:
+    """Return exact primitive artifact/root paths for private authority seams."""
+
+    if type(path) is not type(Path()) or type(ignored_root) is not type(Path()):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact path is invalid"
+        )
+    try:
+        raw_path = os.fspath(path)
+        raw_root = os.fspath(ignored_root)
+        absolute = os.path.abspath(raw_path)
+        root = os.path.abspath(raw_root)
+    except (OSError, TypeError, ValueError):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact path is invalid"
+        ) from None
+    root_boundary = root if root.endswith(os.sep) else root + os.sep
+    if (
+        type(raw_path) is not str
+        or type(raw_root) is not str
+        or not os.path.isabs(raw_path)
+        or absolute != raw_path
+        or os.path.normpath(raw_path) != raw_path
+        or not os.path.isabs(raw_root)
+        or root != raw_root
+        or os.path.normpath(raw_root) != raw_root
+        or raw_path == raw_root
+        or not raw_path.startswith(root_boundary)
+        or os.path.basename(raw_path) in {"", ".", ".."}
+        or "\x00" in raw_path
+        or "\x00" in raw_root
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact path is invalid"
+        )
+    return raw_path, raw_root
 
 
 def _open_owner_only_artifact_directory(
@@ -1394,6 +2481,7 @@ def _admission_payload(
     identities: TrustedTimeImageIdentities,
     bindings: _ReviewedInputBindings,
     *,
+    supervisor_executable_import_manifest_sha256: str,
     boot_session_id: str,
     git_revision: str,
     created_at_utc: str,
@@ -1410,8 +2498,11 @@ def _admission_payload(
         "images": {
             "source_id": identities.source_id,
             "supervisor_id": identities.supervisor_id,
+            "supervisor_executable_import_manifest_sha256": (
+                supervisor_executable_import_manifest_sha256
+            ),
         },
-        "inputs": bindings.payload(),
+        "inputs": _reviewed_input_payload(bindings),
         "new_exposure_authorized": False,
         "service": "trusted-time-image-admission",
         "status": "admitted",
@@ -1423,6 +2514,7 @@ def write_image_admission_artifact(
     identities: TrustedTimeImageIdentities,
     *,
     git_revision: str,
+    supervisor_executable_import_manifest_sha256: str,
     bindings: _ReviewedInputBindings | None = None,
     ignored_root: Path = IGNORED_ARTIFACT_ROOT,
     utc_now: datetime | None = None,
@@ -1438,10 +2530,21 @@ def write_image_admission_artifact(
         raise TrustedTimeImageVerificationError(
             "trusted-time image admission Git revision is invalid"
         )
+    if (
+        type(supervisor_executable_import_manifest_sha256) is not str
+        or _SHA256_PATTERN.fullmatch(supervisor_executable_import_manifest_sha256) is None
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time supervisor executable/import manifest identity is invalid"
+        )
     absolute, _ = _absolute_artifact_path(path, ignored_root=ignored_root)
     reviewed = reviewed_input_bindings() if bindings is None else bindings
-    if type(reviewed) is not _ReviewedInputBindings:
-        raise TrustedTimeImageVerificationError("trusted-time image admission inputs are invalid")
+    try:
+        reviewed = _require_reviewed_input_bindings(reviewed)
+    except TrustedTimeImageVerificationError:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission inputs are invalid"
+        ) from None
     observed_boot_session = _current_boot_session_id()
     observed_utc = datetime.now(UTC) if utc_now is None else utc_now
     observed_monotonic = _suspend_aware_monotonic_ns() if monotonic_ns is None else monotonic_ns
@@ -1462,6 +2565,9 @@ def write_image_admission_artifact(
         _admission_payload(
             identities,
             reviewed,
+            supervisor_executable_import_manifest_sha256=(
+                supervisor_executable_import_manifest_sha256
+            ),
             boot_session_id=observed_boot_session,
             git_revision=git_revision,
             created_at_utc=created_at,
@@ -1555,16 +2661,24 @@ def write_image_admission_artifact(
         raise TrustedTimeImageVerificationError(
             "trusted-time reviewed input changed during admission"
         )
-    admission = load_image_admission_artifact(
+    admission, admission_snapshot = _load_current_image_admission_with_snapshot(
         absolute,
         ignored_root=ignored_root,
         monotonic_ns=observed_monotonic,
     )
+    admission_snapshot = _require_current_admission_snapshot(admission_snapshot)
     if (
-        admission.identities != identities
-        or admission.boot_session_id != observed_boot_session
-        or admission.git_revision != git_revision
-        or admission.source_revision_sha256 != reviewed.source_revision_sha256
+        _current_admission_snapshot_value(admission_snapshot, 4) != identities.source_id
+        or _current_admission_snapshot_value(admission_snapshot, 5) != identities.supervisor_id
+        or _current_admission_snapshot_value(admission_snapshot, 6) != observed_boot_session
+        or _current_admission_snapshot_value(admission_snapshot, 7) != git_revision
+        or _current_admission_snapshot_value(admission_snapshot, 8)
+        != _reviewed_input_value(reviewed, 9)
+        or _current_admission_snapshot_value(
+            admission_snapshot,
+            9,
+        )
+        != supervisor_executable_import_manifest_sha256
     ):
         raise TrustedTimeImageVerificationError(
             "trusted-time image admission artifact changed during creation"
@@ -1599,6 +2713,7 @@ def _decode_structural_admission_payload(
     images = _mapping(root.get("images"), "trusted-time image admission images")
     inputs = _mapping(root.get("inputs"), "trusted-time image admission inputs")
     expected_inputs = reviewed_input_bindings()
+    expected_inputs_payload = _reviewed_input_payload(expected_inputs)
     if (
         root.get("authority_granted") is not False
         or root.get("contract_version") != IMAGE_ADMISSION_CONTRACT_VERSION
@@ -1606,9 +2721,14 @@ def _decode_structural_admission_payload(
         or root.get("new_exposure_authorized") is not False
         or root.get("service") != "trusted-time-image-admission"
         or root.get("status") != "admitted"
-        or set(images) != {"source_id", "supervisor_id"}
-        or set(inputs) != set(expected_inputs.payload())
-        or inputs != expected_inputs.payload()
+        or set(images)
+        != {
+            "source_id",
+            "supervisor_executable_import_manifest_sha256",
+            "supervisor_id",
+        }
+        or set(inputs) != set(expected_inputs_payload)
+        or inputs != expected_inputs_payload
     ):
         raise TrustedTimeImageVerificationError(
             "trusted-time image admission artifact is malformed"
@@ -1617,6 +2737,7 @@ def _decode_structural_admission_payload(
     created_monotonic = root.get("created_monotonic_ns")
     artifact_boot_session = root.get("boot_session_id")
     git_revision = root.get("git_revision")
+    supervisor_manifest_sha256 = images.get("supervisor_executable_import_manifest_sha256")
     if (
         type(created_at) is not str
         or _CREATED_AT_PATTERN.fullmatch(created_at) is None
@@ -1626,6 +2747,8 @@ def _decode_structural_admission_payload(
         or artifact_boot_session.partition(":")[2].replace("-", "") == "0" * 32
         or type(git_revision) is not str
         or _GIT_REVISION_PATTERN.fullmatch(git_revision) is None
+        or type(supervisor_manifest_sha256) is not str
+        or _SHA256_PATTERN.fullmatch(supervisor_manifest_sha256) is None
     ):
         raise TrustedTimeImageVerificationError(
             "trusted-time image admission artifact is malformed"
@@ -1656,7 +2779,13 @@ def _decode_structural_admission_payload(
         ),
         boot_session_id=artifact_boot_session,
         git_revision=git_revision,
-        source_revision_sha256=expected_inputs.source_revision_sha256,
+        source_revision_sha256=cast(
+            str,
+            _reviewed_input_value(
+                expected_inputs,
+                9,
+            ),
+        ),
         artifact_sha256=artifact_sha256,
         created_at_utc=created_at,
         created_monotonic_ns=created_monotonic,
@@ -1711,72 +2840,617 @@ def _stable_image_admission_file_identity(metadata: os.stat_result) -> tuple[int
 
 
 def _read_exact_image_admission_archive(
-    path: Path,
+    path: str,
     *,
-    ignored_root: Path,
-) -> tuple[bytes, tuple[int, ...]]:
-    absolute, _ = _absolute_artifact_path(path, ignored_root=ignored_root)
-    directory_owner: _OwnedFileDescriptor | None = None
-    file_owner: _OwnedFileDescriptor | None = None
+    ignored_root: str,
+) -> tuple[bytes, tuple[int, ...], tuple[int, ...]]:
+    if (
+        type(path) is not str
+        or type(ignored_root) is not str
+        or not os.path.isabs(path)
+        or os.path.abspath(path) != path
+        or os.path.normpath(path) != path
+        or not os.path.isabs(ignored_root)
+        or os.path.abspath(ignored_root) != ignored_root
+        or os.path.normpath(ignored_root) != ignored_root
+        or not path.startswith(
+            ignored_root if ignored_root.endswith(os.sep) else ignored_root + os.sep
+        )
+        or os.path.basename(path) in {"", ".", ".."}
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance is unavailable"
+        )
+    parent = os.path.dirname(path)
+    parent_components = tuple(parent.split(os.sep))[1:]
+    ignored_root_components = tuple(ignored_root.split(os.sep))[1:]
+    if parent_components[: len(ignored_root_components)] != ignored_root_components or any(
+        not component
+        or component in {".", ".."}
+        or os.sep in component
+        or "\x00" in component
+        or len(os.fsencode(component)) > 255
+        for component in parent_components
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance is unavailable"
+        )
+    directory_owner: _NativeOwnedFileDescriptor | None = None
+    next_directory_owner: _NativeOwnedFileDescriptor | None = None
+    file_owner: _NativeOwnedFileDescriptor | None = None
+    result: tuple[bytes, tuple[int, ...], tuple[int, ...]] | None = None
+    body_error: BaseException | None = None
+    transition_error: BaseException | None = None
+    cleanup_error: BaseException | None = None
+    retry_error: BaseException | None = None
     try:
-        directory_owner = _open_owner_only_artifact_directory(
-            absolute.parent,
-            ignored_root=ignored_root,
-            create=False,
+        try:
+            directory_owner = _native_open_root_directory()
+            for index, component in enumerate(parent_components, start=1):
+                next_directory_owner = _native_open_child_directory(
+                    directory_owner,
+                    component,
+                )
+                component_metadata = _native_fstat(next_directory_owner)
+                if index >= len(ignored_root_components) and (
+                    not stat.S_ISDIR(component_metadata[2])
+                    or component_metadata[3] != os.geteuid()
+                    or stat.S_IMODE(component_metadata[2]) != 0o700
+                ):
+                    raise OSError
+                intermediate_error = _cleanup_native_owned_descriptors((directory_owner,))
+                if intermediate_error is not None:
+                    raise intermediate_error
+                directory_owner = next_directory_owner
+                next_directory_owner = None
+            directory_before = _native_fstat(directory_owner)
+            file_name = os.path.basename(path)
+            file_owner = _native_open_child_regular(directory_owner, file_name)
+            before = _native_fstat(file_owner)
+            named_before = _native_statat(directory_owner, file_name)
+            if (
+                before != named_before
+                or not stat.S_ISREG(before[2])
+                or before[3] != os.geteuid()
+                or stat.S_IMODE(before[2]) != 0o600
+                or before[5] != 1
+                or before[6] <= 0
+                or before[6] > MAXIMUM_IMAGE_ADMISSION_BYTES
+            ):
+                raise OSError
+            encoded, read_before, read_after = _native_read_snapshot(
+                file_owner,
+                MAXIMUM_IMAGE_ADMISSION_BYTES,
+            )
+            final = _native_fstat(file_owner)
+            named_final = _native_statat(directory_owner, file_name)
+            directory_final = _native_fstat(directory_owner)
+            if (
+                read_before != before
+                or read_after != before
+                or final != before
+                or named_final != before
+                or directory_final != directory_before
+                or len(encoded) != before[6]
+            ):
+                raise OSError
+            result = (encoded, directory_final, final)
+        except BaseException as error:
+            body_error = error
+        finally:
+            cleanup_error = _cleanup_native_owned_descriptors(
+                (file_owner, next_directory_owner, directory_owner)
+            )
+    except BaseException as error:
+        transition_error = error
+    finally:
+        retry_error = _cleanup_native_owned_descriptors(
+            (file_owner, next_directory_owner, directory_owner)
         )
-        directory_descriptor = directory_owner.fileno()
-        directory_before = os.fstat(directory_descriptor)
-        file_owner = _open_owned_file(absolute.name, dir_fd=directory_descriptor)
-        file_descriptor = file_owner.fileno()
-        before = os.fstat(file_descriptor)
-        if (
-            not stat.S_ISREG(before.st_mode)
-            or before.st_uid != os.geteuid()
-            or stat.S_IMODE(before.st_mode) != 0o600
-            or before.st_nlink != 1
-            or before.st_size <= 0
-            or before.st_size > MAXIMUM_IMAGE_ADMISSION_BYTES
-        ):
-            raise OSError
-        chunks: list[bytes] = []
-        remaining = MAXIMUM_IMAGE_ADMISSION_BYTES + 1
-        while remaining:
-            chunk = os.read(file_descriptor, min(65_536, remaining))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        encoded = b"".join(chunks)
-        after = os.fstat(file_descriptor)
-        named = os.stat(
-            absolute.name,
-            dir_fd=directory_descriptor,
-            follow_symlinks=False,
-        )
-        directory_after = os.fstat(directory_descriptor)
-        if (
-            len(encoded) != before.st_size
-            or len(encoded) > MAXIMUM_IMAGE_ADMISSION_BYTES
-            or _stable_image_admission_file_identity(before)
-            != _stable_image_admission_file_identity(after)
-            or _stable_image_admission_file_identity(after)
-            != _stable_image_admission_file_identity(named)
-            or _stable_image_admission_file_identity(directory_before)
-            != _stable_image_admission_file_identity(directory_after)
-        ):
-            raise OSError
-        return encoded, _stable_image_admission_file_identity(before)
-    except TrustedTimeImageVerificationError:
-        raise
-    except OSError:
+    terminal = _preferred_cleanup_exceptions(
+        body_error,
+        transition_error,
+        cleanup_error,
+        retry_error,
+    )
+    if terminal is not None:
+        if not isinstance(terminal, Exception):
+            raise terminal
         raise TrustedTimeImageVerificationError(
             "trusted-time image admission provenance is unavailable"
         ) from None
-    finally:
-        if file_owner is not None:
-            file_owner.close()
-        if directory_owner is not None:
-            directory_owner.close()
+    if result is None:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance is unavailable"
+        )
+    return result
+
+
+type _TrustedTimeImageAdmissionProvenanceSnapshot = tuple[
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    int,
+    bytes,
+    tuple[int, ...],
+    tuple[int, ...],
+]
+type _CurrentTrustedTimeImageAdmissionSnapshot = tuple[
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    int,
+    bytes,
+    tuple[int, ...],
+    tuple[int, ...],
+    tuple[int, ...],
+    tuple[int, ...],
+]
+
+
+def _make_provenance_snapshot(
+    *,
+    path: str,
+    source_id: str,
+    supervisor_id: str,
+    boot_session_id: str,
+    git_revision: str,
+    source_revision_sha256: str,
+    supervisor_executable_import_manifest_sha256: str,
+    artifact_sha256: str,
+    created_at_utc: str,
+    created_monotonic_ns: int,
+    encoded: bytes,
+    directory_identity: tuple[int, ...],
+    file_identity: tuple[int, ...],
+) -> _TrustedTimeImageAdmissionProvenanceSnapshot:
+    return (
+        "trusted-time-image-admission-provenance-snapshot-v1",
+        path,
+        source_id,
+        supervisor_id,
+        boot_session_id,
+        git_revision,
+        source_revision_sha256,
+        supervisor_executable_import_manifest_sha256,
+        artifact_sha256,
+        created_at_utc,
+        created_monotonic_ns,
+        encoded,
+        directory_identity,
+        file_identity,
+    )
+
+
+def _make_current_admission_snapshot(
+    *,
+    path: str,
+    ignored_root: str,
+    archive_path: str,
+    source_id: str,
+    supervisor_id: str,
+    boot_session_id: str,
+    git_revision: str,
+    source_revision_sha256: str,
+    supervisor_executable_import_manifest_sha256: str,
+    artifact_sha256: str,
+    created_at_utc: str,
+    created_monotonic_ns: int,
+    encoded: bytes,
+    directory_identity: tuple[int, ...],
+    file_identity: tuple[int, ...],
+    archive_directory_identity: tuple[int, ...],
+    archive_file_identity: tuple[int, ...],
+) -> _CurrentTrustedTimeImageAdmissionSnapshot:
+    return (
+        "current-trusted-time-image-admission-snapshot-v1",
+        path,
+        ignored_root,
+        archive_path,
+        source_id,
+        supervisor_id,
+        boot_session_id,
+        git_revision,
+        source_revision_sha256,
+        supervisor_executable_import_manifest_sha256,
+        artifact_sha256,
+        created_at_utc,
+        created_monotonic_ns,
+        encoded,
+        directory_identity,
+        file_identity,
+        archive_directory_identity,
+        archive_file_identity,
+    )
+
+
+def _require_primitive_identity(value: object) -> tuple[int, ...]:
+    if type(value) is not tuple or len(value) != 9 or any(type(item) is not int for item in value):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission snapshot is malformed"
+        )
+    return cast(tuple[int, ...], value)
+
+
+def _require_provenance_snapshot(
+    value: object,
+) -> _TrustedTimeImageAdmissionProvenanceSnapshot:
+    if type(value) is not tuple or len(value) != 14:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance is malformed"
+        )
+    tag = tuple.__getitem__(value, 0)
+    path = tuple.__getitem__(value, 1)
+    source_id = tuple.__getitem__(value, 2)
+    supervisor_id = tuple.__getitem__(value, 3)
+    boot_session_id = tuple.__getitem__(value, 4)
+    git_revision = tuple.__getitem__(value, 5)
+    source_revision_sha256 = tuple.__getitem__(value, 6)
+    manifest_sha256 = tuple.__getitem__(value, 7)
+    artifact_sha256 = tuple.__getitem__(value, 8)
+    created_at_utc = tuple.__getitem__(value, 9)
+    created_monotonic_ns = tuple.__getitem__(value, 10)
+    encoded = tuple.__getitem__(value, 11)
+    directory_identity = tuple.__getitem__(value, 12)
+    file_identity = tuple.__getitem__(value, 13)
+    if (
+        type(tag) is not str
+        or tag != "trusted-time-image-admission-provenance-snapshot-v1"
+        or type(path) is not str
+        or type(source_id) is not str
+        or type(supervisor_id) is not str
+        or type(boot_session_id) is not str
+        or type(git_revision) is not str
+        or type(source_revision_sha256) is not str
+        or type(manifest_sha256) is not str
+        or type(artifact_sha256) is not str
+        or type(created_at_utc) is not str
+        or type(created_monotonic_ns) is not int
+        or type(encoded) is not bytes
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance is malformed"
+        )
+    _require_primitive_identity(directory_identity)
+    _require_primitive_identity(file_identity)
+    return cast(_TrustedTimeImageAdmissionProvenanceSnapshot, value)
+
+
+def _require_current_admission_snapshot(
+    value: object,
+) -> _CurrentTrustedTimeImageAdmissionSnapshot:
+    if type(value) is not tuple or len(value) != 18:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission snapshot is malformed"
+        )
+    tag = tuple.__getitem__(value, 0)
+    string_indexes = (
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+    )
+    if (
+        type(tag) is not str
+        or tag != "current-trusted-time-image-admission-snapshot-v1"
+        or any(type(tuple.__getitem__(value, index)) is not str for index in string_indexes)
+        or type(tuple.__getitem__(value, 12)) is not int
+        or type(tuple.__getitem__(value, 13)) is not bytes
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission snapshot is malformed"
+        )
+    for index in (
+        14,
+        15,
+        16,
+        17,
+    ):
+        _require_primitive_identity(tuple.__getitem__(value, index))
+    return cast(_CurrentTrustedTimeImageAdmissionSnapshot, value)
+
+
+def _provenance_snapshot_value(value: object, index: int) -> object:
+    return tuple.__getitem__(_require_provenance_snapshot(value), index)
+
+
+def _current_admission_snapshot_value(value: object, index: int) -> object:
+    return tuple.__getitem__(_require_current_admission_snapshot(value), index)
+
+
+def _load_image_admission_provenance_artifact_with_snapshot(
+    path: Path,
+    *,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+) -> tuple[
+    TrustedTimeImageAdmissionProvenance,
+    _TrustedTimeImageAdmissionProvenanceSnapshot,
+]:
+    """Authenticate one exact content-addressed archive without freshness authority."""
+
+    absolute, exact_ignored_root = _absolute_artifact_path_strings(
+        path,
+        ignored_root=ignored_root,
+    )
+    artifact_name = os.path.basename(absolute)
+    prefix = "image-admission-"
+    suffix = ".json"
+    if (
+        not artifact_name.startswith(prefix)
+        or not artifact_name.endswith(suffix)
+        or len(artifact_name) != len(prefix) + 64 + len(suffix)
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance binding is invalid"
+        )
+    expected_sha256 = artifact_name[len(prefix) : -len(suffix)]
+    if _SHA256_PATTERN.fullmatch(expected_sha256) is None:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance binding is invalid"
+        )
+    encoded, directory_identity, file_identity = _read_exact_image_admission_archive(
+        absolute,
+        ignored_root=exact_ignored_root,
+    )
+    if hashlib.sha256(encoded).hexdigest() != expected_sha256:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance binding is invalid"
+        )
+    reviewed_inputs = reviewed_input_bindings()
+    reviewed_inputs_tree = _immutable_reviewed_input_payload(reviewed_inputs)
+    reviewed_inputs_encoded = _canonical_immutable_json_bytes(reviewed_inputs_tree)
+    try:
+        encoded_text = encoded.decode("utf-8", errors="strict")
+        payload_tree = _decode_immutable_json_text(
+            encoded_text,
+            maximum_characters=MAXIMUM_IMAGE_ADMISSION_BYTES,
+            maximum_nodes=128,
+            label="trusted-time image admission artifact",
+        )
+    except UnicodeDecodeError:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact is malformed"
+        ) from None
+    if _canonical_immutable_json_bytes(payload_tree) != encoded:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact is not canonical"
+        )
+    root_label = "trusted-time image admission"
+    images = _immutable_json_object_value(payload_tree, "images", label=root_label)
+    inputs = _immutable_json_object_value(payload_tree, "inputs", label=root_label)
+    image_label = "trusted-time image admission images"
+    input_label = "trusted-time image admission inputs"
+    source_id = _immutable_json_object_value(images, "source_id", label=image_label)
+    supervisor_id = _immutable_json_object_value(images, "supervisor_id", label=image_label)
+    supervisor_manifest_sha256 = _immutable_json_object_value(
+        images,
+        "supervisor_executable_import_manifest_sha256",
+        label=image_label,
+    )
+    boot_session_id = _immutable_json_object_value(
+        payload_tree,
+        "boot_session_id",
+        label=root_label,
+    )
+    git_revision = _immutable_json_object_value(
+        payload_tree,
+        "git_revision",
+        label=root_label,
+    )
+    source_revision_sha256 = _immutable_json_object_value(
+        inputs,
+        "source_revision_sha256",
+        label=input_label,
+    )
+    created_at_utc = _immutable_json_object_value(
+        payload_tree,
+        "created_at_utc",
+        label=root_label,
+    )
+    created_monotonic_ns = _immutable_json_object_value(
+        payload_tree,
+        "created_monotonic_ns",
+        label=root_label,
+    )
+    if (
+        type(source_id) is not str
+        or type(supervisor_id) is not str
+        or type(supervisor_manifest_sha256) is not str
+        or type(boot_session_id) is not str
+        or type(git_revision) is not str
+        or type(source_revision_sha256) is not str
+        or type(created_at_utc) is not str
+        or type(created_monotonic_ns) is not int
+        or _canonical_immutable_json_bytes(inputs) != reviewed_inputs_encoded
+        or _reviewed_input_value(
+            reviewed_inputs,
+            9,
+        )
+        != source_revision_sha256
+        or _IMAGE_ID_PATTERN.fullmatch(source_id) is None
+        or _IMAGE_ID_PATTERN.fullmatch(supervisor_id) is None
+        or _SHA256_PATTERN.fullmatch(supervisor_manifest_sha256) is None
+        or source_id == supervisor_id
+        or _BOOT_SESSION_ID_PATTERN.fullmatch(boot_session_id) is None
+        or boot_session_id.partition(":")[2].replace("-", "") == "0" * 32
+        or _GIT_REVISION_PATTERN.fullmatch(git_revision) is None
+        or _SHA256_PATTERN.fullmatch(source_revision_sha256) is None
+        or _CREATED_AT_PATTERN.fullmatch(created_at_utc) is None
+        or created_monotonic_ns < 0
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact is malformed"
+        )
+    try:
+        parsed_created_at = datetime.fromisoformat(created_at_utc.replace("Z", "+00:00"))
+    except ValueError:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact is malformed"
+        ) from None
+    if (
+        parsed_created_at.tzinfo is None
+        or parsed_created_at.utcoffset() != UTC.utcoffset(parsed_created_at)
+        or parsed_created_at.isoformat(timespec="microseconds").replace("+00:00", "Z")
+        != created_at_utc
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact is malformed"
+        )
+
+    expected_admission_tree = _immutable_json_object(
+        (
+            ("authority_granted", False),
+            ("boot_session_id", boot_session_id),
+            ("contract_version", IMAGE_ADMISSION_CONTRACT_VERSION),
+            ("created_at_utc", created_at_utc),
+            ("created_monotonic_ns", created_monotonic_ns),
+            ("fresh_for_seconds", IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS),
+            ("git_revision", git_revision),
+            (
+                "images",
+                _immutable_json_object(
+                    (
+                        ("source_id", source_id),
+                        (
+                            "supervisor_executable_import_manifest_sha256",
+                            supervisor_manifest_sha256,
+                        ),
+                        ("supervisor_id", supervisor_id),
+                    )
+                ),
+            ),
+            ("inputs", reviewed_inputs_tree),
+            ("new_exposure_authorized", False),
+            ("service", "trusted-time-image-admission"),
+            ("status", "admitted"),
+        )
+    )
+    expected_admission_encoded = _canonical_immutable_json_bytes(expected_admission_tree)
+    if expected_admission_encoded != encoded:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact is malformed"
+        )
+    try:
+        secondary_payload: Any = json.loads(expected_admission_encoded)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact is malformed"
+        ) from None
+    admission = _decode_structural_admission_payload(
+        secondary_payload,
+        path=Path(absolute),
+        artifact_sha256=expected_sha256,
+    )
+    if (
+        expected_admission_encoded != encoded
+        or _canonical_immutable_json_bytes(
+            _immutable_reviewed_input_payload(reviewed_input_bindings())
+        )
+        != reviewed_inputs_encoded
+        or os.fspath(admission.path) != absolute
+        or admission.identities.source_id != source_id
+        or admission.identities.supervisor_id != supervisor_id
+        or admission.boot_session_id != boot_session_id
+        or admission.git_revision != git_revision
+        or admission.source_revision_sha256 != source_revision_sha256
+        or admission.artifact_sha256 != expected_sha256
+        or admission.created_at_utc != created_at_utc
+        or admission.created_monotonic_ns != created_monotonic_ns
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact is malformed"
+        )
+    provenance = TrustedTimeImageAdmissionProvenance(
+        path=Path(absolute),
+        identities=TrustedTimeImageIdentities(
+            source_id=source_id,
+            supervisor_id=supervisor_id,
+        ),
+        boot_session_id=boot_session_id,
+        git_revision=git_revision,
+        source_revision_sha256=source_revision_sha256,
+        artifact_sha256=expected_sha256,
+        created_at_utc=created_at_utc,
+        created_monotonic_ns=created_monotonic_ns,
+        encoded=encoded,
+        file_identity=file_identity,
+    )
+    provenance.__post_init__()
+    final_encoded, final_directory_identity, final_file_identity = (
+        _read_exact_image_admission_archive(
+            absolute,
+            ignored_root=exact_ignored_root,
+        )
+    )
+    if (
+        (final_encoded, final_directory_identity, final_file_identity)
+        != (encoded, directory_identity, file_identity)
+        or expected_admission_encoded != encoded
+        or _canonical_immutable_json_bytes(
+            _immutable_reviewed_input_payload(reviewed_input_bindings())
+        )
+        != reviewed_inputs_encoded
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance is malformed"
+        )
+    snapshot = _require_provenance_snapshot(
+        _make_provenance_snapshot(
+            path=absolute,
+            source_id=source_id,
+            supervisor_id=supervisor_id,
+            boot_session_id=boot_session_id,
+            git_revision=git_revision,
+            source_revision_sha256=source_revision_sha256,
+            supervisor_executable_import_manifest_sha256=supervisor_manifest_sha256,
+            artifact_sha256=expected_sha256,
+            created_at_utc=created_at_utc,
+            created_monotonic_ns=created_monotonic_ns,
+            encoded=encoded,
+            directory_identity=directory_identity,
+            file_identity=file_identity,
+        )
+    )
+    if (
+        os.fspath(provenance.path) != absolute
+        or provenance.identities.source_id != source_id
+        or provenance.identities.supervisor_id != supervisor_id
+        or provenance.boot_session_id != boot_session_id
+        or provenance.git_revision != git_revision
+        or provenance.source_revision_sha256 != source_revision_sha256
+        or provenance.artifact_sha256 != expected_sha256
+        or provenance.created_at_utc != created_at_utc
+        or provenance.created_monotonic_ns != created_monotonic_ns
+        or provenance.encoded != encoded
+        or provenance.file_identity != file_identity
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission provenance is malformed"
+        )
+    return provenance, snapshot
 
 
 def load_image_admission_provenance_artifact(
@@ -1786,57 +3460,203 @@ def load_image_admission_provenance_artifact(
 ) -> TrustedTimeImageAdmissionProvenance:
     """Authenticate one exact content-addressed archive without freshness authority."""
 
-    absolute, _ = _absolute_artifact_path(path, ignored_root=ignored_root)
-    prefix = "image-admission-"
-    suffix = ".json"
-    if (
-        not absolute.name.startswith(prefix)
-        or not absolute.name.endswith(suffix)
-        or len(absolute.name) != len(prefix) + 64 + len(suffix)
-    ):
-        raise TrustedTimeImageVerificationError(
-            "trusted-time image admission provenance binding is invalid"
-        )
-    expected_sha256 = absolute.name[len(prefix) : -len(suffix)]
-    if _SHA256_PATTERN.fullmatch(expected_sha256) is None:
-        raise TrustedTimeImageVerificationError(
-            "trusted-time image admission provenance binding is invalid"
-        )
-    encoded, file_identity = _read_exact_image_admission_archive(
-        absolute,
+    provenance, _ = _load_image_admission_provenance_artifact_with_snapshot(
+        path,
         ignored_root=ignored_root,
     )
-    if hashlib.sha256(encoded).hexdigest() != expected_sha256:
-        raise TrustedTimeImageVerificationError(
-            "trusted-time image admission provenance binding is invalid"
-        )
-    try:
-        payload: Any = json.loads(encoded, object_pairs_hook=_unique_json_object)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        raise TrustedTimeImageVerificationError(
-            "trusted-time image admission artifact is malformed"
-        ) from None
-    if _canonical_json_bytes(payload) != encoded:
-        raise TrustedTimeImageVerificationError(
-            "trusted-time image admission artifact is not canonical"
-        )
-    admission = _decode_structural_admission_payload(
-        payload,
-        path=absolute,
-        artifact_sha256=expected_sha256,
+    return provenance
+
+
+def _load_current_image_admission_with_snapshot(
+    path: Path = DEFAULT_IMAGE_ADMISSION_ARTIFACT,
+    *,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+    monotonic_ns: int | None = None,
+) -> tuple[TrustedTimeImageAdmission, _CurrentTrustedTimeImageAdmissionSnapshot]:
+    """Read one current admission and its exact primitive immutable snapshot."""
+
+    absolute, exact_ignored_root = _absolute_artifact_path_strings(
+        path,
+        ignored_root=ignored_root,
     )
-    return TrustedTimeImageAdmissionProvenance(
-        path=absolute,
-        identities=admission.identities,
-        boot_session_id=admission.boot_session_id,
-        git_revision=admission.git_revision,
-        source_revision_sha256=admission.source_revision_sha256,
-        artifact_sha256=admission.artifact_sha256,
-        created_at_utc=admission.created_at_utc,
-        created_monotonic_ns=admission.created_monotonic_ns,
-        encoded=encoded,
-        file_identity=file_identity,
+    observed_boot_session = _current_boot_session_id()
+    encoded, directory_identity, file_identity = _read_exact_image_admission_archive(
+        absolute,
+        ignored_root=exact_ignored_root,
     )
+    artifact_sha256 = hashlib.sha256(encoded).hexdigest()
+    archive_path = os.path.join(
+        os.path.dirname(absolute),
+        f"image-admission-{artifact_sha256}.json",
+    )
+    _, snapshot = _load_image_admission_provenance_artifact_with_snapshot(
+        Path(archive_path),
+        ignored_root=Path(exact_ignored_root),
+    )
+    snapshot = _require_provenance_snapshot(snapshot)
+    snapshot_source_id = cast(str, _provenance_snapshot_value(snapshot, 2))
+    snapshot_supervisor_id = cast(str, _provenance_snapshot_value(snapshot, 3))
+    snapshot_boot_session_id = cast(str, _provenance_snapshot_value(snapshot, 4))
+    snapshot_git_revision = cast(str, _provenance_snapshot_value(snapshot, 5))
+    snapshot_source_revision_sha256 = cast(
+        str,
+        _provenance_snapshot_value(snapshot, 6),
+    )
+    snapshot_manifest_sha256 = cast(
+        str,
+        _provenance_snapshot_value(snapshot, 7),
+    )
+    snapshot_artifact_sha256 = cast(str, _provenance_snapshot_value(snapshot, 8))
+    snapshot_created_at_utc = cast(str, _provenance_snapshot_value(snapshot, 9))
+    snapshot_created_monotonic_ns = cast(int, _provenance_snapshot_value(snapshot, 10))
+    snapshot_encoded = cast(bytes, _provenance_snapshot_value(snapshot, 11))
+    snapshot_directory_identity = cast(
+        tuple[int, ...],
+        _provenance_snapshot_value(snapshot, 12),
+    )
+    snapshot_file_identity = cast(
+        tuple[int, ...],
+        _provenance_snapshot_value(snapshot, 13),
+    )
+    observed_monotonic_ns = _suspend_aware_monotonic_ns() if monotonic_ns is None else monotonic_ns
+    candidate = TrustedTimeImageAdmission(
+        path=Path(absolute),
+        identities=TrustedTimeImageIdentities(
+            source_id=snapshot_source_id,
+            supervisor_id=snapshot_supervisor_id,
+        ),
+        boot_session_id=snapshot_boot_session_id,
+        git_revision=snapshot_git_revision,
+        source_revision_sha256=snapshot_source_revision_sha256,
+        artifact_sha256=snapshot_artifact_sha256,
+        created_at_utc=snapshot_created_at_utc,
+        created_monotonic_ns=snapshot_created_monotonic_ns,
+    )
+    candidate.__post_init__()
+    if snapshot_boot_session_id != observed_boot_session:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact belongs to a different boot session"
+        )
+    if (
+        type(observed_monotonic_ns) is not int
+        or observed_monotonic_ns < snapshot_created_monotonic_ns
+        or observed_monotonic_ns - snapshot_created_monotonic_ns
+        > IMAGE_ADMISSION_MAXIMUM_AGE_SECONDS * 1_000_000_000
+    ):
+        raise TrustedTimeImageVerificationError("trusted-time image admission artifact is stale")
+    if (
+        _provenance_snapshot_value(snapshot, 1) != archive_path
+        or snapshot_encoded != encoded
+        or snapshot_artifact_sha256 != artifact_sha256
+        or snapshot_directory_identity != directory_identity
+        or (absolute == archive_path and snapshot_file_identity != file_identity)
+        or candidate.path != Path(absolute)
+        or candidate.identities.source_id != snapshot_source_id
+        or candidate.identities.supervisor_id != snapshot_supervisor_id
+        or candidate.boot_session_id != snapshot_boot_session_id
+        or candidate.git_revision != snapshot_git_revision
+        or candidate.source_revision_sha256 != snapshot_source_revision_sha256
+        or candidate.artifact_sha256 != snapshot_artifact_sha256
+        or candidate.created_at_utc != snapshot_created_at_utc
+        or candidate.created_monotonic_ns != snapshot_created_monotonic_ns
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact is unavailable"
+        )
+    final_encoded, final_directory_identity, final_file_identity = (
+        _read_exact_image_admission_archive(
+            absolute,
+            ignored_root=exact_ignored_root,
+        )
+    )
+    _, final_snapshot = _load_image_admission_provenance_artifact_with_snapshot(
+        Path(archive_path),
+        ignored_root=Path(exact_ignored_root),
+    )
+    candidate.__post_init__()
+    if (
+        (final_encoded, final_directory_identity, final_file_identity)
+        != (encoded, directory_identity, file_identity)
+        or _require_provenance_snapshot(final_snapshot) != snapshot
+        or candidate.path != Path(absolute)
+        or candidate.identities.source_id != snapshot_source_id
+        or candidate.identities.supervisor_id != snapshot_supervisor_id
+        or candidate.boot_session_id != snapshot_boot_session_id
+        or candidate.git_revision != snapshot_git_revision
+        or candidate.source_revision_sha256 != snapshot_source_revision_sha256
+        or candidate.artifact_sha256 != snapshot_artifact_sha256
+        or candidate.created_at_utc != snapshot_created_at_utc
+        or candidate.created_monotonic_ns != snapshot_created_monotonic_ns
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact changed during authentication"
+        )
+    current_snapshot = _require_current_admission_snapshot(
+        _make_current_admission_snapshot(
+            path=absolute,
+            ignored_root=exact_ignored_root,
+            archive_path=archive_path,
+            source_id=snapshot_source_id,
+            supervisor_id=snapshot_supervisor_id,
+            boot_session_id=snapshot_boot_session_id,
+            git_revision=snapshot_git_revision,
+            source_revision_sha256=snapshot_source_revision_sha256,
+            supervisor_executable_import_manifest_sha256=snapshot_manifest_sha256,
+            artifact_sha256=snapshot_artifact_sha256,
+            created_at_utc=snapshot_created_at_utc,
+            created_monotonic_ns=snapshot_created_monotonic_ns,
+            encoded=encoded,
+            directory_identity=directory_identity,
+            file_identity=file_identity,
+            archive_directory_identity=snapshot_directory_identity,
+            archive_file_identity=snapshot_file_identity,
+        )
+    )
+    admission = TrustedTimeImageAdmission(
+        path=Path(absolute),
+        identities=TrustedTimeImageIdentities(
+            source_id=snapshot_source_id,
+            supervisor_id=snapshot_supervisor_id,
+        ),
+        boot_session_id=snapshot_boot_session_id,
+        git_revision=snapshot_git_revision,
+        source_revision_sha256=snapshot_source_revision_sha256,
+        artifact_sha256=snapshot_artifact_sha256,
+        created_at_utc=snapshot_created_at_utc,
+        created_monotonic_ns=snapshot_created_monotonic_ns,
+    )
+    admission.__post_init__()
+    if (
+        admission.path != Path(absolute)
+        or admission.identities.source_id != snapshot_source_id
+        or admission.identities.supervisor_id != snapshot_supervisor_id
+        or admission.boot_session_id != snapshot_boot_session_id
+        or admission.git_revision != snapshot_git_revision
+        or admission.source_revision_sha256 != snapshot_source_revision_sha256
+        or admission.artifact_sha256 != snapshot_artifact_sha256
+        or admission.created_at_utc != snapshot_created_at_utc
+        or admission.created_monotonic_ns != snapshot_created_monotonic_ns
+    ):
+        raise TrustedTimeImageVerificationError(
+            "trusted-time image admission artifact changed during authentication"
+        )
+    return admission, current_snapshot
+
+
+def _load_current_image_admission_snapshot(
+    path: Path = DEFAULT_IMAGE_ADMISSION_ARTIFACT,
+    *,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+    monotonic_ns: int | None = None,
+) -> _CurrentTrustedTimeImageAdmissionSnapshot:
+    """Return only the primitive current-admission authority snapshot."""
+
+    _, snapshot = _load_current_image_admission_with_snapshot(
+        path,
+        ignored_root=ignored_root,
+        monotonic_ns=monotonic_ns,
+    )
+    return _require_current_admission_snapshot(snapshot)
 
 
 def load_image_admission_artifact(
@@ -1845,147 +3665,131 @@ def load_image_admission_artifact(
     ignored_root: Path = IGNORED_ARTIFACT_ROOT,
     monotonic_ns: int | None = None,
 ) -> TrustedTimeImageAdmission:
-    """Read one canonical admission through an owner-only non-symlink descriptor."""
+    """Read one secondary public view of the current immutable admission."""
 
-    absolute, _ = _absolute_artifact_path(path, ignored_root=ignored_root)
-    observed_boot_session = _current_boot_session_id()
-    directory_owner: _OwnedFileDescriptor | None = None
-    file_owner: _OwnedFileDescriptor | None = None
-    try:
-        directory_owner = _open_owner_only_artifact_directory(
-            absolute.parent,
-            ignored_root=ignored_root,
-            create=False,
-        )
-        directory_descriptor = directory_owner.fileno()
-        file_owner = _open_owned_file(absolute.name, dir_fd=directory_descriptor)
-        file_descriptor = file_owner.fileno()
-        before = os.fstat(file_descriptor)
-        if (
-            not stat.S_ISREG(before.st_mode)
-            or before.st_uid != os.geteuid()
-            or stat.S_IMODE(before.st_mode) != 0o600
-            or before.st_nlink != 1
-            or before.st_size <= 0
-            or before.st_size > MAXIMUM_IMAGE_ADMISSION_BYTES
-        ):
-            raise TrustedTimeImageVerificationError(
-                "trusted-time image admission artifact metadata is invalid"
-            )
-        chunks: list[bytes] = []
-        remaining = MAXIMUM_IMAGE_ADMISSION_BYTES + 1
-        while remaining:
-            chunk = os.read(file_descriptor, min(65_536, remaining))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        encoded = b"".join(chunks)
-        after = os.fstat(file_descriptor)
-        if (
-            len(encoded) != before.st_size
-            or len(encoded) > MAXIMUM_IMAGE_ADMISSION_BYTES
-            or before.st_dev != after.st_dev
-            or before.st_ino != after.st_ino
-            or before.st_mode != after.st_mode
-            or before.st_uid != after.st_uid
-            or before.st_nlink != after.st_nlink
-            or before.st_size != after.st_size
-            or before.st_mtime_ns != after.st_mtime_ns
-            or before.st_ctime_ns != after.st_ctime_ns
-        ):
-            raise TrustedTimeImageVerificationError(
-                "trusted-time image admission artifact changed during read"
-            )
-    except TrustedTimeImageVerificationError:
-        raise
-    except OSError:
-        raise TrustedTimeImageVerificationError(
-            "trusted-time image admission artifact is unavailable"
-        ) from None
-    finally:
-        if file_owner is not None:
-            file_owner.close()
-        if directory_owner is not None:
-            directory_owner.close()
-    try:
-        payload: Any = json.loads(encoded, object_pairs_hook=_unique_json_object)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        raise TrustedTimeImageVerificationError(
-            "trusted-time image admission artifact is malformed"
-        ) from None
-    if _canonical_json_bytes(payload) != encoded:
-        raise TrustedTimeImageVerificationError(
-            "trusted-time image admission artifact is not canonical"
-        )
-    admission = _decode_admission_payload(
-        payload,
-        path=absolute,
-        artifact_sha256=hashlib.sha256(encoded).hexdigest(),
-        boot_session_id=observed_boot_session,
-        monotonic_ns=(_suspend_aware_monotonic_ns() if monotonic_ns is None else monotonic_ns),
-    )
-    _validate_content_addressed_image_admission(
-        absolute,
-        encoded,
+    admission, _ = _load_current_image_admission_with_snapshot(
+        path,
         ignored_root=ignored_root,
+        monotonic_ns=monotonic_ns,
     )
     return admission
 
 
-def _config_from_inspection(inspection: object) -> Mapping[str, object]:
-    if type(inspection) is not list or len(inspection) != 1:
-        raise TrustedTimeImageVerificationError("Docker image inspection is malformed")
-    image = _mapping(inspection[0], "Docker image inspection")
-    return _mapping(image.get("Config"), "Docker image Config")
+def _immutable_json_string_array_or_none(value: object, *, label: str) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    items = _immutable_json_array_items(value, label=label)
+    if any(type(item) is not str for item in items):
+        raise TrustedTimeImageVerificationError(f"{label} must be a string array or null")
+    return cast(tuple[str, ...], items)
 
 
-def _reject_embedded_secrets(configuration: Mapping[str, object]) -> None:
-    environment = _string_sequence(configuration.get("Env"), "image environment")
-    forbidden = (
-        "ALPACA_",
-        "ETRADE_",
-        "AQT_DATABASE",
-        "AQT_SUPABASE",
-        "AQT_TEST_POSTGRES",
-        "AQT_TRUSTED_TIME_DATABASE",
-        "DATABASE_URL",
-        "SENTRY_DSN",
+def _image_inspection_projection(
+    payload: object,
+    *,
+    expected_image_id: str,
+) -> _ImageInspectionProjection:
+    label = "Docker image inspection"
+    expected_keys = frozenset(
+        {
+            "cmd",
+            "entrypoint",
+            "env",
+            "exposed_ports",
+            "healthcheck",
+            "id",
+            "shell",
+            "user",
+            "volumes",
+            "working_dir",
+        }
     )
-    if any(item.startswith(forbidden) for item in environment):
-        raise TrustedTimeImageVerificationError("image environment embeds a secret reference")
+    if _immutable_json_object_keys(payload, label=label) != expected_keys:
+        raise TrustedTimeImageVerificationError("Docker image inspection is malformed")
+    image_id = _immutable_json_object_value(payload, "id", label=label)
+    user = _immutable_json_object_value(payload, "user", label=label)
+    working_directory = _immutable_json_object_value(payload, "working_dir", label=label)
+    if (
+        type(image_id) is not str
+        or image_id != expected_image_id
+        or _IMAGE_ID_PATTERN.fullmatch(image_id) is None
+        or type(user) is not str
+        or type(working_directory) is not str
+        or _immutable_json_object_value(payload, "exposed_ports", label=label) is not None
+        or _immutable_json_object_value(payload, "healthcheck", label=label) is not None
+        or _immutable_json_object_value(payload, "volumes", label=label) is not None
+        or _immutable_json_object_value(payload, "shell", label=label) is not None
+    ):
+        raise TrustedTimeImageVerificationError("Docker image inspection is malformed")
+    projection = _make_image_inspection_projection(
+        image_id=image_id,
+        user=user,
+        entrypoint=_immutable_json_string_array_or_none(
+            _immutable_json_object_value(payload, "entrypoint", label=label),
+            label="Docker image entrypoint",
+        ),
+        command=_immutable_json_string_array_or_none(
+            _immutable_json_object_value(payload, "cmd", label=label),
+            label="Docker image command",
+        ),
+        environment=_immutable_json_string_array_or_none(
+            _immutable_json_object_value(payload, "env", label=label),
+            label="Docker image environment",
+        ),
+        working_directory=working_directory,
+    )
+    return _require_image_inspection_projection(projection)
 
 
 def validate_source_inspection(inspection: object) -> None:
-    configuration = _config_from_inspection(inspection)
-    if configuration.get("User") != "10001:10001":
-        raise TrustedTimeImageVerificationError("Chrony image user drifted")
-    if configuration.get("Entrypoint") != ["/usr/sbin/chronyd"]:
-        raise TrustedTimeImageVerificationError("Chrony image entrypoint drifted")
-    if configuration.get("Cmd") != [
-        "-x",
-        "-d",
-        "-U",
-        "-f",
-        "/etc/autoquant/trusted-time/chrony.conf",
-    ]:
-        raise TrustedTimeImageVerificationError("Chrony image command drifted")
-    if configuration.get("ExposedPorts") not in (None, {}):
-        raise TrustedTimeImageVerificationError("Chrony image cannot expose a port")
-    _reject_embedded_secrets(configuration)
+    exact = _require_image_inspection_projection(inspection)
+    if (
+        _image_inspection_value(exact, 2) != "10001:10001"
+        or _image_inspection_value(exact, 3) != ("/usr/sbin/chronyd",)
+        or _image_inspection_value(exact, 4)
+        != (
+            "-x",
+            "-d",
+            "-U",
+            "-f",
+            "/etc/autoquant/trusted-time/chrony.conf",
+        )
+        or _image_inspection_value(exact, 5)
+        != ("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",)
+        or _image_inspection_value(exact, 6) != "/"
+    ):
+        raise TrustedTimeImageVerificationError("Chrony image configuration drifted")
 
 
 def validate_supervisor_inspection(inspection: object) -> None:
-    configuration = _config_from_inspection(inspection)
-    if configuration.get("User") != "10001:10001":
-        raise TrustedTimeImageVerificationError("supervisor image user drifted")
-    if configuration.get("Entrypoint") not in (None, []):
-        raise TrustedTimeImageVerificationError("supervisor image entrypoint drifted")
-    if configuration.get("Cmd") != ["autoquant-trusted-time-supervisor"]:
-        raise TrustedTimeImageVerificationError("supervisor image command drifted")
-    if configuration.get("ExposedPorts") not in (None, {}):
-        raise TrustedTimeImageVerificationError("supervisor image cannot expose a port")
-    _reject_embedded_secrets(configuration)
+    exact = _require_image_inspection_projection(inspection)
+    if (
+        _image_inspection_value(exact, 2) != "10001:10001"
+        or _image_inspection_value(exact, 3) is not None
+        or _image_inspection_value(exact, 4)
+        != (
+            "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+            "supervisor",
+        )
+        or _image_inspection_value(exact, 5)
+        != (
+            "PATH=/opt/autoquant/trusted-time/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "LANG=C.UTF-8",
+            "GPG_KEY=7169605F62C751356D054A26A821E680E5FA6305",
+            "PYTHON_VERSION=3.12.13",
+            "PYTHON_SHA256=c08bc65a81971c1dd5783182826503369466c7e67374d1646519adf05207b684",
+            "LD_LIBRARY_PATH=",
+            "LD_PRELOAD=",
+            "PYTHONDONTWRITEBYTECODE=1",
+            "PYTHONUNBUFFERED=1",
+            "UV_COMPILE_BYTECODE=0",
+            "UV_NO_DEV=1",
+            "UV_NO_SYNC=1",
+            "UV_PROJECT_ENVIRONMENT=/opt/autoquant/trusted-time",
+        )
+        or _image_inspection_value(exact, 6) != "/"
+    ):
+        raise TrustedTimeImageVerificationError("supervisor image configuration drifted")
 
 
 def validate_chronyd_version(returncode: int, stdout: str, stderr: str) -> None:
@@ -2029,16 +3833,12 @@ def validate_operational_schema_contract(
     stdout: str,
     stderr: str,
 ) -> None:
-    expected = json.dumps(
-        {
-            "catalog_relations": list(EXPECTED_CATALOG_RELATIONS),
-            "schema_revision": EXPECTED_SCHEMA_REVISION,
-        },
-        allow_nan=False,
-        separators=(",", ":"),
-        sort_keys=True,
+    expected = (
+        '{"catalog_relations":["phase6_trusted_time_head_anchor_intents",'
+        '"phase6_trusted_time_head_anchor_receipts"],'
+        '"schema_revision":"0036_phase6_time_anchors"}'
     )
-    if returncode != 0 or stderr or stdout != f"{expected}\n":
+    if returncode != 0 or stderr or stdout != expected + "\n":
         raise TrustedTimeImageVerificationError("supervisor operational schema contract drifted")
 
 
@@ -2057,34 +3857,139 @@ def validate_config_hashes(
         raise TrustedTimeImageVerificationError("trusted-time protected image bytes drifted")
 
 
+def _verify_supervisor_executable_import_manifest(
+    supervisor_image_id: str,
+    *,
+    environment: Mapping[str, str] | tuple[tuple[str, str], ...],
+) -> str:
+    """Recompute the exact supervisor rootfs manifest and return its digest."""
+
+    manifest_path = "/etc/autoquant/native/executable-import-manifest.jsonl"
+    helper_path = "/usr/local/lib/autoquant-native-image-manifest.py"
+    base_python = "/usr/local/bin/python"
+    manifest_schema = "autoquant-native-executable-image-manifest-v2"
+    if (
+        manifest_path != SUPERVISOR_EXECUTABLE_IMPORT_MANIFEST_PATH
+        or helper_path != SUPERVISOR_EXECUTABLE_IMPORT_MANIFEST_HELPER
+        or base_python != SUPERVISOR_BASE_PYTHON
+        or manifest_schema != SUPERVISOR_EXECUTABLE_IMPORT_MANIFEST_SCHEMA
+    ):
+        raise TrustedTimeImageVerificationError(
+            "supervisor executable/import manifest contract drifted"
+        )
+    environment_snapshot = _immutable_environment_snapshot(
+        environment,
+        label="supervisor executable/import manifest environment",
+    )
+    metadata = _run_read_only(
+        supervisor_image_id,
+        "/usr/bin/stat",
+        "-c",
+        "%u:%g:%a:%h:%s",
+        manifest_path,
+        environment=environment_snapshot,
+    )
+    if _process_returncode(metadata) != 0 or _process_stderr(metadata):
+        raise TrustedTimeImageVerificationError(
+            "supervisor executable/import manifest metadata drifted"
+        )
+    metadata_match = re.fullmatch(
+        r"0:0:444:1:([1-9][0-9]*)\n",
+        _process_stdout(metadata),
+    )
+    if (
+        metadata_match is None
+        or int(metadata_match.group(1)) > _MAXIMUM_EXECUTABLE_IMPORT_MANIFEST_BYTES
+    ):
+        raise TrustedTimeImageVerificationError(
+            "supervisor executable/import manifest metadata drifted"
+        )
+    verification = _run_rootfs_manifest_verifier(
+        supervisor_image_id,
+        "-I",
+        "-B",
+        "-S",
+        helper_path,
+        "verify",
+        "/",
+        manifest_path,
+        environment=environment_snapshot,
+    )
+    verification_stdout = _process_stdout(verification)
+    if (
+        _process_returncode(verification) != 0
+        or _process_stderr(verification)
+        or not verification_stdout.endswith("\n")
+        or verification_stdout.count("\n") != 1
+    ):
+        raise TrustedTimeImageVerificationError(
+            "supervisor executable/import manifest verification failed"
+        )
+    receipt_prefix = '{"manifest_sha256":"'
+    receipt_suffix = '","schema":"' + manifest_schema + '"}\n'
+    manifest_sha256 = verification_stdout[
+        len(receipt_prefix) : len(verification_stdout) - len(receipt_suffix)
+    ]
+    if (
+        type(manifest_sha256) is not str
+        or _SHA256_PATTERN.fullmatch(manifest_sha256) is None
+        or verification_stdout != receipt_prefix + manifest_sha256 + receipt_suffix
+    ):
+        raise TrustedTimeImageVerificationError(
+            "supervisor executable/import manifest receipt is malformed"
+        )
+    digest = _run_read_only(
+        supervisor_image_id,
+        "/usr/bin/sha256sum",
+        manifest_path,
+        environment=environment_snapshot,
+    )
+    if (
+        _process_returncode(digest) != 0
+        or _process_stderr(digest)
+        or _process_stdout(digest) != f"{manifest_sha256}  {manifest_path}\n"
+    ):
+        raise TrustedTimeImageVerificationError(
+            "supervisor executable/import manifest digest drifted"
+        )
+    final_environment_snapshot = _immutable_environment_snapshot(
+        environment,
+        label="supervisor executable/import manifest environment",
+    )
+    if final_environment_snapshot != environment_snapshot:
+        raise TrustedTimeImageVerificationError(
+            "supervisor executable/import manifest environment changed"
+        )
+    return manifest_sha256
+
+
 def validate_secretless_supervisor(returncode: int, stdout: str, stderr: str) -> None:
     if returncode != 2 or stderr:
         raise TrustedTimeImageVerificationError(
             "secretless supervisor did not fail closed and quietly"
         )
-    try:
-        payload: Any = json.loads(stdout)
-    except json.JSONDecodeError:
-        raise TrustedTimeImageVerificationError(
-            "secretless supervisor returned malformed JSON"
-        ) from None
-    if payload != {
-        "alert_delivery_authorized": False,
-        "arming_authorized": False,
-        "automatic_rearm_authorized": False,
-        "automatic_resume_authorized": False,
-        "broker_action_authorized": False,
-        "exposure_authorized": False,
-        "live_trading_authorized": False,
-        "new_exposure_authorized": False,
-        "operational_control_authorized": False,
-        "paper_trading_authorized": False,
-        "readiness_authorized": False,
-        "rearm_authorized": False,
-        "reason": "configuration_rejected",
-        "service": "trusted-time-supervisor",
-        "status": "fatal",
-    }:
+    expected = _canonical_immutable_json_bytes(
+        _immutable_json_object(
+            (
+                ("alert_delivery_authorized", False),
+                ("arming_authorized", False),
+                ("automatic_rearm_authorized", False),
+                ("automatic_resume_authorized", False),
+                ("broker_action_authorized", False),
+                ("exposure_authorized", False),
+                ("live_trading_authorized", False),
+                ("new_exposure_authorized", False),
+                ("operational_control_authorized", False),
+                ("paper_trading_authorized", False),
+                ("readiness_authorized", False),
+                ("rearm_authorized", False),
+                ("reason", "configuration_rejected"),
+                ("service", "trusted-time-supervisor"),
+                ("status", "fatal"),
+            )
+        )
+    ).decode("ascii")
+    if stdout != expected + "\n":
         raise TrustedTimeImageVerificationError(
             "secretless supervisor response is not the exact blocked contract"
         )
@@ -2110,6 +4015,21 @@ def validate_socket_volume_inspection(
         )
 
 
+def _validate_socket_mountinfo_probe(
+    completed: _ImmutableTextSubprocessResult,
+    *,
+    label: str,
+) -> None:
+    if (
+        _process_returncode(completed) != 0
+        or _process_stderr(completed)
+        or _process_stdout(completed) != _SOCKET_MOUNTINFO_RECEIPT
+    ):
+        raise TrustedTimeImageVerificationError(
+            f"{label} socket mount is not the effective noexec tmpfs contract"
+        )
+
+
 def _minimal_docker_environment(
     additions: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
@@ -2121,68 +4041,43 @@ def _minimal_docker_environment(
     return environment
 
 
-def _stable_reviewed_file_sha256(path: Path, *, required_mode: int) -> str:
-    """Hash one exact-mode, single-link reviewed file through a stable descriptor."""
-
-    if required_mode not in {0o644, 0o755}:
-        raise TrustedTimeImageVerificationError(
-            "trusted-time reviewed inputs do not match Git HEAD"
+def _immutable_environment_snapshot(
+    environment: Mapping[str, str] | tuple[tuple[str, str], ...],
+    *,
+    label: str,
+) -> tuple[tuple[str, str], ...]:
+    try:
+        snapshot = (
+            environment
+            if type(environment) is tuple
+            else tuple(sorted(cast(Mapping[str, str], environment).items()))
         )
-    file_owner: _OwnedFileDescriptor | None = None
-    try:
-        if path.resolve(strict=True) != path:
-            raise OSError
-        file_owner = _open_owned_file(path)
-        descriptor = file_owner.fileno()
-    except OSError:
-        raise TrustedTimeImageVerificationError(
-            "trusted-time reviewed inputs do not match Git HEAD"
-        ) from None
-    try:
-        before = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(before.st_mode)
-            or stat.S_IMODE(before.st_mode) != required_mode
-            or before.st_nlink != 1
-            or before.st_size < 0
-        ):
-            raise TrustedTimeImageVerificationError(
-                "trusted-time reviewed inputs do not match Git HEAD"
-            )
-        digest = hashlib.sha256()
-        observed = 0
-        while True:
-            chunk = os.read(descriptor, 65_536)
-            if not chunk:
-                break
-            observed += len(chunk)
-            digest.update(chunk)
-        after = os.fstat(descriptor)
-        if (
-            observed != before.st_size
-            or before.st_dev != after.st_dev
-            or before.st_ino != after.st_ino
-            or before.st_mode != after.st_mode
-            or before.st_uid != after.st_uid
-            or before.st_nlink != after.st_nlink
-            or before.st_size != after.st_size
-            or before.st_mtime_ns != after.st_mtime_ns
-            or before.st_ctime_ns != after.st_ctime_ns
-        ):
-            raise TrustedTimeImageVerificationError(
-                "trusted-time reviewed inputs do not match Git HEAD"
-            )
-        return digest.hexdigest()
-    finally:
-        if file_owner is not None:
-            file_owner.close()
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        raise TrustedTimeImageVerificationError(f"{label} is invalid") from None
+    if (
+        type(snapshot) is not tuple
+        or any(
+            type(item) is not tuple
+            or len(item) != 2
+            or type(item[0]) is not str
+            or type(item[1]) is not str
+            or not item[0]
+            or "=" in item[0]
+            or "\x00" in item[0]
+            or "\x00" in item[1]
+            for item in snapshot
+        )
+        or any(snapshot[index][0] >= snapshot[index + 1][0] for index in range(len(snapshot) - 1))
+    ):
+        raise TrustedTimeImageVerificationError(f"{label} is invalid")
+    return snapshot
 
 
 def _head_reviewed_input_entries(
     revision: str,
     *,
     environment: Mapping[str, str],
-) -> Mapping[Path, tuple[int, str]]:
+) -> Mapping[str, tuple[int, str]]:
     """Resolve the exact regular-file modes and blob IDs tracked at one HEAD."""
 
     pathspecs = (*_REVIEWED_FIXED_RELATIVE_PATHS, *_REVIEWED_DIRECTORY_RELATIVE_PATHS)
@@ -2210,12 +4105,17 @@ def _head_reviewed_input_entries(
         raise TrustedTimeImageVerificationError(
             "trusted-time reviewed inputs do not match Git HEAD"
         ) from None
-    if completed.returncode != 0 or completed.stderr or not completed.stdout.endswith(b"\0"):
+    completed_stdout = _bytes_process_stdout(completed)
+    if (
+        _bytes_process_returncode(completed) != 0
+        or _bytes_process_stderr(completed)
+        or not completed_stdout.endswith(b"\0")
+    ):
         raise TrustedTimeImageVerificationError(
             "trusted-time reviewed inputs do not match Git HEAD"
         )
-    entries: dict[Path, tuple[int, str]] = {}
-    for record in completed.stdout[:-1].split(b"\0"):
+    entries: dict[str, tuple[int, str]] = {}
+    for record in completed_stdout[:-1].split(b"\0"):
         metadata, separator, encoded_path = record.partition(b"\t")
         fields = metadata.split(b" ")
         if separator != b"\t" or len(fields) != 3 or fields[1] != b"blob":
@@ -2225,24 +4125,17 @@ def _head_reviewed_input_entries(
         mode = 0o644 if fields[0] == b"100644" else 0o755 if fields[0] == b"100755" else 0
         try:
             object_id = fields[2].decode("ascii", errors="strict")
-            relative = Path(os.fsdecode(encoded_path))
-        except (UnicodeDecodeError, ValueError):
+            relative = os.fsdecode(encoded_path)
+            _exact_relative_components(relative)
+        except (UnicodeDecodeError, ValueError, TrustedTimeImageVerificationError):
             raise TrustedTimeImageVerificationError(
                 "trusted-time reviewed inputs do not match Git HEAD"
             ) from None
-        path = ROOT / relative
-        if (
-            mode == 0
-            or _GIT_OBJECT_ID_PATTERN.fullmatch(object_id) is None
-            or relative.is_absolute()
-            or not relative.parts
-            or any(part in {"", ".", ".."} for part in relative.parts)
-            or path in entries
-        ):
+        if mode == 0 or _GIT_OBJECT_ID_PATTERN.fullmatch(object_id) is None or relative in entries:
             raise TrustedTimeImageVerificationError(
                 "trusted-time reviewed inputs do not match Git HEAD"
             )
-        entries[path] = (mode, object_id)
+        entries[relative] = (mode, object_id)
     return entries
 
 
@@ -2280,19 +4173,24 @@ def _read_head_blob_payloads(
         ) from None
     maximum_total_bytes = _MAXIMUM_GIT_BATCH_STDOUT_BYTES
     maximum_file_bytes = 8 * 1_024 * 1_024
-    if completed.returncode != 0 or completed.stderr or len(completed.stdout) > maximum_total_bytes:
+    completed_stdout = _bytes_process_stdout(completed)
+    if (
+        _bytes_process_returncode(completed) != 0
+        or _bytes_process_stderr(completed)
+        or len(completed_stdout) > maximum_total_bytes
+    ):
         raise TrustedTimeImageVerificationError(
             "trusted-time reviewed inputs do not match Git HEAD"
         )
     payloads: dict[str, bytes] = {}
     offset = 0
     for requested_object_id in unique_object_ids:
-        header_end = completed.stdout.find(b"\n", offset, offset + 256)
+        header_end = completed_stdout.find(b"\n", offset, offset + 256)
         if header_end < 0:
             raise TrustedTimeImageVerificationError(
                 "trusted-time reviewed inputs do not match Git HEAD"
             )
-        header = completed.stdout[offset:header_end].split(b" ")
+        header = completed_stdout[offset:header_end].split(b" ")
         if len(header) != 3 or header[1] != b"blob":
             raise TrustedTimeImageVerificationError(
                 "trusted-time reviewed inputs do not match Git HEAD"
@@ -2318,26 +4216,251 @@ def _read_head_blob_payloads(
         content_end = content_start + size
         if (
             size > maximum_file_bytes
-            or content_end >= len(completed.stdout)
-            or completed.stdout[content_end : content_end + 1] != b"\n"
+            or content_end >= len(completed_stdout)
+            or completed_stdout[content_end : content_end + 1] != b"\n"
         ):
             raise TrustedTimeImageVerificationError(
                 "trusted-time reviewed inputs do not match Git HEAD"
             )
-        payloads[requested_object_id] = completed.stdout[content_start:content_end]
+        payloads[requested_object_id] = completed_stdout[content_start:content_end]
         offset = content_end + 1
-    if offset != len(completed.stdout):
+    if offset != len(completed_stdout):
         raise TrustedTimeImageVerificationError(
             "trusted-time reviewed inputs do not match Git HEAD"
         )
     return payloads
 
 
+def _head_reviewed_operator_authority_object(
+    revision: str,
+    *,
+    environment: Mapping[str, str] | None = None,
+    _exact_source_root: str = os.fspath(ROOT.resolve(strict=True)),
+) -> tuple[str, str, bytes]:
+    """Return the fixed operator authority from one exact reviewed Git commit.
+
+    Production admission must cross-bind the definition-time source root to the
+    admitted launcher, source, executable, and mount receipt.
+    """
+
+    def require_native_result(
+        value: object,
+        *,
+        expected_argv: tuple[str, ...],
+    ) -> tuple[int, bytes, bytes]:
+        if (
+            type(expected_argv) is not tuple
+            or not expected_argv
+            or any(type(item) is not str for item in expected_argv)
+            or type(value) is not tuple
+            or len(value) != 4
+        ):
+            raise UnicodeError
+        argv = tuple.__getitem__(value, 0)
+        returncode = tuple.__getitem__(value, 1)
+        stdout = tuple.__getitem__(value, 2)
+        stderr = tuple.__getitem__(value, 3)
+        if (
+            argv is not expected_argv
+            or type(argv) is not tuple
+            or not argv
+            or any(type(item) is not str for item in argv)
+            or type(returncode) is not int
+            or type(stdout) is not bytes
+            or type(stderr) is not bytes
+        ):
+            raise UnicodeError
+        return (returncode, stdout, stderr)
+
+    unavailable = "trusted-time reviewed operator authority Git object is unavailable"
+    if type(revision) is not str or _GIT_REVISION_PATTERN.fullmatch(revision) is None:
+        raise TrustedTimeImageVerificationError(unavailable)
+    exact_environment = (
+        ("GIT_CONFIG_GLOBAL", "/dev/null"),
+        ("GIT_CONFIG_NOSYSTEM", "1"),
+        ("GIT_NO_LAZY_FETCH", "1"),
+        ("GIT_NO_REPLACE_OBJECTS", "1"),
+        ("GIT_OPTIONAL_LOCKS", "0"),
+        ("GIT_TERMINAL_PROMPT", "0"),
+        ("LC_ALL", "C"),
+        ("PATH", "/usr/bin:/bin"),
+        ("TMPDIR", "/tmp"),
+    )
+    if environment is not None:
+        try:
+            supplied_environment = dict(environment)
+        except BaseException as error:
+            if not isinstance(error, Exception):
+                raise
+            raise TrustedTimeImageVerificationError(unavailable) from None
+        if supplied_environment != dict(exact_environment):
+            raise TrustedTimeImageVerificationError(unavailable)
+    try:
+        if type(ROOT) is not type(Path()):
+            raise ValueError
+        root = os.fspath(ROOT)
+        if (
+            type(root) is not str
+            or type(_exact_source_root) is not str
+            or not os.path.isabs(_exact_source_root)
+            or os.path.realpath(_exact_source_root) != _exact_source_root
+            or root != _exact_source_root
+        ):
+            raise ValueError
+    except BaseException as error:
+        if not isinstance(error, Exception):
+            raise
+        raise TrustedTimeImageVerificationError(unavailable) from None
+    exact_cwd = _exact_source_root
+
+    revision_argv = (
+        "/usr/bin/git",
+        "-c",
+        "core.fsmonitor=false",
+        "rev-parse",
+        "--verify",
+        f"{revision}^{{commit}}",
+    )
+    try:
+        resolved = _run_bounded_process(
+            revision_argv,
+            exact_cwd,
+            exact_environment,
+            b"",
+            64,
+            16_384,
+            5_000_000_000,
+        )
+        resolved_returncode, resolved_stdout, resolved_stderr = require_native_result(
+            resolved,
+            expected_argv=revision_argv,
+        )
+    except BaseException as error:
+        if not isinstance(error, Exception):
+            raise
+        raise TrustedTimeImageVerificationError(unavailable) from None
+    if (
+        resolved_returncode != 0
+        or resolved_stderr
+        or resolved_stdout != revision.encode("ascii") + b"\n"
+    ):
+        raise TrustedTimeImageVerificationError(unavailable)
+
+    tree_argv = (
+        "/usr/bin/git",
+        "-c",
+        "core.fsmonitor=false",
+        "ls-tree",
+        "-z",
+        "--full-tree",
+        revision,
+        "--",
+        "infra/trusted-time/post-enrollment-operator-attestation-authority.json",
+    )
+    try:
+        tree = _run_bounded_process(
+            tree_argv,
+            exact_cwd,
+            exact_environment,
+            b"",
+            1_024,
+            16_384,
+            5_000_000_000,
+        )
+        tree_returncode, tree_stdout, tree_stderr = require_native_result(
+            tree,
+            expected_argv=tree_argv,
+        )
+    except BaseException as error:
+        if not isinstance(error, Exception):
+            raise
+        raise TrustedTimeImageVerificationError(unavailable) from None
+    if tree_returncode != 0 or tree_stderr or not tree_stdout.endswith(b"\0"):
+        raise TrustedTimeImageVerificationError(unavailable)
+    records = tree_stdout[:-1].split(b"\0")
+    if len(records) != 1:
+        raise TrustedTimeImageVerificationError(unavailable)
+    metadata, separator, encoded_path = records[0].partition(b"\t")
+    fields = metadata.split(b" ")
+    if (
+        separator != b"\t"
+        or encoded_path != _POST_ENROLLMENT_OPERATOR_AUTHORITY_RELATIVE_PATH.encode("ascii")
+        or len(fields) != 3
+        or fields[0] != b"100644"
+        or fields[1] != b"blob"
+    ):
+        raise TrustedTimeImageVerificationError(unavailable)
+    try:
+        object_id = fields[2].decode("ascii", errors="strict")
+    except UnicodeDecodeError:
+        raise TrustedTimeImageVerificationError(unavailable) from None
+    if _GIT_OBJECT_ID_PATTERN.fullmatch(object_id) is None:
+        raise TrustedTimeImageVerificationError(unavailable)
+
+    request = object_id.encode("ascii") + b"\n"
+    if len(request) not in (41, 65):
+        raise TrustedTimeImageVerificationError(unavailable)
+    blob_argv = (
+        "/usr/bin/git",
+        "-c",
+        "core.fsmonitor=false",
+        "cat-file",
+        "--batch",
+    )
+    try:
+        blob = _run_bounded_process(
+            blob_argv,
+            exact_cwd,
+            exact_environment,
+            request,
+            4_353,
+            16_384,
+            5_000_000_000,
+        )
+        blob_returncode, blob_stdout, blob_stderr = require_native_result(
+            blob,
+            expected_argv=blob_argv,
+        )
+    except BaseException as error:
+        if not isinstance(error, Exception):
+            raise
+        raise TrustedTimeImageVerificationError(unavailable) from None
+    if blob_returncode != 0 or blob_stderr:
+        raise TrustedTimeImageVerificationError(unavailable)
+    header_end = blob_stdout.find(b"\n", 0, 256)
+    if header_end < 0:
+        raise TrustedTimeImageVerificationError(unavailable)
+    header = blob_stdout[:header_end].split(b" ")
+    if len(header) != 3 or header[0] != fields[2] or header[1] != b"blob":
+        raise TrustedTimeImageVerificationError(unavailable)
+    try:
+        encoded_size = header[2].decode("ascii", errors="strict")
+    except UnicodeDecodeError:
+        raise TrustedTimeImageVerificationError(unavailable) from None
+    if (
+        not encoded_size.isascii()
+        or not encoded_size.isdecimal()
+        or (len(encoded_size) > 1 and encoded_size.startswith("0"))
+    ):
+        raise TrustedTimeImageVerificationError(unavailable)
+    size = int(encoded_size)
+    content_start = header_end + 1
+    content_end = content_start + size
+    if (
+        size > _MAXIMUM_OPERATOR_AUTHORITY_GIT_BYTES
+        or content_end >= len(blob_stdout)
+        or blob_stdout[content_end : content_end + 1] != b"\n"
+        or content_end + 1 != len(blob_stdout)
+    ):
+        raise TrustedTimeImageVerificationError(unavailable)
+    return "100644", object_id, blob_stdout[content_start:content_end]
+
+
 def _head_reviewed_input_snapshot(
     revision: str,
     *,
     environment: Mapping[str, str],
-) -> Mapping[Path, tuple[int, bytes]]:
+) -> Mapping[str, tuple[int, bytes]]:
     """Return exact Git-validated bytes and modes for the reviewed HEAD tree."""
 
     entries = _head_reviewed_input_entries(revision, environment=environment)
@@ -2345,7 +4468,9 @@ def _head_reviewed_input_snapshot(
         tuple(object_id for _, object_id in entries.values()),
         environment=environment,
     )
-    return {path: (mode, payloads[object_id]) for path, (mode, object_id) in entries.items()}
+    return {
+        relative: (mode, payloads[object_id]) for relative, (mode, object_id) in entries.items()
+    }
 
 
 def _head_reviewed_input_payload(
@@ -2365,7 +4490,7 @@ def _head_reviewed_input_payload(
         revision,
         environment=(_minimal_git_environment() if environment is None else dict(environment)),
     )
-    item = snapshot.get(ROOT / relative_path)
+    item = snapshot.get(relative_path)
     if item is None:
         raise TrustedTimeImageVerificationError("trusted-time reviewed Git payload is unavailable")
     return item[1]
@@ -2387,10 +4512,11 @@ def _require_ordinary_git_index_flags(*, environment: Mapping[str, str]) -> None
         raise TrustedTimeImageVerificationError(
             "trusted-time clean Git revision is unavailable"
         ) from None
-    records = completed.stdout[:-1].split(b"\0") if completed.stdout.endswith(b"\0") else []
+    completed_stdout = _bytes_process_stdout(completed)
+    records = completed_stdout[:-1].split(b"\0") if completed_stdout.endswith(b"\0") else []
     if (
-        completed.returncode != 0
-        or completed.stderr
+        _bytes_process_returncode(completed) != 0
+        or _bytes_process_stderr(completed)
         or not records
         or any(not record.startswith(b"H ") for record in records)
     ):
@@ -2404,7 +4530,7 @@ def _require_head_reviewed_inputs(
 ) -> None:
     """Require the current reviewed/build inputs to be exact raw HEAD blobs."""
 
-    current_paths = _reviewed_input_paths()
+    current_paths = _reviewed_input_relative_paths()
     expected = _head_reviewed_input_snapshot(revision, environment=environment)
     if set(current_paths) != set(expected):
         raise TrustedTimeImageVerificationError(
@@ -2413,10 +4539,12 @@ def _require_head_reviewed_inputs(
     for path in current_paths:
         required_mode, expected_payload = expected[path]
         if (
-            _stable_reviewed_file_sha256(
-                path,
-                required_mode=required_mode,
-            )
+            hashlib.sha256(
+                _native_reviewed_file_bytes(
+                    path,
+                    required_mode=required_mode,
+                )
+            ).hexdigest()
             != hashlib.sha256(expected_payload).hexdigest()
         ):
             raise TrustedTimeImageVerificationError(
@@ -2438,17 +4566,125 @@ def _minimal_git_environment() -> dict[str, str]:
     }
 
 
+type _ImmutableTextSubprocessResult = tuple[tuple[str, ...], int, str, str]
+
+
+def _require_bytes_process_result(value: object) -> BoundedSubprocessResult:
+    if type(value) is not tuple or len(value) != 4:
+        raise UnicodeError
+    argv = tuple.__getitem__(value, 0)
+    returncode = tuple.__getitem__(value, 1)
+    stdout = tuple.__getitem__(value, 2)
+    stderr = tuple.__getitem__(value, 3)
+    if (
+        type(argv) is not tuple
+        or not argv
+        or any(type(item) is not str for item in argv)
+        or type(returncode) is not int
+        or type(stdout) is not bytes
+        or type(stderr) is not bytes
+    ):
+        raise UnicodeError
+    return cast(BoundedSubprocessResult, value)
+
+
+def _require_text_process_result(value: object) -> _ImmutableTextSubprocessResult:
+    if type(value) is not tuple or len(value) != 4:
+        raise UnicodeError
+    argv = tuple.__getitem__(value, 0)
+    returncode = tuple.__getitem__(value, 1)
+    stdout = tuple.__getitem__(value, 2)
+    stderr = tuple.__getitem__(value, 3)
+    if (
+        type(argv) is not tuple
+        or not argv
+        or any(type(item) is not str for item in argv)
+        or type(returncode) is not int
+        or type(stdout) is not str
+        or type(stderr) is not str
+    ):
+        raise UnicodeError
+    return cast(_ImmutableTextSubprocessResult, value)
+
+
+def _process_argv(value: object) -> tuple[str, ...]:
+    try:
+        exact = _require_text_process_result(value)
+    except UnicodeError:
+        raise TrustedTimeImageVerificationError("bounded subprocess result is malformed") from None
+    return cast(tuple[str, ...], tuple.__getitem__(exact, 0))
+
+
+def _process_returncode(value: object) -> int:
+    try:
+        exact = _require_text_process_result(value)
+    except UnicodeError:
+        raise TrustedTimeImageVerificationError("bounded subprocess result is malformed") from None
+    return cast(int, tuple.__getitem__(exact, 1))
+
+
+def _process_stdout(value: object) -> str:
+    try:
+        exact = _require_text_process_result(value)
+    except UnicodeError:
+        raise TrustedTimeImageVerificationError("bounded subprocess result is malformed") from None
+    return cast(str, tuple.__getitem__(exact, 2))
+
+
+def _process_stderr(value: object) -> str:
+    try:
+        exact = _require_text_process_result(value)
+    except UnicodeError:
+        raise TrustedTimeImageVerificationError("bounded subprocess result is malformed") from None
+    return cast(str, tuple.__getitem__(exact, 3))
+
+
+def _bytes_process_returncode(value: object) -> int:
+    try:
+        exact = _require_bytes_process_result(value)
+    except UnicodeError:
+        raise TrustedTimeImageVerificationError("bounded subprocess result is malformed") from None
+    return cast(int, tuple.__getitem__(exact, 1))
+
+
+def _bytes_process_stdout(value: object) -> bytes:
+    try:
+        exact = _require_bytes_process_result(value)
+    except UnicodeError:
+        raise TrustedTimeImageVerificationError("bounded subprocess result is malformed") from None
+    return cast(bytes, tuple.__getitem__(exact, 2))
+
+
+def _bytes_process_stderr(value: object) -> bytes:
+    try:
+        exact = _require_bytes_process_result(value)
+    except UnicodeError:
+        raise TrustedTimeImageVerificationError("bounded subprocess result is malformed") from None
+    return cast(bytes, tuple.__getitem__(exact, 3))
+
+
 def _decode_bounded_subprocess(
-    completed: subprocess.CompletedProcess[bytes],
-) -> subprocess.CompletedProcess[str]:
+    completed: BoundedSubprocessResult,
+) -> _ImmutableTextSubprocessResult:
     """Decode one bounded command without accepting replacement characters."""
 
-    return subprocess.CompletedProcess(
-        completed.args,
-        completed.returncode,
-        completed.stdout.decode("utf-8", errors="strict"),
-        completed.stderr.decode("utf-8", errors="strict"),
+    exact = _require_bytes_process_result(completed)
+    return _require_text_process_result(
+        (
+            tuple.__getitem__(exact, 0),
+            tuple.__getitem__(exact, 1),
+            cast(bytes, tuple.__getitem__(exact, 2)).decode("utf-8", errors="strict"),
+            cast(bytes, tuple.__getitem__(exact, 3)).decode("utf-8", errors="strict"),
+        )
     )
+
+
+def _decode_exact_bounded_subprocess(
+    completed: BoundedSubprocessResult,
+) -> _ImmutableTextSubprocessResult:
+    """Decode one exact immutable bounded command result."""
+
+    return _decode_bounded_subprocess(completed)
 
 
 def _current_clean_git_revision() -> str:
@@ -2477,7 +4713,7 @@ def _current_clean_git_revision() -> str:
         argv: tuple[str, ...],
         *,
         maximum_stdout_bytes: int,
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> _ImmutableTextSubprocessResult:
         return _decode_bounded_subprocess(
             run_bounded_subprocess(
                 argv,
@@ -2502,15 +4738,16 @@ def _current_clean_git_revision() -> str:
         raise TrustedTimeImageVerificationError(
             "trusted-time clean Git revision is unavailable"
         ) from None
-    revision = before.stdout.strip()
+    before_stdout = _process_stdout(before)
+    revision = before_stdout.strip()
     if (
-        before.returncode != 0
-        or before.stderr
-        or before.stdout != f"{revision}\n"
+        _process_returncode(before) != 0
+        or _process_stderr(before)
+        or before_stdout != f"{revision}\n"
         or _GIT_REVISION_PATTERN.fullmatch(revision) is None
-        or status_result.returncode != 0
-        or status_result.stdout
-        or status_result.stderr
+        or _process_returncode(status_result) != 0
+        or _process_stdout(status_result)
+        or _process_stderr(status_result)
     ):
         raise TrustedTimeImageVerificationError("trusted-time clean Git revision is unavailable")
     _require_ordinary_git_index_flags(environment=environment)
@@ -2529,12 +4766,12 @@ def _current_clean_git_revision() -> str:
             "trusted-time clean Git revision is unavailable"
         ) from None
     if (
-        after_status_result.returncode != 0
-        or after_status_result.stdout
-        or after_status_result.stderr
-        or after.returncode != 0
-        or after.stderr
-        or after.stdout != f"{revision}\n"
+        _process_returncode(after_status_result) != 0
+        or _process_stdout(after_status_result)
+        or _process_stderr(after_status_result)
+        or _process_returncode(after) != 0
+        or _process_stderr(after)
+        or _process_stdout(after) != f"{revision}\n"
     ):
         raise TrustedTimeImageVerificationError("trusted-time clean Git revision is unavailable")
     return revision
@@ -2552,8 +4789,7 @@ def _sealed_head_build_context(revision: str) -> bytes:
         environment=_minimal_git_environment(),
     )
     selected: dict[str, tuple[int, bytes]] = {}
-    for path, item in snapshot.items():
-        relative = path.relative_to(ROOT).as_posix()
+    for relative, item in snapshot.items():
         if (
             relative in _BUILD_CONTEXT_FIXED_RELATIVE_PATHS
             or (relative.startswith("apps/trusted_time_supervisor/") and relative.endswith(".py"))
@@ -2637,12 +4873,17 @@ def _validate_trusted_time_dockerfile_frontend(payload: bytes) -> None:
 def _docker(
     *arguments: str,
     timeout_seconds: float = 60,
-    environment: Mapping[str, str] | None = None,
+    environment: Mapping[str, str] | tuple[tuple[str, str], ...] | None = None,
     stdin_bytes: bytes | None = None,
-) -> subprocess.CompletedProcess[str]:
-    process_environment = (
-        _minimal_docker_environment() if environment is None else dict(environment)
-    )
+) -> _ImmutableTextSubprocessResult:
+    if environment is None:
+        process_environment: Mapping[str, str] | tuple[tuple[str, str], ...] = (
+            _minimal_docker_environment()
+        )
+    elif type(environment) is tuple:
+        process_environment = environment
+    else:
+        process_environment = dict(environment)
     maximum_stdout_bytes = (
         _MAXIMUM_DOCKER_BUILD_STDOUT_BYTES
         if arguments[:1] == ("build",)
@@ -2667,7 +4908,7 @@ def _docker(
             stdin_bytes=stdin_bytes,
             maximum_stdin_bytes=(0 if stdin_bytes is None else _MAXIMUM_DOCKER_BUILD_CONTEXT_BYTES),
         )
-        return _decode_bounded_subprocess(completed)
+        return _decode_exact_bounded_subprocess(completed)
     except (BoundedSubprocessError, UnicodeError):
         raise TrustedTimeImageVerificationError("Docker is unavailable") from None
 
@@ -2675,24 +4916,55 @@ def _docker(
 def _inspection(
     image_id: str,
     *,
-    environment: Mapping[str, str] | None = None,
-) -> object:
-    completed = _docker("image", "inspect", image_id, environment=environment)
-    if completed.returncode != 0 or completed.stderr:
+    environment: Mapping[str, str] | tuple[tuple[str, str], ...] | None = None,
+) -> _ImageInspectionProjection:
+    inspection_format = (
+        '{"cmd":{{json (index .Config "Cmd")}},'
+        '"entrypoint":{{json (index .Config "Entrypoint")}},'
+        '"env":{{json (index .Config "Env")}},'
+        '"exposed_ports":{{json (index .Config "ExposedPorts")}},'
+        '"healthcheck":{{json (index .Config "Healthcheck")}},"id":{{json .Id}},'
+        '"shell":{{json (index .Config "Shell")}},'
+        '"user":{{json (index .Config "User")}},'
+        '"volumes":{{json (index .Config "Volumes")}},'
+        '"working_dir":{{json (index .Config "WorkingDir")}}}'
+    )
+    if inspection_format != _IMAGE_INSPECTION_FORMAT:
+        raise TrustedTimeImageVerificationError("Docker image inspection contract drifted")
+    completed = _docker(
+        "image",
+        "inspect",
+        "--format",
+        inspection_format,
+        image_id,
+        environment=environment,
+    )
+    completed_stdout = _process_stdout(completed)
+    if (
+        _process_returncode(completed) != 0
+        or _process_stderr(completed)
+        or not completed_stdout.endswith("\n")
+        or completed_stdout.count("\n") != 1
+    ):
         raise TrustedTimeImageVerificationError("trusted-time image inspection failed")
-    try:
-        inspected: Any = json.loads(completed.stdout)
-    except json.JSONDecodeError:
+    encoded = completed_stdout[:-1]
+    payload = _decode_immutable_json_text(
+        encoded,
+        maximum_characters=16_384,
+        maximum_nodes=128,
+        label="trusted-time image inspection",
+    )
+    if _canonical_immutable_json_bytes(payload).decode("utf-8") != encoded:
         raise TrustedTimeImageVerificationError(
             "trusted-time image inspection returned malformed JSON"
-        ) from None
-    return inspected
+        )
+    return _image_inspection_projection(payload, expected_image_id=image_id)
 
 
 def resolve_image_id(
     image_reference: str,
     *,
-    environment: Mapping[str, str] | None = None,
+    environment: Mapping[str, str] | tuple[tuple[str, str], ...] | None = None,
 ) -> str:
     completed = _docker(
         "image",
@@ -2702,11 +4974,12 @@ def resolve_image_id(
         image_reference,
         environment=environment,
     )
-    image_id = completed.stdout.strip()
+    completed_stdout = _process_stdout(completed)
+    image_id = completed_stdout.strip()
     if (
-        completed.returncode != 0
-        or completed.stderr
-        or completed.stdout != f"{image_id}\n"
+        _process_returncode(completed) != 0
+        or _process_stderr(completed)
+        or completed_stdout != f"{image_id}\n"
         or _IMAGE_ID_PATTERN.fullmatch(image_id) is None
     ):
         raise TrustedTimeImageVerificationError(
@@ -2745,11 +5018,12 @@ def build_trusted_time_images(
             environment=environment,
             stdin_bytes=context,
         )
-        image_id = completed.stdout.strip()
+        completed_stdout = _process_stdout(completed)
+        image_id = completed_stdout.strip()
         if (
-            completed.returncode != 0
-            or completed.stderr
-            or completed.stdout != f"{image_id}\n"
+            _process_returncode(completed) != 0
+            or _process_stderr(completed)
+            or completed_stdout != f"{image_id}\n"
             or _IMAGE_ID_PATTERN.fullmatch(image_id) is None
         ):
             raise TrustedTimeImageVerificationError("trusted-time image build failed")
@@ -2820,8 +5094,8 @@ def validate_prebuild_compose_contract(
 def _run_read_only(
     image: str,
     *command: str,
-    environment: Mapping[str, str] | None = None,
-) -> subprocess.CompletedProcess[str]:
+    environment: Mapping[str, str] | tuple[tuple[str, str], ...] | None = None,
+) -> _ImmutableTextSubprocessResult:
     return _docker(
         "run",
         "--rm",
@@ -2843,85 +5117,242 @@ def _run_read_only(
     )
 
 
-def _validate_source_probe_inspection(
-    inspection: object,
+def _run_read_only_bytes(
+    image: str,
+    *command: str,
+    environment: tuple[tuple[str, str], ...],
+    _runner: Callable[..., object] = run_bounded_subprocess,
+    _require_result: Callable[[object], BoundedSubprocessResult] = (_require_bytes_process_result),
+    _root: Path = ROOT,
+    _maximum_stdout_bytes: int = _MAXIMUM_DOCKER_CONTROL_STDOUT_BYTES,
+    _maximum_stderr_bytes: int = _MAXIMUM_DOCKER_STDERR_BYTES,
+) -> BoundedSubprocessResult:
+    if (
+        type(image) is not str
+        or not image
+        or type(command) is not tuple
+        or not command
+        or any(type(argument) is not str or not argument for argument in command)
+        or type(environment) is not tuple
+    ):
+        raise TrustedTimeImageVerificationError("Docker is unavailable")
+    argv = (
+        "docker",
+        "run",
+        "--rm",
+        "--pull=never",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--user",
+        "10001:10001",
+        "--entrypoint",
+        tuple.__getitem__(command, 0),
+        image,
+        *command[1:],
+    )
+    try:
+        return _require_result(
+            _runner(
+                argv,
+                cwd=_root,
+                environment=environment,
+                timeout_seconds=60.0,
+                maximum_stdout_bytes=_maximum_stdout_bytes,
+                maximum_stderr_bytes=_maximum_stderr_bytes,
+                stdin_bytes=None,
+                maximum_stdin_bytes=0,
+            )
+        )
+    except (BoundedSubprocessError, UnicodeError):
+        raise TrustedTimeImageVerificationError("Docker is unavailable") from None
+
+
+def _run_rootfs_manifest_verifier(
+    image: str,
+    *command: str,
+    environment: Mapping[str, str] | tuple[tuple[str, str], ...] | None = None,
+) -> _ImmutableTextSubprocessResult:
+    """Run the complete-rootfs manifest verifier as isolated root only."""
+
+    if (
+        command
+        != (
+            "-I",
+            "-B",
+            "-S",
+            "/usr/local/lib/autoquant-native-image-manifest.py",
+            "verify",
+            "/",
+            "/etc/autoquant/native/executable-import-manifest.jsonl",
+        )
+        or SUPERVISOR_BASE_PYTHON != "/usr/local/bin/python"
+    ):
+        raise TrustedTimeImageVerificationError(
+            "supervisor executable/import manifest command drifted"
+        )
+    return _docker(
+        "run",
+        "--rm",
+        "--pull=never",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--user",
+        "0:0",
+        "--entrypoint",
+        "/usr/local/bin/python",
+        image,
+        *command,
+        environment=environment,
+    )
+
+
+def _decode_exact_docker_json_object(
+    completed: _ImmutableTextSubprocessResult,
+    *,
+    label: str,
+) -> tuple[object, ...]:
+    stdout = _process_stdout(completed)
+    if (
+        _process_returncode(completed) != 0
+        or _process_stderr(completed)
+        or not stdout.endswith("\n")
+        or stdout.count("\n") != 1
+    ):
+        raise TrustedTimeImageVerificationError(f"{label} failed")
+    encoded = stdout[:-1]
+    payload = _decode_immutable_json_text(
+        encoded,
+        maximum_characters=8_192,
+        maximum_nodes=128,
+        label=label,
+    )
+    if (
+        _canonical_immutable_json_bytes(payload).decode("utf-8") != encoded
+        or type(payload) is not tuple
+        or len(payload) != 2
+        or tuple.__getitem__(payload, 0) != 0
+    ):
+        raise TrustedTimeImageVerificationError(f"{label} returned malformed JSON") from None
+    return cast(tuple[object, ...], payload)
+
+
+def _validate_socket_volume_projection(
+    completed: _ImmutableTextSubprocessResult,
+    *,
+    expected_name: str,
+    expected_token: str,
+) -> None:
+    payload = _decode_exact_docker_json_object(
+        completed,
+        label="trusted-time socket probe volume inspection",
+    )
+    expected = _immutable_json_object(
+        (
+            ("driver", "local"),
+            ("label_count", 1),
+            ("label_token", expected_token),
+            ("name", expected_name),
+            ("option_count", 3),
+            ("option_device", "tmpfs"),
+            (
+                "option_o",
+                "rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0750",
+            ),
+            ("option_type", "tmpfs"),
+            ("scope", "local"),
+            ("status", None),
+        )
+    )
+    if payload != expected:
+        raise TrustedTimeImageVerificationError(
+            "trusted-time socket volume is not the exact tmpfs contract"
+        )
+
+
+def _validate_source_probe_projection(
+    completed: _ImmutableTextSubprocessResult,
     *,
     image_id: str,
     volume_name: str,
+    expected_token: str,
 ) -> None:
-    if type(inspection) is not list or len(inspection) != 1:
-        raise TrustedTimeImageVerificationError("source topology inspection is malformed")
-    container = _mapping(inspection[0], "source topology inspection")
-    configuration = _mapping(container.get("Config"), "source topology Config")
-    host = _mapping(container.get("HostConfig"), "source topology HostConfig")
-    if container.get("Image") != image_id or configuration.get("User") != "10001:10001":
-        raise TrustedTimeImageVerificationError("source topology image or identity drifted")
-    if (
-        host.get("NetworkMode") != "none"
-        or host.get("ReadonlyRootfs") is not True
-        or host.get("CapDrop") != ["ALL"]
-        or host.get("SecurityOpt") != ["no-new-privileges"]
-    ):
-        raise TrustedTimeImageVerificationError("source topology isolation drifted")
-    if host.get("Binds") not in (None, []):
-        raise TrustedTimeImageVerificationError("source topology cannot use bind mounts")
-    tmpfs = _mapping(host.get("Tmpfs"), "source topology tmpfs")
-    if tmpfs != {
-        "/tmp": "rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0700",
-        "/var/lib/chrony": ("rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001,mode=0700"),
-    }:
-        raise TrustedTimeImageVerificationError("source topology tmpfs contract drifted")
-    mount_requests = _sequence(host.get("Mounts"), "source topology mount requests")
-    if len(mount_requests) != 1:
-        raise TrustedTimeImageVerificationError("source topology mount request set drifted")
-    mount_request = _mapping(mount_requests[0], "source topology mount request")
-    volume_options = _mapping(
-        mount_request.get("VolumeOptions"),
-        "source topology volume options",
+    payload = _decode_exact_docker_json_object(
+        completed,
+        label="trusted-time source topology inspection",
     )
+    expected = _immutable_json_object(
+        (
+            ("bind_count", 0),
+            ("cap_add_count", 0),
+            ("cap_drop_0", "ALL"),
+            ("cap_drop_count", 1),
+            ("config_user", "10001:10001"),
+            ("container_label_count", 1),
+            ("container_label_token", expected_token),
+            ("device_count", 0),
+            ("device_request_count", 0),
+            ("host_mount_count", 1),
+            ("host_mount_driver_config", None),
+            ("host_mount_no_copy", True),
+            ("host_mount_read_only", False),
+            ("host_mount_source", volume_name),
+            ("host_mount_target", "/run/chrony"),
+            ("host_mount_type", "volume"),
+            ("image", image_id),
+            ("mount_count", 1),
+            ("mount_destination", "/run/chrony"),
+            ("mount_driver", "local"),
+            ("mount_mode", "z"),
+            ("mount_name", volume_name),
+            ("mount_propagation", ""),
+            ("mount_rw", True),
+            ("mount_type", "volume"),
+            ("network_mode", "none"),
+            ("pids_limit", 32),
+            ("port_binding_count", 0),
+            ("privileged", False),
+            ("readonly_rootfs", True),
+            ("running", True),
+            ("security_opt_0", "no-new-privileges"),
+            ("security_opt_count", 1),
+            ("tmpfs_count", 2),
+            (
+                "tmpfs_tmp",
+                "rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0700",
+            ),
+            (
+                "tmpfs_var_lib_chrony",
+                "rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001,mode=0700",
+            ),
+        )
+    )
+    if payload != expected:
+        raise TrustedTimeImageVerificationError("trusted-time source topology inspection drifted")
+
+
+def _require_activity(completed: _ImmutableTextSubprocessResult, *, label: str) -> None:
     if (
-        mount_request.get("Type") != "volume"
-        or mount_request.get("Source") != volume_name
-        or mount_request.get("Target") != "/run/chrony"
-        or volume_options.get("NoCopy") is not True
+        _process_returncode(completed) != 0
+        or _process_stderr(completed)
+        or not _process_stdout(completed).strip()
     ):
-        raise TrustedTimeImageVerificationError("source topology mount request drifted")
-    mounts = _sequence(container.get("Mounts"), "source topology mounts")
-    command_mounts = [
-        _mapping(mount, "source topology mount")
-        for mount in mounts
-        if type(mount) is dict and mount.get("Destination") == "/run/chrony"
-    ]
-    if len(command_mounts) != 1 or not (
-        command_mounts[0].get("Type") == "volume"
-        and command_mounts[0].get("Name") == volume_name
-        and command_mounts[0].get("RW") is True
-    ):
-        raise TrustedTimeImageVerificationError("source topology socket volume drifted")
-
-
-def _parse_json_output(
-    completed: subprocess.CompletedProcess[str],
-    *,
-    label: str,
-) -> object:
-    if completed.returncode != 0 or completed.stderr:
-        raise TrustedTimeImageVerificationError(f"{label} failed")
-    try:
-        return json.loads(completed.stdout)
-    except json.JSONDecodeError:
-        raise TrustedTimeImageVerificationError(f"{label} returned malformed JSON") from None
-
-
-def _require_activity(completed: subprocess.CompletedProcess[str], *, label: str) -> None:
-    if completed.returncode != 0 or completed.stderr or not completed.stdout.strip():
         raise TrustedTimeImageVerificationError(f"{label} could not use the shared socket")
 
 
 def _named_container_absent(
     container_name: str,
     *,
-    environment: Mapping[str, str] | None = None,
+    environment: Mapping[str, str] | tuple[tuple[str, str], ...] | None = None,
 ) -> bool:
     try:
         completed = _docker(
@@ -2935,13 +5366,17 @@ def _named_container_absent(
         )
     except TrustedTimeImageVerificationError:
         return False
-    return completed.returncode == 0 and not completed.stderr and not completed.stdout
+    return (
+        _process_returncode(completed) == 0
+        and not _process_stderr(completed)
+        and not _process_stdout(completed)
+    )
 
 
 def _named_volume_absent(
     volume_name: str,
     *,
-    environment: Mapping[str, str] | None = None,
+    environment: Mapping[str, str] | tuple[tuple[str, str], ...] | None = None,
 ) -> bool:
     try:
         completed = _docker(
@@ -2954,14 +5389,18 @@ def _named_volume_absent(
         )
     except TrustedTimeImageVerificationError:
         return False
-    return completed.returncode == 0 and not completed.stderr and not completed.stdout
+    return (
+        _process_returncode(completed) == 0
+        and not _process_stderr(completed)
+        and not _process_stdout(completed)
+    )
 
 
 def _probe_runtime_topology(
     source_id: str,
     supervisor_id: str,
     *,
-    environment: Mapping[str, str] | None = None,
+    environment: Mapping[str, str] | tuple[tuple[str, str], ...] | None = None,
 ) -> None:
     token = secrets.token_hex(16)
     resource_prefix = f"aqt-trusted-time-admission-{token}"
@@ -2984,20 +5423,39 @@ def _probe_runtime_topology(
             "--opt",
             "device=tmpfs",
             "--opt",
-            "o=size=8m,uid=10001,gid=10001,mode=0750",
+            "o=rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0750",
             volume_name,
             environment=environment,
         )
-        if volume.returncode != 0 or volume.stderr or volume.stdout != f"{volume_name}\n":
+        if (
+            _process_returncode(volume) != 0
+            or _process_stderr(volume)
+            or _process_stdout(volume) != f"{volume_name}\n"
+        ):
             raise TrustedTimeImageVerificationError(
                 "trusted-time socket probe volume creation failed"
             )
-        validate_socket_volume_inspection(
-            _parse_json_output(
-                _docker("volume", "inspect", volume_name, environment=environment),
-                label="trusted-time socket probe volume inspection",
+        volume_inspection_format = (
+            '{"driver":{{json .Driver}},"label_count":{{len .Labels}},'
+            '"label_token":{{json (index .Labels '
+            '"com.autoquanttrader.trusted-time-admission")}},'
+            '"name":{{json .Name}},"option_count":{{len .Options}},'
+            '"option_device":{{json (index .Options "device")}},'
+            '"option_o":{{json (index .Options "o")}},'
+            '"option_type":{{json (index .Options "type")}},'
+            '"scope":{{json .Scope}},"status":{{json .Status}}}'
+        )
+        _validate_socket_volume_projection(
+            _docker(
+                "volume",
+                "inspect",
+                "--format",
+                volume_inspection_format,
+                volume_name,
+                environment=environment,
             ),
             expected_name=volume_name,
+            expected_token=token,
         )
 
         source_run_attempted = True
@@ -3029,17 +5487,83 @@ def _probe_runtime_topology(
             source_id,
             environment=environment,
         )
-        if source.returncode != 0 or source.stderr or not source.stdout.strip():
+        if (
+            _process_returncode(source) != 0
+            or _process_stderr(source)
+            or not _process_stdout(source).strip()
+        ):
             raise TrustedTimeImageVerificationError("trusted-time source socket probe failed")
 
-        source_inspection = _parse_json_output(
-            _docker("container", "inspect", source_name, environment=environment),
-            label="trusted-time source topology inspection",
+        source_inspection_format = (
+            '{"bind_count":{{len .HostConfig.Binds}},'
+            '"cap_add_count":{{len .HostConfig.CapAdd}},'
+            '"cap_drop_0":{{json (index .HostConfig.CapDrop 0)}},'
+            '"cap_drop_count":{{len .HostConfig.CapDrop}},'
+            '"config_user":{{json .Config.User}},'
+            '"container_label_count":{{len .Config.Labels}},'
+            '"container_label_token":{{json (index .Config.Labels '
+            '"com.autoquanttrader.trusted-time-admission")}},'
+            '"device_count":{{len .HostConfig.Devices}},'
+            '"device_request_count":{{len .HostConfig.DeviceRequests}},'
+            '"host_mount_count":{{len .HostConfig.Mounts}},'
+            '"host_mount_driver_config":'
+            "{{json (index .HostConfig.Mounts 0).VolumeOptions.DriverConfig}},"
+            '"host_mount_no_copy":'
+            "{{json (index .HostConfig.Mounts 0).VolumeOptions.NoCopy}},"
+            '"host_mount_read_only":{{json (index .HostConfig.Mounts 0).ReadOnly}},'
+            '"host_mount_source":{{json (index .HostConfig.Mounts 0).Source}},'
+            '"host_mount_target":{{json (index .HostConfig.Mounts 0).Target}},'
+            '"host_mount_type":{{json (index .HostConfig.Mounts 0).Type}},'
+            '"image":{{json .Image}},"mount_count":{{len .Mounts}},'
+            '"mount_destination":{{json (index .Mounts 0).Destination}},'
+            '"mount_driver":{{json (index .Mounts 0).Driver}},'
+            '"mount_mode":{{json (index .Mounts 0).Mode}},'
+            '"mount_name":{{json (index .Mounts 0).Name}},'
+            '"mount_propagation":{{json (index .Mounts 0).Propagation}},'
+            '"mount_rw":{{json (index .Mounts 0).RW}},'
+            '"mount_type":{{json (index .Mounts 0).Type}},'
+            '"network_mode":{{json .HostConfig.NetworkMode}},'
+            '"pids_limit":{{json .HostConfig.PidsLimit}},'
+            '"port_binding_count":{{len .HostConfig.PortBindings}},'
+            '"privileged":{{json .HostConfig.Privileged}},'
+            '"readonly_rootfs":{{json .HostConfig.ReadonlyRootfs}},'
+            '"running":{{json .State.Running}},'
+            '"security_opt_0":{{json (index .HostConfig.SecurityOpt 0)}},'
+            '"security_opt_count":{{len .HostConfig.SecurityOpt}},'
+            '"tmpfs_count":{{len .HostConfig.Tmpfs}},'
+            '"tmpfs_tmp":{{json (index .HostConfig.Tmpfs "/tmp")}},'
+            '"tmpfs_var_lib_chrony":'
+            '{{json (index .HostConfig.Tmpfs "/var/lib/chrony")}}}'
         )
-        _validate_source_probe_inspection(
-            source_inspection,
+        _validate_source_probe_projection(
+            _docker(
+                "container",
+                "inspect",
+                "--format",
+                source_inspection_format,
+                source_name,
+                environment=environment,
+            ),
             image_id=source_id,
             volume_name=volume_name,
+            expected_token=token,
+        )
+
+        source_mount = _docker(
+            "container",
+            "exec",
+            "--user",
+            "10001:10001",
+            source_name,
+            "/bin/sh",
+            "-eu",
+            "-c",
+            _SOCKET_MOUNTINFO_CHECK,
+            environment=environment,
+        )
+        _validate_socket_mountinfo_probe(
+            source_mount,
+            label="trusted-time source",
         )
 
         directory = _docker(
@@ -3054,7 +5578,11 @@ def _probe_runtime_topology(
             "/run/chrony",
             environment=environment,
         )
-        if directory.returncode != 0 or directory.stderr or directory.stdout != "10001:10001:750\n":
+        if (
+            _process_returncode(directory) != 0
+            or _process_stderr(directory)
+            or _process_stdout(directory) != "10001:10001:750\n"
+        ):
             raise TrustedTimeImageVerificationError(
                 "trusted-time socket command directory permissions drifted"
             )
@@ -3074,13 +5602,45 @@ def _probe_runtime_topology(
                 timeout_seconds=2,
                 environment=environment,
             )
-            if activity.returncode == 0 and not activity.stderr and activity.stdout.strip():
+            if (
+                _process_returncode(activity) == 0
+                and not _process_stderr(activity)
+                and _process_stdout(activity).strip()
+            ):
                 break
             if time.monotonic() >= deadline:
                 raise TrustedTimeImageVerificationError(
                     "trusted-time source command socket did not become responsive"
                 )
             time.sleep(0.1)
+
+        supervisor_mount = _docker(
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network",
+            "none",
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+            "--user",
+            "10001:10001",
+            "--mount",
+            f"type=volume,source={volume_name},destination=/run/chrony,volume-nocopy",
+            "--entrypoint",
+            "/bin/sh",
+            supervisor_id,
+            "-eu",
+            "-c",
+            _SOCKET_MOUNTINFO_CHECK,
+            environment=environment,
+        )
+        _validate_socket_mountinfo_probe(
+            supervisor_mount,
+            label="trusted-time supervisor",
+        )
 
         supervisor_activity = _docker(
             "run",
@@ -3124,7 +5684,8 @@ def _probe_runtime_topology(
                 cleanup_failed = True
             else:
                 cleanup_failed = (
-                    removed_source.returncode != 0 or bool(removed_source.stderr)
+                    _process_returncode(removed_source) != 0
+                    or bool(_process_stderr(removed_source))
                 ) and not _named_container_absent(
                     source_name,
                     environment=environment,
@@ -3141,7 +5702,8 @@ def _probe_runtime_topology(
                 cleanup_failed = True
             else:
                 volume_cleanup_failed = (
-                    removed_volume.returncode != 0 or bool(removed_volume.stderr)
+                    _process_returncode(removed_volume) != 0
+                    or bool(_process_stderr(removed_volume))
                 ) and not _named_volume_absent(
                     volume_name,
                     environment=environment,
@@ -3156,60 +5718,91 @@ def _probe_runtime_topology(
             raise cleanup_error from primary_error
 
 
-def verify_images(
+def _verify_images_with_manifest(
     source_image: str = SOURCE_IMAGE,
     supervisor_image: str = SUPERVISOR_IMAGE,
     *,
     docker_environment: Mapping[str, str] | None = None,
-) -> TrustedTimeImageIdentities:
-    """Verify one pair using only the exact Docker environment when supplied."""
+    _schema_probe: Callable[..., BoundedSubprocessResult] = _run_read_only_bytes,
+) -> _VerifiedTrustedTimeImages:
+    """Verify one pair and bind the supervisor rootfs executable manifest."""
 
-    environment = (
+    environment_source = (
         _minimal_docker_environment() if docker_environment is None else dict(docker_environment)
     )
-    identities = TrustedTimeImageIdentities(
-        source_id=resolve_image_id(source_image, environment=environment),
-        supervisor_id=resolve_image_id(supervisor_image, environment=environment),
+    environment = _immutable_environment_snapshot(
+        environment_source,
+        label="trusted-time Docker environment",
     )
-    validate_source_inspection(_inspection(identities.source_id, environment=environment))
-    validate_supervisor_inspection(_inspection(identities.supervisor_id, environment=environment))
+    resolved = _require_resolved_image_ids(
+        _make_resolved_image_ids(
+            resolve_image_id(source_image, environment=environment),
+            resolve_image_id(supervisor_image, environment=environment),
+        )
+    )
+    resolved_source_id = tuple.__getitem__(resolved, 1)
+    resolved_supervisor_id = tuple.__getitem__(resolved, 2)
+    validate_source_inspection(_inspection(resolved_source_id, environment=environment))
+    validate_supervisor_inspection(_inspection(resolved_supervisor_id, environment=environment))
+    supervisor_manifest_sha256 = _verify_supervisor_executable_import_manifest(
+        resolved_supervisor_id,
+        environment=environment,
+    )
 
     chronyd = _run_read_only(
-        identities.source_id,
+        resolved_source_id,
         "/usr/sbin/chronyd",
         "-v",
         environment=environment,
     )
-    validate_chronyd_version(chronyd.returncode, chronyd.stdout, chronyd.stderr)
+    validate_chronyd_version(
+        _process_returncode(chronyd),
+        _process_stdout(chronyd),
+        _process_stderr(chronyd),
+    )
     chronyc = _run_read_only(
-        identities.supervisor_id,
+        resolved_supervisor_id,
         "/usr/local/bin/chronyc",
         "-v",
         environment=environment,
     )
-    validate_chronyc_version(chronyc.returncode, chronyc.stdout, chronyc.stderr)
+    validate_chronyc_version(
+        _process_returncode(chronyc),
+        _process_stdout(chronyc),
+        _process_stderr(chronyc),
+    )
     static_chronyc = _run_read_only(
-        identities.supervisor_id,
+        resolved_supervisor_id,
         "/usr/local/bin/python",
+        "-I",
+        "-B",
+        "-S",
         "-c",
         _STATIC_ELF_CHECK,
         environment=environment,
     )
     validate_static_chronyc(
-        static_chronyc.returncode,
-        static_chronyc.stdout,
-        static_chronyc.stderr,
+        _process_returncode(static_chronyc),
+        _process_stdout(static_chronyc),
+        _process_stderr(static_chronyc),
     )
     ca_store = _run_read_only(
-        identities.supervisor_id,
+        resolved_supervisor_id,
         "/usr/local/bin/python",
+        "-I",
+        "-B",
+        "-S",
         "-c",
         _CA_STORE_CHECK,
         environment=environment,
     )
-    validate_ca_trust_store(ca_store.returncode, ca_store.stdout, ca_store.stderr)
+    validate_ca_trust_store(
+        _process_returncode(ca_store),
+        _process_stdout(ca_store),
+        _process_stderr(ca_store),
+    )
     database_ca_metadata = _run_read_only(
-        identities.supervisor_id,
+        resolved_supervisor_id,
         "/usr/bin/stat",
         "-c",
         "%u:%g:%a",
@@ -3217,31 +5810,62 @@ def verify_images(
         environment=environment,
     )
     validate_database_ca_metadata(
-        database_ca_metadata.returncode,
-        database_ca_metadata.stdout,
-        database_ca_metadata.stderr,
+        _process_returncode(database_ca_metadata),
+        _process_stdout(database_ca_metadata),
+        _process_stderr(database_ca_metadata),
     )
-    schema_contract = _run_read_only(
-        identities.supervisor_id,
-        SUPERVISOR_APPLICATION_PYTHON,
-        "-c",
-        _SCHEMA_CONTRACT_CHECK,
+    schema_contract = _schema_probe(
+        resolved_supervisor_id,
+        "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+        "image-schema-contract",
         environment=environment,
     )
+    expected_schema_argv = (
+        "docker",
+        "run",
+        "--rm",
+        "--pull=never",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--user",
+        "10001:10001",
+        "--entrypoint",
+        "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+        resolved_supervisor_id,
+        "image-schema-contract",
+    )
+    schema_stdout = schema_contract[2]
+    if (
+        schema_contract[0] != expected_schema_argv
+        or schema_contract[1] != 0
+        or schema_stdout
+        != (
+            b'{"catalog_relations":["phase6_trusted_time_head_anchor_intents",'
+            b'"phase6_trusted_time_head_anchor_receipts"],'
+            b'"schema_revision":"0036_phase6_time_anchors"}\n'
+        )
+        or schema_contract[3] != b""
+    ):
+        raise TrustedTimeImageVerificationError("supervisor operational schema contract drifted")
     validate_operational_schema_contract(
-        schema_contract.returncode,
-        schema_contract.stdout,
-        schema_contract.stderr,
+        schema_contract[1],
+        schema_stdout.decode("ascii", errors="strict"),
+        schema_contract[3].decode("ascii", errors="strict"),
     )
 
     source_hashes = _run_read_only(
-        identities.source_id,
+        resolved_source_id,
         "/usr/bin/sha256sum",
         "/etc/autoquant/trusted-time/chrony.conf",
         environment=environment,
     )
     supervisor_hashes = _run_read_only(
-        identities.supervisor_id,
+        resolved_supervisor_id,
         "/usr/bin/sha256sum",
         "/etc/autoquant/trusted-time/chrony.conf",
         "/etc/autoquant/trusted-time/source-authority.json",
@@ -3249,15 +5873,15 @@ def verify_images(
         environment=environment,
     )
     if (
-        source_hashes.returncode != 0
-        or source_hashes.stderr
-        or supervisor_hashes.returncode != 0
-        or supervisor_hashes.stderr
+        _process_returncode(source_hashes) != 0
+        or _process_stderr(source_hashes)
+        or _process_returncode(supervisor_hashes) != 0
+        or _process_stderr(supervisor_hashes)
     ):
         raise TrustedTimeImageVerificationError("trusted-time image hash read failed")
     validate_config_hashes(
-        source_output=source_hashes.stdout,
-        supervisor_output=supervisor_hashes.stdout,
+        source_output=_process_stdout(source_hashes),
+        supervisor_output=_process_stdout(supervisor_hashes),
     )
 
     secretless = _docker(
@@ -3271,20 +5895,46 @@ def verify_images(
         "ALL",
         "--security-opt",
         "no-new-privileges",
-        identities.supervisor_id,
+        resolved_supervisor_id,
         environment=environment,
     )
     validate_secretless_supervisor(
-        secretless.returncode,
-        secretless.stdout,
-        secretless.stderr,
+        _process_returncode(secretless),
+        _process_stdout(secretless),
+        _process_stderr(secretless),
     )
     _probe_runtime_topology(
-        identities.source_id,
-        identities.supervisor_id,
+        resolved_source_id,
+        resolved_supervisor_id,
         environment=environment,
     )
-    return identities
+    return _require_verified_images(
+        _make_verified_images(
+            resolved_source_id,
+            resolved_supervisor_id,
+            supervisor_manifest_sha256,
+        )
+    )
+
+
+def verify_images(
+    source_image: str = SOURCE_IMAGE,
+    supervisor_image: str = SUPERVISOR_IMAGE,
+    *,
+    docker_environment: Mapping[str, str] | None = None,
+) -> TrustedTimeImageIdentities:
+    """Verify one pair using only the exact Docker environment when supplied."""
+
+    verified = _verify_images_with_manifest(
+        source_image,
+        supervisor_image,
+        docker_environment=docker_environment,
+    )
+    verified = _require_verified_images(verified)
+    return TrustedTimeImageIdentities(
+        source_id=_verified_image_source_id(verified),
+        supervisor_id=_verified_image_supervisor_id(verified),
+    )
 
 
 def build_and_verify_images() -> TrustedTimeImageIdentities:
@@ -3303,12 +5953,16 @@ def build_and_verify_images() -> TrustedTimeImageIdentities:
         git_revision,
         docker_environment=docker_environment,
     )
-    identities = verify_images(
+    verified = _verify_images_with_manifest(
         built_identities.source_id,
         built_identities.supervisor_id,
         docker_environment=docker_environment,
     )
-    if identities != built_identities:
+    verified = _require_verified_images(verified)
+    if (
+        _verified_image_source_id(verified) != built_identities.source_id
+        or _verified_image_supervisor_id(verified) != built_identities.supervisor_id
+    ):
         raise TrustedTimeImageVerificationError(
             "trusted-time built image identities changed before verification"
         )
@@ -3320,7 +5974,10 @@ def build_and_verify_images() -> TrustedTimeImageIdentities:
         raise TrustedTimeImageVerificationError(
             "trusted-time clean Git revision changed during image build"
         )
-    return identities
+    return TrustedTimeImageIdentities(
+        source_id=_verified_image_source_id(verified),
+        supervisor_id=_verified_image_supervisor_id(verified),
+    )
 
 
 def build_verify_and_write_image_admission(
@@ -3346,12 +6003,16 @@ def build_verify_and_write_image_admission(
         git_revision,
         docker_environment=docker_environment,
     )
-    identities = verify_images(
+    verified = _verify_images_with_manifest(
         built_identities.source_id,
         built_identities.supervisor_id,
         docker_environment=docker_environment,
     )
-    if identities != built_identities:
+    verified = _require_verified_images(verified)
+    if (
+        _verified_image_source_id(verified) != built_identities.source_id
+        or _verified_image_supervisor_id(verified) != built_identities.supervisor_id
+    ):
         raise TrustedTimeImageVerificationError(
             "trusted-time built image identities changed before verification"
         )
@@ -3365,8 +6026,12 @@ def build_verify_and_write_image_admission(
         )
     admission = write_image_admission_artifact(
         path,
-        identities,
+        TrustedTimeImageIdentities(
+            source_id=_verified_image_source_id(verified),
+            supervisor_id=_verified_image_supervisor_id(verified),
+        ),
         git_revision=git_revision,
+        supervisor_executable_import_manifest_sha256=(_verified_image_manifest_sha256(verified)),
         bindings=before,
         ignored_root=ignored_root,
     )
@@ -3417,12 +6082,16 @@ def verify_and_write_existing_image_admission(
         raise TrustedTimeImageVerificationError(
             "trusted-time existing images do not match the reviewed source build"
         )
-    verified = verify_images(
+    verified = _verify_images_with_manifest(
         rebuilt.source_id,
         rebuilt.supervisor_id,
         docker_environment=environment,
     )
-    if verified != requested:
+    verified = _require_verified_images(verified)
+    if (
+        _verified_image_source_id(verified) != requested.source_id
+        or _verified_image_supervisor_id(verified) != requested.supervisor_id
+    ):
         raise TrustedTimeImageVerificationError(
             "trusted-time existing image identities changed before admission"
         )
@@ -3432,8 +6101,12 @@ def verify_and_write_existing_image_admission(
         )
     admission = write_image_admission_artifact(
         path,
-        verified,
+        TrustedTimeImageIdentities(
+            source_id=_verified_image_source_id(verified),
+            supervisor_id=_verified_image_supervisor_id(verified),
+        ),
         git_revision=git_revision,
+        supervisor_executable_import_manifest_sha256=(_verified_image_manifest_sha256(verified)),
         bindings=before,
         ignored_root=ignored_root,
     )

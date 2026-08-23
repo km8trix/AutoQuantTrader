@@ -33,7 +33,7 @@ from scripts.trusted_time_post_enrollment_action_topology_fence import (
     prepare_post_enrollment_start_leased_claimed_action_topology_fence as prepare_action_fence,
 )
 from scripts.trusted_time_post_enrollment_staged_topology import (
-    TrustedTimePostEnrollmentAbsentPathCandidate,
+    TrustedTimePostEnrollmentAbsentPathProjection,
     validate_post_enrollment_start_staged_unreleased_topology,
 )
 from scripts.trusted_time_post_enrollment_topology import (
@@ -92,6 +92,42 @@ def _release_marker(
     }
     values.update(changes)
     return persistent.TrustedTimePostEnrollmentReleaseMarkerCandidate(**values)  # type: ignore[arg-type]
+
+
+def _release_marker_projection(
+    *,
+    device: int = 4,
+    inode: int = 8,
+    modified_time_ns: int = 9,
+    changed_time_ns: int = 10,
+) -> tuple[str, int, int, int, int]:
+    return (
+        "trusted-time-release-marker-projection-v1",
+        device,
+        inode,
+        modified_time_ns,
+        changed_time_ns,
+    )
+
+
+def _consumed_marker_projection(
+    *,
+    device: int = 4,
+    inode: int = 5,
+    modified_time_ns: int = 6,
+    changed_time_ns: int = 7,
+) -> tuple[str, int, int, int, int]:
+    return (
+        "trusted-time-consumed-marker-projection-v1",
+        device,
+        inode,
+        modified_time_ns,
+        changed_time_ns,
+    )
+
+
+def _absence_projections(paths: list[str]) -> tuple[tuple[str, str], ...]:
+    return tuple(("trusted-time-absent-path-projection-v1", path) for path in paths)
 
 
 def _network(session_sha256: str = "a" * 64) -> dict[str, object]:
@@ -196,16 +232,12 @@ def _exact_staged_inputs(
         "expected_head_anchor_authority_file": paths["authority"],
         "expected_head_anchor_auth_secret_file": paths["auth"],
         "expected_head_anchor_signing_key_secret_file": paths["signing"],
-        "database_secret_consumed_before": staged_fixtures._marker_candidate(),
-        "database_secret_consumed_after": staged_fixtures._marker_candidate(),
-        "release_path_absences_before": staged_fixtures._absence_candidates(release_paths),
-        "release_path_absences_after": staged_fixtures._absence_candidates(
-            list(reversed(release_paths))
-        ),
-        "staged_input_retirements_before": staged_fixtures._absence_candidates(staged_paths),
-        "staged_input_retirements_after": staged_fixtures._absence_candidates(
-            list(reversed(staged_paths))
-        ),
+        "database_secret_consumed_before": _consumed_marker_projection(),
+        "database_secret_consumed_after": _consumed_marker_projection(),
+        "release_path_absences_before": _absence_projections(release_paths),
+        "release_path_absences_after": _absence_projections(list(reversed(release_paths))),
+        "staged_input_retirements_before": _absence_projections(staged_paths),
+        "staged_input_retirements_after": _absence_projections(list(reversed(staged_paths))),
     }
 
 
@@ -273,8 +305,7 @@ def _valid_inputs(
     context = claimed_fixtures._context(tmp_path)
     staged_inputs = _exact_staged_inputs(context)
     final_snapshot = _rebind_context_to_staged_inputs(context, staged_inputs)
-    lease = object()
-    recovery = object()
+    lease, recovery = claimed_fixtures._recovery_choreography_authorities()
     cast(Any, context).action_recovery_retention_capability = recovery
     claimed_fixtures._install_success(
         monkeypatch,
@@ -335,22 +366,22 @@ def _valid_inputs(
         ],
         "database_secret_consumed_before": staged_inputs["database_secret_consumed_before"],
         "database_secret_consumed_after": staged_inputs["database_secret_consumed_after"],
-        "release_marker_before": _release_marker(),
-        "release_marker_after": _release_marker(),
+        "release_marker_before": _release_marker_projection(),
+        "release_marker_after": _release_marker_projection(),
         "release_staging_absences_before": (
-            TrustedTimePostEnrollmentAbsentPathCandidate(
-                path=release.POST_ENROLLMENT_START_RELEASE_STAGING_PATH
+            (
+                "trusted-time-absent-path-projection-v1",
+                release.POST_ENROLLMENT_START_RELEASE_STAGING_PATH,
             ),
         ),
         "release_staging_absences_after": (
-            TrustedTimePostEnrollmentAbsentPathCandidate(
-                path=release.POST_ENROLLMENT_START_RELEASE_STAGING_PATH
+            (
+                "trusted-time-absent-path-projection-v1",
+                release.POST_ENROLLMENT_START_RELEASE_STAGING_PATH,
             ),
         ),
-        "staged_input_retirements_before": staged_fixtures._absence_candidates(staged_paths),
-        "staged_input_retirements_after": staged_fixtures._absence_candidates(
-            list(reversed(staged_paths))
-        ),
+        "staged_input_retirements_before": _absence_projections(staged_paths),
+        "staged_input_retirements_after": _absence_projections(list(reversed(staged_paths))),
     }
     return inputs, context
 
@@ -545,7 +576,7 @@ def test_persistent_topology_rejects_release_marker_tamper_or_two_pass_race(
         with pytest.raises(persistent.TrustedTimePostEnrollmentPersistentTopologyRejected):
             _release_marker(**changes)
         return
-    inputs[field_name] = _release_marker(**changes)
+    inputs[field_name] = _release_marker_projection(inode=cast(int, changes["inode"]))
 
     with pytest.raises(persistent.TrustedTimePostEnrollmentPersistentTopologyRejected):
         _validate(inputs)
@@ -557,7 +588,7 @@ def test_persistent_topology_rejects_release_staging_or_retirement_drift(
 ) -> None:
     inputs, _ = _valid_inputs(monkeypatch, tmp_path)
     inputs["release_staging_absences_after"] = (
-        TrustedTimePostEnrollmentAbsentPathCandidate(path="/tmp/other"),
+        ("trusted-time-absent-path-projection-v1", "/tmp/other"),
     )
 
     with pytest.raises(persistent.TrustedTimePostEnrollmentPersistentTopologyRejected):
@@ -568,12 +599,34 @@ def test_persistent_topology_rejects_release_staging_or_retirement_drift(
     inputs, _ = _valid_inputs(monkeypatch, second)
     retired = list(
         cast(
-            tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...],
+            tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
             inputs["staged_input_retirements_after"],
         )
     )
-    retired[-1] = TrustedTimePostEnrollmentAbsentPathCandidate(path="/tmp/other-staged-input")
+    retired[-1] = (
+        "trusted-time-absent-path-projection-v1",
+        "/tmp/other-staged-input",
+    )
     inputs["staged_input_retirements_after"] = tuple(retired)
+    with pytest.raises(persistent.TrustedTimePostEnrollmentPersistentTopologyRejected):
+        _validate(inputs)
+
+
+def test_persistent_topology_rejects_release_marker_tag_subclass(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    inputs, _ = _valid_inputs(monkeypatch, tmp_path)
+    projection = _release_marker_projection()
+
+    class EqualTag(str):
+        pass
+
+    inputs["release_marker_after"] = (
+        EqualTag(tuple.__getitem__(projection, 0)),
+        *tuple.__getitem__(projection, slice(1, None)),
+    )
+
     with pytest.raises(persistent.TrustedTimePostEnrollmentPersistentTopologyRejected):
         _validate(inputs)
 
@@ -588,12 +641,12 @@ def test_persistent_topology_rejects_release_staging_or_retirement_drift(
 def test_persistent_topology_requires_stable_original_consumed_marker(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    before_changes: dict[str, object],
-    after_changes: dict[str, object],
+    before_changes: dict[str, int],
+    after_changes: dict[str, int],
 ) -> None:
     inputs, _ = _valid_inputs(monkeypatch, tmp_path)
-    inputs["database_secret_consumed_before"] = staged_fixtures._marker_candidate(**before_changes)
-    inputs["database_secret_consumed_after"] = staged_fixtures._marker_candidate(**after_changes)
+    inputs["database_secret_consumed_before"] = _consumed_marker_projection(**before_changes)
+    inputs["database_secret_consumed_after"] = _consumed_marker_projection(**after_changes)
 
     with pytest.raises(persistent.TrustedTimePostEnrollmentPersistentTopologyRejected):
         _validate(inputs)
@@ -726,18 +779,20 @@ def test_persistent_topology_requires_exact_stable_release_marker_identity(
 ) -> None:
     inputs, _ = _valid_inputs(monkeypatch, tmp_path)
     marker_before = cast(
-        persistent.TrustedTimePostEnrollmentReleaseMarkerCandidate,
+        persistent.TrustedTimePostEnrollmentReleaseMarkerProjection,
         inputs["release_marker_before"],
     )
     marker_after = cast(
-        persistent.TrustedTimePostEnrollmentReleaseMarkerCandidate,
+        persistent.TrustedTimePostEnrollmentReleaseMarkerProjection,
         inputs["release_marker_after"],
     )
 
     assert marker_before is not marker_after
     assert marker_before == marker_after
-    assert marker_before.candidate_sha256 == marker_after.candidate_sha256
+    assert persistent._release_marker_projection_sha256(
+        marker_before
+    ) == persistent._release_marker_projection_sha256(marker_after)
 
-    inputs["release_marker_after"] = _release_marker(**changes)
+    inputs["release_marker_after"] = _release_marker_projection(**changes)
     with pytest.raises(persistent.TrustedTimePostEnrollmentPersistentTopologyRejected):
         _validate(inputs)

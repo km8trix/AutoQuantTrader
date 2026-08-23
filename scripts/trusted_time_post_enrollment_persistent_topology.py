@@ -13,6 +13,7 @@ import hashlib
 import ipaddress
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -21,7 +22,6 @@ from apps.trusted_time_supervisor.post_enrollment_release import (
     POST_ENROLLMENT_START_RELEASE_BYTES,
     POST_ENROLLMENT_START_RELEASE_PATH,
     POST_ENROLLMENT_START_RELEASE_SHA256,
-    POST_ENROLLMENT_START_RELEASE_STAGING_PATH,
 )
 from packages.domain.trusted_time_enrollment_evidence import (
     FIRST_ENROLLMENT_AUTHORITY_FIELDS,
@@ -49,14 +49,17 @@ from scripts.trusted_time_post_enrollment_active_controller_admission import (
     _valid_active_controller_admission_capability,
 )
 from scripts.trusted_time_post_enrollment_staged_topology import (
-    TrustedTimePostEnrollmentAbsentPathCandidate,
-    TrustedTimePostEnrollmentConsumedMarkerCandidate,
+    _EXACT_IMMUTABLE_JSON_SERIALIZER,
+    TrustedTimePostEnrollmentAbsentPathProjection,
+    TrustedTimePostEnrollmentConsumedMarkerProjection,
     TrustedTimePostEnrollmentStagedContainerSnapshot,
     TrustedTimePostEnrollmentStagedUnreleasedTopologySnapshot,
+    _consumed_marker_projection_sha256,
     _inspection_role,
     _is_absolute_lexically_canonical_path,
+    _require_consumed_marker_projection,
     _stable_container_projection,
-    _validated_absence_candidates,
+    _validated_absence_projections,
 )
 from scripts.trusted_time_post_enrollment_topology import (
     POST_ENROLLMENT_CREATED_TOPOLOGY_COMPOSE_PROJECT,
@@ -145,6 +148,8 @@ _CLOSED_FIELDS = (
     "volume_identity_authenticated",
 )
 
+TrustedTimePostEnrollmentReleaseMarkerProjection = tuple[str, int, int, int, int]
+
 
 class TrustedTimePostEnrollmentPersistentTopologyRejected(ValueError):
     """The submitted post-release topology could not be bound exactly."""
@@ -168,6 +173,67 @@ def _is_exact_int(value: object, *, minimum: int = 0) -> bool:
 
 def _payload_sha256(payload: object) -> str:
     return hashlib.sha256(canonical_first_enrollment_json_bytes(payload)).hexdigest()
+
+
+def _require_release_marker_projection(
+    value: object,
+    *,
+    _is_int: Callable[..., bool] = _is_exact_int,
+) -> TrustedTimePostEnrollmentReleaseMarkerProjection:
+    if (
+        type(value) is not tuple
+        or len(value) != 5
+        or type(tuple.__getitem__(value, 0)) is not str
+        or tuple.__getitem__(value, 0) != "trusted-time-release-marker-projection-v1"
+        or not _is_int(tuple.__getitem__(value, 1))
+        or not _is_int(tuple.__getitem__(value, 2), minimum=1)
+        or not _is_int(tuple.__getitem__(value, 3))
+        or not _is_int(tuple.__getitem__(value, 4))
+    ):
+        raise TrustedTimePostEnrollmentPersistentTopologyRejected(
+            "trusted-time release-marker projection is invalid"
+        )
+    return cast(TrustedTimePostEnrollmentReleaseMarkerProjection, value)
+
+
+def _release_marker_projection_sha256(
+    value: object,
+    *,
+    _serialize: Callable[[object], bytes] = _EXACT_IMMUTABLE_JSON_SERIALIZER,
+    _sha256: Callable[[bytes], object] = hashlib.sha256,
+    _require_projection: Callable[
+        [object], TrustedTimePostEnrollmentReleaseMarkerProjection
+    ] = _require_release_marker_projection,
+    _sha256_pattern: re.Pattern[str] = _SHA256_PATTERN,
+) -> str:
+    projection = _require_projection(value)
+    immutable_payload = (
+        0,
+        (
+            (
+                "byte_sha256",
+                "0207100f7073e92f22a5acf8ae06e0735ac33e8dfaef7e60c62d387cd0355731",
+            ),
+            ("changed_time_ns", tuple.__getitem__(projection, 4)),
+            ("device", tuple.__getitem__(projection, 1)),
+            ("inode", tuple.__getitem__(projection, 2)),
+            ("link_count", 1),
+            ("mode", 0o400),
+            ("modified_time_ns", tuple.__getitem__(projection, 3)),
+            ("owner_gid", 10_001),
+            ("owner_uid", 10_001),
+            ("path", "/tmp/post-enrollment-start-release"),
+            ("regular", True),
+            ("size", 41),
+            ("status", "present"),
+        ),
+    )
+    digest = _sha256(_serialize(immutable_payload) + b"\n").hexdigest()  # type: ignore[attr-defined]
+    if type(digest) is not str or _sha256_pattern.fullmatch(digest) is None:
+        raise TrustedTimePostEnrollmentPersistentTopologyRejected(
+            "trusted-time release-marker projection is invalid"
+        )
+    return digest
 
 
 @dataclass(frozen=True, slots=True)
@@ -679,14 +745,29 @@ def validate_post_enrollment_start_persistent_topology(
     expected_head_anchor_authority_file: Path,
     expected_head_anchor_auth_secret_file: Path,
     expected_head_anchor_signing_key_secret_file: Path,
-    database_secret_consumed_before: TrustedTimePostEnrollmentConsumedMarkerCandidate,
-    database_secret_consumed_after: TrustedTimePostEnrollmentConsumedMarkerCandidate,
-    release_marker_before: TrustedTimePostEnrollmentReleaseMarkerCandidate,
-    release_marker_after: TrustedTimePostEnrollmentReleaseMarkerCandidate,
-    release_staging_absences_before: tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...],
-    release_staging_absences_after: tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...],
-    staged_input_retirements_before: tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...],
-    staged_input_retirements_after: tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...],
+    database_secret_consumed_before: TrustedTimePostEnrollmentConsumedMarkerProjection,
+    database_secret_consumed_after: TrustedTimePostEnrollmentConsumedMarkerProjection,
+    release_marker_before: TrustedTimePostEnrollmentReleaseMarkerProjection,
+    release_marker_after: TrustedTimePostEnrollmentReleaseMarkerProjection,
+    release_staging_absences_before: tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+    release_staging_absences_after: tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+    staged_input_retirements_before: tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+    staged_input_retirements_after: tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+    _require_consumed_projection: Callable[
+        [object], TrustedTimePostEnrollmentConsumedMarkerProjection
+    ] = _require_consumed_marker_projection,
+    _require_release_projection: Callable[
+        [object], TrustedTimePostEnrollmentReleaseMarkerProjection
+    ] = _require_release_marker_projection,
+    _validate_absence_projections: Callable[
+        ...,
+        tuple[
+            tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+            str,
+        ],
+    ] = _validated_absence_projections,
+    _consumed_projection_sha256: Callable[[object], str] = (_consumed_marker_projection_sha256),
+    _release_projection_sha256: Callable[[object], str] = (_release_marker_projection_sha256),
 ) -> TrustedTimePostEnrollmentPersistentTopologySnapshot:
     """Bind candidates from one fresh post-effect pass without performing effects.
 
@@ -702,12 +783,6 @@ def validate_post_enrollment_start_persistent_topology(
             is not TrustedTimePostEnrollmentStagedUnreleasedTopologySnapshot
             or type(successor) is not TrustedTimePostEnrollmentStartSuccessor
             or type(approved_launch) is not TrustedTimeApprovedLaunch
-            or type(database_secret_consumed_before)
-            is not TrustedTimePostEnrollmentConsumedMarkerCandidate
-            or type(database_secret_consumed_after)
-            is not TrustedTimePostEnrollmentConsumedMarkerCandidate
-            or type(release_marker_before) is not TrustedTimePostEnrollmentReleaseMarkerCandidate
-            or type(release_marker_after) is not TrustedTimePostEnrollmentReleaseMarkerCandidate
         ):
             raise ValueError
         admission_sha256, action_fence = _validated_admission_sha256(admission)
@@ -717,10 +792,10 @@ def validate_post_enrollment_start_persistent_topology(
         final_action_staged_topology.__post_init__()
         successor.__post_init__()
         approved_launch.__post_init__()
-        database_secret_consumed_before.__post_init__()
-        database_secret_consumed_after.__post_init__()
-        release_marker_before.__post_init__()
-        release_marker_after.__post_init__()
+        consumed_before = _require_consumed_projection(database_secret_consumed_before)
+        consumed_after = _require_consumed_projection(database_secret_consumed_after)
+        release_before = _require_release_projection(release_marker_before)
+        release_after = _require_release_projection(release_marker_after)
 
         final_observation = cast(Any, action_fence._final_action_observation)
         claimed_fence = cast(Any, action_fence._claimed_fence)
@@ -811,25 +886,25 @@ def validate_post_enrollment_start_persistent_topology(
             or len(set(staged_paths)) != 4
         ):
             raise ValueError
-        _, staged_retirement_sha256 = _validated_absence_candidates(
+        _, staged_retirement_sha256 = _validate_absence_projections(
             staged_input_retirements_before,
             staged_input_retirements_after,
-            expected_paths=frozenset(os.fspath(path) for path in staged_paths),
+            expected_paths=tuple(sorted(os.fspath(path) for path in staged_paths)),
             label="staged-input retirement",
         )
-        _, release_staging_absence_sha256 = _validated_absence_candidates(
+        _, release_staging_absence_sha256 = _validate_absence_projections(
             release_staging_absences_before,
             release_staging_absences_after,
-            expected_paths=frozenset({POST_ENROLLMENT_START_RELEASE_STAGING_PATH}),
+            expected_paths=("/tmp/.post-enrollment-start-release-staging",),
             label="release-staging absence",
         )
         if (
             staged_retirement_sha256
             != final_action_staged_topology.staged_input_retirement_candidate_sha256
-            or database_secret_consumed_before != database_secret_consumed_after
-            or database_secret_consumed_before.candidate_sha256
+            or consumed_before != consumed_after
+            or _consumed_projection_sha256(consumed_before)
             != final_action_staged_topology.database_secret_consumed_candidate_sha256
-            or release_marker_before != release_marker_after
+            or release_before != release_after
         ):
             raise ValueError
 
@@ -948,9 +1023,9 @@ def validate_post_enrollment_start_persistent_topology(
             source=source,
             supervisor=supervisor,
             database_secret_consumed_candidate_sha256=(
-                database_secret_consumed_before.candidate_sha256
+                _consumed_projection_sha256(consumed_before)
             ),
-            release_marker_candidate_sha256=release_marker_before.candidate_sha256,
+            release_marker_candidate_sha256=_release_projection_sha256(release_before),
             release_staging_absence_candidate_sha256=release_staging_absence_sha256,
             staged_input_retirement_candidate_sha256=staged_retirement_sha256,
             _admission=admission,
@@ -971,5 +1046,6 @@ __all__ = [
     "TrustedTimePostEnrollmentPersistentTopologyRejected",
     "TrustedTimePostEnrollmentPersistentTopologySnapshot",
     "TrustedTimePostEnrollmentReleaseMarkerCandidate",
+    "TrustedTimePostEnrollmentReleaseMarkerProjection",
     "validate_post_enrollment_start_persistent_topology",
 ]

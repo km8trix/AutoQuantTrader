@@ -113,8 +113,10 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   completed, with normal start still quarantined by ADRs 0097 and 0098)
 - [ADR 0095: Dormant provider-neutral trusted-head watchdog state](0095-dormant-provider-neutral-trusted-head-watchdog-state.md)
   (pure preparatory reducer only; raw observations remain unqualified, while
-  the ADR-0098 start boundary, a sealed terminal issuer, deployment, and every
-  consumer remain pending)
+  ADR 0109 adds only a clean-stop-specific terminal observer with no live or
+  effect consumer except ADR 0111's dormant zero-caller composition; watchdog
+  qualification, a dedicated reader, deployment, and every live consumer
+  remain pending)
 - [ADR 0096: E\*TRADE live broker and sandbox qualification boundary](0096-etrade-live-broker-and-sandbox-qualification.md)
   (selects the future live venue only; sandbox is protocol-only, all Alpaca
   artifacts remain historical, and implementation, credentials, and live
@@ -130,15 +132,79 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0099: Approval-bound post-enrollment start and graceful stop](0099-approval-bound-post-enrollment-start-and-graceful-stop.md)
   (freezes the single-use start/claim/outcome, fresh sequence-1
   reauthentication, sequence-2, crash, and supervisor-first stop contracts;
-  the dormant durable claim/barrier, bounded topology reader, and pure two-stage
-  same-session fences plus process-local code-only claimed chronology are
-  implemented without an exclusive choreography lease or durable chronology
-  result, while supported runtime, release/post-release/outcome orchestration,
-  authority, and both lifecycle commands remain hard closed)
+  the complete process-local start/controller chronology and standalone host
+  are implemented code-only, while no live start was executed and graceful
+  shutdown plus later operational consumers remain hard closed)
 - [ADR 0100: Post-enrollment operator public-key provisioning](0100-post-enrollment-operator-public-key-provisioning.md)
   (two-phase isolated offline preparation and exact-digest installation of one
-  dedicated public Ed25519 trust root; the fixed source path remains absent
-  until operator installation, private signing material remains external, and
-  no execution approval or controller authority is added)
+  dedicated canonical non-identity prime-subgroup Ed25519 trust root; the fixed
+  source path remains absent until operator installation, private signing
+  material remains external, and no execution approval or controller authority
+  is added)
+- [ADR 0101: Inert post-enrollment operator-attestation verification](0101-inert-post-enrollment-operator-attestation-verification.md)
+  (pure canonical statement/v3-envelope codec and explicit-authority Ed25519
+  verifier only; exact v2 bytes are signature-bound but semantically
+  unqualified, with no loader, signer, caller, freshness, replay slot,
+  admission, runtime, or operational use)
+- [ADR 0102: Offline post-enrollment operator-attestation artifacts](0102-offline-post-enrollment-operator-attestation-artifacts.md)
+  (two-stage external statement-candidate preparation and detached-signature
+  verification/retention only; public artifacts remain content-addressed,
+  owner-only, and non-authorizing outside the ADR-0103 admission composition)
+- [ADR 0103: Atomic operator-attested post-enrollment execution admission](0103-atomic-operator-attested-post-enrollment-execution-admission.md)
+  (code-only v3-only authority/signature/semantic/provenance admission and host
+  cutover with historical-v2 slot preservation; the fixed authority remains
+  absent, no Make executor exists, and no operational attempt was performed)
+- [ADR 0104: Durable non-authorizing post-enrollment graceful-stop targeting](0104-durable-non-authorizing-post-enrollment-graceful-stop-targeting.md)
+  (embeds a complete inert shutdown locator in controller outcome v2, preserves
+  v1 as historical locator-unavailable evidence, and freezes a distinct
+  unqualified stop target/replay decision; no stop key, attestation, admission,
+  CLI, Docker caller, or effecting shutdown exists)
+- [ADR 0105: Inert post-enrollment graceful-stop operator attestation](0105-inert-post-enrollment-graceful-stop-operator-attestation.md)
+  (freezes a distinct strict public authority, signed decision statement,
+  explicit-authority verifier, and offline public artifact workflows; the real
+  authority remains absent and no currentness, replay slot, admission, caller,
+  or shutdown effect is added)
+- [ADR 0106: Authenticated historical start chain graceful-stop decision candidate](0106-authenticated-historical-start-chain-graceful-stop-decision-candidate.md)
+  (strictly reloads and cross-binds the committed confirmed start outcome v2,
+  locator, v3-format start-attempt slot, and signed start envelope before
+  publishing one inert content-addressed decision-v1 candidate; currentness,
+  stop admission, outcome/recovery, and every shutdown effect remain absent)
+- [ADR 0107: Fail-closed clean-stop completion invariant](0107-fail-closed-clean-stop-completion-invariant.md)
+  (requires a new receipt from the exact current `clean_stop` request before
+  the worker may report clean completion; unchanged-head and recovered-receipt
+  cases remain unconfirmed; ADR 0108 later adds only sealed process-local
+  new-record evidence, not a no-new proof or shutdown effect)
+- [ADR 0108: Sealed new-record clean-stop terminal result](0108-sealed-new-record-clean-stop-terminal-result.md)
+  (seals the exact current record, receipt, reconciliation, and request identity
+  into a one-shot process-local worker result; no provider-terminal currentness,
+  durable outcome/recovery, authenticated live wire handoff or transport, slot,
+  admission, signal, or effect is added)
+- [ADR 0109: Code-only clean-stop terminal reauthentication](0109-code-only-clean-stop-terminal-reauthentication.md)
+  (adds one one-shot S1/provider/S2 host observation with a full authenticated
+  two-pass namespace audit, late terminal GET and empty-next check, final
+  provider identity, and exact SQL equality; its only consumer is ADR 0111's
+  dormant zero-caller composition, and it remains point-in-time, non-durable,
+  non-authorizing, and absent from every CLI, watchdog, outcome, signal, and
+  teardown path)
+- [ADR 0110: Dormant durable graceful-stop lifecycle repository](0110-dormant-durable-graceful-stop-lifecycle-repository.md)
+  (freezes one immutable global ordinal-zero attempt root that is also the
+  permanent replay slot plus a typed append-only hash chain; no production
+  reservation, post-signal constructor, confirmed-success outcome, caller,
+  recovery executor, or shutdown effect is added; its only terminal is the
+  non-authorizing recovery-required classification for unavailable live
+  integration)
+- [ADR 0111: Dormant operation-bound clean-stop supervisor bridge](0111-dormant-operation-bound-clean-stop-supervisor-bridge.md)
+  (freezes strict structural request/result wire contracts, binds one exact
+  preselected worker request to its sealed ADR-0108 result, and cross-binds it
+  once to an ADR-0109 host observation; no production caller, authenticated
+  transport, lifecycle advance, currentness, durable outcome, or effect is
+  added)
+- [ADR 0112: Durable graceful-stop decision-artifact receipt reauthentication](0112-durable-graceful-stop-decision-artifact-receipt-reauthentication.md)
+  (reconstructs the unchanged ADR-0106 v1 receipt from one stable external
+  decision candidate and the fully reauthenticated historical start chain;
+  load is inert, explicit authentication consumes its exact pending binding and
+  fresh-loads every source before activation, and revalidation consumes the
+  active binding; the zero-caller flow adds no sidecar, CLI, currentness,
+  admission, lifecycle advance, runtime consumer, or shutdown effect)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

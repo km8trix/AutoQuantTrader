@@ -23,6 +23,20 @@ from packages.application.durable_trusted_time_monitor import PersistedTrustedTi
 from packages.application.trusted_time_head_anchor import (
     TrustedTimeHeadAnchorCheckpointReason,
 )
+from packages.application.trusted_time_head_anchor_clean_stop import (
+    TrustedTimeHeadAnchorCleanStopTerminalResult,
+    TrustedTimeHeadAnchorCleanStopTerminalResultError,
+    _consume_trusted_time_head_anchor_clean_stop_terminal_result,
+)
+from packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge import (
+    TrustedTimeHeadAnchorOperationBoundCleanStopRequest,
+    TrustedTimeHeadAnchorOperationBoundCleanStopResult,
+    _bind_trusted_time_head_anchor_operation_bound_clean_stop_work_request,
+    _issue_trusted_time_head_anchor_operation_bound_clean_stop_result,
+    _register_trusted_time_head_anchor_operation_bound_clean_stop_request,
+    _revoke_trusted_time_head_anchor_operation_bound_clean_stop_request,
+    _take_trusted_time_head_anchor_operation_bound_clean_stop_result_once,
+)
 from packages.domain.trusted_time import TrustedTimeHealth
 
 TRUSTED_TIME_HEAD_ANCHOR_WORKER_CONTRACT_VERSION = (
@@ -180,6 +194,7 @@ class TrustedTimeHeadAnchorAttemptResult:
     pending_intent_recovered: bool
     candidate_remote_readback_sha256: str | None
     receipt_semantic_sha256: str | None
+    clean_stop_terminal_result: TrustedTimeHeadAnchorCleanStopTerminalResult | None = None
 
     def __post_init__(self) -> None:
         _require_positive_integer(self.request_sequence, "result request sequence")
@@ -212,6 +227,37 @@ class TrustedTimeHeadAnchorAttemptResult:
         if (readback is None) != (receipt is None):
             raise TrustedTimeHeadAnchorWorkerError(
                 "trusted-time anchor remote readback and durable receipt must be paired"
+            )
+        terminal = self.clean_stop_terminal_result
+        if self.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP:
+            if type(terminal) is not TrustedTimeHeadAnchorCleanStopTerminalResult:
+                raise TrustedTimeHeadAnchorWorkerError(
+                    "trusted-time anchor clean stop lacks its exact terminal result"
+                )
+            try:
+                terminal.__post_init__()
+                terminal_receipt_observed_at_utc = terminal.receipt_observed_at_utc
+                if (
+                    terminal.request_sequence != self.request_sequence
+                    or terminal.checkpoint_reason is not self.checkpoint_reason
+                    or terminal.current_host_head_sha256 != self.current_host_head_sha256
+                    or terminal.current_anchor_sha256 != self.current_anchor_sha256
+                    or terminal.current_anchor_semantic_sha256
+                    != self.current_anchor_semantic_sha256
+                    or terminal.full_audit_completed != self.full_audit_completed
+                    or terminal.prior_pending_intent_recovered != self.pending_intent_recovered
+                    or terminal.current_candidate_remote_readback_sha256 != readback
+                    or terminal.current_receipt_semantic_sha256 != receipt
+                    or terminal_receipt_observed_at_utc > self.completed_at_utc
+                ):
+                    raise TrustedTimeHeadAnchorCleanStopTerminalResultError
+            except Exception:
+                raise TrustedTimeHeadAnchorWorkerError(
+                    "trusted-time anchor clean-stop terminal result conflicts"
+                ) from None
+        elif terminal is not None:
+            raise TrustedTimeHeadAnchorWorkerError(
+                "trusted-time anchor non-stop result cannot carry clean-stop evidence"
             )
 
     operational_control_authorized = property(_authority_is_never_granted)
@@ -363,6 +409,7 @@ class TrustedTimeHeadAnchorWorkerCore:
         "_allow_enrollment",
         "_clean_shutdown_completed",
         "_clean_stop_requested",
+        "_clean_stop_terminal_result",
         "_failure_latched",
         "_fatal",
         "_in_flight",
@@ -374,6 +421,9 @@ class TrustedTimeHeadAnchorWorkerCore:
         "_last_recovery_qualified",
         "_next_periodic_monotonic_ns",
         "_next_request_sequence",
+        "_operation_bound_clean_stop_request",
+        "_operation_bound_clean_stop_terminal_result",
+        "_operation_bound_clean_stop_work_request",
         "_pending_reasons",
         "_retry_due_monotonic_ns",
         "_retry_request",
@@ -427,6 +477,16 @@ class TrustedTimeHeadAnchorWorkerCore:
         self._stopped = False
         self._clean_stop_requested = False
         self._clean_shutdown_completed = False
+        self._clean_stop_terminal_result: TrustedTimeHeadAnchorCleanStopTerminalResult | None = None
+        self._operation_bound_clean_stop_request: (
+            TrustedTimeHeadAnchorOperationBoundCleanStopRequest | None
+        ) = None
+        self._operation_bound_clean_stop_work_request: TrustedTimeHeadAnchorWorkRequest | None = (
+            None
+        )
+        self._operation_bound_clean_stop_terminal_result: (
+            TrustedTimeHeadAnchorOperationBoundCleanStopResult | None
+        ) = None
         self._last_anchor_monotonic_ns: int | None = None
         self._last_attempt_result: TrustedTimeHeadAnchorAttemptResult | None = None
         self._last_health: TrustedTimeHealth | None = None
@@ -534,38 +594,100 @@ class TrustedTimeHeadAnchorWorkerCore:
         if reason is not None:
             self._enqueue_reason(reason, observed_at_monotonic_ns=observed)
 
-    def request_clean_stop(self, *, observed_at_monotonic_ns: int) -> None:
+    def _clear_operation_bound_clean_stop(self) -> None:
+        request = self._operation_bound_clean_stop_request
+        if request is not None:
+            _revoke_trusted_time_head_anchor_operation_bound_clean_stop_request(
+                request,
+                core_identity=self,
+            )
+        self._operation_bound_clean_stop_request = None
+        self._operation_bound_clean_stop_work_request = None
+        self._operation_bound_clean_stop_terminal_result = None
+
+    def _request_clean_stop(
+        self,
+        *,
+        observed_at_monotonic_ns: int,
+        operation_bound_request: TrustedTimeHeadAnchorOperationBoundCleanStopRequest | None,
+    ) -> None:
         observed = self._observe_monotonic(
             observed_at_monotonic_ns,
             "clean-stop observation instant",
         )
-        if self._fatal or self._stopped:
-            return
-        self._clean_stop_requested = True
-        if self._startup_full_audit_completed:
-            self._pending_reasons.clear()
-            self._retry_request = None
-            self._retry_due_monotonic_ns = None
-        elif self._in_flight is not None and self._in_flight.full_audit:
-            self._pending_reasons.clear()
+        if operation_bound_request is None:
+            if self._fatal or self._stopped:
+                return
         else:
-            # Preserve only the one startup full-audit request.  Later reasons
-            # are superseded by a clean-stop checkpoint of the latest head.
-            self._pending_reasons = deque(tuple(self._pending_reasons)[:1])
-            if self._retry_request is not None:
-                self._pending_reasons.clear()
-                self._retry_due_monotonic_ns = observed
-        if not any(
-            item.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP
-            for item in self._pending_reasons
-        ):
-            self._pending_reasons.append(
-                _QueuedReason(
-                    TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP,
-                    observed,
-                    False,
+            self._operation_bound_clean_stop_request = operation_bound_request
+            try:
+                _register_trusted_time_head_anchor_operation_bound_clean_stop_request(
+                    operation_bound_request,
+                    core_identity=self,
                 )
-            )
+                if self._fatal or self._stopped or self._clean_stop_requested:
+                    raise TrustedTimeHeadAnchorWorkerError(
+                        "trusted-time operation-bound clean stop is unavailable"
+                    )
+            except BaseException as error:
+                self._clear_operation_bound_clean_stop()
+                self._fatal = True
+                self._failure_latched = True
+                if isinstance(error, Exception):
+                    raise TrustedTimeHeadAnchorWorkerError(
+                        "trusted-time operation-bound clean stop is unavailable"
+                    ) from None
+                raise
+        if self._clean_stop_requested:
+            return
+        try:
+            self._clean_stop_requested = True
+            if self._startup_full_audit_completed:
+                self._pending_reasons.clear()
+                self._retry_request = None
+                self._retry_due_monotonic_ns = None
+            elif self._in_flight is not None and self._in_flight.full_audit:
+                self._pending_reasons.clear()
+            else:
+                # Preserve only the one startup full-audit request.  Later reasons
+                # are superseded by a clean-stop checkpoint of the latest head.
+                self._pending_reasons = deque(tuple(self._pending_reasons)[:1])
+                if self._retry_request is not None:
+                    self._pending_reasons.clear()
+                    self._retry_due_monotonic_ns = observed
+            if not any(
+                item.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP
+                for item in self._pending_reasons
+            ):
+                self._pending_reasons.append(
+                    _QueuedReason(
+                        TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP,
+                        observed,
+                        False,
+                    )
+                )
+        except BaseException:
+            self._clear_operation_bound_clean_stop()
+            self._fatal = True
+            self._failure_latched = True
+            raise
+
+    def request_clean_stop(self, *, observed_at_monotonic_ns: int) -> None:
+        self._request_clean_stop(
+            observed_at_monotonic_ns=observed_at_monotonic_ns,
+            operation_bound_request=None,
+        )
+
+    def _request_operation_bound_clean_stop(
+        self,
+        request: TrustedTimeHeadAnchorOperationBoundCleanStopRequest,
+        *,
+        observed_at_monotonic_ns: int,
+    ) -> None:
+        self._request_clean_stop(
+            observed_at_monotonic_ns=observed_at_monotonic_ns,
+            operation_bound_request=request,
+        )
 
     def _new_request(
         self,
@@ -574,18 +696,61 @@ class TrustedTimeHeadAnchorWorkerCore:
         scheduled_monotonic_ns: int,
         full_audit: bool,
     ) -> TrustedTimeHeadAnchorWorkRequest:
-        request = TrustedTimeHeadAnchorWorkRequest(
-            request_sequence=self._next_request_sequence,
-            checkpoint_reason=reason,
-            full_audit=full_audit,
-            allow_enrollment=(
+        try:
+            request_sequence = self._next_request_sequence
+            allow_enrollment = (
                 full_audit and not self._startup_full_audit_completed and self._allow_enrollment
-            ),
-            scheduled_monotonic_ns=scheduled_monotonic_ns,
-        )
-        self._next_request_sequence += 1
-        self._in_flight = request
-        return request
+            )
+            work_request_values = (
+                request_sequence,
+                reason,
+                full_audit,
+                allow_enrollment,
+                scheduled_monotonic_ns,
+            )
+            request = TrustedTimeHeadAnchorWorkRequest(
+                request_sequence=request_sequence,
+                checkpoint_reason=reason,
+                full_audit=full_audit,
+                allow_enrollment=allow_enrollment,
+                scheduled_monotonic_ns=scheduled_monotonic_ns,
+            )
+            self._in_flight = request
+            operation_bound_request = self._operation_bound_clean_stop_request
+            if (
+                reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP
+                and operation_bound_request is not None
+            ):
+                _bind_trusted_time_head_anchor_operation_bound_clean_stop_work_request(
+                    operation_bound_request,
+                    core_identity=self,
+                    work_request_identity=request,
+                    work_request_values=work_request_values,
+                )
+                self._operation_bound_clean_stop_work_request = request
+            self._next_request_sequence += 1
+            return request
+        except BaseException as error:
+            if (
+                reason is not TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP
+                or self._operation_bound_clean_stop_request is None
+            ):
+                raise
+            failed_request = self._in_flight
+            if (
+                type(failed_request) is TrustedTimeHeadAnchorWorkRequest
+                and self._next_request_sequence <= failed_request.request_sequence
+            ):
+                self._next_request_sequence = failed_request.request_sequence + 1
+            self._in_flight = None
+            self._clear_operation_bound_clean_stop()
+            self._fatal = True
+            self._failure_latched = True
+            if isinstance(error, Exception):
+                raise TrustedTimeHeadAnchorWorkerError(
+                    "trusted-time operation-bound clean-stop work binding failed"
+                ) from None
+            raise
 
     def take_work(
         self,
@@ -664,17 +829,56 @@ class TrustedTimeHeadAnchorWorkerCore:
         *,
         observed_at_monotonic_ns: int,
     ) -> None:
+        try:
+            operation_bound_request = self._operation_bound_clean_stop_request
+            self._record_success_transition(
+                request,
+                result,
+                observed_at_monotonic_ns=observed_at_monotonic_ns,
+            )
+            return
+        except BaseException as error:
+            captured_operation_bound_request = locals().get(
+                "operation_bound_request",
+                self._operation_bound_clean_stop_request,
+            )
+            if captured_operation_bound_request is None:
+                raise
+            self._in_flight = None
+            self._retry_request = None
+            self._retry_due_monotonic_ns = None
+            self._clear_operation_bound_clean_stop()
+            self._clean_stop_terminal_result = None
+            self._clean_shutdown_completed = False
+            self._stopped = True
+            self._fatal = True
+            self._failure_latched = True
+            if isinstance(error, Exception):
+                raise TrustedTimeHeadAnchorWorkerError(
+                    "trusted-time operation-bound clean-stop result issue failed"
+                ) from None
+            raise
+
+    def _record_success_transition(
+        self,
+        request: TrustedTimeHeadAnchorWorkRequest,
+        result: TrustedTimeHeadAnchorAttemptResult,
+        *,
+        observed_at_monotonic_ns: int,
+    ) -> None:
         observed = self._observe_monotonic(
             observed_at_monotonic_ns,
             "successful-attempt observation instant",
         )
         if request is not self._in_flight:
+            self._clear_operation_bound_clean_stop()
             self._fatal = True
             self._failure_latched = True
             raise TrustedTimeHeadAnchorWorkerError(
                 "trusted-time anchor worker completed a foreign request"
             )
         if type(result) is not TrustedTimeHeadAnchorAttemptResult:
+            self._clear_operation_bound_clean_stop()
             self._fatal = True
             self._failure_latched = True
             raise TrustedTimeHeadAnchorWorkerError(
@@ -682,9 +886,12 @@ class TrustedTimeHeadAnchorWorkerCore:
             )
         try:
             result.__post_init__()
-        except Exception:
+        except BaseException as error:
+            self._clear_operation_bound_clean_stop()
             self._fatal = True
             self._failure_latched = True
+            if not isinstance(error, Exception):
+                raise
             raise TrustedTimeHeadAnchorWorkerError(
                 "trusted-time anchor worker attempt result is invalid"
             ) from None
@@ -692,12 +899,95 @@ class TrustedTimeHeadAnchorWorkerCore:
             result.request_sequence != request.request_sequence
             or result.checkpoint_reason is not request.checkpoint_reason
             or (request.full_audit and not result.full_audit_completed)
+            or (
+                request.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP
+                and (
+                    result.candidate_remote_readback_sha256 is None
+                    or result.receipt_semantic_sha256 is None
+                    or result.clean_stop_terminal_result is None
+                    or result.clean_stop_terminal_result.request_scheduled_monotonic_ns
+                    != request.scheduled_monotonic_ns
+                )
+            )
         ):
+            self._clear_operation_bound_clean_stop()
             self._fatal = True
             self._failure_latched = True
             raise TrustedTimeHeadAnchorWorkerError(
                 "trusted-time anchor worker attempt result conflicts with its request"
             )
+        terminal = result.clean_stop_terminal_result
+        operation_bound_request = (
+            self._operation_bound_clean_stop_request
+            if request.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP
+            else None
+        )
+        if operation_bound_request is not None:
+            try:
+                _consume_trusted_time_head_anchor_clean_stop_terminal_result(
+                    terminal,
+                    request_identity=request,
+                )
+                if self._operation_bound_clean_stop_work_request is not request:
+                    raise TrustedTimeHeadAnchorWorkerError(
+                        "trusted-time operation-bound clean-stop work request conflicts"
+                    )
+                operation_bound_result = (
+                    _issue_trusted_time_head_anchor_operation_bound_clean_stop_result(
+                        operation_bound_request,
+                        core_identity=self,
+                        work_request_identity=request,
+                        terminal_result=terminal,
+                        attempt_result=result,
+                    )
+                )
+                self._operation_bound_clean_stop_terminal_result = operation_bound_result
+                self._in_flight = None
+                self._retry_request = None
+                self._retry_due_monotonic_ns = None
+                self._failure_latched = False
+                self._last_anchor_monotonic_ns = observed
+                self._last_attempt_result = result
+                if request.full_audit:
+                    self._startup_full_audit_completed = True
+                if type(terminal) is not TrustedTimeHeadAnchorCleanStopTerminalResult:
+                    raise TrustedTimeHeadAnchorWorkerError(
+                        "trusted-time anchor clean-stop terminal result is invalid"
+                    )
+                self._clean_stop_terminal_result = terminal
+                self._stopped = True
+                self._clean_shutdown_completed = True
+                return
+            except BaseException as error:
+                self._in_flight = None
+                self._retry_request = None
+                self._retry_due_monotonic_ns = None
+                self._clear_operation_bound_clean_stop()
+                self._clean_stop_terminal_result = None
+                self._clean_shutdown_completed = False
+                self._stopped = True
+                self._fatal = True
+                self._failure_latched = True
+                if isinstance(error, Exception):
+                    raise TrustedTimeHeadAnchorWorkerError(
+                        "trusted-time operation-bound clean-stop result issue failed"
+                    ) from None
+                raise
+        if request.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP:
+            try:
+                _consume_trusted_time_head_anchor_clean_stop_terminal_result(
+                    terminal,
+                    request_identity=request,
+                )
+            except BaseException as error:
+                self._clear_operation_bound_clean_stop()
+                self._fatal = True
+                self._failure_latched = True
+                if not isinstance(error, Exception):
+                    raise
+                raise TrustedTimeHeadAnchorWorkerError(
+                    "trusted-time anchor clean-stop terminal result conflicts with its request"
+                ) from None
         self._in_flight = None
         self._retry_request = None
         self._retry_due_monotonic_ns = None
@@ -707,6 +997,13 @@ class TrustedTimeHeadAnchorWorkerCore:
         if request.full_audit:
             self._startup_full_audit_completed = True
         if request.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP:
+            if type(terminal) is not TrustedTimeHeadAnchorCleanStopTerminalResult:
+                self._fatal = True
+                self._failure_latched = True
+                raise TrustedTimeHeadAnchorWorkerError(
+                    "trusted-time anchor clean-stop terminal result is invalid"
+                )
+            self._clean_stop_terminal_result = terminal
             self._stopped = True
             self._clean_shutdown_completed = True
 
@@ -729,6 +1026,7 @@ class TrustedTimeHeadAnchorWorkerCore:
         self._in_flight = None
         self._failure_latched = True
         if request.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP:
+            self._clear_operation_bound_clean_stop()
             self._stopped = True
             return
         if observed > _MAX_MONOTONIC_NS - TRUSTED_TIME_HEAD_ANCHOR_WORKER_RETRY_INTERVAL_NS:
@@ -750,14 +1048,59 @@ class TrustedTimeHeadAnchorWorkerCore:
             "fatal-failure observation instant",
         )
         if request is not None and request is not self._in_flight:
+            self._clear_operation_bound_clean_stop()
             raise TrustedTimeHeadAnchorWorkerError(
                 "trusted-time anchor worker rejected a foreign fatal request"
             )
+        self._clear_operation_bound_clean_stop()
         self._in_flight = None
         self._retry_request = None
         self._retry_due_monotonic_ns = None
         self._failure_latched = True
         self._fatal = True
+
+    def _take_operation_bound_clean_stop_terminal_result_once(
+        self,
+        request: object,
+    ) -> bytes | None:
+        """Take the exact core-issued bridge result on its control thread once."""
+
+        operation_bound_request = self._operation_bound_clean_stop_request
+        if operation_bound_request is None:
+            return None
+        if (
+            type(request) is not TrustedTimeHeadAnchorOperationBoundCleanStopRequest
+            or request is not operation_bound_request
+        ):
+            self._clear_operation_bound_clean_stop()
+            self._fatal = True
+            self._failure_latched = True
+            raise TrustedTimeHeadAnchorWorkerError(
+                "trusted-time operation-bound clean-stop result request conflicts"
+            )
+        result = self._operation_bound_clean_stop_terminal_result
+        try:
+            encoded = _take_trusted_time_head_anchor_operation_bound_clean_stop_result_once(
+                operation_bound_request,
+                core_identity=self,
+                result_identity=result,
+            )
+            if encoded is None or result is None:
+                raise TrustedTimeHeadAnchorWorkerError(
+                    "trusted-time operation-bound clean-stop result is unavailable"
+                )
+            self._clear_operation_bound_clean_stop()
+            return encoded
+        except BaseException as error:
+            self._clear_operation_bound_clean_stop()
+            self._in_flight = None
+            self._fatal = True
+            self._failure_latched = True
+            if isinstance(error, Exception):
+                raise TrustedTimeHeadAnchorWorkerError(
+                    "trusted-time operation-bound clean-stop result is unavailable"
+                ) from None
+            raise
 
     def evidence(
         self,
@@ -813,6 +1156,20 @@ class TrustedTimeHeadAnchorWorkerCore:
     @property
     def clean_shutdown_completed(self) -> bool:
         return self._clean_shutdown_completed
+
+    @property
+    def clean_stop_terminal_result(self) -> TrustedTimeHeadAnchorCleanStopTerminalResult | None:
+        result = self._clean_stop_terminal_result
+        if result is not None:
+            try:
+                result.__post_init__()
+            except Exception:
+                self._fatal = True
+                self._failure_latched = True
+                raise TrustedTimeHeadAnchorWorkerError(
+                    "trusted-time anchor clean-stop terminal result is invalid"
+                ) from None
+        return result
 
     @property
     def stopped(self) -> bool:

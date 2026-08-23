@@ -5,6 +5,7 @@ import sys
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal, localcontext
+from pathlib import Path
 
 import pytest
 
@@ -26,6 +27,14 @@ from packages.domain.decimal_math import (
 from packages.domain.models import DecisionStatus, RiskDecision
 from packages.domain.risk import RiskLimits, evaluate_risk_decision, intent_payload_hash
 from packages.domain.walking_thread import WalkingThread
+
+
+def _base_python_executable() -> str:
+    candidate = (
+        Path(sys.base_prefix) / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    )
+    assert candidate.is_file() and not candidate.is_symlink()
+    return str(candidate)
 
 
 def test_canonical_decimal_is_exact_scale_independent_and_context_free() -> None:
@@ -106,7 +115,7 @@ from packages.domain.decimal_math import exact_decimal_multiply
 assert exact_decimal_multiply(Decimal('3'), Decimal('1.23456789')) == Decimal('3.70370367')
 """
 
-    subprocess.run([sys.executable, "-c", script], check=True)
+    subprocess.run([_base_python_executable(), "-B", "-c", script], check=True)
 
 
 def test_typed_canonical_json_is_order_independent_and_explicit() -> None:

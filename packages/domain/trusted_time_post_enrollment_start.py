@@ -12,6 +12,12 @@ import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 
+from packages.domain._trusted_time_post_enrollment_projection_bootstrap import (
+    _finalize_post_enrollment_start_domain_projection_types,
+    _stage_post_enrollment_runtime_reauthentication_projection_type,
+    _stage_post_enrollment_start_approval_projection_type,
+    _stage_post_enrollment_start_claim_projection_type,
+)
 from packages.domain.trusted_time_enrollment_evidence import (
     FIRST_ENROLLMENT_AUTHORITY_FIELDS,
     TrustedTimeConfirmedFirstEnrollment,
@@ -78,6 +84,7 @@ def _closed_authority_payload() -> dict[str, object]:
     return payload
 
 
+@_stage_post_enrollment_start_approval_projection_type
 @dataclass(frozen=True, slots=True)
 class TrustedTimePostEnrollmentStartApproval:
     """Canonical exact-operation projection requiring separate human approval."""
@@ -138,6 +145,7 @@ class TrustedTimePostEnrollmentStartApproval:
         return _sha256_payload(self.payload())
 
 
+@_stage_post_enrollment_runtime_reauthentication_projection_type
 @dataclass(frozen=True, slots=True)
 class TrustedTimePostEnrollmentRuntimeReauthentication:
     """Unsealed digest projection; freshness belongs to the runtime issuer."""
@@ -291,6 +299,7 @@ def require_matching_post_enrollment_runtime_reauthentication(
     return reauthentication
 
 
+@_stage_post_enrollment_start_claim_projection_type
 @dataclass(frozen=True, slots=True)
 class TrustedTimePostEnrollmentStartClaim:
     """Non-authorizing single-use claim projection immediately before release."""
@@ -486,6 +495,13 @@ class TrustedTimePostEnrollmentStartOutcome:
     @property
     def outcome_sha256(self) -> str:
         return _sha256_payload(self.payload())
+
+
+_finalize_post_enrollment_start_domain_projection_types()
+del _finalize_post_enrollment_start_domain_projection_types
+del _stage_post_enrollment_runtime_reauthentication_projection_type
+del _stage_post_enrollment_start_approval_projection_type
+del _stage_post_enrollment_start_claim_projection_type
 
 
 __all__ = [

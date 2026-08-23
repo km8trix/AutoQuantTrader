@@ -7,8 +7,10 @@ import json
 import multiprocessing
 import os
 import stat
+import subprocess
 import sys
 import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -26,22 +28,138 @@ from scripts.trusted_time_post_enrollment_start import (
 )
 from tests.unit import test_trusted_time_post_enrollment_claim_persistence as claim_fixtures
 
+_REPOSITORY_ROOT = Path(__file__).resolve(strict=True).parents[2]
+_SPAWNED_LOADER_ATTEMPTING_BYTES = b"attempting\n"
+_SPAWNED_LOADER_EXPECTED_TERMINAL_BYTES = (
+    b'["error","TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable"]\n'
+)
+_MAXIMUM_SPAWNED_LOADER_PROBE_BYTES = 32_768
+_MAXIMUM_SPAWNED_LOADER_TERMINAL_BYTES = 1_024
+_MAXIMUM_SPAWNED_LOADER_DIAGNOSTIC_BYTES = 262_144
 
-def _load_recovery_outcome_in_spawned_process(
-    artifact_directory: str,
-    ignored_root: str,
-    connection: Any,
-) -> None:
-    connection.send(("attempting", None))
+
+def _spawned_loader_probe_bytes(
+    *,
+    artifact_directory: Path,
+    ignored_root: Path,
+    attempting_path: Path,
+    terminal_path: Path,
+) -> bytes:
+    artifact_directory_literal = json.dumps(os.fspath(artifact_directory), ensure_ascii=True)
+    ignored_root_literal = json.dumps(os.fspath(ignored_root), ensure_ascii=True)
+    attempting_path_literal = json.dumps(os.fspath(attempting_path), ensure_ascii=True)
+    terminal_path_literal = json.dumps(os.fspath(terminal_path), ensure_ascii=True)
+    encoded = f"""\
+import json
+from pathlib import Path
+
+from scripts import trusted_time_post_enrollment_outcome as outcome
+
+
+def test_exact_recovery_outcome_loader_probe():
+    artifact_directory = Path({artifact_directory_literal})
+    ignored_root = Path({ignored_root_literal})
+    attempting_path = Path({attempting_path_literal})
+    terminal_path = Path({terminal_path_literal})
+    attempting_path.write_bytes(b"attempting\\n")
     try:
         retained = outcome.load_retained_post_enrollment_start_outcome(
-            artifact_directory=Path(artifact_directory),
-            ignored_root=Path(ignored_root),
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
         )
     except BaseException as error:
-        connection.send(("error", type(error).__name__))
+        result = ["error", type(error).__name__]
     else:
-        connection.send(("loaded", retained.outcome_sha256))
+        result = ["loaded", retained.outcome_sha256]
+    terminal_path.write_bytes(
+        json.dumps(
+            result,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        + b"\\n"
+    )
+""".encode()
+    assert 0 < len(encoded) <= _MAXIMUM_SPAWNED_LOADER_PROBE_BYTES
+    assert b"\0" not in encoded
+    return encoded
+
+
+def _bounded_probe_path_bytes(path: Path, *, maximum_bytes: int) -> bytes | None:
+    try:
+        with path.open("rb", buffering=0) as stream:
+            return stream.read(maximum_bytes + 1)
+    except FileNotFoundError:
+        return None
+
+
+def _wait_for_exact_probe_marker(
+    path: Path,
+    expected: bytes,
+    *,
+    process: subprocess.Popen[bytes],
+    timeout: float,
+) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        observed = _bounded_probe_path_bytes(path, maximum_bytes=len(expected))
+        if observed == expected:
+            return True
+        if observed is not None and len(observed) >= len(expected):
+            return False
+        if process.poll() is not None:
+            return False
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.01)
+
+
+def _spawned_loader_diagnostics(
+    *,
+    returncode: int | None,
+    stdout: bytes,
+    stderr: bytes,
+) -> str:
+    maximum = _MAXIMUM_SPAWNED_LOADER_DIAGNOSTIC_BYTES
+    return (
+        f"nested admitted loader return code: {returncode}\n"
+        "stdout:\n"
+        f"{stdout[:maximum].decode('utf-8', errors='replace')}\n"
+        "stderr:\n"
+        f"{stderr[:maximum].decode('utf-8', errors='replace')}"
+    )
+
+
+def _reap_spawned_loader(
+    process: subprocess.Popen[bytes],
+    *,
+    terminate_if_running: bool,
+    timeout: float,
+) -> tuple[bytes, bytes, bool]:
+    if terminate_if_running and process.poll() is None:
+        process.terminate()
+    timed_out = False
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        if process.poll() is None:
+            process.terminate()
+        try:
+            stdout, stderr = process.communicate(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            if process.poll() is None:
+                process.kill()
+            stdout, stderr = process.communicate(timeout=5.0)
+    return stdout, stderr, timed_out
+
+
+def _acquire_outcome_process_lock_after_fork(connection: Any) -> None:
+    try:
+        with outcome._held_outcome_slot_process_lock():
+            connection.send(("acquired", os.getpid()))
+    except BaseException as error:
+        connection.send(("error", type(error).__name__))
     finally:
         connection.close()
 
@@ -241,6 +359,39 @@ def test_recovery_outcome_wire_payload_is_fixed_closed_and_secret_free(tmp_path:
     assert hashlib.sha256(encoded).hexdigest() == (
         "e7c122580af060045f0b4d4d261493163902214673169260781199cb5939aa5f"
     )
+
+
+def test_retained_outcome_reader_accepts_exact_128_kib_and_rejects_max_plus_one(
+    tmp_path: Path,
+) -> None:
+    ignored_root, artifact_directory, _ = _retained_claim(tmp_path)
+    assert outcome.MAXIMUM_POST_ENROLLMENT_START_OUTCOME_BYTES == 128 * 1_024
+    candidate = artifact_directory / ".post-enrollment-outcome-size-boundary"
+    exact_maximum = b"x" * outcome.MAXIMUM_POST_ENROLLMENT_START_OUTCOME_BYTES
+    candidate.write_bytes(exact_maximum)
+    candidate.chmod(0o600)
+    directory_owner = outcome._open_owner_only_artifact_directory(
+        artifact_directory,
+        ignored_root=ignored_root,
+        create=False,
+    )
+    directory_descriptor = directory_owner.fileno()
+    try:
+        retained, _ = outcome._read_retained_outcome(
+            directory_descriptor,
+            file_name=candidate.name,
+        )
+        assert retained == exact_maximum
+
+        candidate.write_bytes(exact_maximum + b"x")
+        candidate.chmod(0o600)
+        with pytest.raises(outcome.TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable):
+            outcome._read_retained_outcome(
+                directory_descriptor,
+                file_name=candidate.name,
+            )
+    finally:
+        directory_owner.close()
 
 
 def test_writer_retains_content_addressed_owner_only_outcome_and_raises_terminal(
@@ -1176,41 +1327,130 @@ def test_spawned_loader_never_observes_an_unconfirmed_publication_window(
             writer_errors.append(error)
 
     writer = threading.Thread(target=write_outcome)
-    writer.start()
-    assert publication_paused.wait(timeout=10.0)
-
-    process_context = multiprocessing.get_context("spawn")
-    receive_connection, send_connection = process_context.Pipe(duplex=False)
-    loader = process_context.Process(
-        target=_load_recovery_outcome_in_spawned_process,
-        args=(str(artifact_directory), str(ignored_root), send_connection),
-    )
+    writer_started = False
+    loader: subprocess.Popen[bytes] | None = None
+    loader_output_collected = False
+    loader_stdout = b""
+    loader_stderr = b""
     try:
-        loader.start()
-        send_connection.close()
-        assert receive_connection.poll(10.0)
-        assert receive_connection.recv() == ("attempting", None)
-        assert not receive_connection.poll(0.5)
+        writer.start()
+        writer_started = True
+        assert publication_paused.wait(timeout=10.0)
+
+        attempting_path = tmp_path / "spawned-loader-attempting"
+        terminal_path = tmp_path / "spawned-loader-terminal.json"
+        probe_path = tmp_path / "test_recovery_outcome_spawned_loader_probe.py"
+        probe_bytes = _spawned_loader_probe_bytes(
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+            attempting_path=attempting_path,
+            terminal_path=terminal_path,
+        )
+        assert probe_path.write_bytes(probe_bytes) == len(probe_bytes)
+        probe_path.chmod(0o600)
+        assert (
+            _bounded_probe_path_bytes(
+                probe_path,
+                maximum_bytes=_MAXIMUM_SPAWNED_LOADER_PROBE_BYTES,
+            )
+            == probe_bytes
+        )
+
+        loader = subprocess.Popen(
+            (
+                sys.executable,
+                "test-suite",
+                "-q",
+                "-x",
+                "-p",
+                "no:cacheprovider",
+                os.fspath(probe_path),
+            ),
+            cwd=_REPOSITORY_ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        attempting_observed = _wait_for_exact_probe_marker(
+            attempting_path,
+            _SPAWNED_LOADER_ATTEMPTING_BYTES,
+            process=loader,
+            timeout=10.0,
+        )
+        if not attempting_observed:
+            loader_stdout, loader_stderr, _ = _reap_spawned_loader(
+                loader,
+                terminate_if_running=True,
+                timeout=5.0,
+            )
+            loader_output_collected = True
+            raise AssertionError(
+                _spawned_loader_diagnostics(
+                    returncode=loader.returncode,
+                    stdout=loader_stdout,
+                    stderr=loader_stderr,
+                )
+            )
+        time.sleep(0.5)
+        publication_still_obscured = (
+            _bounded_probe_path_bytes(
+                terminal_path,
+                maximum_bytes=_MAXIMUM_SPAWNED_LOADER_TERMINAL_BYTES,
+            )
+            is None
+            and loader.poll() is None
+        )
+        if not publication_still_obscured:
+            loader_stdout, loader_stderr, _ = _reap_spawned_loader(
+                loader,
+                terminate_if_running=True,
+                timeout=5.0,
+            )
+            loader_output_collected = True
+            raise AssertionError(
+                _spawned_loader_diagnostics(
+                    returncode=loader.returncode,
+                    stdout=loader_stdout,
+                    stderr=loader_stderr,
+                )
+            )
 
         release_publication.set()
         writer.join(timeout=10.0)
         assert not writer.is_alive()
-        assert receive_connection.poll(10.0)
-        assert receive_connection.recv() == (
-            "error",
-            "TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable",
+        loader_stdout, loader_stderr, loader_timed_out = _reap_spawned_loader(
+            loader,
+            terminate_if_running=False,
+            timeout=10.0,
         )
-        loader.join(timeout=10.0)
-        assert not loader.is_alive()
-        assert loader.exitcode == 0
+        loader_output_collected = True
+        diagnostics = _spawned_loader_diagnostics(
+            returncode=loader.returncode,
+            stdout=loader_stdout,
+            stderr=loader_stderr,
+        )
+        assert loader_timed_out is False, diagnostics
+        assert len(loader_stdout) <= _MAXIMUM_SPAWNED_LOADER_DIAGNOSTIC_BYTES, diagnostics
+        assert len(loader_stderr) <= _MAXIMUM_SPAWNED_LOADER_DIAGNOSTIC_BYTES, diagnostics
+        assert loader.returncode == 0, diagnostics
+        assert (
+            _bounded_probe_path_bytes(
+                terminal_path,
+                maximum_bytes=_MAXIMUM_SPAWNED_LOADER_TERMINAL_BYTES,
+            )
+            == _SPAWNED_LOADER_EXPECTED_TERMINAL_BYTES
+        ), diagnostics
     finally:
         release_publication.set()
-        writer.join(timeout=10.0)
-        if loader.is_alive():
-            loader.terminate()
-            loader.join(timeout=10.0)
-        receive_connection.close()
-        send_connection.close()
+        if writer_started:
+            writer.join(timeout=10.0)
+        if loader is not None and not loader_output_collected:
+            loader_stdout, loader_stderr, _ = _reap_spawned_loader(
+                loader,
+                terminate_if_running=True,
+                timeout=5.0,
+            )
+            loader_output_collected = True
 
     assert failure_injected is True
     assert len(writer_errors) == 1
@@ -1381,25 +1621,25 @@ def test_outcome_directory_walk_async_failure_closes_every_owned_descriptor(
 ) -> None:
     ignored_root = tmp_path / "artifacts"
     artifact_directory = ignored_root / "trusted-time"
-    original_open = os.open
+    real_open_owned_descriptor = outcome._open_owned_descriptor
     original_fstat = os.fstat
     opened: list[int] = []
 
-    def tracked_open(
-        path: str | bytes | os.PathLike[str],
+    def tracked_open_owned_descriptor(
+        path: str | Path,
+        *,
         flags: int,
         mode: int = 0o777,
-        *,
         dir_fd: int | None = None,
-    ) -> int:
-        descriptor = original_open(path, flags, mode, dir_fd=dir_fd)
-        opened.append(descriptor)
-        return descriptor
+    ) -> outcome._OwnedFileDescriptor:
+        owner = real_open_owned_descriptor(path, flags=flags, mode=mode, dir_fd=dir_fd)
+        opened.append(owner.fileno())
+        return owner
 
     def interrupt_fstat(_: int) -> os.stat_result:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(os, "open", tracked_open)
+    monkeypatch.setattr(outcome, "_open_owned_descriptor", tracked_open_owned_descriptor)
     monkeypatch.setattr(os, "fstat", interrupt_fstat)
 
     with pytest.raises(KeyboardInterrupt):
@@ -1413,6 +1653,316 @@ def test_outcome_directory_walk_async_failure_closes_every_owned_descriptor(
     for descriptor in set(opened):
         with pytest.raises(OSError):
             original_fstat(descriptor)
+
+
+@pytest.mark.parametrize("store_name", ["directory_owner", "next_owner"])
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
+def test_directory_owner_survives_open_call_to_store_interruption_without_fd_leak(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    store_name: str,
+    interruption: type[BaseException],
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    artifact_directory = ignored_root / "trusted-time"
+    real_open_owned_descriptor = outcome._open_owned_descriptor
+    original_fstat = os.fstat
+    opened: list[int] = []
+
+    def tracked_open_owned_descriptor(
+        path: str | Path,
+        *,
+        flags: int,
+        mode: int = 0,
+        dir_fd: int | None = None,
+    ) -> outcome._OwnedFileDescriptor:
+        owner = real_open_owned_descriptor(path, flags=flags, mode=mode, dir_fd=dir_fd)
+        opened.append(owner.fileno())
+        return owner
+
+    instructions = list(dis.get_instructions(outcome._open_owner_only_artifact_directory))
+    store_index = next(
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.opname == "STORE_FAST"
+        and instruction.argval == store_name
+        and index > 0
+        and instructions[index - 1].opname == "CALL"
+    )
+    store_offset = instructions[store_index].offset
+    target_code = outcome._open_owner_only_artifact_directory.__code__
+
+    def interrupt_before_store(_: object, instruction_offset: int) -> None:
+        if instruction_offset == store_offset:
+            raise interruption
+
+    monkeypatch.setattr(outcome, "_open_owned_descriptor", tracked_open_owned_descriptor)
+    tool_id = next(
+        candidate
+        for candidate in range(sys.monitoring.OPTIMIZER_ID + 1)
+        if sys.monitoring.get_tool(candidate) is None
+    )
+    sys.monitoring.use_tool_id(tool_id, "trusted-time-directory-owner-test")
+    try:
+        sys.monitoring.register_callback(
+            tool_id,
+            sys.monitoring.events.INSTRUCTION,
+            interrupt_before_store,
+        )
+        sys.monitoring.set_local_events(
+            tool_id,
+            target_code,
+            sys.monitoring.events.INSTRUCTION,
+        )
+        with pytest.raises(interruption):
+            outcome._open_owner_only_artifact_directory(
+                artifact_directory,
+                ignored_root=ignored_root,
+                create=True,
+            )
+    finally:
+        sys.monitoring.set_local_events(tool_id, target_code, 0)
+        sys.monitoring.register_callback(tool_id, sys.monitoring.events.INSTRUCTION, None)
+        sys.monitoring.free_tool_id(tool_id)
+
+    assert opened
+    for descriptor in set(opened):
+        with pytest.raises(OSError):
+            original_fstat(descriptor)
+
+
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
+def test_owned_descriptor_close_never_retries_an_ambiguous_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    interruption: type[BaseException],
+) -> None:
+    path = tmp_path / "owned"
+    path.write_bytes(b"owned")
+    owner = outcome._open_owned_descriptor(path, flags=os.O_RDONLY)
+    descriptor = owner.fileno()
+    real_close = os.close
+    calls = 0
+
+    def interrupt_before_close(candidate: int) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise interruption
+        real_close(candidate)
+
+    monkeypatch.setattr(os, "close", interrupt_before_close)
+    try:
+        with pytest.raises(interruption):
+            owner.close()
+
+        assert calls == 1
+        os.fstat(descriptor)
+    finally:
+        real_close(descriptor)
+
+
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
+def test_owned_descriptor_close_does_not_close_a_reused_numeric_fd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    interruption: type[BaseException],
+) -> None:
+    owner = outcome._open_owned_descriptor(os.devnull, flags=os.O_RDONLY)
+    descriptor = owner.fileno()
+    real_close = os.close
+    replacement_descriptor: int | None = None
+
+    def close_reuse_and_interrupt(candidate: int) -> None:
+        nonlocal replacement_descriptor
+        real_close(candidate)
+        replacement_descriptor = os.open(os.devnull, os.O_RDONLY)
+        assert replacement_descriptor == candidate
+        raise interruption
+
+    monkeypatch.setattr(os, "close", close_reuse_and_interrupt)
+    try:
+        with pytest.raises(interruption):
+            owner.close()
+        assert replacement_descriptor == descriptor
+        os.fstat(descriptor)
+    finally:
+        if replacement_descriptor is not None:
+            real_close(replacement_descriptor)
+
+
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
+def test_outcome_process_lock_acquire_then_async_failure_releases_exact_depth(
+    monkeypatch: pytest.MonkeyPatch,
+    interruption: type[BaseException],
+) -> None:
+    real_lock = threading.RLock()
+
+    class InterruptingLock:
+        interrupted = False
+
+        def acquire(self) -> bool:
+            acquired = real_lock.acquire()
+            if not self.interrupted:
+                self.interrupted = True
+                raise interruption
+            return acquired
+
+        def release(self) -> None:
+            real_lock.release()
+
+        def _recursion_count(self) -> int:
+            return cast(Any, real_lock)._recursion_count()
+
+    candidate = InterruptingLock()
+    monkeypatch.setattr(outcome, "_OUTCOME_SLOT_PROCESS_LOCK", candidate)
+    monkeypatch.setattr(outcome, "_OUTCOME_SLOT_PROCESS_LOCK_ORIGIN_PID", os.getpid())
+
+    with pytest.raises(interruption), outcome._locked_outcome_slot(-1, exclusive=False):
+        raise AssertionError("unreachable")
+
+    assert candidate._recursion_count() == 0
+
+
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
+def test_outcome_process_lock_release_async_failure_retries_exact_depth(
+    monkeypatch: pytest.MonkeyPatch,
+    interruption: type[BaseException],
+) -> None:
+    real_lock = threading.RLock()
+
+    class InterruptingLock:
+        interrupted = False
+
+        def acquire(self) -> bool:
+            return real_lock.acquire()
+
+        def release(self) -> None:
+            if not self.interrupted:
+                self.interrupted = True
+                raise interruption
+            real_lock.release()
+
+        def _recursion_count(self) -> int:
+            return cast(Any, real_lock)._recursion_count()
+
+    candidate = InterruptingLock()
+    monkeypatch.setattr(outcome, "_OUTCOME_SLOT_PROCESS_LOCK", candidate)
+    monkeypatch.setattr(outcome, "_OUTCOME_SLOT_PROCESS_LOCK_ORIGIN_PID", os.getpid())
+
+    with pytest.raises(interruption), outcome._held_outcome_slot_process_lock():
+        pass
+
+    assert candidate._recursion_count() == 0
+
+
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
+def test_outcome_slot_file_close_async_failure_retries_before_propagation(
+    tmp_path: Path,
+    interruption: type[BaseException],
+) -> None:
+    path = tmp_path / "slot"
+    path.write_bytes(b"reserved")
+    file_owner = io.FileIO(path, mode="rb")
+
+    class InterruptingOwner:
+        interrupted = False
+
+        @property
+        def closed(self) -> bool:
+            return file_owner.closed
+
+        def fileno(self) -> int:
+            return file_owner.fileno()
+
+        def close(self) -> None:
+            if not self.interrupted:
+                self.interrupted = True
+                raise interruption
+            file_owner.close()
+
+    error = outcome._close_outcome_slot_file_owner(cast(Any, InterruptingOwner()))
+
+    assert isinstance(error, interruption)
+    assert file_owner.closed is True
+
+
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
+def test_outcome_slot_cleanup_async_failure_still_releases_process_lock(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    interruption: type[BaseException],
+) -> None:
+    ignored_root, artifact_directory, _ = _retained_claim(tmp_path)
+    slot_path = artifact_directory / outcome.POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME
+    slot_path.write_bytes(b"reserved")
+    slot_path.chmod(0o600)
+    directory_owner = outcome._open_owner_only_artifact_directory(
+        artifact_directory,
+        ignored_root=ignored_root,
+        create=False,
+    )
+    directory_descriptor = directory_owner.fileno()
+    real_flock = outcome.fcntl.flock
+
+    def interrupt_unlock(descriptor: int, operation: int) -> None:
+        real_flock(descriptor, operation)
+        if operation == outcome.fcntl.LOCK_UN:
+            raise interruption
+
+    monkeypatch.setattr(outcome.fcntl, "flock", interrupt_unlock)
+    try:
+        with (
+            pytest.raises(interruption),
+            outcome._locked_outcome_slot(
+                directory_descriptor,
+                exclusive=False,
+            ),
+        ):
+            pass
+        assert outcome._outcome_slot_process_lock_depth() == 0
+    finally:
+        directory_owner.close()
+
+
+def test_outcome_process_lock_is_reset_in_child_while_parent_thread_holds_it() -> None:
+    if "fork" not in multiprocessing.get_all_start_methods():
+        pytest.skip("fork start method is unavailable")
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_parent_lock() -> None:
+        with outcome._held_outcome_slot_process_lock():
+            entered.set()
+            assert release.wait(timeout=5.0)
+
+    holder = threading.Thread(target=hold_parent_lock)
+    holder.start()
+    assert entered.wait(timeout=2.0)
+    context = multiprocessing.get_context("fork")
+    parent, child = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_acquire_outcome_process_lock_after_fork,
+        args=(child,),
+    )
+    try:
+        process.start()
+        child.close()
+        assert parent.poll(2.0)
+        status, child_pid = parent.recv()
+        process.join(timeout=2.0)
+        assert not process.is_alive()
+        assert process.exitcode == 0
+        assert status == "acquired"
+        assert child_pid == process.pid
+    finally:
+        release.set()
+        holder.join(timeout=2.0)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=2.0)
+        parent.close()
+    assert not holder.is_alive()
 
 
 def test_async_outcome_write_failure_closes_every_owned_descriptor(

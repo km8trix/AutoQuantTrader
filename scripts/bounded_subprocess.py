@@ -22,17 +22,20 @@ class BoundedSubprocessError(RuntimeError):
     """A subprocess violated or could not satisfy its fixed resource contract."""
 
 
+type BoundedSubprocessResult = tuple[tuple[str, ...], int, bytes, bytes]
+
+
 def run_bounded_subprocess(
     argv: tuple[str, ...],
     *,
     cwd: Path,
-    environment: Mapping[str, str],
+    environment: Mapping[str, str] | tuple[tuple[str, str], ...],
     timeout_seconds: float,
     maximum_stdout_bytes: int,
     maximum_stderr_bytes: int,
     stdin_bytes: bytes | None = None,
     maximum_stdin_bytes: int = 0,
-) -> subprocess.CompletedProcess[bytes]:
+) -> BoundedSubprocessResult:
     """Run one command while streaming every pipe within exact byte bounds."""
 
     if (
@@ -40,7 +43,7 @@ def run_bounded_subprocess(
         or not argv
         or any(type(item) is not str or not item or "\x00" in item for item in argv)
         or not isinstance(cwd, Path)
-        or not isinstance(environment, Mapping)
+        or not (isinstance(environment, Mapping) or type(environment) is tuple)
         or type(timeout_seconds) not in {int, float}
         or isinstance(timeout_seconds, bool)
         or not math.isfinite(float(timeout_seconds))
@@ -57,7 +60,23 @@ def run_bounded_subprocess(
     ):
         raise BoundedSubprocessError("bounded subprocess contract is invalid")
     try:
-        exact_environment = dict(environment)
+        if type(environment) is tuple:
+            environment_items = environment
+            if (
+                any(
+                    type(item) is not tuple
+                    or len(item) != 2
+                    or type(item[0]) is not str
+                    or type(item[1]) is not str
+                    for item in environment_items
+                )
+                or environment_items != tuple(sorted(environment_items))
+                or len({item[0] for item in environment_items}) != len(environment_items)
+            ):
+                raise ValueError
+            exact_environment = dict(environment_items)
+        else:
+            exact_environment = dict(environment)
     except (AttributeError, RuntimeError, TypeError, ValueError):
         raise BoundedSubprocessError("bounded subprocess contract is invalid") from None
     if any(
@@ -179,12 +198,7 @@ def run_bounded_subprocess(
         return_code = process.wait(timeout=remaining)
         if time.monotonic() > lifecycle_deadline:
             raise subprocess.TimeoutExpired(argv, float(timeout_seconds))
-        return subprocess.CompletedProcess(
-            argv,
-            return_code,
-            bytes(stdout),
-            bytes(stderr),
-        )
+        return (argv, return_code, bytes(stdout), bytes(stderr))
     except BoundedSubprocessError:
         stop_process()
         raise

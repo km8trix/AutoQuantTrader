@@ -34,6 +34,7 @@ from packages.application.trusted_time_head_anchor import (
     reconcile_trusted_time_head_anchors,
     trusted_time_head_anchor_object_name,
     trusted_time_head_anchor_object_prefix,
+    verify_bounded_clean_stop_terminal_remote_postcondition,
     verify_bounded_post_enrollment_start_remote_postcondition,
     verify_trusted_time_head_anchor_provider_readback,
 )
@@ -288,6 +289,7 @@ class MemoryProvider:
             principal_id=PRINCIPAL,
             bucket_name=BUCKET,
         )
+        self.events: list[tuple[object, ...]] = []
         self.attestation_calls = 0
         self.list_calls: list[tuple[str, str]] = []
         self.page_calls: list[tuple[str, str, int, int]] = []
@@ -301,6 +303,7 @@ class MemoryProvider:
         self.upload_return: object = None
 
     def attest_identity(self) -> TrustedTimeHeadAnchorProviderIdentity:
+        self.events.append(("attest_identity",))
         self.attestation_calls += 1
         return self.identity
 
@@ -327,6 +330,7 @@ class MemoryProvider:
         prefix: str,
         anchor_sequence: int,
     ) -> tuple[str, ...]:
+        self.events.append(("list_sequence", anchor_sequence))
         self.sequence_list_calls.append((bucket_name, prefix, anchor_sequence))
         sequence_prefix = f"{prefix}{anchor_sequence:020d}-"
         names = tuple(
@@ -348,6 +352,7 @@ class MemoryProvider:
         offset: int,
         limit: int,
     ) -> tuple[str, ...]:
+        self.events.append(("list_page", offset, limit))
         self.page_calls.append((bucket_name, prefix, offset, limit))
         names = tuple(
             sorted(
@@ -359,6 +364,7 @@ class MemoryProvider:
         return names[offset : offset + limit]
 
     def download_object(self, *, bucket_name: str, object_name: str) -> bytes:
+        self.events.append(("download", object_name))
         self.download_calls.append((bucket_name, object_name))
         payload = self.objects[(bucket_name, object_name)]
         if self.return_bytearray:
@@ -373,6 +379,7 @@ class MemoryProvider:
         payload: bytes,
         content_type: str,
     ) -> None:
+        self.events.append(("upload", object_name))
         self.upload_calls.append((bucket_name, object_name, payload, content_type))
         key = (bucket_name, object_name)
         if key in self.objects:
@@ -517,6 +524,10 @@ def committed_evidence(
 
 def bounded_tip_and_provider(
     count: int,
+    *,
+    terminal_reason: TrustedTimeHeadAnchorCheckpointReason = (
+        TrustedTimeHeadAnchorCheckpointReason.PERIODIC
+    ),
 ) -> tuple[anchor_contract.AuthenticatedTrustedTimeHeadJournalTip, MemoryProvider]:
     transition = local_chain()[-1]
     provider = MemoryProvider()
@@ -534,6 +545,8 @@ def bounded_tip_and_provider(
             checkpoint_reason=(
                 TrustedTimeHeadAnchorCheckpointReason.ENROLLMENT
                 if previous is None
+                else terminal_reason
+                if sequence == count
                 else TrustedTimeHeadAnchorCheckpointReason.PERIODIC
             ),
             checkpoint_interval_seconds=(TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS),
@@ -584,6 +597,36 @@ def post_enrollment_start_tip_and_provider() -> tuple[
         confirmed_anchor_records=rotated.anchor_records,
     )
     return tip, provider
+
+
+def clean_stop_tip_and_provider(
+    count: int = 3,
+) -> tuple[anchor_contract.AuthenticatedTrustedTimeHeadJournalTip, MemoryProvider]:
+    return bounded_tip_and_provider(
+        count,
+        terminal_reason=TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP,
+    )
+
+
+def verify_clean_stop_terminal(
+    tip: anchor_contract.AuthenticatedTrustedTimeHeadJournalTip,
+    provider: MemoryProvider,
+    *,
+    verifier: DeterministicEd25519TestDouble | None = None,
+    signing_key_id: str = KEY_ID,
+    signing_public_key_sha256: str = KEY_SHA256,
+    checkpoint_interval_seconds: int = TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS,
+    anchor_authority_sha256: str = ANCHOR_AUTHORITY_SHA256,
+) -> str:
+    return verify_bounded_clean_stop_terminal_remote_postcondition(
+        tip,
+        provider=provider,
+        verifier=verifier or DeterministicEd25519TestDouble(),
+        signing_key_id=signing_key_id,
+        signing_public_key_sha256=signing_public_key_sha256,
+        checkpoint_interval_seconds=checkpoint_interval_seconds,
+        anchor_authority_sha256=anchor_authority_sha256,
+    )
 
 
 def only_record(provider: MemoryProvider) -> tuple[str, TrustedTimeHeadAnchorRecord]:
@@ -890,6 +933,7 @@ def test_post_enrollment_start_postcondition_reauthenticates_exact_sequence_two_
     provider.sequence_list_calls.clear()
     provider.download_calls.clear()
     provider.upload_calls.clear()
+    provider.events.clear()
     verifier = DeterministicEd25519TestDouble()
 
     namespace_sha256 = verify_bounded_post_enrollment_start_remote_postcondition(
@@ -1019,6 +1063,396 @@ def test_post_enrollment_start_postcondition_rejects_sequence_three() -> None:
         )
 
     assert len(provider.objects) == 3
+
+
+@pytest.mark.parametrize("count", [3, 7])
+def test_clean_stop_terminal_postcondition_reauthenticates_arbitrary_sequence_read_only(
+    count: int,
+) -> None:
+    tip, provider = clean_stop_tip_and_provider(count)
+    terminal = tip.confirmed_anchor_tip
+    assert terminal is not None
+    prefix = trusted_time_head_anchor_object_prefix(
+        deployment_identity_sha256=DEPLOYMENT_IDENTITY,
+        host_id=HOST,
+    )
+    terminal_name = trusted_time_head_anchor_object_name(
+        prefix=prefix,
+        anchor_sequence=count,
+        signed_envelope_sha256=terminal.byte_sha256,
+    )
+    namespace_digest = hashlib.sha256()
+    for bucket_and_name in sorted(provider.objects):
+        assert bucket_and_name[0] == BUCKET
+        namespace_digest.update(bucket_and_name[1].encode("ascii"))
+        namespace_digest.update(b"\0")
+    provider.attestation_calls = 0
+    provider.page_calls.clear()
+    provider.sequence_list_calls.clear()
+    provider.download_calls.clear()
+    provider.upload_calls.clear()
+    provider.events.clear()
+    verifier = DeterministicEd25519TestDouble()
+
+    observed = verify_clean_stop_terminal(
+        tip,
+        provider,
+        verifier=verifier,
+    )
+
+    expected_material = (
+        anchor_contract.TRUSTED_TIME_HEAD_ANCHOR_CONTRACT_VERSION,
+        "trusted_time_head_anchor_clean_stop_terminal_remote_postcondition_v1",
+        provider.identity.anchor_project_identity_sha256,
+        provider.identity.anchor_project_ref,
+        provider.identity.principal_id,
+        provider.identity.bucket_name,
+        count,
+        namespace_digest.hexdigest(),
+        terminal_name,
+        terminal.canonical_bytes,
+        terminal.byte_sha256,
+        terminal.semantic_sha256,
+        terminal.current_host_head_sha256,
+        count,
+        1,
+        count + 1,
+        0,
+        ANCHOR_AUTHORITY_SHA256,
+        KEY_ID,
+        KEY_SHA256,
+        TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS,
+    )
+    assert observed == hashlib.sha256(canonical_json_bytes(expected_material)).hexdigest()
+    assert len(observed) == 64
+    assert all(character in "0123456789abcdef" for character in observed)
+    assert provider.attestation_calls == 2
+    assert len(provider.page_calls) == 2
+    assert provider.page_calls[0] == provider.page_calls[1]
+    assert [call[2] for call in provider.sequence_list_calls] == [
+        1,
+        count,
+        count + 1,
+        count,
+        count + 1,
+    ]
+    assert len(provider.download_calls) == count + 1
+    assert provider.download_calls[-1] == (BUCKET, terminal_name)
+    assert provider.upload_calls == []
+    assert verifier.sign_calls == 0
+    assert provider.events[0] == ("attest_identity",)
+    assert provider.events[-1] == ("attest_identity",)
+    page_positions = [
+        index for index, event in enumerate(provider.events) if event[0] == "list_page"
+    ]
+    download_positions = [
+        index for index, event in enumerate(provider.events) if event[0] == "download"
+    ]
+    assert len(page_positions) == 2
+    assert page_positions[0] < download_positions[0] < page_positions[1]
+    assert provider.events[-4:] == [
+        ("list_sequence", count),
+        ("download", terminal_name),
+        ("list_sequence", count + 1),
+        ("attest_identity",),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("count", "terminal_reason", "message"),
+    [
+        (2, TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP, "three or later"),
+        (3, TrustedTimeHeadAnchorCheckpointReason.PERIODIC, "reason conflicts"),
+    ],
+)
+def test_clean_stop_terminal_postcondition_rejects_nonterminal_sql_shape_before_io(
+    count: int,
+    terminal_reason: TrustedTimeHeadAnchorCheckpointReason,
+    message: str,
+) -> None:
+    tip, provider = bounded_tip_and_provider(count, terminal_reason=terminal_reason)
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match=message):
+        verify_clean_stop_terminal(tip, provider)
+
+    assert provider.attestation_calls == 0
+    assert provider.page_calls == []
+    assert provider.download_calls == []
+
+
+def test_clean_stop_terminal_postcondition_requires_terminal_at_current_local_ordinal() -> None:
+    tip, provider = clean_stop_tip_and_provider()
+    stale = anchor_contract._issue_authenticated_trusted_time_head_journal_tip(
+        current_transition=tip.current_transition,
+        local_transition_count=tip.local_transition_count + 1,
+        first_local_host_head_sha256=tip.first_local_host_head_sha256,
+        confirmed_anchor_count=tip.confirmed_anchor_count,
+        confirmed_anchor_tip=tip.confirmed_anchor_tip,
+        first_anchored_local_transition_ordinal=tip.first_anchored_local_transition_ordinal,
+        confirmed_anchor_local_transition_ordinal=(tip.confirmed_anchor_local_transition_ordinal),
+    )
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match="not current in SQL"):
+        verify_clean_stop_terminal(stale, provider)
+
+    assert provider.attestation_calls == 0
+    assert provider.page_calls == []
+
+
+@pytest.mark.parametrize(
+    ("field_name", "field_value"),
+    [
+        ("signing_key_id", "aqt-trusted-time-anchor-ed25519-v2"),
+        ("signing_public_key_sha256", "0" * 64),
+        ("checkpoint_interval_seconds", 301),
+        ("anchor_authority_sha256", "0" * 64),
+    ],
+)
+def test_clean_stop_terminal_postcondition_rejects_authority_drift_before_io(
+    field_name: str,
+    field_value: object,
+) -> None:
+    tip, provider = clean_stop_tip_and_provider()
+    arguments: dict[str, object] = {field_name: field_value}
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match="admitted authority"):
+        verify_bounded_clean_stop_terminal_remote_postcondition(
+            tip,
+            provider=provider,
+            verifier=DeterministicEd25519TestDouble(),
+            signing_key_id=arguments.get("signing_key_id", KEY_ID),  # type: ignore[arg-type]
+            signing_public_key_sha256=arguments.get(
+                "signing_public_key_sha256",
+                KEY_SHA256,
+            ),  # type: ignore[arg-type]
+            checkpoint_interval_seconds=arguments.get(
+                "checkpoint_interval_seconds",
+                TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS,
+            ),  # type: ignore[arg-type]
+            anchor_authority_sha256=arguments.get(
+                "anchor_authority_sha256",
+                ANCHOR_AUTHORITY_SHA256,
+            ),  # type: ignore[arg-type]
+        )
+
+    assert provider.attestation_calls == 0
+    assert provider.page_calls == []
+
+
+def test_clean_stop_terminal_postcondition_rejects_maximum_sequence_before_io(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tip, provider = clean_stop_tip_and_provider(4_000)
+    monkeypatch.setattr(
+        anchor_contract,
+        "MAX_TRUSTED_TIME_HEAD_ANCHOR_SEQUENCE",
+        tip.confirmed_anchor_count,
+    )
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match="unrepresentable next sequence"):
+        verify_clean_stop_terminal(tip, provider)
+
+    assert provider.attestation_calls == 0
+    assert provider.page_calls == []
+
+
+def test_clean_stop_terminal_postcondition_rejects_above_full_audit_horizon_before_io(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tip, provider = clean_stop_tip_and_provider()
+    monkeypatch.setattr(
+        anchor_contract,
+        "TRUSTED_TIME_HEAD_ANCHOR_FULL_AUDIT_MAX_OBJECTS",
+        tip.confirmed_anchor_count - 1,
+    )
+
+    def unexpected_provider_call(*_: object, **__: object) -> object:
+        raise AssertionError("provider must remain untouched above the full-audit horizon")
+
+    provider.attest_identity = unexpected_provider_call  # type: ignore[assignment]
+    provider.list_object_names_page = unexpected_provider_call  # type: ignore[assignment]
+    provider.list_sequence_object_names = unexpected_provider_call  # type: ignore[assignment]
+    provider.download_object = unexpected_provider_call  # type: ignore[assignment]
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match="full-audit horizon"):
+        verify_clean_stop_terminal(tip, provider)
+
+    assert provider.attestation_calls == 0
+    assert provider.page_calls == []
+    assert provider.sequence_list_calls == []
+    assert provider.download_calls == []
+
+
+@pytest.mark.parametrize("mutation", ["n_plus_two_gap", "middle_gap", "contamination"])
+def test_clean_stop_terminal_postcondition_full_audit_rejects_gap_or_contamination(
+    mutation: str,
+) -> None:
+    tip, provider = clean_stop_tip_and_provider(4)
+    prefix = trusted_time_head_anchor_object_prefix(
+        deployment_identity_sha256=DEPLOYMENT_IDENTITY,
+        host_id=HOST,
+    )
+    if mutation == "n_plus_two_gap":
+        provider.objects[(BUCKET, f"{prefix}{6:020d}-{'0' * 64}.json")] = next(
+            iter(provider.objects.values())
+        )
+        message = "not gap-free"
+    elif mutation == "middle_gap":
+        middle_name = next(
+            name
+            for bucket, name in provider.objects
+            if bucket == BUCKET and name.startswith(f"{prefix}{2:020d}-")
+        )
+        del provider.objects[(BUCKET, middle_name)]
+        message = "not gap-free"
+    else:
+        provider.objects[(BUCKET, f"{prefix}contamination")] = b"untrusted"
+        message = "contaminated"
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match=message):
+        verify_clean_stop_terminal(tip, provider)
+
+    assert provider.upload_calls == []
+
+
+def test_clean_stop_terminal_postcondition_rejects_namespace_pass_drift() -> None:
+    tip, provider = clean_stop_tip_and_provider()
+    original_page = provider.list_object_names_page
+    page_calls = 0
+
+    def drift_after_first_pass(
+        *,
+        bucket_name: str,
+        prefix: str,
+        offset: int,
+        limit: int,
+    ) -> tuple[str, ...]:
+        nonlocal page_calls
+        page = original_page(
+            bucket_name=bucket_name,
+            prefix=prefix,
+            offset=offset,
+            limit=limit,
+        )
+        page_calls += 1
+        if page_calls == 1:
+            provider.objects[(BUCKET, f"{prefix}{4:020d}-{'0' * 64}.json")] = next(
+                iter(provider.objects.values())
+            )
+        return page
+
+    provider.list_object_names_page = drift_after_first_pass  # type: ignore[method-assign]
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match="namespace drifted"):
+        verify_clean_stop_terminal(tip, provider)
+
+
+def test_clean_stop_terminal_postcondition_rejects_late_terminal_get_mutation() -> None:
+    tip, provider = clean_stop_tip_and_provider()
+    terminal = tip.confirmed_anchor_tip
+    assert terminal is not None
+    prefix = trusted_time_head_anchor_object_prefix(
+        deployment_identity_sha256=DEPLOYMENT_IDENTITY,
+        host_id=HOST,
+    )
+    terminal_name = trusted_time_head_anchor_object_name(
+        prefix=prefix,
+        anchor_sequence=terminal.anchor_sequence,
+        signed_envelope_sha256=terminal.byte_sha256,
+    )
+    original_download = provider.download_object
+    terminal_gets = 0
+
+    def mutate_late_get(*, bucket_name: str, object_name: str) -> bytes:
+        nonlocal terminal_gets
+        if object_name == terminal_name:
+            terminal_gets += 1
+            if terminal_gets == 2:
+                return b"mutated-after-audit"
+        return original_download(bucket_name=bucket_name, object_name=object_name)
+
+    provider.download_object = mutate_late_get  # type: ignore[method-assign]
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match="bytes conflict"):
+        verify_clean_stop_terminal(tip, provider)
+
+    assert terminal_gets == 2
+
+
+def test_clean_stop_terminal_postcondition_rejects_late_next_sequence() -> None:
+    tip, provider = clean_stop_tip_and_provider()
+    sequence = tip.confirmed_anchor_count
+    original_list = provider.list_sequence_object_names
+    next_reads = 0
+
+    def reveal_late_next(
+        *,
+        bucket_name: str,
+        prefix: str,
+        anchor_sequence: int,
+    ) -> tuple[str, ...]:
+        nonlocal next_reads
+        if anchor_sequence == sequence + 1:
+            next_reads += 1
+            if next_reads == 2:
+                return (f"{prefix}{anchor_sequence:020d}-{'0' * 64}.json",)
+        return original_list(
+            bucket_name=bucket_name,
+            prefix=prefix,
+            anchor_sequence=anchor_sequence,
+        )
+
+    provider.list_sequence_object_names = reveal_late_next  # type: ignore[method-assign]
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match="next sequence is not empty"):
+        verify_clean_stop_terminal(tip, provider)
+
+    assert next_reads == 2
+
+
+def test_clean_stop_terminal_postcondition_rejects_provider_identity_drift() -> None:
+    tip, provider = clean_stop_tip_and_provider()
+    stable_identity = provider.identity
+    changed_identity = replace(stable_identity, principal_id="22222222-2222-4222-8222-222222222222")
+    attestations = 0
+
+    def drifting_identity() -> TrustedTimeHeadAnchorProviderIdentity:
+        nonlocal attestations
+        attestations += 1
+        return stable_identity if attestations == 1 else changed_identity
+
+    provider.attest_identity = drifting_identity  # type: ignore[method-assign]
+
+    with pytest.raises(TrustedTimeHeadAnchorConflict, match="provider identity conflicts"):
+        verify_clean_stop_terminal(tip, provider)
+
+    assert attestations == 2
+
+
+def test_clean_stop_terminal_postcondition_requires_exact_provider_collection_types() -> None:
+    tip, provider = clean_stop_tip_and_provider()
+    original_page = provider.list_object_names_page
+
+    def list_page_instead_of_tuple(
+        *,
+        bucket_name: str,
+        prefix: str,
+        offset: int,
+        limit: int,
+    ) -> tuple[str, ...]:
+        return list(  # type: ignore[return-value]
+            original_page(
+                bucket_name=bucket_name,
+                prefix=prefix,
+                offset=offset,
+                limit=limit,
+            )
+        )
+
+    provider.list_object_names_page = list_page_instead_of_tuple  # type: ignore[method-assign]
+
+    with pytest.raises(TrustedTimeHeadAnchorError, match="malformed page"):
+        verify_clean_stop_terminal(tip, provider)
 
 
 def test_sparse_reconciliation_appends_only_the_new_current_checkpoint() -> None:

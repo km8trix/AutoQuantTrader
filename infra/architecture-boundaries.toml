@@ -1,6 +1,520 @@
 [scan]
 source_roots = ["apps", "packages"]
 package_roots = ["packages"]
+production_python_source_manifest_roots = ["apps", "packages", "scripts"]
+production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]
+production_python_source_manifest_sha256 = "5a3346cc04c721fc08e587d86e27884756944e64aebff17972f29237670ca0dd"
+project_build_bootstrap_manifest_paths = [
+  ".python-version",
+  "pyproject.toml",
+  "uv.lock",
+  "build_support/build_native_test_launcher.py",
+  "build_support/native_build_constraints.txt",
+  "build_support/native_image_manifest.py",
+  "build_support/native_owned_file_descriptor_hook.py",
+  "native/bounded_process.c",
+  "native/owned_file_descriptor.c",
+  "native/trusted_time_python_launcher.c",
+]
+project_build_bootstrap_manifest_sha256 = "f23942224cb5a19bf17d050e45340103e518aa38c1c065a4688538edf0b7c09f"
+project_build_bootstrap_forbidden_paths = [
+  "MANIFEST.in",
+  "hatch.toml",
+  "setup.cfg",
+  "setup.py",
+  "uv.toml",
+]
+architecture_checker_invocation_source_sha256."Makefile" = "189b041060855fbb6218fdc9d8425c25f534d1885d1207725b8022a84e7de758"
+architecture_checker_invocation_source_sha256.".github/workflows/ci.yml" = "8da27296e12d3e7a8bed8559ca0e849e919ec5dee4423b824c98c5fbf68a05a5"
+builtin_namespace_integrity_roots = ["apps", "packages", "scripts"]
+builtin_namespace_integrity_excluded_roots = ["scripts/check_architecture.py"]
+builtin_namespace_integrity_allowed_imports."packages/adapters/market_data/recorded.py" = [
+  "builtins:*",
+]
+builtin_namespace_integrity_allowed_imports."packages/application/trusted_time_head_anchor_clean_stop_supervisor_bridge.py" = [
+  "builtins:*",
+  "builtins:property",
+]
+builtin_namespace_integrity_allowed_imports."scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py" = [
+  "builtins:*",
+  "builtins:property",
+]
+builtin_namespace_integrity_allowed_reads."packages/adapters/market_data/recorded.py" = [
+  "builtins.bytes@annotation",
+]
+builtin_namespace_integrity_allowed_reads."packages/application/trusted_time_head_anchor_clean_stop_supervisor_bridge.py" = [
+  "builtins.property@identity",
+]
+builtin_namespace_integrity_allowed_reads."scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py" = [
+  "builtins.property@identity",
+]
+builtin_namespace_integrity_sys_modules_callsites."scripts/diagnose_trusted_time_runtime.py" = [
+  "_require_repository_first_party_sources",
+]
+builtin_namespace_integrity_sys_modules_callsites."scripts/enroll_trusted_time_head_anchor.py" = [
+  "_require_repository_first_party_sources",
+]
+builtin_namespace_integrity_sys_modules_callsites."scripts/inspect_trusted_time_qualification.py" = [
+  "_require_repository_first_party_sources",
+]
+builtin_namespace_integrity_sys_modules_callsites."scripts/provision_trusted_time_post_enrollment_operator_authority.py" = [
+  "_require_repository_first_party_sources",
+]
+builtin_namespace_integrity_sys_modules_callsites."scripts/start_trusted_time_supervisor.py" = [
+  "_require_repository_first_party_sources",
+]
+builtin_namespace_integrity_sys_modules_callsites."scripts/trusted_time_post_enrollment_host_orchestrator.py" = [
+  "_require_repository_first_party_sources",
+]
+builtin_namespace_integrity_sys_modules_callsites."scripts/trusted_time_post_enrollment_operator_attestation_artifacts.py" = [
+  "_require_repository_first_party_sources",
+]
+builtin_namespace_integrity_sys_modules_callsites."scripts/verify_trusted_time_compose.py" = [
+  "_require_repository_first_party_sources",
+]
+builtin_namespace_integrity_sys_modules_callsites."scripts/verify_trusted_time_images.py" = [
+  "_require_repository_first_party_sources",
+]
+builtin_namespace_integrity_sys_modules_callsites."packages/adapters/trusted_time/_owned_file_descriptor.py" = [
+  "<module>:contains-private-native",
+  "<module>:contains-private-native",
+]
+builtin_namespace_integrity_sys_modules_callsites."packages/adapters/trusted_time/_bounded_process.py" = [
+  "<module>:contains-private-native",
+  "<module>:contains-private-native",
+]
+builtin_namespace_integrity_sys_modules_callsites."packages/domain/_trusted_time_post_enrollment_projection_bootstrap.py" = [
+  "_build_start_projection_bootstrap:capture-private-module-map",
+]
+builtin_namespace_integrity_sys_modules_callsites."scripts/trusted_time_post_enrollment_topology_reader.py" = [
+  "_build_observation_sealer:capture-private-module-map",
+]
+
+# Each private native module is admitted only through its fully pinned wrapper.
+# Consumers receive exact private builtins by from-import; namespace imports,
+# internal module/type aliases, alternate dynamic loaders, and new consumers
+# are rejected.
+native_owned_file_descriptor_wrapper_roots = [
+  "packages/adapters/trusted_time/_owned_file_descriptor.py",
+]
+native_owned_file_descriptor_wrapper_module = "packages.adapters.trusted_time._owned_file_descriptor"
+native_owned_file_descriptor_wrapper_module_ast_sha256 = "c67feb33d4f02b548c74bcea58a96c0890ab4da6afd38d1d10f8107789a411a7"
+
+# This is a dedicated opaque-launch-lease policy.  The topology reader is not
+# admitted as a generic owned-descriptor consumer: it alone imports the exact
+# native lease trio, and the full reader/issuer/host AST plus every protected
+# lifecycle binding is frozen below.
+trusted_time_topology_launch_lock_reader_path = "scripts/trusted_time_post_enrollment_topology_reader.py"
+trusted_time_topology_launch_lock_host_path = "scripts/trusted_time_post_enrollment_host_orchestrator.py"
+trusted_time_topology_launch_lock_wrapper_module = "packages.adapters.trusted_time._owned_file_descriptor"
+trusted_time_topology_launch_lock_allowed_imports = [
+  "packages.adapters.trusted_time._owned_file_descriptor:_acquire_trusted_time_launch_lock",
+  "packages.adapters.trusted_time._owned_file_descriptor:_TrustedTimeLaunchLockLease",
+  "packages.adapters.trusted_time._owned_file_descriptor:_validate_trusted_time_launch_lock",
+]
+trusted_time_topology_launch_lock_reader_native_aliases = [
+  "_flock|_native_flock",
+  "_fstat|_native_fstat",
+  "_fsync|_native_fsync",
+  "_list_snapshot|_native_list_snapshot",
+  "_open_child_directory|_native_open_child_directory",
+  "_open_child_regular|_native_open_child_regular",
+  "_open_root_directory|_native_open_root_directory",
+  "_OwnedFileDescriptor|_NativeOwnedFileDescriptor",
+  "_read_snapshot|_native_read_snapshot",
+  "_statat|_native_statat",
+]
+trusted_time_topology_launch_lock_reader_reserved_exports = [
+  "_acquire_trusted_time_launch_lock",
+  "_TrustedTimeLaunchLockLease",
+  "_validate_trusted_time_launch_lock",
+  "_authenticated_issuer_scope_is_live",
+  "_bind_authenticated_issuer_activation_launch_lock_lease",
+  "_bound_authenticated_issuer_lifecycle_lock",
+  "_burn_authenticated_issuer_keep_launch_lock",
+  "_teardown_authenticated_issuer_launch_lock_binding",
+  "_validated_authenticated_issuer_launch_lock_binding",
+  "_launch_lock_lease",
+  "_validate_lock",
+  "_activate_with_dependencies",
+  "_require_usable",
+]
+trusted_time_topology_launch_lock_host_allowed_reader_private_imports = [
+  "_abort_authenticated_issuer_activation",
+]
+trusted_time_topology_launch_lock_legacy_launch_lock_origin = "scripts.start_trusted_time_supervisor"
+trusted_time_topology_launch_lock_legacy_launch_lock_symbols = [
+  "TRUSTED_TIME_LAUNCH_LOCK_PATH",
+  "_acquire_trusted_time_launch_lock",
+  "_release_trusted_time_launch_lock",
+]
+trusted_time_topology_launch_lock_legacy_launch_lock_boundary_paths = [
+  "scripts/start_trusted_time_supervisor.py",
+  "scripts/enroll_trusted_time_head_anchor.py",
+]
+trusted_time_topology_launch_lock_reachable_fcntl_paths = [
+  "scripts/start_trusted_time_supervisor.py",
+  "scripts/trusted_time_post_enrollment_controller_outcome.py",
+  "scripts/trusted_time_post_enrollment_execution_admission.py",
+  "scripts/trusted_time_post_enrollment_operator_attestation_artifacts.py",
+  "scripts/trusted_time_post_enrollment_outcome.py",
+  "scripts/trusted_time_post_enrollment_topology_reader.py",
+]
+trusted_time_topology_launch_lock_reachable_fileio_paths = [
+  "scripts/start_trusted_time_supervisor.py",
+  "scripts/trusted_time_post_enrollment_outcome.py",
+]
+trusted_time_topology_launch_lock_reachable_wrapper_flock_paths = [
+  "scripts/trusted_time_post_enrollment_controller_outcome.py",
+  "scripts/trusted_time_post_enrollment_execution_admission.py",
+  "scripts/trusted_time_post_enrollment_operator_attestation_artifacts.py",
+  "scripts/trusted_time_post_enrollment_topology_reader.py",
+]
+trusted_time_topology_launch_lock_documentation_paths = [
+  "docs/ARCHITECTURE.md",
+  "docs/IMPLEMENTATION_PLAN.md",
+  "docs/adr/0099-approval-bound-post-enrollment-start-and-graceful-stop.md",
+  "docs/runbooks/trusted-time-supervisor.md",
+]
+trusted_time_topology_launch_lock_reader_module_ast_sha256 = "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
+trusted_time_topology_launch_lock_issuer_class_ast_sha256 = "b64f79e1679e2bdefe40f6b36c82142fa367f6e6981c1b2e8fee1366a7d39bcd"
+trusted_time_topology_launch_lock_host_module_ast_sha256 = "15c3e62437dc070d223038e21097ce85cbbb68de71ced3a6574f506236ebf56c"
+trusted_time_topology_launch_lock_production_ast_sha256 = "0b9fac22d464ee20145ef73a40cccc5dac95817986637d2ac84c1b067503e55e"
+trusted_time_topology_launch_lock_lifecycle_tag = "trusted-time-issuer-lifecycle-v3"
+trusted_time_topology_launch_lock_lifecycle_tag_count = 13
+trusted_time_topology_launch_lock_launch_lock_binding_tag = "trusted-time-launch-lock-binding-v1"
+trusted_time_topology_launch_lock_launch_lock_binding_tag_count = 5
+trusted_time_topology_launch_lock_runtime_registration_tag = "trusted-time-issuer-runtime-registration-v1"
+trusted_time_topology_launch_lock_runtime_registration_tag_count = 5
+trusted_time_topology_launch_lock_launch_binding_tuple_length = 5
+trusted_time_topology_launch_lock_issuer_registration_tuple_length = 12
+trusted_time_topology_launch_lock_issuer_lifecycle_tuple_length = 9
+trusted_time_topology_launch_lock_registry_runner_call_count = 82
+trusted_time_topology_launch_lock_downstream_lifecycle_with_count = 40
+trusted_time_topology_launch_lock_issuer_slots = [
+  "__weakref__",
+  "_artifact_directory_value",
+  "_authentication_capability",
+  "_busy",
+  "_choreography_consumed",
+  "_choreography_inflight",
+  "_choreography_scope_nonce",
+  "_closed",
+  "_cursor_count",
+  "_daemon_identity",
+  "_daemon_identity_registration_value",
+  "_docker_executable_identity_value",
+  "_docker_executable_path",
+  "_docker_executable_path_value",
+  "_environment",
+  "_environment_identity_value",
+  "_environment_sha256_value",
+  "_final_action_observation_sha256",
+  "_first_staged_snapshot_sha256",
+  "_ignored_root",
+  "_ignored_root_value",
+  "_issued_created_observation_sha256",
+  "_last_observation_sha256",
+  "_launch_lock_lease",
+  "_lifecycle_lock",
+  "_monotonic_ns",
+  "_owner_pid",
+  "_poisoned",
+  "_reviewed_mutation_binding_sha256",
+  "_reviewed_mutation_created_registration",
+  "_reviewed_mutation_prepared_registration",
+  "_reviewed_mutation_state",
+  "_runner",
+  "_runner_identity_value",
+  "_session_sha256",
+  "_socket_identity_value",
+  "_socket_path_value",
+  "_staged_observation_count",
+]
+trusted_time_topology_launch_lock_protected_defaults = [
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_run_under_exact_rlock|_depth|_exact_rlock_depth",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_run_under_exact_rlock|_restore|_restore_rlock_depth",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_run_under_exact_rlock|_preferred|_preferred_control_error",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_rlock_type|_EXACT_RLOCK_TYPE",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_rlock_acquire|_EXACT_RLOCK_TYPE.acquire",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_rlock_release|_EXACT_RLOCK_TYPE.release",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_rlock_recursion_count|_EXACT_RLOCK_TYPE.__dict__['_recursion_count']",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_thread_local_type|_thread._local",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_thread_local_getattribute|_thread._local.__dict__['__getattribute__']",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_thread_local_setattr|_thread._local.__dict__['__setattr__']",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_launch_lock_lease_type|_TrustedTimeLaunchLockLease",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_close_launch_lock|_TrustedTimeLaunchLockLease.close",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_validate_launch_lock|_validate_trusted_time_launch_lock",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_owner_type|_NativeOwnedFileDescriptor",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_owner_close|_NativeOwnedFileDescriptor.close",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_owner_closed|_NativeOwnedFileDescriptor.closed",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_owner_closed_get|_EXACT_NATIVE_OWNER_CLOSED_GET",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_open_root|_native_open_root_directory",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_open_directory|_native_open_child_directory",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_open_regular|_native_open_child_regular",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_owner_fstat|_native_fstat",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_owner_statat|_native_statat",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_owner_read|_native_read_snapshot",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_owner_list|_native_list_snapshot",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_owner_flock|_native_flock",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_owner_fsync|_native_fsync",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_native_lock_shared_nonblocking|fcntl.LOCK_SH | fcntl.LOCK_NB",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.allocate_inert|_rlock_type|threading.RLock",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.allocate_inert|_rlock_depth|_exact_rlock_depth",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.allocate_inert|_getpid|os.getpid",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.allocate_inert|_path_type|Path",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._activate_with_dependencies|_acquire_launch_lock|_acquire_trusted_time_launch_lock",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._activate_with_dependencies|_bind_activation_launch_lock_lease|_bind_authenticated_issuer_activation_launch_lock_lease",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._activate_with_dependencies|_validate_launch_lock|_validate_trusted_time_launch_lock",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._activate_with_dependencies|_close_launch_lock|_TrustedTimeLaunchLockLease.close",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._activate_with_dependencies|_abort_activation|_abort_authenticated_issuer_activation",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._activate_with_dependencies|_path_type|Path",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._activate_with_dependencies|_rlock_depth|_exact_rlock_depth",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._activate_with_dependencies|_getpid|os.getpid",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._require_usable|_validated_binding|_validated_authenticated_issuer_launch_lock_binding",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._require_usable|_run_under_lock|_run_under_exact_rlock",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_close_launch_lock|_TrustedTimeLaunchLockLease.close",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_validate_launch_lock|_validate_trusted_time_launch_lock",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_abort_activation|_abort_authenticated_issuer_activation",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_burn_keep_launch_lock|_burn_authenticated_issuer_keep_launch_lock",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_scope_is_live|_authenticated_issuer_scope_is_live",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_revoke_choreography|_revoke_authenticated_choreography",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_revoke_choreography_scope|_revoke_authenticated_choreography_scope",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_bound_lifecycle_lock|_bound_authenticated_issuer_lifecycle_lock",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_teardown_binding|_teardown_authenticated_issuer_launch_lock_binding",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_run_under_lock|_run_under_exact_rlock",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_preferred|_preferred_control_error",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_fspath|os.fspath",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_path_type|_EXACT_PATH_TYPE",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_getpid|os.getpid",
+  "scripts/trusted_time_post_enrollment_host_orchestrator.py|_build_operator_attested_post_enrollment_start_once|_implementation|_run_operator_attested_post_enrollment_start_once_with_dependencies",
+  "scripts/trusted_time_post_enrollment_host_orchestrator.py|_build_operator_attested_post_enrollment_start_once|_issuer_type|TrustedTimePostEnrollmentTopologyObservationIssuer",
+  "scripts/trusted_time_post_enrollment_host_orchestrator.py|_build_operator_attested_post_enrollment_start_once|_allocate_inert_issuer|TrustedTimePostEnrollmentTopologyObservationIssuer.allocate_inert",
+  "scripts/trusted_time_post_enrollment_host_orchestrator.py|_build_operator_attested_post_enrollment_start_once|_activate_issuer|TrustedTimePostEnrollmentTopologyObservationIssuer.activate",
+  "scripts/trusted_time_post_enrollment_host_orchestrator.py|_build_operator_attested_post_enrollment_start_once|_close_issuer|TrustedTimePostEnrollmentTopologyObservationIssuer.close",
+  "scripts/trusted_time_post_enrollment_host_orchestrator.py|_build_operator_attested_post_enrollment_start_once|_abort_issuer_activation|_abort_authenticated_issuer_activation",
+]
+trusted_time_topology_launch_lock_sealed_replacements = [
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_preferred|sealed_preferred_control_error",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_rlock_depth|sealed_rlock_depth",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_run_under_lock|sealed_run_under_rlock",
+]
+trusted_time_topology_launch_lock_operation_call_counts = [
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_run_under_exact_rlock|operation|1",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_run_under_lock|29",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|run_under_registry_lock|82",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_validate_launch_lock|6",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|_build_observation_sealer|_close_launch_lock|2",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.allocate_inert|_rlock_type|1",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._activate_with_dependencies|_acquire_launch_lock|1",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._activate_with_dependencies|_bind_activation_launch_lock_lease|1",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._activate_with_dependencies|_validate_launch_lock|1",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._activate_with_dependencies|_close_launch_lock|1",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._activate_with_dependencies|_abort_activation|1",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer._require_usable|_run_under_lock|1",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_run_under_lock|1",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_validate_launch_lock|1",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_close_launch_lock|1",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_abort_activation|1",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_burn_keep_launch_lock|1",
+  "scripts/trusted_time_post_enrollment_topology_reader.py|TrustedTimePostEnrollmentTopologyObservationIssuer.close|_scope_is_live|1",
+  "scripts/trusted_time_post_enrollment_host_orchestrator.py|_run_operator_attested_post_enrollment_start_once_with_dependencies|allocate_inert_issuer|1",
+  "scripts/trusted_time_post_enrollment_host_orchestrator.py|_run_operator_attested_post_enrollment_start_once_with_dependencies|activate_issuer|1",
+  "scripts/trusted_time_post_enrollment_host_orchestrator.py|_run_operator_attested_post_enrollment_start_once_with_dependencies|close_issuer|1",
+  "scripts/trusted_time_post_enrollment_host_orchestrator.py|_run_operator_attested_post_enrollment_start_once_with_dependencies|abort_issuer_activation|1",
+]
+trusted_time_topology_launch_lock_frozen_source_sha256."build_support/build_native_admission_launcher.py" = "82c7228184ec7533b7ce59831215f3b35d78f99323462bc558eee26dfc529d31"
+trusted_time_topology_launch_lock_frozen_source_sha256."build_support/build_native_test_launcher.py" = "b9a68949c53d9e4d138a7c4088e4e53669319296d6aa71ff4204c5eb69729cb2"
+trusted_time_topology_launch_lock_frozen_source_sha256."build_support/install_native_admission_launcher.py" = "94200b3d32a215956a3cfc936f414320d6953afeb3f3d7046a08a19e2f2a79b5"
+trusted_time_topology_launch_lock_frozen_source_sha256."build_support/native_owned_file_descriptor_hook.py" = "dfbafc96416dfc4da03544467b79ea2edbb673a5d73b641cf822e7a461f74c90"
+trusted_time_topology_launch_lock_frozen_source_sha256."native/bounded_process.c" = "be08d5c95a2a5ce6aa9b06a4434c09473ee74ad941a417b8022885a7ef1f5cbd"
+trusted_time_topology_launch_lock_frozen_source_sha256."native/owned_file_descriptor.c" = "da2bc638b92b49a4c1c747d02983558d1dbff80fa7c7c64e16bbefa669e051d5"
+trusted_time_topology_launch_lock_frozen_source_sha256."native/trusted_time_python_launcher.c" = "b0c684309818c6b238da1c96c174d9ad9148b017ee8dde1a51b13933b8451f0e"
+trusted_time_topology_launch_lock_frozen_source_sha256."packages/adapters/trusted_time/_bounded_process.py" = "0bdf6cda1f0ab75d08df768d0d75bb40f2c8ef0cb490d09a18d843fb96a2a006"
+trusted_time_topology_launch_lock_frozen_source_sha256."packages/adapters/trusted_time/_owned_file_descriptor.py" = "a5c3a0f1ec32ae95d6a058cdf52f8530fe505c5a97f1a2cf61106d94c2baa9ab"
+native_bounded_process_wrapper_roots = [
+  "packages/adapters/trusted_time/_bounded_process.py",
+]
+native_bounded_process_wrapper_module = "packages.adapters.trusted_time._bounded_process"
+native_bounded_process_wrapper_module_ast_sha256 = "738691659c41a7478a71ac7af94e7d43b60a6dafc196b276304b0e64d6794e3a"
+native_bounded_process_allowed_imports."scripts/verify_trusted_time_images.py" = [
+  "packages.adapters.trusted_time._bounded_process:_run_bounded_process",
+]
+native_bounded_process_consumer_function_ast_sha256."scripts/verify_trusted_time_images.py" = "94d998f0e4b39560a5c28b697776dd3b085e2853debdc0c84b03156ea0a8e396"
+native_bounded_process_consumer_module_ast_sha256."scripts/verify_trusted_time_images.py" = "d0315613cd7eb62e05f59100bfb17d7007407f4392b5e392548c4c14eb8511ba"
+native_bounded_process_reflection_module_ast_sha256."packages/domain/_trusted_time_post_enrollment_projection_bootstrap.py" = "59bfdea9c8740d0df92b00bb74fc619d69b0593196b5e53fb39709ba7cae3df6"
+native_bounded_process_reflection_module_ast_sha256."scripts/trusted_time_post_enrollment_topology_reader.py" = "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
+native_bounded_process_reflection_attestations."packages/domain/_trusted_time_post_enrollment_projection_bootstrap.py" = [
+  "<module>|Attribute|sys._getframe()|f_globals|assign:_EXACT_BOOTSTRAP_MODULE_GLOBALS",
+  "_build_start_projection_bootstrap.caller_module_sha256|Constant|frame|f_code|call:_frame_getattribute",
+  "_build_start_projection_bootstrap.caller_module_sha256|Constant|frame|f_globals|call:_frame_getattribute",
+]
+native_bounded_process_reflection_attestations."scripts/trusted_time_post_enrollment_topology_reader.py" = [
+  "<module>|Attribute|candidate|__dict__|module/contains:_raw_paths",
+  "<module>|Attribute|_EXACT_PATH_SLOT_OWNER|__dict__|module/subscript:_raw_paths",
+  "<module>|Attribute|_EXACT_PATH_SLOT_OWNER|__dict__|module/subscript:_str",
+  "<module>|Attribute|MemberDescriptorType|__dict__|module/subscript:__objclass__",
+  "<module>|Attribute|MemberDescriptorType|__dict__|module/subscript:__name__",
+  "<module>|Attribute|weakref.ReferenceType|__dict__|module/subscript:__callback__",
+  "<module>|Attribute|type(_NativeOwnedFileDescriptor.closed)|__dict__|module/subscript:__get__",
+  "<module>|Attribute|sys._getframe()|f_globals|assign:_EXACT_READER_MODULE_GLOBALS",
+  "_build_observation_sealer|Attribute|_EXACT_RLOCK_TYPE|__dict__|default:_rlock_recursion_count/subscript:_recursion_count",
+  "_build_observation_sealer|Attribute|_thread._local|__dict__|default:_thread_local_getattribute/subscript:__getattribute__",
+  "_build_observation_sealer|Attribute|_thread._local|__dict__|default:_thread_local_setattr/subscript:__setattr__",
+  "_build_observation_sealer|Attribute|_ChoreographyCheckpoint|__dict__|default:_choreography_checkpoint_descriptors/subscript:lease_sha256",
+  "_build_observation_sealer|Attribute|_ChoreographyCheckpoint|__dict__|default:_choreography_checkpoint_descriptors/subscript:started_monotonic_ns",
+  "_build_observation_sealer|Attribute|_ChoreographyCheckpoint|__dict__|default:_choreography_checkpoint_descriptors/subscript:deadline_monotonic_ns",
+  "_build_observation_sealer|Attribute|_ChoreographyCheckpoint|__dict__|default:_choreography_checkpoint_descriptors/subscript:observed_monotonic_ns",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentRecoveryRetentionCheckpoint|__dict__|default:_recovery_checkpoint_descriptors/subscript:retained_claim",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentRecoveryRetentionCheckpoint|__dict__|default:_recovery_checkpoint_descriptors/subscript:artifact_directory",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentRecoveryRetentionCheckpoint|__dict__|default:_recovery_checkpoint_descriptors/subscript:ignored_root",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentRecoveryRetentionCheckpoint|__dict__|default:_recovery_checkpoint_descriptors/subscript:started_monotonic_ns",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentRecoveryRetentionCheckpoint|__dict__|default:_recovery_checkpoint_descriptors/subscript:deadline_monotonic_ns",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentRecoveryRetentionCheckpoint|__dict__|default:_recovery_checkpoint_descriptors/subscript:observed_monotonic_ns",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint|__dict__|default:_controller_checkpoint_descriptors/subscript:retained_claim",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint|__dict__|default:_controller_checkpoint_descriptors/subscript:outcome_kind",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint|__dict__|default:_controller_checkpoint_descriptors/subscript:artifact_directory",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint|__dict__|default:_controller_checkpoint_descriptors/subscript:ignored_root",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint|__dict__|default:_controller_checkpoint_descriptors/subscript:started_monotonic_ns",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint|__dict__|default:_controller_checkpoint_descriptors/subscript:action_deadline_monotonic_ns",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint|__dict__|default:_controller_checkpoint_descriptors/subscript:deadline_monotonic_ns",
+  "_build_observation_sealer|Attribute|_TrustedTimePostEnrollmentControllerOutcomeRetentionCheckpoint|__dict__|default:_controller_checkpoint_descriptors/subscript:observed_monotonic_ns",
+  "_build_observation_sealer|Attribute|type|__getattribute__|default:_type_getattribute",
+  "_build_observation_sealer|Attribute|object|__getattribute__|default:_object_getattribute",
+  "_build_observation_sealer|Attribute|_EXACT_FRAME_TYPE|__getattribute__|default:_frame_getattribute",
+  "_build_observation_sealer|Constant|reader_builder_frame|f_globals|call:_frame_getattribute",
+  "_build_observation_sealer|Constant|reader_builder_frame|f_code|call:_frame_getattribute",
+  "_build_observation_sealer|Constant|reader_builder_frame|f_code|call:_frame_getattribute",
+  "_build_observation_sealer.require_projection_caller|Constant|frame|f_code|call:_frame_getattribute",
+  "_build_observation_sealer.require_projection_caller|Constant|frame|f_globals|call:_frame_getattribute",
+  "_build_observation_sealer.require_reader_module_caller|Constant|frame|f_code|call:_frame_getattribute",
+  "_build_observation_sealer.require_reader_module_caller|Constant|frame|f_globals|call:_frame_getattribute",
+]
+native_bounded_process_reader_allowed_imports."scripts/trusted_time_post_enrollment_execution_admission.py" = [
+  "scripts.verify_trusted_time_images:_head_reviewed_operator_authority_object",
+]
+native_bounded_process_reader_consumer_module_ast_sha256."scripts/trusted_time_post_enrollment_execution_admission.py" = "406fc2c6ee034df2fefaf197bf26e0a96043816b149181c105ffb7ef6a064fd9"
+native_owned_file_descriptor_allowed_imports."apps/trusted_time_supervisor/post_enrollment_read_probes.py" = [
+  "packages.adapters.trusted_time._owned_file_descriptor:_OwnedFileDescriptor",
+  "packages.adapters.trusted_time._owned_file_descriptor:_fstat",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_regular",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot",
+  "packages.adapters.trusted_time._owned_file_descriptor:_statat",
+]
+native_owned_file_descriptor_allowed_imports."apps/trusted_time_supervisor/post_enrollment_runtime_state.py" = [
+  "packages.adapters.trusted_time._owned_file_descriptor:_OwnedFileDescriptor",
+  "packages.adapters.trusted_time._owned_file_descriptor:_fstat",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_regular",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot",
+  "packages.adapters.trusted_time._owned_file_descriptor:_statat",
+]
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._require_absences._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._require_absences._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._read_marker._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._read_marker._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._read_marker._open_regular_exact = "packages.adapters.trusted_time._owned_file_descriptor:_open_child_regular"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._read_marker._read_snapshot_exact = "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._require_open_tmp_context._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._require_open_tmp_context._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._staged_barrier_bytes._open_root = "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._staged_barrier_bytes._open_directory = "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._staged_barrier_bytes._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._staged_barrier_bytes._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._pre_effect_runtime_absence_bytes._open_root = "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._pre_effect_runtime_absence_bytes._open_directory = "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._pre_effect_runtime_absence_bytes._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._pre_effect_runtime_absence_bytes._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._persistent_barrier_bytes._open_root = "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._persistent_barrier_bytes._open_directory = "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._persistent_barrier_bytes._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._persistent_barrier_bytes._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_regular_snapshot._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_regular_snapshot._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_regular_snapshot._open_regular_exact = "packages.adapters.trusted_time._owned_file_descriptor:_open_child_regular"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_regular_snapshot._read_snapshot_exact = "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._require_absences._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._require_absences._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._require_tmp_context._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._require_tmp_context._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_tmp_snapshot._open_root = "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_tmp_snapshot._open_directory = "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_tmp_snapshot._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_tmp_snapshot._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_boot_id_snapshot._open_root = "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_boot_id_snapshot._open_directory = "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_boot_id_snapshot._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_boot_id_snapshot._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_consumer_module_ast_sha256."apps/trusted_time_supervisor/post_enrollment_read_probes.py" = "39bd2c7e349b023f9cd217e6b15271fcd3cb03454dfa863634bf2931259f316b"
+native_owned_file_descriptor_captured_consumer_module_ast_sha256."apps/trusted_time_supervisor/post_enrollment_runtime_state.py" = "809a5a33362206ada58314b11e2a21c243d8a135411eaaf3ba248324e301f273"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._cleanup_native_owners = "a1246ac594a9f3b5dff96915cfe5c2ea731fc5d4891cb02995abdc5bd52c95fc"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._require_absences = "e38bcca69cebe5f34761a83a7a8ab369bea297ddaa86741a377c3bfcc0760dde"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._read_marker = "ba510dc74678007ecfcae2b030e5cd931f422828821f7d596cd4b89c3a7ccc5f"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._require_open_tmp_context = "4409a6cc069e1a5dbeec32463c10e46f183dadcac6f2899d6bce20774b0bab85"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._staged_barrier_bytes = "00d90fb1bdcd9d3ac81e3889a27845809ea2a613785afec209ca974410e58995"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._pre_effect_runtime_absence_bytes = "40d26075b8b0bb35d1311a22cb061152b9fb9f7e9134a2bb6085ca5dc27fa542"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._persistent_barrier_bytes = "0268dda57fd3c498f099ad6b2215346548fec04fb256bd024539ff9eb8af9dd7"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._cleanup_native_owners = "e67156225c3b2b929b6203897ea5b870e4ef88a41a4820dede69f875e6871631"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_regular_snapshot = "810b844fc93bef272cf67f3ae21c84d263d6495797c68fa1cd523d8d87bd33a7"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._require_absences = "c7f3f74a7f91e434071878dd6391675dfe06bdecf543e34a526acef78cf6ab1b"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._require_tmp_context = "33028ce86b554dd742f78c8ce6eca8c394a082298fb50e2005a387ff07516437"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_tmp_snapshot = "b0e17314b203d2ae08e5a60fbf533b1b77fa9b2692a50ccefb2cc12dc1d0ff9c"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_boot_id_snapshot = "167e5b35dc2c251d9ff3fd71d4eb9a31a56fc49eb6521ccc94519f79cb592bcc"
+native_owned_file_descriptor_allowed_imports."scripts/trusted_time_post_enrollment_controller_outcome.py" = [
+  "packages.adapters.trusted_time._owned_file_descriptor:_OwnedFileDescriptor",
+  "packages.adapters.trusted_time._owned_file_descriptor:_flock",
+  "packages.adapters.trusted_time._owned_file_descriptor:_fstat",
+  "packages.adapters.trusted_time._owned_file_descriptor:_list_snapshot",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_regular",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot",
+  "packages.adapters.trusted_time._owned_file_descriptor:_statat",
+]
+native_owned_file_descriptor_allowed_imports."scripts/trusted_time_post_enrollment_execution_admission.py" = [
+  "packages.adapters.trusted_time._owned_file_descriptor:_OwnedFileDescriptor",
+  "packages.adapters.trusted_time._owned_file_descriptor:_flock",
+  "packages.adapters.trusted_time._owned_file_descriptor:_fstat",
+  "packages.adapters.trusted_time._owned_file_descriptor:_fsync",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_regular",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot",
+  "packages.adapters.trusted_time._owned_file_descriptor:_statat",
+]
+native_owned_file_descriptor_allowed_imports."scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py" = [
+  "packages.adapters.trusted_time._owned_file_descriptor:_fstat",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory",
+]
+native_owned_file_descriptor_allowed_imports."scripts/trusted_time_post_enrollment_operator_attestation_artifacts.py" = [
+  "packages.adapters.trusted_time._owned_file_descriptor:_OwnedFileDescriptor",
+  "packages.adapters.trusted_time._owned_file_descriptor:_create_child_regular_exclusive",
+  "packages.adapters.trusted_time._owned_file_descriptor:_fchmod_0600",
+  "packages.adapters.trusted_time._owned_file_descriptor:_flock",
+  "packages.adapters.trusted_time._owned_file_descriptor:_fstat",
+  "packages.adapters.trusted_time._owned_file_descriptor:_fsync",
+  "packages.adapters.trusted_time._owned_file_descriptor:_ftruncate",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_regular",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot",
+  "packages.adapters.trusted_time._owned_file_descriptor:_statat",
+  "packages.adapters.trusted_time._owned_file_descriptor:_write_all",
+]
+native_owned_file_descriptor_allowed_imports."scripts/verify_trusted_time_images.py" = [
+  "packages.adapters.trusted_time._owned_file_descriptor:_OwnedFileDescriptor",
+  "packages.adapters.trusted_time._owned_file_descriptor:_fstat",
+  "packages.adapters.trusted_time._owned_file_descriptor:_list_snapshot",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_regular",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot",
+  "packages.adapters.trusted_time._owned_file_descriptor:_statat",
+]
 
 # The primitives package must depend only on the standard library and itself.
 primitive_roots = ["packages/domain"]
@@ -159,9 +673,24 @@ side_effect_free_roots = [
   # ADR 0099 binds exact start, reauthentication, claim, and outcome projections
   # but owns no runtime, release, persistence, provider, or lifecycle authority.
   "packages/domain/trusted_time_post_enrollment_start.py",
-  # ADR 0100 canonicalizes one caller-supplied public verification key without
-  # owning filesystem, process, clock, randomness, signer, or runtime authority.
+  # ADR 0100 canonicalizes one strict nonidentity prime-subgroup public key
+  # without filesystem, process, clock, randomness, signer, or runtime authority.
   "packages/domain/trusted_time_post_enrollment_operator_authority.py",
+  # ADR 0101 canonicalizes inert signed-statement/envelope bytes without signer,
+  # I/O, clock, cryptographic verification, or execution authority.
+  "packages/domain/trusted_time_post_enrollment_operator_attestation.py",
+  # ADR 0101 independently revalidates that strict point and verifies exact bytes
+  # through one explicit authority, without loader, signer, I/O, clock, or runtime.
+  "packages/adapters/trusted_time/ed25519_operator_attestation.py",
+  # ADR 0105 gives graceful-stop authentication a distinct strict public
+  # authority identity without filesystem, signer, clock, or runtime authority.
+  "packages/domain/trusted_time_post_enrollment_graceful_stop_operator_authority.py",
+  # ADR 0105 preserves exact stop-decision statement/envelope bytes without
+  # importing the scripts-layer semantic bridge or granting stop authority.
+  "packages/domain/trusted_time_post_enrollment_graceful_stop_operator_attestation.py",
+  # ADR 0105 verifies only exact graceful-stop public signature identities
+  # through an explicit authority, with no loader, signer, I/O, or stop effect.
+  "packages/adapters/trusted_time/ed25519_graceful_stop_operator_attestation.py",
   "packages/domain/unknown_submission_recovery.py",
 ]
 forbidden_side_effect_imports = [
@@ -182,4 +711,1849 @@ forbidden_side_effect_imports = [
   "threading",
   "time",
   "urllib",
+]
+
+# ADR 0102/0105 offline artifact workflows own only bounded owner-only file
+# reads/publication. They must not acquire ambient time/randomness, process,
+# network, database, container, or signing-service authority.
+offline_public_artifact_roots = [
+  "scripts/trusted_time_post_enrollment_operator_attestation_artifacts.py",
+  "scripts/trusted_time_post_enrollment_graceful_stop_operator_attestation_artifacts.py",
+]
+offline_public_artifact_allowed_project_imports."scripts/trusted_time_post_enrollment_operator_attestation_artifacts.py" = [
+  "packages.adapters.trusted_time._owned_file_descriptor",
+  "packages.adapters.trusted_time.ed25519_operator_attestation",
+  "packages.domain.trusted_time_enrollment_evidence",
+  "packages.domain.trusted_time_post_enrollment_operator_attestation",
+  "packages.domain.trusted_time_post_enrollment_operator_authority",
+]
+offline_public_artifact_allowed_project_imports."scripts/trusted_time_post_enrollment_graceful_stop_operator_attestation_artifacts.py" = [
+  "packages.adapters.trusted_time.ed25519_graceful_stop_operator_attestation",
+  "packages.domain.trusted_time_enrollment_evidence",
+  "packages.domain.trusted_time_post_enrollment_graceful_stop_operator_attestation",
+  "packages.domain.trusted_time_post_enrollment_graceful_stop_operator_authority",
+  "scripts.trusted_time_post_enrollment_graceful_stop",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts",
+]
+offline_public_artifact_allowed_os_symbols = [
+  "os.fsencode",
+  "os.fspath",
+  "os.geteuid",
+  "os.path",
+  "os.path.abspath",
+  "os.path.basename",
+  "os.path.dirname",
+  "os.path.isabs",
+  "os.path.normpath",
+  "os.path.realpath",
+  "os.sep",
+]
+forbidden_offline_public_artifact_imports = [
+  "aiohttp",
+  "asyncio",
+  "asyncpg",
+  "boto3",
+  "botocore",
+  "builtins",
+  "concurrent",
+  "cryptography",
+  "ctypes",
+  "datetime",
+  "docker",
+  "http",
+  "httpx",
+  "importlib",
+  "multiprocessing",
+  "nacl",
+  "pkgutil",
+  "psycopg",
+  "random",
+  "requests",
+  "resource",
+  "runpy",
+  "secrets",
+  "signal",
+  "socket",
+  "sqlalchemy",
+  "sqlite3",
+  "ssl",
+  "subprocess",
+  "supabase",
+  "tempfile",
+  "threading",
+  "time",
+  "urllib",
+  "zipimport",
+]
+forbidden_offline_public_artifact_symbols = [
+  "__builtins__",
+  "__import__",
+  "compile",
+  "eval",
+  "exec",
+  "globals",
+  "locals",
+  "os._exit",
+  "os.abort",
+  "os.execl",
+  "os.execle",
+  "os.execlp",
+  "os.execlpe",
+  "os.execv",
+  "os.execve",
+  "os.execvp",
+  "os.execvpe",
+  "os.fork",
+  "os.forkpty",
+  "os.kill",
+  "os.killpg",
+  "os.popen",
+  "os.posix_spawn",
+  "os.posix_spawnp",
+  "os.register_at_fork",
+  "os.spawnl",
+  "os.spawnle",
+  "os.spawnlp",
+  "os.spawnlpe",
+  "os.spawnv",
+  "os.spawnve",
+  "os.spawnvp",
+  "os.spawnvpe",
+  "os.startfile",
+  "os.system",
+  "vars",
+]
+# Every authority-bearing filesystem syscall is now behind the exact private
+# native owner. No offline artifact workflow may import ctypes or bind libc.
+offline_public_artifact_ffi_roots = []
+offline_public_artifact_ffi_allowed_imports = []
+offline_public_artifact_ffi_allowed_symbols = []
+offline_public_artifact_ffi_allowed_library_symbols = []
+offline_public_artifact_ffi_library_factory = ""
+offline_public_artifact_ffi_library_binding = ""
+
+# ADR 0104's locator is a canonical in-memory projection embedded by the
+# already-reviewed controller outcome. It owns no ambient I/O, clock,
+# randomness, cryptography, signer, database, network, container, or CLI
+# authority.
+shutdown_locator_roots = [
+  "scripts/trusted_time_post_enrollment_shutdown_locator.py",
+]
+forbidden_shutdown_locator_imports = [
+  "aiohttp",
+  "argparse",
+  "asyncio",
+  "asyncpg",
+  "boto3",
+  "botocore",
+  "concurrent",
+  "cryptography",
+  "ctypes",
+  "datetime",
+  "docker",
+  "http",
+  "httpx",
+  "importlib",
+  "multiprocessing",
+  "nacl",
+  "psycopg",
+  "random",
+  "requests",
+  "secrets",
+  "shutil",
+  "socket",
+  "sqlalchemy",
+  "sqlite3",
+  "ssl",
+  "subprocess",
+  "supabase",
+  "sys",
+  "tempfile",
+  "threading",
+  "time",
+]
+shutdown_locator_allowed_project_imports = [
+  "packages.domain.trusted_time_enrollment_evidence:FIRST_ENROLLMENT_AUTHORITY_FIELDS",
+  "packages.domain.trusted_time_enrollment_evidence:canonical_first_enrollment_json_bytes",
+  "packages.domain.trusted_time_post_enrollment_start:POST_ENROLLMENT_START_SERVICE",
+  "scripts.start_trusted_time_supervisor:COMPOSE_SOCKET_VOLUME_NAME",
+  "scripts.start_trusted_time_supervisor:COMPOSE_STATE_VOLUME_NAME",
+  "scripts.trusted_time_post_enrollment_active_controller_admission:TrustedTimePostEnrollmentStartActiveControllerAdmission",
+  "scripts.trusted_time_post_enrollment_persistent_topology:_CLOSED_FIELDS",
+  "scripts.trusted_time_post_enrollment_persistent_topology:POST_ENROLLMENT_PERSISTENT_TOPOLOGY_CONTRACT_VERSION",
+  "scripts.trusted_time_post_enrollment_persistent_topology:POST_ENROLLMENT_PERSISTENT_TOPOLOGY_STATUS",
+  "scripts.trusted_time_post_enrollment_persistent_topology:TrustedTimePostEnrollmentPersistentTopologySnapshot",
+  "scripts.trusted_time_post_enrollment_topology:POST_ENROLLMENT_CREATED_TOPOLOGY_COMPOSE_PROJECT",
+  "scripts.trusted_time_post_enrollment_topology:post_enrollment_created_topology_network_name",
+  "scripts.trusted_time_post_enrollment_topology_reader:_finalize_post_enrollment_shutdown_locator_projection_type",
+  "scripts.trusted_time_post_enrollment_topology_reader:_stage_post_enrollment_shutdown_locator_type",
+]
+forbidden_shutdown_locator_symbols = [
+  "__import__",
+  "eval",
+  "exec",
+  "open",
+  "run_post_enrollment_start_active_controller",
+  "run_post_enrollment_start_host_orchestrator",
+]
+
+# ADR 0104's target/decision codec is side-effect-free but its structural
+# receipt builder deliberately depends on the effect-owning controller-outcome
+# type. Keep that bridge in scripts/, admit only these reviewed project symbols,
+# and forbid every persistence/revalidation/runtime escape hatch.
+graceful_stop_structural_bridge_roots = [
+  "scripts/trusted_time_post_enrollment_graceful_stop.py",
+]
+forbidden_graceful_stop_structural_bridge_imports = [
+  "aiohttp",
+  "argparse",
+  "asyncio",
+  "asyncpg",
+  "boto3",
+  "botocore",
+  "concurrent",
+  "cryptography",
+  "ctypes",
+  "datetime",
+  "docker",
+  "http",
+  "httpx",
+  "importlib",
+  "multiprocessing",
+  "nacl",
+  "os",
+  "pathlib",
+  "psycopg",
+  "random",
+  "requests",
+  "secrets",
+  "shutil",
+  "socket",
+  "sqlalchemy",
+  "sqlite3",
+  "ssl",
+  "subprocess",
+  "supabase",
+  "sys",
+  "tempfile",
+  "threading",
+  "time",
+  "urllib",
+]
+graceful_stop_structural_bridge_allowed_project_imports = [
+  "packages.domain.trusted_time_enrollment_evidence:FIRST_ENROLLMENT_AUTHORITY_FIELDS",
+  "packages.domain.trusted_time_enrollment_evidence:TrustedTimeEnrollmentEvidenceError",
+  "packages.domain.trusted_time_enrollment_evidence:canonical_first_enrollment_json_bytes",
+  "scripts.trusted_time_post_enrollment_controller_outcome:POST_ENROLLMENT_START_RETAINED_CONTROLLER_OUTCOME_CONTRACT_VERSION",
+  "scripts.trusted_time_post_enrollment_controller_outcome:RetainedTrustedTimePostEnrollmentStartControllerOutcome",
+  "scripts.trusted_time_post_enrollment_controller_outcome:TrustedTimePostEnrollmentStartControllerOutcomeReason",
+  "scripts.trusted_time_post_enrollment_controller_outcome:TrustedTimePostEnrollmentStartControllerOutcomeStatus",
+  "scripts.trusted_time_post_enrollment_shutdown_locator:_CLOSED_FIELDS",
+  "scripts.trusted_time_post_enrollment_shutdown_locator:TrustedTimePostEnrollmentGracefulStopShutdownLocator",
+  "scripts.trusted_time_post_enrollment_shutdown_locator:canonical_post_enrollment_graceful_stop_shutdown_locator_bytes",
+  "scripts.trusted_time_post_enrollment_shutdown_locator:decode_post_enrollment_graceful_stop_shutdown_locator",
+  "scripts.trusted_time_post_enrollment_shutdown_locator:post_enrollment_graceful_stop_shutdown_locator_sha256",
+]
+forbidden_graceful_stop_structural_bridge_symbols = [
+  "__import__",
+  "eval",
+  "exec",
+  "load_retained_post_enrollment_start_controller_outcome",
+  "open",
+  "retain_post_enrollment_start_controller_outcome",
+  "revalidate_retained_post_enrollment_start_controller_outcome",
+  "run_post_enrollment_start_active_controller",
+  "run_post_enrollment_start_host_orchestrator",
+]
+
+# ADR 0106's decision-candidate workflow may read and repeatedly revalidate only
+# the authenticated historical start chain, derive one inert stop decision, and
+# publish its public bytes through the already-audited filesystem helpers.  Keep
+# every project binding and helper capability exact; this boundary grants no
+# currentness, stop admission, stop-attempt slot, signer, or effect authority.
+graceful_stop_decision_artifact_roots = [
+  "scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py",
+]
+graceful_stop_decision_artifact_allowed_project_imports = [
+  "packages.adapters.trusted_time._owned_file_descriptor:_fstat",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory",
+  "scripts:trusted_time_post_enrollment_operator_attestation_artifacts",
+  "scripts.trusted_time_post_enrollment_controller_outcome:RetainedTrustedTimePostEnrollmentStartControllerOutcome",
+  "scripts.trusted_time_post_enrollment_controller_outcome:_load_retained_post_enrollment_start_controller_outcome_with_snapshot",
+  "scripts.trusted_time_post_enrollment_controller_outcome:_revalidate_retained_post_enrollment_start_controller_outcome_snapshot",
+  "scripts.trusted_time_post_enrollment_execution_admission:DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY",
+  "scripts.trusted_time_post_enrollment_execution_admission:RetainedTrustedTimePostEnrollmentOperatorAttestedExecutionAttempt",
+  "scripts.trusted_time_post_enrollment_execution_admission:_load_retained_post_enrollment_operator_attested_execution_attempt_with_snapshot",
+  "scripts.trusted_time_post_enrollment_execution_admission:_require_attempt_snapshot_binding",
+  "scripts.trusted_time_post_enrollment_execution_admission:_revalidate_retained_post_enrollment_operator_attested_execution_attempt_snapshot",
+  "scripts.trusted_time_post_enrollment_graceful_stop:POST_ENROLLMENT_GRACEFUL_STOP_AUTHORITY_FIELDS",
+  "scripts.trusted_time_post_enrollment_graceful_stop:TrustedTimePostEnrollmentGracefulStopDecision",
+  "scripts.trusted_time_post_enrollment_graceful_stop:canonical_post_enrollment_graceful_stop_decision_bytes",
+  "scripts.trusted_time_post_enrollment_graceful_stop:decode_post_enrollment_graceful_stop_decision",
+  "scripts.verify_trusted_time_images:IGNORED_ARTIFACT_ROOT",
+]
+graceful_stop_decision_artifact_allowed_stdlib_imports = [
+  "__future__:annotations",
+  "argparse:*",
+  "collections.abc:Callable",
+  "collections.abc:Iterator",
+  "contextlib:contextmanager",
+  "dataclasses:dataclass",
+  "dataclasses:field",
+  "hashlib:*",
+  "os:*",
+  "pathlib:Path",
+  "stat:*",
+  "sys:*",
+  "threading:*",
+  "typing:Any",
+  "typing:Never",
+  "typing:SupportsIndex",
+  "typing:cast",
+  "uuid:RFC_4122",
+  "uuid:UUID",
+  "weakref:*",
+]
+graceful_stop_decision_artifact_allowed_namespace_symbols.argparse = [
+  "argparse.ArgumentParser",
+]
+graceful_stop_decision_artifact_allowed_namespace_symbols.hashlib = [
+  "hashlib.sha256",
+]
+graceful_stop_decision_artifact_allowed_namespace_symbols.stat = [
+  "stat.S_IMODE",
+  "stat.S_ISREG",
+]
+graceful_stop_decision_artifact_allowed_namespace_symbols.sys = [
+  "sys.base_prefix",
+  "sys.flags",
+  "sys.flags.dont_write_bytecode",
+  "sys.flags.isolated",
+  "sys.path",
+  "sys.path.insert",
+  "sys.prefix",
+  "sys.pycache_prefix",
+  "sys.stderr",
+  "sys.stdout",
+  "sys.stdout.write",
+]
+graceful_stop_decision_artifact_allowed_os_symbols = [
+  "os.fsencode",
+  "os.fspath",
+  "os.geteuid",
+  "os.getpid",
+  "os.path",
+  "os.path.abspath",
+  "os.path.basename",
+  "os.path.dirname",
+  "os.path.isabs",
+  "os.path.join",
+  "os.path.normpath",
+  "os.register_at_fork",
+  "os.sep",
+]
+graceful_stop_decision_artifact_audited_fs_namespace = "scripts.trusted_time_post_enrollment_operator_attestation_artifacts"
+graceful_stop_decision_artifact_allowed_audited_fs_symbols = [
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts.TrustedTimePostEnrollmentOperatorAttestationArtifactError",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts._ExternalFileBinding",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts._REPOSITORY_ROOT_STRING",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts._absolute_path",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts._absolute_path_components",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts._external_file_encoded",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts._external_file_path",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts._publish_candidate",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts._read_external_binding",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts._repository_identity",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts._require_external_directory_metadata",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts._require_repository_first_party_sources",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts._require_stat_identity",
+  "scripts.trusted_time_post_enrollment_operator_attestation_artifacts._revalidate_external_binding",
+]
+forbidden_graceful_stop_decision_artifact_imports = [
+  "aiohttp",
+  "asyncio",
+  "asyncpg",
+  "boto3",
+  "botocore",
+  "builtins",
+  "concurrent",
+  "cryptography",
+  "ctypes",
+  "datetime",
+  "docker",
+  "http",
+  "httpx",
+  "importlib",
+  "multiprocessing",
+  "nacl",
+  "pkgutil",
+  "psycopg",
+  "random",
+  "requests",
+  "resource",
+  "runpy",
+  "secrets",
+  "shutil",
+  "signal",
+  "socket",
+  "sqlalchemy",
+  "sqlite3",
+  "ssl",
+  "subprocess",
+  "supabase",
+  "tempfile",
+  "time",
+  "urllib",
+  "zipimport",
+]
+forbidden_graceful_stop_decision_artifact_symbols = [
+  "Ed25519PrivateKey",
+  "SigningKey",
+  "__builtins__",
+  "__import__",
+  "_consume_post_enrollment_execution_admission",
+  "admit_post_enrollment_graceful_stop_attempt",
+  "chmod",
+  "chown",
+  "compile",
+  "eval",
+  "exec",
+  "execute_post_enrollment_graceful_stop",
+  "globals",
+  "hardlink_to",
+  "lchmod",
+  "link_to",
+  "load_post_enrollment_graceful_stop_operator_authority",
+  "locals",
+  "mkdir",
+  "open",
+  "private_key",
+  "qualify_post_enrollment_graceful_stop_currentness",
+  "read_bytes",
+  "read_text",
+  "reserve_post_enrollment_execution_attempt",
+  "reserve_post_enrollment_graceful_stop_attempt",
+  "retain_post_enrollment_graceful_stop_outcome",
+  "rename",
+  "replace",
+  "rmdir",
+  "run_post_enrollment_graceful_stop",
+  "sign",
+  "signer",
+  "stop_admission",
+  "stop_attempt_slot",
+  "stop_effect",
+  "stop_outcome",
+  "stop_recovery",
+  "symlink_to",
+  "touch",
+  "unlink",
+  "uuid4",
+  "vars",
+  "verify_post_enrollment_graceful_stop_operator_attestation",
+  "write_bytes",
+  "write_text",
+]
+
+# ADR 0109 admits one code-only host observer. Its dependency set is exact: it
+# may perform two read-only SQL snapshot loads/discards and the method-narrowed
+# provider reads required for a bounded full-namespace observation. It owns no
+# signer, upload, SQL mutation, artifact, wire, CLI, process-control, or stop
+# effect surface. No production module is connected to its public API or its
+# private construction/issuance seams.
+clean_stop_terminal_reauthentication_roots = [
+  "scripts/trusted_time_post_enrollment_clean_stop_terminal_reauthentication.py",
+]
+clean_stop_terminal_reauthentication_allowed_project_imports = [
+  "apps.trusted_time_supervisor.config:validate_database_url",
+  "apps.trusted_time_supervisor.head_anchor_config:TrustedTimeHeadAnchorAuthority",
+  "apps.trusted_time_supervisor.head_anchor_config:runtime_database_project_ref",
+  "packages.adapters.trusted_time.ed25519_anchor:Ed25519TrustedTimeAnchorVerifier",
+  "packages.adapters.trusted_time.supabase_storage_anchor:SUPABASE_STORAGE_ANCHOR_TIMEOUT_SECONDS",
+  "packages.adapters.trusted_time.supabase_storage_anchor:SupabaseStorageAnchorCredentials",
+  "packages.adapters.trusted_time.supabase_storage_anchor:SupabaseStorageTrustedTimeAnchorProvider",
+  "packages.application.trusted_time_head_anchor:TRUSTED_TIME_HEAD_ANCHOR_CHECKPOINT_INTERVAL_SECONDS",
+  "packages.application.trusted_time_head_anchor:AuthenticatedTrustedTimeHeadJournalTip",
+  "packages.application.trusted_time_head_anchor:TrustedTimeHeadAnchorCheckpointReason",
+  "packages.application.trusted_time_head_anchor:TrustedTimeHeadAnchorProvider",
+  "packages.application.trusted_time_head_anchor:TrustedTimeHeadAnchorRecord",
+  "packages.application.trusted_time_head_anchor:verify_bounded_clean_stop_terminal_remote_postcondition",
+  "packages.domain.trusted_time_enrollment_evidence:canonical_first_enrollment_json_bytes",
+  "packages.domain.trusted_time_enrollment_evidence:trusted_time_first_enrollment_identity_sha256",
+  "packages.persistence.postgres_tls:pinned_verify_full_connect_args",
+  "packages.persistence.trusted_time_head_anchor:PersistedTrustedTimeHeadAnchorIntent",
+  "packages.persistence.trusted_time_head_anchor:PersistedTrustedTimeHeadAnchorReceipt",
+  "packages.persistence.trusted_time_head_anchor:SqlTrustedTimeHeadAnchorRepository",
+  "packages.persistence.trusted_time_head_anchor:TrustedTimeHeadAnchorPersistenceSnapshot",
+]
+clean_stop_terminal_reauthentication_allowed_nonproject_imports = [
+  "__future__:annotations",
+  "collections.abc:Callable",
+  "contextlib:suppress",
+  "cryptography.hazmat.primitives:serialization",
+  "ctypes:*",
+  "dataclasses:dataclass",
+  "dataclasses:field",
+  "datetime:UTC",
+  "datetime:datetime",
+  "hashlib:*",
+  "os:*",
+  "sqlalchemy:create_engine",
+  "sqlalchemy:event",
+  "sys:*",
+  "threading:*",
+  "time:*",
+  "typing:Any",
+  "typing:Never",
+  "typing:SupportsIndex",
+  "typing:cast",
+  "weakref:*",
+]
+clean_stop_terminal_reauthentication_allowed_namespace_symbols.ctypes = [
+  "ctypes.CDLL",
+  "ctypes.POINTER",
+  "ctypes.Structure",
+  "ctypes.byref",
+  "ctypes.c_int",
+  "ctypes.c_uint32",
+  "ctypes.c_uint64",
+]
+clean_stop_terminal_reauthentication_allowed_namespace_symbols.hashlib = [
+  "hashlib.sha256",
+]
+clean_stop_terminal_reauthentication_allowed_namespace_symbols.os = [
+  "os.getpid",
+]
+clean_stop_terminal_reauthentication_allowed_namespace_symbols.sys = [
+  "sys.platform",
+]
+clean_stop_terminal_reauthentication_allowed_namespace_symbols.threading = [
+  "threading.Lock",
+  "threading.RLock",
+  "threading.Thread",
+  "threading.current_thread",
+]
+clean_stop_terminal_reauthentication_allowed_namespace_symbols.time = [
+  "time.CLOCK_BOOTTIME",
+  "time.clock_gettime_ns",
+]
+clean_stop_terminal_reauthentication_allowed_namespace_symbols.weakref = [
+  "weakref.ReferenceType",
+  "weakref.ref",
+]
+clean_stop_terminal_reauthentication_allowed_namespace_symbols."cryptography.hazmat.primitives.serialization" = [
+  "cryptography.hazmat.primitives.serialization.Encoding",
+  "cryptography.hazmat.primitives.serialization.Encoding.Raw",
+  "cryptography.hazmat.primitives.serialization.PublicFormat",
+  "cryptography.hazmat.primitives.serialization.PublicFormat.Raw",
+]
+clean_stop_terminal_reauthentication_allowed_namespace_symbols."sqlalchemy.event" = [
+  "sqlalchemy.event.listen",
+]
+clean_stop_terminal_reauthentication_allowed_dynamic_attributes = [
+  "time.CLOCK_BOOTTIME",
+  "time.clock_gettime_ns",
+]
+clean_stop_terminal_reauthentication_provider_class = "_DeadlineBoundReadOnlyProvider"
+clean_stop_terminal_reauthentication_provider_methods = [
+  "__init__",
+  "_require_guard",
+  "activate",
+  "attest_identity",
+  "deactivate",
+  "download_object",
+  "list_object_names_page",
+  "list_sequence_object_names",
+]
+clean_stop_terminal_reauthentication_provider_capabilities = [
+  "_timeout_seconds",
+  "attest_identity",
+  "download_object",
+  "list_object_names_page",
+  "list_sequence_object_names",
+]
+clean_stop_terminal_reauthentication_resources_class = "_ProductionResources"
+clean_stop_terminal_reauthentication_repository_capabilities = [
+  "discard_head_anchor_snapshot",
+  "load_head_anchor_startup_snapshot",
+]
+forbidden_clean_stop_terminal_reauthentication_symbols = [
+  "Ed25519PrivateKey",
+  "Popen",
+  "Process",
+  "SigningKey",
+  "__builtins__",
+  "__import__",
+  "call",
+  "check_call",
+  "check_output",
+  "chmod",
+  "chown",
+  "commit_prepared_intent",
+  "commit_trusted_time_head_anchor_intent",
+  "compact_head_anchor_snapshot",
+  "compile",
+  "confirm_remote_readback",
+  "confirm_remote_readback_from_snapshot",
+  "delattr",
+  "dump",
+  "dumps",
+  "eval",
+  "exec",
+  "execute_post_enrollment_graceful_stop",
+  "fork",
+  "forkpty",
+  "fork",
+  "globals",
+  "hardlink_to",
+  "input",
+  "insert",
+  "issue_committed_intent_evidence",
+  "kill",
+  "killpg",
+  "link_to",
+  "loads",
+  "main",
+  "posix_spawn",
+  "posix_spawnp",
+  "mkdir",
+  "open",
+  "pickle",
+  "prepare_or_read_pending",
+  "print",
+  "private_key",
+  "qualify_post_enrollment_graceful_stop_currentness",
+  "read_bytes",
+  "read_pending",
+  "read_pending_with_committed_evidence",
+  "read_text",
+  "refresh_head_anchor_snapshot",
+  "rename",
+  "reserve_post_enrollment_graceful_stop_attempt",
+  "retain_post_enrollment_graceful_stop_outcome",
+  "rmdir",
+  "run_post_enrollment_graceful_stop",
+  "send_signal",
+  "sign",
+  "signer",
+  "symlink_to",
+  "system",
+  "touch",
+  "unlink",
+  "upload_object_no_overwrite",
+  "vars",
+  "write_bytes",
+  "write_text",
+]
+clean_stop_terminal_reauthentication_private_reference_roots = [
+  "apps",
+  "packages",
+  "scripts",
+]
+clean_stop_terminal_reauthentication_module = "scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication"
+clean_stop_terminal_reauthentication_private_symbols = [
+  "_ConsumedPostconditionRegistrySnapshot",
+  "_ConfigurationBinding",
+  "_DeadlineBoundReadOnlyProvider",
+  "_ProductionResources",
+  "_build_trusted_time_post_enrollment_clean_stop_terminal_reauthentication_preparer",
+  "_capture_configuration_binding",
+  "_consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once",
+  "_create_production_resources",
+  "_issue_postcondition",
+  "_production_verify_once",
+  "_revoke_issued_postcondition",
+  "_validate_trusted_time_post_enrollment_clean_stop_terminal_postcondition_consumed_by",
+]
+
+# ADR 0110 admits one dormant append-only filesystem repository. It has one
+# audited errno-aware libc-open exception so descriptor ownership begins before
+# Python can lose the return value. Its root/progress/recovery writers remain
+# private and no production module may import any lifecycle API.
+graceful_stop_lifecycle_repository_roots = [
+  "scripts/trusted_time_post_enrollment_graceful_stop_lifecycle.py",
+]
+graceful_stop_lifecycle_repository_allowed_project_imports = [
+  "packages.adapters.trusted_time.ed25519_graceful_stop_operator_attestation:TrustedTimePostEnrollmentGracefulStopOperatorAttestationVerification",
+  "packages.domain.trusted_time_enrollment_evidence:canonical_first_enrollment_json_bytes",
+  "packages.domain.trusted_time_post_enrollment_graceful_stop_operator_attestation:POST_ENROLLMENT_GRACEFUL_STOP_OPERATOR_ATTESTATION_MAXIMUM_ENVELOPE_BYTES",
+  "packages.domain.trusted_time_post_enrollment_graceful_stop_operator_attestation:TrustedTimePostEnrollmentGracefulStopOperatorAttestationEnvelope",
+  "packages.domain.trusted_time_post_enrollment_graceful_stop_operator_attestation:canonical_post_enrollment_graceful_stop_operator_attestation_envelope_bytes",
+  "packages.domain.trusted_time_post_enrollment_graceful_stop_operator_attestation:decode_post_enrollment_graceful_stop_operator_attestation_envelope",
+  "scripts.trusted_time_post_enrollment_graceful_stop:POST_ENROLLMENT_GRACEFUL_STOP_AUTHORITY_FIELDS",
+  "scripts.trusted_time_post_enrollment_graceful_stop:TrustedTimePostEnrollmentGracefulStopDecision",
+  "scripts.trusted_time_post_enrollment_graceful_stop:canonical_post_enrollment_graceful_stop_decision_bytes",
+  "scripts.trusted_time_post_enrollment_graceful_stop:decode_post_enrollment_graceful_stop_decision",
+  "scripts.trusted_time_post_enrollment_shutdown_locator:POST_ENROLLMENT_GRACEFUL_STOP_SHUTDOWN_LOCATOR_MAXIMUM_BYTES",
+  "scripts.trusted_time_post_enrollment_shutdown_locator:TrustedTimePostEnrollmentGracefulStopShutdownLocator",
+  "scripts.trusted_time_post_enrollment_shutdown_locator:canonical_post_enrollment_graceful_stop_shutdown_locator_bytes",
+  "scripts.trusted_time_post_enrollment_shutdown_locator:decode_post_enrollment_graceful_stop_shutdown_locator",
+  "scripts.trusted_time_post_enrollment_shutdown_locator:post_enrollment_graceful_stop_shutdown_locator_sha256",
+]
+graceful_stop_lifecycle_repository_allowed_nonproject_imports = [
+  "__future__:annotations",
+  "collections.abc:Callable",
+  "collections.abc:Iterator",
+  "contextlib:contextmanager",
+  "contextlib:suppress",
+  "ctypes:*",
+  "dataclasses:dataclass",
+  "dataclasses:field",
+  "enum:StrEnum",
+  "errno:*",
+  "fcntl:*",
+  "hashlib:*",
+  "json:*",
+  "os:*",
+  "pathlib:Path",
+  "stat:*",
+  "threading:*",
+  "typing:Any",
+  "typing:NamedTuple",
+  "typing:Never",
+  "typing:cast",
+  "uuid:*",
+  "weakref:WeakKeyDictionary",
+]
+graceful_stop_lifecycle_repository_allowed_namespace_symbols.ctypes = [
+  "ctypes.CDLL",
+  "ctypes.c_char_p",
+  "ctypes.c_int",
+  "ctypes.get_errno",
+  "ctypes.set_errno",
+]
+graceful_stop_lifecycle_repository_allowed_namespace_symbols.errno = [
+  "errno.EEXIST",
+  "errno.EIO",
+  "errno.ENOENT",
+]
+graceful_stop_lifecycle_repository_allowed_namespace_symbols.fcntl = [
+  "fcntl.LOCK_EX",
+  "fcntl.LOCK_NB",
+  "fcntl.LOCK_SH",
+  "fcntl.LOCK_UN",
+  "fcntl.flock",
+]
+graceful_stop_lifecycle_repository_allowed_namespace_symbols.hashlib = [
+  "hashlib.sha256",
+]
+graceful_stop_lifecycle_repository_allowed_namespace_symbols.json = [
+  "json.loads",
+]
+graceful_stop_lifecycle_repository_allowed_namespace_symbols.os = [
+  "os.O_CREAT",
+  "os.O_CLOEXEC",
+  "os.O_DIRECTORY",
+  "os.O_EXCL",
+  "os.O_NOFOLLOW",
+  "os.O_NONBLOCK",
+  "os.O_RDONLY",
+  "os.O_RDWR",
+  "os.SEEK_SET",
+  "os.close",
+  "os.fchmod",
+  "os.fsencode",
+  "os.fspath",
+  "os.fstat",
+  "os.fsync",
+  "os.geteuid",
+  "os.getpid",
+  "os.link",
+  "os.lseek",
+  "os.lstat",
+  "os.mkdir",
+  "os.path",
+  "os.path.abspath",
+  "os.read",
+  "os.scandir",
+  "os.stat",
+  "os.stat_result",
+  "os.strerror",
+  "os.unlink",
+  "os.write",
+]
+graceful_stop_lifecycle_repository_allowed_namespace_symbols.stat = [
+  "stat.S_IMODE",
+  "stat.S_ISDIR",
+  "stat.S_ISREG",
+]
+graceful_stop_lifecycle_repository_allowed_namespace_symbols.threading = [
+  "threading.RLock",
+  "threading.Thread",
+  "threading.current_thread",
+  "threading.get_ident",
+]
+graceful_stop_lifecycle_repository_allowed_namespace_symbols.uuid = [
+  "uuid.UUID",
+]
+graceful_stop_lifecycle_repository_allowed_namespace_symbols._LIBC = [
+  "_LIBC.open",
+  "_LIBC.openat",
+]
+graceful_stop_lifecycle_repository_allowed_namespace_symbols._OWNED_OPEN = [
+  "_OWNED_OPEN.argtypes",
+  "_OWNED_OPEN.restype",
+]
+graceful_stop_lifecycle_repository_allowed_namespace_symbols._OWNED_OPENAT = [
+  "_OWNED_OPENAT.argtypes",
+  "_OWNED_OPENAT.restype",
+]
+graceful_stop_lifecycle_repository_allowed_dynamic_attributes = [
+  "os.O_CLOEXEC",
+  "os.O_DIRECTORY",
+  "os.O_NOFOLLOW",
+  "os.O_NONBLOCK",
+]
+graceful_stop_lifecycle_repository_ffi_library_factory = "ctypes.CDLL"
+graceful_stop_lifecycle_repository_ffi_library_binding = "_LIBC"
+graceful_stop_lifecycle_repository_ffi_functions._OWNED_OPEN = "_LIBC.open"
+graceful_stop_lifecycle_repository_ffi_functions._OWNED_OPENAT = "_LIBC.openat"
+graceful_stop_lifecycle_repository_descriptor_class = "_OwnedFileDescriptor"
+graceful_stop_lifecycle_repository_descriptor_methods = [
+  "__del__",
+  "__index__",
+  "close",
+  "fileno",
+]
+graceful_stop_lifecycle_repository_class = "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository"
+graceful_stop_lifecycle_repository_methods = [
+  "__copy__",
+  "__deepcopy__",
+  "__init__",
+  "__reduce__",
+  "__reduce_ex__",
+  "_check_context",
+  "_reserve_attempt",
+  "_retain_bridge_required_progress",
+  "_retain_recovery_required_outcome",
+]
+graceful_stop_lifecycle_repository_staging_unlink_function = "_publish_staged_file"
+graceful_stop_lifecycle_repository_staging_names = [
+  "POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_COMMIT_STAGING_FILE_NAME",
+  "POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_STAGING_FILE_NAME",
+  "POST_ENROLLMENT_GRACEFUL_STOP_PROGRESS_STAGING_FILE_NAME",
+]
+graceful_stop_lifecycle_repository_flock_acquisitions = 5
+graceful_stop_lifecycle_repository_flock_unlocks = 6
+forbidden_graceful_stop_lifecycle_repository_symbols = [
+  "DockerClient",
+  "Ed25519PrivateKey",
+  "Popen",
+  "SigningKey",
+  "__builtins__",
+  "__import__",
+  "call",
+  "check_call",
+  "check_output",
+  "compile",
+  "create_engine",
+  "delattr",
+  "docker",
+  "eval",
+  "exec",
+  "execute_post_enrollment_graceful_stop",
+  "getenv",
+  "globals",
+  "input",
+  "kill",
+  "killpg",
+  "load_post_enrollment_graceful_stop_operator_authority",
+  "locals",
+  "main",
+  "private_key",
+  "print",
+  "provider",
+  "read_bytes",
+  "read_text",
+  "remove",
+  "rename",
+  "register_at_fork",
+  "reset",
+  "resume",
+  "retry",
+  "rmdir",
+  "run_post_enrollment_graceful_stop",
+  "send_signal",
+  "sign",
+  "signer",
+  "socket",
+  "system",
+  "truncate",
+  "upload_object_no_overwrite",
+  "vars",
+  "write_bytes",
+  "write_text",
+]
+graceful_stop_lifecycle_repository_private_reference_roots = [
+  "apps",
+  "packages",
+  "scripts",
+]
+graceful_stop_lifecycle_repository_module = "scripts.trusted_time_post_enrollment_graceful_stop_lifecycle"
+graceful_stop_lifecycle_repository_private_symbols = [
+  "_CONSTRUCTION_CAPABILITY",
+  "_ExclusiveCreateAlreadyExists",
+  "_LIBC",
+  "_OWNED_OPEN",
+  "_OWNED_OPENAT",
+  "_OwnedFileDescriptor",
+  "_RECEIPT_CONSTRUCTION_CAPABILITY",
+  "_REPOSITORY_CONSTRUCTION_CAPABILITY",
+  "_RepositorySnapshot",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository",
+  "_build_repository_state_registry",
+  "_build_post_enrollment_graceful_stop_lifecycle_repository",
+  "_burn_repository",
+  "_burn_repository_untyped",
+  "_create_fsynced_file",
+  "_new_attempt_record",
+  "_new_outcome_record",
+  "_new_progress_record",
+  "_open_owned_descriptor",
+  "_persist_attempt",
+  "_persist_outcome",
+  "_persist_progress",
+  "_publish_staged_file",
+  "_rebind_exact_files",
+  "_require_secure_open_flags",
+  "_run_cleanup_operations",
+  "_register_repository_state",
+  "_register_repository_state_untyped",
+  "_registered_repository_state",
+  "_registered_repository_state_untyped",
+  "_replace_repository_state",
+  "_replace_repository_state_untyped",
+  "_repository_state_registry_cardinality",
+  "_repository_state_registry_cardinality_untyped",
+]
+graceful_stop_lifecycle_repository_public_symbols = [
+  "MAXIMUM_POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_BYTES",
+  "MAXIMUM_POST_ENROLLMENT_GRACEFUL_STOP_FILE_NAME_BYTES",
+  "MAXIMUM_POST_ENROLLMENT_GRACEFUL_STOP_LIFECYCLE_ENTRIES",
+  "MAXIMUM_POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_BYTES",
+  "MAXIMUM_POST_ENROLLMENT_GRACEFUL_STOP_PROGRESS_BYTES",
+  "POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_CONTRACT_VERSION",
+  "POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_SLOT_FILE_NAME",
+  "POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_STATUS",
+  "POST_ENROLLMENT_GRACEFUL_STOP_LIFECYCLE_SERVICE",
+  "POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_COMMIT_CONTRACT_VERSION",
+  "POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_COMMIT_FILE_NAME",
+  "POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_COMMIT_STAGING_FILE_NAME",
+  "POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_FILE_PREFIX",
+  "POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_FILE_SUFFIX",
+  "POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_STAGING_FILE_NAME",
+  "POST_ENROLLMENT_GRACEFUL_STOP_PROGRESS_CONTRACT_VERSION",
+  "POST_ENROLLMENT_GRACEFUL_STOP_PROGRESS_FILE_PREFIX",
+  "POST_ENROLLMENT_GRACEFUL_STOP_PROGRESS_STAGING_FILE_NAME",
+  "POST_ENROLLMENT_GRACEFUL_STOP_PROGRESS_STATUS",
+  "POST_ENROLLMENT_GRACEFUL_STOP_PROGRESS_TRANSCRIPT_CONTRACT_VERSION",
+  "POST_ENROLLMENT_GRACEFUL_STOP_RETAINED_OUTCOME_CONTRACT_VERSION",
+  "POST_ENROLLMENT_GRACEFUL_STOP_RETAINED_OUTCOME_REASON",
+  "POST_ENROLLMENT_GRACEFUL_STOP_RETAINED_OUTCOME_STATUS",
+  "RetainedTrustedTimePostEnrollmentGracefulStopAttempt",
+  "RetainedTrustedTimePostEnrollmentGracefulStopOutcome",
+  "RetainedTrustedTimePostEnrollmentGracefulStopProgress",
+  "TrustedTimePostEnrollmentGracefulStopAttemptConsumed",
+  "TrustedTimePostEnrollmentGracefulStopAttemptRecord",
+  "TrustedTimePostEnrollmentGracefulStopEvidenceUnavailable",
+  "TrustedTimePostEnrollmentGracefulStopLifecycleRejected",
+  "TrustedTimePostEnrollmentGracefulStopOutcomeRecord",
+  "TrustedTimePostEnrollmentGracefulStopProgressPhase",
+  "TrustedTimePostEnrollmentGracefulStopProgressRecord",
+  "TrustedTimePostEnrollmentGracefulStopRecoveryState",
+  "TrustedTimePostEnrollmentGracefulStopRecoveryStateStatus",
+  "TrustedTimePostEnrollmentGracefulStopRetentionUnconfirmed",
+  "canonical_post_enrollment_graceful_stop_attempt_bytes",
+  "canonical_post_enrollment_graceful_stop_outcome_bytes",
+  "canonical_post_enrollment_graceful_stop_progress_bytes",
+  "decode_post_enrollment_graceful_stop_attempt_bytes",
+  "decode_post_enrollment_graceful_stop_outcome_bytes",
+  "decode_post_enrollment_graceful_stop_progress_bytes",
+  "inspect_post_enrollment_graceful_stop_recovery_state",
+  "load_retained_post_enrollment_graceful_stop_attempt",
+  "load_retained_post_enrollment_graceful_stop_outcome",
+  "load_retained_post_enrollment_graceful_stop_progress",
+  "revalidate_retained_post_enrollment_graceful_stop_attempt",
+  "revalidate_retained_post_enrollment_graceful_stop_outcome",
+  "revalidate_retained_post_enrollment_graceful_stop_progress",
+]
+graceful_stop_lifecycle_repository_top_level_definitions = [
+  "RetainedTrustedTimePostEnrollmentGracefulStopAttempt",
+  "RetainedTrustedTimePostEnrollmentGracefulStopOutcome",
+  "RetainedTrustedTimePostEnrollmentGracefulStopProgress",
+  "TrustedTimePostEnrollmentGracefulStopAttemptConsumed",
+  "TrustedTimePostEnrollmentGracefulStopAttemptRecord",
+  "TrustedTimePostEnrollmentGracefulStopEvidenceUnavailable",
+  "TrustedTimePostEnrollmentGracefulStopLifecycleRejected",
+  "TrustedTimePostEnrollmentGracefulStopOutcomeRecord",
+  "TrustedTimePostEnrollmentGracefulStopProgressPhase",
+  "TrustedTimePostEnrollmentGracefulStopProgressRecord",
+  "TrustedTimePostEnrollmentGracefulStopRecoveryState",
+  "TrustedTimePostEnrollmentGracefulStopRecoveryStateStatus",
+  "TrustedTimePostEnrollmentGracefulStopRetentionUnconfirmed",
+  "_ExclusiveCreateAlreadyExists",
+  "_OwnedFileDescriptor",
+  "_RepositorySnapshot",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository",
+  "_artifact_directory",
+  "_attempt_receipt",
+  "_bounded_json_integer",
+  "_bounded_tree",
+  "_build_post_enrollment_graceful_stop_lifecycle_repository",
+  "_build_repository_state_registry",
+  "_cannot_copy",
+  "_create_fsynced_file",
+  "_decode_canonical_object",
+  "_decode_outcome_commit_bytes",
+  "_false_payload",
+  "_is_lifecycle_name",
+  "_is_sha256",
+  "_is_uuid4",
+  "_lifecycle_names",
+  "_load_chain",
+  "_load_chain_from_directory",
+  "_locked_attempt_slot",
+  "_nested_encoded",
+  "_new_attempt_record",
+  "_new_outcome_record",
+  "_new_progress_record",
+  "_open_owned_descriptor",
+  "_open_owner_only_artifact_directory",
+  "_outcome_commit_bytes",
+  "_outcome_commit_payload",
+  "_outcome_file_name",
+  "_outcome_receipt",
+  "_persist_attempt",
+  "_persist_outcome",
+  "_persist_progress",
+  "_progress_file_name",
+  "_progress_receipt",
+  "_progress_transcript_sha256",
+  "_publish_staged_file",
+  "_read_descriptor",
+  "_read_named_file",
+  "_rebind_exact_files",
+  "_recovery_state",
+  "_reject_float",
+  "_require_secure_open_flags",
+  "_run_cleanup_operations",
+  "_same_attempt_receipt",
+  "_same_outcome_receipt",
+  "_same_progress_receipt",
+  "_stable_file_identity",
+  "_unique_json_object",
+  "_validate_file_identity",
+  "_validate_file_name",
+  "_validate_outcome_binding",
+  "_validate_progress_binding",
+  "_write_all",
+  "canonical_post_enrollment_graceful_stop_attempt_bytes",
+  "canonical_post_enrollment_graceful_stop_outcome_bytes",
+  "canonical_post_enrollment_graceful_stop_progress_bytes",
+  "decode_post_enrollment_graceful_stop_attempt_bytes",
+  "decode_post_enrollment_graceful_stop_outcome_bytes",
+  "decode_post_enrollment_graceful_stop_progress_bytes",
+  "inspect_post_enrollment_graceful_stop_recovery_state",
+  "load_retained_post_enrollment_graceful_stop_attempt",
+  "load_retained_post_enrollment_graceful_stop_outcome",
+  "load_retained_post_enrollment_graceful_stop_progress",
+  "revalidate_retained_post_enrollment_graceful_stop_attempt",
+  "revalidate_retained_post_enrollment_graceful_stop_outcome",
+  "revalidate_retained_post_enrollment_graceful_stop_progress",
+]
+graceful_stop_lifecycle_repository_forbidden_unqualified_calls = ["open"]
+graceful_stop_lifecycle_repository_forbidden_method_calls = [
+  "chmod",
+  "hardlink_to",
+  "mkdir",
+  "open",
+  "symlink_to",
+  "touch",
+]
+graceful_stop_lifecycle_repository_allowed_qualified_method_calls = [
+  "os.mkdir",
+]
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_CONTRACT_VERSION = "phase6d-post-enrollment-graceful-stop-attempt-v1"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_PROGRESS_CONTRACT_VERSION = "phase6d-post-enrollment-graceful-stop-progress-v1"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_PROGRESS_TRANSCRIPT_CONTRACT_VERSION = "phase6d-post-enrollment-graceful-stop-progress-transcript-v1"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_RETAINED_OUTCOME_CONTRACT_VERSION = "phase6d-post-enrollment-graceful-stop-retained-outcome-v1"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_COMMIT_CONTRACT_VERSION = "phase6d-post-enrollment-graceful-stop-outcome-commit-v1"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_LIFECYCLE_SERVICE = "trusted-time-post-enrollment-graceful-stop-lifecycle"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_STATUS = "graceful_stop_attempt_reserved"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_PROGRESS_STATUS = "operation_bound_supervisor_bridge_required"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_RETAINED_OUTCOME_STATUS = "recovery_required"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_RETAINED_OUTCOME_REASON = "operation_bound_supervisor_bridge_unavailable"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_SLOT_FILE_NAME = ".post-enrollment-graceful-stop-attempt-slot"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_PROGRESS_STAGING_FILE_NAME = ".post-enrollment-graceful-stop-progress-staging"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_PROGRESS_FILE_PREFIX = "trusted-time-post-enrollment-graceful-stop-progress-01-"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_STAGING_FILE_NAME = ".post-enrollment-graceful-stop-outcome-staging"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_FILE_PREFIX = "trusted-time-post-enrollment-graceful-stop-outcome-"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_FILE_SUFFIX = ".json"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_COMMIT_STAGING_FILE_NAME = ".post-enrollment-graceful-stop-outcome-commit-staging"
+graceful_stop_lifecycle_repository_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_OUTCOME_COMMIT_FILE_NAME = ".post-enrollment-graceful-stop-outcome-committed"
+graceful_stop_lifecycle_repository_enum_members.TrustedTimePostEnrollmentGracefulStopProgressPhase.ATTEMPT_RESERVED = "attempt_reserved"
+graceful_stop_lifecycle_repository_enum_members.TrustedTimePostEnrollmentGracefulStopProgressPhase.OPERATION_BOUND_SUPERVISOR_BRIDGE_REQUIRED = "operation_bound_supervisor_bridge_required"
+graceful_stop_lifecycle_repository_enum_members.TrustedTimePostEnrollmentGracefulStopRecoveryStateStatus.UNRESERVED = "unreserved"
+graceful_stop_lifecycle_repository_enum_members.TrustedTimePostEnrollmentGracefulStopRecoveryStateStatus.RECOVERY_REQUIRED = "recovery_required"
+graceful_stop_lifecycle_repository_enum_members.TrustedTimePostEnrollmentGracefulStopRecoveryStateStatus.TERMINAL_OUTCOME_RETAINED = "terminal_outcome_retained"
+graceful_stop_lifecycle_repository_enum_members.TrustedTimePostEnrollmentGracefulStopRecoveryStateStatus.RETENTION_UNCONFIRMED = "retention_unconfirmed"
+graceful_stop_lifecycle_repository_private_callsites._build_repository_state_registry = [
+  "<module>",
+]
+graceful_stop_lifecycle_repository_private_callsites._build_post_enrollment_graceful_stop_lifecycle_repository = []
+graceful_stop_lifecycle_repository_private_callsites._register_repository_state = [
+  "_build_post_enrollment_graceful_stop_lifecycle_repository",
+]
+graceful_stop_lifecycle_repository_private_callsites._registered_repository_state = [
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._check_context",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._retain_recovery_required_outcome",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._retain_recovery_required_outcome",
+]
+graceful_stop_lifecycle_repository_private_callsites._replace_repository_state = [
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._reserve_attempt",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._retain_bridge_required_progress",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._retain_recovery_required_outcome",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._retain_recovery_required_outcome",
+]
+graceful_stop_lifecycle_repository_private_callsites._burn_repository = [
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._check_context",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._check_context",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._reserve_attempt",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._reserve_attempt",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._reserve_attempt",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._retain_bridge_required_progress",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._retain_bridge_required_progress",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._retain_recovery_required_outcome",
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._retain_recovery_required_outcome",
+]
+graceful_stop_lifecycle_repository_private_callsites._persist_attempt = [
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._reserve_attempt",
+]
+graceful_stop_lifecycle_repository_private_callsites._persist_progress = [
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._retain_bridge_required_progress",
+]
+graceful_stop_lifecycle_repository_private_callsites._persist_outcome = [
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._retain_recovery_required_outcome",
+]
+graceful_stop_lifecycle_repository_private_callsites._new_attempt_record = [
+  "_TrustedTimePostEnrollmentGracefulStopLifecycleRepository._reserve_attempt",
+]
+graceful_stop_lifecycle_repository_private_callsites._new_progress_record = [
+  "_persist_progress",
+]
+graceful_stop_lifecycle_repository_private_callsites._new_outcome_record = [
+  "_persist_outcome",
+  "_validate_outcome_binding",
+]
+graceful_stop_lifecycle_repository_private_callsites._require_secure_open_flags = [
+  "_locked_attempt_slot",
+  "_open_owned_descriptor",
+  "_open_owner_only_artifact_directory",
+  "_read_named_file",
+]
+graceful_stop_lifecycle_repository_private_callsites._run_cleanup_operations = [
+  "_lifecycle_names",
+  "_load_chain",
+  "_load_chain_from_directory",
+  "_locked_attempt_slot",
+  "_open_owner_only_artifact_directory",
+  "_persist_attempt",
+  "_persist_attempt",
+  "_persist_outcome",
+  "_persist_outcome",
+  "_persist_progress",
+  "_persist_progress",
+  "_read_named_file",
+  "_rebind_exact_files",
+  "inspect_post_enrollment_graceful_stop_recovery_state",
+  "inspect_post_enrollment_graceful_stop_recovery_state",
+]
+graceful_stop_lifecycle_repository_private_callsites._repository_state_registry_cardinality = []
+
+# ADR 0111's low-level bridge is an inert, process-local exact-identity
+# correlator.  Its only private consumer is the worker core; its only public
+# production consumer is the dormant host bridge below.  The two ADR 0108
+# export helpers are private to this module, and the worker's operation-bound
+# request/take methods remain uncalled by production code.
+operation_bound_clean_stop_bridge_roots = [
+  "packages/application/trusted_time_head_anchor_clean_stop_supervisor_bridge.py",
+]
+operation_bound_clean_stop_bridge_module = "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge"
+operation_bound_clean_stop_bridge_module_ast_sha256 = "203f68a0bb1a0e4441455c1ca4bc0ebbbf5847650b8d7ba35587f8f811b2eb38"
+operation_bound_clean_stop_bridge_allowed_project_imports = [
+  "packages.application.trusted_time_head_anchor:TrustedTimeHeadAnchorCheckpointReason",
+  "packages.application.trusted_time_head_anchor_clean_stop:TrustedTimeHeadAnchorCleanStopTerminalResult",
+  "packages.application.trusted_time_head_anchor_clean_stop:_consume_trusted_time_head_anchor_clean_stop_terminal_result_for_supervisor_bridge",
+  "packages.application.trusted_time_head_anchor_clean_stop:_result_semantic_sha256",
+  "packages.application.trusted_time_head_anchor_worker:TrustedTimeHeadAnchorAttemptResult",
+  "packages.application.trusted_time_head_anchor_worker:TrustedTimeHeadAnchorWorkRequest",
+  "packages.application.trusted_time_head_anchor_worker:TrustedTimeHeadAnchorWorkerCore",
+  "packages.domain.trusted_time_enrollment_evidence:TrustedTimeEnrollmentEvidenceError",
+  "packages.domain.trusted_time_enrollment_evidence:canonical_first_enrollment_json_bytes",
+]
+operation_bound_clean_stop_bridge_allowed_nonproject_imports = [
+  "__future__:annotations",
+  "builtins:*",
+  "builtins:property",
+  "dataclasses:dataclass",
+  "dataclasses:field",
+  "datetime:UTC",
+  "datetime:datetime",
+  "hashlib:*",
+  "json:*",
+  "os:*",
+  "threading:*",
+  "typing:Any",
+  "typing:Never",
+  "typing:SupportsIndex",
+  "typing:cast",
+  "uuid:*",
+  "weakref:*",
+]
+operation_bound_clean_stop_bridge_allowed_namespace_symbols.hashlib = [
+  "hashlib.sha256",
+]
+operation_bound_clean_stop_bridge_allowed_namespace_symbols.json = [
+  "json.JSONDecodeError",
+  "json.loads",
+]
+operation_bound_clean_stop_bridge_allowed_namespace_symbols.os = [
+  "os.getpid",
+]
+operation_bound_clean_stop_bridge_allowed_namespace_symbols.threading = [
+  "threading.Lock",
+  "threading.Thread",
+  "threading.current_thread",
+]
+operation_bound_clean_stop_bridge_allowed_namespace_symbols.uuid = [
+  "uuid.UUID",
+]
+operation_bound_clean_stop_bridge_allowed_namespace_symbols.weakref = [
+  "weakref.ReferenceType",
+  "weakref.ref",
+]
+operation_bound_clean_stop_bridge_public_symbols = [
+  "MAXIMUM_TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_REQUEST_BYTES",
+  "MAXIMUM_TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_RESULT_BYTES",
+  "TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_PROGRESS_PHASE",
+  "TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_REQUEST_CONTRACT_VERSION",
+  "TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_REQUEST_STATUS",
+  "TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_RESULT_CONTRACT_VERSION",
+  "TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_RESULT_STATUS",
+  "TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_SERVICE",
+  "TrustedTimeHeadAnchorCleanStopSupervisorBridgeError",
+  "TrustedTimeHeadAnchorOperationBoundCleanStopRequest",
+  "TrustedTimeHeadAnchorOperationBoundCleanStopResult",
+  "canonical_trusted_time_head_anchor_operation_bound_clean_stop_request_bytes",
+  "canonical_trusted_time_head_anchor_operation_bound_clean_stop_result_bytes",
+  "decode_trusted_time_head_anchor_operation_bound_clean_stop_request",
+  "decode_trusted_time_head_anchor_operation_bound_clean_stop_result",
+]
+operation_bound_clean_stop_bridge_private_symbols = [
+  "_RESULT_CONSTRUCTION_CAPABILITY",
+  "_RequestRegistration",
+  "_bind_trusted_time_head_anchor_operation_bound_clean_stop_work_request",
+  "_issue_trusted_time_head_anchor_operation_bound_clean_stop_result",
+  "_locate_registration_unvalidated",
+  "_new_result",
+  "_register_trusted_time_head_anchor_operation_bound_clean_stop_request",
+  "_revoke_trusted_time_head_anchor_operation_bound_clean_stop_request",
+  "_take_trusted_time_head_anchor_operation_bound_clean_stop_result_once",
+]
+operation_bound_clean_stop_bridge_closed_fields = [
+  "active_controller_authorized",
+  "admission_authorized",
+  "alert_delivery_authorized",
+  "arming_authorized",
+  "authority_granted",
+  "automatic_rearm_authorized",
+  "automatic_recovery_authorized",
+  "automatic_resume_authorized",
+  "broker_action_authorized",
+  "claim_retention_authorized",
+  "clean_stop_authorized",
+  "clean_stop_outcome_retention_authorized",
+  "confirmed_start_outcome_authenticated",
+  "container_removal_authorized",
+  "controller_execution_authorized",
+  "current_topology_authenticated",
+  "currentness_authenticated",
+  "decision_authenticated",
+  "durability_authenticated",
+  "durable_stop_outcome_authenticated",
+  "effect_authorized",
+  "execution_admission_authorized",
+  "execution_attempt_reservation_authorized",
+  "exposure_authorized",
+  "freshness_authenticated",
+  "graceful_stop_authorized",
+  "live_trading_authorized",
+  "network_removal_authorized",
+  "new_exposure_authorized",
+  "no_new_record_authenticated",
+  "no_new_record_success",
+  "operation_bound_supervisor_bridge_authenticated",
+  "operational_control_authorized",
+  "operator_attestation_authenticated",
+  "outcome_retention_authorized",
+  "paper_trading_authorized",
+  "persistent_start_authorized",
+  "persistent_topology_authenticated",
+  "provider_terminal_authenticated",
+  "provider_terminal_currentness_authenticated",
+  "provider_terminal_observed_under_stable_sql_authenticated",
+  "readiness_authorized",
+  "rearm_authorized",
+  "recovery_action_authorized",
+  "release_authorized",
+  "retry_authorized",
+  "runtime_start_authorized",
+  "sequence_2_authorized",
+  "shutdown_authorized",
+  "shutdown_locator_authenticated",
+  "shutdown_outcome_retention_authorized",
+  "signal_attempted",
+  "signal_authorized",
+  "single_use_authenticated",
+  "slot_authorized",
+  "source_start_authorized",
+  "source_stop_authorized",
+  "start_execution_attempt_authenticated",
+  "stop_admission_qualified",
+  "stop_attempt_reservation_authorized",
+  "stop_attempt_slot_reserved",
+  "stop_decision_authenticated",
+  "stop_execution_authorized",
+  "stop_outcome_retained",
+  "success_outcome_retention_authorized",
+  "supervisor_signal_authorized",
+  "supervisor_start_authorized",
+  "supervisor_stop_authorized",
+  "target_authenticated",
+  "teardown_authenticated",
+  "teardown_authorized",
+  "terminal_outcome_success_confirmed",
+  "topology_mutation_authorized",
+  "transport_authenticated",
+  "volume_removal_authorized",
+  "watchdog_authorized",
+]
+operation_bound_clean_stop_bridge_true_payload_facts."TrustedTimeHeadAnchorOperationBoundCleanStopResult.payload" = [
+  "exact_request_work_result_correlated",
+]
+operation_bound_clean_stop_bridge_payload_callable_ast_sha256."TrustedTimeHeadAnchorOperationBoundCleanStopResult.payload" = "3e24cdc2e0a27fa6e3d9dcb1a75eacab910a3731b0f300d496ec32693f958a5c"
+operation_bound_clean_stop_bridge_payload_callable_ast_sha256."TrustedTimeHeadAnchorOperationBoundCleanStopRequest.payload" = "e0ac801370c35ab94e297bf7cb0fbe3702f3cfc322c0d74664349de856284d9c"
+operation_bound_clean_stop_bridge_payload_callable_ast_sha256._closed_payload = "b19d97b327484a1e7e243247cae22f8ec8a03702f8667f5757a2605f09c3d060"
+operation_bound_clean_stop_bridge_payload_callable_ast_sha256._require_closed = "d23f341752021dcb885111c63d4e1f031a970db4755143935519437b194a9acd"
+operation_bound_clean_stop_bridge_payload_owner_class_ast_sha256.TrustedTimeHeadAnchorOperationBoundCleanStopRequest = "c82bfc6c5fc359e3303ac423318e0a6b6e4912de457147b8d7186776b1697a6f"
+operation_bound_clean_stop_bridge_payload_owner_class_ast_sha256.TrustedTimeHeadAnchorOperationBoundCleanStopResult = "0f719871fdd1b8f79a5dfed281bd1d586a99cfca9492fce90a4798795a9244bd"
+operation_bound_clean_stop_bridge_closed_evidence_class = "_ClosedBridgeEvidence"
+operation_bound_clean_stop_bridge_positive_evidence_class = "TrustedTimeHeadAnchorOperationBoundCleanStopResult"
+operation_bound_clean_stop_bridge_positive_properties = [
+  "exact_request_work_result_correlated",
+]
+operation_bound_clean_stop_bridge_positive_callable_names = [
+  "payload",
+]
+operation_bound_clean_stop_bridge_forbidden_symbols = [
+  "Popen",
+  "__import__",
+  "eval",
+  "exec",
+  "join",
+  "kill",
+  "killpg",
+  "now",
+  "open",
+  "print",
+  "run",
+  "send_signal",
+  "start",
+  "today",
+  "upload_object_no_overwrite",
+  "utcnow",
+]
+operation_bound_clean_stop_bridge_forbidden_qualified_calls = [
+  "threading.Thread",
+]
+operation_bound_clean_stop_bridge_forbidden_qualified_call_isinstance_callsites."threading.Thread" = [
+  "_bind_trusted_time_head_anchor_operation_bound_clean_stop_work_request",
+]
+operation_bound_clean_stop_bridge_allowed_imports."packages/application/trusted_time_head_anchor_worker.py" = [
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:TrustedTimeHeadAnchorOperationBoundCleanStopRequest",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:TrustedTimeHeadAnchorOperationBoundCleanStopResult",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:_bind_trusted_time_head_anchor_operation_bound_clean_stop_work_request",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:_issue_trusted_time_head_anchor_operation_bound_clean_stop_result",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:_register_trusted_time_head_anchor_operation_bound_clean_stop_request",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:_revoke_trusted_time_head_anchor_operation_bound_clean_stop_request",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:_take_trusted_time_head_anchor_operation_bound_clean_stop_result_once",
+]
+operation_bound_clean_stop_bridge_allowed_imports."scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py" = [
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:TrustedTimeHeadAnchorOperationBoundCleanStopRequest",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:TrustedTimeHeadAnchorOperationBoundCleanStopResult",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:canonical_trusted_time_head_anchor_operation_bound_clean_stop_request_bytes",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:canonical_trusted_time_head_anchor_operation_bound_clean_stop_result_bytes",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:decode_trusted_time_head_anchor_operation_bound_clean_stop_request",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:decode_trusted_time_head_anchor_operation_bound_clean_stop_result",
+]
+operation_bound_clean_stop_bridge_clean_stop_owner_roots = [
+  "packages/application/trusted_time_head_anchor_clean_stop.py",
+  "packages/application/trusted_time_head_anchor_clean_stop_supervisor_bridge.py",
+]
+operation_bound_clean_stop_bridge_clean_stop_private_symbols = [
+  "_consume_trusted_time_head_anchor_clean_stop_terminal_result_for_supervisor_bridge",
+  "_result_semantic_sha256",
+]
+operation_bound_clean_stop_bridge_worker_private_owner_roots = [
+  "packages/application/trusted_time_head_anchor_worker.py",
+]
+operation_bound_clean_stop_bridge_worker_private_symbols = [
+  "_request_operation_bound_clean_stop",
+  "_take_operation_bound_clean_stop_terminal_result_once",
+]
+operation_bound_clean_stop_bridge_literal_constants.TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_REQUEST_CONTRACT_VERSION = "phase6d-trusted-time-head-anchor-clean-stop-supervisor-bridge-request-v1"
+operation_bound_clean_stop_bridge_literal_constants.TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_RESULT_CONTRACT_VERSION = "phase6d-trusted-time-head-anchor-clean-stop-supervisor-bridge-result-v1"
+operation_bound_clean_stop_bridge_literal_constants.TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_SERVICE = "trusted-time-head-anchor-clean-stop-supervisor-bridge"
+operation_bound_clean_stop_bridge_literal_constants.TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_REQUEST_STATUS = "operation_bound_clean_stop_requested_unqualified"
+operation_bound_clean_stop_bridge_literal_constants.TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_RESULT_STATUS = "exact_operation_bound_new_record_clean_stop_correlated_unqualified"
+operation_bound_clean_stop_bridge_literal_constants.TRUSTED_TIME_HEAD_ANCHOR_CLEAN_STOP_SUPERVISOR_BRIDGE_PROGRESS_PHASE = "operation_bound_supervisor_bridge_required"
+operation_bound_clean_stop_bridge_protected_function_bindings = [
+  "_closed_payload",
+  "_require_closed",
+]
+operation_bound_clean_stop_bridge_protected_function_callsites._closed_payload = [
+  "TrustedTimeHeadAnchorOperationBoundCleanStopRequest.payload",
+  "TrustedTimeHeadAnchorOperationBoundCleanStopResult.payload",
+]
+operation_bound_clean_stop_bridge_protected_function_callsites._require_closed = [
+  "decode_trusted_time_head_anchor_operation_bound_clean_stop_request",
+  "decode_trusted_time_head_anchor_operation_bound_clean_stop_result",
+]
+operation_bound_clean_stop_bridge_protected_closed_field_loads = [
+  "comprehension:_closed_payload",
+  "comprehension:_require_closed",
+  "frozenset-assignment:_REQUEST_FIELDS",
+  "frozenset-assignment:_RESULT_FIELDS",
+]
+operation_bound_clean_stop_bridge_private_callsites._consume_trusted_time_head_anchor_clean_stop_terminal_result_for_supervisor_bridge = [
+  "_issue_trusted_time_head_anchor_operation_bound_clean_stop_result",
+]
+operation_bound_clean_stop_bridge_private_callsites._result_semantic_sha256 = [
+  "TrustedTimeHeadAnchorOperationBoundCleanStopResult.__post_init__",
+]
+operation_bound_clean_stop_bridge_worker_private_callsites._register_trusted_time_head_anchor_operation_bound_clean_stop_request = [
+  "TrustedTimeHeadAnchorWorkerCore._request_clean_stop",
+]
+operation_bound_clean_stop_bridge_worker_private_callsites._bind_trusted_time_head_anchor_operation_bound_clean_stop_work_request = [
+  "TrustedTimeHeadAnchorWorkerCore._new_request",
+]
+operation_bound_clean_stop_bridge_worker_private_callsites._issue_trusted_time_head_anchor_operation_bound_clean_stop_result = [
+  "TrustedTimeHeadAnchorWorkerCore._record_success_transition",
+]
+operation_bound_clean_stop_bridge_worker_private_callsites._revoke_trusted_time_head_anchor_operation_bound_clean_stop_request = [
+  "TrustedTimeHeadAnchorWorkerCore._clear_operation_bound_clean_stop",
+]
+operation_bound_clean_stop_bridge_worker_private_callsites._take_trusted_time_head_anchor_operation_bound_clean_stop_result_once = [
+  "TrustedTimeHeadAnchorWorkerCore._take_operation_bound_clean_stop_terminal_result_once",
+]
+
+# ADR 0111's host bridge is the sole audited cross-module exception.  It may
+# consume exactly the ADR 0109 registry snapshot seams and inspect/decode only
+# ADR 0110's retained v1 attempt/progress chain.  It has no production importer
+# or caller and is excluded from every runtime image.
+graceful_stop_supervisor_bridge_roots = [
+  "scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py",
+]
+graceful_stop_supervisor_bridge_module = "scripts.trusted_time_post_enrollment_graceful_stop_supervisor_bridge"
+graceful_stop_supervisor_bridge_module_ast_sha256 = "f440f7bc4612fd3ab5ab806be7d33bef6070626aba16bce4f6c5192a4e3b38b7"
+graceful_stop_supervisor_bridge_allowed_project_imports = [
+  "packages.application.trusted_time_head_anchor:TrustedTimeHeadAnchorCheckpointReason",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:TrustedTimeHeadAnchorOperationBoundCleanStopRequest",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:TrustedTimeHeadAnchorOperationBoundCleanStopResult",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:canonical_trusted_time_head_anchor_operation_bound_clean_stop_request_bytes",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:canonical_trusted_time_head_anchor_operation_bound_clean_stop_result_bytes",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:decode_trusted_time_head_anchor_operation_bound_clean_stop_request",
+  "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:decode_trusted_time_head_anchor_operation_bound_clean_stop_result",
+  "packages.domain.trusted_time_enrollment_evidence:TrustedTimeEnrollmentEvidenceError",
+  "packages.domain.trusted_time_enrollment_evidence:canonical_first_enrollment_json_bytes",
+  "scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication:TrustedTimePostEnrollmentCleanStopTerminalPostcondition",
+  "scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication:TrustedTimePostEnrollmentCleanStopTerminalReauthenticationIssuer",
+  "scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication:_ConsumedPostconditionRegistrySnapshot",
+  "scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication:_consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once",
+  "scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication:_validate_trusted_time_post_enrollment_clean_stop_terminal_postcondition_consumed_by",
+  "scripts.trusted_time_post_enrollment_graceful_stop:POST_ENROLLMENT_GRACEFUL_STOP_AUTHORITY_FIELDS",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:ARTIFACT_RECEIPT_CONTRACT_VERSION",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:ARTIFACT_WORKFLOW_SERVICE",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:DECISION_CANDIDATE_PREPARED_STATUS",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:POST_ENROLLMENT_GRACEFUL_STOP_DECISION_ARTIFACT_RECEIPT_FIELDS",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt",
+  "scripts.trusted_time_post_enrollment_graceful_stop_lifecycle:RetainedTrustedTimePostEnrollmentGracefulStopAttempt",
+  "scripts.trusted_time_post_enrollment_graceful_stop_lifecycle:RetainedTrustedTimePostEnrollmentGracefulStopProgress",
+  "scripts.trusted_time_post_enrollment_graceful_stop_lifecycle:TrustedTimePostEnrollmentGracefulStopRecoveryStateStatus",
+  "scripts.trusted_time_post_enrollment_graceful_stop_lifecycle:decode_post_enrollment_graceful_stop_attempt_bytes",
+  "scripts.trusted_time_post_enrollment_graceful_stop_lifecycle:decode_post_enrollment_graceful_stop_progress_bytes",
+  "scripts.trusted_time_post_enrollment_graceful_stop_lifecycle:inspect_post_enrollment_graceful_stop_recovery_state",
+]
+graceful_stop_supervisor_bridge_allowed_nonproject_imports = [
+  "__future__:annotations",
+  "builtins:*",
+  "builtins:property",
+  "dataclasses:dataclass",
+  "dataclasses:field",
+  "datetime:UTC",
+  "datetime:datetime",
+  "hashlib:*",
+  "json:*",
+  "os:*",
+  "pathlib:Path",
+  "threading:*",
+  "typing:Any",
+  "typing:Never",
+  "typing:SupportsIndex",
+  "typing:cast",
+  "uuid:*",
+  "weakref:*",
+]
+graceful_stop_supervisor_bridge_allowed_namespace_symbols.hashlib = [
+  "hashlib.sha256",
+]
+graceful_stop_supervisor_bridge_allowed_namespace_symbols.json = [
+  "json.JSONDecodeError",
+  "json.loads",
+]
+graceful_stop_supervisor_bridge_allowed_namespace_symbols.os = [
+  "os.getpid",
+  "os.path",
+  "os.path.abspath",
+]
+graceful_stop_supervisor_bridge_allowed_namespace_symbols.threading = [
+  "threading.Lock",
+  "threading.Thread",
+  "threading.current_thread",
+]
+graceful_stop_supervisor_bridge_allowed_namespace_symbols.uuid = [
+  "uuid.UUID",
+]
+graceful_stop_supervisor_bridge_allowed_namespace_symbols.weakref = [
+  "weakref.ReferenceType",
+  "weakref.ref",
+]
+graceful_stop_supervisor_bridge_public_symbols = [
+  "POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_CONTRACT_VERSION",
+  "POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_SERVICE",
+  "POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_STATUS",
+  "TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation",
+  "TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected",
+  "bind_post_enrollment_graceful_stop_operation_bound_terminal_observation",
+  "build_post_enrollment_graceful_stop_supervisor_clean_stop_request",
+]
+graceful_stop_supervisor_bridge_private_symbols = [
+  "_AttemptSnapshot",
+  "_BridgeIdentity",
+  "_ClosedHostBridgeEvidence",
+  "_CompositeRegistration",
+  "_DecisionReceiptSnapshot",
+  "_ProgressSnapshot",
+  "_RequestEvidenceSnapshot",
+  "_RequestWireSnapshot",
+  "_ResultWireSnapshot",
+  "_attempt_projection",
+  "_capture_attempt_snapshot",
+  "_capture_progress_snapshot",
+  "_capture_receipt_snapshot",
+  "_capture_request_evidence_snapshot",
+  "_capture_request_wire_snapshot",
+  "_capture_result_wire_snapshot",
+  "_composite_field_values",
+  "_composite_payload",
+  "_composite_values",
+  "_decode_receipt_identity_values",
+  "_decode_request_wire_snapshot",
+  "_decode_result_wire_snapshot",
+  "_issue_composite",
+  "_local_chain_records",
+  "_new_bridge_identity",
+  "_postcondition_projection",
+  "_progress_projection",
+  "_request_from_exact_evidence",
+  "_request_from_snapshot",
+  "_require_consumed_postcondition_snapshot",
+  "_require_inspected_chain",
+  "_require_snapshot_current",
+  "_same_consumed_postcondition_snapshot",
+  "_terminal_projection_matches",
+  "_validate_composite_values",
+  "_validate_registered_composite",
+]
+graceful_stop_supervisor_bridge_closed_fields = [
+  "active_controller_authorized",
+  "admission_authorized",
+  "alert_delivery_authorized",
+  "arming_authorized",
+  "authority_granted",
+  "automatic_rearm_authorized",
+  "automatic_recovery_authorized",
+  "automatic_resume_authorized",
+  "broker_action_authorized",
+  "claim_retention_authorized",
+  "clean_stop_authorized",
+  "clean_stop_outcome_retention_authorized",
+  "confirmed_start_outcome_authenticated",
+  "container_removal_authorized",
+  "controller_execution_authorized",
+  "current_topology_authenticated",
+  "currentness_authenticated",
+  "currentness_qualified",
+  "database_secret_disclosed",
+  "decision_artifact_receipt_authenticated",
+  "decision_authenticated",
+  "durability_authenticated",
+  "durable",
+  "durable_stop_outcome_authenticated",
+  "effect_authorized",
+  "exact_request_work_result_correlated",
+  "execution_admission_authorized",
+  "execution_attempt_reservation_authorized",
+  "exposure_authorized",
+  "freshness_authenticated",
+  "freshness_qualified",
+  "graceful_stop_authorized",
+  "historical_start_chain_authenticated",
+  "lifecycle_currentness_authenticated",
+  "live_trading_authorized",
+  "network_removal_authorized",
+  "new_exposure_authorized",
+  "no_new_record_authenticated",
+  "no_new_record_success",
+  "operation_bound_supervisor_bridge_authenticated",
+  "operational_control_authorized",
+  "operator_attestation_authenticated",
+  "outcome_retention_authorized",
+  "paper_trading_authorized",
+  "persistent_start_authorized",
+  "persistent_topology_authenticated",
+  "qualified",
+  "readiness_authorized",
+  "rearm_authorized",
+  "recovery_action_authorized",
+  "release_authorized",
+  "retry_authorized",
+  "runtime_start_authorized",
+  "sequence_2_authorized",
+  "shutdown_authorized",
+  "shutdown_locator_authenticated",
+  "shutdown_outcome_retention_authorized",
+  "signal_attempted",
+  "signal_authorized",
+  "single_use_authenticated",
+  "slot_authorized",
+  "source_start_authorized",
+  "source_stop_authorized",
+  "start_execution_attempt_authenticated",
+  "stop_admission_qualified",
+  "stop_attempt_reservation_authorized",
+  "stop_attempt_slot_reserved",
+  "stop_decision_authenticated",
+  "stop_execution_authorized",
+  "stop_outcome_retained",
+  "success_outcome_retention_authorized",
+  "supervisor_signal_authorized",
+  "supervisor_start_authorized",
+  "supervisor_stop_authorized",
+  "target_authenticated",
+  "teardown_authenticated",
+  "teardown_authorized",
+  "terminal_outcome_success_confirmed",
+  "topology_mutation_authorized",
+  "transport_authenticated",
+  "transport_origin_authenticated",
+  "volume_removal_authorized",
+  "watchdog_authorized",
+]
+graceful_stop_supervisor_bridge_true_payload_facts._composite_payload = [
+  "exact_terminal_projection_cross_bound_unqualified",
+  "provider_terminal_observed_under_stable_sql_authenticated",
+]
+graceful_stop_supervisor_bridge_payload_callable_ast_sha256._composite_payload = "ec14dbee01b5f85d1095f65a1bd5b00ee6d05d8c02f45283d74fe2ee8af87db9"
+graceful_stop_supervisor_bridge_payload_callable_ast_sha256._closed_payload = "46dd541bcb118173905eeaf669e897fb4bde09e46842a8c86dc573d390cbd68d"
+graceful_stop_supervisor_bridge_payload_callable_ast_sha256."TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation.payload" = "76addf99df33bc51783ba1e881aa97c28b69e3f9563b030319af1b3bb69d8bd4"
+graceful_stop_supervisor_bridge_payload_owner_class_ast_sha256.TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation = "4d5b597edd0cb4624740636aa37deed4fc46e48763fdf37107154433eb4f90d3"
+graceful_stop_supervisor_bridge_closed_evidence_class = "_ClosedHostBridgeEvidence"
+graceful_stop_supervisor_bridge_positive_evidence_class = "TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation"
+graceful_stop_supervisor_bridge_positive_properties = [
+  "exact_terminal_projection_cross_bound_unqualified",
+  "provider_terminal_observed_under_stable_sql_authenticated",
+]
+graceful_stop_supervisor_bridge_positive_callable_names = [
+  "payload",
+]
+graceful_stop_supervisor_bridge_external_private_symbols = [
+  "_BridgeIdentity",
+  "_CompositeRegistration",
+  "_RequestEvidenceSnapshot",
+  "_RequestWireSnapshot",
+  "_ResultWireSnapshot",
+  "_issue_composite",
+  "_request_from_exact_evidence",
+  "_require_consumed_postcondition_snapshot",
+  "_validate_registered_composite",
+]
+graceful_stop_supervisor_bridge_forbidden_symbols = [
+  "Popen",
+  "__import__",
+  "chmod",
+  "chown",
+  "compile",
+  "delattr",
+  "eval",
+  "exec",
+  "execute_post_enrollment_graceful_stop",
+  "fork",
+  "forkpty",
+  "globals",
+  "hardlink_to",
+  "input",
+  "join",
+  "kill",
+  "killpg",
+  "link_to",
+  "mkdir",
+  "now",
+  "open",
+  "posix_spawn",
+  "posix_spawnp",
+  "print",
+  "read_bytes",
+  "read_text",
+  "rename",
+  "reserve_post_enrollment_graceful_stop_attempt",
+  "retain_post_enrollment_graceful_stop_outcome",
+  "rmdir",
+  "run",
+  "run_post_enrollment_graceful_stop",
+  "send_signal",
+  "start",
+  "symlink_to",
+  "system",
+  "today",
+  "touch",
+  "unlink",
+  "upload_object_no_overwrite",
+  "utcnow",
+  "vars",
+  "write_bytes",
+  "write_text",
+]
+graceful_stop_supervisor_bridge_forbidden_qualified_calls = [
+  "threading.Thread",
+]
+graceful_stop_supervisor_bridge_forbidden_path_methods = [
+  "__dict__",
+  "__fspath__",
+  "absolute",
+  "as_posix",
+  "as_uri",
+  "chmod",
+  "chown",
+  "cwd",
+  "exists",
+  "expanduser",
+  "glob",
+  "group",
+  "hardlink_to",
+  "home",
+  "is_block_device",
+  "is_char_device",
+  "is_dir",
+  "is_fifo",
+  "is_file",
+  "is_junction",
+  "is_mount",
+  "is_relative_to",
+  "is_socket",
+  "is_symlink",
+  "iterdir",
+  "joinpath",
+  "lchmod",
+  "link_to",
+  "lstat",
+  "match",
+  "mkdir",
+  "open",
+  "owner",
+  "read_bytes",
+  "read_text",
+  "readlink",
+  "relative_to",
+  "rename",
+  "resolve",
+  "rglob",
+  "rmdir",
+  "samefile",
+  "stat",
+  "symlink_to",
+  "touch",
+  "unlink",
+  "walk",
+  "with_name",
+  "with_stem",
+  "with_suffix",
+  "write_bytes",
+  "write_text",
+]
+graceful_stop_supervisor_bridge_dependency_private_owner_roots = [
+  "scripts/trusted_time_post_enrollment_clean_stop_terminal_reauthentication.py",
+  "scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py",
+]
+graceful_stop_supervisor_bridge_dependency_private_symbols = [
+  "_ConsumedPostconditionRegistrySnapshot",
+  "_consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once",
+  "_validate_trusted_time_post_enrollment_clean_stop_terminal_postcondition_consumed_by",
+]
+graceful_stop_supervisor_bridge_lifecycle_owner_roots = [
+  "scripts/trusted_time_post_enrollment_graceful_stop_lifecycle.py",
+  "scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py",
+]
+graceful_stop_supervisor_bridge_lifecycle_symbols = [
+  "RetainedTrustedTimePostEnrollmentGracefulStopAttempt",
+  "RetainedTrustedTimePostEnrollmentGracefulStopProgress",
+  "TrustedTimePostEnrollmentGracefulStopRecoveryStateStatus",
+  "decode_post_enrollment_graceful_stop_attempt_bytes",
+  "decode_post_enrollment_graceful_stop_progress_bytes",
+  "inspect_post_enrollment_graceful_stop_recovery_state",
+]
+graceful_stop_supervisor_bridge_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_CONTRACT_VERSION = "phase6d-post-enrollment-graceful-stop-supervisor-bridge-v1"
+graceful_stop_supervisor_bridge_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_SERVICE = "trusted-time-post-enrollment-graceful-stop-supervisor-bridge"
+graceful_stop_supervisor_bridge_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_STATUS = "operation_bound_terminal_projection_cross_bound_unqualified"
+graceful_stop_supervisor_bridge_protected_function_bindings = [
+  "_closed_payload",
+  "_composite_payload",
+]
+graceful_stop_supervisor_bridge_protected_function_callsites._closed_payload = [
+  "_composite_payload",
+]
+graceful_stop_supervisor_bridge_protected_function_callsites._composite_payload = [
+  "TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation.payload",
+  "_issue_composite",
+  "_validate_registered_composite",
+]
+graceful_stop_supervisor_bridge_protected_closed_field_loads = [
+  "comprehension:_closed_payload",
+]
+graceful_stop_supervisor_bridge_private_callsites._consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once = [
+  "bind_post_enrollment_graceful_stop_operation_bound_terminal_observation",
+]
+graceful_stop_supervisor_bridge_private_callsites._validate_trusted_time_post_enrollment_clean_stop_terminal_postcondition_consumed_by = [
+  "_issue_composite",
+  "_validate_registered_composite",
+]
+graceful_stop_supervisor_bridge_private_callsites.inspect_post_enrollment_graceful_stop_recovery_state = [
+  "_require_inspected_chain",
+]
+graceful_stop_supervisor_bridge_private_callsites.decode_post_enrollment_graceful_stop_attempt_bytes = [
+  "_local_chain_records",
+]
+graceful_stop_supervisor_bridge_private_callsites.decode_post_enrollment_graceful_stop_progress_bytes = [
+  "_local_chain_records",
 ]

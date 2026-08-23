@@ -2,23 +2,33 @@ from __future__ import annotations
 
 import dis
 import hashlib
+import inspect
 import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Never, cast
 
 import pytest
 
 from apps.trusted_time_supervisor.config import TrustedTimeSupervisorConfigurationError
+from packages.adapters.trusted_time._owned_file_descriptor import (
+    _acquire_trusted_time_launch_lock,
+    _validate_trusted_time_launch_lock,
+)
 from scripts import trusted_time_post_enrollment_host_orchestrator as orchestrator
+from scripts import trusted_time_post_enrollment_topology_reader as topology_reader
 from scripts.start_trusted_time_supervisor import (
+    LocalDockerDaemonIdentity,
     MaterializedDatabaseSecret,
     MaterializedHeadAnchorFile,
     MaterializedHeadAnchorInputs,
 )
 from scripts.trusted_time_post_enrollment_controller_outcome import (
     TrustedTimePostEnrollmentStartControllerOutcomeStatus,
+)
+from scripts.trusted_time_post_enrollment_execution_admission import (
+    DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
 )
 from scripts.trusted_time_post_enrollment_topology_reader import (
     TrustedTimePostEnrollmentTopologyReaderError,
@@ -27,6 +37,7 @@ from scripts.verify_trusted_time_images import (
     DEFAULT_IMAGE_ADMISSION_ARTIFACT,
     IGNORED_ARTIFACT_ROOT,
 )
+from tests.unit import test_trusted_time_post_enrollment_topology_reader as topology_fixtures
 
 _CLOSED_AUTHORITY_FIELDS = {
     "active_controller_authorized",
@@ -395,7 +406,7 @@ def _install_choreography_fakes(
 
     def reserve(**kwargs: object) -> object:
         if expected_loaded_approval is not None:
-            assert kwargs["loaded_approval"] is expected_loaded_approval
+            assert kwargs["loaded_attested_approval"] is expected_loaded_approval
         if expected_image_witness is not None:
             assert kwargs["image_admission"] is expected_image_witness
         events.append("reserve")
@@ -406,7 +417,10 @@ def _install_choreography_fakes(
     def consume(admission: object, **kwargs: object) -> bool:
         assert admission is execution_admission
         if expected_loaded_approval is not None:
-            assert kwargs["approval_artifact"] == expected_loaded_approval.artifact_path
+            assert (
+                kwargs["operator_attested_approval_artifact"]
+                == expected_loaded_approval.artifact_path
+            )
         events.append("consume")
         return consume_result
 
@@ -487,25 +501,43 @@ def _install_choreography_fakes(
 
 
 def test_cli_accepts_only_the_two_exact_required_file_flags(tmp_path: Path) -> None:
-    approval = tmp_path / "approval.json"
+    approval = tmp_path / "operator-attested-approval.json"
     runtime = tmp_path / "runtime.env"
 
     parsed = orchestrator._parse_cli(
-        ["--approval-artifact", str(approval), "--runtime-env-file", str(runtime)]
+        [
+            "--operator-attested-approval-artifact",
+            str(approval),
+            "--runtime-env-file",
+            str(runtime),
+        ]
     )
 
-    assert parsed.approval_artifact == approval
+    assert parsed.operator_attested_approval_artifact == approval
     assert parsed.runtime_env_file == runtime
     with pytest.raises(SystemExit):
-        orchestrator._parse_cli(["--approval-artifact", str(approval)])
+        orchestrator._parse_cli(["--operator-attested-approval-artifact", str(approval)])
     with pytest.raises(SystemExit):
         orchestrator._parse_cli(
             [
-                "--approval-artifact",
+                "--operator-attested-approval-artifact",
                 str(approval),
                 "--runtime-env-file",
                 str(runtime),
                 "--shutdown-authorized",
+            ]
+        )
+    with pytest.raises(SystemExit):
+        orchestrator._parse_cli(
+            ["--approval-artifact", str(approval), "--runtime-env-file", str(runtime)]
+        )
+    with pytest.raises(SystemExit):
+        orchestrator._parse_cli(
+            [
+                "--operator-attested-approval-artif",
+                str(approval),
+                "--runtime-env-file",
+                str(runtime),
             ]
         )
 
@@ -532,12 +564,438 @@ def test_ordinary_import_cannot_invoke_the_effecting_composition(
         orchestrator.TrustedTimePostEnrollmentHostOrchestratorRejected,
         match="only through the isolated CLI",
     ):
-        orchestrator.run_approved_post_enrollment_start_once(
-            approval_artifact=tmp_path / "approval.json",
+        orchestrator.run_operator_attested_post_enrollment_start_once(
+            operator_attested_approval_artifact=tmp_path / "operator-attested-approval.json",
             runtime_env_file=tmp_path / "runtime.env",
         )
 
     assert admitted is False
+
+
+def test_operator_attested_entry_authenticates_before_every_effecting_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    events: list[str] = []
+    operator_attested_approval_artifact = tmp_path / (
+        "trusted-time-post-enrollment-start-execution-approval-v3-" + "1" * 64 + ".json"
+    )
+    runtime_env_file = tmp_path / "runtime.env"
+    approval = object()
+    loaded_attested_approval = SimpleNamespace(
+        approval=approval,
+        artifact_path=operator_attested_approval_artifact,
+    )
+    approved_revision = "f" * 40
+    approved_launch = SimpleNamespace(git_revision=approved_revision)
+    docker_environment = {"DOCKER_HOST": "unix:///validated-docker.sock"}
+    daemon_identity = object()
+    retained = object()
+
+    class Issuer:
+        pass
+
+    issuer = Issuer()
+
+    def require_sources(repository_root: Path) -> None:
+        assert repository_root == tmp_path
+        events.append("source_attestation")
+
+    def load_attested(**kwargs: object) -> object:
+        assert kwargs == {
+            "operator_attested_approval_artifact": operator_attested_approval_artifact,
+            "artifact_directory": DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
+            "ignored_root": IGNORED_ARTIFACT_ROOT,
+        }
+        events.append("attested_v3_load")
+        return loaded_attested_approval
+
+    def approved(candidate: object) -> object:
+        assert candidate is approval
+        events.append("embedded_v2_semantics")
+        return approved_launch
+
+    def current_revision() -> str:
+        events.append("current_head")
+        return approved_revision
+
+    def minimal_environment() -> dict[str, str]:
+        events.append("docker_environment")
+        return docker_environment
+
+    def qualify(*, environment: dict[str, str]) -> object:
+        assert environment is docker_environment
+        events.append("docker_daemon")
+        return daemon_identity
+
+    def allocate_issuer() -> Issuer:
+        events.append("issuer_allocate")
+        return issuer
+
+    def activate_issuer(candidate: object, **kwargs: object) -> None:
+        assert candidate is issuer
+        assert kwargs == {
+            "expected_daemon_identity": daemon_identity,
+            "docker_environment": docker_environment,
+        }
+        events.append("issuer_activate")
+
+    def abort_issuer(candidate: object) -> None:
+        assert candidate is issuer
+        events.append("issuer_abort")
+
+    def close_issuer(candidate: object) -> None:
+        assert candidate is issuer
+        events.append("issuer_close")
+
+    def require_same(candidate: object, *, environment: dict[str, str]) -> None:
+        assert candidate is daemon_identity
+        assert environment is docker_environment
+        events.append("same_daemon")
+
+    def execute(**kwargs: object) -> object:
+        assert kwargs == {
+            "loaded_attested_approval": loaded_attested_approval,
+            "runtime_env_file": runtime_env_file,
+            "issuer": issuer,
+            "daemon_identity": daemon_identity,
+            "docker_environment": docker_environment,
+        }
+        events.append("runtime_preflight_and_choreography")
+        return retained
+
+    monkeypatch.setattr(orchestrator, "_CLI_REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setattr(orchestrator, "_require_repository_first_party_sources", require_sources)
+    monkeypatch.setattr(
+        orchestrator,
+        "load_post_enrollment_operator_attested_execution_approval",
+        load_attested,
+    )
+    monkeypatch.setattr(orchestrator, "_approved_launch", approved)
+    monkeypatch.setattr(orchestrator, "_current_git_revision", current_revision)
+    monkeypatch.setattr(orchestrator, "_minimal_docker_environment", minimal_environment)
+    monkeypatch.setattr(orchestrator, "qualify_local_docker_daemon", qualify)
+    monkeypatch.setattr(orchestrator, "_require_same_local_daemon", require_same)
+    monkeypatch.setattr(orchestrator, "_execute_under_issuer", execute)
+
+    result = orchestrator._run_operator_attested_post_enrollment_start_once_with_dependencies(
+        operator_attested_approval_artifact=operator_attested_approval_artifact,
+        runtime_env_file=runtime_env_file,
+        issuer_type=cast(Any, Issuer),
+        allocate_inert_issuer=cast(Any, allocate_issuer),
+        activate_issuer=activate_issuer,
+        close_issuer=close_issuer,
+        abort_issuer_activation=abort_issuer,
+    )
+
+    assert result is retained
+    assert events == [
+        "source_attestation",
+        "attested_v3_load",
+        "embedded_v2_semantics",
+        "current_head",
+        "docker_environment",
+        "docker_daemon",
+        "issuer_allocate",
+        "issuer_activate",
+        "same_daemon",
+        "runtime_preflight_and_choreography",
+        "issuer_close",
+        "issuer_abort",
+        "issuer_close",
+        "issuer_abort",
+        "issuer_close",
+        "issuer_abort",
+        "issuer_close",
+        "issuer_abort",
+        "issuer_close",
+        "issuer_abort",
+    ]
+
+
+@pytest.mark.parametrize("interruption_point", ["activation_return", "host_call_store"])
+@pytest.mark.parametrize("failure_type", [KeyboardInterrupt, SystemExit])
+def test_host_activation_publication_interruption_burns_caller_owned_issuer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    interruption_point: str,
+    failure_type: type[BaseException],
+) -> None:
+    operator_attested_approval_artifact = tmp_path / (
+        "trusted-time-post-enrollment-start-execution-approval-v3-" + "1" * 64 + ".json"
+    )
+    runtime_env_file = tmp_path / "runtime.env"
+    approval = object()
+    loaded_attested_approval = SimpleNamespace(
+        approval=approval,
+        artifact_path=operator_attested_approval_artifact,
+    )
+    approved_revision = "f" * 40
+    approved_launch = SimpleNamespace(git_revision=approved_revision)
+    socket_path = topology_fixtures._short_socket_path(tmp_path)
+    endpoint = f"unix://{socket_path}"
+    docker_environment: dict[str, str] = {}
+    daemon_identity = LocalDockerDaemonIdentity(
+        context_name="<DOCKER_HOST>",
+        endpoint=endpoint,
+        daemon_id="LOCAL:DAEMON:1",
+    )
+    queued = topology_fixtures._QueuedRunner([topology_fixtures._json_line("LOCAL:DAEMON:1")])
+    docker_executable, docker_executable_identity = (
+        topology_reader._resolve_trusted_docker_executable()
+    )
+    ignored_root = tmp_path / "artifacts"
+    issuer_type = topology_reader.TrustedTimePostEnrollmentTopologyObservationIssuer
+    issuer = issuer_type.allocate_inert()
+    exact_activate_method = topology_fixtures._test_only_authenticated_activation_closure()[0]
+    activation_defaults = cast(dict[str, object], exact_activate_method.__kwdefaults__)
+    monkeypatch.setitem(
+        activation_defaults,
+        "_resolve_docker",
+        lambda: (docker_executable, docker_executable_identity),
+    )
+    monkeypatch.setitem(activation_defaults, "_runner", queued)
+    monkeypatch.setitem(activation_defaults, "_session_token_factory", lambda: b"h" * 32)
+    monkeypatch.setitem(activation_defaults, "_ignored_root_value", str(ignored_root))
+    monkeypatch.setitem(
+        activation_defaults,
+        "_artifact_directory_value",
+        str(ignored_root / "trusted-time"),
+    )
+
+    monkeypatch.setattr(orchestrator, "_CLI_REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setattr(
+        orchestrator,
+        "_require_repository_first_party_sources",
+        lambda _root: None,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "load_post_enrollment_operator_attested_execution_approval",
+        lambda **_kwargs: loaded_attested_approval,
+    )
+    monkeypatch.setattr(orchestrator, "_approved_launch", lambda _approval: approved_launch)
+    monkeypatch.setattr(orchestrator, "_current_git_revision", lambda: approved_revision)
+    monkeypatch.setattr(orchestrator, "_minimal_docker_environment", lambda: docker_environment)
+    monkeypatch.setattr(
+        orchestrator,
+        "qualify_local_docker_daemon",
+        lambda *, environment: daemon_identity,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_require_same_local_daemon",
+        lambda *_args, **_kwargs: pytest.fail("post-activation work was reached"),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_execute_under_issuer",
+        lambda **_kwargs: pytest.fail("effecting orchestration was reached"),
+    )
+
+    abort_calls = 0
+
+    def allocate_issuer() -> topology_reader.TrustedTimePostEnrollmentTopologyObservationIssuer:
+        return issuer
+
+    def checked_abort(candidate: object) -> None:
+        nonlocal abort_calls
+        abort_calls += 1
+        assert candidate is issuer
+        topology_reader._abort_authenticated_issuer_activation(candidate)
+
+    failure: BaseException = (
+        SystemExit(53 if interruption_point == "host_call_store" else 59)
+        if failure_type is SystemExit
+        else KeyboardInterrupt()
+    )
+    host = orchestrator._run_operator_attested_post_enrollment_start_once_with_dependencies
+    if interruption_point == "host_call_store":
+        target_code = host.__code__
+        target_offset = next(
+            instruction.offset
+            for instruction in dis.get_instructions(host)
+            if instruction.opname == "STORE_FAST" and instruction.argval == "activation_result"
+        )
+        monitoring_event = sys.monitoring.events.INSTRUCTION
+
+        def interrupt(*event_arguments: object) -> None:
+            instruction_offset = cast(int, event_arguments[1])
+            if instruction_offset != target_offset:
+                return
+            raise failure
+
+    else:
+        assert interruption_point == "activation_return"
+        target_code = issuer_type.activate.__code__
+        monitoring_event = sys.monitoring.events.PY_RETURN
+
+        def interrupt(*_event_arguments: object) -> None:
+            raise failure
+
+    tool_id = next(
+        candidate
+        for candidate in range(sys.monitoring.OPTIMIZER_ID + 1)
+        if sys.monitoring.get_tool(candidate) is None
+    )
+    sys.monitoring.use_tool_id(tool_id, "trusted-time-host-activation-publication-test")
+    try:
+        sys.monitoring.register_callback(tool_id, monitoring_event, interrupt)
+        sys.monitoring.set_local_events(tool_id, target_code, monitoring_event)
+        with pytest.raises(failure_type) as retained_interruption:
+            host(
+                operator_attested_approval_artifact=operator_attested_approval_artifact,
+                runtime_env_file=runtime_env_file,
+                issuer_type=issuer_type,
+                allocate_inert_issuer=allocate_issuer,
+                activate_issuer=issuer_type.activate,
+                close_issuer=issuer_type.close,
+                abort_issuer_activation=checked_abort,
+            )
+    finally:
+        sys.monitoring.set_local_events(tool_id, target_code, 0)
+        sys.monitoring.register_callback(tool_id, monitoring_event, None)
+        sys.monitoring.free_tool_id(tool_id)
+
+    assert retained_interruption.value.__traceback__ is not None
+    assert retained_interruption.value is failure
+    assert abort_calls == 5
+    assert queued.outputs == []
+    assert issuer._launch_lock_lease is None
+    saved_capability = issuer._authentication_capability
+    with pytest.raises(topology_reader.TrustedTimePostEnrollmentTopologyReaderError):
+        topology_reader._authenticated_issuer_runtime_provenance(
+            issuer,
+            saved_capability,
+        )
+    replacement = _acquire_trusted_time_launch_lock(str(ignored_root))
+    _validate_trusted_time_launch_lock(replacement)
+    replacement.close()
+    with pytest.raises(topology_reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer.activate(
+            expected_daemon_identity=daemon_identity,
+            docker_environment=docker_environment,
+        )
+
+
+def test_operator_attested_entry_rejects_head_mismatch_before_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    events: list[str] = []
+    artifact = tmp_path / (
+        "trusted-time-post-enrollment-start-execution-approval-v3-" + "1" * 64 + ".json"
+    )
+    loaded = SimpleNamespace(approval=object(), artifact_path=artifact)
+
+    def load_attested(**_: object) -> object:
+        events.append("attested_v3_load")
+        return loaded
+
+    def approved(_: object) -> object:
+        events.append("embedded_v2_semantics")
+        return SimpleNamespace(git_revision="f" * 40)
+
+    def current_revision() -> str:
+        events.append("current_head")
+        return "e" * 40
+
+    monkeypatch.setattr(orchestrator, "_CLI_REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setattr(
+        orchestrator,
+        "_require_repository_first_party_sources",
+        lambda _: events.append("source_attestation"),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "load_post_enrollment_operator_attested_execution_approval",
+        load_attested,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_approved_launch",
+        approved,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_current_git_revision",
+        current_revision,
+    )
+
+    def unexpected_preflight(*_: object, **__: object) -> Never:
+        events.append("unexpected_preflight")
+        raise AssertionError("preflight ran after a HEAD mismatch")
+
+    monkeypatch.setattr(orchestrator, "_minimal_docker_environment", unexpected_preflight)
+    monkeypatch.setattr(orchestrator, "qualify_local_docker_daemon", unexpected_preflight)
+    monkeypatch.setattr(orchestrator, "_execute_under_issuer", unexpected_preflight)
+
+    with pytest.raises(
+        orchestrator.TrustedTimePostEnrollmentHostOrchestratorRejected,
+        match="approved revision is unavailable",
+    ):
+        orchestrator.run_operator_attested_post_enrollment_start_once(
+            operator_attested_approval_artifact=artifact,
+            runtime_env_file=tmp_path / "runtime.env",
+        )
+
+    assert events == [
+        "source_attestation",
+        "attested_v3_load",
+        "embedded_v2_semantics",
+        "current_head",
+    ]
+
+
+def test_legacy_v2_artifact_has_no_host_loader_or_api_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    events: list[str] = []
+    legacy_v2_artifact = tmp_path / (
+        "trusted-time-post-enrollment-start-execution-approval-" + "1" * 64 + ".json"
+    )
+
+    monkeypatch.setattr(orchestrator, "_CLI_REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setattr(
+        orchestrator,
+        "_require_repository_first_party_sources",
+        lambda _: events.append("source_attestation"),
+    )
+
+    def reject_legacy(**kwargs: object) -> Never:
+        assert kwargs["operator_attested_approval_artifact"] == legacy_v2_artifact
+        events.append("attested_v3_load")
+        raise _InjectedFailure("legacy v2 artifact rejected")
+
+    monkeypatch.setattr(
+        orchestrator,
+        "load_post_enrollment_operator_attested_execution_approval",
+        reject_legacy,
+    )
+
+    def unexpected_preflight(*_: object, **__: object) -> Never:
+        events.append("unexpected_preflight")
+        raise AssertionError("legacy v2 fallback reached a preflight")
+
+    monkeypatch.setattr(orchestrator, "_approved_launch", unexpected_preflight)
+    monkeypatch.setattr(orchestrator, "_minimal_docker_environment", unexpected_preflight)
+    monkeypatch.setattr(orchestrator, "qualify_local_docker_daemon", unexpected_preflight)
+    monkeypatch.setattr(orchestrator, "_execute_under_issuer", unexpected_preflight)
+
+    with pytest.raises(_InjectedFailure, match="legacy v2 artifact rejected"):
+        orchestrator.run_operator_attested_post_enrollment_start_once(
+            operator_attested_approval_artifact=legacy_v2_artifact,
+            runtime_env_file=tmp_path / "runtime.env",
+        )
+
+    assert events == ["source_attestation", "attested_v3_load"]
+    assert not hasattr(orchestrator, "load_post_enrollment_execution_approval")
+    assert not hasattr(orchestrator, "run_approved_post_enrollment_start_once")
+    assert "run_approved_post_enrollment_start_once" not in orchestrator.__all__
+    assert tuple(
+        inspect.signature(orchestrator.run_operator_attested_post_enrollment_start_once).parameters
+    ) == ("operator_attested_approval_artifact", "runtime_env_file")
 
 
 def test_terminal_projection_is_nonsecret_and_grants_no_trading_or_shutdown_authority(
@@ -554,7 +1012,7 @@ def test_terminal_projection_is_nonsecret_and_grants_no_trading_or_shutdown_auth
 
     assert (
         orchestrator.POST_ENROLLMENT_HOST_ORCHESTRATOR_CONTRACT_VERSION
-        == "phase6d-post-enrollment-start-host-orchestrator-v2"
+        == "phase6d-post-enrollment-start-host-orchestrator-v3"
     )
     assert payload == {
         **dict.fromkeys(_CLOSED_AUTHORITY_FIELDS, False),
@@ -595,16 +1053,16 @@ def test_cli_never_substitutes_prior_terminal_for_current_invocation_failure(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    approval_artifact = tmp_path / "approval.json"
+    approval_artifact = tmp_path / "operator-attested-approval.json"
     runtime_env_file = tmp_path / "runtime.env"
     monkeypatch.setattr(
         orchestrator,
-        "load_post_enrollment_execution_approval",
+        "load_post_enrollment_operator_attested_execution_approval",
         lambda **_: SimpleNamespace(approval=_Approval()),
     )
     monkeypatch.setattr(
         orchestrator,
-        "run_approved_post_enrollment_start_once",
+        "run_operator_attested_post_enrollment_start_once",
         lambda **_: (_ for _ in ()).throw(
             orchestrator.TrustedTimePostEnrollmentHostOrchestratorRejected(
                 "topology issuer close is unconfirmed"
@@ -615,7 +1073,7 @@ def test_cli_never_substitutes_prior_terminal_for_current_invocation_failure(
     with pytest.raises(SystemExit) as terminal:
         orchestrator.main(
             [
-                "--approval-artifact",
+                "--operator-attested-approval-artifact",
                 str(approval_artifact),
                 "--runtime-env-file",
                 str(runtime_env_file),
@@ -703,19 +1161,19 @@ def test_cli_accepts_only_a_typed_terminal_from_the_current_call(
     )
     monkeypatch.setattr(
         orchestrator,
-        "load_post_enrollment_execution_approval",
+        "load_post_enrollment_operator_attested_execution_approval",
         lambda **_: SimpleNamespace(approval=approval),
     )
     monkeypatch.setattr(
         orchestrator,
-        "run_approved_post_enrollment_start_once",
+        "run_operator_attested_post_enrollment_start_once",
         lambda **_: (_ for _ in ()).throw(terminal_type(outcome)),
     )
 
     with pytest.raises(SystemExit) as terminal:
         orchestrator.main(
             [
-                "--approval-artifact",
+                "--operator-attested-approval-artifact",
                 str(tmp_path / "approval.json"),
                 "--runtime-env-file",
                 str(tmp_path / "runtime.env"),
@@ -1005,7 +1463,7 @@ def test_outer_reversible_failure_never_enters_choreography_or_reserves_attempt(
     execute = cast(Any, orchestrator._execute_under_issuer)
     with pytest.raises(_InjectedFailure, match=failure_stage):
         execute(
-            loaded_approval=loaded_approval,
+            loaded_attested_approval=loaded_approval,
             runtime_env_file=tmp_path / "runtime.env",
             issuer=object(),
             daemon_identity=object(),
@@ -1027,7 +1485,7 @@ def _run_choreography(
 ) -> object:
     run = cast(Any, orchestrator._run_post_enrollment_choreography)
     return run(
-        loaded_approval=loaded_approval,
+        loaded_attested_approval=loaded_approval,
         image_witness=image_witness,
         materials=materials,
         owner=owner,
@@ -1197,7 +1655,7 @@ def test_reservation_call_store_interruption_preserves_slot_but_never_creates(
     permanent_slot_receipt = object()
 
     def reserve(**kwargs: object) -> object:
-        assert kwargs["loaded_approval"] is loaded_approval
+        assert kwargs["loaded_attested_approval"] is loaded_approval
         assert kwargs["image_admission"] is image_witness
         events.append("reserve_slot_committed")
         return permanent_slot_receipt
@@ -1246,7 +1704,7 @@ def test_consume_call_store_interruption_preserves_consumption_but_never_creates
 
     def consume(admission: object, **kwargs: object) -> bool:
         assert admission is not None
-        assert kwargs["approval_artifact"] == loaded_approval.artifact_path
+        assert kwargs["operator_attested_approval_artifact"] == loaded_approval.artifact_path
         events.append("consume_committed")
         return True
 

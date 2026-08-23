@@ -8,6 +8,8 @@ callback-local retention capability.
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import fcntl
 import hashlib
 import io
@@ -16,13 +18,13 @@ import os
 import stat
 import threading
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 from pathlib import Path
-from typing import Never
+from typing import Never, cast
 
 from packages.domain.trusted_time_enrollment_evidence import (
     FIRST_ENROLLMENT_AUTHORITY_FIELDS,
@@ -36,6 +38,10 @@ from scripts.trusted_time_post_enrollment_start import (
 )
 from scripts.trusted_time_post_enrollment_topology_reader import (
     TrustedTimePostEnrollmentTopologyObservationIssuer,
+    _finalize_post_enrollment_recovery_projection_types,
+    _stage_post_enrollment_recovery_outcome_reason_type,
+    _stage_post_enrollment_recovery_outcome_status_type,
+    _stage_retained_post_enrollment_recovery_outcome_type,
     _TrustedTimePostEnrollmentRecoveryRetentionCheckpoint,
 )
 
@@ -52,7 +58,7 @@ POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME = ".post-enrollment-start-controlle
 _POST_ENROLLMENT_START_RECOVERY_OUTCOME_STAGING_FILE_NAME = (
     ".post-enrollment-start-recovery-outcome-staging"
 )
-MAXIMUM_POST_ENROLLMENT_START_OUTCOME_BYTES = 16_384
+MAXIMUM_POST_ENROLLMENT_START_OUTCOME_BYTES = 128 * 1_024
 MAXIMUM_POST_ENROLLMENT_START_OUTCOME_ARTIFACT_ENTRIES = 4_096
 MAXIMUM_POST_ENROLLMENT_START_OUTCOME_ARTIFACT_NAME_BYTES = 255
 POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_SECONDS = 605
@@ -60,6 +66,7 @@ POST_ENROLLMENT_START_RECOVERY_RETENTION_DEADLINE_SECONDS = 605
 _SHA256_LENGTH = 64
 _NANOSECONDS_PER_SECOND = 1_000_000_000
 _OUTCOME_SLOT_PROCESS_LOCK = threading.RLock()
+_OUTCOME_SLOT_PROCESS_LOCK_ORIGIN_PID = os.getpid()
 _CLOSED_OUTCOME_FIELDS = (
     "authority_granted",
     "claim_chronology_authenticated",
@@ -83,12 +90,14 @@ _CLOSED_OUTCOME_FIELDS = (
 )
 
 
+@_stage_post_enrollment_recovery_outcome_status_type
 class TrustedTimePostEnrollmentStartRetainedOutcomeStatus(StrEnum):
     """The only outcome status this pre-release module can retain."""
 
     RECOVERY_REQUIRED = "recovery_required"
 
 
+@_stage_post_enrollment_recovery_outcome_reason_type
 class TrustedTimePostEnrollmentStartRetainedOutcomeReason(StrEnum):
     """The only non-caller-selected reason this module can retain."""
 
@@ -113,6 +122,231 @@ class TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed(RuntimeError):
 
 class TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable(RuntimeError):
     """A unique exact retained recovery outcome cannot be loaded."""
+
+
+def _reset_outcome_slot_process_lock_after_fork() -> None:
+    global _OUTCOME_SLOT_PROCESS_LOCK
+    global _OUTCOME_SLOT_PROCESS_LOCK_ORIGIN_PID
+
+    _OUTCOME_SLOT_PROCESS_LOCK = threading.RLock()
+    _OUTCOME_SLOT_PROCESS_LOCK_ORIGIN_PID = os.getpid()
+
+
+os.register_at_fork(after_in_child=_reset_outcome_slot_process_lock_after_fork)
+
+
+def _outcome_slot_process_lock_depth() -> int:
+    counter = getattr(_OUTCOME_SLOT_PROCESS_LOCK, "_recursion_count", None)
+    if not callable(counter):
+        raise RuntimeError("trusted-time outcome process lock is unavailable")
+    depth = cast(Callable[[], int], counter)()
+    if type(depth) is not int or depth < 0:
+        raise RuntimeError("trusted-time outcome process lock is unavailable")
+    return depth
+
+
+def _preferred_base_exception(
+    primary: BaseException | None,
+    cleanup: BaseException | None,
+) -> BaseException | None:
+    if primary is not None and not isinstance(primary, Exception):
+        return primary
+    if cleanup is not None and not isinstance(cleanup, Exception):
+        return cleanup
+    return primary if primary is not None else cleanup
+
+
+def _preferred_base_exceptions(
+    *errors: BaseException | None,
+) -> BaseException | None:
+    preferred: BaseException | None = None
+    for error in errors:
+        preferred = _preferred_base_exception(preferred, error)
+    return preferred
+
+
+class _OwnedFileDescriptor(ctypes.c_int):
+    """Own one libc-opened descriptor before its Python CALL can return."""
+
+    def __index__(self) -> int:
+        return self.fileno()
+
+    def fileno(self) -> int:
+        descriptor = self.value
+        if descriptor < 0:
+            raise OSError(errno.EBADF, os.strerror(errno.EBADF))
+        return descriptor
+
+    @property
+    def closed(self) -> bool:
+        return self.value < 0
+
+    def close(self) -> None:
+        descriptor = self.value
+        if descriptor < 0:
+            return
+        state_error: BaseException | None = None
+        try:
+            self.value = -1
+        except BaseException as error:
+            state_error = error
+            try:
+                self.value = -1
+            except BaseException as retry_error:
+                terminal = _preferred_base_exception(error, retry_error)
+                if terminal is error or terminal is None:
+                    raise
+                raise terminal from error
+        try:
+            os.close(descriptor)
+        except BaseException as error:
+            terminal = _preferred_base_exception(state_error, error)
+            if terminal is error or terminal is None:
+                raise
+            raise terminal from error
+        terminal = state_error
+        if terminal is not None:
+            raise terminal
+
+    def __del__(self) -> None:
+        with suppress(BaseException):
+            self.close()
+
+
+_LIBC = ctypes.CDLL(None, use_errno=True)
+_OWNED_OPEN = _LIBC.open
+_OWNED_OPEN.argtypes = (ctypes.c_char_p, ctypes.c_int)
+_OWNED_OPEN.restype = _OwnedFileDescriptor
+_OWNED_OPENAT = _LIBC.openat
+_OWNED_OPENAT.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int)
+_OWNED_OPENAT.restype = _OwnedFileDescriptor
+
+
+def _open_owned_descriptor(
+    path: str | Path,
+    *,
+    flags: int,
+    mode: int = 0,
+    dir_fd: int | None = None,
+) -> _OwnedFileDescriptor:
+    ctypes.set_errno(0)
+    if dir_fd is None:
+        owner = cast(
+            _OwnedFileDescriptor,
+            _OWNED_OPEN(os.fsencode(path), flags, ctypes.c_int(mode)),
+        )
+    else:
+        owner = cast(
+            _OwnedFileDescriptor,
+            _OWNED_OPENAT(dir_fd, os.fsencode(path), flags, ctypes.c_int(mode)),
+        )
+    if owner.value >= 0:
+        return owner
+    error_number = ctypes.get_errno() or errno.EIO
+    if error_number == errno.EEXIST:
+        raise FileExistsError(error_number, os.strerror(error_number), os.fspath(path))
+    if error_number == errno.ENOENT:
+        raise FileNotFoundError(error_number, os.strerror(error_number), os.fspath(path))
+    raise OSError(error_number, os.strerror(error_number), os.fspath(path))
+
+
+def _close_descriptor_owners(
+    owners: tuple[_OwnedFileDescriptor | None, ...],
+) -> BaseException | None:
+    first_error: BaseException | None = None
+    for owner in owners:
+        if owner is None or owner.closed:
+            continue
+        try:
+            owner.close()
+        except BaseException as error:
+            first_error = _preferred_base_exception(first_error, error)
+    return first_error
+
+
+def _release_outcome_slot_process_lock_to_depth(
+    expected_depth: int,
+) -> BaseException | None:
+    first_error: BaseException | None = None
+    for _ in range(2):
+        try:
+            if _outcome_slot_process_lock_depth() <= expected_depth:
+                break
+            _OUTCOME_SLOT_PROCESS_LOCK.release()
+        except BaseException as error:
+            if first_error is None:
+                first_error = error
+    try:
+        if _outcome_slot_process_lock_depth() > expected_depth:
+            return first_error or RuntimeError(
+                "trusted-time outcome process lock could not be released"
+            )
+    except BaseException as error:
+        return _preferred_base_exception(first_error, error)
+    return first_error
+
+
+@contextmanager
+def _held_outcome_slot_process_lock() -> Iterator[None]:
+    """Hold the VM-local lock without leaking it across async boundaries."""
+
+    global _OUTCOME_SLOT_PROCESS_LOCK_ORIGIN_PID
+
+    current_pid = os.getpid()
+    if current_pid != _OUTCOME_SLOT_PROCESS_LOCK_ORIGIN_PID:
+        _reset_outcome_slot_process_lock_after_fork()
+    initial_depth = _outcome_slot_process_lock_depth()
+    body_error: BaseException | None = None
+    transition_error: BaseException | None = None
+    cleanup_error: BaseException | None = None
+    retry_error: BaseException | None = None
+    try:
+        try:
+            _OUTCOME_SLOT_PROCESS_LOCK.acquire()
+            yield
+        except BaseException as error:
+            body_error = error
+        finally:
+            cleanup_error = _release_outcome_slot_process_lock_to_depth(initial_depth)
+    except BaseException as error:
+        transition_error = error
+    finally:
+        retry_error = _release_outcome_slot_process_lock_to_depth(initial_depth)
+    terminal = _preferred_base_exceptions(
+        body_error,
+        transition_error,
+        cleanup_error,
+        retry_error,
+    )
+    if terminal is not None:
+        raise terminal
+
+
+def _close_outcome_slot_file_owner(file_owner: io.FileIO | None) -> BaseException | None:
+    if file_owner is None or _file_owner_is_closed(file_owner):
+        return None
+    first_error: BaseException | None = None
+    try:
+        fcntl.flock(file_owner.fileno(), fcntl.LOCK_UN)
+    except BaseException as error:
+        first_error = error
+    for _ in range(2):
+        if _file_owner_is_closed(file_owner):
+            break
+        try:
+            file_owner.close()
+        except BaseException as error:
+            first_error = _preferred_base_exception(first_error, error)
+    if not _file_owner_is_closed(file_owner):
+        first_error = _preferred_base_exception(
+            first_error,
+            RuntimeError("trusted-time outcome slot descriptor could not be closed"),
+        )
+    return first_error
+
+
+def _file_owner_is_closed(file_owner: io.FileIO) -> bool:
+    return file_owner.closed
 
 
 def _is_sha256(value: object) -> bool:
@@ -220,23 +454,42 @@ def _reserve_outcome_slot(
     """Atomically reserve and durably publish the process-global outcome slot."""
 
     file_owner: io.FileIO | None = None
-    with _OUTCOME_SLOT_PROCESS_LOCK:
+    with _held_outcome_slot_process_lock():
+        body_error: BaseException | None = None
+        transition_error: BaseException | None = None
+        cleanup_error: BaseException | None = None
+        retry_error: BaseException | None = None
+        identity: tuple[int, ...] | None = None
         try:
-            file_owner = _open_owner_only_file(
-                directory_descriptor,
-                POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
-                exclusive=True,
-            )
-            descriptor = file_owner.fileno()
-            fcntl.flock(descriptor, fcntl.LOCK_EX)
-            identity = _write_locked_slot(descriptor, encoded)
-            os.fsync(directory_descriptor)
-            return identity
+            try:
+                file_owner = _open_owner_only_file(
+                    directory_descriptor,
+                    POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
+                    exclusive=True,
+                )
+                descriptor = file_owner.fileno()
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                identity = _write_locked_slot(descriptor, encoded)
+                os.fsync(directory_descriptor)
+            except BaseException as error:
+                body_error = error
+            finally:
+                cleanup_error = _close_outcome_slot_file_owner(file_owner)
+        except BaseException as error:
+            transition_error = error
         finally:
-            if file_owner is not None:
-                with suppress(OSError):
-                    fcntl.flock(file_owner.fileno(), fcntl.LOCK_UN)
-                file_owner.close()
+            retry_error = _close_outcome_slot_file_owner(file_owner)
+        terminal = _preferred_base_exceptions(
+            body_error,
+            transition_error,
+            cleanup_error,
+            retry_error,
+        )
+        if terminal is not None:
+            raise terminal
+        if identity is None:
+            raise RuntimeError("trusted-time outcome slot reservation did not complete")
+        return identity
 
 
 @contextmanager
@@ -248,25 +501,39 @@ def _reserve_and_lock_outcome_slot(
     """Reserve the slot and keep its exact inode exclusively locked."""
 
     file_owner: io.FileIO | None = None
-    _OUTCOME_SLOT_PROCESS_LOCK.acquire()
-    try:
-        file_owner = _open_owner_only_file(
-            directory_descriptor,
-            POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
-            exclusive=True,
+    with _held_outcome_slot_process_lock():
+        body_error: BaseException | None = None
+        transition_error: BaseException | None = None
+        cleanup_error: BaseException | None = None
+        retry_error: BaseException | None = None
+        try:
+            try:
+                file_owner = _open_owner_only_file(
+                    directory_descriptor,
+                    POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
+                    exclusive=True,
+                )
+                descriptor = file_owner.fileno()
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                identity = _write_locked_slot(descriptor, encoded)
+                os.fsync(directory_descriptor)
+                yield descriptor, identity
+            except BaseException as error:
+                body_error = error
+            finally:
+                cleanup_error = _close_outcome_slot_file_owner(file_owner)
+        except BaseException as error:
+            transition_error = error
+        finally:
+            retry_error = _close_outcome_slot_file_owner(file_owner)
+        terminal = _preferred_base_exceptions(
+            body_error,
+            transition_error,
+            cleanup_error,
+            retry_error,
         )
-        descriptor = file_owner.fileno()
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
-        identity = _write_locked_slot(descriptor, encoded)
-        os.fsync(directory_descriptor)
-        yield descriptor, identity
-    finally:
-        if file_owner is not None:
-            with suppress(BaseException):
-                fcntl.flock(file_owner.fileno(), fcntl.LOCK_UN)
-            with suppress(BaseException):
-                file_owner.close()
-        _OUTCOME_SLOT_PROCESS_LOCK.release()
+        if terminal is not None:
+            raise terminal
 
 
 @contextmanager
@@ -278,23 +545,37 @@ def _locked_outcome_slot(
     """Hold a process- and host-wide lock on the permanent outcome slot."""
 
     file_owner: io.FileIO | None = None
-    _OUTCOME_SLOT_PROCESS_LOCK.acquire()
-    try:
-        file_owner = _open_owner_only_file(
-            directory_descriptor,
-            POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
-            exclusive=False,
+    with _held_outcome_slot_process_lock():
+        body_error: BaseException | None = None
+        transition_error: BaseException | None = None
+        cleanup_error: BaseException | None = None
+        retry_error: BaseException | None = None
+        try:
+            try:
+                file_owner = _open_owner_only_file(
+                    directory_descriptor,
+                    POST_ENROLLMENT_START_OUTCOME_SLOT_FILE_NAME,
+                    exclusive=False,
+                )
+                descriptor = file_owner.fileno()
+                fcntl.flock(descriptor, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+                yield descriptor
+            except BaseException as error:
+                body_error = error
+            finally:
+                cleanup_error = _close_outcome_slot_file_owner(file_owner)
+        except BaseException as error:
+            transition_error = error
+        finally:
+            retry_error = _close_outcome_slot_file_owner(file_owner)
+        terminal = _preferred_base_exceptions(
+            body_error,
+            transition_error,
+            cleanup_error,
+            retry_error,
         )
-        descriptor = file_owner.fileno()
-        fcntl.flock(descriptor, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
-        yield descriptor
-    finally:
-        if file_owner is not None:
-            with suppress(OSError):
-                fcntl.flock(file_owner.fileno(), fcntl.LOCK_UN)
-            with suppress(OSError):
-                file_owner.close()
-        _OUTCOME_SLOT_PROCESS_LOCK.release()
+        if terminal is not None:
+            raise terminal
 
 
 def _outcome_payload(
@@ -387,7 +668,8 @@ def _outcome_file_name(outcome_sha256: str) -> str:
     return file_name
 
 
-@dataclass(frozen=True, slots=True)
+@_stage_retained_post_enrollment_recovery_outcome_type
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class RetainedTrustedTimePostEnrollmentStartOutcome:
     """Exact bytes and inode identity of one retained recovery-required outcome."""
 
@@ -508,25 +790,31 @@ def _open_owner_only_artifact_directory(
     *,
     ignored_root: Path,
     create: bool,
-) -> int:
+) -> _OwnedFileDescriptor:
     absolute = Path(os.path.abspath(path))
     root = Path(os.path.abspath(ignored_root))
     if absolute != path or root != ignored_root or absolute != root / "trusted-time":
         raise TrustedTimePostEnrollmentStartOutcomeRejected(
             "trusted-time post-enrollment recovery outcome directory is unavailable"
         )
+    directory_owner: _OwnedFileDescriptor | None = None
+    next_owner: _OwnedFileDescriptor | None = None
+    previous_owner: _OwnedFileDescriptor | None = None
     try:
-        descriptor = os.open(
+        directory_owner = _open_owned_descriptor(
             absolute.anchor,
-            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+            flags=(
+                os.O_RDONLY
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0)
+            ),
         )
     except OSError:
         raise TrustedTimePostEnrollmentStartOutcomeRejected(
             "trusted-time post-enrollment recovery outcome directory is unavailable"
         ) from None
     current = Path(absolute.anchor)
-    next_descriptor: int | None = None
-    previous_descriptor: int | None = None
     try:
         for part in absolute.parts[1:]:
             current /= part
@@ -534,19 +822,24 @@ def _open_owner_only_artifact_directory(
             created = False
             if protected and create:
                 try:
-                    os.mkdir(part, 0o700, dir_fd=descriptor)
+                    os.mkdir(part, 0o700, dir_fd=directory_owner.fileno())
                     created = True
                 except FileExistsError:
                     pass
-            next_descriptor = os.open(
+            next_owner = _open_owned_descriptor(
                 part,
-                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-                dir_fd=descriptor,
+                flags=(
+                    os.O_RDONLY
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_DIRECTORY", 0)
+                    | getattr(os, "O_NOFOLLOW", 0)
+                ),
+                dir_fd=directory_owner.fileno(),
             )
-            metadata = os.fstat(next_descriptor)
+            metadata = os.fstat(next_owner.fileno())
             if created:
-                os.fchmod(next_descriptor, 0o700)
-                metadata = os.fstat(next_descriptor)
+                os.fchmod(next_owner.fileno(), 0o700)
+                metadata = os.fstat(next_owner.fileno())
             if protected and (
                 not stat.S_ISDIR(metadata.st_mode)
                 or metadata.st_uid != os.geteuid()
@@ -554,19 +847,19 @@ def _open_owner_only_artifact_directory(
             ):
                 raise OSError
             if created:
-                os.fsync(next_descriptor)
-                os.fsync(descriptor)
-            previous_descriptor = descriptor
-            descriptor = next_descriptor
-            next_descriptor = None
-            os.close(previous_descriptor)
-            previous_descriptor = None
-        return descriptor
+                os.fsync(next_owner.fileno())
+                os.fsync(directory_owner.fileno())
+            previous_owner = directory_owner
+            directory_owner = next_owner
+            next_owner = None
+            previous_owner.close()
+            previous_owner = None
+        return directory_owner
     except BaseException as error:
-        for candidate in {descriptor, next_descriptor, previous_descriptor}:
-            if candidate is not None:
-                with suppress(OSError):
-                    os.close(candidate)
+        cleanup_error = _close_descriptor_owners((directory_owner, next_owner, previous_owner))
+        terminal = _preferred_base_exception(error, cleanup_error)
+        if terminal is not error and terminal is not None:
+            raise terminal from error
         if isinstance(error, OSError):
             raise TrustedTimePostEnrollmentStartOutcomeRejected(
                 "trusted-time post-enrollment recovery outcome directory is unavailable"
@@ -868,16 +1161,18 @@ def _persist_outcome(
         outcome_contract_version=POST_ENROLLMENT_START_RETAINED_OUTCOME_CONTRACT_VERSION,
         status="retained",
     )
+    directory_owner: _OwnedFileDescriptor | None = None
     directory_descriptor: int | None = None
     file_owner: io.FileIO | None = None
     created_file_identity: tuple[int, ...] | None = None
     created_slot_identity: tuple[int, ...] | None = None
     try:
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             artifact_directory,
             ignored_root=ignored_root,
             create=True,
         )
+        directory_descriptor = directory_owner.fileno()
         if _outcome_names(directory_descriptor):
             raise TrustedTimePostEnrollmentStartOutcomeAlreadyRetained(
                 "trusted-time post-enrollment recovery outcome was already retained"
@@ -1006,54 +1301,60 @@ def _persist_outcome(
             ):
                 raise OSError
     except TrustedTimePostEnrollmentStartOutcomeAlreadyRetained:
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
+            directory_owner = None
             directory_descriptor = None
         raise
     except FileExistsError:
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
+            directory_owner = None
             directory_descriptor = None
         raise TrustedTimePostEnrollmentStartOutcomeAlreadyRetained(
             "trusted-time post-enrollment recovery outcome was already retained"
         ) from None
     except TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable:
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
+            directory_owner = None
             directory_descriptor = None
         raise TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed(
             "trusted-time post-enrollment recovery outcome retention is unconfirmed"
         ) from None
     except TrustedTimePostEnrollmentStartOutcomeRejected:
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
+            directory_owner = None
             directory_descriptor = None
         raise
     except OSError:
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
+            directory_owner = None
             directory_descriptor = None
         raise TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed(
             "trusted-time post-enrollment recovery outcome retention is unconfirmed"
         ) from None
     except BaseException:
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
+            directory_owner = None
             directory_descriptor = None
         raise
     finally:
         if file_owner is not None:
             with suppress(OSError):
                 file_owner.close()
-        if directory_descriptor is not None:
+        if directory_owner is not None:
             with suppress(OSError):
-                os.close(directory_descriptor)
+                directory_owner.close()
     if created_file_identity is None or created_slot_identity is None:
         raise TrustedTimePostEnrollmentStartOutcomeRetentionUnconfirmed(
             "trusted-time post-enrollment recovery outcome retention is unconfirmed"
@@ -1223,16 +1524,18 @@ def load_retained_post_enrollment_start_outcome(
 ) -> RetainedTrustedTimePostEnrollmentStartOutcome:
     """Load one unique exact retained recovery outcome without authorizing action."""
 
+    directory_owner: _OwnedFileDescriptor | None = None
     try:
         absolute_directory = _artifact_directory(
             artifact_directory,
             ignored_root=ignored_root,
         )
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             absolute_directory,
             ignored_root=ignored_root,
             create=False,
         )
+        directory_descriptor = directory_owner.fileno()
     except Exception:
         raise TrustedTimePostEnrollmentStartOutcomeEvidenceUnavailable(
             "trusted-time post-enrollment retained recovery outcome is unavailable"
@@ -1302,8 +1605,9 @@ def load_retained_post_enrollment_start_outcome(
             "trusted-time post-enrollment retained recovery outcome is unavailable"
         ) from None
     finally:
-        with suppress(OSError):
-            os.close(directory_descriptor)
+        if directory_owner is not None:
+            with suppress(OSError):
+                directory_owner.close()
 
 
 def revalidate_retained_post_enrollment_start_outcome(
@@ -1316,6 +1620,7 @@ def revalidate_retained_post_enrollment_start_outcome(
 
     if type(retained) is not RetainedTrustedTimePostEnrollmentStartOutcome:
         return False
+    directory_owner: _OwnedFileDescriptor | None = None
     try:
         retained.__post_init__()
         absolute_directory = _artifact_directory(
@@ -1325,11 +1630,12 @@ def revalidate_retained_post_enrollment_start_outcome(
         file_name = _outcome_file_name(retained.outcome_sha256)
         if retained.artifact_path != absolute_directory / file_name:
             return False
-        directory_descriptor = _open_owner_only_artifact_directory(
+        directory_owner = _open_owner_only_artifact_directory(
             absolute_directory,
             ignored_root=ignored_root,
             create=False,
         )
+        directory_descriptor = directory_owner.fileno()
     except Exception:
         return False
     try:
@@ -1371,8 +1677,17 @@ def revalidate_retained_post_enrollment_start_outcome(
     except Exception:
         return False
     finally:
-        with suppress(OSError):
-            os.close(directory_descriptor)
+        if directory_owner is not None:
+            with suppress(OSError):
+                directory_owner.close()
+
+
+_finalize_post_enrollment_recovery_projection_types()
+
+del _finalize_post_enrollment_recovery_projection_types
+del _stage_post_enrollment_recovery_outcome_reason_type
+del _stage_post_enrollment_recovery_outcome_status_type
+del _stage_retained_post_enrollment_recovery_outcome_type
 
 
 __all__ = [

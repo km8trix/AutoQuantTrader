@@ -16,6 +16,21 @@ from apps.trusted_time_supervisor.config import (
 )
 
 
+def _capture_release_fchown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[tuple[int, int, int, int]]:
+    exact_fchown = release.os.fchown
+    calls: list[tuple[int, int, int, int]] = []
+
+    def capture(descriptor: int, uid: int, gid: int) -> None:
+        metadata = os.fstat(descriptor)
+        calls.append((metadata.st_dev, metadata.st_ino, uid, gid))
+        exact_fchown(descriptor, uid, gid)
+
+    monkeypatch.setattr(release.os, "fchown", capture)
+    return calls
+
+
 @pytest.fixture
 def marker_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / "post-enrollment-start-release"
@@ -77,7 +92,9 @@ def test_literal_release_contract_is_frozen_and_nonsecret() -> None:
 
 def test_deadline_writer_and_reader_freeze_exact_owner_only_absolute_window(
     marker_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    fchown_calls = _capture_release_fchown(monkeypatch)
     issued_at = 7_000_000_000
     deadline = release.write_post_enrollment_start_sequence_two_deadline(
         monotonic_clock=lambda: issued_at
@@ -108,6 +125,7 @@ def test_deadline_writer_and_reader_freeze_exact_owner_only_absolute_window(
     assert metadata.st_gid == os.getegid()
     assert metadata.st_nlink == 1
     assert not Path(release.POST_ENROLLMENT_START_SEQUENCE_TWO_DEADLINE_STAGING_PATH).exists()
+    assert fchown_calls == [(metadata.st_dev, metadata.st_ino, os.geteuid(), os.getegid())]
 
 
 def test_deadline_writer_rejects_release_before_clock_or_deadline_publication(
@@ -207,7 +225,9 @@ def test_deadline_reader_rejects_a_different_current_boot(
 
 def test_writer_and_reader_require_exact_owner_only_single_link_marker(
     marker_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    fchown_calls = _capture_release_fchown(monkeypatch)
     release.write_post_enrollment_start_release()
 
     metadata = marker_path.stat()
@@ -217,6 +237,7 @@ def test_writer_and_reader_require_exact_owner_only_single_link_marker(
     assert metadata.st_nlink == 1
     assert metadata.st_mode & 0o777 == 0o400
     assert not Path(release.POST_ENROLLMENT_START_RELEASE_STAGING_PATH).exists()
+    assert fchown_calls == [(metadata.st_dev, metadata.st_ino, os.geteuid(), os.getegid())]
     release.read_exact_post_enrollment_start_release()
 
 
