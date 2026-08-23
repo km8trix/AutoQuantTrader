@@ -1,11 +1,11 @@
-"""Execute one exact approved post-enrollment trusted-time start.
+"""Execute one exact operator-attested post-enrollment trusted-time start.
 
 This is the sole supported host composition for the Phase 6D post-enrollment
-controller.  It accepts only a content-addressed approval artifact and the
-dedicated owner-only runtime environment file.  Every mutable operation runs
-under the topology issuer's single global flock and its one suspend-aware
-choreography lease.  The executor grants no shutdown, readiness, exposure, or
-trading authority.
+controller.  It accepts only a content-addressed operator-attested v3 approval
+artifact and the dedicated owner-only runtime environment file.  Every mutable
+operation runs under the topology issuer's single global flock and its one
+suspend-aware choreography lease.  The executor grants no shutdown, readiness,
+exposure, or trading authority.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import json
 import os
 import stat
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Never
@@ -173,9 +174,9 @@ from scripts.trusted_time_post_enrollment_controller_outcome import (  # noqa: E
 )
 from scripts.trusted_time_post_enrollment_execution_admission import (  # noqa: E402
     DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
-    LoadedTrustedTimePostEnrollmentExecutionApproval,
+    LoadedTrustedTimePostEnrollmentOperatorAttestedExecutionApproval,
     _consume_post_enrollment_execution_admission,
-    load_post_enrollment_execution_approval,
+    load_post_enrollment_operator_attested_execution_approval,
     reserve_post_enrollment_execution_attempt,
 )
 from scripts.trusted_time_post_enrollment_outcome import (  # noqa: E402
@@ -200,6 +201,7 @@ from scripts.trusted_time_post_enrollment_topology_reader import (  # noqa: E402
     TrustedTimePostEnrollmentCreatedTopologyObservation,
     TrustedTimePostEnrollmentTopologyObservationIssuer,
     TrustedTimePostEnrollmentTopologyReaderError,
+    _abort_authenticated_issuer_activation,
 )
 from scripts.verify_trusted_time_compose import (  # noqa: E402
     render_compose_model,
@@ -220,7 +222,7 @@ if ROOT != LAUNCHER_ROOT:
     raise RuntimeError("trusted-time post-enrollment source root is unavailable")
 
 POST_ENROLLMENT_HOST_ORCHESTRATOR_CONTRACT_VERSION = (
-    "phase6d-post-enrollment-start-host-orchestrator-v2"
+    "phase6d-post-enrollment-start-host-orchestrator-v3"
 )
 POST_ENROLLMENT_HOST_ORCHESTRATOR_SERVICE = "trusted-time-post-enrollment-start-host-orchestrator"
 POST_ENROLLMENT_HOST_ORCHESTRATOR_STATUS = "terminal_outcome_retained"
@@ -504,7 +506,7 @@ def _retire_inputs(owner: _MaterializedRuntimeInputOwner, materials: _RuntimeMat
 
 def _run_post_enrollment_choreography(
     *,
-    loaded_approval: LoadedTrustedTimePostEnrollmentExecutionApproval,
+    loaded_attested_approval: LoadedTrustedTimePostEnrollmentOperatorAttestedExecutionApproval,
     image_witness: TrustedTimeImageAdmission,
     materials: _RuntimeMaterials,
     owner: _MaterializedRuntimeInputOwner,
@@ -512,8 +514,8 @@ def _run_post_enrollment_choreography(
     compose_payload: bytes,
     issuer: TrustedTimePostEnrollmentTopologyObservationIssuer,
 ) -> RetainedTrustedTimePostEnrollmentStartControllerOutcome:
-    approval = loaded_approval.approval
-    approval_artifact = loaded_approval.artifact_path
+    approval = loaded_attested_approval.approval
+    operator_attested_approval_artifact = loaded_attested_approval.artifact_path
     staged_paths = materials.staged_paths
 
     def choreography(
@@ -555,14 +557,14 @@ def _run_post_enrollment_choreography(
                 _choreography_lease=lease,
             )
             admission = reserve_post_enrollment_execution_attempt(
-                loaded_approval=loaded_approval,
+                loaded_attested_approval=loaded_attested_approval,
                 image_admission=image_witness,
                 artifact_directory=DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
                 ignored_root=IGNORED_ARTIFACT_ROOT,
             )
             if not _consume_post_enrollment_execution_admission(
                 admission,
-                approval_artifact=approval_artifact,
+                operator_attested_approval_artifact=operator_attested_approval_artifact,
                 artifact_directory=DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
                 ignored_root=IGNORED_ARTIFACT_ROOT,
             ):
@@ -795,13 +797,13 @@ def _run_post_enrollment_choreography(
 
 def _execute_under_issuer(
     *,
-    loaded_approval: LoadedTrustedTimePostEnrollmentExecutionApproval,
+    loaded_attested_approval: LoadedTrustedTimePostEnrollmentOperatorAttestedExecutionApproval,
     runtime_env_file: Path,
     issuer: TrustedTimePostEnrollmentTopologyObservationIssuer,
     daemon_identity: LocalDockerDaemonIdentity,
     docker_environment: dict[str, str],
 ) -> RetainedTrustedTimePostEnrollmentStartControllerOutcome:
-    approval = loaded_approval.approval
+    approval = loaded_attested_approval.approval
     owner = _MaterializedRuntimeInputOwner()
     try:
         materials = _materialize_runtime_inputs(
@@ -817,7 +819,7 @@ def _execute_under_issuer(
             materials=materials,
         )
         return _run_post_enrollment_choreography(
-            loaded_approval=loaded_approval,
+            loaded_attested_approval=loaded_attested_approval,
             image_witness=image_witness,
             materials=materials,
             owner=owner,
@@ -834,53 +836,174 @@ def _execute_under_issuer(
             ) from cleanup_error
 
 
-def run_approved_post_enrollment_start_once(
+def _run_operator_attested_post_enrollment_start_once_with_dependencies(
     *,
-    approval_artifact: Path,
+    operator_attested_approval_artifact: Path,
     runtime_env_file: Path,
+    issuer_type: type[TrustedTimePostEnrollmentTopologyObservationIssuer],
+    allocate_inert_issuer: Callable[[], TrustedTimePostEnrollmentTopologyObservationIssuer],
+    activate_issuer: Callable[..., object],
+    close_issuer: Callable[[object], object],
+    abort_issuer_activation: Callable[[object], object],
 ) -> RetainedTrustedTimePostEnrollmentStartControllerOutcome:
-    """Consume one disk approval and retain exactly one terminal controller outcome."""
+    """Consume one attested v3 approval and retain one terminal controller outcome."""
 
     if _CLI_REPOSITORY_ROOT is None:
         raise TrustedTimePostEnrollmentHostOrchestratorRejected(
             "trusted-time post-enrollment execution is available only through the isolated CLI"
         )
     _require_repository_first_party_sources(_CLI_REPOSITORY_ROOT)
-    loaded_approval = load_post_enrollment_execution_approval(
-        approval_artifact=approval_artifact,
+    loaded_attested_approval = load_post_enrollment_operator_attested_execution_approval(
+        operator_attested_approval_artifact=operator_attested_approval_artifact,
         artifact_directory=DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
         ignored_root=IGNORED_ARTIFACT_ROOT,
     )
-    approval = loaded_approval.approval
+    approval = loaded_attested_approval.approval
     approved_launch = _approved_launch(approval)
+    if _current_git_revision() != approved_launch.git_revision:
+        raise TrustedTimePostEnrollmentHostOrchestratorRejected(
+            "trusted-time approved revision is unavailable"
+        )
     docker_environment = _minimal_docker_environment()
     daemon_identity = qualify_local_docker_daemon(environment=docker_environment)
-    issuer: TrustedTimePostEnrollmentTopologyObservationIssuer | None = None
-    try:
-        issuer = TrustedTimePostEnrollmentTopologyObservationIssuer.open(
-            expected_daemon_identity=daemon_identity,
-            docker_environment=docker_environment,
+    issuer = allocate_inert_issuer()
+    if type(issuer) is not issuer_type:
+        raise TrustedTimePostEnrollmentHostOrchestratorRejected(
+            "trusted-time topology issuer allocation is invalid"
         )
-        _require_same_local_daemon(daemon_identity, environment=docker_environment)
-        if _current_git_revision() != approved_launch.git_revision:
-            raise TrustedTimePostEnrollmentHostOrchestratorRejected(
-                "trusted-time approved revision is unavailable"
-            )
-        return _execute_under_issuer(
-            loaded_approval=loaded_approval,
-            runtime_env_file=runtime_env_file,
-            issuer=issuer,
-            daemon_identity=daemon_identity,
-            docker_environment=docker_environment,
-        )
-    finally:
-        if issuer is not None:
-            try:
-                issuer.close()
-            except BaseException as close_error:
+    retained: RetainedTrustedTimePostEnrollmentStartControllerOutcome | None = None
+    primary_error: BaseException | None = None
+    cleanup_error: BaseException | None = None
+    abort_confirmed = False
+
+    def preferred_error(
+        current: BaseException | None,
+        candidate: BaseException,
+    ) -> BaseException:
+        if current is not None and not isinstance(current, Exception):
+            return current
+        if not isinstance(candidate, Exception):
+            return candidate
+        return current if current is not None else candidate
+
+    def abort_once() -> None:
+        nonlocal abort_confirmed, cleanup_error
+        try:
+            close_result = close_issuer(issuer)
+            if close_result is not None:
                 raise TrustedTimePostEnrollmentHostOrchestratorRejected(
-                    "trusted-time topology issuer close is unconfirmed"
-                ) from close_error
+                    "trusted-time topology issuer close is invalid"
+                )
+        except BaseException as error:
+            cleanup_error = preferred_error(cleanup_error, error)
+        try:
+            abort_result = abort_issuer_activation(issuer)
+            if abort_result is not None:
+                raise TrustedTimePostEnrollmentHostOrchestratorRejected(
+                    "trusted-time topology issuer abort is invalid"
+                )
+            abort_confirmed = True
+        except BaseException as error:
+            cleanup_error = preferred_error(cleanup_error, error)
+
+    try:
+        try:
+            try:
+                try:
+                    try:
+                        try:
+                            activation_result = activate_issuer(
+                                issuer,
+                                expected_daemon_identity=daemon_identity,
+                                docker_environment=docker_environment,
+                            )
+                            if activation_result is not None:
+                                raise TrustedTimePostEnrollmentHostOrchestratorRejected(
+                                    "trusted-time topology issuer activation is invalid"
+                                )
+                            _require_same_local_daemon(
+                                daemon_identity,
+                                environment=docker_environment,
+                            )
+                            retained = _execute_under_issuer(
+                                loaded_attested_approval=loaded_attested_approval,
+                                runtime_env_file=runtime_env_file,
+                                issuer=issuer,
+                                daemon_identity=daemon_identity,
+                                docker_environment=docker_environment,
+                            )
+                        except BaseException as error:
+                            primary_error = preferred_error(primary_error, error)
+                        finally:
+                            abort_once()
+                    finally:
+                        abort_once()
+                finally:
+                    abort_once()
+            finally:
+                abort_once()
+        finally:
+            abort_once()
+    finally:
+        pass
+
+    if primary_error is not None and not isinstance(primary_error, Exception):
+        raise primary_error
+    if cleanup_error is not None and not isinstance(cleanup_error, Exception):
+        raise cleanup_error
+    if not abort_confirmed:
+        raise TrustedTimePostEnrollmentHostOrchestratorRejected(
+            "trusted-time topology issuer abort is unconfirmed"
+        ) from cleanup_error
+    if primary_error is not None:
+        raise primary_error
+    if retained is None:
+        raise TrustedTimePostEnrollmentHostOrchestratorRejected(
+            "trusted-time topology controller outcome is unavailable"
+        )
+    return retained
+
+
+def _build_operator_attested_post_enrollment_start_once(
+    *,
+    _implementation: Callable[..., RetainedTrustedTimePostEnrollmentStartControllerOutcome] = (
+        _run_operator_attested_post_enrollment_start_once_with_dependencies
+    ),
+    _issuer_type: type[TrustedTimePostEnrollmentTopologyObservationIssuer] = (
+        TrustedTimePostEnrollmentTopologyObservationIssuer
+    ),
+    _allocate_inert_issuer: Callable[
+        [], TrustedTimePostEnrollmentTopologyObservationIssuer
+    ] = TrustedTimePostEnrollmentTopologyObservationIssuer.allocate_inert,
+    _activate_issuer: Callable[..., object] = (
+        TrustedTimePostEnrollmentTopologyObservationIssuer.activate
+    ),
+    _close_issuer: Callable[[object], object] = (
+        TrustedTimePostEnrollmentTopologyObservationIssuer.close
+    ),
+    _abort_issuer_activation: Callable[[object], object] = (_abort_authenticated_issuer_activation),
+) -> Callable[..., RetainedTrustedTimePostEnrollmentStartControllerOutcome]:
+    def run_operator_attested_post_enrollment_start_once(
+        *,
+        operator_attested_approval_artifact: Path,
+        runtime_env_file: Path,
+    ) -> RetainedTrustedTimePostEnrollmentStartControllerOutcome:
+        return _implementation(
+            operator_attested_approval_artifact=operator_attested_approval_artifact,
+            runtime_env_file=runtime_env_file,
+            issuer_type=_issuer_type,
+            allocate_inert_issuer=_allocate_inert_issuer,
+            activate_issuer=_activate_issuer,
+            close_issuer=_close_issuer,
+            abort_issuer_activation=_abort_issuer_activation,
+        )
+
+    return run_operator_attested_post_enrollment_start_once
+
+
+run_operator_attested_post_enrollment_start_once = (
+    _build_operator_attested_post_enrollment_start_once()
+)
 
 
 def _safe_terminal_payload(
@@ -991,9 +1114,10 @@ def _fatal_payload() -> dict[str, object]:
 
 def _parse_cli(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Execute one exact approved trusted-time post-enrollment start."
+        allow_abbrev=False,
+        description="Execute one exact operator-attested trusted-time post-enrollment start.",
     )
-    parser.add_argument("--approval-artifact", required=True, type=Path)
+    parser.add_argument("--operator-attested-approval-artifact", required=True, type=Path)
     parser.add_argument("--runtime-env-file", required=True, type=Path)
     return parser.parse_args(argv)
 
@@ -1003,8 +1127,8 @@ def main(argv: list[str] | None = None) -> Never:
 
     arguments = _parse_cli(argv)
     try:
-        approval = load_post_enrollment_execution_approval(
-            approval_artifact=arguments.approval_artifact,
+        approval = load_post_enrollment_operator_attested_execution_approval(
+            operator_attested_approval_artifact=(arguments.operator_attested_approval_artifact),
             artifact_directory=DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
             ignored_root=IGNORED_ARTIFACT_ROOT,
         ).approval
@@ -1016,8 +1140,8 @@ def main(argv: list[str] | None = None) -> Never:
         | RetainedTrustedTimePostEnrollmentStartOutcome
     )
     try:
-        retained = run_approved_post_enrollment_start_once(
-            approval_artifact=arguments.approval_artifact,
+        retained = run_operator_attested_post_enrollment_start_once(
+            operator_attested_approval_artifact=(arguments.operator_attested_approval_artifact),
             runtime_env_file=arguments.runtime_env_file,
         )
     except (
@@ -1049,7 +1173,7 @@ __all__ = [
     "POST_ENROLLMENT_HOST_ORCHESTRATOR_SERVICE",
     "POST_ENROLLMENT_HOST_ORCHESTRATOR_STATUS",
     "TrustedTimePostEnrollmentHostOrchestratorRejected",
-    "run_approved_post_enrollment_start_once",
+    "run_operator_attested_post_enrollment_start_once",
 ]
 
 

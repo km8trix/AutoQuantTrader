@@ -73,16 +73,19 @@ All emitted readiness, operational-control, arming, exposure/new-exposure,
 broker-action, alert-delivery, automatic-rearm/resume, paper-trading, and
 live-trading authority flags are false. No reducer result is authority.
 
-A future sealed terminal-observation issuer/provider adapter is a separate
-contract. It must authenticate a complete new suffix and prove a stable remote
-namespace with two matching passes bound to the exact namespace digest, object
-count, and terminal identity. It must prove that no higher sequence exists and
-capture its independent monotonic observation instant inside the issuer after
-those provider reads succeed. The future deployed runtime, not dormant v1,
-must apply the 360-second stale policy with equality stale and every stale
-result unavailable. Only issuer-sealed evidence with those bindings could
-support a later currentness/staleness design; raw bytes and caller-supplied
-time must never be upgraded into that evidence.
+ADR 0109 now supplies a clean-stop-specific code-only example of the sealed
+terminal-observation mechanics with no live, watchdog, or effect consumer
+except ADR 0111's dormant zero-caller composition: full authenticated pass A, matching
+names pass B, a late terminal GET, empty next-sequence check, final provider
+identity, equal SQL projections around the provider reads, and an issuer-owned
+suspend-aware deadline. It does not complete step 3 above because it is not a
+qualified or deployed watchdog adapter, grants no freshness/currentness, uses
+the existing writer-capable provider credential behind only a method-narrowed
+wrapper, and has no watchdog consumer. The future deployed runtime, not dormant
+v1 or the ADR-0109 clean-stop result, must apply the 360-second stale policy
+with equality stale and every stale result unavailable. Raw bytes,
+caller-supplied time, and one past clean-stop observation must never be upgraded
+into a continuing currentness lease.
 
 This preparatory slice deliberately supplies no Supabase or other provider
 adapter, runtime process or container, independent external failure domain,
@@ -102,8 +105,9 @@ evidence.
 The current deployment still has no persistent trusted-time topology or
 independent watchdog. Although separate-project provisioning and first
 enrollment are complete, the ADR-0098 outcome-bound start/graceful-stop
-boundary, separate sealed terminal-observation issuer/provider adapter, and
-independent runtime are not implemented, deployed, or qualified. This contract
-therefore remains dormant library code. Local implementation or unit-test
-results are not provider observation, deployment, drill, alert delivery,
-consumer, or Phase 6 exit evidence.
+boundary and independent runtime are not deployed or qualified. ADR 0109's
+clean-stop-specific observer is code-only, has no live, watchdog, or effect
+consumer except ADR 0111's dormant zero-caller composition, and is not a
+qualified watchdog issuer. This contract therefore remains dormant library code. Local
+implementation or unit-test results are not provider observation, deployment,
+drill, alert delivery, consumer, or Phase 6 exit evidence.

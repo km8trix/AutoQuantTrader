@@ -1,6 +1,14 @@
 **
 !pyproject.toml
 !uv.lock
+!build_support/
+!build_support/native_image_manifest.py
+!build_support/native_build_constraints.txt
+!build_support/native_owned_file_descriptor_hook.py
+!native/
+!native/bounded_process.c
+!native/owned_file_descriptor.c
+!native/trusted_time_python_launcher.c
 !apps/
 !apps/__init__.py
 !apps/trusted_time_supervisor/

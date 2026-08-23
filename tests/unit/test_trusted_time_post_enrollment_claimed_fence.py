@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import inspect
 import os
 import pickle
 from collections.abc import Mapping
@@ -45,6 +46,54 @@ from tests.unit import test_trusted_time_post_enrollment_topology_reader as read
 
 def _authenticated_seal(payload: Mapping[str, object]) -> bytes:
     return hashlib.sha256(canonical_first_enrollment_json_bytes(payload)).digest()
+
+
+def _recovery_choreography_authorities() -> tuple[object, object]:
+    return (
+        object.__new__(reader._TrustedTimePostEnrollmentTopologyChoreographyLease),
+        object.__new__(reader._TrustedTimePostEnrollmentRecoveryRetentionCapability),
+    )
+
+
+def _claimed_fence_recovery_binder_authorization_type() -> type[object]:
+    prepare_closure = inspect.getclosurevars(
+        claimed.prepare_post_enrollment_start_claimed_pre_release_fence
+    )
+    issue_recovery_binder = prepare_closure.nonlocals["issue_recovery_binder"]
+    assert callable(issue_recovery_binder)
+    authorization_type = inspect.getclosurevars(issue_recovery_binder).nonlocals[
+        "_ClaimedFenceRecoveryBinderAuthorization"
+    ]
+    assert type(authorization_type) is type
+    return cast(type[object], authorization_type)
+
+
+def _consume_claimed_fence_recovery_binder_authorization(
+    candidate: object,
+    *,
+    topology_issuer: object,
+    choreography_lease: object,
+    recovery_retention_capability: object,
+    recovery_claim_binder: object,
+    artifact_directory: Path,
+    ignored_root: Path,
+) -> bool:
+    issue = reader._issue_authenticated_recovery_claim_binder
+    consumer = inspect.getclosurevars(issue).nonlocals[
+        "consume_claimed_recovery_binder_authorization"
+    ]
+    assert callable(consumer)
+    return bool(
+        consumer(
+            candidate,
+            topology_issuer=topology_issuer,
+            choreography_lease=choreography_lease,
+            recovery_retention_capability=recovery_retention_capability,
+            recovery_claim_binder=recovery_claim_binder,
+            artifact_directory_value=os.fspath(artifact_directory),
+            ignored_root_value=os.fspath(ignored_root),
+        )
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -179,7 +228,7 @@ class _Context:
     artifact_directory: Path
     events: list[str]
     bound_recovery_claims: list[Any]
-    recovery_binder_authorizations: list[claimed._ClaimedFenceRecoveryBinderAuthorization]
+    recovery_binder_authorizations: list[object]
     issued_recovery_claim_binders: list[reader._TrustedTimePostEnrollmentRecoveryClaimBinder]
     consumed_recovery_claim_binders: list[reader._TrustedTimePostEnrollmentRecoveryClaimBinder]
 
@@ -339,6 +388,11 @@ def _install_success(
     cursors = iter(cursor_values or context.cursors)
     validations = iter(revalidations or [True, True])
     checkpoint_count = 0
+    recovery_binder_authorization_type = (
+        _claimed_fence_recovery_binder_authorization_type()
+        if expected_recovery_retention_capability is not None
+        else None
+    )
 
     def issue_cursor(
         _: object,
@@ -393,23 +447,21 @@ def _install_success(
         candidate_issuer: object,
         candidate_lease: object,
         candidate_capability: object,
+        recovery_claim_binder: object,
         *,
         claimed_fence_authorization: object,
         artifact_directory: Path,
         ignored_root: Path,
-    ) -> reader._TrustedTimePostEnrollmentRecoveryClaimBinder:
+    ) -> None:
         assert candidate_issuer is context.topology_issuer
         assert candidate_lease is expected_choreography_lease
         assert candidate_capability is expected_recovery_retention_capability
-        assert type(claimed_fence_authorization) is claimed._ClaimedFenceRecoveryBinderAuthorization
+        assert type(recovery_claim_binder) is reader._TrustedTimePostEnrollmentRecoveryClaimBinder
+        assert recovery_binder_authorization_type is not None
+        assert type(claimed_fence_authorization) is recovery_binder_authorization_type
         assert artifact_directory == context.artifact_directory
         assert ignored_root == context.ignored_root
-        context.recovery_binder_authorizations.append(
-            cast(
-                claimed._ClaimedFenceRecoveryBinderAuthorization,
-                claimed_fence_authorization,
-            )
-        )
+        context.recovery_binder_authorizations.append(claimed_fence_authorization)
         context.events.append("issue_recovery_claim_binder")
         if recovery_binder_preconsume_error is not None:
             raise recovery_binder_preconsume_error
@@ -419,6 +471,7 @@ def _install_success(
                 topology_issuer=candidate_issuer,
                 choreography_lease=candidate_lease,
                 recovery_retention_capability=candidate_capability,
+                recovery_claim_binder=recovery_claim_binder,
                 artifact_directory=artifact_directory,
                 ignored_root=ignored_root,
             )
@@ -426,9 +479,18 @@ def _install_success(
         )
         if recovery_binder_issue_error is not None:
             raise recovery_binder_issue_error
-        binder = object.__new__(reader._TrustedTimePostEnrollmentRecoveryClaimBinder)
-        context.issued_recovery_claim_binders.append(binder)
-        return binder
+        context.issued_recovery_claim_binders.append(
+            cast(reader._TrustedTimePostEnrollmentRecoveryClaimBinder, recovery_claim_binder)
+        )
+
+    def fail_recovery_claim_binder(
+        _issuer: object,
+        candidate: object,
+        *,
+        binding_may_have_begun: bool,
+    ) -> None:
+        assert type(candidate) is reader._TrustedTimePostEnrollmentRecoveryClaimBinder
+        assert type(binding_may_have_begun) is bool
 
     def consume_recovery_claim_binder(candidate: object, retained: object) -> None:
         exact_binder = next(
@@ -472,10 +534,36 @@ def _install_success(
             checkpoint,
         )
     if expected_recovery_retention_capability is not None:
+        prepare_closure = inspect.getclosurevars(
+            claimed.prepare_post_enrollment_start_claimed_pre_release_fence
+        )
+        sealed_issue = cast(
+            Any,
+            prepare_closure.nonlocals["issue_recovery_binder"],
+        )
+        issue_cells = dict(
+            zip(sealed_issue.__code__.co_freevars, sealed_issue.__closure__, strict=True)
+        )
+        monkeypatch.setattr(
+            issue_cells["_issue_recovery_binder"],
+            "cell_contents",
+            issue_recovery_claim_binder,
+        )
+        monkeypatch.setattr(
+            claimed,
+            "_consume_claimed_fence_recovery_binder_authorization",
+            _consume_claimed_fence_recovery_binder_authorization,
+            raising=False,
+        )
         monkeypatch.setattr(
             reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
             "_issue_recovery_retention_claim_binder",
             issue_recovery_claim_binder,
+        )
+        monkeypatch.setattr(
+            reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+            "_fail_recovery_retention_claim_binder",
+            fail_recovery_claim_binder,
         )
         monkeypatch.setattr(
             reader,
@@ -485,6 +573,11 @@ def _install_success(
     monkeypatch.setattr(
         claimed,
         "prepare_post_enrollment_start_release_under_lock",
+        prepare,
+    )
+    monkeypatch.setattr(
+        claimed,
+        "_prepare_post_enrollment_start_release_under_lock_with_salvage",
         prepare,
     )
     monkeypatch.setattr(
@@ -617,8 +710,7 @@ def test_leased_recovery_capability_binds_exact_retained_claim_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context = _context(tmp_path)
-    lease = object()
-    recovery_capability = object()
+    lease, recovery_capability = _recovery_choreography_authorities()
     _install_success(
         monkeypatch,
         context,
@@ -661,8 +753,7 @@ def test_recovery_binder_authorization_is_exact_one_shot_and_unforgeable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context = _context(tmp_path)
-    lease = object()
-    recovery_capability = object()
+    lease, recovery_capability = _recovery_choreography_authorities()
     _install_success(
         monkeypatch,
         context,
@@ -682,6 +773,7 @@ def test_recovery_binder_authorization_is_exact_one_shot_and_unforgeable(
         "topology_issuer": context.topology_issuer,
         "choreography_lease": lease,
         "recovery_retention_capability": recovery_capability,
+        "recovery_claim_binder": context.issued_recovery_claim_binders[0],
         "artifact_directory": context.artifact_directory,
         "ignored_root": context.ignored_root,
     }
@@ -692,7 +784,7 @@ def test_recovery_binder_authorization_is_exact_one_shot_and_unforgeable(
         )
         is False
     )
-    forged = object.__new__(claimed._ClaimedFenceRecoveryBinderAuthorization)
+    forged = object.__new__(_claimed_fence_recovery_binder_authorization_type())
     assert (
         claimed._consume_claimed_fence_recovery_binder_authorization(
             forged,
@@ -726,8 +818,7 @@ def test_recovery_claim_binder_issue_failure_is_rejected_before_claim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context = _context(tmp_path)
-    lease = object()
-    recovery_capability = object()
+    lease, recovery_capability = _recovery_choreography_authorities()
     _install_success(
         monkeypatch,
         context,
@@ -742,7 +833,6 @@ def test_recovery_claim_binder_issue_failure_is_rejected_before_claim(
             choreography_lease=lease,
             recovery_retention_capability=recovery_capability,
         )
-
     assert context.events[-1] == "issue_recovery_claim_binder"
     assert context.issued_recovery_claim_binders == []
     assert context.consumed_recovery_claim_binders == []
@@ -763,8 +853,7 @@ def test_recovery_binder_authorization_is_revoked_when_issuer_fails_before_consu
     failure: BaseException,
 ) -> None:
     context = _context(tmp_path)
-    lease = object()
-    recovery_capability = object()
+    lease, recovery_capability = _recovery_choreography_authorities()
     _install_success(
         monkeypatch,
         context,
@@ -773,12 +862,19 @@ def test_recovery_binder_authorization_is_revoked_when_issuer_fails_before_consu
         recovery_binder_preconsume_error=failure,
     )
 
-    with pytest.raises(claimed.TrustedTimePostEnrollmentStartClaimedFenceRejected):
+    expected_error = (
+        type(failure)
+        if not isinstance(failure, Exception)
+        else claimed.TrustedTimePostEnrollmentStartClaimedFenceRejected
+    )
+    with pytest.raises(expected_error) as raised:
         claimed.prepare_post_enrollment_start_leased_claimed_pre_release_fence(
             **context.kwargs(),  # type: ignore[arg-type]
             choreography_lease=lease,
             recovery_retention_capability=recovery_capability,
         )
+    if not isinstance(failure, Exception):
+        assert raised.value is failure
 
     assert len(context.recovery_binder_authorizations) == 1
     authorization = context.recovery_binder_authorizations[0]
@@ -788,6 +884,9 @@ def test_recovery_binder_authorization_is_revoked_when_issuer_fails_before_consu
             topology_issuer=context.topology_issuer,
             choreography_lease=lease,
             recovery_retention_capability=recovery_capability,
+            recovery_claim_binder=object.__new__(
+                reader._TrustedTimePostEnrollmentRecoveryClaimBinder
+            ),
             artifact_directory=context.artifact_directory,
             ignored_root=context.ignored_root,
         )
@@ -805,8 +904,7 @@ def test_recovery_claim_binding_failure_requires_recovery_and_keeps_claim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context = _context(tmp_path)
-    lease = object()
-    recovery_capability = object()
+    lease, recovery_capability = _recovery_choreography_authorities()
     _install_success(
         monkeypatch,
         context,
@@ -841,8 +939,7 @@ def test_later_lease_failure_leaves_exact_recovery_claim_binding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context = _context(tmp_path)
-    lease = object()
-    recovery_capability = object()
+    lease, recovery_capability = _recovery_choreography_authorities()
     _install_success(
         monkeypatch,
         context,
@@ -917,8 +1014,7 @@ def test_pre_claim_lease_failure_is_rejected_without_retained_claim(
     failure: BaseException,
 ) -> None:
     context = _context(tmp_path)
-    lease = object()
-    recovery_capability = object()
+    lease, recovery_capability = _recovery_choreography_authorities()
     _install_success(
         monkeypatch,
         context,
@@ -927,12 +1023,19 @@ def test_pre_claim_lease_failure_is_rejected_without_retained_claim(
         choreography_checkpoint_failure=(3, failure),
     )
 
-    with pytest.raises(claimed.TrustedTimePostEnrollmentStartClaimedFenceRejected):
+    expected_error = (
+        type(failure)
+        if not isinstance(failure, Exception)
+        else claimed.TrustedTimePostEnrollmentStartClaimedFenceRejected
+    )
+    with pytest.raises(expected_error) as raised:
         claimed.prepare_post_enrollment_start_leased_claimed_pre_release_fence(
             **context.kwargs(),  # type: ignore[arg-type]
             choreography_lease=lease,
             recovery_retention_capability=recovery_capability,
         )
+    if not isinstance(failure, Exception):
+        assert raised.value is failure
 
     assert context.events == [
         "checkpoint_lease",
@@ -967,11 +1070,18 @@ def test_post_claim_lease_failure_requires_recovery_and_retains_claim(
         choreography_checkpoint_failure=(4, failure),
     )
 
-    with pytest.raises(claimed.TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired):
+    expected_error = (
+        type(failure)
+        if not isinstance(failure, Exception)
+        else claimed.TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired
+    )
+    with pytest.raises(expected_error) as raised:
         claimed.prepare_post_enrollment_start_leased_claimed_pre_release_fence(
             **context.kwargs(),  # type: ignore[arg-type]
             choreography_lease=lease,
         )
+    if not isinstance(failure, Exception):
+        assert raised.value is failure
 
     claim_index = context.events.index("prepare_claim")
     assert context.events[claim_index - 1 : claim_index + 2] == [
@@ -1230,10 +1340,11 @@ def test_process_control_failure_after_claim_boundary_requires_recovery(
         "prepare_post_enrollment_start_release_under_lock",
         prepare,
     )
-    with pytest.raises(claimed.TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired):
+    with pytest.raises(type(failure)) as raised:
         claimed.prepare_post_enrollment_start_claimed_pre_release_fence(
             **context.kwargs()  # type: ignore[arg-type]
         )
+    assert raised.value is failure
     assert (context.artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).exists()
 
 
@@ -1243,15 +1354,17 @@ def test_failure_after_materials_return_is_recovery_required(
 ) -> None:
     context = _context(tmp_path)
     _install_success(monkeypatch, context)
+    failure = KeyboardInterrupt()
 
     def fail_payload(**_: object) -> dict[str, object]:
-        raise KeyboardInterrupt
+        raise failure
 
     monkeypatch.setattr(claimed, "_claimed_fence_payload", fail_payload)
-    with pytest.raises(claimed.TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired):
+    with pytest.raises(KeyboardInterrupt) as raised:
         claimed.prepare_post_enrollment_start_claimed_pre_release_fence(
             **context.kwargs()  # type: ignore[arg-type]
         )
+    assert raised.value is failure
     assert (context.artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).exists()
 
 

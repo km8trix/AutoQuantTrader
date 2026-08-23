@@ -12,15 +12,12 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
 from apps.trusted_time_supervisor.main import DATABASE_SECRET_CONSUMED_BYTES
-from apps.trusted_time_supervisor.post_enrollment_release import (
-    POST_ENROLLMENT_START_RELEASE_PATH,
-    POST_ENROLLMENT_START_RELEASE_STAGING_PATH,
-)
 from packages.domain.trusted_time_enrollment_evidence import (
     FIRST_ENROLLMENT_AUTHORITY_FIELDS,
     TrustedTimeImmutableLaunchEvidence,
@@ -74,6 +71,9 @@ _RUNTIME_STATE_FIELDS = (
     "Status",
 )
 
+TrustedTimePostEnrollmentConsumedMarkerProjection = tuple[str, int, int, int, int]
+TrustedTimePostEnrollmentAbsentPathProjection = tuple[str, str]
+
 
 def _authority_is_never_granted(_: object) -> bool:
     return False
@@ -115,6 +115,176 @@ def _is_absolute_lexically_canonical_path(value: object) -> bool:
 
 def _payload_sha256(payload: object) -> str:
     return hashlib.sha256(canonical_first_enrollment_json_bytes(payload)).hexdigest()
+
+
+def _new_exact_immutable_json_serializer() -> Callable[[object], bytes]:
+    """Serialize only exact tagged immutable JSON trees."""
+
+    def encode_string(value: object) -> bytes:
+        if type(value) is not str:
+            raise ValueError
+        result = b'"'
+        for character in value:
+            ordinal = ord(character)
+            if character == '"':
+                result += b'\\"'
+            elif character == "\\":
+                result += b"\\\\"
+            elif character == "\b":
+                result += b"\\b"
+            elif character == "\f":
+                result += b"\\f"
+            elif character == "\n":
+                result += b"\\n"
+            elif character == "\r":
+                result += b"\\r"
+            elif character == "\t":
+                result += b"\\t"
+            elif ordinal < 0x20:
+                result += f"\\u{ordinal:04x}".encode("ascii")
+            elif 0xD800 <= ordinal <= 0xDFFF:
+                raise ValueError
+            elif ordinal > 0xFFFF:
+                scalar = ordinal - 0x10000
+                high = 0xD800 + (scalar >> 10)
+                low = 0xDC00 + (scalar & 0x3FF)
+                result += f"\\u{high:04x}\\u{low:04x}".encode("ascii")
+            elif ordinal > 0x7F:
+                result += f"\\u{ordinal:04x}".encode("ascii")
+            else:
+                result += character.encode("ascii")
+        return result + b'"'
+
+    def encode(value: object) -> bytes:
+        if value is None:
+            return b"null"
+        if type(value) is bool:
+            return b"true" if value else b"false"
+        if type(value) is int:
+            return f"{value:d}".encode("ascii")
+        if type(value) is str:
+            return encode_string(value)
+        if (
+            type(value) is tuple
+            and len(value) == 2
+            and tuple.__getitem__(value, 0) == 1
+            and type(tuple.__getitem__(value, 1)) is tuple
+        ):
+            return b"[" + b",".join(encode(item) for item in tuple.__getitem__(value, 1)) + b"]"
+        if (
+            type(value) is tuple
+            and len(value) == 2
+            and tuple.__getitem__(value, 0) == 0
+            and type(tuple.__getitem__(value, 1)) is tuple
+        ):
+            previous_key: str | None = None
+            encoded_items: tuple[bytes, ...] = ()
+            for item in tuple.__getitem__(value, 1):
+                if (
+                    type(item) is not tuple
+                    or len(item) != 2
+                    or type(tuple.__getitem__(item, 0)) is not str
+                ):
+                    raise ValueError
+                key = tuple.__getitem__(item, 0)
+                if previous_key is not None and previous_key >= key:
+                    raise ValueError
+                encoded_items += (encode_string(key) + b":" + encode(tuple.__getitem__(item, 1)),)
+                previous_key = key
+            return b"{" + b",".join(encoded_items) + b"}"
+        raise ValueError
+
+    return encode
+
+
+_EXACT_IMMUTABLE_JSON_SERIALIZER = _new_exact_immutable_json_serializer()
+
+
+def _require_consumed_marker_projection(
+    value: object,
+    *,
+    _is_int: Callable[..., bool] = _is_exact_int,
+) -> TrustedTimePostEnrollmentConsumedMarkerProjection:
+    if (
+        type(value) is not tuple
+        or len(value) != 5
+        or type(tuple.__getitem__(value, 0)) is not str
+        or tuple.__getitem__(value, 0) != "trusted-time-consumed-marker-projection-v1"
+        or not _is_int(tuple.__getitem__(value, 1))
+        or not _is_int(tuple.__getitem__(value, 2), minimum=1)
+        or not _is_int(tuple.__getitem__(value, 3))
+        or not _is_int(tuple.__getitem__(value, 4))
+    ):
+        raise TrustedTimePostEnrollmentStagedTopologyRejected(
+            "trusted-time consumed-marker projection is invalid"
+        )
+    return cast(TrustedTimePostEnrollmentConsumedMarkerProjection, value)
+
+
+def _consumed_marker_projection_json(
+    value: object,
+    *,
+    _require_projection: Callable[
+        [object], TrustedTimePostEnrollmentConsumedMarkerProjection
+    ] = _require_consumed_marker_projection,
+) -> tuple[int, tuple[tuple[str, object], ...]]:
+    projection = _require_projection(value)
+    return (
+        0,
+        (
+            (
+                "byte_sha256",
+                "abe9772b877a8feef8306fa4bc9af8a5c4f3cdff9b5d3d7899659ae747ddf2b8",
+            ),
+            ("changed_time_ns", tuple.__getitem__(projection, 4)),
+            ("device", tuple.__getitem__(projection, 1)),
+            ("inode", tuple.__getitem__(projection, 2)),
+            ("link_count", 1),
+            ("mode", 0o400),
+            ("modified_time_ns", tuple.__getitem__(projection, 3)),
+            ("owner_gid", 10_001),
+            ("owner_uid", 10_001),
+            ("path", "/tmp/database-secret-consumed"),
+            ("regular", True),
+            ("size", 36),
+            ("status", "present"),
+        ),
+    )
+
+
+def _consumed_marker_projection_sha256(
+    value: object,
+    *,
+    _serialize: Callable[[object], bytes] = _EXACT_IMMUTABLE_JSON_SERIALIZER,
+    _sha256: Callable[[bytes], object] = hashlib.sha256,
+    _projection_json: Callable[[object], object] = _consumed_marker_projection_json,
+    _sha256_pattern: re.Pattern[str] = _SHA256_PATTERN,
+) -> str:
+    encoded = _serialize(_projection_json(value)) + b"\n"
+    result = _sha256(encoded).hexdigest()  # type: ignore[attr-defined]
+    if type(result) is not str or _sha256_pattern.fullmatch(result) is None:
+        raise TrustedTimePostEnrollmentStagedTopologyRejected(
+            "trusted-time consumed-marker projection is invalid"
+        )
+    return result
+
+
+def _require_absent_path_projection(
+    value: object,
+    *,
+    _is_canonical: Callable[[object], bool] = _is_absolute_lexically_canonical_string,
+) -> TrustedTimePostEnrollmentAbsentPathProjection:
+    if (
+        type(value) is not tuple
+        or len(value) != 2
+        or type(tuple.__getitem__(value, 0)) is not str
+        or tuple.__getitem__(value, 0) != "trusted-time-absent-path-projection-v1"
+        or not _is_canonical(tuple.__getitem__(value, 1))
+    ):
+        raise TrustedTimePostEnrollmentStagedTopologyRejected(
+            "trusted-time absent-path projection is invalid"
+        )
+    return cast(TrustedTimePostEnrollmentAbsentPathProjection, value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,55 +373,58 @@ class TrustedTimePostEnrollmentAbsentPathCandidate:
         return {"path": self.path, "status": self.status}
 
 
-def _validated_absence_candidates(
+def _validated_absence_projections(
     before: object,
     after: object,
     *,
-    expected_paths: frozenset[str],
+    expected_paths: tuple[str, ...],
     label: str,
-) -> tuple[tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...], str]:
+    _serialize: Callable[[object], bytes] = _EXACT_IMMUTABLE_JSON_SERIALIZER,
+    _sha256: Callable[[bytes], object] = hashlib.sha256,
+    _require_projection: Callable[
+        [object], TrustedTimePostEnrollmentAbsentPathProjection
+    ] = _require_absent_path_projection,
+    _sha256_pattern: re.Pattern[str] = _SHA256_PATTERN,
+) -> tuple[tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...], str]:
     if (
         type(before) is not tuple
         or type(after) is not tuple
+        or type(expected_paths) is not tuple
         or len(before) != len(expected_paths)
         or len(after) != len(expected_paths)
-        or any(type(value) is not TrustedTimePostEnrollmentAbsentPathCandidate for value in before)
-        or any(type(value) is not TrustedTimePostEnrollmentAbsentPathCandidate for value in after)
     ):
         raise TrustedTimePostEnrollmentStagedTopologyRejected(
-            f"trusted-time {label} candidates are invalid"
+            f"trusted-time {label} projections are invalid"
         )
     try:
-        for value in (*before, *after):
-            cast(TrustedTimePostEnrollmentAbsentPathCandidate, value).__post_init__()
-    except Exception:
+        before_exact = tuple(_require_projection(value) for value in before)
+        after_exact = tuple(_require_projection(value) for value in after)
+    except TrustedTimePostEnrollmentStagedTopologyRejected:
         raise TrustedTimePostEnrollmentStagedTopologyRejected(
-            f"trusted-time {label} candidates are invalid"
+            f"trusted-time {label} projections are invalid"
         ) from None
-    before_by_path = {
-        cast(TrustedTimePostEnrollmentAbsentPathCandidate, value).path: cast(
-            TrustedTimePostEnrollmentAbsentPathCandidate, value
-        )
-        for value in before
-    }
-    after_by_path = {
-        cast(TrustedTimePostEnrollmentAbsentPathCandidate, value).path: cast(
-            TrustedTimePostEnrollmentAbsentPathCandidate, value
-        )
-        for value in after
-    }
+    before_paths = tuple(sorted(tuple.__getitem__(value, 1) for value in before_exact))
+    after_paths = tuple(sorted(tuple.__getitem__(value, 1) for value in after_exact))
     if (
-        set(before_by_path) != expected_paths
-        or set(after_by_path) != expected_paths
-        or len(before_by_path) != len(before)
-        or len(after_by_path) != len(after)
-        or before_by_path != after_by_path
+        len(frozenset(before_paths)) != len(before_paths)
+        or len(frozenset(after_paths)) != len(after_paths)
+        or before_paths != tuple(sorted(expected_paths))
+        or before_paths != after_paths
     ):
         raise TrustedTimePostEnrollmentStagedTopologyRejected(
-            f"trusted-time {label} candidates changed"
+            f"trusted-time {label} projections changed"
         )
-    ordered = tuple(before_by_path[path] for path in sorted(before_by_path))
-    return ordered, _payload_sha256([candidate.payload() for candidate in ordered])
+    ordered = tuple(("trusted-time-absent-path-projection-v1", path) for path in before_paths)
+    immutable_payload = (
+        1,
+        tuple((0, (("path", path), ("status", "absent"))) for path in before_paths),
+    )
+    digest = _sha256(_serialize(immutable_payload) + b"\n").hexdigest()  # type: ignore[attr-defined]
+    if type(digest) is not str or _sha256_pattern.fullmatch(digest) is None:
+        raise TrustedTimePostEnrollmentStagedTopologyRejected(
+            f"trusted-time {label} projections are invalid"
+        )
+    return ordered, digest
 
 
 def _inspection_container(inspection: object) -> dict[str, object]:
@@ -604,12 +777,23 @@ def validate_post_enrollment_start_staged_unreleased_topology(
     expected_head_anchor_authority_file: Path,
     expected_head_anchor_auth_secret_file: Path,
     expected_head_anchor_signing_key_secret_file: Path,
-    database_secret_consumed_before: TrustedTimePostEnrollmentConsumedMarkerCandidate,
-    database_secret_consumed_after: TrustedTimePostEnrollmentConsumedMarkerCandidate,
-    release_path_absences_before: tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...],
-    release_path_absences_after: tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...],
-    staged_input_retirements_before: tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...],
-    staged_input_retirements_after: tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...],
+    database_secret_consumed_before: TrustedTimePostEnrollmentConsumedMarkerProjection,
+    database_secret_consumed_after: TrustedTimePostEnrollmentConsumedMarkerProjection,
+    release_path_absences_before: tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+    release_path_absences_after: tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+    staged_input_retirements_before: tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+    staged_input_retirements_after: tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+    _require_consumed_projection: Callable[
+        [object], TrustedTimePostEnrollmentConsumedMarkerProjection
+    ] = _require_consumed_marker_projection,
+    _validate_absence_projections: Callable[
+        ...,
+        tuple[
+            tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...],
+            str,
+        ],
+    ] = _validated_absence_projections,
+    _consumed_projection_sha256: Callable[[object], str] = (_consumed_marker_projection_sha256),
 ) -> TrustedTimePostEnrollmentStagedUnreleasedTopologySnapshot:
     """Bind a caller-supplied staged candidate without executing an action."""
 
@@ -618,17 +802,13 @@ def validate_post_enrollment_start_staged_unreleased_topology(
             type(approval) is not TrustedTimePostEnrollmentStartApproval
             or type(approved_launch) is not TrustedTimeApprovedLaunch
             or type(created_topology) is not TrustedTimePostEnrollmentCreatedTopologySnapshot
-            or type(database_secret_consumed_before)
-            is not TrustedTimePostEnrollmentConsumedMarkerCandidate
-            or type(database_secret_consumed_after)
-            is not TrustedTimePostEnrollmentConsumedMarkerCandidate
         ):
             raise ValueError
         approval.__post_init__()
         approved_launch.__post_init__()
         created_topology.__post_init__()
-        database_secret_consumed_before.__post_init__()
-        database_secret_consumed_after.__post_init__()
+        consumed_before = _require_consumed_projection(database_secret_consumed_before)
+        consumed_after = _require_consumed_projection(database_secret_consumed_after)
 
         proposed_launch = approval.proposed_launch
         if (
@@ -691,25 +871,23 @@ def validate_post_enrollment_start_staged_unreleased_topology(
             or len(set(staged_paths)) != 4
         ):
             raise ValueError
-        expected_staged_path_strings = frozenset(os.fspath(path) for path in staged_paths)
-        _, release_absence_sha256 = _validated_absence_candidates(
+        expected_staged_path_strings = tuple(sorted(os.fspath(path) for path in staged_paths))
+        _, release_absence_sha256 = _validate_absence_projections(
             release_path_absences_before,
             release_path_absences_after,
-            expected_paths=frozenset(
-                {
-                    POST_ENROLLMENT_START_RELEASE_PATH,
-                    POST_ENROLLMENT_START_RELEASE_STAGING_PATH,
-                }
+            expected_paths=(
+                "/tmp/.post-enrollment-start-release-staging",
+                "/tmp/post-enrollment-start-release",
             ),
             label="release-path absence",
         )
-        _, staged_retirement_sha256 = _validated_absence_candidates(
+        _, staged_retirement_sha256 = _validate_absence_projections(
             staged_input_retirements_before,
             staged_input_retirements_after,
             expected_paths=expected_staged_path_strings,
             label="staged-input retirement",
         )
-        if database_secret_consumed_before != database_secret_consumed_after:
+        if consumed_before != consumed_after:
             raise ValueError
 
         isolated_source_configuration, source_configuration_sha256 = _isolated_json_projection(
@@ -815,7 +993,7 @@ def validate_post_enrollment_start_staged_unreleased_topology(
                 image_configuration_projection_sha256=(supervisor_configuration_sha256),
             ),
             database_secret_consumed_candidate_sha256=(
-                database_secret_consumed_before.candidate_sha256
+                _consumed_projection_sha256(consumed_before)
             ),
             release_paths_absence_candidate_sha256=release_absence_sha256,
             staged_input_retirement_candidate_sha256=staged_retirement_sha256,
@@ -832,7 +1010,9 @@ __all__ = [
     "POST_ENROLLMENT_STAGED_TOPOLOGY_CONTRACT_VERSION",
     "POST_ENROLLMENT_STAGED_TOPOLOGY_STATUS",
     "TrustedTimePostEnrollmentAbsentPathCandidate",
+    "TrustedTimePostEnrollmentAbsentPathProjection",
     "TrustedTimePostEnrollmentConsumedMarkerCandidate",
+    "TrustedTimePostEnrollmentConsumedMarkerProjection",
     "TrustedTimePostEnrollmentStagedContainerSnapshot",
     "TrustedTimePostEnrollmentStagedTopologyRejected",
     "TrustedTimePostEnrollmentStagedUnreleasedTopologySnapshot",

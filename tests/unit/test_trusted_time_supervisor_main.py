@@ -47,6 +47,9 @@ from packages.application.durable_trusted_time_monitor import PersistedTrustedTi
 from packages.application.trusted_time_head_anchor import (
     TrustedTimeHeadAnchorCheckpointReason,
 )
+from packages.application.trusted_time_head_anchor_clean_stop import (
+    _issue_trusted_time_head_anchor_clean_stop_terminal_result,
+)
 from packages.application.trusted_time_head_anchor_worker import (
     TrustedTimeHeadAnchorAttemptResult,
     TrustedTimeHeadAnchorEnrollmentNotApprovedFailure,
@@ -116,6 +119,50 @@ def _persisted() -> PersistedTrustedTimeProbe:
         evaluation_sequence=1,
         record_sha256="a" * 64,
         host_head_sha256="b" * 64,
+    )
+
+
+def _successful_head_anchor_attempt_result(
+    request: TrustedTimeHeadAnchorWorkRequest,
+) -> TrustedTimeHeadAnchorAttemptResult:
+    clean_stop_terminal_result = None
+    candidate_remote_readback_sha256 = "d" * 64
+    if request.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP:
+        candidate_remote_readback_sha256 = "b" * 64
+        clean_stop_terminal_result = _issue_trusted_time_head_anchor_clean_stop_terminal_result(
+            request_identity=request,
+            request_sequence=request.request_sequence,
+            request_scheduled_monotonic_ns=request.scheduled_monotonic_ns,
+            anchor_sequence=3,
+            checkpoint_reason=request.checkpoint_reason,
+            confirmed_anchor_count=3,
+            local_transition_count=3,
+            confirmed_anchor_local_transition_ordinal=3,
+            predecessor_anchor_sha256="1" * 64,
+            current_host_head_sha256="a" * 64,
+            current_anchor_sha256="b" * 64,
+            current_anchor_semantic_sha256="c" * 64,
+            receipt_observed_at_utc=BASE,
+            full_audit_completed=request.full_audit,
+            prior_pending_intent_recovered=False,
+            uploaded_anchor_count=1,
+            idempotent_duplicate_count=0,
+            current_anchor_intent_semantic_sha256="f" * 64,
+            current_candidate_remote_readback_sha256="b" * 64,
+            current_receipt_semantic_sha256="e" * 64,
+        )
+    return TrustedTimeHeadAnchorAttemptResult(
+        request_sequence=request.request_sequence,
+        checkpoint_reason=request.checkpoint_reason,
+        current_host_head_sha256="a" * 64,
+        current_anchor_sha256="b" * 64,
+        current_anchor_semantic_sha256="c" * 64,
+        completed_at_utc=BASE,
+        full_audit_completed=request.full_audit,
+        pending_intent_recovered=False,
+        candidate_remote_readback_sha256=candidate_remote_readback_sha256,
+        receipt_semantic_sha256="e" * 64,
+        clean_stop_terminal_result=clean_stop_terminal_result,
     )
 
 
@@ -288,18 +335,7 @@ def test_service_starts_anchor_after_epoch_notifies_without_external_io_and_clea
 
     def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
         requests.append(request)
-        return TrustedTimeHeadAnchorAttemptResult(
-            request_sequence=request.request_sequence,
-            checkpoint_reason=request.checkpoint_reason,
-            current_host_head_sha256="a" * 64,
-            current_anchor_sha256="b" * 64,
-            current_anchor_semantic_sha256="c" * 64,
-            completed_at_utc=BASE,
-            full_audit_completed=request.full_audit,
-            pending_intent_recovered=False,
-            candidate_remote_readback_sha256="d" * 64,
-            receipt_semantic_sha256="e" * 64,
-        )
+        return _successful_head_anchor_attempt_result(request)
 
     anchor_worker = TrustedTimeHeadAnchorBackgroundWorker(
         attempt=attempt,
@@ -360,18 +396,7 @@ def test_required_startup_terminal_publishes_before_source_or_long_lived_probing
 
     def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
         events.append(f"attempt:{request.checkpoint_reason.value}")
-        return TrustedTimeHeadAnchorAttemptResult(
-            request_sequence=request.request_sequence,
-            checkpoint_reason=request.checkpoint_reason,
-            current_host_head_sha256="a" * 64,
-            current_anchor_sha256="b" * 64,
-            current_anchor_semantic_sha256="c" * 64,
-            completed_at_utc=BASE,
-            full_audit_completed=request.full_audit,
-            pending_intent_recovered=False,
-            candidate_remote_readback_sha256="d" * 64,
-            receipt_semantic_sha256="e" * 64,
-        )
+        return _successful_head_anchor_attempt_result(request)
 
     worker = TrustedTimeHeadAnchorBackgroundWorker(
         attempt=attempt,

@@ -14,6 +14,10 @@ from packages.application.durable_trusted_time_monitor import PersistedTrustedTi
 from packages.application.trusted_time_head_anchor import (
     TrustedTimeHeadAnchorCheckpointReason,
 )
+from packages.application.trusted_time_head_anchor_clean_stop import (
+    TrustedTimeHeadAnchorCleanStopTerminalResult,
+    _issue_trusted_time_head_anchor_clean_stop_terminal_result,
+)
 from packages.application.trusted_time_head_anchor_worker import (
     TRUSTED_TIME_HEAD_ANCHOR_WORKER_INTERVAL_NS,
     TRUSTED_TIME_HEAD_ANCHOR_WORKER_RETRY_INTERVAL_NS,
@@ -24,6 +28,7 @@ from packages.application.trusted_time_head_anchor_worker import (
     TrustedTimeHeadAnchorFatalReason,
     TrustedTimeHeadAnchorTransientFailure,
     TrustedTimeHeadAnchorWorkerCore,
+    TrustedTimeHeadAnchorWorkerError,
     TrustedTimeHeadAnchorWorkerStatus,
     TrustedTimeHeadAnchorWorkRequest,
 )
@@ -41,23 +46,68 @@ BASE = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
 SECOND_NS = 1_000_000_000
 
 
+def _clean_stop_terminal_result(
+    request: TrustedTimeHeadAnchorWorkRequest,
+    *,
+    scheduled_monotonic_ns: int | None = None,
+) -> TrustedTimeHeadAnchorCleanStopTerminalResult:
+    return _issue_trusted_time_head_anchor_clean_stop_terminal_result(
+        request_identity=request,
+        request_sequence=request.request_sequence,
+        request_scheduled_monotonic_ns=(
+            request.scheduled_monotonic_ns
+            if scheduled_monotonic_ns is None
+            else scheduled_monotonic_ns
+        ),
+        anchor_sequence=3,
+        checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP,
+        confirmed_anchor_count=3,
+        local_transition_count=3,
+        confirmed_anchor_local_transition_ordinal=3,
+        predecessor_anchor_sha256="1" * 64,
+        current_host_head_sha256="a" * 64,
+        current_anchor_sha256="b" * 64,
+        current_anchor_semantic_sha256="c" * 64,
+        receipt_observed_at_utc=BASE,
+        full_audit_completed=request.full_audit,
+        prior_pending_intent_recovered=False,
+        uploaded_anchor_count=1,
+        idempotent_duplicate_count=0,
+        current_anchor_intent_semantic_sha256="f" * 64,
+        current_candidate_remote_readback_sha256="b" * 64,
+        current_receipt_semantic_sha256="e" * 64,
+    )
+
+
 def _attempt_result(
     request: TrustedTimeHeadAnchorWorkRequest,
     *,
     at_utc: datetime = BASE,
     candidate: bool = True,
 ) -> TrustedTimeHeadAnchorAttemptResult:
+    current_anchor_sha256 = "b" * 64
+    clean_stop_terminal_result = None
+    if request.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP and candidate:
+        clean_stop_terminal_result = _clean_stop_terminal_result(request)
     return TrustedTimeHeadAnchorAttemptResult(
         request_sequence=request.request_sequence,
         checkpoint_reason=request.checkpoint_reason,
         current_host_head_sha256="a" * 64,
-        current_anchor_sha256="b" * 64,
+        current_anchor_sha256=current_anchor_sha256,
         current_anchor_semantic_sha256="c" * 64,
         completed_at_utc=at_utc,
         full_audit_completed=request.full_audit,
         pending_intent_recovered=False,
-        candidate_remote_readback_sha256="d" * 64 if candidate else None,
+        candidate_remote_readback_sha256=(
+            current_anchor_sha256
+            if candidate
+            and request.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP
+            else "d" * 64
+            if candidate
+            else None
+        ),
         receipt_semantic_sha256="e" * 64 if candidate else None,
+        clean_stop_terminal_result=clean_stop_terminal_result,
     )
 
 
@@ -368,6 +418,157 @@ def test_clean_stop_is_one_terminal_attempt_and_transient_failure_does_not_retry
     assert core.take_work(observed_at_monotonic_ns=10**12) is None
 
 
+def test_clean_stop_success_requires_its_current_readback_and_receipt() -> None:
+    core = TrustedTimeHeadAnchorWorkerCore(started_at_monotonic_ns=0)
+    _complete_startup(core, at=0)
+    core.request_clean_stop(observed_at_monotonic_ns=1)
+    clean = core.take_work(observed_at_monotonic_ns=1)
+    assert clean is not None
+
+    forged = object.__new__(TrustedTimeHeadAnchorAttemptResult)
+    for field_name, value in {
+        "request_sequence": clean.request_sequence,
+        "checkpoint_reason": clean.checkpoint_reason,
+        "current_host_head_sha256": "a" * 64,
+        "current_anchor_sha256": "b" * 64,
+        "current_anchor_semantic_sha256": "c" * 64,
+        "completed_at_utc": BASE,
+        "full_audit_completed": clean.full_audit,
+        "pending_intent_recovered": False,
+        "candidate_remote_readback_sha256": None,
+        "receipt_semantic_sha256": None,
+        "clean_stop_terminal_result": None,
+    }.items():
+        object.__setattr__(forged, field_name, value)
+
+    with pytest.raises(TrustedTimeHeadAnchorWorkerError, match="attempt result is invalid"):
+        core.record_success(
+            clean,
+            forged,
+            observed_at_monotonic_ns=1,
+        )
+
+    evidence = core.evidence(observed_at_monotonic_ns=1)
+    assert evidence.status is TrustedTimeHeadAnchorWorkerStatus.FATAL
+    assert evidence.clean_shutdown_completed is False
+
+
+def test_clean_stop_with_current_receipt_succeeds_and_non_stop_reobservation_is_unchanged() -> None:
+    core = TrustedTimeHeadAnchorWorkerCore(started_at_monotonic_ns=0)
+    _complete_startup(core, at=0)
+    core.request_on_demand(observed_at_monotonic_ns=1)
+    reobserved = core.take_work(observed_at_monotonic_ns=1)
+    assert reobserved is not None
+    core.record_success(
+        reobserved,
+        _attempt_result(reobserved, candidate=False),
+        observed_at_monotonic_ns=1,
+    )
+    core.request_clean_stop(observed_at_monotonic_ns=2)
+    clean = core.take_work(observed_at_monotonic_ns=2)
+    assert clean is not None
+    core.record_success(
+        clean,
+        _attempt_result(clean, candidate=True),
+        observed_at_monotonic_ns=2,
+    )
+
+    evidence = core.evidence(observed_at_monotonic_ns=2)
+    assert evidence.status is TrustedTimeHeadAnchorWorkerStatus.STOPPED
+    assert evidence.clean_shutdown_completed is True
+    terminal = core.clean_stop_terminal_result
+    assert type(terminal) is TrustedTimeHeadAnchorCleanStopTerminalResult
+    assert terminal.request_sequence == clean.request_sequence
+    assert terminal.request_scheduled_monotonic_ns == clean.scheduled_monotonic_ns
+
+
+def test_clean_stop_terminal_result_is_bound_to_one_exact_request_and_core() -> None:
+    first = TrustedTimeHeadAnchorWorkerCore(started_at_monotonic_ns=0)
+    second = TrustedTimeHeadAnchorWorkerCore(started_at_monotonic_ns=0)
+    third = TrustedTimeHeadAnchorWorkerCore(started_at_monotonic_ns=0)
+    for core in (first, second, third):
+        _complete_startup(core, at=0)
+        core.request_clean_stop(observed_at_monotonic_ns=1)
+    first_request = first.take_work(observed_at_monotonic_ns=1)
+    second_request = second.take_work(observed_at_monotonic_ns=1)
+    third_request = third.take_work(observed_at_monotonic_ns=1)
+    assert first_request is not None
+    assert second_request is not None
+    assert third_request is not None
+    assert first_request == second_request == third_request
+    assert first_request is not second_request
+    result = _attempt_result(first_request)
+
+    with pytest.raises(
+        TrustedTimeHeadAnchorWorkerError,
+        match="terminal result conflicts with its request",
+    ):
+        second.record_success(second_request, result, observed_at_monotonic_ns=1)
+    assert second.fatal_error_latched is True
+
+    fresh_result = _attempt_result(first_request)
+    first.record_success(first_request, fresh_result, observed_at_monotonic_ns=1)
+    assert first.clean_stop_terminal_result is fresh_result.clean_stop_terminal_result
+
+    with pytest.raises(
+        TrustedTimeHeadAnchorWorkerError,
+        match="terminal result conflicts with its request",
+    ):
+        third.record_success(third_request, fresh_result, observed_at_monotonic_ns=1)
+    assert third.fatal_error_latched is True
+
+
+def test_worker_crossbinds_terminal_schedule_and_forbids_it_on_non_stop_results() -> None:
+    core = TrustedTimeHeadAnchorWorkerCore(started_at_monotonic_ns=0)
+    _complete_startup(core, at=0)
+    core.request_clean_stop(observed_at_monotonic_ns=1)
+    clean = core.take_work(observed_at_monotonic_ns=1)
+    assert clean is not None
+    wrong_schedule = _clean_stop_terminal_result(
+        clean,
+        scheduled_monotonic_ns=clean.scheduled_monotonic_ns + 1,
+    )
+    result = TrustedTimeHeadAnchorAttemptResult(
+        request_sequence=clean.request_sequence,
+        checkpoint_reason=clean.checkpoint_reason,
+        current_host_head_sha256="a" * 64,
+        current_anchor_sha256="b" * 64,
+        current_anchor_semantic_sha256="c" * 64,
+        completed_at_utc=BASE,
+        full_audit_completed=clean.full_audit,
+        pending_intent_recovered=False,
+        candidate_remote_readback_sha256="b" * 64,
+        receipt_semantic_sha256="e" * 64,
+        clean_stop_terminal_result=wrong_schedule,
+    )
+
+    with pytest.raises(TrustedTimeHeadAnchorWorkerError, match="conflicts with its request"):
+        core.record_success(clean, result, observed_at_monotonic_ns=1)
+    assert core.fatal_error_latched is True
+
+    non_stop = TrustedTimeHeadAnchorWorkRequest(
+        request_sequence=clean.request_sequence,
+        checkpoint_reason=TrustedTimeHeadAnchorCheckpointReason.PERIODIC,
+        full_audit=False,
+        allow_enrollment=False,
+        scheduled_monotonic_ns=clean.scheduled_monotonic_ns,
+    )
+    with pytest.raises(TrustedTimeHeadAnchorWorkerError, match="non-stop result"):
+        TrustedTimeHeadAnchorAttemptResult(
+            request_sequence=non_stop.request_sequence,
+            checkpoint_reason=non_stop.checkpoint_reason,
+            current_host_head_sha256="a" * 64,
+            current_anchor_sha256="b" * 64,
+            current_anchor_semantic_sha256="c" * 64,
+            completed_at_utc=BASE,
+            full_audit_completed=False,
+            pending_intent_recovered=False,
+            candidate_remote_readback_sha256="b" * 64,
+            receipt_semantic_sha256="e" * 64,
+            clean_stop_terminal_result=wrong_schedule,
+        )
+
+
 class _Clock:
     def __init__(self) -> None:
         self.value = 0
@@ -416,6 +617,59 @@ def test_background_notification_never_waits_for_inflight_external_attempt() -> 
     release_attempt.set()
     notifier.join(timeout=1)
     assert worker.close(timeout_seconds=1, clean_stop=False) is True
+
+
+def test_background_close_cannot_promote_a_no_receipt_clean_stop_result() -> None:
+    clock = _Clock()
+    startup_attempted = threading.Event()
+    clean_attempted = threading.Event()
+    fatal = threading.Event()
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        if request.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP:
+            clean_attempted.set()
+            return _attempt_result(request, candidate=False)
+        startup_attempted.set()
+        return _attempt_result(request)
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=clock,
+        on_fatal=fatal.set,
+    )
+    worker.start()
+    assert startup_attempted.wait(timeout=1)
+
+    assert worker.close(timeout_seconds=1, clean_stop=True) is False
+    assert clean_attempted.is_set() is True
+    assert fatal.wait(timeout=1)
+    assert worker.fatal_error_latched is True
+
+
+def test_background_close_can_return_only_the_exact_sealed_clean_stop_result() -> None:
+    clock = _Clock()
+    startup_attempted = threading.Event()
+
+    def attempt(request: TrustedTimeHeadAnchorWorkRequest) -> TrustedTimeHeadAnchorAttemptResult:
+        if request.checkpoint_reason is not TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP:
+            startup_attempted.set()
+        return _attempt_result(request)
+
+    worker = TrustedTimeHeadAnchorBackgroundWorker(
+        attempt=attempt,
+        monotonic_clock=clock,
+        on_fatal=lambda: None,
+    )
+    assert worker.close_with_clean_stop_terminal_result(timeout_seconds=1) is None
+    worker.start()
+    assert startup_attempted.wait(timeout=1)
+
+    terminal = worker.close_with_clean_stop_terminal_result(timeout_seconds=1)
+
+    assert type(terminal) is TrustedTimeHeadAnchorCleanStopTerminalResult
+    terminal.__post_init__()
+    assert terminal.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP
+    assert worker.close(timeout_seconds=1) is True
 
 
 def test_background_start_requires_explicit_local_prime_when_primer_is_bound() -> None:

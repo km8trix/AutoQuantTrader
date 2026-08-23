@@ -46,7 +46,9 @@ from scripts.trusted_time_post_enrollment_staged_topology import (
     POST_ENROLLMENT_STAGED_TOPOLOGY_CONTRACT_VERSION,
     POST_ENROLLMENT_STAGED_TOPOLOGY_STATUS,
     TrustedTimePostEnrollmentAbsentPathCandidate,
+    TrustedTimePostEnrollmentAbsentPathProjection,
     TrustedTimePostEnrollmentConsumedMarkerCandidate,
+    TrustedTimePostEnrollmentConsumedMarkerProjection,
     TrustedTimePostEnrollmentStagedTopologyRejected,
     TrustedTimePostEnrollmentStagedUnreleasedTopologySnapshot,
     validate_post_enrollment_start_staged_unreleased_topology,
@@ -495,10 +497,29 @@ def _marker_candidate(**changes: object) -> TrustedTimePostEnrollmentConsumedMar
     return TrustedTimePostEnrollmentConsumedMarkerCandidate(**values)  # type: ignore[arg-type]
 
 
-def _absence_candidates(
+def _consumed_marker_projection(
+    **changes: object,
+) -> TrustedTimePostEnrollmentConsumedMarkerProjection:
+    values: dict[str, object] = {
+        "device": 4,
+        "inode": 5,
+        "modified_time_ns": 6,
+        "changed_time_ns": 7,
+    }
+    values.update(changes)
+    return (
+        "trusted-time-consumed-marker-projection-v1",
+        cast(int, values["device"]),
+        cast(int, values["inode"]),
+        cast(int, values["modified_time_ns"]),
+        cast(int, values["changed_time_ns"]),
+    )
+
+
+def _absence_projections(
     paths: list[str],
-) -> tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...]:
-    return tuple(TrustedTimePostEnrollmentAbsentPathCandidate(path=path) for path in paths)
+) -> tuple[TrustedTimePostEnrollmentAbsentPathProjection, ...]:
+    return tuple(("trusted-time-absent-path-projection-v1", path) for path in paths)
 
 
 def _valid_inputs(root: Path) -> dict[str, object]:
@@ -576,12 +597,12 @@ def _valid_inputs(root: Path) -> dict[str, object]:
         "expected_head_anchor_authority_file": paths["authority"],
         "expected_head_anchor_auth_secret_file": paths["auth"],
         "expected_head_anchor_signing_key_secret_file": paths["signing"],
-        "database_secret_consumed_before": _marker_candidate(),
-        "database_secret_consumed_after": _marker_candidate(),
-        "release_path_absences_before": _absence_candidates(release_paths),
-        "release_path_absences_after": _absence_candidates(list(reversed(release_paths))),
-        "staged_input_retirements_before": _absence_candidates(staged_path_strings),
-        "staged_input_retirements_after": _absence_candidates(list(reversed(staged_path_strings))),
+        "database_secret_consumed_before": _consumed_marker_projection(),
+        "database_secret_consumed_after": _consumed_marker_projection(),
+        "release_path_absences_before": _absence_projections(release_paths),
+        "release_path_absences_after": _absence_projections(list(reversed(release_paths))),
+        "staged_input_retirements_before": _absence_projections(staged_path_strings),
+        "staged_input_retirements_after": _absence_projections(list(reversed(staged_path_strings))),
     }
 
 
@@ -1058,7 +1079,19 @@ def test_consumed_marker_candidate_rejects_wrong_types_metadata_and_huge_integer
 
 def test_staged_topology_rejects_consumed_marker_two_pass_race(tmp_path: Path) -> None:
     inputs = _valid_inputs(tmp_path)
-    inputs["database_secret_consumed_after"] = _marker_candidate(inode=6)
+    inputs["database_secret_consumed_after"] = _consumed_marker_projection(inode=6)
+
+    with pytest.raises(TrustedTimePostEnrollmentStagedTopologyRejected):
+        _validate(inputs)
+
+
+def test_staged_topology_rejects_consumed_marker_tag_subclass(tmp_path: Path) -> None:
+    inputs = _valid_inputs(tmp_path)
+    projection = _consumed_marker_projection()
+    inputs["database_secret_consumed_after"] = (
+        _EqualString(tuple.__getitem__(projection, 0)),
+        *tuple.__getitem__(projection, slice(1, None)),
+    )
 
     with pytest.raises(TrustedTimePostEnrollmentStagedTopologyRejected):
         _validate(inputs)
@@ -1093,7 +1126,7 @@ def test_absent_path_candidate_requires_canonical_exact_absence(
         ("release", "wrong"),
         ("release", "present_after"),
         ("release", "path_subclass_after"),
-        ("release", "status_subclass_after"),
+        ("release", "tag_subclass_after"),
         ("retirement", "missing"),
         ("retirement", "duplicate"),
         ("retirement", "wrong"),
@@ -1109,10 +1142,8 @@ def test_staged_topology_rejects_inexact_or_racing_absence_candidates(
     prefix = "release_path_absences" if family == "release" else "staged_input_retirements"
     before_key = f"{prefix}_before"
     after_key = f"{prefix}_after"
-    before = list(
-        cast(tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...], inputs[before_key])
-    )
-    after = list(cast(tuple[TrustedTimePostEnrollmentAbsentPathCandidate, ...], inputs[after_key]))
+    before = list(cast(tuple[object, ...], inputs[before_key]))
+    after = list(cast(tuple[object, ...], inputs[after_key]))
     if mutation == "missing":
         before.pop()
         after.pop()
@@ -1120,23 +1151,29 @@ def test_staged_topology_rejects_inexact_or_racing_absence_candidates(
         before[-1] = before[0]
         after[-1] = after[0]
     elif mutation == "wrong":
-        wrong = TrustedTimePostEnrollmentAbsentPathCandidate(path="/tmp/unexpected-path")
+        wrong = ("trusted-time-absent-path-projection-v1", "/tmp/unexpected-path")
         before[-1] = wrong
         after[-1] = wrong
     elif mutation == "present_after":
-        object.__setattr__(after[0], "status", "present")
+        after[0] = ("trusted-time-present-path-projection-v1", tuple.__getitem__(after[0], 1))
     elif mutation == "path_subclass_after":
 
         class EqualPath(str):
             pass
 
-        object.__setattr__(after[0], "path", EqualPath(after[0].path))
+        after[0] = (
+            "trusted-time-absent-path-projection-v1",
+            EqualPath(tuple.__getitem__(after[0], 1)),
+        )
     else:
 
-        class EqualStatus(str):
+        class EqualTag(str):
             pass
 
-        object.__setattr__(after[0], "status", EqualStatus("absent"))
+        after[0] = (
+            EqualTag("trusted-time-absent-path-projection-v1"),
+            tuple.__getitem__(after[0], 1),
+        )
     inputs[before_key] = tuple(before)
     inputs[after_key] = tuple(after)
 
@@ -1359,8 +1396,8 @@ def test_stable_snapshot_digest_changes_for_nonvolatile_observation_drift(
     baseline = _validate(_valid_inputs(tmp_path))
     inputs = _valid_inputs(tmp_path)
     if drift == "marker_identity":
-        inputs["database_secret_consumed_before"] = _marker_candidate(inode=99)
-        inputs["database_secret_consumed_after"] = _marker_candidate(inode=99)
+        inputs["database_secret_consumed_before"] = _consumed_marker_projection(inode=99)
+        inputs["database_secret_consumed_after"] = _consumed_marker_projection(inode=99)
     else:
         inspections = cast(dict[str, object], inputs["container_inspections"])
         if drift == "pid":
@@ -1397,11 +1434,7 @@ def test_staged_snapshot_isolated_copy_and_digest_remain_stable(tmp_path: Path) 
     inspections = cast(dict[str, list[dict[str, object]]], inputs["container_inspections"])
     inspections[SOURCE_CONTAINER_ID][0]["Image"] = "sha256:" + "e" * 64
     cast(dict[str, object], inputs["source_image_configuration"])["User"] = "0:0"
-    marker = cast(
-        TrustedTimePostEnrollmentConsumedMarkerCandidate,
-        inputs["database_secret_consumed_before"],
-    )
-    object.__setattr__(marker, "inode", 999)
+    inputs["database_secret_consumed_before"] = _consumed_marker_projection(inode=999)
 
     assert snapshot.payload() == original_payload
     assert snapshot.snapshot_sha256 == original_digest

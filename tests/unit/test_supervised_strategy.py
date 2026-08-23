@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -46,6 +47,15 @@ from packages.persistence.strategy_invocation_lifecycle import (
 _CONFIGURATION_SHA256 = "a" * 64
 _STATE_SHA256 = "b" * 64
 _ARTIFACT_SHA256 = "c" * 64
+
+
+def _base_python_executable() -> str:
+    candidate = (
+        Path(sys.base_prefix) / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    )
+    assert candidate.is_file()
+    assert not candidate.is_symlink()
+    return str(candidate)
 
 
 def _batch() -> MarketBatch:
@@ -92,9 +102,10 @@ def _large_batch() -> MarketBatch:
     return replay_market_events(events=events, watermarks=(watermark,)).batches[0]
 
 
-def _spec(script: str, *, executable: str = sys.executable) -> StrategySubprocessSpec:
+def _spec(script: str, *, executable: str | None = None) -> StrategySubprocessSpec:
+    resolved_executable = _base_python_executable() if executable is None else executable
     return StrategySubprocessSpec(
-        argv=(executable, "-c", script),
+        argv=(resolved_executable, "-c", script),
         runtime_id="test-cpython",
         runtime_version=f"{sys.version_info.major}.{sys.version_info.minor}",
         artifact_sha256=_ARTIFACT_SHA256,

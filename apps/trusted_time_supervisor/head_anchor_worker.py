@@ -12,6 +12,9 @@ from packages.application.durable_trusted_time_monitor import PersistedTrustedTi
 from packages.application.trusted_time_head_anchor import (
     TrustedTimeHeadAnchorCheckpointReason,
 )
+from packages.application.trusted_time_head_anchor_clean_stop import (
+    TrustedTimeHeadAnchorCleanStopTerminalResult,
+)
 from packages.application.trusted_time_head_anchor_worker import (
     TrustedTimeHeadAnchorAttempt,
     TrustedTimeHeadAnchorAttemptResult,
@@ -760,6 +763,36 @@ class TrustedTimeHeadAnchorBackgroundWorker:
             return True
         with self._condition:
             return self._core_locked().clean_shutdown_completed
+
+    def close_with_clean_stop_terminal_result(
+        self,
+        *,
+        timeout_seconds: float = TRUSTED_TIME_HEAD_ANCHOR_SHUTDOWN_TIMEOUT_SECONDS,
+    ) -> TrustedTimeHeadAnchorCleanStopTerminalResult | None:
+        """Close within the existing bound and return only exact new-record evidence.
+
+        ``None`` means that no sealed current-request terminal result was
+        accepted.  It never represents an unchanged-head or no-new-record
+        success and grants no stop, signal, admission, or teardown authority.
+        """
+
+        with self._condition:
+            if self._thread is None:
+                return None
+        if not self.close(timeout_seconds=timeout_seconds, clean_stop=True):
+            return None
+        callback: Callable[[], object] | None = None
+        with self._condition:
+            try:
+                result = self._core_locked().clean_stop_terminal_result
+                if type(result) is not TrustedTimeHeadAnchorCleanStopTerminalResult:
+                    return None
+                result.__post_init__()
+            except Exception:
+                callback = self._latch_runtime_fatal_locked()
+                result = None
+        self._invoke_fatal_callback(callback)
+        return result
 
 
 def system_monotonic_ns() -> int:

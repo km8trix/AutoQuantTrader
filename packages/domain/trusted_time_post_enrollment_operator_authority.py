@@ -48,6 +48,18 @@ POST_ENROLLMENT_OPERATOR_AUTHORITY_FIELDS = frozenset(
 )
 
 _RAW_ED25519_PUBLIC_KEY_BYTES = 32
+_ED25519_FIELD_PRIME = 2**255 - 19
+_ED25519_SUBGROUP_ORDER = 2**252 + 27742317777372353535851937790883648493
+_ED25519_D = (
+    -121665 * pow(121666, _ED25519_FIELD_PRIME - 2, _ED25519_FIELD_PRIME)
+) % _ED25519_FIELD_PRIME
+_ED25519_SQRT_MINUS_ONE = pow(
+    2,
+    (_ED25519_FIELD_PRIME - 1) // 4,
+    _ED25519_FIELD_PRIME,
+)
+
+_EdwardsExtendedPoint = tuple[int, int, int, int]
 
 
 class TrustedTimePostEnrollmentOperatorAuthorityError(ValueError):
@@ -60,6 +72,115 @@ class _InvalidAuthority(ValueError):
 
 def _invalid() -> Never:
     raise _InvalidAuthority
+
+
+def _decode_canonical_ed25519_point(encoded: bytes) -> tuple[int, int] | None:
+    """Decode one canonical compressed Edwards25519 point, if it exists."""
+
+    encoded_integer = int.from_bytes(encoded, "little")
+    x_sign = encoded_integer >> 255
+    y = encoded_integer & ((1 << 255) - 1)
+    if y >= _ED25519_FIELD_PRIME:
+        return None
+
+    y_squared = y * y % _ED25519_FIELD_PRIME
+    denominator = (_ED25519_D * y_squared + 1) % _ED25519_FIELD_PRIME
+    if denominator == 0:
+        return None
+    x_squared = (
+        (y_squared - 1)
+        * pow(
+            denominator,
+            _ED25519_FIELD_PRIME - 2,
+            _ED25519_FIELD_PRIME,
+        )
+        % _ED25519_FIELD_PRIME
+    )
+    x = pow(
+        x_squared,
+        (_ED25519_FIELD_PRIME + 3) // 8,
+        _ED25519_FIELD_PRIME,
+    )
+    if x * x % _ED25519_FIELD_PRIME != x_squared:
+        x = x * _ED25519_SQRT_MINUS_ONE % _ED25519_FIELD_PRIME
+    if x * x % _ED25519_FIELD_PRIME != x_squared:
+        return None
+    if x & 1 != x_sign:
+        x = (-x) % _ED25519_FIELD_PRIME
+    if x == 0 and x_sign != 0:
+        return None
+    return x, y
+
+
+def _add_edwards_extended_points(
+    left: _EdwardsExtendedPoint,
+    right: _EdwardsExtendedPoint,
+) -> _EdwardsExtendedPoint:
+    """Use the complete a=-1 extended-coordinate Edwards addition law."""
+
+    x1, y1, z1, t1 = left
+    x2, y2, z2, t2 = right
+    a = (y1 - x1) * (y2 - x2) % _ED25519_FIELD_PRIME
+    b = (y1 + x1) * (y2 + x2) % _ED25519_FIELD_PRIME
+    c = 2 * _ED25519_D * t1 * t2 % _ED25519_FIELD_PRIME
+    d = 2 * z1 * z2 % _ED25519_FIELD_PRIME
+    e = (b - a) % _ED25519_FIELD_PRIME
+    f = (d - c) % _ED25519_FIELD_PRIME
+    g = (d + c) % _ED25519_FIELD_PRIME
+    h = (b + a) % _ED25519_FIELD_PRIME
+    return (
+        e * f % _ED25519_FIELD_PRIME,
+        g * h % _ED25519_FIELD_PRIME,
+        f * g % _ED25519_FIELD_PRIME,
+        e * h % _ED25519_FIELD_PRIME,
+    )
+
+
+def _multiply_edwards_point(
+    scalar: int,
+    point: _EdwardsExtendedPoint,
+) -> _EdwardsExtendedPoint:
+    result: _EdwardsExtendedPoint = (0, 1, 1, 0)
+    addend = point
+    while scalar:
+        if scalar & 1:
+            result = _add_edwards_extended_points(result, addend)
+        addend = _add_edwards_extended_points(addend, addend)
+        scalar >>= 1
+    return result
+
+
+def _is_edwards_identity(point: _EdwardsExtendedPoint) -> bool:
+    x, y, z, _ = point
+    return z != 0 and x == 0 and (y - z) % _ED25519_FIELD_PRIME == 0
+
+
+def require_strict_post_enrollment_operator_public_key(public_key_bytes: object) -> bytes:
+    """Require one canonical nonidentity point in the prime-order Ed25519 subgroup.
+
+    The key is public, so this validation need not be fixed-time.  Full subgroup
+    membership is required rather than a blacklist of known low-order encodings.
+    """
+
+    if (
+        type(public_key_bytes) is not bytes
+        or len(public_key_bytes) != _RAW_ED25519_PUBLIC_KEY_BYTES
+    ):
+        raise TrustedTimePostEnrollmentOperatorAuthorityError(
+            "trusted-time post-enrollment operator authority is invalid"
+        )
+    affine = _decode_canonical_ed25519_point(public_key_bytes)
+    if affine is None or affine == (0, 1):
+        raise TrustedTimePostEnrollmentOperatorAuthorityError(
+            "trusted-time post-enrollment operator authority is invalid"
+        )
+    x, y = affine
+    extended: _EdwardsExtendedPoint = (x, y, 1, x * y % _ED25519_FIELD_PRIME)
+    if not _is_edwards_identity(_multiply_edwards_point(_ED25519_SUBGROUP_ORDER, extended)):
+        raise TrustedTimePostEnrollmentOperatorAuthorityError(
+            "trusted-time post-enrollment operator authority is invalid"
+        )
+    return public_key_bytes
 
 
 def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -122,7 +243,7 @@ def _raw_public_key_from_payload(payload: dict[str, object]) -> bytes:
         or hashlib.sha256(public_key_bytes).hexdigest() != public_key_sha256
     ):
         _invalid()
-    return public_key_bytes
+    return require_strict_post_enrollment_operator_public_key(public_key_bytes)
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,13 +253,7 @@ class TrustedTimePostEnrollmentOperatorAuthority:
     public_key_bytes: bytes = field(repr=False)
 
     def __post_init__(self) -> None:
-        if (
-            type(self.public_key_bytes) is not bytes
-            or len(self.public_key_bytes) != _RAW_ED25519_PUBLIC_KEY_BYTES
-        ):
-            raise TrustedTimePostEnrollmentOperatorAuthorityError(
-                "trusted-time post-enrollment operator authority is invalid"
-            )
+        require_strict_post_enrollment_operator_public_key(self.public_key_bytes)
 
     @property
     def public_key_base64(self) -> str:
@@ -263,4 +378,5 @@ __all__ = [
     "canonical_post_enrollment_operator_authority_bytes",
     "decode_post_enrollment_operator_authority",
     "post_enrollment_operator_authority_artifact_sha256",
+    "require_strict_post_enrollment_operator_public_key",
 ]

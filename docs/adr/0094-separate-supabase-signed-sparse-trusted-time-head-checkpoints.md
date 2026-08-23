@@ -211,14 +211,14 @@ and requires the reviewed path set, modes, and stable checkout bytes to equal
 bounded `ls-tree`/`cat-file` HEAD results. Non-exempt ignored or info-excluded
 additions inside reviewed source directories remain fatal.
 
-Supported Make entry points create a fresh locked, offline uv environment,
-reject the reusable repository `.venv`, run Python with `-I -B` and a
-`/dev/null` bytecode-cache prefix, and attest canonical first-party source
-origins before operational work. This does not independently authenticate uv,
-the base interpreter, or the global uv content cache. The separately approved
-2026-08-05 operator-local cache prewarm installed the exact lock graph and the
-isolated runtime reported `cryptography==49.0.0`; a clean host without those
-locked cache objects remains fail-closed offline.
+The Make entry points added by this historical slice used a fresh locked,
+offline uv environment and rejected the reusable repository `.venv`. That
+legacy path does not independently authenticate uv, the base interpreter, or
+project build hooks and is no longer an admitted production boundary.
+Production is blocked pending the fixed preinstalled root-owned read-only
+launcher/runtime and trusted pre-entry service/container policy. The separately
+approved 2026-08-05 cache-prewarm observation is historical evidence only; a
+clean host without those locked cache objects remains fail-closed offline.
 
 The builder does not expose the live checkout to Docker. It constructs one
 bounded deterministic tar from allowlisted HEAD blobs, validates the exact

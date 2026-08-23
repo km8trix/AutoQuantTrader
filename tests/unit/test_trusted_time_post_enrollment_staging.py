@@ -295,8 +295,10 @@ def test_prepare_returns_exact_non_authorizing_handoff_in_fixed_order(
         "--user",
         POST_ENROLLMENT_START_CONTAINER_USER,
         SUPERVISOR_CONTAINER_ID,
-        POST_ENROLLMENT_START_RELEASE_COMMAND,
+        "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+        "post-enrollment-release",
     )
+    assert expected_argv[-2:] == POST_ENROLLMENT_START_RELEASE_COMMAND
     assert type(handoff) is TrustedTimePostEnrollmentStartStagingHandoff
     assert handoff.approval is approval
     assert handoff.approval_sha256 == approval.approval_sha256
@@ -1184,7 +1186,7 @@ def test_close_failure_before_claim_is_rejected_without_retention(
         )
 
     assert issuer.reauthentication_calls == 1
-    assert issuer.close_calls == 1
+    assert issuer.close_calls == 4
     assert not issuer.closed
     assert not (artifact_directory / POST_ENROLLMENT_START_CLAIM_FILE_NAME).exists()
 

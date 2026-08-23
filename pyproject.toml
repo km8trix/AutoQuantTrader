@@ -1,12 +1,19 @@
 [build-system]
-requires = ["hatchling>=1.27,<2"]
+requires = [
+  "hatchling==1.32.0",
+  "packaging==26.3",
+  "pathspec==1.1.1",
+  "pluggy==1.6.0",
+  "tomlkit==0.15.1",
+  "trove-classifiers==2026.6.1.19",
+]
 build-backend = "hatchling.build"
 
 [project]
 name = "autoquant-trader"
 version = "0.1.0"
 description = "A safety-first quantitative algorithmic trading platform."
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
   "alembic>=1.14,<2",
   "cryptography>=49,<50",
@@ -41,8 +48,34 @@ dev = [
   "ruff>=0.9,<1",
 ]
 
+[tool.uv]
+build-constraint-dependencies = [
+  "hatchling==1.32.0",
+  "packaging==26.3",
+  "pathspec==1.1.1",
+  "pluggy==1.6.0",
+  "tomlkit==0.15.1",
+  "trove-classifiers==2026.6.1.19",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["apps", "packages"]
+exclude = ["packages/adapters/trusted_time/_bounded_process.py"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "build_support/native_owned_file_descriptor_hook.py"
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/.uv-cache", "build_support/build_native_test_launcher.py"]
+
+[tool.hatch.build.targets.sdist.force-include]
+"build_support/native_build_constraints.txt" = "build_support/native_build_constraints.txt"
+"build_support/native_image_manifest.py" = "build_support/native_image_manifest.py"
+"build_support/native_owned_file_descriptor_hook.py" = "build_support/native_owned_file_descriptor_hook.py"
+"native/bounded_process.c" = "native/bounded_process.c"
+"native/owned_file_descriptor.c" = "native/owned_file_descriptor.c"
+"native/trusted_time_python_launcher.c" = "native/trusted_time_python_launcher.c"
+"packages/adapters/trusted_time/_bounded_process.py" = "packages/adapters/trusted_time/_bounded_process.py"
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"

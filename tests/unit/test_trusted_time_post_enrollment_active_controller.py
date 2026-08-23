@@ -1066,65 +1066,108 @@ def test_current_scope_adoption_never_swallows_an_async_query_interruption(
 
 
 def test_pre_effect_probe_requires_all_six_runtime_names_absent() -> None:
-    compile(controller._PRE_EFFECT_RUNTIME_ABSENCE_PROBE_SOURCE, "<pre-effect>", "exec")
-    compile(controller._PERSISTENT_BARRIER_PROBE_SOURCE, "<persistent>", "exec")
-
-    class Issuer:
-        _docker_executable_path = Path("/usr/bin/docker")
-
-        def _run_json(self, _receipts: object, **kwargs: object) -> dict[str, object]:
-            assert kwargs["label"] == "pre_effect_runtime_absences"
-            argv = cast(tuple[str, ...], kwargs["argv"])
-            assert argv[-1] == controller._PRE_EFFECT_RUNTIME_ABSENCE_PROBE_SOURCE
-            return {
-                "absences": [
-                    {"path": path, "status": "absent"}
-                    for path in controller._PRE_EFFECT_RUNTIME_PATHS
-                ],
-                "contract_version": (controller._PRE_EFFECT_RUNTIME_ABSENCE_PROBE_CONTRACT_VERSION),
-            }
-
-    observed = controller._observe_pre_effect_runtime_absences(
-        cast(Any, Issuer()),
-        [],
-        supervisor_container_id="b" * 64,
+    assert controller._PRE_EFFECT_RUNTIME_ABSENCE_COMMAND == (
+        "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+        "post-enrollment-pre-effect-runtime-absence",
     )
 
-    assert tuple(candidate.path for candidate in observed) == controller._PRE_EFFECT_RUNTIME_PATHS
+    observed = reader._parse_pre_effect_absence_probe(reader._PRE_EFFECT_ABSENCE_BYTES)
+
+    assert tuple(projection[1] for projection in observed[3]) == (
+        controller._PRE_EFFECT_RUNTIME_PATHS
+    )
+    assert observed[1] == len(reader._PRE_EFFECT_ABSENCE_BYTES)
+    assert observed[2] == reader._raw_sha256(reader._PRE_EFFECT_ABSENCE_BYTES)
     assert len(set(controller._PRE_EFFECT_RUNTIME_PATHS)) == 6
 
 
-def test_runtime_state_binds_the_dynamic_deadline_marker_digest(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    payload: dict[str, object] = {
-        field_name: False for field_name in controller._RUNTIME_STATE_CLOSED_FIELDS
-    }
-    payload.update(
-        {
-            "contract_version": controller.POST_ENROLLMENT_RUNTIME_STATE_CONTRACT_VERSION,
-            "release_marker_sha256": controller.POST_ENROLLMENT_START_RELEASE_SHA256,
-            "sequence_two_deadline_marker_sha256": "d" * 64,
-            "sequence_two_ready_marker_sha256": (
-                controller.POST_ENROLLMENT_START_SEQUENCE_TWO_READY_SHA256
-            ),
-            "service": "trusted-time-supervisor",
-            "status": controller.POST_ENROLLMENT_RUNTIME_STATE_STATUS,
-        }
+def test_exact_control_consumes_only_the_identity_bound_four_tuple() -> None:
+    observed: list[tuple[tuple[str, ...], dict[str, object]]] = []
+
+    class Issuer:
+        def _run_bound_control(self, argv: tuple[str, ...], **kwargs: object) -> object:
+            observed.append((argv, dict(kwargs)))
+            return (argv, 0, b"payload\n", b"")
+
+    argv = ("/usr/bin/docker", "inspect", "container")
+    assert (
+        controller._run_exact_control(
+            cast(Any, Issuer()),
+            argv=argv,
+            timeout_seconds=2.0,
+            maximum_stdout_bytes=8,
+            require_empty_stdout=False,
+        )
+        == b"payload\n"
     )
-    monkeypatch.setattr(
-        controller,
-        "_run_exact_control",
-        lambda *args, **kwargs: (
-            json.dumps(
-                payload,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode()
-            + b"\n"
-        ),
-    )
-    issuer = SimpleNamespace(_docker_executable_path=Path("/usr/bin/docker"))
+    assert observed == [
+        (
+            argv,
+            {
+                "maximum_stderr_bytes": 4 * 1_024,
+                "maximum_stdout_bytes": 8,
+                "timeout_seconds": 2.0,
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "legacy_object",
+        "tuple_subclass",
+        "copied_argv",
+        "boolean_returncode",
+        "mutable_stdout",
+        "text_stderr",
+        "extra_slot",
+    ],
+)
+def test_exact_control_rejects_legacy_or_inexact_result_authority(kind: str) -> None:
+    class TupleSubclass(tuple[object, ...]):
+        pass
+
+    class Issuer:
+        def _run_bound_control(self, argv: tuple[str, ...], **_kwargs: object) -> object:
+            if kind == "legacy_object":
+                return SimpleNamespace(args=argv, returncode=0, stdout=b"payload\n", stderr=b"")
+            if kind == "tuple_subclass":
+                return TupleSubclass((argv, 0, b"payload\n", b""))
+            if kind == "copied_argv":
+                copied_argv = tuple(list(argv))
+                assert copied_argv == argv and copied_argv is not argv
+                return (copied_argv, 0, b"payload\n", b"")
+            if kind == "boolean_returncode":
+                return (argv, False, b"payload\n", b"")
+            if kind == "mutable_stdout":
+                return (argv, 0, bytearray(b"payload\n"), b"")
+            if kind == "text_stderr":
+                return (argv, 0, b"payload\n", "")
+            return (argv, 0, b"payload\n", b"", None)
+
+    with pytest.raises(
+        controller._TrustedTimePostEnrollmentStartActiveControllerExecutionFailed,
+        match="command was unconfirmed",
+    ):
+        controller._run_exact_control(
+            cast(Any, Issuer()),
+            argv=("/usr/bin/docker", "inspect", "container"),
+            timeout_seconds=2.0,
+            maximum_stdout_bytes=8,
+            require_empty_stdout=False,
+        )
+
+
+def test_runtime_state_binds_the_dynamic_deadline_marker_digest() -> None:
+    observed_commands: list[tuple[str, ...]] = []
+    raw = controller._RUNTIME_STATE_PREFIX + b"d" * 64 + controller._RUNTIME_STATE_SUFFIX
+
+    def exact_control(_: object, *, argv: tuple[str, ...], **__: object) -> bytes:
+        observed_commands.append(argv)
+        return raw
+
+    issuer = object()
     checkpoint = SimpleNamespace(
         deadline_monotonic_ns=200_000_000_000,
         observed_monotonic_ns=1,
@@ -1132,18 +1175,42 @@ def test_runtime_state_binds_the_dynamic_deadline_marker_digest(
 
     observed, observed_sha256 = controller._observe_runtime_state(
         cast(Any, issuer),
-        "b" * 64,
         checkpoint,
+        _coordinates=lambda _issuer: ("/usr/bin/docker", "b" * 64, "c" * 64),
+        _run_control=exact_control,
     )
 
-    assert observed == payload
-    assert observed_sha256 == controller._canonical_sha256(payload)
-    payload["sequence_two_deadline_marker_sha256"] = "not-a-digest"
+    assert observed == (
+        "trusted-time-runtime-state-projection-v1",
+        len(raw),
+        reader._raw_sha256(raw),
+        "d" * 64,
+    )
+    assert observed_sha256 == reader._raw_sha256(raw)
+    assert observed_commands == [
+        (
+            "/usr/bin/docker",
+            "container",
+            "exec",
+            "--user",
+            "10001:10001",
+            "b" * 64,
+            "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+            "post-enrollment-runtime-state",
+        )
+    ]
     with pytest.raises(ValueError):
-        controller._observe_runtime_state(cast(Any, issuer), "b" * 64, checkpoint)
+        controller._parse_runtime_state_probe(
+            controller._RUNTIME_STATE_PREFIX + b"not-a-digest" + controller._RUNTIME_STATE_SUFFIX
+        )
 
 
 def test_persistent_barrier_binds_deadline_release_ready_chronology_and_staging_absence() -> None:
+    assert controller._PERSISTENT_BARRIER_COMMAND == (
+        "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+        "post-enrollment-persistent-barrier-read",
+    )
+
     deadline_sha256 = "d" * 64
     deadline = _runtime_marker(
         path=controller.POST_ENROLLMENT_START_SEQUENCE_TWO_DEADLINE_PATH,
@@ -1160,8 +1227,8 @@ def test_persistent_barrier_binds_deadline_release_ready_chronology_and_staging_
     )
     ready = _runtime_marker(
         path=controller.POST_ENROLLMENT_START_SEQUENCE_TWO_READY_PATH,
-        byte_sha256=controller.POST_ENROLLMENT_START_SEQUENCE_TWO_READY_SHA256,
-        size=len(controller.POST_ENROLLMENT_START_SEQUENCE_TWO_READY_BYTES),
+        byte_sha256="f8faaa629107c4b26b7c70677ee8cc98d67a69741c21fb91300e78b2d9bf5c6d",
+        size=52,
         inode=9,
         modified_time_ns=11,
         changed_time_ns=12,
@@ -1172,12 +1239,9 @@ def test_persistent_barrier_binds_deadline_release_ready_chronology_and_staging_
     }
     release_payload = {key: value for key, value in release.payload().items() if key != "status"}
 
-    class Issuer:
-        _docker_executable_path = Path("/usr/bin/docker")
-
-        def _run_json(self, _receipts: object, **kwargs: object) -> dict[str, object]:
-            assert kwargs["label"] == "persistent_barrier"
-            return {
+    raw = (
+        json.dumps(
+            {
                 "contract_version": controller._PERSISTENT_BARRIER_PROBE_CONTRACT_VERSION,
                 "database_marker": database,
                 "deadline_marker": deadline,
@@ -1187,26 +1251,32 @@ def test_persistent_barrier_binds_deadline_release_ready_chronology_and_staging_
                     for path in controller._POST_EFFECT_RUNTIME_STAGING_PATHS
                 ],
                 "sequence_marker": ready,
-            }
-
-    observed = controller._observe_persistent_barrier(
-        cast(Any, Issuer()),
-        [],
-        supervisor_container_id="b" * 64,
-        expected_deadline_marker_sha256=deadline_sha256,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        + b"\n"
+    )
+    observed = reader._parse_persistent_barrier_probe(
+        raw,
+        expected_deadline_sha256=deadline_sha256,
     )
 
-    assert observed[1] == deadline
-    assert observed[2] == release
-    assert observed[3] == ready
-    assert tuple(candidate.path for candidate in observed[4]) == (
+    assert observed[4][1] == deadline_sha256
+    assert observed[5] == persistent_fx._release_marker_projection(
+        inode=8,
+        modified_time_ns=9,
+        changed_time_ns=10,
+    )
+    assert observed[6] == ("trusted-time-ready-marker-projection-v1", 4, 9, 11, 12)
+    assert tuple(projection[1] for projection in observed[7]) == (
         controller._POST_EFFECT_RUNTIME_STAGING_PATHS
     )
-    drifted_ready = dict(ready, modified_time_ns=8)
+    drifted_ready = ("trusted-time-ready-marker-projection-v1", 4, 9, 8, 12)
     with pytest.raises(ValueError):
         controller._require_runtime_marker_chronology(
-            deadline=deadline,
-            release=release,
+            deadline=observed[4],
+            release=observed[5],
             sequence=drifted_ready,
         )
 
@@ -1222,38 +1292,33 @@ def test_final_persistent_barrier_rejects_marker_drift_after_prior_barrier(
     staged_paths = tuple(_paths(inputs).values())
     events: list[str] = []
 
-    def add_receipts(receipts: list[object], label: str, count: int) -> None:
+    def add_receipts(receipts: tuple[object, ...], label: str, count: int) -> tuple[object, ...]:
         events.append(label)
-        receipts.extend(object() for _ in range(count))
+        return receipts + tuple(object() for _ in range(count))
 
     class Issuer:
         def _begin_observation(self, exact_lease: object) -> None:
             assert exact_lease is lease
             events.append("begin")
 
-        def _observe_daemon(self, receipts: list[object]) -> object:
-            add_receipts(receipts, "daemon", 1)
-            return object()
+        def _observe_daemon(self, receipts: tuple[object, ...]) -> object:
+            return object(), add_receipts(receipts, "daemon", 1)
 
-        def _observe_volumes(self, receipts: list[object]) -> object:
-            add_receipts(receipts, "volumes", 2)
-            return object()
+        def _observe_volumes(self, receipts: tuple[object, ...]) -> object:
+            return object(), add_receipts(receipts, "volumes", 2)
 
-        def _observe_inventory(self, receipts: list[object]) -> object:
-            add_receipts(receipts, "inventory", 1)
-            return object()
+        def _observe_inventory(self, receipts: tuple[object, ...]) -> object:
+            return object(), add_receipts(receipts, "inventory", 1)
 
         def _observe_image_configurations(
             self,
-            receipts: list[object],
+            receipts: tuple[object, ...],
             **_: object,
-        ) -> tuple[object, object]:
-            add_receipts(receipts, "images", 2)
-            return object(), object()
+        ) -> tuple[object, object, tuple[object, ...]]:
+            return object(), object(), add_receipts(receipts, "images", 2)
 
-        def _observe_containers(self, receipts: list[object], **_: object) -> object:
-            add_receipts(receipts, "containers", 2)
-            return object()
+        def _observe_containers(self, receipts: tuple[object, ...], **_: object) -> object:
+            return object(), add_receipts(receipts, "containers", 2)
 
         def _fail_observation(self) -> None:
             events.append("fail")
@@ -1263,40 +1328,51 @@ def test_final_persistent_barrier_rejects_marker_drift_after_prior_barrier(
 
     def observe_network(
         _issuer: object,
-        receipts: list[object],
+        receipts: tuple[object, ...],
         **_: object,
-    ) -> tuple[object, SimpleNamespace]:
-        add_receipts(receipts, "network", 1)
-        return object(), SimpleNamespace(network_id="network", identity_sha256="1" * 64)
+    ) -> tuple[object, SimpleNamespace, tuple[object, ...]]:
+        return (
+            object(),
+            SimpleNamespace(network_id="network", identity_sha256="1" * 64),
+            add_receipts(receipts, "network", 1),
+        )
 
-    retirement = SimpleNamespace(root_identity=(1, 2, 3, 4, 5, 6), candidates=())
+    retirement = (
+        "trusted-time-anchored-retirement-observation-v1",
+        (1, 2, 3, 4, 5, 6),
+        tuple(("trusted-time-absent-path-projection-v1", path) for path in map(str, staged_paths)),
+    )
     barrier_calls = 0
-    database = object()
-    deadline = object()
-    release = object()
-    stable_sequence = object()
-    drifted_sequence = object()
-    absences = (object(),)
+    database = persistent_fx._consumed_marker_projection()
+    deadline = ("trusted-time-deadline-marker-projection-v1", "d" * 64, 200, 4, 7, 7, 8)
+    release = persistent_fx._release_marker_projection()
+    stable_sequence = ("trusted-time-ready-marker-projection-v1", 4, 9, 11, 12)
+    drifted_sequence = ("trusted-time-ready-marker-projection-v1", 4, 9, 12, 12)
+    absences = tuple(
+        ("trusted-time-absent-path-projection-v1", path)
+        for path in controller._POST_EFFECT_RUNTIME_STAGING_PATHS
+    )
 
     def observe_barrier(
         _issuer: object,
-        receipts: list[object],
+        receipts: tuple[object, ...],
         **_: object,
-    ) -> tuple[object, object, object, object, tuple[object, ...]]:
+    ) -> tuple[tuple[object, ...], tuple[object, ...]]:
         nonlocal barrier_calls
         barrier_calls += 1
-        add_receipts(receipts, f"barrier-{barrier_calls}", 1)
         return (
-            database,
-            deadline,
-            release,
-            stable_sequence if barrier_calls < 3 else drifted_sequence,
-            absences,
+            (
+                "trusted-time-persistent-barrier-probe-v1",
+                1,
+                "a" * 64,
+                database,
+                deadline,
+                release,
+                stable_sequence if barrier_calls < 3 else drifted_sequence,
+                absences,
+            ),
+            add_receipts(receipts, f"barrier-{barrier_calls}", 1),
         )
-
-    monkeypatch.setattr(controller, "_observe_network_raw", observe_network)
-    monkeypatch.setattr(controller, "_observe_host_retirements", lambda _: retirement)
-    monkeypatch.setattr(controller, "_observe_persistent_barrier", observe_barrier)
 
     with pytest.raises(ValueError):
         controller._fresh_persistent_topology(
@@ -1305,9 +1381,17 @@ def test_final_persistent_barrier_rejects_marker_drift_after_prior_barrier(
             admission=admission,
             final=final,
             successor=successor,
-            runtime_state={"sequence_two_deadline_marker_sha256": "d" * 64},
+            runtime_state=(
+                "trusted-time-runtime-state-projection-v1",
+                len(controller._RUNTIME_STATE_PREFIX) + 64 + len(controller._RUNTIME_STATE_SUFFIX),
+                "a" * 64,
+                "d" * 64,
+            ),
             approved_launch=cast(Any, inputs["approved_launch"]),
             staged_paths=cast(Any, staged_paths),
+            _observe_network=observe_network,
+            _observe_barrier=observe_barrier,
+            _observe_retirements=lambda _paths: retirement,
         )
 
     assert barrier_calls == 3

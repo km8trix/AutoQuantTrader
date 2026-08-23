@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import pickle
+import select
 import threading
 from collections.abc import Mapping
 from copy import copy, deepcopy
@@ -12,11 +13,12 @@ from typing import Any
 import pytest
 
 import scripts.trusted_time_post_enrollment_topology_reader as reader
-from scripts.start_trusted_time_supervisor import (
-    LocalDockerDaemonIdentity,
+from packages.adapters.trusted_time._owned_file_descriptor import (
     _acquire_trusted_time_launch_lock,
-    _release_trusted_time_launch_lock,
+    _TrustedTimeLaunchLockLease,
+    _validate_trusted_time_launch_lock,
 )
+from scripts.start_trusted_time_supervisor import LocalDockerDaemonIdentity
 from tests.unit import test_trusted_time_post_enrollment_topology_reader as fixtures
 
 
@@ -317,7 +319,7 @@ def test_inherited_issuer_capability_is_rejected_in_forked_child(
         issuer.close()
 
 
-def test_fork_child_closes_inherited_global_lock_descriptor(
+def test_fork_child_closes_and_scrubs_inherited_opaque_launch_lock_lease(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -328,26 +330,23 @@ def test_fork_child_closes_inherited_global_lock_descriptor(
         tmp_path,
         cursor_read_count=0,
     )
-    inherited_descriptor = issuer._lock_descriptor
+    inherited_lease = issuer._launch_lock_lease
+    assert type(inherited_lease) is _TrustedTimeLaunchLockLease
     read_descriptor, write_descriptor = os.pipe()
     child_pid = os.fork()
     if child_pid == 0:  # pragma: no cover - asserted through the pipe
         os.close(read_descriptor)
         try:
-            descriptor_closed = False
-            try:
-                os.fstat(inherited_descriptor)
-            except OSError:
-                descriptor_closed = True
             state_closed = (
-                issuer._lock_descriptor == -1
+                inherited_lease.closed is True
+                and issuer._launch_lock_lease is None
                 and issuer._closed is True
                 and issuer._poisoned is True
                 and issuer._authentication_capability is None
             )
             os.write(
                 write_descriptor,
-                b"closed" if descriptor_closed and state_closed else b"inherited",
+                b"closed" if state_closed else b"inherited",
             )
         finally:
             os.close(write_descriptor)
@@ -362,6 +361,93 @@ def test_fork_child_closes_inherited_global_lock_descriptor(
         issuer.close()
 
 
+@pytest.mark.filterwarnings(
+    r"ignore:This process .* is multi-threaded, "
+    r"use of fork\(\) may lead to deadlocks.*:DeprecationWarning"
+)
+def test_fork_child_rejects_before_inherited_parent_thread_mutex_access(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not hasattr(os, "fork"):
+        pytest.skip("fork is unavailable")
+    issuer, _ = _open_cursor_issuer(
+        monkeypatch,
+        tmp_path,
+        cursor_read_count=0,
+    )
+    launch_lock_lease = issuer._launch_lock_lease
+    assert type(launch_lock_lease) is _TrustedTimeLaunchLockLease
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+
+    def hold_lifecycle_lock() -> None:
+        issuer._lifecycle_lock.acquire()
+        try:
+            lock_held.set()
+            assert release_lock.wait(timeout=5.0)
+        finally:
+            issuer._lifecycle_lock.release()
+
+    worker = threading.Thread(target=hold_lifecycle_lock)
+    worker.start()
+    assert lock_held.wait(timeout=2.0)
+    read_descriptor, write_descriptor = os.pipe()
+    child_pid = os.fork()
+    if child_pid == 0:  # pragma: no cover - asserted through the pipe
+        os.close(read_descriptor)
+        status = b"failed"
+        try:
+            object.__setattr__(issuer, "_owner_pid", os.getpid())
+            close_rejected = False
+            activate_rejected = False
+            try:
+                issuer.close()
+            except reader.TrustedTimePostEnrollmentTopologyReaderError:
+                close_rejected = True
+            try:
+                issuer.activate(
+                    expected_daemon_identity=LocalDockerDaemonIdentity(
+                        context_name="<DOCKER_HOST>",
+                        endpoint="unix:///var/run/docker.sock",
+                        daemon_id="LOCAL:DAEMON:1",
+                    ),
+                    docker_environment={},
+                )
+            except reader.TrustedTimePostEnrollmentTopologyReaderError:
+                activate_rejected = True
+            if (
+                close_rejected
+                and activate_rejected
+                and launch_lock_lease.closed is True
+                and issuer._launch_lock_lease is None
+            ):
+                status = b"rejected"
+        finally:
+            os.write(write_descriptor, status)
+            os.close(write_descriptor)
+        os._exit(0)
+
+    os.close(write_descriptor)
+    child_status = b""
+    try:
+        ready, _, _ = select.select([read_descriptor], [], [], 2.0)
+        assert ready == [read_descriptor]
+        child_status = os.read(read_descriptor, 16)
+    finally:
+        os.close(read_descriptor)
+        release_lock.set()
+        worker.join(timeout=2.0)
+        os.waitpid(child_pid, 0)
+
+    assert not worker.is_alive()
+    assert child_status == b"rejected"
+    assert launch_lock_lease.closed is False
+    _validate_trusted_time_launch_lock(launch_lock_lease)
+    issuer.close()
+    assert launch_lock_lease.closed is True
+
+
 def test_revocation_failure_during_open_error_does_not_strand_global_lock(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -371,7 +457,6 @@ def test_revocation_failure_during_open_error_does_not_strand_global_lock(
     fixtures._make_executable(executable)
     queued = fixtures._QueuedRunner([fixtures._json_line("WRONG:DAEMON")])
     ignored_root = tmp_path / "artifacts"
-    lock_path = ignored_root / "trusted-time" / "trusted-time-launch.lock"
 
     def fail_revocation(*_: object) -> None:
         raise KeyboardInterrupt
@@ -386,11 +471,9 @@ def test_revocation_failure_during_open_error_does_not_strand_global_lock(
             executable,
         )
 
-    descriptor = _acquire_trusted_time_launch_lock(
-        path=lock_path,
-        ignored_root=ignored_root,
-    )
-    _release_trusted_time_launch_lock(descriptor)
+    lease = _acquire_trusted_time_launch_lock(os.fspath(ignored_root))
+    _validate_trusted_time_launch_lock(lease)
+    lease.close()
 
 
 def test_revocation_failure_during_close_still_releases_global_lock(
@@ -402,7 +485,8 @@ def test_revocation_failure_during_close_still_releases_global_lock(
         tmp_path,
         cursor_read_count=0,
     )
-    inherited_descriptor = issuer._lock_descriptor
+    inherited_lease = issuer._launch_lock_lease
+    assert type(inherited_lease) is _TrustedTimeLaunchLockLease
 
     def fail_revocation(*_: object) -> None:
         raise KeyboardInterrupt
@@ -410,15 +494,12 @@ def test_revocation_failure_during_close_still_releases_global_lock(
     monkeypatch.setattr(reader, "_revoke_authenticated_issuer_capability", fail_revocation)
     issuer.close()
 
-    assert issuer._lock_descriptor == -1
+    assert issuer._launch_lock_lease is None
     assert issuer._authentication_capability is None
-    with pytest.raises(OSError):
-        os.fstat(inherited_descriptor)
-    descriptor = _acquire_trusted_time_launch_lock(
-        path=issuer._lock_path,
-        ignored_root=issuer._ignored_root,
-    )
-    _release_trusted_time_launch_lock(descriptor)
+    assert inherited_lease.closed is True
+    lease = _acquire_trusted_time_launch_lock(os.fspath(issuer._ignored_root))
+    _validate_trusted_time_launch_lock(lease)
+    lease.close()
 
 
 def test_cursor_before_staged_ordinal_one_fails_without_daemon_read(
@@ -474,7 +555,7 @@ def test_close_revokes_capability_but_preserves_issued_cursor(
         )
 
 
-def test_close_race_before_cursor_commit_fails_without_issuing_cursor(
+def test_cross_thread_cursor_call_rejects_before_seal_or_commit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -484,22 +565,18 @@ def test_close_race_before_cursor_commit_fails_without_issuing_cursor(
         cursor_read_count=1,
     )
     seal_ready = threading.Event()
-    allow_seal_return = threading.Event()
     issued: list[reader.TrustedTimePostEnrollmentTopologyObservationCursor] = []
     errors: list[BaseException] = []
     seal = reader._seal_observation
 
     def delayed_seal(
-        owner: object,
-        capability: object,
-        material: Mapping[str, object],
-        kind: str,
+        _owner: object,
+        _capability: object,
+        _material: Mapping[str, object],
+        _kind: str,
     ) -> bytes:
-        result = seal(owner, capability, material, kind)
         seal_ready.set()
-        if not allow_seal_return.wait(timeout=2.0):
-            raise TimeoutError
-        return result
+        raise AssertionError("cross-thread issuance reached the seal")
 
     def issue() -> None:
         try:
@@ -511,25 +588,21 @@ def test_close_race_before_cursor_commit_fails_without_issuing_cursor(
 
     worker = threading.Thread(target=issue)
     worker.start()
-    try:
-        assert seal_ready.wait(timeout=2.0)
-        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
-            issuer.close()
-    finally:
-        allow_seal_return.set()
-        worker.join(timeout=2.0)
+    worker.join(timeout=2.0)
 
     assert not worker.is_alive()
+    assert not seal_ready.is_set()
     assert issued == []
     assert len(errors) == 1
     assert isinstance(errors[0], reader.TrustedTimePostEnrollmentTopologyReaderError)
-    assert issuer._poisoned is True
+    assert issuer._poisoned is False
     assert issuer._busy is False
-    assert issuer._authentication_capability is None
+    monkeypatch.setattr(reader, "_seal_observation", seal)
+    assert issuer.issue_observation_cursor().cursor_ordinal == 1
     issuer.close()
 
 
-def test_concurrent_cursor_calls_issue_no_duplicate_position(
+def test_two_cross_thread_cursor_calls_reject_before_daemon_read(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -539,19 +612,16 @@ def test_concurrent_cursor_calls_issue_no_duplicate_position(
         cursor_read_count=1,
     )
     observe_started = threading.Event()
-    allow_observe = threading.Event()
     issued: list[reader.TrustedTimePostEnrollmentTopologyObservationCursor] = []
     errors: list[BaseException] = []
     observe = reader.TrustedTimePostEnrollmentTopologyObservationIssuer._observe_daemon
 
     def delayed_observe(
-        owner: reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
-        receipts: list[reader._ReadReceipt],
+        _owner: reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        _receipts: list[reader._ReadReceipt],
     ) -> LocalDockerDaemonIdentity:
         observe_started.set()
-        if not allow_observe.wait(timeout=2.0):
-            raise TimeoutError
-        return observe(owner, receipts)
+        raise AssertionError("cross-thread issuance reached the daemon")
 
     def issue() -> None:
         try:
@@ -567,24 +637,77 @@ def test_concurrent_cursor_calls_issue_no_duplicate_position(
     first = threading.Thread(target=issue)
     second = threading.Thread(target=issue)
     first.start()
-    try:
-        assert observe_started.wait(timeout=2.0)
-        second.start()
-        second.join(timeout=2.0)
-    finally:
-        allow_observe.set()
-        first.join(timeout=2.0)
-        second.join(timeout=2.0)
+    second.start()
+    first.join(timeout=2.0)
+    second.join(timeout=2.0)
 
     assert not first.is_alive()
     assert not second.is_alive()
+    assert not observe_started.is_set()
     assert issued == []
     assert len(errors) == 2
     assert all(
         isinstance(error, reader.TrustedTimePostEnrollmentTopologyReaderError) for error in errors
     )
     assert issuer._cursor_count == 0
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_observe_daemon",
+        observe,
+    )
+    assert issuer.issue_observation_cursor().cursor_ordinal == 1
     issuer.close()
+
+
+def test_reentrant_close_during_issuance_uses_closure_token_not_heap_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, _ = _open_cursor_issuer(
+        monkeypatch,
+        tmp_path,
+        cursor_read_count=1,
+    )
+    launch_lock_lease = issuer._launch_lock_lease
+    assert type(launch_lock_lease) is _TrustedTimeLaunchLockLease
+    observe = reader.TrustedTimePostEnrollmentTopologyObservationIssuer._observe_daemon
+    close_rejected = False
+
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_poison_locked",
+        lambda _issuer: None,
+    )
+
+    def close_during_observe(
+        owner: reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        receipts: list[reader._ReadReceipt],
+    ) -> LocalDockerDaemonIdentity:
+        nonlocal close_rejected
+        owner._busy = False
+        owner._choreography_inflight = False
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            owner.close()
+        close_rejected = True
+        assert launch_lock_lease.closed is False
+        assert owner._authentication_capability is None
+        return observe(owner, receipts)
+
+    monkeypatch.setattr(
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+        "_observe_daemon",
+        close_during_observe,
+    )
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer.issue_observation_cursor()
+
+    assert close_rejected is True
+    assert launch_lock_lease.closed is False
+    issuer.close()
+    assert launch_lock_lease.closed is True
+    replacement = _acquire_trusted_time_launch_lock(os.fspath(issuer._ignored_root))
+    _validate_trusted_time_launch_lock(replacement)
+    replacement.close()
 
 
 def test_real_issuer_binds_capability_to_exact_owner(
@@ -604,7 +727,7 @@ def test_real_issuer_binds_capability_to_exact_owner(
     issuer.close()
 
 
-def test_close_race_before_created_commit_cannot_issue_observation(
+def test_cross_thread_created_call_rejects_before_seal_or_commit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -628,23 +751,18 @@ def test_close_race_before_created_commit_cannot_issue_observation(
         executable,
     )
     seal_ready = threading.Event()
-    allow_seal_return = threading.Event()
     issued: list[reader.TrustedTimePostEnrollmentCreatedTopologyObservation] = []
     errors: list[BaseException] = []
     seal = reader._seal_observation
 
     def delayed_seal(
-        owner: object,
-        capability: object,
-        material: Mapping[str, object],
-        kind: str,
+        _owner: object,
+        _capability: object,
+        _material: Mapping[str, object],
+        _kind: str,
     ) -> bytes:
-        result = seal(owner, capability, material, kind)
-        if kind == "created":
-            seal_ready.set()
-            if not allow_seal_return.wait(timeout=2.0):
-                raise TimeoutError
-        return result
+        seal_ready.set()
+        raise AssertionError("cross-thread issuance reached the seal")
 
     def issue() -> None:
         try:
@@ -655,25 +773,23 @@ def test_close_race_before_created_commit_cannot_issue_observation(
     monkeypatch.setattr(reader, "_seal_observation", delayed_seal)
     worker = threading.Thread(target=issue)
     worker.start()
-    try:
-        assert seal_ready.wait(timeout=2.0)
-        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
-            issuer.close()
-    finally:
-        allow_seal_return.set()
-        worker.join(timeout=2.0)
+    worker.join(timeout=2.0)
 
     assert not worker.is_alive()
+    assert not seal_ready.is_set()
     assert issued == []
     assert len(errors) == 1
     assert isinstance(errors[0], reader.TrustedTimePostEnrollmentTopologyReaderError)
     assert issuer._issued_created_observation_sha256 is None
     assert issuer._last_observation_sha256 is None
     assert issuer._staged_observation_count == 0
+    monkeypatch.setattr(reader, "_seal_observation", seal)
+    created = issuer.issue_created_snapshot(**fixtures._issue_arguments(paths))
+    assert created.observation_sha256 == issuer._issued_created_observation_sha256
     issuer.close()
 
 
-def test_close_race_before_staged_commit_cannot_issue_ordinal(
+def test_cross_thread_staged_call_rejects_before_seal_or_commit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -699,23 +815,18 @@ def test_close_race_before_staged_commit_cannot_issue_ordinal(
     )
     created = issuer.issue_created_snapshot(**fixtures._issue_arguments(paths))
     seal_ready = threading.Event()
-    allow_seal_return = threading.Event()
     issued: list[reader.TrustedTimePostEnrollmentStagedTopologyObservation] = []
     errors: list[BaseException] = []
     seal = reader._seal_observation
 
     def delayed_seal(
-        owner: object,
-        capability: object,
-        material: Mapping[str, object],
-        kind: str,
+        _owner: object,
+        _capability: object,
+        _material: Mapping[str, object],
+        _kind: str,
     ) -> bytes:
-        result = seal(owner, capability, material, kind)
-        if kind == "staged_unreleased":
-            seal_ready.set()
-            if not allow_seal_return.wait(timeout=2.0):
-                raise TimeoutError
-        return result
+        seal_ready.set()
+        raise AssertionError("cross-thread issuance reached the seal")
 
     def issue() -> None:
         try:
@@ -731,18 +842,19 @@ def test_close_race_before_staged_commit_cannot_issue_ordinal(
     monkeypatch.setattr(reader, "_seal_observation", delayed_seal)
     worker = threading.Thread(target=issue)
     worker.start()
-    try:
-        assert seal_ready.wait(timeout=2.0)
-        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
-            issuer.close()
-    finally:
-        allow_seal_return.set()
-        worker.join(timeout=2.0)
+    worker.join(timeout=2.0)
 
     assert not worker.is_alive()
+    assert not seal_ready.is_set()
     assert issued == []
     assert len(errors) == 1
     assert isinstance(errors[0], reader.TrustedTimePostEnrollmentTopologyReaderError)
     assert issuer._staged_observation_count == 0
     assert issuer._last_observation_sha256 == created.observation_sha256
+    monkeypatch.setattr(reader, "_seal_observation", seal)
+    staged = issuer.issue_staged_unreleased_snapshot(
+        created_observation=created,
+        **fixtures._issue_arguments(paths),
+    )
+    assert staged.staged_observation_ordinal == 1
     issuer.close()

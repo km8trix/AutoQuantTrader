@@ -17,6 +17,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Never, cast
 
+from packages.domain._trusted_time_post_enrollment_projection_bootstrap import (
+    _finalize_trusted_time_enrollment_evidence_projection_types,
+    _stage_trusted_time_confirmed_first_enrollment_projection_type,
+    _stage_trusted_time_first_enrollment_identities_projection_type,
+    _stage_trusted_time_immutable_launch_projection_type,
+    _stage_trusted_time_post_enrollment_start_review_projection_type,
+    _stage_trusted_time_sequence_one_projection_type,
+)
+
 TRUSTED_TIME_FIRST_ENROLLMENT_CONTRACT_VERSION = "phase6d-one-shot-trusted-time-first-enrollment-v1"
 FIRST_ENROLLMENT_APPROVAL_CONTRACT_VERSION = "phase6d-first-enrollment-exact-operation-approval-v2"
 FIRST_ENROLLMENT_CLAIM_CONTRACT_VERSION = "phase6d-first-enrollment-single-use-claim-v2"
@@ -282,6 +291,7 @@ def _required_string(payload: Mapping[str, object], field_name: str) -> str:
     return value
 
 
+@_stage_trusted_time_immutable_launch_projection_type
 @dataclass(frozen=True, slots=True)
 class TrustedTimeImmutableLaunchEvidence:
     """One exact immutable launch tuple, without any execution authority."""
@@ -315,6 +325,7 @@ class TrustedTimeImmutableLaunchEvidence:
         }
 
 
+@_stage_trusted_time_first_enrollment_identities_projection_type
 @dataclass(frozen=True, slots=True)
 class TrustedTimeFirstEnrollmentIdentities:
     """Digest-only deployment identities proven by first enrollment."""
@@ -342,6 +353,7 @@ class TrustedTimeFirstEnrollmentIdentities:
         }
 
 
+@_stage_trusted_time_sequence_one_projection_type
 @dataclass(frozen=True, slots=True)
 class TrustedTimeSequenceOneEvidence:
     """Authenticated sequence-1 enrollment result and stable remote namespace."""
@@ -403,6 +415,7 @@ class TrustedTimeSequenceOneEvidence:
         }
 
 
+@_stage_trusted_time_confirmed_first_enrollment_projection_type
 @dataclass(frozen=True, slots=True)
 class TrustedTimeConfirmedFirstEnrollment:
     """Exact retained proof that a NEW operation confirmed sequence 1."""
@@ -456,6 +469,7 @@ class TrustedTimeConfirmedFirstEnrollment:
         return hashlib.sha256(canonical_first_enrollment_json_bytes(self.payload())).hexdigest()
 
 
+@_stage_trusted_time_post_enrollment_start_review_projection_type
 @dataclass(frozen=True, slots=True)
 class TrustedTimePostEnrollmentStartReview:
     """Non-authorizing review projection over old proof and a new target tuple."""
@@ -508,6 +522,15 @@ class TrustedTimePostEnrollmentStartReview:
     @property
     def projection_sha256(self) -> str:
         return hashlib.sha256(canonical_first_enrollment_json_bytes(self.payload())).hexdigest()
+
+
+_finalize_trusted_time_enrollment_evidence_projection_types()
+del _finalize_trusted_time_enrollment_evidence_projection_types
+del _stage_trusted_time_confirmed_first_enrollment_projection_type
+del _stage_trusted_time_first_enrollment_identities_projection_type
+del _stage_trusted_time_immutable_launch_projection_type
+del _stage_trusted_time_post_enrollment_start_review_projection_type
+del _stage_trusted_time_sequence_one_projection_type
 
 
 def _approval_from_claim(

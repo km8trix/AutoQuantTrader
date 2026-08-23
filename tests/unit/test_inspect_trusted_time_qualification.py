@@ -4,12 +4,10 @@ import argparse
 import json
 import os
 import stat
-import subprocess
 import sys
 from collections.abc import Callable
 from contextlib import nullcontext
 from copy import deepcopy
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -33,7 +31,24 @@ from scripts.inspect_trusted_time_qualification import (
     qualify_host_snapshot,
     write_qualification_artifact,
 )
-from scripts.verify_trusted_time_images import TrustedTimeImageAdmission
+from scripts.verify_trusted_time_images import (
+    TrustedTimeImageAdmission,
+    TrustedTimeImageIdentities,
+    _CurrentTrustedTimeImageAdmissionSnapshot,
+    _make_current_admission_snapshot,
+    _make_verified_images,
+    _VerifiedTrustedTimeImages,
+)
+
+
+def _process_result[T: (bytes, str)](
+    args: list[str] | tuple[str, ...],
+    returncode: int,
+    stdout: T,
+    stderr: T,
+) -> tuple[tuple[str, ...], int, T, T]:
+    return (tuple(args), returncode, stdout, stderr)
+
 
 BASE = datetime(2026, 7, 31, 18, 0, tzinfo=UTC)
 EPOCH_ID = "11111111-1111-4111-8111-111111111111"
@@ -256,7 +271,7 @@ def test_inspector_docker_environment_uses_finite_locale_allowlist(
 def _image_admission() -> TrustedTimeImageAdmission:
     return TrustedTimeImageAdmission(
         path=inspector.DEFAULT_IMAGE_ADMISSION_ARTIFACT,
-        identities=inspector.TrustedTimeImageIdentities(
+        identities=TrustedTimeImageIdentities(
             source_id=SOURCE_IMAGE_ID,
             supervisor_id=SUPERVISOR_IMAGE_ID,
         ),
@@ -267,6 +282,51 @@ def _image_admission() -> TrustedTimeImageAdmission:
         created_at_utc="2026-07-31T18:00:00.000000Z",
         created_monotonic_ns=1,
     )
+
+
+def _image_admission_snapshot() -> _CurrentTrustedTimeImageAdmissionSnapshot:
+    admission = _image_admission()
+    path = os.fspath(admission.path)
+    identity = (1, 2, stat.S_IFREG | 0o600, os.geteuid(), os.getegid(), 1, 2, 3, 4)
+    return _make_current_admission_snapshot(
+        path=path,
+        ignored_root=os.fspath(inspector.IGNORED_ARTIFACT_ROOT),
+        archive_path=os.fspath(
+            admission.path.with_name(f"image-admission-{admission.artifact_sha256}.json")
+        ),
+        source_id=admission.identities.source_id,
+        supervisor_id=admission.identities.supervisor_id,
+        boot_session_id=admission.boot_session_id,
+        git_revision=admission.git_revision,
+        source_revision_sha256=admission.source_revision_sha256,
+        supervisor_executable_import_manifest_sha256="d" * 64,
+        artifact_sha256=admission.artifact_sha256,
+        created_at_utc=admission.created_at_utc,
+        created_monotonic_ns=admission.created_monotonic_ns,
+        encoded=b"{}",
+        directory_identity=identity,
+        file_identity=identity,
+        archive_directory_identity=identity,
+        archive_file_identity=identity,
+    )
+
+
+def _verified_images(
+    admission: _CurrentTrustedTimeImageAdmissionSnapshot,
+) -> _VerifiedTrustedTimeImages:
+    return _make_verified_images(
+        source_id=admission[4],
+        supervisor_id=admission[5],
+        supervisor_manifest_sha256=admission[9],
+    )
+
+
+def _replace_tuple_slot(
+    value: tuple[object, ...],
+    index: int,
+    replacement: object,
+) -> tuple[object, ...]:
+    return (*value[:index], replacement, *value[index + 1 :])
 
 
 def _authority() -> CheckedInAuthority:
@@ -1096,7 +1156,7 @@ def test_docker_runner_uses_bounded_secretless_capture(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ETRADE_API_SECRET", "must-not-be-forwarded")
-    completed = subprocess.CompletedProcess(("docker", "info"), 0, b"exact\n", b"")
+    completed = _process_result(("docker", "info"), 0, b"exact\n", b"")
     with patch.object(
         inspector,
         "run_bounded_subprocess",
@@ -1104,7 +1164,7 @@ def test_docker_runner_uses_bounded_secretless_capture(
     ) as run:
         observed = inspector._docker("info")
 
-    assert observed.stdout == "exact\n"
+    assert observed[2] == "exact\n"
     assert run.call_args.kwargs["maximum_stdout_bytes"] == 2 * 1_024 * 1_024
     assert run.call_args.kwargs["maximum_stderr_bytes"] == 262_144
     assert run.call_args.kwargs["timeout_seconds"] == 20
@@ -1115,9 +1175,7 @@ def test_pid1_start_ticks_parses_exact_proc_field_22() -> None:
     with patch.object(
         inspector,
         "_docker",
-        return_value=subprocess.CompletedProcess(
-            (), 0, _pid1_clock_identity_output(_proc_stat(123_456)), ""
-        ),
+        return_value=_process_result((), 0, _pid1_clock_identity_output(_proc_stat(123_456)), ""),
     ) as docker:
         assert inspector._pid1_start_ticks("a" * 64) == 123_456
 
@@ -1149,7 +1207,7 @@ def test_pid1_start_ticks_rejects_malformed_proc_stat(stdout: str) -> None:
         patch.object(
             inspector,
             "_docker",
-            return_value=subprocess.CompletedProcess((), 0, framed, ""),
+            return_value=_process_result((), 0, framed, ""),
         ),
         pytest.raises(
             TrustedTimeQualificationInspectionError,
@@ -1164,7 +1222,7 @@ def test_pid1_clock_reader_accepts_exact_zero_offsets(offsets: str) -> None:
     with patch.object(
         inspector,
         "_docker",
-        return_value=subprocess.CompletedProcess(
+        return_value=_process_result(
             (),
             0,
             _pid1_clock_identity_output(
@@ -1201,7 +1259,7 @@ def test_pid1_clock_reader_rejects_nonzero_or_malformed_fields(
         patch.object(
             inspector,
             "_docker",
-            return_value=subprocess.CompletedProcess(
+            return_value=_process_result(
                 (), 0, _pid1_clock_identity_output(_proc_stat(1), **kwargs), ""
             ),
         ),
@@ -1218,7 +1276,7 @@ def test_pid1_clock_reader_rejects_time_for_children_mismatch() -> None:
         patch.object(
             inspector,
             "_docker",
-            return_value=subprocess.CompletedProcess((), 41, "", ""),
+            return_value=_process_result((), 41, "", ""),
         ),
         pytest.raises(
             TrustedTimeQualificationInspectionError,
@@ -1238,7 +1296,7 @@ def test_clk_tck_authentication_rejects_malformed_or_non_100(stdout: str) -> Non
         patch.object(
             inspector,
             "_docker",
-            return_value=subprocess.CompletedProcess((), 0, stdout, ""),
+            return_value=_process_result((), 0, stdout, ""),
         ),
         pytest.raises(
             TrustedTimeQualificationInspectionError,
@@ -1252,11 +1310,17 @@ def test_clk_tck_is_authenticated_by_exact_supervisor_python() -> None:
     with patch.object(
         inspector,
         "_docker",
-        return_value=subprocess.CompletedProcess((), 0, "100\n", ""),
+        return_value=_process_result((), 0, "100\n", ""),
     ) as docker:
         assert inspector._clock_ticks_per_second("b" * 64) == 100
 
-    assert docker.call_args.args[5:9] == ("/usr/local/bin/python", "-I", "-S", "-c")
+    assert docker.call_args.args[5:10] == (
+        "/usr/local/bin/python",
+        "-I",
+        "-B",
+        "-S",
+        "-c",
+    )
 
 
 @pytest.mark.parametrize(
@@ -1314,8 +1378,8 @@ def test_running_container_snapshot_rejects_second_atomic_clock_fence_nonzero() 
             inspector,
             "_docker",
             side_effect=(
-                subprocess.CompletedProcess((), 0, _pid1_clock_identity_output(_proc_stat(1)), ""),
-                subprocess.CompletedProcess(
+                _process_result((), 0, _pid1_clock_identity_output(_proc_stat(1)), ""),
+                _process_result(
                     (),
                     0,
                     _pid1_clock_identity_output(
@@ -1340,8 +1404,8 @@ def test_running_container_snapshot_rejects_second_atomic_clock_fence_nonzero() 
 
 
 def test_running_image_inspection_consumes_artifact_and_admits_exact_reviewed_ids() -> None:
-    admission = _image_admission()
-    admitted = admission.identities
+    admission = _image_admission_snapshot()
+    admitted = _verified_images(admission)
     with (
         patch.object(
             inspector,
@@ -1350,10 +1414,14 @@ def test_running_image_inspection_consumes_artifact_and_admits_exact_reviewed_id
         ) as daemon,
         patch.object(
             inspector,
-            "load_image_admission_artifact",
+            "_load_current_image_admission_snapshot",
             return_value=admission,
         ) as load,
-        patch.object(inspector, "verify_images", return_value=admitted) as verify,
+        patch.object(
+            inspector,
+            "_verify_images_with_manifest",
+            return_value=admitted,
+        ) as verify,
         patch.object(
             inspector,
             "_running_service_container",
@@ -1373,8 +1441,8 @@ def test_running_image_inspection_consumes_artifact_and_admits_exact_reviewed_id
 
 
 def test_running_image_inspection_rejects_lookalike_running_image_id() -> None:
-    admission = _image_admission()
-    admitted = admission.identities
+    admission = _image_admission_snapshot()
+    admitted = _verified_images(admission)
     with (
         patch.object(
             inspector,
@@ -1383,10 +1451,10 @@ def test_running_image_inspection_rejects_lookalike_running_image_id() -> None:
         ),
         patch.object(
             inspector,
-            "load_image_admission_artifact",
+            "_load_current_image_admission_snapshot",
             return_value=admission,
         ) as load,
-        patch.object(inspector, "verify_images", return_value=admitted),
+        patch.object(inspector, "_verify_images_with_manifest", return_value=admitted),
         patch.object(
             inspector,
             "_running_service_container",
@@ -1411,8 +1479,8 @@ def test_running_image_inspection_rejects_lookalike_running_image_id() -> None:
 
 def test_running_image_inspection_rejects_boot_identity_mismatch() -> None:
     supervisor = _running_supervisor(boot_id="22345678-1234-4234-8234-123456789abc")
-    admission = _image_admission()
-    admitted = admission.identities
+    admission = _image_admission_snapshot()
+    admitted = _verified_images(admission)
     with (
         patch.object(
             inspector,
@@ -1421,10 +1489,10 @@ def test_running_image_inspection_rejects_boot_identity_mismatch() -> None:
         ),
         patch.object(
             inspector,
-            "load_image_admission_artifact",
+            "_load_current_image_admission_snapshot",
             return_value=admission,
         ),
-        patch.object(inspector, "verify_images", return_value=admitted),
+        patch.object(inspector, "_verify_images_with_manifest", return_value=admitted),
         patch.object(
             inspector,
             "_running_service_container",
@@ -1450,7 +1518,7 @@ def test_running_image_inspection_rejects_invalid_launch_artifact() -> None:
         ),
         patch.object(
             inspector,
-            "load_image_admission_artifact",
+            "_load_current_image_admission_snapshot",
             side_effect=inspector.TrustedTimeImageVerificationError("rejected"),
         ),
         patch.object(inspector, "_running_service_container") as running,
@@ -1465,8 +1533,8 @@ def test_running_image_inspection_rejects_invalid_launch_artifact() -> None:
 
 
 def test_running_image_inspection_rejects_artifact_swap_before_container_contact() -> None:
-    admission = _image_admission()
-    changed = replace(admission, artifact_sha256="f" * 64)
+    admission = _image_admission_snapshot()
+    changed = _replace_tuple_slot(admission, 10, "f" * 64)
     with (
         patch.object(
             inspector,
@@ -1475,10 +1543,14 @@ def test_running_image_inspection_rejects_artifact_swap_before_container_contact
         ),
         patch.object(
             inspector,
-            "load_image_admission_artifact",
+            "_load_current_image_admission_snapshot",
             side_effect=(admission, changed),
         ),
-        patch.object(inspector, "verify_images", return_value=admission.identities),
+        patch.object(
+            inspector,
+            "_verify_images_with_manifest",
+            return_value=_verified_images(admission),
+        ),
         patch.object(inspector, "_running_service_container") as running,
         pytest.raises(
             TrustedTimeQualificationInspectionError,
@@ -1491,8 +1563,8 @@ def test_running_image_inspection_rejects_artifact_swap_before_container_contact
 
 
 def test_running_image_inspection_rejects_artifact_swap_after_current_topology_fence() -> None:
-    admission = _image_admission()
-    changed = replace(admission, artifact_sha256="f" * 64)
+    admission = _image_admission_snapshot()
+    changed = _replace_tuple_slot(admission, 10, "f" * 64)
     with (
         patch.object(
             inspector,
@@ -1501,10 +1573,14 @@ def test_running_image_inspection_rejects_artifact_swap_after_current_topology_f
         ),
         patch.object(
             inspector,
-            "load_image_admission_artifact",
+            "_load_current_image_admission_snapshot",
             side_effect=(admission, admission, changed),
         ),
-        patch.object(inspector, "verify_images", return_value=admission.identities),
+        patch.object(
+            inspector,
+            "_verify_images_with_manifest",
+            return_value=_verified_images(admission),
+        ),
         patch.object(
             inspector,
             "_running_service_container",
@@ -1540,12 +1616,13 @@ def test_live_topology_validation_is_secretless_and_identity_fenced(
             side_effect=(source, supervisor, source, supervisor),
         ),
         patch.object(inspector, "_clock_ticks_per_second", return_value=100),
-        patch.object(inspector, "validate_live_trusted_time_topology") as validate,
+        patch.object(inspector, "_validate_live_trusted_time_topology_ids") as validate,
     ):
         inspector._validate_current_runtime_topology(_images())
 
     assert daemon.call_count == 2
     validate.assert_called_once()
+    assert validate.call_args.args == (SOURCE_IMAGE_ID, SUPERVISOR_IMAGE_ID)
     assert validate.call_args.kwargs["source_container_id"] == "a" * 64
     assert validate.call_args.kwargs["supervisor_container_id"] == "b" * 64
     environment = cast(dict[str, str], validate.call_args.kwargs["environment"])
@@ -1569,7 +1646,7 @@ def test_live_topology_validation_rejects_metadata_drift() -> None:
         patch.object(inspector, "_clock_ticks_per_second", return_value=100),
         patch.object(
             inspector,
-            "validate_live_trusted_time_topology",
+            "_validate_live_trusted_time_topology_ids",
             side_effect=inspector.TrustedTimeSupervisorConfigurationError(
                 "trusted-time runtime command or image configuration drifted"
             ),
@@ -1602,7 +1679,7 @@ def test_live_topology_validation_rejects_container_swap_after_metadata_read() -
             side_effect=(source, supervisor, restarted_source, supervisor),
         ),
         patch.object(inspector, "_clock_ticks_per_second", return_value=100),
-        patch.object(inspector, "validate_live_trusted_time_topology") as validate,
+        patch.object(inspector, "_validate_live_trusted_time_topology_ids") as validate,
         pytest.raises(
             TrustedTimeQualificationInspectionError,
             match="runtime_changed_during_inspection",
@@ -1637,7 +1714,7 @@ def test_live_topology_validation_rejects_clock_identity_drift(
             side_effect=(source, supervisor, changed_source, supervisor),
         ),
         patch.object(inspector, "_clock_ticks_per_second", return_value=100),
-        patch.object(inspector, "validate_live_trusted_time_topology") as validate,
+        patch.object(inspector, "_validate_live_trusted_time_topology_ids") as validate,
         pytest.raises(
             TrustedTimeQualificationInspectionError,
             match="runtime_changed_during_inspection",
@@ -1691,9 +1768,7 @@ def test_boottime_is_read_inside_unchanged_running_supervisor() -> None:
         patch.object(
             inspector,
             "_docker",
-            return_value=subprocess.CompletedProcess(
-                (), 0, _boottime_reader_output(current_boottime_ns), ""
-            ),
+            return_value=_process_result((), 0, _boottime_reader_output(current_boottime_ns), ""),
         ) as docker,
         patch.object(inspector, "_validate_current_runtime_topology") as topology,
     ):
@@ -1713,6 +1788,7 @@ def test_boottime_is_read_inside_unchanged_running_supervisor() -> None:
     assert docker.call_args.args[5:] == (
         "/usr/local/bin/python",
         "-I",
+        "-B",
         "-S",
         "-c",
         inspector._BOOTTIME_READER_SCRIPT,
@@ -1736,7 +1812,7 @@ def test_boottime_same_call_rejects_nonzero_reader_offsets() -> None:
         patch.object(
             inspector,
             "_docker",
-            return_value=subprocess.CompletedProcess(
+            return_value=_process_result(
                 (),
                 0,
                 _boottime_reader_output(
@@ -1776,9 +1852,7 @@ def test_boottime_read_rejects_a_supervisor_restart_after_the_clock_read() -> No
         patch.object(
             inspector,
             "_docker",
-            return_value=subprocess.CompletedProcess(
-                (), 0, _boottime_reader_output(12_345_678_901), ""
-            ),
+            return_value=_process_result((), 0, _boottime_reader_output(12_345_678_901), ""),
         ),
         pytest.raises(
             TrustedTimeQualificationInspectionError,
@@ -1807,9 +1881,7 @@ def test_boottime_read_rejects_a_source_restart_after_the_clock_read() -> None:
         patch.object(
             inspector,
             "_docker",
-            return_value=subprocess.CompletedProcess(
-                (), 0, _boottime_reader_output(12_345_678_901), ""
-            ),
+            return_value=_process_result((), 0, _boottime_reader_output(12_345_678_901), ""),
         ),
         pytest.raises(
             TrustedTimeQualificationInspectionError,
@@ -1842,9 +1914,7 @@ def test_boottime_read_rejects_a_local_daemon_swap_after_the_clock_read() -> Non
         patch.object(
             inspector,
             "_docker",
-            return_value=subprocess.CompletedProcess(
-                (), 0, _boottime_reader_output(12_345_678_901), ""
-            ),
+            return_value=_process_result((), 0, _boottime_reader_output(12_345_678_901), ""),
         ),
         pytest.raises(
             TrustedTimeQualificationInspectionError,

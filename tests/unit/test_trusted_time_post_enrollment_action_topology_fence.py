@@ -9,6 +9,7 @@ import threading
 from copy import copy, deepcopy
 from dataclasses import fields, replace
 from pathlib import Path
+from types import CodeType
 from typing import Any, cast
 
 import pytest
@@ -55,8 +56,7 @@ def _claimed_context(
     claimed_fence.TrustedTimePostEnrollmentStartClaimedPreReleaseTopologyFence,
 ]:
     context = claimed_fixtures._context(tmp_path)
-    lease = object()
-    recovery_retention_capability = object()
+    lease, recovery_retention_capability = claimed_fixtures._recovery_choreography_authorities()
     cast(Any, context).action_recovery_retention_capability = recovery_retention_capability
     claimed_fixtures._install_success(
         monkeypatch,
@@ -856,6 +856,13 @@ def test_claimed_capability_unregister_interruption_retries_all_map_cleanup(
     baseline_registration_keys = set(registrations)
     baseline_origin_keys = set(origins)
     baseline_tombstone_keys = set(tombstones)
+    unregister_locked_codes = [
+        constant
+        for constant in unregister.__code__.co_consts
+        if type(constant) is CodeType and constant.co_name == "unregister_locked"
+    ]
+    assert len(unregister_locked_codes) == 1
+    unregister_locked_code = unregister_locked_codes[0]
     source, first_line = inspect.getsourcelines(unregister)
     after_origin_pop_line = first_line + next(
         offset
@@ -872,7 +879,7 @@ def test_claimed_capability_unregister_interruption_retries_all_map_cleanup(
         if (
             not interrupted
             and event == "line"
-            and getattr(frame, "f_code", None) is unregister.__code__
+            and getattr(frame, "f_code", None) is unregister_locked_code
             and getattr(frame, "f_lineno", None) == after_origin_pop_line
         ):
             interrupted = True

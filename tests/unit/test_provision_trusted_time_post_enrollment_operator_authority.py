@@ -101,11 +101,24 @@ def _interrupt_instruction(target: Any, instruction_offset: int, action: Any) ->
         sys.monitoring.free_tool_id(tool_id)
 
 
-def _open_descriptor_names() -> set[str]:
+def _descriptor_identity(metadata: os.stat_result) -> tuple[int, int, int]:
+    return metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode)
+
+
+def _open_descriptor_count_for_identity(expected: tuple[int, int, int]) -> int:
     descriptor_root = Path("/proc/self/fd")
     if not descriptor_root.exists():
         descriptor_root = Path("/dev/fd")
-    return {entry.name for entry in descriptor_root.iterdir()}
+    count = 0
+    for entry in descriptor_root.iterdir():
+        try:
+            descriptor = int(entry.name)
+            observed = _descriptor_identity(os.fstat(descriptor))
+        except (OSError, ValueError):
+            continue
+        if observed == expected:
+            count += 1
+    return count
 
 
 def test_prepare_retains_exact_final_form_content_addressed_public_bytes(
@@ -730,7 +743,9 @@ def test_owned_descriptor_call_store_interruption_closes_native_result(
         tmp_path,
         flags=os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
     )
-    before = _open_descriptor_names()
+    parent_identity = _descriptor_identity(os.fstat(parent_owner.fileno()))
+    before = _open_descriptor_count_for_identity(parent_identity)
+    assert before == 1
     try:
         with pytest.raises(KeyboardInterrupt):
             _interrupt_instruction(
@@ -743,7 +758,8 @@ def test_owned_descriptor_call_store_interruption_closes_native_result(
                 ),
             )
         gc.collect()
-        assert _open_descriptor_names() == before
+        assert _descriptor_identity(os.fstat(parent_owner.fileno())) == parent_identity
+        assert _open_descriptor_count_for_identity(parent_identity) == before
     finally:
         parent_owner.close()
 

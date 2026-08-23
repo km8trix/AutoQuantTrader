@@ -16,6 +16,21 @@ from apps.trusted_time_supervisor.head_anchor_worker import (
 )
 
 
+def _capture_ready_fchown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[tuple[int, int, int, int]]:
+    exact_fchown = ready.os.fchown
+    calls: list[tuple[int, int, int, int]] = []
+
+    def capture(descriptor: int, uid: int, gid: int) -> None:
+        metadata = os.fstat(descriptor)
+        calls.append((metadata.st_dev, metadata.st_ino, uid, gid))
+        exact_fchown(descriptor, uid, gid)
+
+    monkeypatch.setattr(ready.os, "fchown", capture)
+    return calls
+
+
 def _use_temp_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Path]:
     marker = tmp_path / "post-enrollment-start-sequence-two-ready"
     staging = tmp_path / ".post-enrollment-start-sequence-two-ready-staging"
@@ -33,6 +48,7 @@ def test_sequence_two_ready_writer_is_exact_owner_only_atomic_and_one_shot(
     tmp_path: Path,
 ) -> None:
     marker, staging = _use_temp_paths(monkeypatch, tmp_path)
+    fchown_calls = _capture_ready_fchown(monkeypatch)
 
     ready.write_post_enrollment_start_sequence_two_ready()
     ready.read_exact_post_enrollment_start_sequence_two_ready()
@@ -44,6 +60,7 @@ def test_sequence_two_ready_writer_is_exact_owner_only_atomic_and_one_shot(
     assert stat.S_IMODE(metadata.st_mode) == 0o400
     assert metadata.st_nlink == 1
     assert staging.exists() is False
+    assert fchown_calls == [(metadata.st_dev, metadata.st_ino, os.geteuid(), os.getegid())]
 
     with pytest.raises(
         TrustedTimeSupervisorConfigurationError,

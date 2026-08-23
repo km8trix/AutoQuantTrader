@@ -1,5 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
+override PYTHONDONTWRITEBYTECODE := 1
+export PYTHONDONTWRITEBYTECODE
 
 UV ?= uv
 PNPM ?= pnpm
@@ -20,6 +22,13 @@ TRUSTED_TIME_UNENROLLED_ADMISSION_ARTIFACT_DIR ?= $(CURDIR)/artifacts/trusted-ti
 	trusted-time-enroll-first trusted-time-recover-first-enrollment \
 	trusted-time-prepare-post-enrollment-operator-authority \
 	trusted-time-install-post-enrollment-operator-authority \
+	trusted-time-prepare-post-enrollment-operator-attestation-statement \
+	trusted-time-verify-post-enrollment-operator-attestation-envelope \
+	trusted-time-prepare-post-enrollment-graceful-stop-operator-authority \
+	trusted-time-install-post-enrollment-graceful-stop-operator-authority \
+	trusted-time-prepare-post-enrollment-graceful-stop-decision \
+	trusted-time-prepare-post-enrollment-graceful-stop-operator-attestation-statement \
+	trusted-time-verify-post-enrollment-graceful-stop-operator-attestation-envelope \
 	trusted-time-runtime-diagnostic trusted-time-inspect trusted-time-stop
 
 help: ## List developer commands.
@@ -155,7 +164,13 @@ trader: ## Verify the paper smoke profile and report fail-closed readiness once.
 migrate: ## Upgrade the configured database to the latest schema.
 	$(UV) run alembic upgrade head
 
-check: backend-check test frontend-check architecture-check api-contracts-check compose-check ## Run all quality checks and tests.
+check: ## Run all quality checks and tests in fail-closed architecture-first order.
+	$(MAKE) architecture-check
+	$(MAKE) backend-check
+	$(MAKE) test
+	$(MAKE) frontend-check
+	$(MAKE) api-contracts-check
+	$(MAKE) compose-check
 
 backend-check: ## Check Python formatting, lint, and types.
 	$(UV) run ruff format --check .
@@ -170,7 +185,8 @@ frontend-check: ## Check browser lint, types, tests, and production build.
 	$(PNPM) --dir apps/web build
 
 architecture-check: ## Enforce dependency direction between packages and apps.
-	$(UV) run python scripts/check_architecture.py
+	$(UV) run --isolated --no-project --no-config --offline --no-python-downloads \
+		--python 3.12 python -I -B scripts/check_architecture.py
 
 api-contracts: ## Regenerate the checked-in OpenAPI document and browser wire types.
 	$(UV) run python scripts/generate_api_contracts.py
@@ -335,6 +351,126 @@ trusted-time-install-post-enrollment-operator-authority: ## Install exact review
 		--expected-authority-sha256 "$(TRUSTED_TIME_OPERATOR_APPROVED_AUTHORITY_SHA256)" \
 		--expected-public-key-sha256 "$(TRUSTED_TIME_OPERATOR_APPROVED_PUBLIC_KEY_SHA256)"
 
+trusted-time-prepare-post-enrollment-graceful-stop-operator-authority: ## Prepare graceful-stop public authority for review without installing it.
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_PUBLIC_KEY_FILE)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_PUBLIC_KEY_FILE=absolute/path/to/raw-public-key is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_CANDIDATE_DIRECTORY)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_CANDIDATE_DIRECTORY=absolute/path/to/owner-only-candidates is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
+		scripts/provision_trusted_time_post_enrollment_graceful_stop_operator_authority.py prepare \
+		--raw-public-key-file "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_PUBLIC_KEY_FILE)" \
+		--candidate-directory "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_CANDIDATE_DIRECTORY)"
+
+trusted-time-install-post-enrollment-graceful-stop-operator-authority: ## Install exact reviewed graceful-stop public authority bytes.
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_CANDIDATE_ARTIFACT)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_CANDIDATE_ARTIFACT=absolute/path/to/reviewed-candidate.json is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_APPROVED_AUTHORITY_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_APPROVED_AUTHORITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_APPROVED_PUBLIC_KEY_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_APPROVED_PUBLIC_KEY_SHA256 is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
+		scripts/provision_trusted_time_post_enrollment_graceful_stop_operator_authority.py install \
+		--candidate-artifact "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_CANDIDATE_ARTIFACT)" \
+		--expected-authority-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_APPROVED_AUTHORITY_SHA256)" \
+		--expected-public-key-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_APPROVED_PUBLIC_KEY_SHA256)"
+
+trusted-time-prepare-post-enrollment-operator-attestation-statement: ## Prepare an exact operator statement candidate offline.
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_AUTHORITY_ARTIFACT)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_AUTHORITY_ARTIFACT=absolute/path/to/reviewed-authority-candidate.json is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXECUTION_APPROVAL_V2_ARTIFACT)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_EXECUTION_APPROVAL_V2_ARTIFACT=absolute/path/to/reviewed-v2-approval.json is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_STATEMENT_CANDIDATE_DIRECTORY)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_STATEMENT_CANDIDATE_DIRECTORY=absolute/path/to/owner-only-statement-candidates is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_AUTHORITY_SHA256)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_AUTHORITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_PUBLIC_KEY_SHA256)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_PUBLIC_KEY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_EXECUTION_APPROVAL_V2_SHA256)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_EXECUTION_APPROVAL_V2_SHA256 is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
+		scripts/trusted_time_post_enrollment_operator_attestation_artifacts.py prepare-statement \
+		--authority-artifact "$(TRUSTED_TIME_OPERATOR_ATTESTATION_AUTHORITY_ARTIFACT)" \
+		--execution-approval-v2-artifact "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXECUTION_APPROVAL_V2_ARTIFACT)" \
+		--statement-candidate-directory "$(TRUSTED_TIME_OPERATOR_ATTESTATION_STATEMENT_CANDIDATE_DIRECTORY)" \
+		--expected-authority-sha256 "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_AUTHORITY_SHA256)" \
+		--expected-public-key-sha256 "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_PUBLIC_KEY_SHA256)" \
+		--expected-execution-approval-v2-sha256 "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_EXECUTION_APPROVAL_V2_SHA256)"
+
+trusted-time-verify-post-enrollment-operator-attestation-envelope: ## Verify a detached signature and retain an exact v3 candidate offline.
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_AUTHORITY_ARTIFACT)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_AUTHORITY_ARTIFACT=absolute/path/to/reviewed-authority-candidate.json is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXECUTION_APPROVAL_V2_ARTIFACT)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_EXECUTION_APPROVAL_V2_ARTIFACT=absolute/path/to/reviewed-v2-approval.json is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_STATEMENT_ARTIFACT)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_STATEMENT_ARTIFACT=absolute/path/to/reviewed-statement-candidate.json is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_DETACHED_SIGNATURE_FILE)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_DETACHED_SIGNATURE_FILE=absolute/path/to/detached-signature.raw is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_ENVELOPE_CANDIDATE_DIRECTORY)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_ENVELOPE_CANDIDATE_DIRECTORY=absolute/path/to/owner-only-envelope-candidates is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_AUTHORITY_SHA256)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_AUTHORITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_PUBLIC_KEY_SHA256)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_PUBLIC_KEY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_EXECUTION_APPROVAL_V2_SHA256)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_EXECUTION_APPROVAL_V2_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_STATEMENT_SHA256)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_STATEMENT_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_SIGNATURE_SHA256)" || (echo "TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_SIGNATURE_SHA256 is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
+		scripts/trusted_time_post_enrollment_operator_attestation_artifacts.py verify-signature \
+		--authority-artifact "$(TRUSTED_TIME_OPERATOR_ATTESTATION_AUTHORITY_ARTIFACT)" \
+		--execution-approval-v2-artifact "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXECUTION_APPROVAL_V2_ARTIFACT)" \
+		--statement-artifact "$(TRUSTED_TIME_OPERATOR_ATTESTATION_STATEMENT_ARTIFACT)" \
+		--detached-signature-file "$(TRUSTED_TIME_OPERATOR_ATTESTATION_DETACHED_SIGNATURE_FILE)" \
+		--envelope-candidate-directory "$(TRUSTED_TIME_OPERATOR_ATTESTATION_ENVELOPE_CANDIDATE_DIRECTORY)" \
+		--expected-authority-sha256 "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_AUTHORITY_SHA256)" \
+		--expected-public-key-sha256 "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_PUBLIC_KEY_SHA256)" \
+		--expected-execution-approval-v2-sha256 "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_EXECUTION_APPROVAL_V2_SHA256)" \
+		--expected-statement-sha256 "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_STATEMENT_SHA256)" \
+		--expected-signature-sha256 "$(TRUSTED_TIME_OPERATOR_ATTESTATION_EXPECTED_SIGNATURE_SHA256)"
+
+trusted-time-prepare-post-enrollment-graceful-stop-decision: ## Bind the authenticated historical start chain into an inert decision candidate.
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATION_ID)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATION_ID is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_START_OPERATOR_ATTESTED_APPROVAL_ARTIFACT)" || (echo "TRUSTED_TIME_START_OPERATOR_ATTESTED_APPROVAL_ARTIFACT=absolute/path/to/start-envelope.json is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_DECISION_CANDIDATE_DIRECTORY)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_DECISION_CANDIDATE_DIRECTORY=absolute/path/to/owner-only-decision-candidates is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_CONTROLLER_OUTCOME_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_CONTROLLER_OUTCOME_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_DURABLE_SHUTDOWN_LOCATOR_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_DURABLE_SHUTDOWN_LOCATOR_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_START_EXECUTION_ATTEMPT_SLOT_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_START_EXECUTION_ATTEMPT_SLOT_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_START_OPERATOR_ATTESTATION_ENVELOPE_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_START_OPERATOR_ATTESTATION_ENVELOPE_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_START_OPERATION_ID)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_START_OPERATION_ID is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_START_APPROVAL_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_START_APPROVAL_SHA256 is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
+		scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py prepare-decision \
+		--graceful-stop-operation-id "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATION_ID)" \
+		--start-operator-attested-approval-artifact "$(TRUSTED_TIME_START_OPERATOR_ATTESTED_APPROVAL_ARTIFACT)" \
+		--decision-candidate-directory "$(TRUSTED_TIME_GRACEFUL_STOP_DECISION_CANDIDATE_DIRECTORY)" \
+		--expected-controller-outcome-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_CONTROLLER_OUTCOME_SHA256)" \
+		--expected-durable-shutdown-locator-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_DURABLE_SHUTDOWN_LOCATOR_SHA256)" \
+		--expected-start-execution-attempt-slot-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_START_EXECUTION_ATTEMPT_SLOT_SHA256)" \
+		--expected-start-operator-attestation-envelope-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_START_OPERATOR_ATTESTATION_ENVELOPE_SHA256)" \
+		--expected-start-operation-id "$(TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_START_OPERATION_ID)" \
+		--expected-start-approval-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_EXPECTED_START_APPROVAL_SHA256)"
+
+trusted-time-prepare-post-enrollment-graceful-stop-operator-attestation-statement: ## Prepare an exact graceful-stop statement candidate offline.
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_AUTHORITY_ARTIFACT)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_AUTHORITY_ARTIFACT=absolute/path/to/reviewed-authority-candidate.json is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_DECISION_V1_ARTIFACT)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_DECISION_V1_ARTIFACT=absolute/path/to/reviewed-decision-v1.json is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_STATEMENT_CANDIDATE_DIRECTORY)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_STATEMENT_CANDIDATE_DIRECTORY=absolute/path/to/owner-only-statement-candidates is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_AUTHORITY_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_AUTHORITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_PUBLIC_KEY_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_PUBLIC_KEY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_DECISION_V1_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_DECISION_V1_SHA256 is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
+		scripts/trusted_time_post_enrollment_graceful_stop_operator_attestation_artifacts.py prepare-statement \
+		--authority-artifact "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_AUTHORITY_ARTIFACT)" \
+		--graceful-stop-decision-v1-artifact "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_DECISION_V1_ARTIFACT)" \
+		--statement-candidate-directory "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_STATEMENT_CANDIDATE_DIRECTORY)" \
+		--expected-authority-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_AUTHORITY_SHA256)" \
+		--expected-public-key-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_PUBLIC_KEY_SHA256)" \
+		--expected-graceful-stop-decision-v1-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_DECISION_V1_SHA256)"
+
+trusted-time-verify-post-enrollment-graceful-stop-operator-attestation-envelope: ## Verify a detached graceful-stop signature and retain an exact v2 candidate offline.
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_AUTHORITY_ARTIFACT)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_AUTHORITY_ARTIFACT=absolute/path/to/reviewed-authority-candidate.json is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_DECISION_V1_ARTIFACT)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_DECISION_V1_ARTIFACT=absolute/path/to/reviewed-decision-v1.json is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_STATEMENT_ARTIFACT)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_STATEMENT_ARTIFACT=absolute/path/to/reviewed-statement-candidate.json is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_DETACHED_SIGNATURE_FILE)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_DETACHED_SIGNATURE_FILE=absolute/path/to/detached-signature.raw is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_ENVELOPE_CANDIDATE_DIRECTORY)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_ENVELOPE_CANDIDATE_DIRECTORY=absolute/path/to/owner-only-envelope-candidates is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_AUTHORITY_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_AUTHORITY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_PUBLIC_KEY_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_PUBLIC_KEY_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_DECISION_V1_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_DECISION_V1_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_STATEMENT_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_STATEMENT_SHA256 is required" >&2; exit 2)
+	@test -n "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_SIGNATURE_SHA256)" || (echo "TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_SIGNATURE_SHA256 is required" >&2; exit 2)
+	$(TRUSTED_TIME_PYTHON) \
+		scripts/trusted_time_post_enrollment_graceful_stop_operator_attestation_artifacts.py verify-signature \
+		--authority-artifact "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_AUTHORITY_ARTIFACT)" \
+		--graceful-stop-decision-v1-artifact "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_DECISION_V1_ARTIFACT)" \
+		--statement-artifact "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_STATEMENT_ARTIFACT)" \
+		--detached-signature-file "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_DETACHED_SIGNATURE_FILE)" \
+		--envelope-candidate-directory "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_ENVELOPE_CANDIDATE_DIRECTORY)" \
+		--expected-authority-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_AUTHORITY_SHA256)" \
+		--expected-public-key-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_PUBLIC_KEY_SHA256)" \
+		--expected-graceful-stop-decision-v1-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_DECISION_V1_SHA256)" \
+		--expected-statement-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_STATEMENT_SHA256)" \
+		--expected-signature-sha256 "$(TRUSTED_TIME_GRACEFUL_STOP_OPERATOR_ATTESTATION_EXPECTED_SIGNATURE_SHA256)"
+
 trusted-time-runtime-diagnostic: ## Run the bounded read-only trusted-time runtime diagnostic.
 	@test -n "$(TRUSTED_TIME_LAUNCH_ENV_FILE)" || (echo "TRUSTED_TIME_LAUNCH_ENV_FILE=path/to/dedicated-owner-only.env is required" >&2; exit 2)
 	@$(TRUSTED_TIME_PYTHON) \
@@ -349,6 +485,6 @@ trusted-time-inspect: ## Inspect the running trusted-time qualification window.
 		--image-admission-artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)" \
 		--artifact-dir "$(TRUSTED_TIME_QUALIFICATION_ARTIFACT_DIR)"
 
-trusted-time-stop: ## Fail closed until an approval-bound frozen shutdown path is implemented.
-	@echo "trusted-time-stop is approval-blocked: no frozen approved shutdown path is implemented" >&2
+trusted-time-stop: ## Fail closed until an effecting approved shutdown operator is implemented.
+	@echo "trusted-time-stop is approval-blocked: no effecting approved shutdown operator is implemented" >&2
 	@exit 2

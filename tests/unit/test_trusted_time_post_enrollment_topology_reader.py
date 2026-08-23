@@ -4,18 +4,22 @@ import hashlib
 import json
 import os
 import pickle
-import subprocess
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from copy import copy, deepcopy
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, Never, cast
 
 import pytest
 
 import scripts.trusted_time_post_enrollment_topology_reader as reader
 from apps.trusted_time_supervisor.main import DATABASE_SECRET_CONSUMED_BYTES
+from packages.adapters.trusted_time._owned_file_descriptor import (
+    _acquire_trusted_time_launch_lock,
+    _TrustedTimeLaunchLockLease,
+    _validate_trusted_time_launch_lock,
+)
 from packages.domain.trusted_time_enrollment_evidence import (
     FIRST_ENROLLMENT_AUTHORITY_FIELDS,
     TrustedTimeConfirmedFirstEnrollment,
@@ -27,6 +31,7 @@ from packages.domain.trusted_time_enrollment_evidence import (
 from packages.domain.trusted_time_post_enrollment_start import (
     TrustedTimePostEnrollmentStartApproval,
 )
+from scripts.bounded_subprocess import BoundedSubprocessResult
 from scripts.start_trusted_time_supervisor import (
     COMPOSE_NETWORK_NAME,
     DATABASE_SECRET_CONSUMED_PATH,
@@ -222,13 +227,13 @@ def _staged_paths(root: Path) -> tuple[Path, Path, Path, Path]:
 
 @contextmanager
 def _unix_socket(path: Path) -> Iterator[None]:
-    del path
+    assert path.is_socket()
     yield
 
 
 def _short_socket_path(seed: Path) -> Path:
-    digest = hashlib.sha256(os.fspath(seed).encode()).hexdigest()[:16]
-    return reader.ROOT / f".aqt-reader-{digest}.sock"
+    del seed
+    return Path("/var/run/docker.sock").resolve(strict=True)
 
 
 def _make_executable(path: Path) -> None:
@@ -252,7 +257,7 @@ class _QueuedRunner:
         maximum_stderr_bytes: int,
         stdin_bytes: bytes | None = None,
         maximum_stdin_bytes: int = 0,
-    ) -> subprocess.CompletedProcess[bytes]:
+    ) -> BoundedSubprocessResult:
         self.calls.append(
             {
                 "argv": argv,
@@ -270,7 +275,164 @@ class _QueuedRunner:
         output = self.outputs.pop(0)
         if isinstance(output, BaseException):
             raise output
-        return subprocess.CompletedProcess(argv, 0, output, b"")
+        return (argv, 0, output, b"")
+
+
+class _TupleSubclass(tuple[object, ...]):
+    pass
+
+
+class _LegacyDescriptorTrap:
+    @property
+    def args(self) -> Never:
+        raise AssertionError("legacy result descriptor was read")
+
+    @property
+    def returncode(self) -> Never:
+        raise AssertionError("legacy result descriptor was read")
+
+    @property
+    def stdout(self) -> Never:
+        raise AssertionError("legacy result descriptor was read")
+
+    @property
+    def stderr(self) -> Never:
+        raise AssertionError("legacy result descriptor was read")
+
+
+def test_bounded_runner_result_requires_exact_immutable_tuple_authority() -> None:
+    argv = ("/usr/bin/docker", "info")
+    exact: object = (argv, 0, b"stdout", b"")
+
+    assert (
+        reader._require_exact_bounded_runner_result(
+            exact,
+            expected_argv=argv,
+            maximum_stdout_bytes=6,
+            maximum_stderr_bytes=0,
+            require_argv_identity=True,
+        )
+        is exact
+    )
+
+    equal_argv = tuple(list(argv))
+    assert equal_argv == argv and equal_argv is not argv
+    equal_result: object = (equal_argv, 0, b"stdout", b"")
+    assert (
+        reader._require_exact_bounded_runner_result(
+            equal_result,
+            expected_argv=argv,
+            maximum_stdout_bytes=6,
+            maximum_stderr_bytes=0,
+        )
+        is equal_result
+    )
+    with pytest.raises(ValueError):
+        reader._require_exact_bounded_runner_result(
+            equal_result,
+            expected_argv=argv,
+            maximum_stdout_bytes=6,
+            maximum_stderr_bytes=0,
+            require_argv_identity=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        _LegacyDescriptorTrap(),
+        _TupleSubclass((("/usr/bin/docker", "info"), 0, b"stdout", b"")),
+        (("/usr/bin/docker", "info"), 0, b"stdout"),
+        (("/usr/bin/docker", "version"), 0, b"stdout", b""),
+        (("/usr/bin/docker", "info"), False, b"stdout", b""),
+        (("/usr/bin/docker", "info"), 0, bytearray(b"stdout"), b""),
+        (("/usr/bin/docker", "info"), 0, b"stdout", ""),
+        (("/usr/bin/docker", "info"), 0, b"oversize", b""),
+        (("/usr/bin/docker", "info"), 0, b"stdout", b"oversize"),
+    ],
+)
+def test_bounded_runner_result_rejects_legacy_or_inexact_authority(malformed: object) -> None:
+    with pytest.raises(ValueError):
+        reader._require_exact_bounded_runner_result(
+            malformed,
+            expected_argv=("/usr/bin/docker", "info"),
+            maximum_stdout_bytes=6,
+            maximum_stderr_bytes=0,
+        )
+
+
+def test_daemon_descriptor_is_captured_once_before_a_b_relabel() -> None:
+    selected = LocalDockerDaemonIdentity(
+        context_name="<DOCKER_HOST>",
+        endpoint="unix:///run/docker-a.sock",
+        daemon_id="LOCAL:DAEMON:A",
+    )
+    captured_by_validator: list[tuple[str, str, str, str]] = []
+
+    def validate_after_relabel(candidate: object) -> tuple[str, str, str, str]:
+        exact = reader._require_daemon_identity_registration(candidate)
+        captured_by_validator.append(exact)
+        object.__setattr__(selected, "endpoint", "unix:///run/docker-b.sock")
+        object.__setattr__(selected, "daemon_id", "LOCAL:DAEMON:B")
+        return exact
+
+    registration = reader._capture_daemon_identity_registration(
+        selected,
+        _require_registration=validate_after_relabel,
+    )
+
+    assert registration == (
+        "trusted-time-daemon-identity-registration-v1",
+        "<DOCKER_HOST>",
+        "unix:///run/docker-a.sock",
+        "LOCAL:DAEMON:A",
+    )
+    assert captured_by_validator == [registration]
+    assert selected.endpoint == "unix:///run/docker-b.sock"
+    assert selected.daemon_id == "LOCAL:DAEMON:B"
+    diagnostic = reader._daemon_identity_view(registration)
+    object.__setattr__(diagnostic, "endpoint", "unix:///run/docker-c.sock")
+    assert registration[2] == "unix:///run/docker-a.sock"
+
+
+def test_environment_capture_is_exact_and_survives_source_mapping_mutation() -> None:
+    submitted = {
+        "TERM": "xterm-256color",
+        "LANG": "C.UTF-8",
+        "PATH": "/attacker/bin",
+    }
+    captured = reader._minimal_docker_environment(
+        submitted,
+        endpoint="unix:///run/docker.sock",
+    )
+    expected = (
+        ("DOCKER_HOST", "unix:///run/docker.sock"),
+        ("LANG", "C.UTF-8"),
+        ("PATH", "/usr/bin:/bin"),
+        ("TERM", "xterm-256color"),
+    )
+    assert captured == expected
+
+    submitted.clear()
+    submitted.update({"LANG": "attacker", "PATH": "/attacker/two"})
+    assert captured == expected
+    assert (
+        reader._environment_identity_sha256(captured)
+        == hashlib.sha256(reader._EXACT_IMMUTABLE_JSON_SERIALIZER((0, captured))).hexdigest()
+    )
+    with pytest.raises(ValueError):
+        reader._environment_identity_sha256(tuple(reversed(captured)))
+
+
+def test_trusted_docker_resolver_returns_exact_string_and_stat9_identity() -> None:
+    executable, identity = reader._resolve_trusted_docker_executable()
+
+    assert type(executable) is str
+    assert executable.startswith("/")
+    assert os.path.normpath(executable) == executable
+    assert type(identity) is tuple and len(identity) == 9
+    assert all(type(value) is int for value in identity)
+    assert reader._docker_executable_identity(executable) == identity
 
 
 def _network_settings(
@@ -405,7 +567,12 @@ def _network(state: Literal["created", "staged_unreleased"]) -> dict[str, object
 
 
 def _inventory_bytes() -> bytes:
-    return _json_line(SOURCE_CONTAINER_ID) + _json_line(SUPERVISOR_CONTAINER_ID)
+    return (
+        SOURCE_CONTAINER_ID.encode("ascii")
+        + b" chrony-nts\n"
+        + SUPERVISOR_CONTAINER_ID.encode("ascii")
+        + b" trusted-time-supervisor\n"
+    )
 
 
 def _barrier() -> dict[str, object]:
@@ -513,35 +680,113 @@ def _install_pure_validator_stubs(
     return created, staged, exact_calls
 
 
+def _test_only_authenticated_activation_closure() -> tuple[
+    Callable[..., object],
+    Callable[..., object],
+    Callable[..., object],
+    Callable[..., object],
+    Callable[..., object],
+]:
+    guarded_activate = cast(
+        Any,
+        reader.TrustedTimePostEnrollmentTopologyObservationIssuer.activate,
+    )
+    closure = guarded_activate.__closure__
+    assert type(closure) is tuple
+    captured = {
+        name: cell.cell_contents
+        for name, cell in zip(guarded_activate.__code__.co_freevars, closure, strict=True)
+    }
+    assert set(captured) == {
+        "BaseException",
+        "Exception",
+        "_getpid",
+        "_run_under_lock",
+        "abort_activation",
+        "begin_activation",
+        "commit_activation",
+        "getattr",
+        "isinstance",
+        "method",
+        "process_pid",
+        "register",
+        "sealed_reader_error",
+    }
+    assert captured["BaseException"] is BaseException
+    assert captured["Exception"] is Exception
+    assert captured["getattr"] is getattr
+    assert captured["isinstance"] is isinstance
+    sealed_reader_error = captured["sealed_reader_error"]
+    assert callable(sealed_reader_error)
+    sealed_reader_error_code = getattr(sealed_reader_error, "__code__", None)
+    assert getattr(sealed_reader_error_code, "co_name", None) == "sealed_reader_error"
+    assert getattr(sealed_reader_error_code, "co_qualname", None) == (
+        "_build_observation_sealer.<locals>.sealed_reader_error"
+    )
+    values = (
+        captured["method"],
+        captured["begin_activation"],
+        captured["register"],
+        captured["commit_activation"],
+        captured["abort_activation"],
+    )
+    assert all(callable(value) for value in values)
+    return cast(tuple[Callable[..., object], ...], values)
+
+
+def _test_only_authenticated_capability_registrar() -> Callable[..., object]:
+    return _test_only_authenticated_activation_closure()[2]
+
+
 def _public_open(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     runner: _QueuedRunner,
     socket_path: Path,
-    executable: Path,
+    legacy_executable: Path | None = None,
 ) -> reader.TrustedTimePostEnrollmentTopologyObservationIssuer:
+    del legacy_executable
+    del monkeypatch
     ignored_root = tmp_path / "artifacts"
-    lock_path = ignored_root / "trusted-time" / "trusted-time-launch.lock"
-    monkeypatch.setattr(reader, "IGNORED_ARTIFACT_ROOT", ignored_root)
-    monkeypatch.setattr(reader, "TRUSTED_TIME_LAUNCH_LOCK_PATH", lock_path)
-    monkeypatch.setattr(reader, "_TRUSTED_DOCKER_EXECUTABLE_CANDIDATES", (executable,))
-    monkeypatch.setattr(reader, "run_bounded_subprocess", runner)
-    monkeypatch.setattr(
-        reader,
-        "_socket_identity",
-        lambda _path: (1, 2, 0o140700, os.geteuid(), os.getegid()),
+    docker_executable, docker_executable_identity = reader._resolve_trusted_docker_executable()
+    daemon_identity_registration = reader._capture_daemon_identity_registration(
+        LocalDockerDaemonIdentity(
+            context_name="<DOCKER_HOST>",
+            endpoint=f"unix://{socket_path}",
+            daemon_id="LOCAL:DAEMON:1",
+        )
     )
-    issuer = cast(
-        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
-        reader.TrustedTimePostEnrollmentTopologyObservationIssuer.open(
-            expected_daemon_identity=LocalDockerDaemonIdentity(
-                context_name="<DOCKER_HOST>",
-                endpoint=f"unix://{socket_path}",
-                daemon_id="LOCAL:DAEMON:1",
-            ),
-            docker_environment={"PATH": os.fspath(tmp_path / "attacker-bin"), "LANG": "C"},
-        ),
+    environment_identity = reader._minimal_docker_environment(
+        {"PATH": os.fspath(tmp_path / "attacker-bin"), "LANG": "C"},
+        endpoint=f"unix://{socket_path}",
     )
+    issuer = reader.TrustedTimePostEnrollmentTopologyObservationIssuer.allocate_inert()
+    (
+        _,
+        begin_activation,
+        registrar,
+        commit_activation,
+        abort_activation,
+    ) = _test_only_authenticated_activation_closure()
+    begin_activation(issuer, issuer._lifecycle_lock)
+    try:
+        result = issuer._activate_with_dependencies(
+            daemon_identity_registration=daemon_identity_registration,
+            environment_identity=environment_identity,
+            docker_executable=docker_executable,
+            docker_executable_identity=docker_executable_identity,
+            ignored_root=os.fspath(ignored_root),
+            artifact_directory=os.fspath(ignored_root / "trusted-time"),
+            runner=runner,
+            session_token_factory=lambda: b"n" * 32,
+            _capability_registrar=registrar,
+            _activation_committer=commit_activation,
+        )
+        assert result is None
+    except BaseException:
+        with suppress(BaseException):
+            abort_activation(issuer)
+        raise
     network_name = post_enrollment_created_topology_network_name(issuer._session_sha256)
     for index, output in enumerate(runner.outputs):
         if type(output) is not bytes or not output.endswith(b"\n"):
@@ -581,13 +826,153 @@ def _issue_arguments(paths: tuple[Path, Path, Path, Path]) -> dict[str, object]:
     }
 
 
+def _open_created_test_issuer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[
+    reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
+    _QueuedRunner,
+    tuple[Path, Path, Path, Path],
+    reader.TrustedTimePostEnrollmentCreatedTopologyObservation,
+]:
+    socket_path = _short_socket_path(tmp_path)
+    _install_pure_validator_stubs(monkeypatch, endpoint=f"unix://{socket_path}")
+    paths = _staged_paths(tmp_path / "retired")
+    queued = _QueuedRunner([_json_line("LOCAL:DAEMON:1"), *_state_outputs("created")])
+    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
+    created = issuer.issue_created_snapshot(**_issue_arguments(paths))  # type: ignore[arg-type]
+    assert queued.outputs == []
+    return issuer, queued, paths, created
+
+
+def test_public_open_uses_definition_captured_runner_and_entropy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_activate = _test_only_authenticated_activation_closure()[0]
+    activation_defaults = cast(dict[str, object], original_activate.__kwdefaults__)
+    captured_runner = activation_defaults["_runner"]
+    captured_token_factory = cast(
+        Callable[[], bytes],
+        activation_defaults["_session_token_factory"],
+    )
+    token_defaults = cast(dict[str, object], captured_token_factory.__kwdefaults__)
+    captured_entropy = token_defaults["_entropy"]
+    decoy_calls: list[object] = []
+
+    def decoy_runner(*args: object, **kwargs: object) -> Never:
+        decoy_calls.append((args, kwargs))
+        raise AssertionError("module runner relabel was selected")
+
+    def decoy_entropy(size: int) -> bytes:
+        decoy_calls.append(size)
+        return b"x" * size
+
+    monkeypatch.setattr(reader, "run_bounded_subprocess", decoy_runner)
+    monkeypatch.setattr(reader.secrets, "token_bytes", decoy_entropy)
+
+    assert activation_defaults["_runner"] is captured_runner
+    assert activation_defaults["_runner"] is not decoy_runner
+    assert token_defaults["_entropy"] is captured_entropy
+    assert token_defaults["_entropy"] is not decoy_entropy
+    token = captured_token_factory()
+    assert type(token) is bytes and len(token) == 32
+    assert decoy_calls == []
+
+
+def test_open_captures_daemon_and_environment_before_resolver_a_b_a_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = _short_socket_path(tmp_path)
+    endpoint_a = f"unix://{socket_path}"
+    endpoint_b = "unix:///run/attacker-docker.sock"
+    selected_daemon = LocalDockerDaemonIdentity(
+        context_name="<DOCKER_HOST>",
+        endpoint=endpoint_a,
+        daemon_id="LOCAL:DAEMON:A",
+    )
+    submitted_environment = {"LANG": "C", "PATH": "/attacker/a"}
+    expected_daemon_registration = reader._capture_daemon_identity_registration(selected_daemon)
+    expected_environment_identity = reader._minimal_docker_environment(
+        submitted_environment,
+        endpoint=endpoint_a,
+    )
+    docker_executable, docker_executable_identity = reader._resolve_trusted_docker_executable()
+    queued = _QueuedRunner([_json_line("LOCAL:DAEMON:A")])
+    ignored_root = tmp_path / "artifacts"
+    monkeypatch.setattr(reader, "IGNORED_ARTIFACT_ROOT", ignored_root)
+    resolver_calls = 0
+
+    def mutating_resolver() -> tuple[str, tuple[int, ...]]:
+        nonlocal resolver_calls
+        resolver_calls += 1
+        object.__setattr__(selected_daemon, "endpoint", endpoint_b)
+        object.__setattr__(selected_daemon, "daemon_id", "LOCAL:DAEMON:B")
+        submitted_environment.clear()
+        submitted_environment.update({"LANG": "attacker", "PATH": "/attacker/b"})
+        return docker_executable, docker_executable_identity
+
+    (
+        original_activate,
+        begin_activation,
+        registrar,
+        commit_activation,
+        abort_activation,
+    ) = _test_only_authenticated_activation_closure()
+    issuer = reader.TrustedTimePostEnrollmentTopologyObservationIssuer.allocate_inert()
+    begin_activation(issuer, issuer._lifecycle_lock)
+    try:
+        activation_result = original_activate(
+            issuer,
+            expected_daemon_identity=selected_daemon,
+            docker_environment=submitted_environment,
+            _capability_registrar=registrar,
+            _activation_committer=commit_activation,
+            _resolve_docker=mutating_resolver,
+            _runner=queued,
+            _session_token_factory=lambda: b"n" * 32,
+            _ignored_root_value=os.fspath(ignored_root),
+            _artifact_directory_value=os.fspath(ignored_root / "trusted-time"),
+        )
+        assert activation_result is None
+    except BaseException:
+        with suppress(BaseException):
+            abort_activation(issuer)
+        raise
+    assert resolver_calls == 1
+    assert selected_daemon.endpoint == endpoint_b
+    assert selected_daemon.daemon_id == "LOCAL:DAEMON:B"
+    assert submitted_environment == {"LANG": "attacker", "PATH": "/attacker/b"}
+
+    capability = issuer._authentication_capability
+    runtime_registration = reader._authenticated_issuer_runtime_provenance(
+        issuer,
+        capability,
+    )
+    assert runtime_registration[1] == expected_environment_identity
+    assert runtime_registration[7] == expected_daemon_registration
+    assert issuer._environment_identity_value == expected_environment_identity
+    assert issuer._daemon_identity_registration_value == expected_daemon_registration
+
+    object.__setattr__(selected_daemon, "endpoint", endpoint_a)
+    object.__setattr__(selected_daemon, "daemon_id", "LOCAL:DAEMON:A")
+    submitted_environment.clear()
+    submitted_environment.update({"LANG": "C", "PATH": "/attacker/a"})
+    assert (
+        reader._authenticated_issuer_runtime_provenance(
+            issuer,
+            capability,
+        )[7]
+        == expected_daemon_registration
+    )
+    issuer.close()
+
+
 def test_public_issuer_reads_exact_bounded_schedule_and_seals_two_staged_observations(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     socket_path = _short_socket_path(tmp_path)
-    executable = tmp_path / "trusted-docker"
-    _make_executable(executable)
     endpoint = f"unix://{socket_path}"
     created_snapshot, staged_snapshot, exact_calls = _install_pure_validator_stubs(
         monkeypatch,
@@ -604,7 +989,7 @@ def test_public_issuer_reads_exact_bounded_schedule_and_seals_two_staged_observa
     )
 
     with _unix_socket(socket_path):
-        issuer = _public_open(monkeypatch, tmp_path, queued, socket_path, executable)
+        issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
         created = issuer.issue_created_snapshot(**_issue_arguments(paths))  # type: ignore[arg-type]
         staged_one = issuer.issue_staged_unreleased_snapshot(
             created_observation=created,
@@ -656,9 +1041,9 @@ def test_public_issuer_reads_exact_bounded_schedule_and_seals_two_staged_observa
 
         assert len(queued.calls) == 47
         assert queued.outputs == []
-        expected_executable = os.fspath(executable.resolve())
+        expected_executable = issuer._docker_executable_path_value
         assert all(call["argv"][0] == expected_executable for call in queued.calls)  # type: ignore[index]
-        assert all(call["cwd"] == reader.ROOT for call in queued.calls)
+        assert all(call["cwd"] == Path("/") for call in queued.calls)
         assert all(call["timeout_seconds"] == 2.0 for call in queued.calls)
         assert all(call["maximum_stderr_bytes"] == 4 * 1_024 for call in queued.calls)
         assert all(call["stdin_bytes"] is None for call in queued.calls)
@@ -684,9 +1069,9 @@ def test_public_issuer_reads_exact_bounded_schedule_and_seals_two_staged_observa
                 created_observation=created,
                 **_issue_arguments(paths),  # type: ignore[arg-type]
             )
-        issuer.close()
-        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
             issuer.close()
+            with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+                issuer.close()
 
 
 def test_claim_admitted_final_action_observation_reuses_full_staged_read_recipe(
@@ -694,8 +1079,6 @@ def test_claim_admitted_final_action_observation_reuses_full_staged_read_recipe(
     tmp_path: Path,
 ) -> None:
     socket_path = _short_socket_path(tmp_path)
-    executable = tmp_path / "trusted-docker"
-    _make_executable(executable)
     endpoint = f"unix://{socket_path}"
     created_snapshot, staged_snapshot, exact_calls = _install_pure_validator_stubs(
         monkeypatch,
@@ -757,7 +1140,7 @@ def test_claim_admitted_final_action_observation_reuses_full_staged_read_recipe(
         consume,
     )
 
-    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path, executable)
+    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
 
     def observe(
         lease: object,
@@ -900,19 +1283,26 @@ def test_real_claimed_action_module_consumes_reader_authorization_once(
         context = claimed_fixtures._context(tmp_path)
 
     socket_path = _short_socket_path(tmp_path)
-    executable = tmp_path / "trusted-docker"
-    _make_executable(executable)
     endpoint = f"unix://{socket_path}"
     _install_pure_validator_stubs(monkeypatch, endpoint=endpoint)
+    created_validation_snapshot = replace(
+        context.created.snapshot,
+        daemon_endpoint=endpoint,
+    )
+    staged_validation_snapshot = replace(
+        context.staged_two.snapshot,
+        created_topology_snapshot_sha256=created_validation_snapshot.snapshot_sha256,
+        daemon_endpoint=endpoint,
+    )
     monkeypatch.setattr(
         reader,
         "validate_post_enrollment_start_created_topology",
-        lambda **_kwargs: context.created.snapshot,
+        lambda **_kwargs: created_validation_snapshot,
     )
     monkeypatch.setattr(
         reader,
         "validate_post_enrollment_start_staged_unreleased_topology",
-        lambda **_kwargs: context.staged_two.snapshot,
+        lambda **_kwargs: staged_validation_snapshot,
     )
     paths = claimed_fixtures._staged_paths(context.artifact_directory)
     queued = _QueuedRunner(
@@ -927,7 +1317,7 @@ def test_real_claimed_action_module_consumes_reader_authorization_once(
             *_state_outputs("staged_unreleased"),
         ]
     )
-    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path, executable)
+    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
 
     def prepare_action(
         lease: object,
@@ -1017,10 +1407,8 @@ def test_final_action_observation_rejects_unconsumed_authorization_before_read(
     tmp_path: Path,
 ) -> None:
     socket_path = _short_socket_path(tmp_path)
-    executable = tmp_path / "trusted-docker"
-    _make_executable(executable)
     queued = _QueuedRunner([_json_line("LOCAL:DAEMON:1")])
-    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path, executable)
+    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
     paths = _staged_paths(tmp_path / "retired")
     monkeypatch.setattr(
         reader,
@@ -1292,8 +1680,6 @@ def test_final_action_cleanup_interruption_clears_busy_and_preserves_recovery(
         pass
 
     socket_path = _short_socket_path(tmp_path)
-    executable = tmp_path / "trusted-docker"
-    _make_executable(executable)
     endpoint = f"unix://{socket_path}"
     _install_pure_validator_stubs(monkeypatch, endpoint=endpoint)
     paths = _staged_paths(tmp_path / "retired")
@@ -1346,7 +1732,7 @@ def test_final_action_cleanup_interruption_clears_busy_and_preserves_recovery(
         lambda candidate, **_kwargs: candidate is authorization,
     )
 
-    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path, executable)
+    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
     retained, artifact_directory, ignored_root = lease_fixtures._retain_claim_for_issuer(issuer)
     original_finish = reader.TrustedTimePostEnrollmentTopologyObservationIssuer._finish_observation
     finish_interrupted = False
@@ -1659,26 +2045,24 @@ def test_separate_network_inspection_rejects_boundary_drift(
     ],
 )
 def test_barrier_parser_rejects_extra_or_inexact_candidates(
-    monkeypatch: pytest.MonkeyPatch,
     mutation: Callable[[dict[str, Any]], object],
 ) -> None:
+    assert reader._STAGED_BARRIER_COMMAND == (
+        "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+        "post-enrollment-staged-barrier-read",
+    )
     payload = _barrier()
     mutation(cast(dict[str, Any], payload))
-    issuer = object.__new__(reader.TrustedTimePostEnrollmentTopologyObservationIssuer)
-    issuer._docker_executable_path = Path("/trusted/docker")
-    monkeypatch.setattr(
-        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
-        "_run_json",
-        lambda *_args, **_kwargs: payload,
-    )
-    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
-        issuer._observe_barrier([], supervisor_container_id=SUPERVISOR_CONTAINER_ID)
+    with pytest.raises(ValueError):
+        reader._parse_staged_barrier_probe(_json_line(payload))
 
 
 def test_host_retirement_is_root_and_parent_descriptor_anchored(tmp_path: Path) -> None:
     paths = _staged_paths(tmp_path / "retired")
-    observed = reader._observe_host_retirements(paths)
-    assert tuple(candidate.path for candidate in observed.candidates) == tuple(
+    observed = reader._require_anchored_retirement_observation(
+        reader._observe_host_retirements(paths)
+    )
+    assert tuple(projection[1] for projection in observed[2]) == tuple(
         os.fspath(path) for path in paths
     )
 
@@ -1744,34 +2128,271 @@ def test_dependency_injected_session_cannot_mint_authenticated_envelope(
 ) -> None:
     socket_path = _short_socket_path(tmp_path)
     endpoint = f"unix://{socket_path}"
-    executable = tmp_path / "trusted-docker"
-    _make_executable(executable)
     _install_pure_validator_stubs(monkeypatch, endpoint=endpoint)
     queued = _QueuedRunner([_json_line("LOCAL:DAEMON:1"), *_state_outputs("created")])
+    ignored_root = tmp_path / "artifacts"
+    executable_path, executable_identity = reader._resolve_trusted_docker_executable()
+    issuer = reader.TrustedTimePostEnrollmentTopologyObservationIssuer.allocate_inert()
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer._activate_with_dependencies(
+            daemon_identity_registration=reader._capture_daemon_identity_registration(
+                LocalDockerDaemonIdentity(
+                    context_name="<DOCKER_HOST>",
+                    endpoint=endpoint,
+                    daemon_id="LOCAL:DAEMON:1",
+                )
+            ),
+            environment_identity=reader._minimal_docker_environment({}, endpoint=endpoint),
+            docker_executable=executable_path,
+            docker_executable_identity=executable_identity,
+            ignored_root=os.fspath(ignored_root),
+            artifact_directory=os.fspath(ignored_root / "trusted-time"),
+            runner=queued,
+            session_token_factory=lambda: b"n" * 32,
+        )
+    assert len(queued.calls) <= 1
+
+
+@pytest.mark.parametrize("capability_slot", ["registered", "none", "decoy"])
+@pytest.mark.parametrize(
+    ("failure_type", "exit_code"),
+    [(KeyboardInterrupt, None), (SystemExit, 23)],
+)
+def test_poison_invalidates_heap_before_retry_and_permanently_burns_closure_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capability_slot: str,
+    failure_type: type[BaseException],
+    exit_code: int | None,
+) -> None:
+    socket_path = _short_socket_path(tmp_path)
+    queued = _QueuedRunner([_json_line("LOCAL:DAEMON:1")])
+    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
+    saved_capability = issuer._authentication_capability
+    assert type(saved_capability) is reader._AuthenticatedIssuerCapability
+    if capability_slot == "none":
+        issuer._authentication_capability = None
+    elif capability_slot == "decoy":
+        issuer._authentication_capability = cast(Any, object())
+
+    burn_calls = 0
+
+    def interrupt_then_burn_owner(owner: object) -> bool:
+        nonlocal burn_calls
+        burn_calls += 1
+        assert owner is issuer
+        assert issuer._poisoned is True
+        assert issuer._authentication_capability is None
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            reader._authenticated_issuer_runtime_provenance(
+                issuer,
+                saved_capability,
+            )
+        if burn_calls == 1:
+            if failure_type is SystemExit:
+                raise SystemExit(exit_code)
+            raise KeyboardInterrupt
+        assert reader._revoke_authenticated_issuer_owner_registrations(issuer) is True
+        return True
+
+    with pytest.raises(failure_type) as raised:
+        issuer._poison_locked(_burn_owner_registrations=interrupt_then_burn_owner)
+    if failure_type is SystemExit:
+        assert cast(SystemExit, raised.value).code == exit_code
+    assert burn_calls >= 2
+    assert issuer._poisoned is True
+    assert issuer._authentication_capability is None
+
+    issuer._authentication_capability = saved_capability
+    issuer._poisoned = False
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        reader._authenticated_issuer_runtime_provenance(
+            issuer,
+            saved_capability,
+        )
+    issuer.close()
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires POSIX fork")
+def test_real_fork_rejects_inherited_closure_provenance_after_getpid_relabel(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = _short_socket_path(tmp_path)
+    queued = _QueuedRunner([_json_line("LOCAL:DAEMON:1")])
+    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
+    saved_capability = issuer._authentication_capability
+    assert type(saved_capability) is reader._AuthenticatedIssuerCapability
+    real_getpid = os.getpid
+    parent_pid = real_getpid()
+    read_descriptor, write_descriptor = os.pipe()
+    monkeypatch.setattr(reader.os, "getpid", lambda: parent_pid)
+
+    child_pid = os.fork()
+    if child_pid == 0:
+        os.close(read_descriptor)
+        try:
+            try:
+                reader._authenticated_issuer_runtime_provenance(
+                    issuer,
+                    saved_capability,
+                )
+            except reader.TrustedTimePostEnrollmentTopologyReaderError:
+                outcome = b"rejected"
+            except BaseException:
+                outcome = b"unexpected-error"
+            else:
+                outcome = b"accepted"
+            os.write(write_descriptor, outcome)
+        finally:
+            os.close(write_descriptor)
+            os._exit(0)
+
+    os.close(write_descriptor)
+    try:
+        outcome = os.read(read_descriptor, 64)
+    finally:
+        os.close(read_descriptor)
+    waited_pid, status = os.waitpid(child_pid, 0)
+    assert waited_pid == child_pid
+    assert os.WIFEXITED(status)
+    assert os.WEXITSTATUS(status) == 0
+    assert outcome == b"rejected"
+    issuer.close()
+
+
+def test_staged_barrier_rejects_heap_relabels_before_runner(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, queued, _, created = _open_created_test_issuer(monkeypatch, tmp_path)
+    registration = reader._require_reviewed_created_registration(
+        issuer._reviewed_mutation_created_registration
+    )
+    assert registration[1] is created
+    original_call_count = len(queued.calls)
+
+    def assert_rejected_before_runner() -> None:
+        with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+            issuer._observe_barrier(())
+        assert len(queued.calls) == original_call_count
+
+    issuer._reviewed_mutation_created_registration = (
+        registration[0],
+        registration[1],
+        registration[2],
+        registration[3],
+        ("c" * 64, "d" * 64),
+        registration[5],
+    )
+    assert_rejected_before_runner()
+    issuer._reviewed_mutation_created_registration = registration
+
+    issuer._reviewed_mutation_created_registration = (
+        registration[0],
+        registration[1],
+        registration[2],
+        registration[3],
+        registration[4],
+        "/tmp/attacker-docker",
+    )
+    assert_rejected_before_runner()
+    issuer._reviewed_mutation_created_registration = registration
+
+    trusted_docker = issuer._docker_executable_path_value
+    issuer._docker_executable_path_value = "/tmp/attacker-docker"
+    assert_rejected_before_runner()
+    issuer._docker_executable_path_value = trusted_docker
+
+    trusted_session = issuer._session_sha256
+    issuer._session_sha256 = "0" * 64 if trusted_session != "0" * 64 else "1" * 64
+    assert_rejected_before_runner()
+    issuer._session_sha256 = trusted_session
+
+    assert issuer._reviewed_mutation_created_registration is registration
+    issuer.close()
+
+
+def test_inventory_and_staged_commands_ignore_relabelled_globals(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    issuer, queued, _, _ = _open_created_test_issuer(monkeypatch, tmp_path)
     monkeypatch.setattr(
         reader,
-        "_socket_identity",
-        lambda _path: (1, 2, 0o140700, os.geteuid(), os.getegid()),
+        "POST_ENROLLMENT_CREATED_TOPOLOGY_COMPOSE_PROJECT",
+        "--attacker-project",
     )
-    ignored_root = tmp_path / "artifacts"
-    issuer = reader.TrustedTimePostEnrollmentTopologyObservationIssuer._open_with_dependencies(
-        expected_daemon_identity=LocalDockerDaemonIdentity(
-            context_name="<DOCKER_HOST>",
-            endpoint=endpoint,
-            daemon_id="LOCAL:DAEMON:1",
-        ),
-        docker_environment={},
-        docker_executable=executable,
-        lock_path=ignored_root / "trusted-time" / "trusted-time-launch.lock",
-        ignored_root=ignored_root,
-        runner=queued,
-        session_token_factory=lambda: b"n" * 32,
+    monkeypatch.setattr(reader, "_FULL_ID_PATTERN", reader.re.compile(r".*"))
+    monkeypatch.setattr(
+        reader,
+        "_STAGED_BARRIER_COMMAND",
+        ("/tmp/attacker-python", "attacker-probe"),
     )
-    paths = _staged_paths(tmp_path / "retired")
+    queued.outputs.extend([_inventory_bytes(), _json_line(_barrier())])
+
+    inventory, inventory_receipts = issuer._observe_inventory(())
+    assert inventory == (SOURCE_CONTAINER_ID, SUPERVISOR_CONTAINER_ID)
+    assert len(inventory_receipts) == 1
+    assert queued.calls[-1]["argv"] == (
+        issuer._docker_executable_path_value,
+        "container",
+        "ls",
+        "--all",
+        "--no-trunc",
+        "--filter",
+        "label=com.docker.compose.project=autoquanttrader-trusted-time",
+        "--format",
+        '{{.ID}} {{.Label "com.docker.compose.service"}}',
+    )
+
+    projection, barrier_receipts = issuer._observe_barrier(())
+    assert projection[0] == "trusted-time-staged-barrier-probe-v1"
+    assert len(barrier_receipts) == 1
+    assert queued.calls[-1]["argv"] == (
+        issuer._docker_executable_path_value,
+        "container",
+        "exec",
+        "--user",
+        "10001:10001",
+        SUPERVISOR_CONTAINER_ID,
+        "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+        "post-enrollment-staged-barrier-read",
+    )
+    assert queued.outputs == []
+    issuer.close()
+
+
+def test_inventory_rejects_option_like_id_even_if_pattern_global_is_permissive(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = _short_socket_path(tmp_path)
+    malformed_inventory = (
+        b"--"
+        + b"a" * 62
+        + b" chrony-nts\n"
+        + SUPERVISOR_CONTAINER_ID.encode("ascii")
+        + b" trusted-time-supervisor\n"
+    )
+    queued = _QueuedRunner([_json_line("LOCAL:DAEMON:1"), malformed_inventory])
+    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
+    monkeypatch.setattr(reader, "_FULL_ID_PATTERN", reader.re.compile(r".*"))
+
     with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
-        issuer.issue_created_snapshot(**_issue_arguments(paths))  # type: ignore[arg-type]
-    assert len(queued.calls) == 1
-    assert "open" in repr(issuer)
+        issuer._observe_inventory(())
+    assert queued.calls[-1]["argv"] == (
+        issuer._docker_executable_path_value,
+        "container",
+        "ls",
+        "--all",
+        "--no-trunc",
+        "--filter",
+        "label=com.docker.compose.project=autoquanttrader-trusted-time",
+        "--format",
+        '{{.ID}} {{.Label "com.docker.compose.service"}}',
+    )
+    assert queued.outputs == []
     issuer.close()
 
 
@@ -1782,11 +2403,9 @@ def test_observation_baseexception_poisons_and_lock_remains_closeable(
     failure: BaseException,
 ) -> None:
     socket_path = _short_socket_path(tmp_path)
-    executable = tmp_path / "trusted-docker"
-    _make_executable(executable)
     queued = _QueuedRunner([_json_line("LOCAL:DAEMON:1"), failure])
     paths = _staged_paths(tmp_path / "retired")
-    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path, executable)
+    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
     with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
         issuer.issue_created_snapshot(**_issue_arguments(paths))  # type: ignore[arg-type]
     assert len(queued.calls) == 2
@@ -1796,7 +2415,7 @@ def test_observation_baseexception_poisons_and_lock_remains_closeable(
     issuer.close()
 
     reopened_runner = _QueuedRunner([_json_line("LOCAL:DAEMON:1")])
-    reopened = _public_open(monkeypatch, tmp_path, reopened_runner, socket_path, executable)
+    reopened = _public_open(monkeypatch, tmp_path, reopened_runner, socket_path)
     reopened.close()
 
 
@@ -1805,14 +2424,12 @@ def test_open_rejects_missing_line_feed_and_releases_lock(
     tmp_path: Path,
 ) -> None:
     socket_path = _short_socket_path(tmp_path)
-    executable = tmp_path / "trusted-docker"
-    _make_executable(executable)
     malformed = _QueuedRunner([b'"LOCAL:DAEMON:1"'])
     with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
-        _public_open(monkeypatch, tmp_path, malformed, socket_path, executable)
+        _public_open(monkeypatch, tmp_path, malformed, socket_path)
 
     valid = _QueuedRunner([_json_line("LOCAL:DAEMON:1")])
-    issuer = _public_open(monkeypatch, tmp_path, valid, socket_path, executable)
+    issuer = _public_open(monkeypatch, tmp_path, valid, socket_path)
     issuer.close()
 
 
@@ -1821,39 +2438,119 @@ def test_close_scrubs_and_releases_after_arbitrary_validation_baseexception(
     tmp_path: Path,
 ) -> None:
     socket_path = _short_socket_path(tmp_path)
-    executable = tmp_path / "trusted-docker"
-    _make_executable(executable)
     queued = _QueuedRunner([_json_line("LOCAL:DAEMON:1")])
-    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path, executable)
-    original_validate_lock = (
-        reader.TrustedTimePostEnrollmentTopologyObservationIssuer._validate_lock
-    )
+    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
+    failure = KeyboardInterrupt()
 
     def interrupted_validation(
         _issuer: reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
-    ) -> None:
-        raise KeyboardInterrupt
+    ) -> Never:
+        raise failure
 
-    monkeypatch.setattr(
-        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
-        "_validate_lock",
-        interrupted_validation,
-    )
-    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
-        issuer.close()
+    with pytest.raises(KeyboardInterrupt) as raised:
+        issuer.close(_teardown_binding=interrupted_validation)
+    assert raised.value is failure
     assert repr(issuer).endswith("state='closed')")
-    assert issuer._lock_descriptor == -1
+    assert issuer._launch_lock_lease is None
     assert issuer._authentication_capability is None
     assert issuer._environment == {}
 
-    monkeypatch.setattr(
-        reader.TrustedTimePostEnrollmentTopologyObservationIssuer,
-        "_validate_lock",
-        original_validate_lock,
-    )
     reopened_runner = _QueuedRunner([_json_line("LOCAL:DAEMON:1")])
-    reopened = _public_open(monkeypatch, tmp_path, reopened_runner, socket_path, executable)
+    reopened = _public_open(monkeypatch, tmp_path, reopened_runner, socket_path)
     reopened.close()
+
+
+def test_close_never_closes_a_foreign_heap_decoy_lease(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root_a = tmp_path / "issuer-a"
+    root_b = tmp_path / "issuer-b"
+    root_a.mkdir()
+    root_b.mkdir()
+    socket_path = _short_socket_path(tmp_path)
+    issuer_a = _public_open(
+        monkeypatch,
+        root_a,
+        _QueuedRunner([_json_line("LOCAL:DAEMON:1")]),
+        socket_path,
+    )
+    issuer_b = _public_open(
+        monkeypatch,
+        root_b,
+        _QueuedRunner([_json_line("LOCAL:DAEMON:1")]),
+        socket_path,
+    )
+    lease_a = issuer_a._launch_lock_lease
+    lease_b = issuer_b._launch_lock_lease
+    assert type(lease_a) is _TrustedTimeLaunchLockLease
+    assert type(lease_b) is _TrustedTimeLaunchLockLease
+    issuer_a._launch_lock_lease = lease_b
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer_a.close()
+
+    assert lease_a.closed is True
+    assert lease_b.closed is False
+    _validate_trusted_time_launch_lock(lease_b)
+    assert issuer_a._launch_lock_lease is None
+    issuer_b.close()
+    assert lease_b.closed is True
+
+
+def test_close_classifies_diagnostic_path_crossbinding_but_closes_true_lease(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = _short_socket_path(tmp_path)
+    issuer = _public_open(
+        monkeypatch,
+        tmp_path,
+        _QueuedRunner([_json_line("LOCAL:DAEMON:1")]),
+        socket_path,
+    )
+    ignored_root = os.fspath(issuer._ignored_root)
+    lease = issuer._launch_lock_lease
+    assert type(lease) is _TrustedTimeLaunchLockLease
+    issuer._ignored_root = tmp_path / "foreign-diagnostic-root"
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer.close()
+
+    assert lease.closed is True
+    assert issuer._launch_lock_lease is None
+    replacement = _acquire_trusted_time_launch_lock(ignored_root)
+    _validate_trusted_time_launch_lock(replacement)
+    replacement.close()
+
+
+def test_close_reports_premature_native_lease_close_and_finishes_burn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = _short_socket_path(tmp_path)
+    issuer = _public_open(
+        monkeypatch,
+        tmp_path,
+        _QueuedRunner([_json_line("LOCAL:DAEMON:1")]),
+        socket_path,
+    )
+    ignored_root = os.fspath(issuer._ignored_root)
+    lease = issuer._launch_lock_lease
+    assert type(lease) is _TrustedTimeLaunchLockLease
+    lease.close()
+
+    with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
+        issuer.close()
+
+    assert lease.closed is True
+    assert issuer._closed is True
+    assert issuer._poisoned is True
+    assert issuer._authentication_capability is None
+    assert issuer._launch_lock_lease is None
+    replacement = _acquire_trusted_time_launch_lock(ignored_root)
+    _validate_trusted_time_launch_lock(replacement)
+    replacement.close()
 
 
 def test_pid_drift_fails_before_inherited_mutex_or_docker_read(
@@ -1861,23 +2558,29 @@ def test_pid_drift_fails_before_inherited_mutex_or_docker_read(
     tmp_path: Path,
 ) -> None:
     socket_path = _short_socket_path(tmp_path)
-    executable = tmp_path / "trusted-docker"
-    _make_executable(executable)
     queued = _QueuedRunner([_json_line("LOCAL:DAEMON:1")])
-    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path, executable)
+    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
     owner_pid = os.getpid()
+    ignored_root = os.fspath(issuer._ignored_root)
+    lease = issuer._launch_lock_lease
+    assert type(lease) is _TrustedTimeLaunchLockLease
     issuer._lifecycle_lock.acquire()
     monkeypatch.setattr(reader.os, "getpid", lambda: owner_pid + 1)
     try:
         with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
             issuer._begin_observation()
         with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
-            issuer.close()
+            issuer.close(_getpid=lambda: owner_pid + 1)
         assert len(queued.calls) == 1
     finally:
         monkeypatch.setattr(reader.os, "getpid", lambda: owner_pid)
         issuer._lifecycle_lock.release()
-    issuer.close()
+    assert issuer._closed is True
+    assert issuer._launch_lock_lease is None
+    assert lease.closed is True
+    replacement = _acquire_trusted_time_launch_lock(ignored_root)
+    _validate_trusted_time_launch_lock(replacement)
+    replacement.close()
 
 
 def test_issuer_rejects_copy_deepcopy_pickle_and_reentrant_begin(
@@ -1885,10 +2588,8 @@ def test_issuer_rejects_copy_deepcopy_pickle_and_reentrant_begin(
     tmp_path: Path,
 ) -> None:
     socket_path = _short_socket_path(tmp_path)
-    executable = tmp_path / "trusted-docker"
-    _make_executable(executable)
     queued = _QueuedRunner([_json_line("LOCAL:DAEMON:1")])
-    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path, executable)
+    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
     for operation in (
         lambda: copy(issuer),
         lambda: deepcopy(issuer),
@@ -1909,15 +2610,37 @@ def test_docker_executable_or_socket_identity_drift_fails_before_read(
     tmp_path: Path,
 ) -> None:
     socket_path = _short_socket_path(tmp_path)
-    executable = tmp_path / "trusted-docker"
-    _make_executable(executable)
     queued = _QueuedRunner([_json_line("LOCAL:DAEMON:1")])
-    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path, executable)
-    executable.chmod(0o755)
+    issuer = _public_open(monkeypatch, tmp_path, queued, socket_path)
+    trusted_path = issuer._docker_executable_path_value
+    issuer._docker_executable_path_value = "/tmp/attacker-docker"
     with pytest.raises(reader.TrustedTimePostEnrollmentTopologyReaderError):
         issuer._validate_session()
     assert len(queued.calls) == 1
+    issuer._docker_executable_path_value = trusted_path
     issuer.close()
+
+
+def test_operational_probe_currentness_boundaries_are_pinned_in_all_operator_docs() -> None:
+    documents = (
+        reader.ROOT / "docs" / "ARCHITECTURE.md",
+        reader.ROOT / "docs" / "IMPLEMENTATION_PLAN.md",
+        reader.ROOT
+        / "docs"
+        / "adr"
+        / "0099-approval-bound-post-enrollment-start-and-graceful-stop.md",
+        reader.ROOT / "docs" / "runbooks" / "trusted-time-supervisor.md",
+    )
+    required_phrases = (
+        "process-entry stream selection",
+        "legacy Python runner/Popen boundary",
+        "does not establish an immutable aggregate spawn transaction",
+        "write-once/no-hostile-writer boundary",
+    )
+
+    for path in documents:
+        documented = path.read_text(encoding="utf-8")
+        assert all(phrase in documented for phrase in required_phrases), path
 
 
 def test_reader_surface_is_dormant_and_has_no_authority_methods() -> None:

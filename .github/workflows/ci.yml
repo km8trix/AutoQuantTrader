@@ -14,11 +14,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  architecture:
+    name: Project-independent architecture bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install trusted uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.12"
+          version: "0.11.28"
+
+      - name: Enforce architecture boundaries before project code
+        run: >-
+          uv run
+          --isolated
+          --no-project
+          --no-config
+          --offline
+          --no-python-downloads
+          --python 3.12
+          python
+          -I
+          -B
+          scripts/check_architecture.py
+
   backend:
     name: Backend quality and tests
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    needs:
+      - architecture
     env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SOURCE_DATE_EPOCH: "0"
+      UV_BUILD_CONSTRAINT: build_support/native_build_constraints.txt
       AQT_ENVIRONMENT: local
       AQT_LOG_LEVEL: INFO
       AQT_DATABASE_URL: postgresql+psycopg://autoquant:autoquant@localhost:5432/autoquant_test
@@ -52,35 +87,80 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      - name: Install locked dependencies
-        run: uv sync --all-groups --locked
+      - name: Install locked binary dependencies without project code
+        run: uv sync --all-groups --locked --no-install-project --no-build
+
+      - name: Recheck architecture boundaries after dependency sync
+        run: >-
+          uv run
+          --isolated
+          --no-project
+          --no-config
+          --offline
+          --no-python-downloads
+          --python 3.12
+          python
+          -I
+          -B
+          scripts/check_architecture.py
+
+      - name: Build and install the hash-constrained project wheel
+        run: |
+          native_dist_root="${RUNNER_TEMP}/autoquant-backend-native"
+          uv build --sdist --clear --no-sources \
+            --build-constraints build_support/native_build_constraints.txt \
+            --require-hashes \
+            --out-dir "${native_dist_root}/sdist" \
+            .
+          uv build --wheel --clear --no-sources \
+            --build-constraints build_support/native_build_constraints.txt \
+            --require-hashes \
+            --out-dir "${native_dist_root}/wheel" \
+            "${native_dist_root}/sdist/autoquant_trader-0.1.0.tar.gz"
+          wheel_paths=("${native_dist_root}"/wheel/*.whl)
+          test "${#wheel_paths[@]}" -eq 1
+          uv pip install --python .venv/bin/python --no-deps "${wheel_paths[0]}"
+
+      - name: Recheck architecture boundaries after constrained project build
+        run: >-
+          uv run
+          --isolated
+          --no-project
+          --no-config
+          --offline
+          --no-python-downloads
+          --python 3.12
+          python
+          -I
+          -B
+          scripts/check_architecture.py
+
+      - name: Build the exact source-checkout test launcher
+        run: .venv/bin/python -I -B build_support/build_native_test_launcher.py
 
       - name: Check formatting
-        run: uv run ruff format --check .
+        run: .venv/bin/ruff format --check .
 
       - name: Lint
-        run: uv run ruff check .
+        run: .venv/bin/ruff check .
 
       - name: Type check
-        run: uv run mypy apps packages
-
-      - name: Enforce architecture boundaries
-        run: uv run python scripts/check_architecture.py
+        run: .venv/bin/mypy apps packages
 
       - name: Check generated API contracts
-        run: uv run python scripts/generate_api_contracts.py --check
+        run: .venv/bin/python -B scripts/generate_api_contracts.py --check
 
       - name: Apply migrations to an empty database
-        run: uv run alembic upgrade head
+        run: .venv/bin/alembic upgrade head
 
       - name: Check migration metadata drift
-        run: uv run alembic check
+        run: .venv/bin/alembic check
 
       - name: Exercise Phase 1A ingestion and trader fail-closed diagnostic
         run: |
-          uv run autoquant-worker --once
+          .venv/bin/autoquant-worker --once
           set +e
-          uv run autoquant-trader --once
+          .venv/bin/autoquant-trader --once
           trader_status=$?
           set -e
           if [ "${trader_status}" -ne 2 ]; then
@@ -89,7 +169,124 @@ jobs:
           fi
 
       - name: Test
-        run: uv run pytest
+        run: >-
+          "${GITHUB_WORKSPACE}/.venv/bin/autoquant-trusted-time-python-test"
+          test-suite
+
+  native-packaging:
+    name: Native owner (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    needs:
+      - architecture
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-14
+        python-version:
+          - "3.12"
+          - "3.13"
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SOURCE_DATE_EPOCH: "0"
+      UV_BUILD_CONSTRAINT: build_support/native_build_constraints.txt
+      NATIVE_DIST_ROOT: ${{ runner.temp }}/autoquant-native-${{ matrix.python-version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          version: "0.11.28"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install locked binary dependencies without project code
+        run: uv sync --all-groups --locked --no-install-project --no-build
+
+      - name: Recheck architecture boundaries after dependency sync
+        run: >-
+          uv run
+          --isolated
+          --no-project
+          --no-config
+          --offline
+          --no-python-downloads
+          --python ${{ matrix.python-version }}
+          python
+          -I
+          -B
+          scripts/check_architecture.py
+
+      - name: Build sdist and two platform wheels
+        run: |
+          uv build --sdist --clear --no-sources \
+            --build-constraints build_support/native_build_constraints.txt \
+            --require-hashes \
+            --out-dir "${NATIVE_DIST_ROOT}/sdist" \
+            .
+          uv build --wheel --clear --no-sources \
+            --build-constraints build_support/native_build_constraints.txt \
+            --require-hashes \
+            --out-dir "${NATIVE_DIST_ROOT}/wheel-one" \
+            "${NATIVE_DIST_ROOT}/sdist/autoquant_trader-0.1.0.tar.gz"
+          uv build --wheel --clear --no-sources \
+            --build-constraints build_support/native_build_constraints.txt \
+            --require-hashes \
+            --out-dir "${NATIVE_DIST_ROOT}/wheel-two" \
+            "${NATIVE_DIST_ROOT}/sdist/autoquant_trader-0.1.0.tar.gz"
+
+      - name: Recheck architecture boundaries after native package builds
+        run: >-
+          uv run
+          --isolated
+          --no-project
+          --no-config
+          --offline
+          --no-python-downloads
+          --python ${{ matrix.python-version }}
+          python
+          -I
+          -B
+          scripts/check_architecture.py
+
+      - name: Require byte-for-byte reproducible wheels
+        run: |
+          .venv/bin/python -I -B - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["NATIVE_DIST_ROOT"])
+          first = tuple(root.joinpath("wheel-one").glob("*.whl"))
+          second = tuple(root.joinpath("wheel-two").glob("*.whl"))
+          assert len(first) == len(second) == 1
+          assert first[0].name == second[0].name
+          assert hashlib.file_digest(first[0].open("rb"), "sha256").digest() == hashlib.file_digest(
+              second[0].open("rb"), "sha256"
+          ).digest()
+          PY
+
+      - name: Install the reviewed wheel into the test environment
+        run: |
+          wheel_paths=("${NATIVE_DIST_ROOT}"/wheel-one/*.whl)
+          test "${#wheel_paths[@]}" -eq 1
+          uv pip install --python .venv/bin/python --no-deps "${wheel_paths[0]}"
+
+      - name: Build the exact source-checkout test launcher
+        run: .venv/bin/python -I -B build_support/build_native_test_launcher.py
+
+      - name: Exercise native ownership and process fault gates
+        run: >-
+          "${GITHUB_WORKSPACE}/.venv/bin/autoquant-trusted-time-python-test"
+          test-suite
+          -q
+          tests/unit/test_native_owned_file_descriptor.py
+          tests/unit/test_native_bounded_process.py
 
   frontend:
     name: Browser quality and tests
@@ -137,8 +334,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     needs:
+      - architecture
       - backend
       - frontend
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SOURCE_DATE_EPOCH: "0"
+      UV_BUILD_CONSTRAINT: build_support/native_build_constraints.txt
+      TRUSTED_TIME_PYTHON: .venv/bin/python -I -B
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -151,19 +354,53 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      - name: Prepare locked isolated dependencies
+      - name: Install locked binary dependencies without project code
+        run: uv sync --all-groups --locked --no-install-project --no-build
+
+      - name: Recheck architecture boundaries after dependency sync
         run: >-
           uv run
           --isolated
-          --locked
-          --no-env-file
+          --no-project
+          --no-config
+          --offline
+          --no-python-downloads
+          --python 3.12
           python
           -I
           -B
-          -X
-          pycache_prefix=/dev/null
-          -c
-          pass
+          scripts/check_architecture.py
+
+      - name: Build and install the hash-constrained project wheel
+        run: |
+          native_dist_root="${RUNNER_TEMP}/autoquant-container-native"
+          uv build --sdist --clear --no-sources \
+            --build-constraints build_support/native_build_constraints.txt \
+            --require-hashes \
+            --out-dir "${native_dist_root}/sdist" \
+            .
+          uv build --wheel --clear --no-sources \
+            --build-constraints build_support/native_build_constraints.txt \
+            --require-hashes \
+            --out-dir "${native_dist_root}/wheel" \
+            "${native_dist_root}/sdist/autoquant_trader-0.1.0.tar.gz"
+          wheel_paths=("${native_dist_root}"/wheel/*.whl)
+          test "${#wheel_paths[@]}" -eq 1
+          uv pip install --python .venv/bin/python --no-deps "${wheel_paths[0]}"
+
+      - name: Recheck architecture boundaries after constrained project build
+        run: >-
+          uv run
+          --isolated
+          --no-project
+          --no-config
+          --offline
+          --no-python-downloads
+          --python 3.12
+          python
+          -I
+          -B
+          scripts/check_architecture.py
 
       - name: Validate Compose model
         run: docker compose -f infra/compose/compose.yaml config --quiet
@@ -184,7 +421,7 @@ jobs:
 
       - name: Verify production image fails closed
         run: >-
-          python scripts/verify_paper_preflight_image.py
+          .venv/bin/python -B scripts/verify_paper_preflight_image.py
           autoquanttrader-runtime:paper-preflight-ci
 
       - name: Build and admit trusted-time evidence images

@@ -187,6 +187,7 @@ def write_post_enrollment_start_sequence_two_ready(
             | getattr(os, "O_NOFOLLOW", 0),
             0o400,
         )
+        os.fchown(descriptor, os.geteuid(), os.getegid())
         view = memoryview(POST_ENROLLMENT_START_SEQUENCE_TWO_READY_BYTES)
         while view:
             written = os.write(descriptor, view)

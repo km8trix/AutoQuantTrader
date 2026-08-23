@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 import sys
 from dataclasses import replace
@@ -34,6 +35,21 @@ from packages.application.trusted_time_head_anchor_worker import (
 BASE = datetime(2026, 8, 8, 16, 0, tzinfo=UTC)
 DATABASE_SECRET_CANARY = "postgresql://enrollment-database-secret-canary.invalid"
 EXCEPTION_SECRET_CANARY = "enrollment-exception-secret-canary"
+
+
+def _capture_release_fchown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[tuple[int, int, int, int]]:
+    exact_fchown = enrollment.os.fchown
+    calls: list[tuple[int, int, int, int]] = []
+
+    def capture(descriptor: int, uid: int, gid: int) -> None:
+        metadata = os.fstat(descriptor)
+        calls.append((metadata.st_dev, metadata.st_ino, uid, gid))
+        exact_fchown(descriptor, uid, gid)
+
+    monkeypatch.setattr(enrollment.os, "fchown", capture)
+    return calls
 
 
 def _result(
@@ -120,6 +136,7 @@ def test_release_marker_round_trips_exact_mode_with_owner_only_metadata(
 ) -> None:
     release_path = tmp_path / "release"
     monkeypatch.setattr(enrollment, "FIRST_ENROLLMENT_RELEASE_PATH", str(release_path))
+    fchown_calls = _capture_release_fchown(monkeypatch)
 
     enrollment._write_release(mode)
 
@@ -127,8 +144,11 @@ def test_release_marker_round_trips_exact_mode_with_owner_only_metadata(
     metadata = release_path.stat()
     assert stat.S_ISREG(metadata.st_mode)
     assert stat.S_IMODE(metadata.st_mode) == 0o400
+    assert metadata.st_uid == os.geteuid()
+    assert metadata.st_gid == os.getegid()
     assert metadata.st_nlink == 1
     assert metadata.st_size == len(enrollment._release_bytes(mode))
+    assert fchown_calls == [(metadata.st_dev, metadata.st_ino, os.geteuid(), os.getegid())]
 
 
 def test_release_marker_is_exclusive_and_rejects_tampering_with_fixed_errors(

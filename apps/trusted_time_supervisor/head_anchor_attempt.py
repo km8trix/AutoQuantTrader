@@ -41,6 +41,10 @@ from packages.application.trusted_time_head_anchor import (
     verify_bounded_post_enrollment_start_remote_postcondition,
     verify_trusted_time_head_anchor_provider_readback,
 )
+from packages.application.trusted_time_head_anchor_clean_stop import (
+    TrustedTimeHeadAnchorCleanStopTerminalResult,
+    _issue_trusted_time_head_anchor_clean_stop_terminal_result,
+)
 from packages.application.trusted_time_head_anchor_worker import (
     TrustedTimeHeadAnchorAttemptResult,
     TrustedTimeHeadAnchorEnrollmentNotApprovedFailure,
@@ -964,6 +968,110 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
         # leaves it discoverable and forces recovery before a successor.
         return self._complete_pending(prepared)
 
+    def _issue_current_clean_stop_terminal_result(
+        self,
+        *,
+        request: TrustedTimeHeadAnchorWorkRequest,
+        prepared: PreparedTrustedTimeHeadAnchorReconciliation,
+        reconciliation: TrustedTimeHeadAnchorReconciliationResult,
+        receipt: PersistedTrustedTimeHeadAnchorReceipt,
+        full_audit_completed: bool,
+        prior_pending_intent_recovered: bool,
+    ) -> TrustedTimeHeadAnchorCleanStopTerminalResult:
+        """Seal the exact current clean-stop receipt against the compact cursor."""
+
+        snapshot = self._require_snapshot()
+        tip = snapshot.authenticated_journal_tip
+        if (
+            type(request) is not TrustedTimeHeadAnchorWorkRequest
+            or type(prepared) is not PreparedTrustedTimeHeadAnchorReconciliation
+            or type(reconciliation) is not TrustedTimeHeadAnchorReconciliationResult
+            or type(receipt) is not PersistedTrustedTimeHeadAnchorReceipt
+            or type(snapshot) is not TrustedTimeHeadAnchorPersistenceSnapshot
+        ):
+            raise TrustedTimeHeadAnchorFatalFailure(
+                "trusted-time anchor clean stop terminal result inputs are invalid"
+            )
+        try:
+            request.__post_init__()
+            prepared.__post_init__()
+            reconciliation.__post_init__()
+            receipt.__post_init__()
+            tip.__post_init__()
+        except Exception:
+            raise TrustedTimeHeadAnchorFatalFailure(
+                "trusted-time anchor clean stop terminal result inputs are invalid"
+            ) from None
+
+        records = reconciliation.anchor_records
+        record = receipt.intent.record
+        terminal_ordinal = tip.confirmed_anchor_local_transition_ordinal
+        if (
+            request.checkpoint_reason is not TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP
+            or not records
+            or records[-1] != record
+            or len(records) < 2
+            or records[-2].anchor_sequence != record.anchor_sequence - 1
+            or records[-2].byte_sha256 != record.previous_anchor_sha256
+            or prepared.candidate_record != record
+            or prepared.confirmed_anchor_count + 1 != record.anchor_sequence
+            or not prepared.confirmed_anchor_records
+            or prepared.confirmed_anchor_records[-1] != records[-2]
+            or prepared.local_transition_count != reconciliation.local_transition_count
+            or prepared.current_host_head_sha256 != record.current_host_head_sha256
+            or record.checkpoint_reason is not TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP
+            or record.anchor_sequence < 3
+            or record.previous_anchor_sha256 is None
+            or snapshot.confirmed_anchor_receipt is not receipt
+            or snapshot.pending_intent is not None
+            or snapshot.confirmed_anchor_count != record.anchor_sequence
+            or tip.confirmed_anchor_count != record.anchor_sequence
+            or tip.confirmed_anchor_tip != record
+            or reconciliation.local_transition_count != snapshot.local_transition_count
+            or tip.local_transition_count != snapshot.local_transition_count
+            or terminal_ordinal != snapshot.local_transition_count
+            or snapshot.current_host_head_sha256 != record.current_host_head_sha256
+            or tip.current_local_host_head_sha256 != record.current_host_head_sha256
+            or reconciliation.current_host_head_sha256 != record.current_host_head_sha256
+            or reconciliation.current_anchor_sha256 != record.byte_sha256
+            or reconciliation.current_anchor_semantic_sha256 != record.semantic_sha256
+            or reconciliation.uploaded_anchor_count + reconciliation.idempotent_duplicate_count != 1
+            or receipt.readback_bytes_sha256 != record.byte_sha256
+            or type(full_audit_completed) is not bool
+            or type(prior_pending_intent_recovered) is not bool
+        ):
+            raise TrustedTimeHeadAnchorFatalFailure(
+                "trusted-time anchor clean stop terminal result is unconfirmed"
+            )
+
+        try:
+            return _issue_trusted_time_head_anchor_clean_stop_terminal_result(
+                request_identity=request,
+                request_sequence=request.request_sequence,
+                request_scheduled_monotonic_ns=request.scheduled_monotonic_ns,
+                anchor_sequence=record.anchor_sequence,
+                checkpoint_reason=record.checkpoint_reason,
+                confirmed_anchor_count=snapshot.confirmed_anchor_count,
+                local_transition_count=snapshot.local_transition_count,
+                confirmed_anchor_local_transition_ordinal=terminal_ordinal,
+                predecessor_anchor_sha256=record.previous_anchor_sha256,
+                current_host_head_sha256=record.current_host_head_sha256,
+                current_anchor_sha256=record.byte_sha256,
+                current_anchor_semantic_sha256=record.semantic_sha256,
+                receipt_observed_at_utc=receipt.observed_at_utc,
+                full_audit_completed=full_audit_completed,
+                prior_pending_intent_recovered=prior_pending_intent_recovered,
+                uploaded_anchor_count=reconciliation.uploaded_anchor_count,
+                idempotent_duplicate_count=(reconciliation.idempotent_duplicate_count),
+                current_anchor_intent_semantic_sha256=receipt.intent.semantic_sha256,
+                current_candidate_remote_readback_sha256=(receipt.readback_bytes_sha256),
+                current_receipt_semantic_sha256=receipt.semantic_sha256,
+            )
+        except Exception:
+            raise TrustedTimeHeadAnchorFatalFailure(
+                "trusted-time anchor clean stop terminal result is unconfirmed"
+            ) from None
+
     def _adopt_snapshot_advance(
         self,
         error: TrustedTimeHeadAnchorSnapshotAdvanced,
@@ -1014,14 +1122,28 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
             prepared,
             allow_enrollment=request.allow_enrollment and not recovered,
         )
-        result = current_result
-        if current_receipt is not None:
-            receipt = current_receipt
         full_audit_completed = full_audit_completed or prepared.full_audit
         if request.full_audit and not full_audit_completed:
             raise TrustedTimeHeadAnchorFatalFailure(
                 "trusted-time anchor full audit was not completed"
             )
+        clean_stop_terminal_result = None
+        if request.checkpoint_reason is TrustedTimeHeadAnchorCheckpointReason.CLEAN_STOP:
+            if current_receipt is None:
+                raise TrustedTimeHeadAnchorFatalFailure(
+                    "trusted-time anchor clean stop lacks an exact current receipt"
+                )
+            clean_stop_terminal_result = self._issue_current_clean_stop_terminal_result(
+                request=request,
+                prepared=prepared,
+                reconciliation=current_result,
+                receipt=current_receipt,
+                full_audit_completed=full_audit_completed,
+                prior_pending_intent_recovered=recovered,
+            )
+        result = current_result
+        if current_receipt is not None:
+            receipt = current_receipt
 
         return TrustedTimeHeadAnchorAttemptResult(
             request_sequence=request.request_sequence,
@@ -1036,6 +1158,7 @@ class RepositoryBackedTrustedTimeHeadAnchorAttempt:
                 None if receipt is None else receipt.readback_bytes_sha256
             ),
             receipt_semantic_sha256=(None if receipt is None else receipt.semantic_sha256),
+            clean_stop_terminal_result=clean_stop_terminal_result,
         )
 
     @staticmethod

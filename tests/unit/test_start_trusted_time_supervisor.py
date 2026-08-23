@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import stat
-import subprocess
 from contextlib import ExitStack
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
@@ -15,6 +15,13 @@ from unittest.mock import Mock, call, patch
 import pytest
 
 from apps.trusted_time_supervisor.config import TrustedTimeSupervisorConfigurationError
+from packages.adapters.trusted_time._owned_file_descriptor import (
+    _acquire_trusted_time_launch_lock as _acquire_native_trusted_time_launch_lock,
+)
+from packages.adapters.trusted_time._owned_file_descriptor import (
+    _validate_trusted_time_launch_lock as _validate_native_trusted_time_launch_lock,
+)
+from scripts import verify_trusted_time_images as image_verifier
 from scripts.bounded_subprocess import BoundedSubprocessError
 from scripts.credential_env import load_owner_only_environment
 from scripts.start_trusted_time_supervisor import (
@@ -107,10 +114,19 @@ from scripts.verify_trusted_time_images import (
     TrustedTimeImageAdmission,
     TrustedTimeImageIdentities,
     TrustedTimeImageVerificationError,
+    _make_reviewed_input_bindings,
     _OwnedFileDescriptor,
-    _ReviewedInputBindings,
     write_image_admission_artifact,
 )
+
+
+def _process_result[T: (bytes, str)](
+    args: list[str] | tuple[str, ...],
+    returncode: int,
+    stdout: T,
+    stderr: T,
+) -> tuple[tuple[str, ...], int, T, T]:
+    return (tuple(args), returncode, stdout, stderr)
 
 
 def test_global_launcher_lock_excludes_concurrent_open_descriptions(
@@ -139,6 +155,37 @@ def test_global_launcher_lock_excludes_concurrent_open_descriptions(
         ignored_root=ignored_root,
     )
     _release_trusted_time_launch_lock(second)
+
+
+def test_native_launch_lock_lease_and_legacy_caller_mutually_exclude(
+    tmp_path: Path,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    lock_path = ignored_root / "trusted-time" / "trusted-time-launch.lock"
+    native_lease = _acquire_native_trusted_time_launch_lock(str(ignored_root))
+    try:
+        assert _validate_native_trusted_time_launch_lock(native_lease) is None
+        with pytest.raises(
+            TrustedTimeSupervisorConfigurationError,
+            match="another trusted-time launcher is active",
+        ):
+            _acquire_trusted_time_launch_lock(
+                path=lock_path,
+                ignored_root=ignored_root,
+            )
+    finally:
+        native_lease.close()
+
+    legacy_descriptor = _acquire_trusted_time_launch_lock(
+        path=lock_path,
+        ignored_root=ignored_root,
+    )
+    try:
+        with pytest.raises(BlockingIOError) as native_contention:
+            _acquire_native_trusted_time_launch_lock(str(ignored_root))
+        assert native_contention.value.errno in {errno.EACCES, errno.EAGAIN}
+    finally:
+        _release_trusted_time_launch_lock(legacy_descriptor)
 
 
 def test_normal_launcher_is_blocked_after_any_first_enrollment_claim(
@@ -495,6 +542,46 @@ def _admission() -> TrustedTimeImageAdmission:
     )
 
 
+def _admission_snapshot(
+    admission: TrustedTimeImageAdmission | None = None,
+) -> image_verifier._CurrentTrustedTimeImageAdmissionSnapshot:
+    exact = _admission() if admission is None else admission
+    artifact_path = DEFAULT_IMAGE_ADMISSION_ARTIFACT.with_name(
+        f"image-admission-{exact.artifact_sha256}.json"
+    )
+    identity = (1, 2, stat.S_IFREG | 0o600, os.geteuid(), os.getegid(), 1, 2, 3, 4)
+    return image_verifier._make_current_admission_snapshot(
+        path=os.fspath(artifact_path),
+        ignored_root=os.fspath(IGNORED_ARTIFACT_ROOT),
+        archive_path=os.fspath(artifact_path),
+        source_id=exact.identities.source_id,
+        supervisor_id=exact.identities.supervisor_id,
+        boot_session_id=exact.boot_session_id,
+        git_revision=exact.git_revision,
+        source_revision_sha256=exact.source_revision_sha256,
+        supervisor_executable_import_manifest_sha256="d" * 64,
+        artifact_sha256=exact.artifact_sha256,
+        created_at_utc=exact.created_at_utc,
+        created_monotonic_ns=exact.created_monotonic_ns,
+        encoded=b"{}",
+        directory_identity=identity,
+        file_identity=identity,
+        archive_directory_identity=identity,
+        archive_file_identity=identity,
+    )
+
+
+def _verified_images(
+    identities: TrustedTimeImageIdentities | None = None,
+) -> image_verifier._VerifiedTrustedTimeImages:
+    exact = _admission().identities if identities is None else identities
+    return image_verifier._make_verified_images(
+        source_id=exact.source_id,
+        supervisor_id=exact.supervisor_id,
+        supervisor_manifest_sha256="d" * 64,
+    )
+
+
 def _invoke_approved_pre_env(
     *,
     approved_launch: object,
@@ -510,12 +597,15 @@ def _invoke_approved_pre_env(
             side_effect=git_revisions,
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.load_image_admission_artifact",
-            side_effect=admissions or (exact_admission, exact_admission),
+            "scripts.start_trusted_time_supervisor._load_current_image_admission_snapshot",
+            side_effect=tuple(
+                _admission_snapshot(admission)
+                for admission in (admissions or (exact_admission, exact_admission))
+            ),
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.verify_images",
-            return_value=verified_identities or exact_admission.identities,
+            "scripts.start_trusted_time_supervisor._verify_images_with_manifest",
+            return_value=_verified_images(verified_identities or exact_admission.identities),
         ),
         patch(
             "scripts.start_trusted_time_supervisor.qualify_local_docker_daemon",
@@ -741,13 +831,13 @@ def test_runtime_configuration_rejects_general_dotenv_before_generic_loader() ->
 
 
 def test_current_git_revision_uses_exact_secretless_command_environment_and_output() -> None:
-    revision = subprocess.CompletedProcess(
+    revision = _process_result(
         ["git", "rev-parse"],
         0,
         f"{GIT_REVISION}\n".encode(),
         b"",
     )
-    clean = subprocess.CompletedProcess(["git", "status"], 0, b"", b"")
+    clean = _process_result(["git", "status"], 0, b"", b"")
     with (
         patch(
             "scripts.start_trusted_time_supervisor.run_bounded_subprocess",
@@ -803,11 +893,11 @@ def test_current_git_revision_uses_exact_secretless_command_environment_and_outp
 @pytest.mark.parametrize(
     "completed",
     [
-        subprocess.CompletedProcess(["git"], 1, f"{GIT_REVISION}\n".encode(), b""),
-        subprocess.CompletedProcess(["git"], 0, f"{GIT_REVISION}\n".encode(), b"unexpected"),
-        subprocess.CompletedProcess(["git"], 0, GIT_REVISION.encode(), b""),
-        subprocess.CompletedProcess(["git"], 0, f"{'A' * 40}\n".encode(), b""),
-        subprocess.CompletedProcess(
+        _process_result(["git"], 1, f"{GIT_REVISION}\n".encode(), b""),
+        _process_result(["git"], 0, f"{GIT_REVISION}\n".encode(), b"unexpected"),
+        _process_result(["git"], 0, GIT_REVISION.encode(), b""),
+        _process_result(["git"], 0, f"{'A' * 40}\n".encode(), b""),
+        _process_result(
             ["git"],
             0,
             f"{GIT_REVISION}\n{GIT_REVISION}\n".encode(),
@@ -816,9 +906,9 @@ def test_current_git_revision_uses_exact_secretless_command_environment_and_outp
     ],
 )
 def test_current_git_revision_rejects_nonexact_output(
-    completed: subprocess.CompletedProcess[bytes],
+    completed: tuple[tuple[str, ...], int, bytes, bytes],
 ) -> None:
-    clean = subprocess.CompletedProcess(["git", "status"], 0, b"", b"")
+    clean = _process_result(["git", "status"], 0, b"", b"")
     with (
         patch(
             "scripts.start_trusted_time_supervisor.run_bounded_subprocess",
@@ -838,13 +928,13 @@ def test_current_git_revision_rejects_nonexact_output(
     ],
 )
 def test_current_git_revision_rejects_dirty_worktree(status_output: str) -> None:
-    revision = subprocess.CompletedProcess(
+    revision = _process_result(
         ["git", "rev-parse"],
         0,
         f"{GIT_REVISION}\n".encode(),
         b"",
     )
-    dirty = subprocess.CompletedProcess(["git", "status"], 0, status_output.encode(), b"")
+    dirty = _process_result(["git", "status"], 0, status_output.encode(), b"")
 
     with (
         patch(
@@ -857,14 +947,14 @@ def test_current_git_revision_rejects_dirty_worktree(status_output: str) -> None
 
 
 def test_current_git_revision_rejects_head_change_during_cleanliness_check() -> None:
-    before = subprocess.CompletedProcess(
+    before = _process_result(
         ["git", "rev-parse"],
         0,
         f"{GIT_REVISION}\n".encode(),
         b"",
     )
-    clean = subprocess.CompletedProcess(["git", "status"], 0, b"", b"")
-    after = subprocess.CompletedProcess(
+    clean = _process_result(["git", "status"], 0, b"", b"")
+    after = _process_result(
         ["git", "rev-parse"],
         0,
         f"{'b' * 40}\n".encode(),
@@ -884,14 +974,14 @@ def test_current_git_revision_rejects_head_change_during_cleanliness_check() -> 
 
 
 def test_current_git_revision_rejects_worktree_drift_after_head_input_check() -> None:
-    revision = subprocess.CompletedProcess(
+    revision = _process_result(
         ["git", "rev-parse"],
         0,
         f"{GIT_REVISION}\n".encode(),
         b"",
     )
-    clean = subprocess.CompletedProcess(["git", "status"], 0, b"", b"")
-    dirty = subprocess.CompletedProcess(
+    clean = _process_result(["git", "status"], 0, b"", b"")
+    dirty = _process_result(
         ["git", "status"],
         0,
         b"?? late-untracked-relevant.py\n",
@@ -996,12 +1086,12 @@ def test_approved_admission_load_uses_content_addressed_archive_sibling() -> Non
     )
 
     with patch(
-        "scripts.start_trusted_time_supervisor.load_image_admission_artifact",
-        return_value=admission,
+        "scripts.start_trusted_time_supervisor._load_current_image_admission_snapshot",
+        return_value=_admission_snapshot(admission),
     ) as load:
-        assert (
-            _load_approved_image_admission(DEFAULT_IMAGE_ADMISSION_ARTIFACT, approval) == admission
-        )
+        assert _load_approved_image_admission(
+            DEFAULT_IMAGE_ADMISSION_ARTIFACT, approval
+        ) == _admission_snapshot(admission)
 
     load.assert_called_once_with(expected_path, ignored_root=IGNORED_ARTIFACT_ROOT)
 
@@ -1010,8 +1100,8 @@ def test_approved_admission_load_rejects_artifact_git_revision_mismatch() -> Non
     admission = replace(_admission(), git_revision="b" * 40)
     with (
         patch(
-            "scripts.start_trusted_time_supervisor.load_image_admission_artifact",
-            return_value=admission,
+            "scripts.start_trusted_time_supervisor._load_current_image_admission_snapshot",
+            return_value=_admission_snapshot(admission),
         ),
         pytest.raises(
             TrustedTimeSupervisorConfigurationError,
@@ -1029,7 +1119,7 @@ def test_approved_admission_load_reads_real_content_addressed_archive(
 ) -> None:
     ignored_root = tmp_path / "artifacts"
     canonical_path = ignored_root / "trusted-time" / "image-admission.json"
-    bindings = _ReviewedInputBindings(
+    bindings = _make_reviewed_input_bindings(
         authority_sha256="1" * 64,
         chrony_config_sha256="2" * 64,
         compose_sha256="3" * 64,
@@ -1062,6 +1152,7 @@ def test_approved_admission_load_reads_real_content_addressed_archive(
             canonical_path,
             identities,
             git_revision=GIT_REVISION,
+            supervisor_executable_import_manifest_sha256="d" * 64,
             bindings=bindings,
             ignored_root=ignored_root,
         )
@@ -1075,11 +1166,75 @@ def test_approved_admission_load_reads_real_content_addressed_archive(
             ignored_root=ignored_root,
         )
 
-    assert loaded.identities == identities
-    assert loaded.artifact_sha256 == written.artifact_sha256
-    assert loaded.path == canonical_path.with_name(
-        f"image-admission-{written.artifact_sha256}.json"
+    assert loaded[4] == identities.source_id
+    assert loaded[5] == identities.supervisor_id
+    assert loaded[10] == written.artifact_sha256
+    assert loaded[1] == os.fspath(
+        canonical_path.with_name(f"image-admission-{written.artifact_sha256}.json")
     )
+
+
+def test_approved_admission_load_rejects_malformed_executable_manifest_binding(
+    tmp_path: Path,
+) -> None:
+    ignored_root = tmp_path / "artifacts"
+    artifact_directory = ignored_root / "trusted-time"
+    ignored_root.mkdir(mode=0o700)
+    artifact_directory.mkdir(mode=0o700)
+    canonical_path = artifact_directory / "image-admission.json"
+    bindings = _make_reviewed_input_bindings(
+        authority_sha256="1" * 64,
+        chrony_config_sha256="2" * 64,
+        compose_sha256="3" * 64,
+        database_ca_sha256="4" * 64,
+        dockerfile_sha256="5" * 64,
+        migration_sha256="6" * 64,
+        schema_revision="0036_phase6_time_anchors",
+        catalog_relations=(
+            "phase6_trusted_time_head_anchor_intents",
+            "phase6_trusted_time_head_anchor_receipts",
+        ),
+        source_revision_sha256="7" * 64,
+        uv_lock_sha256="8" * 64,
+    )
+    payload = image_verifier._admission_payload(
+        TrustedTimeImageIdentities(
+            source_id=SOURCE_IMAGE_ID,
+            supervisor_id=SUPERVISOR_IMAGE_ID,
+        ),
+        bindings,
+        supervisor_executable_import_manifest_sha256="D" * 64,
+        boot_session_id=BOOT_SESSION_ID,
+        git_revision=GIT_REVISION,
+        created_at_utc="2026-08-18T12:00:00.000000Z",
+        created_monotonic_ns=1,
+    )
+    encoded = image_verifier._canonical_json_bytes(payload)
+    artifact_sha256 = hashlib.sha256(encoded).hexdigest()
+    archive = artifact_directory / f"image-admission-{artifact_sha256}.json"
+    archive.write_bytes(encoded)
+    archive.chmod(0o600)
+    approval = replace(
+        _approved_launch(),
+        image_admission_sha256=artifact_sha256,
+    )
+
+    with (
+        patch(
+            "scripts.verify_trusted_time_images.reviewed_input_bindings",
+            return_value=bindings,
+        ),
+        patch(
+            "scripts.verify_trusted_time_images._current_boot_session_id",
+            return_value=BOOT_SESSION_ID,
+        ),
+        pytest.raises(TrustedTimeImageVerificationError, match="malformed"),
+    ):
+        _load_approved_image_admission(
+            canonical_path,
+            approval,
+            ignored_root=ignored_root,
+        )
 
 
 @pytest.mark.parametrize(
@@ -1154,12 +1309,12 @@ def test_launcher_rejects_revision_change_during_approved_verification_before_ow
             return_value=DAEMON_IDENTITY,
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.load_image_admission_artifact",
-            return_value=admission,
+            "scripts.start_trusted_time_supervisor._load_current_image_admission_snapshot",
+            return_value=_admission_snapshot(admission),
         ) as load,
         patch(
-            "scripts.start_trusted_time_supervisor.verify_images",
-            return_value=admission.identities,
+            "scripts.start_trusted_time_supervisor._verify_images_with_manifest",
+            return_value=_verified_images(admission.identities),
         ),
         patch(
             "scripts.start_trusted_time_supervisor.render_compose_model",
@@ -1605,13 +1760,13 @@ def test_inspector_secret_source_pattern_requires_completed_host_cleanup(
 
 def test_retired_mounted_secret_accepts_only_exact_digest_or_failed_read() -> None:
     expected_sha256 = "a" * 64
-    metadata = subprocess.CompletedProcess(
+    metadata = _process_result(
         ["docker", "container", "exec"],
         0,
         "10001:10001:400:137\n",
         "",
     )
-    retired = subprocess.CompletedProcess(
+    retired = _process_result(
         ["docker", "container", "exec"],
         1,
         "",
@@ -1643,7 +1798,7 @@ def test_retired_mounted_secret_accepts_only_exact_digest_or_failed_read() -> No
             environment={},
         )
 
-    changed = subprocess.CompletedProcess(
+    changed = _process_result(
         ["docker", "container", "exec"],
         0,
         "b" * 64 + "  /run/secrets/trusted_time_database_url\n",
@@ -1672,7 +1827,7 @@ def test_retired_mounted_secret_accepts_only_exact_digest_or_failed_read() -> No
 def test_supervisor_terminal_parser_accepts_only_closed_canonical_fatal_line(
     reason: str,
 ) -> None:
-    completed = subprocess.CompletedProcess(
+    completed = _process_result(
         ["docker", "container", "logs"],
         0,
         _supervisor_terminal_line(reason=reason),
@@ -2080,7 +2235,7 @@ def _volume_inspection(
             "Options": (
                 {
                     "device": "tmpfs",
-                    "o": "size=8m,uid=10001,gid=10001,mode=0750",
+                    "o": "rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0750",
                     "type": "tmpfs",
                 }
                 if socket
@@ -2124,7 +2279,7 @@ def test_volume_identity_capture_binds_creation_and_mount_identity() -> None:
 
 
 def test_unenrolled_admission_teardown_requires_absence_and_preserved_volumes() -> None:
-    empty = subprocess.CompletedProcess(["docker", "compose", "ps"], 0, "", "")
+    empty = _process_result(["docker", "compose", "ps"], 0, "", "")
     with (
         patch("scripts.start_trusted_time_supervisor._require_same_local_daemon") as daemon,
         patch(
@@ -2158,7 +2313,7 @@ def test_unenrolled_admission_teardown_requires_absence_and_preserved_volumes() 
 
 
 def test_unenrolled_admission_teardown_allows_unbound_early_failure_proof() -> None:
-    empty = subprocess.CompletedProcess(["docker", "compose", "ps"], 0, "", "")
+    empty = _process_result(["docker", "compose", "ps"], 0, "", "")
     with (
         patch("scripts.start_trusted_time_supervisor._require_same_local_daemon"),
         patch(
@@ -2180,7 +2335,7 @@ def test_unenrolled_admission_teardown_allows_unbound_early_failure_proof() -> N
 
 
 def test_unenrolled_admission_teardown_rejects_any_remaining_container() -> None:
-    remaining = subprocess.CompletedProcess(
+    remaining = _process_result(
         ["docker", "compose", "ps"],
         0,
         f"{SUPERVISOR_CONTAINER_ID}\n",
@@ -2207,8 +2362,8 @@ def test_unenrolled_admission_teardown_rejects_any_remaining_container() -> None
 
 
 def test_unenrolled_admission_teardown_rejects_remaining_project_network() -> None:
-    empty = subprocess.CompletedProcess(["docker", "compose", "ps"], 0, "", "")
-    remaining = subprocess.CompletedProcess(
+    empty = _process_result(["docker", "compose", "ps"], 0, "", "")
+    remaining = _process_result(
         ["docker", "network", "ls"],
         0,
         "a" * 64 + "\n",
@@ -2235,7 +2390,7 @@ def test_unenrolled_admission_teardown_rejects_remaining_project_network() -> No
 
 
 def test_unenrolled_admission_teardown_rejects_replaced_named_volume() -> None:
-    empty = subprocess.CompletedProcess(["docker", "compose", "ps"], 0, "", "")
+    empty = _process_result(["docker", "compose", "ps"], 0, "", "")
     replaced = TrustedTimeVolumeIdentities(
         socket_sha256=VOLUME_IDENTITIES.socket_sha256,
         state_sha256="7" * 64,
@@ -2262,7 +2417,7 @@ def test_unenrolled_admission_teardown_rejects_replaced_named_volume() -> None:
 
 
 def test_compose_container_identity_requires_full_id() -> None:
-    short = subprocess.CompletedProcess(
+    short = _process_result(
         ["docker", "compose", "ps"],
         0,
         "a" * 12 + "\n",
@@ -2296,7 +2451,7 @@ def test_supervisor_terminal_parser_rejects_untrusted_text_without_echo(
     stdout: str,
     stderr: str,
 ) -> None:
-    completed = subprocess.CompletedProcess(
+    completed = _process_result(
         ["docker", "container", "logs"],
         0,
         stdout,
@@ -2344,7 +2499,7 @@ def test_supervisor_narrow_state_is_identity_bound_and_secret_safe(
     state_line: str,
     qualified: bool,
 ) -> None:
-    completed = subprocess.CompletedProcess(
+    completed = _process_result(
         ["docker", "container", "inspect"],
         0,
         state_line,
@@ -2372,7 +2527,7 @@ def test_supervisor_narrow_state_is_identity_bound_and_secret_safe(
 
 
 def test_terminal_observer_times_out_without_logs_and_strips_all_application_env() -> None:
-    completed = subprocess.CompletedProcess(
+    completed = _process_result(
         ["docker", "container", "inspect"],
         0,
         _supervisor_state_line(status="running", running=True, exit_code=0),
@@ -2380,7 +2535,10 @@ def test_terminal_observer_times_out_without_logs_and_strips_all_application_env
     )
     observed_environments: list[dict[str, str]] = []
 
-    def bounded_run(*_: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+    def bounded_run(
+        *_: object,
+        **kwargs: object,
+    ) -> tuple[tuple[str, ...], int, str, str]:
         observed_environments.append(dict(cast(dict[str, str], kwargs["environment"])))
         return completed
 
@@ -2412,7 +2570,7 @@ def test_terminal_observer_times_out_without_logs_and_strips_all_application_env
 
 
 def test_terminal_observer_never_sleeps_past_deadline_after_running_inspect() -> None:
-    completed = subprocess.CompletedProcess(
+    completed = _process_result(
         ["docker", "container", "inspect"],
         0,
         _supervisor_state_line(status="running", running=True, exit_code=0),
@@ -2443,19 +2601,19 @@ def test_terminal_observer_rebinds_same_full_compose_identity_after_log_read() -
     environments: list[dict[str, str]] = []
     results = iter(
         (
-            subprocess.CompletedProcess(
+            _process_result(
                 ["docker", "container", "inspect"],
                 0,
                 _supervisor_state_line(),
                 "",
             ),
-            subprocess.CompletedProcess(
+            _process_result(
                 ["docker", "container", "logs"],
                 0,
                 _supervisor_terminal_line(reason=EXPECTED_TERMINAL_REASON),
                 "",
             ),
-            subprocess.CompletedProcess(
+            _process_result(
                 ["docker", "compose", "ps"],
                 0,
                 f"{SUPERVISOR_CONTAINER_ID}\n",
@@ -2464,7 +2622,10 @@ def test_terminal_observer_rebinds_same_full_compose_identity_after_log_read() -
         )
     )
 
-    def bounded_run(argv: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[str]:
+    def bounded_run(
+        argv: tuple[str, ...],
+        **kwargs: object,
+    ) -> tuple[tuple[str, ...], int, str, str]:
         commands.append(argv)
         environments.append(dict(cast(dict[str, str], kwargs["environment"])))
         return next(results)
@@ -2501,19 +2662,19 @@ def test_terminal_observer_rebinds_same_full_compose_identity_after_log_read() -
 def test_terminal_observer_rejects_compose_identity_rebind_after_log_read() -> None:
     results = iter(
         (
-            subprocess.CompletedProcess(
+            _process_result(
                 ["docker", "container", "inspect"],
                 0,
                 _supervisor_state_line(),
                 "",
             ),
-            subprocess.CompletedProcess(
+            _process_result(
                 ["docker", "container", "logs"],
                 0,
                 _supervisor_terminal_line(reason=EXPECTED_TERMINAL_REASON),
                 "",
             ),
-            subprocess.CompletedProcess(
+            _process_result(
                 ["docker", "compose", "ps"],
                 0,
                 f"{'c' * 64}\n",
@@ -2572,7 +2733,7 @@ def test_bounded_compose_observer_rejects_over_pipe_capacity_before_spawn() -> N
 
 def test_bounded_observer_delegates_exact_caps_to_shared_runner() -> None:
     argv = ("docker", "container", "logs", "--tail", "1", SUPERVISOR_CONTAINER_ID)
-    completed = subprocess.CompletedProcess(argv, 0, b"terminal\n", b"")
+    completed = _process_result(argv, 0, b"terminal\n", b"")
     with patch(
         "scripts.start_trusted_time_supervisor.run_bounded_subprocess",
         return_value=completed,
@@ -2585,8 +2746,8 @@ def test_bounded_observer_delegates_exact_caps_to_shared_runner() -> None:
             timeout_seconds=1,
         )
 
-    assert result.stdout == "terminal\n"
-    assert result.stderr == ""
+    assert result[2] == "terminal\n"
+    assert result[3] == ""
     bounded.assert_called_once_with(
         argv,
         cwd=Path(__file__).resolve().parents[2],
@@ -2641,7 +2802,10 @@ def _image_configuration(service: str) -> dict[str, object]:
         "Cmd": ["autoquant-trusted-time-supervisor"],
         "WorkingDir": "/workspace",
         "ExposedPorts": None,
-        "Env": ["PATH=/opt/venv/bin:/usr/local/bin:/usr/bin"],
+        "Env": [
+            "PATH=/opt/autoquant/trusted-time/bin:/usr/local/bin:/usr/local/sbin:"
+            "/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
         "StopSignal": "SIGTERM",
     }
 
@@ -3170,12 +3334,12 @@ def test_admission_reuses_approved_images_with_exact_docker_environment_before_e
             return_value=DAEMON_IDENTITY,
         ) as qualify_daemon,
         patch(
-            "scripts.start_trusted_time_supervisor.load_image_admission_artifact",
-            return_value=admission,
+            "scripts.start_trusted_time_supervisor._load_current_image_admission_snapshot",
+            return_value=_admission_snapshot(admission),
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.verify_images",
-            return_value=admission.identities,
+            "scripts.start_trusted_time_supervisor._verify_images_with_manifest",
+            return_value=_verified_images(admission.identities),
         ) as verify,
         patch(
             "scripts.start_trusted_time_supervisor.render_compose_model",
@@ -3227,11 +3391,11 @@ def test_created_topology_keeps_frozen_docker_context_and_drops_staged_inputs(
             side_effect=(SOURCE_CONTAINER_ID, SUPERVISOR_CONTAINER_ID),
         ) as container_id,
         patch(
-            "scripts.start_trusted_time_supervisor.validate_live_trusted_time_topology"
+            "scripts.start_trusted_time_supervisor._validate_live_trusted_time_topology_ids"
         ) as validate,
     ):
         _validate_created_topology(
-            _admission().identities,
+            _admission_snapshot(),
             environment=frozen_control_environment,
             compose_payload=COMPOSE_PAYLOAD,
             expected_database_secret_file=Path("/private/staged-database"),
@@ -3248,10 +3412,11 @@ def test_created_topology_keeps_frozen_docker_context_and_drops_staged_inputs(
         "DOCKER_CONTEXT": "approved-context",
         "PATH": "/approved/bin",
     }
+    assert validate.call_args.args == (SOURCE_IMAGE_ID, SUPERVISOR_IMAGE_ID)
 
 
 def test_docker_runner_strips_staged_inputs_except_for_frozen_compose_stdin() -> None:
-    completed = subprocess.CompletedProcess(["docker"], 0, b"", b"")
+    completed = _process_result(["docker"], 0, b"", b"")
     environment = {
         "PATH": "/approved/bin",
         "DOCKER_CONTEXT": "approved-context",
@@ -3343,9 +3508,12 @@ def test_launcher_qualifies_before_secret_and_starts_only_admitted_ids(
     events: list[str] = []
     observed: list[tuple[tuple[str, ...], dict[str, str]]] = []
 
-    def fake_artifact_load(_: Path, **__: object) -> TrustedTimeImageAdmission:
+    def fake_artifact_load(
+        _: Path,
+        **__: object,
+    ) -> image_verifier._CurrentTrustedTimeImageAdmissionSnapshot:
         events.append("artifact-loaded")
-        return admission
+        return _admission_snapshot(admission)
 
     def fake_load(path: Path) -> TrustedTimeRuntimeConfiguration:
         assert path == env_file
@@ -3396,7 +3564,7 @@ def test_launcher_qualifies_before_secret_and_starts_only_admitted_ids(
         events.append(f"compose-qualified:{expected_database_secret_file.name}")
 
     def fake_topology(
-        _: TrustedTimeImageIdentities,
+        _: image_verifier._CurrentTrustedTimeImageAdmissionSnapshot,
         *,
         environment: dict[str, str],
         compose_payload: bytes,
@@ -3418,22 +3586,22 @@ def test_launcher_qualifies_before_secret_and_starts_only_admitted_ids(
         *,
         environment: Any,
         **_: object,
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> tuple[tuple[str, ...], int, str, str]:
         exact_environment = cast(dict[str, str], environment)
         observed.append((argv, dict(exact_environment)))
         if argv == compose_argv():
             events.append("compose-up")
-            return subprocess.CompletedProcess(argv, 0, "", "")
+            return _process_result(argv, 0, "", "")
         raise AssertionError(argv)
 
     with (
         patch(
-            "scripts.start_trusted_time_supervisor.load_image_admission_artifact",
+            "scripts.start_trusted_time_supervisor._load_current_image_admission_snapshot",
             side_effect=fake_artifact_load,
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.verify_images",
-            return_value=admission.identities,
+            "scripts.start_trusted_time_supervisor._verify_images_with_manifest",
+            return_value=_verified_images(admission.identities),
         ),
         patch(
             "scripts.start_trusted_time_supervisor.load_trusted_time_runtime_configuration",
@@ -3568,11 +3736,11 @@ def _invoke_mocked_unenrolled_admission(
     def fake_run(
         argv: tuple[str, ...],
         **_: object,
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> tuple[tuple[str, ...], int, str, str]:
         if argv != compose_argv():
             raise AssertionError(argv)
         events.append("compose-up")
-        return subprocess.CompletedProcess(argv, compose_returncode, "discarded-output", "")
+        return _process_result(argv, compose_returncode, "discarded-output", "")
 
     def fake_topology(*_: object, **__: object) -> None:
         events.append("topology-check")
@@ -3609,15 +3777,17 @@ def _invoke_mocked_unenrolled_admission(
 
     patchers = (
         patch(
-            "scripts.start_trusted_time_supervisor.load_image_admission_artifact",
-            return_value=admission,
+            "scripts.start_trusted_time_supervisor._load_current_image_admission_snapshot",
+            return_value=_admission_snapshot(admission),
         ),
         patch.multiple(
             "scripts.start_trusted_time_supervisor",
             _current_git_revision=lambda: GIT_REVISION,
             qualify_local_docker_daemon=lambda **_: DAEMON_IDENTITY,
             _capture_trusted_time_volume_identities=lambda **_: VOLUME_IDENTITIES,
-            verify_images=lambda *_args, **_kwargs: admission.identities,
+            _verify_images_with_manifest=lambda *_args, **_kwargs: _verified_images(
+                admission.identities
+            ),
         ),
         patch(
             "scripts.start_trusted_time_supervisor.load_trusted_time_runtime_configuration",
@@ -3867,12 +4037,12 @@ def test_pre_compose_approval_recheck_failure_cleans_staged_inputs() -> None:
             return_value=DAEMON_IDENTITY,
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.load_image_admission_artifact",
-            return_value=admission,
+            "scripts.start_trusted_time_supervisor._load_current_image_admission_snapshot",
+            return_value=_admission_snapshot(admission),
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.verify_images",
-            return_value=admission.identities,
+            "scripts.start_trusted_time_supervisor._verify_images_with_manifest",
+            return_value=_verified_images(admission.identities),
         ),
         patch(
             "scripts.start_trusted_time_supervisor.render_compose_model",
@@ -6002,22 +6172,22 @@ def test_stale_socket_volume_stops_and_removes_unqualified_topology(tmp_path: Pa
     def fake_run(
         argv: tuple[str, ...],
         **_: object,
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> tuple[tuple[str, ...], int, str, str]:
         calls.append(argv)
         if argv == compose_argv():
-            return subprocess.CompletedProcess(argv, 0, "", "")
+            return _process_result(argv, 0, "", "")
         if "down" in argv:
-            return subprocess.CompletedProcess(argv, 0, "", "")
+            return _process_result(argv, 0, "", "")
         raise AssertionError(argv)
 
     with (
         patch(
-            "scripts.start_trusted_time_supervisor.load_image_admission_artifact",
-            return_value=admission,
+            "scripts.start_trusted_time_supervisor._load_current_image_admission_snapshot",
+            return_value=_admission_snapshot(admission),
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.verify_images",
-            return_value=admission.identities,
+            "scripts.start_trusted_time_supervisor._verify_images_with_manifest",
+            return_value=_verified_images(admission.identities),
         ),
         patch(
             "scripts.start_trusted_time_supervisor.qualify_local_docker_daemon",
@@ -6077,7 +6247,7 @@ def test_stale_socket_volume_stops_and_removes_unqualified_topology(tmp_path: Pa
 
 def test_local_docker_qualification_accepts_one_owned_unix_socket_and_daemon() -> None:
     socket_path = Path("/private/tmp/aqt-local-docker.sock")
-    completed = subprocess.CompletedProcess(
+    completed = _process_result(
         ["docker", "info"],
         0,
         '"LOCAL:DAEMON:1"\n',
@@ -6138,12 +6308,12 @@ def test_daemon_identity_change_is_rejected_before_secret_load(tmp_path: Path) -
             side_effect=[DAEMON_IDENTITY, changed],
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.load_image_admission_artifact",
-            return_value=admission,
+            "scripts.start_trusted_time_supervisor._load_current_image_admission_snapshot",
+            return_value=_admission_snapshot(admission),
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.verify_images",
-            return_value=admission.identities,
+            "scripts.start_trusted_time_supervisor._verify_images_with_manifest",
+            return_value=_verified_images(admission.identities),
         ),
         patch(
             "scripts.start_trusted_time_supervisor.render_compose_model",
@@ -6174,12 +6344,12 @@ def test_image_admission_swap_is_rejected_before_secret_load(tmp_path: Path) -> 
             return_value=DAEMON_IDENTITY,
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.load_image_admission_artifact",
-            side_effect=(admission, changed),
+            "scripts.start_trusted_time_supervisor._load_current_image_admission_snapshot",
+            side_effect=(_admission_snapshot(admission), _admission_snapshot(changed)),
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.verify_images",
-            return_value=admission.identities,
+            "scripts.start_trusted_time_supervisor._verify_images_with_manifest",
+            return_value=_verified_images(admission.identities),
         ),
         patch(
             "scripts.start_trusted_time_supervisor.render_compose_model",
@@ -6229,12 +6399,12 @@ def test_chrony_state_directory_check_is_non_destructive_and_requires_fixed_iden
     def fake_run(
         argv: tuple[str, ...],
         **_: object,
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> tuple[tuple[str, ...], int, str, str]:
         calls.append(argv)
         if argv[-3:] == ("-c", "%u:%g:%a", "/var/lib/chrony"):
-            return subprocess.CompletedProcess(argv, 0, "10001:10001:755\n", "")
+            return _process_result(argv, 0, "10001:10001:755\n", "")
         if "/bin/busybox" in argv:
-            return subprocess.CompletedProcess(argv, 0, "", "")
+            return _process_result(argv, 0, "", "")
         raise AssertionError(argv)
 
     with patch("scripts.start_trusted_time_supervisor._run_docker", side_effect=fake_run):
@@ -6375,12 +6545,12 @@ def test_main_sanitizes_owner_file_failure(
             return_value=DAEMON_IDENTITY,
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.load_image_admission_artifact",
-            return_value=admission,
+            "scripts.start_trusted_time_supervisor._load_current_image_admission_snapshot",
+            return_value=_admission_snapshot(admission),
         ),
         patch(
-            "scripts.start_trusted_time_supervisor.verify_images",
-            return_value=admission.identities,
+            "scripts.start_trusted_time_supervisor._verify_images_with_manifest",
+            return_value=_verified_images(admission.identities),
         ),
         patch(
             "scripts.start_trusted_time_supervisor.render_compose_model",

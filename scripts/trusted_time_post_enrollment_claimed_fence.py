@@ -9,16 +9,17 @@ exact retained claim in one continuously open topology-reader session.
 
 from __future__ import annotations
 
+import _thread
 import hashlib
 import os
 import stat
 import threading
 import weakref
 from collections.abc import Callable, Mapping
-from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Never, Protocol, SupportsIndex
+from types import MemberDescriptorType
+from typing import TYPE_CHECKING, Any, Never, Protocol, SupportsIndex
 
 from packages.domain.trusted_time_enrollment_evidence import (
     FIRST_ENROLLMENT_AUTHORITY_FIELDS,
@@ -31,6 +32,7 @@ from scripts.start_trusted_time_supervisor import TrustedTimeApprovedLaunch
 from scripts.trusted_time_post_enrollment_staging import (
     TrustedTimePostEnrollmentStartReauthenticationIssuer,
     TrustedTimePostEnrollmentStartStagingHandoff,
+    _prepare_post_enrollment_start_release_under_lock_with_salvage,
     prepare_post_enrollment_start_release_under_lock,
 )
 from scripts.trusted_time_post_enrollment_start import (
@@ -48,10 +50,20 @@ from scripts.trusted_time_post_enrollment_topology_reader import (
     TrustedTimePostEnrollmentStagedTopologyObservation,
     TrustedTimePostEnrollmentTopologyObservationCursor,
     TrustedTimePostEnrollmentTopologyObservationIssuer,
+    _AnchoredRetirementObservation,
+    _finalize_claimed_fence_recovery_binder_recipe,
     _observe_host_retirements,
+    _require_anchored_retirement_observation,
+    _stage_claimed_fence_recovery_binder_authorization_type,
+    _stage_claimed_fence_recovery_binder_recipe,
     _TrustedTimePostEnrollmentRecoveryClaimBinder,
+    _TrustedTimePostEnrollmentRecoveryRetentionCapability,
+    _TrustedTimePostEnrollmentTopologyChoreographyLease,
     _validate_staged_paths,
 )
+
+_EXACT_RLOCK_TYPE = type(threading.RLock())
+_EXACT_PATH_TYPE = type(Path())
 
 POST_ENROLLMENT_START_CLAIMED_PRE_RELEASE_TOPOLOGY_FENCE_CONTRACT_VERSION = (
     "phase6d-post-enrollment-start-claimed-pre-release-topology-fence-v1"
@@ -67,6 +79,17 @@ class TrustedTimePostEnrollmentStartClaimedFenceRejected(RuntimeError):
 
 class TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired(RuntimeError):
     """Claim preparation began, so the single-use operation requires recovery."""
+
+
+def _preferred_control_error(
+    primary: BaseException | None,
+    candidate: BaseException | None,
+) -> BaseException | None:
+    if primary is not None and not isinstance(primary, Exception):
+        return primary
+    if candidate is not None and not isinstance(candidate, Exception):
+        return candidate
+    return primary if primary is not None else candidate
 
 
 def _authority_is_never_granted(_: object) -> bool:
@@ -151,6 +174,7 @@ class _ClaimedFenceCapability:
         )
 
 
+@_stage_claimed_fence_recovery_binder_authorization_type
 class _ClaimedFenceRecoveryBinderAuthorization:
     """Opaque one-shot authority minted only inside claimed chronology."""
 
@@ -580,8 +604,16 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
     _recovery_retention_capability: object | None = None,
     _recovery_binder_issuer: Callable[
         ...,
-        _TrustedTimePostEnrollmentRecoveryClaimBinder,
+        None,
     ],
+    _recovery_binder_failure: Callable[..., None],
+    _recovery_binder_salvager: Callable[..., bool],
+    _observe_retirements: Callable[[tuple[Path, Path, Path, Path]], object] = (
+        _observe_host_retirements
+    ),
+    _require_retirements: Callable[[object], _AnchoredRetirementObservation] = (
+        _require_anchored_retirement_observation
+    ),
 ) -> _ClaimedFenceMaterials:
     """Retain one claim and prove ordinal 2 was issued after it; never release."""
 
@@ -602,6 +634,7 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
             or not callable(getattr(reauthentication_issuer, "close", None))
             or (_recovery_retention_capability is not None and _choreography_lease is None)
             or not callable(_recovery_binder_issuer)
+            or not callable(_recovery_binder_salvager)
         ):
             raise ValueError
         approval.__post_init__()
@@ -627,7 +660,7 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
             expected_head_anchor_auth_secret_file,
             expected_head_anchor_signing_key_secret_file,
         )
-        live_retirements = _observe_host_retirements(staged_paths)
+        live_retirements = _require_retirements(_observe_retirements(staged_paths))
         pre_claim_staged_observation = pre_claim_fence._staged_observation
         if (
             pre_claim_fence.created_observation_sha256 != created_observation.observation_sha256
@@ -642,7 +675,7 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
             or supervisor_container_id != created_snapshot.supervisor.container_id
             or type(pre_claim_staged_observation)
             is not TrustedTimePostEnrollmentStagedTopologyObservation
-            or tuple(candidate.path for candidate in live_retirements.candidates)
+            or tuple(projection[1] for projection in live_retirements[2])
             != tuple(os.fspath(path) for path in staged_paths)
             or pre_claim_staged_observation.snapshot.staged_input_retirement_candidate_sha256
             != _staged_input_retirement_sha256(staged_paths)
@@ -674,23 +707,24 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
         ) from None
 
     claim_preparation_began = False
+    retained_claim_binder: _TrustedTimePostEnrollmentRecoveryClaimBinder | None = None
+    binder_binding_may_have_begun = False
     try:
         if _choreography_lease is not None:
             topology_issuer._require_active_choreography_lease(_choreography_lease)
 
-        retained_claim_binder: _TrustedTimePostEnrollmentRecoveryClaimBinder | None = None
         if _recovery_retention_capability is not None:
             if _choreography_lease is None:
                 raise RuntimeError
-            retained_claim_binder = _recovery_binder_issuer(
+            retained_claim_binder = object.__new__(_TrustedTimePostEnrollmentRecoveryClaimBinder)
+            _recovery_binder_issuer(
                 topology_issuer=topology_issuer,
                 choreography_lease=_choreography_lease,
                 recovery_retention_capability=_recovery_retention_capability,
+                recovery_claim_binder=retained_claim_binder,
                 artifact_directory=artifact_directory,
                 ignored_root=ignored_root,
             )
-            if type(retained_claim_binder) is not _TrustedTimePostEnrollmentRecoveryClaimBinder:
-                raise RuntimeError
 
         claim_preparation_began = True
         if retained_claim_binder is None:
@@ -703,7 +737,26 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
                 ignored_root=ignored_root,
             )
         else:
-            handoff = prepare_post_enrollment_start_release_under_lock(
+            binder_binding_may_have_begun = True
+
+            def salvage_retained_claim(
+                *,
+                recovery_claim_binder: object,
+                claim: object,
+                artifact_directory: object,
+                ignored_root: object,
+                retain_salvaged_claim: object,
+            ) -> bool:
+                return _recovery_binder_salvager(
+                    topology_issuer=topology_issuer,
+                    recovery_claim_binder=recovery_claim_binder,
+                    claim=claim,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                    retain_salvaged_claim=retain_salvaged_claim,
+                )
+
+            handoff = _prepare_post_enrollment_start_release_under_lock_with_salvage(
                 approval=approval,
                 expected_approval_sha256=expected_approval_sha256,
                 supervisor_container_id=supervisor_container_id,
@@ -711,6 +764,7 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
                 artifact_directory=artifact_directory,
                 ignored_root=ignored_root,
                 _retained_claim_binder=retained_claim_binder,
+                _retained_claim_salvager=salvage_retained_claim,
             )
         if _choreography_lease is not None:
             topology_issuer._require_active_choreography_lease(_choreography_lease)
@@ -799,7 +853,20 @@ def _prepare_post_enrollment_start_claimed_pre_release_materials(
             pre_release_fence=pre_release,
             final_cursor=cursor_three,
         )
-    except BaseException:
+    except BaseException as primary_error:
+        cleanup_error: BaseException | None = None
+        if retained_claim_binder is not None:
+            try:
+                _recovery_binder_failure(
+                    topology_issuer=topology_issuer,
+                    recovery_claim_binder=retained_claim_binder,
+                    binding_may_have_begun=binder_binding_may_have_begun,
+                )
+            except BaseException as error:
+                cleanup_error = error
+        terminal_error = _preferred_control_error(primary_error, cleanup_error)
+        if terminal_error is not None and not isinstance(terminal_error, Exception):
+            raise terminal_error from None
         if claim_preparation_began:
             raise TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired(
                 "trusted-time claimed pre-release topology requires recovery"
@@ -843,14 +910,198 @@ class _ClaimedFenceCapabilityValidator(Protocol):
 
 def _build_claimed_fence_preparer(
     prepare_materials: Callable[..., _ClaimedFenceMaterials],
+    *,
+    _rlock_type: Callable[[], Any] = _EXACT_RLOCK_TYPE,
+    _rlock_acquire: Callable[..., object] = _EXACT_RLOCK_TYPE.acquire,
+    _rlock_release: Callable[..., object] = _EXACT_RLOCK_TYPE.release,
+    _rlock_recursion_count: Callable[..., object] = (
+        _EXACT_RLOCK_TYPE.__dict__["_recursion_count"]
+    ),
+    _base_exception_type: type[BaseException] = BaseException,
+    _ordinary_exception_type: type[Exception] = Exception,
+    _exact_int_type: type[int] = int,
+    _exact_type: Callable[[object], type[object]] = type,
+    _exact_range: Callable[..., range] = range,
+    _exact_isinstance: Callable[[object, type[object]], bool] = isinstance,
+    _exact_any: Callable[..., bool] = any,
+    _exact_len: Callable[..., int] = len,
+    _exact_tuple_type: type[tuple[object, ...]] = tuple,
+    _exact_str_type: type[str] = str,
+    _runtime_error_new: Callable[..., RuntimeError] = RuntimeError.__new__,
+    _runtime_error_type: type[RuntimeError] = RuntimeError,
+    _id: Callable[[object], int] = id,
+    _getpid: Callable[[], int] = os.getpid,
+    _fspath: Callable[[os.PathLike[str]], str] = os.fspath,
+    _path_type: type[Path] = _EXACT_PATH_TYPE,
+    _authorization_type: type[object] = _ClaimedFenceRecoveryBinderAuthorization,
+    _recovery_binder_type: type[object] = _TrustedTimePostEnrollmentRecoveryClaimBinder,
+    _issuer_type: type[object] = TrustedTimePostEnrollmentTopologyObservationIssuer,
+    _issue_recovery_binder: Callable[..., None] = (
+        TrustedTimePostEnrollmentTopologyObservationIssuer._issue_recovery_retention_claim_binder
+    ),
+    _weakref: Callable[..., weakref.ReferenceType[object]] = weakref.ref,
+    _weakref_type: type[weakref.ReferenceType[object]] = weakref.ReferenceType,
+    _weakref_callback_descriptor: MemberDescriptorType = (
+        weakref.ReferenceType.__dict__["__callback__"]
+    ),
+    _member_descriptor_get: Callable[..., object] = MemberDescriptorType.__get__,
+    _stage_reader_recovery_binder_recipe: Callable[..., None] = (
+        _stage_claimed_fence_recovery_binder_recipe
+    ),
+    _thread_local_type: type[object] = _thread._local,
+    _thread_local_getattribute: Callable[..., object] = (
+        _thread._local.__dict__["__getattribute__"]
+    ),
+    _thread_local_setattr: Callable[..., None] = _thread._local.__dict__["__setattr__"],
+    _attribute_error_type: type[AttributeError] = AttributeError,
+    _exact_object_type: type[object] = object,
+    _choreography_lease_type: type[object] = (_TrustedTimePostEnrollmentTopologyChoreographyLease),
+    _recovery_capability_type: type[object] = (
+        _TrustedTimePostEnrollmentRecoveryRetentionCapability
+    ),
+    _salvage_binder: Callable[..., bool] = (
+        TrustedTimePostEnrollmentTopologyObservationIssuer._salvage_recovery_retention_claim_binder
+    ),
 ) -> tuple[
     _ClaimedFencePreparer,
     _ClaimedFenceCapabilityValidator,
     Callable[..., bool],
-    Callable[..., bool],
 ]:
-    registry_lock = threading.Lock()
-    origin_pid = os.getpid()
+    if not TYPE_CHECKING:
+        _ClaimedFenceRecoveryBinderAuthorization = _authorization_type
+        _TrustedTimePostEnrollmentRecoveryClaimBinder = _recovery_binder_type
+        any = _exact_any
+        int = _exact_int_type
+        isinstance = _exact_isinstance
+        len = _exact_len
+        object = _exact_object_type
+        range = _exact_range
+        str = _exact_str_type
+        tuple = _exact_tuple_type
+        type = _exact_type
+
+    def sealed_bridge_error(message: str) -> RuntimeError:
+        candidate = _runtime_error_new(_runtime_error_type, message)
+        if _exact_type(candidate) is not _runtime_error_type:
+            raise _base_exception_type
+        return candidate
+
+    def preferred_control_error(
+        primary: BaseException | None,
+        candidate: BaseException | None,
+    ) -> BaseException | None:
+        if primary is not None and not isinstance(primary, _ordinary_exception_type):
+            return primary
+        if candidate is not None and not isinstance(candidate, _ordinary_exception_type):
+            return candidate
+        return primary if primary is not None else candidate
+
+    def exact_rlock_depth(lock: object) -> int:
+        if _exact_type(lock) is not _rlock_type:
+            raise sealed_bridge_error(
+                "trusted-time recovery binder authorization lock is unavailable"
+            )
+        depth: int = _rlock_recursion_count(lock)  # type: ignore[assignment]
+        if _exact_type(depth) is not _exact_int_type or depth < 0:
+            raise sealed_bridge_error(
+                "trusted-time recovery binder authorization lock is unavailable"
+            )
+        return depth
+
+    def restore_rlock_depth(
+        lock: object,
+        expected_depth: int,
+        record_error: Callable[[BaseException], None],
+    ) -> bool:
+        for _ in _exact_range(8):
+            try:
+                depth = exact_rlock_depth(lock)
+            except _base_exception_type as error:
+                record_error(error)
+                continue
+            if depth == expected_depth:
+                return True
+            try:
+                if depth > expected_depth:
+                    _rlock_release(lock)
+                elif _rlock_acquire(lock) is not True:
+                    raise sealed_bridge_error(
+                        "trusted-time recovery binder authorization lock is unavailable"
+                    )
+            except _base_exception_type as error:
+                record_error(error)
+        try:
+            return exact_rlock_depth(lock) == expected_depth
+        except _base_exception_type as error:
+            record_error(error)
+            return False
+
+    def run_under_exact_rlock[RegistryResult](
+        lock: object,
+        operation: Callable[[], RegistryResult],
+    ) -> RegistryResult:
+        initial_depth = exact_rlock_depth(lock)
+        body_completed = False
+        result: RegistryResult
+        primary_error: BaseException | None = None
+        transition_error: BaseException | None = None
+        cleanup_error: BaseException | None = None
+
+        def record_cleanup_error(error: BaseException) -> None:
+            nonlocal cleanup_error
+            cleanup_error = preferred_control_error(cleanup_error, error)
+
+        try:
+            try:
+                if _rlock_acquire(lock) is not True:
+                    raise sealed_bridge_error(
+                        "trusted-time recovery binder authorization lock is unavailable"
+                    )
+                result = operation()
+                body_completed = True
+            except _base_exception_type as error:
+                primary_error = error
+            finally:
+                restore_rlock_depth(lock, initial_depth, record_cleanup_error)
+        except _base_exception_type as error:
+            transition_error = error
+        finally:
+            restore_rlock_depth(lock, initial_depth, record_cleanup_error)
+        try:
+            restored = exact_rlock_depth(lock) == initial_depth
+        except _base_exception_type as error:
+            record_cleanup_error(error)
+            restored = False
+        terminal = preferred_control_error(
+            preferred_control_error(primary_error, transition_error),
+            cleanup_error,
+        )
+        if terminal is not None:
+            raise terminal
+        if not body_completed or not restored:
+            raise sealed_bridge_error(
+                "trusted-time recovery binder authorization lock is unavailable"
+            )
+        return result
+
+    def sealed_normpath(value: str) -> str:
+        if type(value) is not str or not value.startswith("/"):
+            return ""
+        resolved: tuple[str, ...] = ()
+        for component in value.split("/"):
+            if component == "" or component == ".":
+                continue
+            if component == "..":
+                if resolved:
+                    resolved = resolved[:-1]
+                continue
+            resolved = (*resolved, component)
+        return "/" if not resolved else "/" + "/".join(resolved)
+
+    registry_lock = _rlock_type()
+    recovery_binder_registry_lock = _rlock_type()
+    recovery_binder_thread_local = _thread_local_type()
+    origin_pid = _getpid()
     registrations: dict[object, tuple[str, object | None]] = {}
     claimed_action_choreographies: dict[
         _ClaimedFenceCapability,
@@ -861,76 +1112,364 @@ def _build_claimed_fence_preparer(
         weakref.ReferenceType[TrustedTimePostEnrollmentTopologyObservationIssuer],
     ] = {}
     recovery_binder_authorizations: dict[
-        _ClaimedFenceRecoveryBinderAuthorization,
-        tuple[object, object, object, Path, Path, int, threading.Thread],
+        int,
+        tuple[
+            weakref.ReferenceType[object],
+            object,
+            object,
+            object,
+            str,
+            str,
+            int,
+            object,
+            _ClaimedFenceRecoveryBinderAuthorization,
+        ],
     ] = {}
+
+    def recovery_binder_thread_token() -> object:
+        try:
+            token = _thread_local_getattribute(
+                recovery_binder_thread_local,
+                "trusted_time_thread_token",
+            )
+        except _attribute_error_type:
+            candidate = _exact_object_type()
+            _thread_local_setattr(
+                recovery_binder_thread_local,
+                "trusted_time_thread_token",
+                candidate,
+            )
+            token = _thread_local_getattribute(
+                recovery_binder_thread_local,
+                "trusted_time_thread_token",
+            )
+        if type(token) is not _exact_object_type:
+            raise sealed_bridge_error("trusted-time recovery binder authorization is unavailable")
+        return token
+
+    def run_under_registry_lock[RegistryResult](
+        operation: Callable[[], RegistryResult],
+    ) -> RegistryResult:
+        return run_under_exact_rlock(registry_lock, operation)
+
+    def run_under_recovery_binder_registry_lock[RegistryResult](
+        operation: Callable[[], RegistryResult],
+    ) -> RegistryResult:
+        return run_under_exact_rlock(recovery_binder_registry_lock, operation)
+
+    def recovery_binder_authorizations_are_exact_locked(
+        allow_dead_references: bool,
+    ) -> bool:
+        seen_binders: list[object] = []
+        for authorization_key, registration in recovery_binder_authorizations.items():
+            if (
+                type(authorization_key) is not int
+                or type(registration) is not tuple
+                or len(registration) != 9
+                or type(registration[0]) is not _weakref_type
+                or type(registration[1]) is not _choreography_lease_type
+                or type(registration[2]) is not _recovery_capability_type
+                or type(registration[3]) is not _TrustedTimePostEnrollmentRecoveryClaimBinder
+                or type(registration[4]) is not str
+                or type(registration[5]) is not str
+                or type(registration[6]) is not int
+                or type(registration[7]) is not _exact_object_type
+                or type(registration[8]) is not _ClaimedFenceRecoveryBinderAuthorization
+                or _id(registration[8]) != authorization_key
+                or any(registration[3] is binder for binder in seen_binders)
+            ):
+                recovery_binder_authorizations.clear()
+                return False
+            registration_reference = registration[0]
+            registration_referent = registration_reference()
+            registration_callback = _member_descriptor_get(
+                _weakref_callback_descriptor,
+                registration_reference,
+                _weakref_type,
+            )
+            if not (
+                registration_callback is retire_lost_recovery_binder_issuer
+                or (
+                    allow_dead_references
+                    and registration_referent is None
+                    and registration_callback is None
+                )
+            ):
+                recovery_binder_authorizations.clear()
+                return False
+            seen_binders.append(registration[3])
+        return True
+
+    def retire_lost_recovery_binder_issuer(issuer_reference: object) -> None:
+        if _getpid() != origin_pid:
+            return
+        cleanup_confirmed = False
+
+        def retire_lost_issuer_locked() -> None:
+            nonlocal cleanup_confirmed
+            if (
+                type(issuer_reference) is not _weakref_type
+                or issuer_reference() is not None
+                or _member_descriptor_get(
+                    _weakref_callback_descriptor,
+                    issuer_reference,
+                    _weakref_type,
+                )
+                is not None
+                or not recovery_binder_authorizations_are_exact_locked(True)
+            ):
+                recovery_binder_authorizations.clear()
+                raise sealed_bridge_error(
+                    "trusted-time recovery binder authorization cleanup is unavailable"
+                )
+            for authorization, registration in tuple(recovery_binder_authorizations.items()):
+                if registration[0]() is None:
+                    recovery_binder_authorizations.pop(authorization, None)
+            if any(
+                registration[0]() is None
+                for registration in recovery_binder_authorizations.values()
+            ):
+                recovery_binder_authorizations.clear()
+                raise sealed_bridge_error(
+                    "trusted-time recovery binder authorization cleanup is unavailable"
+                )
+            cleanup_confirmed = True
+
+        for _ in _exact_range(4):
+            try:
+                run_under_recovery_binder_registry_lock(retire_lost_issuer_locked)
+            except _base_exception_type:
+                continue
+            if cleanup_confirmed:
+                return
+
+    _stage_reader_recovery_binder_recipe(
+        recovery_binder_authorizations,
+        recovery_binder_registry_lock,
+        recovery_binder_thread_local,
+        origin_pid,
+        _choreography_lease_type,
+        _recovery_capability_type,
+        retire_lost_recovery_binder_issuer,
+        (
+            _rlock_type,
+            _rlock_acquire,
+            _rlock_release,
+            _rlock_recursion_count,
+            _base_exception_type,
+            _ordinary_exception_type,
+            _exact_int_type,
+            _exact_type,
+            _exact_range,
+            _exact_isinstance,
+            _exact_any,
+            _exact_len,
+            _exact_tuple_type,
+            _exact_str_type,
+            _exact_object_type,
+            _runtime_error_type,
+            _runtime_error_new,
+            _id,
+            _weakref,
+            _weakref_type,
+            _weakref_callback_descriptor,
+            _member_descriptor_get,
+            _getpid,
+            _fspath,
+            _path_type,
+            _thread_local_type,
+            _thread_local_getattribute,
+            _thread_local_setattr,
+            _attribute_error_type,
+            _authorization_type,
+            _recovery_binder_type,
+            _issuer_type,
+            _issue_recovery_binder,
+        ),
+    )
+
+    def recovery_binder_path_values(
+        artifact_directory: object,
+        ignored_root: object,
+    ) -> tuple[str, str]:
+        if type(artifact_directory) is not _path_type or type(ignored_root) is not _path_type:
+            raise sealed_bridge_error("trusted-time recovery binder authorization is unavailable")
+        artifact_directory_value = _fspath(artifact_directory)
+        ignored_root_value = _fspath(ignored_root)
+        if (
+            type(artifact_directory_value) is not str
+            or type(ignored_root_value) is not str
+            or not ignored_root_value.startswith("/")
+            or sealed_normpath(ignored_root_value) != ignored_root_value
+            or artifact_directory_value != sealed_normpath(ignored_root_value + "/trusted-time")
+        ):
+            raise sealed_bridge_error("trusted-time recovery binder authorization is unavailable")
+        return artifact_directory_value, ignored_root_value
 
     def issue_recovery_binder(
         *,
         topology_issuer: object,
         choreography_lease: object,
         recovery_retention_capability: object,
+        recovery_claim_binder: object,
         artifact_directory: object,
         ignored_root: object,
-    ) -> _TrustedTimePostEnrollmentRecoveryClaimBinder:
+    ) -> None:
         if (
-            os.getpid() != origin_pid
-            or type(topology_issuer) is not TrustedTimePostEnrollmentTopologyObservationIssuer
-            or type(artifact_directory) is not type(Path())
-            or type(ignored_root) is not type(Path())
-            or artifact_directory != ignored_root / "trusted-time"
+            _getpid() != origin_pid
+            or type(topology_issuer) is not _issuer_type
+            or type(choreography_lease) is not _choreography_lease_type
+            or type(recovery_retention_capability) is not _recovery_capability_type
+            or type(recovery_claim_binder) is not _TrustedTimePostEnrollmentRecoveryClaimBinder
         ):
-            raise TrustedTimePostEnrollmentStartClaimedFenceRejected(
-                "trusted-time recovery binder authorization is unavailable"
+            raise sealed_bridge_error("trusted-time recovery binder authorization is unavailable")
+        artifact_directory_value, ignored_root_value = recovery_binder_path_values(
+            artifact_directory,
+            ignored_root,
+        )
+        authorization = _exact_object_type.__new__(_ClaimedFenceRecoveryBinderAuthorization)
+        authorization_key = _id(authorization)
+
+        issuer_reference = _weakref(
+            topology_issuer,
+            retire_lost_recovery_binder_issuer,
+        )
+
+        def register_authorization_locked() -> None:
+            if not recovery_binder_authorizations_are_exact_locked(False) or any(
+                registration[3] is recovery_claim_binder
+                for registration in recovery_binder_authorizations.values()
+            ):
+                recovery_binder_authorizations.clear()
+                raise sealed_bridge_error(
+                    "trusted-time recovery binder authorization is unavailable"
+                )
+            recovery_binder_authorizations[authorization_key] = (
+                issuer_reference,
+                choreography_lease,
+                recovery_retention_capability,
+                recovery_claim_binder,
+                artifact_directory_value,
+                ignored_root_value,
+                _getpid(),
+                recovery_binder_thread_token(),
+                authorization,
             )
-        authorization = object.__new__(_ClaimedFenceRecoveryBinderAuthorization)
+            if not recovery_binder_authorizations_are_exact_locked(False):
+                raise sealed_bridge_error(
+                    "trusted-time recovery binder authorization is unavailable"
+                )
+
+        primary_error: BaseException | None = None
+        cleanup_error: BaseException | None = None
+        cleanup_confirmed = False
+
+        def retire_authorization_locked() -> None:
+            if not recovery_binder_authorizations_are_exact_locked(False):
+                recovery_binder_authorizations.clear()
+                raise sealed_bridge_error(
+                    "trusted-time recovery binder authorization cleanup is unavailable"
+                )
+            recovery_binder_authorizations.pop(authorization_key, None)
+            if authorization_key in recovery_binder_authorizations:
+                recovery_binder_authorizations.clear()
+                raise sealed_bridge_error(
+                    "trusted-time recovery binder authorization cleanup is unavailable"
+                )
+
+        def retire_authorization_once() -> None:
+            nonlocal cleanup_confirmed, cleanup_error
+            try:
+                run_under_recovery_binder_registry_lock(retire_authorization_locked)
+                cleanup_confirmed = True
+            except _base_exception_type as error:
+                cleanup_error = preferred_control_error(cleanup_error, error)
+
         try:
-            with registry_lock:
-                recovery_binder_authorizations[authorization] = (
+            try:
+                run_under_recovery_binder_registry_lock(register_authorization_locked)
+                _issue_recovery_binder(
                     topology_issuer,
                     choreography_lease,
                     recovery_retention_capability,
-                    artifact_directory,
-                    ignored_root,
-                    os.getpid(),
-                    threading.current_thread(),
+                    recovery_claim_binder,
+                    claimed_fence_authorization=authorization,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
                 )
-            return topology_issuer._issue_recovery_retention_claim_binder(
-                choreography_lease,
-                recovery_retention_capability,
-                claimed_fence_authorization=authorization,
-                artifact_directory=artifact_directory,
-                ignored_root=ignored_root,
-            )
+            except _base_exception_type as error:
+                primary_error = error
         finally:
-            with registry_lock:
-                recovery_binder_authorizations.pop(authorization, None)
+            try:
+                retire_authorization_once()
+            finally:
+                try:
+                    if not cleanup_confirmed:
+                        retire_authorization_once()
+                finally:
+                    try:
+                        if not cleanup_confirmed:
+                            retire_authorization_once()
+                    finally:
+                        if not cleanup_confirmed:
+                            retire_authorization_once()
 
-    def consume_recovery_binder_authorization(
-        candidate: object,
+        terminal_error = preferred_control_error(primary_error, cleanup_error)
+        if terminal_error is not None and not isinstance(terminal_error, _ordinary_exception_type):
+            raise terminal_error from None
+        if primary_error is not None:
+            raise primary_error
+        if not cleanup_confirmed:
+            raise sealed_bridge_error(
+                "trusted-time recovery binder authorization cleanup is unavailable"
+            ) from cleanup_error
+
+    def fail_recovery_binder(
         *,
         topology_issuer: object,
-        choreography_lease: object,
-        recovery_retention_capability: object,
+        recovery_claim_binder: object,
+        binding_may_have_begun: object,
+    ) -> None:
+        if (
+            os.getpid() != origin_pid
+            or type(topology_issuer) is not TrustedTimePostEnrollmentTopologyObservationIssuer
+            or type(recovery_claim_binder) is not _TrustedTimePostEnrollmentRecoveryClaimBinder
+            or type(binding_may_have_begun) is not bool
+        ):
+            raise TrustedTimePostEnrollmentStartClaimedFenceRejected(
+                "trusted-time recovery binder cleanup is unavailable"
+            )
+        TrustedTimePostEnrollmentTopologyObservationIssuer._fail_recovery_retention_claim_binder(
+            topology_issuer,
+            recovery_claim_binder,
+            binding_may_have_begun=binding_may_have_begun,
+        )
+
+    def salvage_recovery_binder(
+        *,
+        topology_issuer: object,
+        recovery_claim_binder: object,
+        claim: object,
         artifact_directory: object,
         ignored_root: object,
+        retain_salvaged_claim: object,
     ) -> bool:
         if (
             os.getpid() != origin_pid
-            or type(candidate) is not _ClaimedFenceRecoveryBinderAuthorization
+            or type(topology_issuer) is not TrustedTimePostEnrollmentTopologyObservationIssuer
+            or type(recovery_claim_binder) is not _TrustedTimePostEnrollmentRecoveryClaimBinder
+            or type(artifact_directory) is not type(Path())
+            or type(ignored_root) is not type(Path())
+            or not callable(retain_salvaged_claim)
         ):
             return False
-        with registry_lock:
-            registration = recovery_binder_authorizations.pop(candidate, None)
-        return bool(
-            registration is not None
-            and registration[0] is topology_issuer
-            and registration[1] is choreography_lease
-            and registration[2] is recovery_retention_capability
-            and registration[3] == artifact_directory
-            and registration[4] == ignored_root
-            and registration[5] == os.getpid()
-            and registration[6] is threading.current_thread()
+        return _salvage_binder(
+            topology_issuer,
+            recovery_claim_binder,
+            claim,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+            retain_salvaged_claim=retain_salvaged_claim,
         )
 
     def register(
@@ -947,7 +1486,8 @@ def _build_claimed_fence_preparer(
             raise TrustedTimePostEnrollmentStartClaimedFenceRejected(
                 "trusted-time claimed pre-release capability is unavailable"
             )
-        with registry_lock:
+
+        def register_locked() -> None:
             registrations[candidate] = (_payload_sha256(dict(material)), None)
             claimed_action_choreographies[candidate] = (
                 topology_issuer,
@@ -959,20 +1499,37 @@ def _build_claimed_fence_preparer(
                 threading.current_thread(),
             )
 
+        run_under_registry_lock(register_locked)
+
     def unregister(candidate: object) -> None:
         if os.getpid() != origin_pid or type(candidate) is not _ClaimedFenceCapability:
             return
-        try:
-            with registry_lock:
-                claimed_action_choreographies.pop(candidate, None)
-                consumed_claimed_action_origins.pop(candidate, None)
-                registrations.pop(candidate, None)
-        except BaseException:
-            with suppress(BaseException), registry_lock:
-                claimed_action_choreographies.pop(candidate, None)
-                consumed_claimed_action_origins.pop(candidate, None)
-                registrations.pop(candidate, None)
-            raise
+
+        def unregister_locked() -> bool:
+            claimed_action_choreographies.pop(candidate, None)
+            consumed_claimed_action_origins.pop(candidate, None)
+            registrations.pop(candidate, None)
+            return (
+                candidate not in claimed_action_choreographies
+                and candidate not in consumed_claimed_action_origins
+                and candidate not in registrations
+            )
+
+        cleanup_error: BaseException | None = None
+        cleanup_confirmed = False
+        for _ in range(4):
+            try:
+                cleanup_confirmed = run_under_registry_lock(unregister_locked)
+                if cleanup_confirmed:
+                    break
+            except _base_exception_type as error:
+                cleanup_error = preferred_control_error(cleanup_error, error)
+        if cleanup_error is not None and not isinstance(cleanup_error, _ordinary_exception_type):
+            raise cleanup_error from None
+        if not cleanup_confirmed:
+            raise TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired(
+                "trusted-time claimed pre-release capability cleanup is unavailable"
+            ) from cleanup_error
 
     def valid(
         candidate: object,
@@ -986,7 +1543,8 @@ def _build_claimed_fence_preparer(
         ):
             return False
         material_sha256 = _payload_sha256(dict(material))
-        with registry_lock:
+
+        def valid_locked() -> bool:
             registration = registrations.get(candidate)
             if registration is None or registration[0] != material_sha256:
                 return False
@@ -995,6 +1553,8 @@ def _build_claimed_fence_preparer(
                 registrations[candidate] = (material_sha256, result)
                 return True
             return bound_result is result
+
+        return run_under_registry_lock(valid_locked)
 
     def consume_claimed_action_choreography(
         candidate: object,
@@ -1117,6 +1677,8 @@ def _build_claimed_fence_preparer(
                 _choreography_lease=_choreography_lease,
                 _recovery_retention_capability=_recovery_retention_capability,
                 _recovery_binder_issuer=issue_recovery_binder,
+                _recovery_binder_failure=fail_recovery_binder,
+                _recovery_binder_salvager=salvage_recovery_binder,
             )
             materials_prepared = True
             retained = materials.handoff.retained_claim
@@ -1174,27 +1736,32 @@ def _build_claimed_fence_preparer(
             if _choreography_lease is not None:
                 topology_issuer._require_active_choreography_lease(_choreography_lease)
             return result
-        except TrustedTimePostEnrollmentStartClaimedFenceRejected:
+        except BaseException as primary_error:
+            cleanup_error: BaseException | None = None
+            if materials_prepared:
+                try:
+                    unregister(capability)
+                except BaseException as error:
+                    cleanup_error = error
+            terminal_error = preferred_control_error(primary_error, cleanup_error)
+            if terminal_error is not None and not isinstance(
+                terminal_error, _ordinary_exception_type
+            ):
+                raise terminal_error from None
+            if isinstance(
+                primary_error,
+                TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired,
+            ):
+                raise primary_error
             if not materials_prepared:
-                raise
-            unregister(capability)
+                raise primary_error
             raise TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired(
                 "trusted-time claimed pre-release topology requires recovery"
-            ) from None
-        except TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired:
-            raise
-        except BaseException:
-            unregister(capability)
-            if not materials_prepared:
-                raise
-            raise TrustedTimePostEnrollmentStartClaimedFenceRecoveryRequired(
-                "trusted-time claimed pre-release topology requires recovery"
-            ) from None
+            ) from cleanup_error
 
     return (
         prepare_post_enrollment_start_claimed_pre_release_fence,
         valid,
-        consume_recovery_binder_authorization,
         consume_claimed_action_choreography,
     )
 
@@ -1202,11 +1769,9 @@ def _build_claimed_fence_preparer(
 (
     prepare_post_enrollment_start_claimed_pre_release_fence,
     _valid_claimed_fence_capability,
-    _consume_claimed_fence_recovery_binder_authorization,
     _consume_claimed_fence_action_choreography,
 ) = _build_claimed_fence_preparer(_prepare_post_enrollment_start_claimed_pre_release_materials)
-del _build_claimed_fence_preparer
-del _prepare_post_enrollment_start_claimed_pre_release_materials
+_finalize_claimed_fence_recovery_binder_recipe()
 
 
 def prepare_post_enrollment_start_leased_claimed_pre_release_fence(

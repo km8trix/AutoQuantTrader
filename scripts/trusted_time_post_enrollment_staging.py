@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -37,6 +38,7 @@ from scripts.trusted_time_post_enrollment_start import (
     IGNORED_ARTIFACT_ROOT,
     RetainedTrustedTimePostEnrollmentStartClaim,
     TrustedTimePostEnrollmentStartClaimConsumed,
+    _retain_post_enrollment_start_claim_with_sink,
     _TrustedTimePostEnrollmentStartClaimCheckpointRejected,
     require_no_retained_post_enrollment_start_claim,
     retain_post_enrollment_start_claim,
@@ -48,7 +50,8 @@ from scripts.trusted_time_post_enrollment_topology_reader import (
 )
 
 POST_ENROLLMENT_START_RELEASE_COMMAND = (
-    "/opt/venv/bin/autoquant-trusted-time-post-enrollment-release"
+    "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python",
+    "post-enrollment-release",
 )
 POST_ENROLLMENT_START_CONTAINER_USER = "10001:10001"
 
@@ -66,6 +69,17 @@ class TrustedTimePostEnrollmentStartStagingRejected(RuntimeError):
 
 class TrustedTimePostEnrollmentStartClaimedRecoveryRequired(RuntimeError):
     """A retained claim exists or claim durability may be uncertain."""
+
+
+def _preferred_control_error(
+    primary: BaseException | None,
+    candidate: BaseException | None,
+) -> BaseException | None:
+    if primary is not None and not isinstance(primary, Exception):
+        return primary
+    if candidate is not None and not isinstance(candidate, Exception):
+        return candidate
+    return primary if primary is not None else candidate
 
 
 class TrustedTimePostEnrollmentStartReauthenticationIssuer(Protocol):
@@ -97,7 +111,7 @@ def post_enrollment_start_release_argv(
         "--user",
         POST_ENROLLMENT_START_CONTAINER_USER,
         supervisor_container_id,
-        POST_ENROLLMENT_START_RELEASE_COMMAND,
+        *POST_ENROLLMENT_START_RELEASE_COMMAND,
     )
 
 
@@ -231,7 +245,7 @@ def _load_exact_confirmed_enrollment(
     return observed
 
 
-def prepare_post_enrollment_start_release_under_lock(
+def _prepare_post_enrollment_start_release_under_lock_with_salvage(
     *,
     approval: TrustedTimePostEnrollmentStartApproval,
     expected_approval_sha256: str,
@@ -240,6 +254,10 @@ def prepare_post_enrollment_start_release_under_lock(
     artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
     ignored_root: Path = IGNORED_ARTIFACT_ROOT,
     _retained_claim_binder: _TrustedTimePostEnrollmentRecoveryClaimBinder | None = None,
+    _retained_claim_salvager: Callable[..., bool] | None = None,
+    _retain_claim_with_sink: Callable[..., RetainedTrustedTimePostEnrollmentStartClaim] = (
+        _retain_post_enrollment_start_claim_with_sink
+    ),
 ) -> TrustedTimePostEnrollmentStartStagingHandoff:
     """Consume one staged issuer and retain a claim without executing release.
 
@@ -268,6 +286,7 @@ def prepare_post_enrollment_start_release_under_lock(
                 and type(_retained_claim_binder)
                 is not _TrustedTimePostEnrollmentRecoveryClaimBinder
             )
+            or (_retained_claim_salvager is not None and not callable(_retained_claim_salvager))
         ):
             raise ValueError
         release_argv = post_enrollment_start_release_argv(supervisor_container_id)
@@ -288,14 +307,24 @@ def prepare_post_enrollment_start_release_under_lock(
             "trusted-time post-enrollment staging inputs are invalid"
         ) from None
 
-    issuer_close_attempted = False
+    issuer_close_confirmed = False
+    issuer_close_attempts = 0
     claim_retention_attempted = False
     primary_error: BaseException | None = None
+    salvaged_retained_claim: RetainedTrustedTimePostEnrollmentStartClaim | None = None
 
-    def close_issuer_once() -> None:
-        nonlocal issuer_close_attempted
-        issuer_close_attempted = True
-        reauthentication_issuer.close()
+    def close_issuer_bounded() -> BaseException | None:
+        nonlocal issuer_close_attempts, issuer_close_confirmed
+        close_error: BaseException | None = None
+        while issuer_close_attempts < 4 and not issuer_close_confirmed:
+            issuer_close_attempts += 1
+            try:
+                reauthentication_issuer.close()
+                issuer_close_confirmed = True
+                break
+            except BaseException as error:
+                close_error = _preferred_control_error(close_error, error)
+        return close_error
 
     try:
         try:
@@ -323,12 +352,14 @@ def prepare_post_enrollment_start_release_under_lock(
                 observed = reauthentication_issuer.reauthenticate_first_enrollment_postcondition()
             except BaseException as error:
                 reauthentication_error = error
-            try:
-                close_issuer_once()
-            except BaseException:
+            close_error = close_issuer_bounded()
+            terminal_error = _preferred_control_error(reauthentication_error, close_error)
+            if terminal_error is not None and not isinstance(terminal_error, Exception):
+                raise terminal_error from None
+            if not issuer_close_confirmed:
                 raise TrustedTimePostEnrollmentStartStagingRejected(
                     "trusted-time post-enrollment reauthentication issuer close is unconfirmed"
-                ) from None
+                ) from close_error
             if reauthentication_error is not None or observed is None:
                 raise TrustedTimePostEnrollmentStartStagingRejected(
                     "trusted-time post-enrollment runtime reauthentication is unavailable"
@@ -374,12 +405,45 @@ def prepare_post_enrollment_start_release_under_lock(
             ) from None
 
         claim_retention_attempted = True
+
+        def retain_salvaged_claim(
+            candidate: object,
+        ) -> RetainedTrustedTimePostEnrollmentStartClaim:
+            nonlocal salvaged_retained_claim
+            if (
+                type(candidate) is not RetainedTrustedTimePostEnrollmentStartClaim
+                or candidate.claim is not claim
+            ):
+                raise TrustedTimePostEnrollmentStartClaimedRecoveryRequired(
+                    "trusted-time post-enrollment retained claim requires recovery"
+                )
+            if salvaged_retained_claim is None:
+                salvaged_retained_claim = candidate
+            if (
+                type(salvaged_retained_claim) is not RetainedTrustedTimePostEnrollmentStartClaim
+                or salvaged_retained_claim.claim is not claim
+            ):
+                raise TrustedTimePostEnrollmentStartClaimedRecoveryRequired(
+                    "trusted-time post-enrollment retained claim requires recovery"
+                )
+            return salvaged_retained_claim
+
         try:
-            retained = retain_post_enrollment_start_claim(
-                claim,
-                artifact_directory=artifact_directory,
-                ignored_root=ignored_root,
-                _retained_claim_binder=_retained_claim_binder,
+            retained = (
+                retain_post_enrollment_start_claim(
+                    claim,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                    _retained_claim_binder=_retained_claim_binder,
+                )
+                if _retained_claim_binder is None or _retained_claim_salvager is None
+                else _retain_claim_with_sink(
+                    claim,
+                    artifact_directory=artifact_directory,
+                    ignored_root=ignored_root,
+                    _retained_claim_binder=_retained_claim_binder,
+                    _retained_claim_sink=retain_salvaged_claim,
+                )
             )
             if not revalidate_retained_post_enrollment_start_claim(
                 retained,
@@ -410,18 +474,43 @@ def prepare_post_enrollment_start_release_under_lock(
             raise TrustedTimePostEnrollmentStartStagingRejected(
                 "trusted-time recovery claim binder is unavailable"
             ) from None
-        except BaseException:
+        except BaseException as error:
+            salvage_error: BaseException | None = None
+            salvage_confirmed = False
+            if _retained_claim_binder is not None and _retained_claim_salvager is not None:
+                for _ in range(4):
+                    try:
+                        salvage_confirmed = _retained_claim_salvager(
+                            recovery_claim_binder=_retained_claim_binder,
+                            claim=claim,
+                            artifact_directory=artifact_directory,
+                            ignored_root=ignored_root,
+                            retain_salvaged_claim=retain_salvaged_claim,
+                        )
+                        if salvage_confirmed:
+                            break
+                    except BaseException as cleanup_error:
+                        salvage_error = _preferred_control_error(
+                            salvage_error,
+                            cleanup_error,
+                        )
+            if not isinstance(error, Exception):
+                raise error from None
+            if salvage_error is not None and not isinstance(salvage_error, Exception):
+                raise salvage_error from None
             raise TrustedTimePostEnrollmentStartClaimedRecoveryRequired(
                 "trusted-time post-enrollment retained claim requires recovery"
-            ) from None
+            ) from (None if salvage_confirmed else salvage_error)
     except BaseException as error:
         primary_error = error
         raise
     finally:
-        if not issuer_close_attempted:
-            try:
-                close_issuer_once()
-            except BaseException:
+        if not issuer_close_confirmed:
+            issuer_cleanup_error = close_issuer_bounded()
+            terminal_error = _preferred_control_error(primary_error, issuer_cleanup_error)
+            if terminal_error is not None and not isinstance(terminal_error, Exception):
+                raise terminal_error from None
+            if not issuer_close_confirmed:
                 if claim_retention_attempted or isinstance(
                     primary_error,
                     TrustedTimePostEnrollmentStartClaimedRecoveryRequired,
@@ -433,6 +522,29 @@ def prepare_post_enrollment_start_release_under_lock(
                 raise TrustedTimePostEnrollmentStartStagingRejected(
                     "trusted-time post-enrollment reauthentication issuer close is unconfirmed"
                 ) from None
+
+
+def prepare_post_enrollment_start_release_under_lock(
+    *,
+    approval: TrustedTimePostEnrollmentStartApproval,
+    expected_approval_sha256: str,
+    supervisor_container_id: str,
+    reauthentication_issuer: TrustedTimePostEnrollmentStartReauthenticationIssuer,
+    artifact_directory: Path = DEFAULT_TRUSTED_TIME_ARTIFACT_DIRECTORY,
+    ignored_root: Path = IGNORED_ARTIFACT_ROOT,
+    _retained_claim_binder: _TrustedTimePostEnrollmentRecoveryClaimBinder | None = None,
+) -> TrustedTimePostEnrollmentStartStagingHandoff:
+    """Run the public staging protocol without a private salvage callback."""
+
+    return _prepare_post_enrollment_start_release_under_lock_with_salvage(
+        approval=approval,
+        expected_approval_sha256=expected_approval_sha256,
+        supervisor_container_id=supervisor_container_id,
+        reauthentication_issuer=reauthentication_issuer,
+        artifact_directory=artifact_directory,
+        ignored_root=ignored_root,
+        _retained_claim_binder=_retained_claim_binder,
+    )
 
 
 __all__ = [
