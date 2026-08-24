@@ -2184,6 +2184,28 @@ genuine-raw, provenance, corporate-action, source, and licensed admission gates.
 Later stages cannot grant authority backward to an earlier stage. No stage
 invents `vendor_published_at`, a vendor revision, or a historical vintage.
 
+A provider-neutral in-memory prerequisite gate now makes that final external
+evidence boundary explicit before any production source implementation. Its
+frozen specification binds source, provider, dataset, feed, profile digest, and
+scope digest. Five typed opaque attestations cover production
+identity/lifecycle, calendar, corporate-action authority, genuine-raw price and
+market provenance, and production license/use rights plus current entitlement.
+A sixth typed artifact is an independent review of the exact canonical bundle.
+Each component carries an explicit observation and half-open validity interval;
+evaluation uses an injected timestamp and never ambient time.
+
+The gate rejects omissions, duplicate roles, contract/research/fixture evidence,
+cross-binding substitutions, rejected or expired components, causally impossible
+timestamps, review of a different bundle, and a reviewer matching either the
+gate executor or any evidence producer. `external_authority` is only an input
+classification: repository code validates its bindings and currentness but does
+not authenticate the external actor or truth of the referenced evidence. Even a
+complete inventory yields only `ready_for_admission_evaluation`, with source,
+canonical-data, admission, and trading effects permanently `none`. The sealed
+result has no `load()` or authority conversion and is not persisted. Existing
+Tiingo contract-only and research proofs therefore remain blockers rather than
+inputs that can be promoted into production authority.
+
 The transport timeout applies to socket I/O for each symbol request. It is not a
 strict wall-clock deadline for the complete multi-symbol capture; operational
 supervision supplies that stronger deadline until a later transport contract

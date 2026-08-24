@@ -563,6 +563,47 @@ authorization, and calendar artifacts for v1 lineage.
 
 ## Required workflow
 
+### Production prerequisite evidence gate
+
+The repository now has a pure provider-neutral inventory gate immediately
+before production source implementation and the existing generic admission
+evaluator. It accepts no payload values, paths, credentials, terms text, or
+authority-bearing source object. A frozen specification identifies the exact
+source, provider, dataset, feed, production-profile digest, scope digest, and
+freeze time. The evidence bundle has five fixed roles:
+
+1. production security identity and lifecycle;
+2. exact production calendar;
+3. authoritative corporate-action events and completeness;
+4. genuine-raw price semantics and market provenance; and
+5. production license/use rights and current entitlement.
+
+Every role is an opaque artifact reference with an evidence classification,
+producer, exact cross-bindings, SHA-256, observed time, validity boundary, and
+verified/rejected decision. A separate sixth input reviews the exact canonical
+bundle digest. The reviewer must differ from the gate executor and every
+component producer, and the review must follow every component and still be
+valid at the explicitly injected evaluation time.
+
+Missing or duplicate roles, `synthetic_contract`, `research_capture`,
+`contract_only`, or `recorded_fixture` inputs, mismatched source/profile/scope,
+future or expired observations, rejected evidence, an absent/stale/substituted
+review, or self-approval produce a deterministic `blocked` assessment. The
+half-open validity rule treats `evaluated_at == valid_through` as stale. Existing
+Tiingo snapshots, retained-field proofs, identity/lifecycle contract results,
+market-semantics/action candidates, and repository fixtures must use their
+honest research or contract classification and therefore cannot pass.
+
+`ready_for_admission_evaluation` means only that a structurally complete set of
+references was presented. The gate does not authenticate an external reviewer
+or authority, verify the referenced private evidence, or assert its legal or
+economic truth. Every assessment keeps historical-source, canonical-data,
+admission, and trading effects at `none`; it has no `load()` method and cannot
+produce `AdmissionEvidence`, `HistoricalSourceBundle`, or
+`HistoricalBarSource`. The boundary is in memory only, so it adds no catalog
+state, operator command, or database migration. No real production evidence
+bundle has been supplied or approved.
+
 1. Select the exact historical product and confirm that its contract permits the
    intended local storage, normalization, backtesting, and derived artifacts.
 2. Freeze the source ID, adapter version, exact ETF allow-list, coverage interval,

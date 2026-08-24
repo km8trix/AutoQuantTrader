@@ -581,6 +581,17 @@ Passing one layer cannot substitute for another.
   isolation, adapter/profile metadata, frozen coverage and symbol requirements,
   deterministic admission specifications and evidence, independent-review
   semantics, immutable PostgreSQL reports/checks, and browser admission status.
+- Newly complete: a pure pre-source production-evidence prerequisite gate that
+  inventories exact production identity/lifecycle, calendar, corporate-action,
+  genuine-raw/provenance, license/use-rights/current-entitlement, and independent
+  exact-bundle-review references. It rejects missing or duplicate roles,
+  synthetic/research/fixture/contract-only classifications, source/profile/scope
+  mismatches, rejected, future, or expired evidence, stale or substituted
+  reviews, and review by the executor or any evidence producer. Its strongest
+  result is only `ready_for_admission_evaluation`; historical-source,
+  canonical-data, admission, and trading effects remain `none`. It performs no
+  I/O, authenticates no external actor, creates no source or admission evidence,
+  and adds no persistent state or migration.
 - Proven locally: mixed-source rows fail before storage; fixture profiles cannot
   claim a license; synthetic and recorded fixtures remain `blocked` regardless
   of their technical results; source/specification/evidence/report digests are
