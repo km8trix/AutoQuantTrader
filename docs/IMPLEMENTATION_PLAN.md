@@ -1224,6 +1224,18 @@ traceability, or reporting requirements below.
   or one explicit no-I/O wait. It retains no in-process traversal state,
   exposes stalled claims instead of retrying them, and grants no reconciliation
   or trading authority.
+- **Phase 4AJ recorded-offline E\*TRADE provider foundation — local pure slice
+  implemented:** ADR 0113 adds exact provider-specific types for environment,
+  nonsecret consumer/token scope, OOB callback policy, numeric account ID, and
+  opaque `accountIdKey`. Sandbox and production data/order roots and all local
+  scopes are cross-bound and disjoint, while both profiles retain the exact
+  shared OAuth service identities. The sole enabled request description is a
+  deterministic `GET /accounts/list` JSON-media profile with empty query/body
+  and no authorization material. Balance, Portfolio, Orders, Transactions,
+  Preview, Place, Cancel, raw decoding, persistence, OAuth, transport, account
+  binding, and every authority remain closed. Sandbox evidence remains
+  protocol-only and cannot satisfy traversal, lifecycle, reconciliation,
+  timing, economic, soak, or readiness gates.
 - The capability value and translated request description are immutable and
   content-authenticated, and lookup/account/asset observations retain exact
   response digests, while the raw journal authenticates exact account-local
@@ -1262,7 +1274,9 @@ traceability, or reporting requirements below.
   4AD-4AI implement bounded raw-first FILL-activity models, an authenticated
   one-page durable runtime, pure and source-authenticated comparisons, a
   predecessor-linked comparison repository, and a one-effect restart-safe
-  supervisor. All slices remain non-authorizing. A deployed
+  supervisor. Phase 4AJ independently adds only the typed E\*TRADE isolation
+  and Accounts List request-description foundation; it does not reuse any
+  Alpaca evidence. All slices remain non-authorizing. A deployed
   secret resolver, general
   security-master publication, runtime
   calendar/quote/reduce-only validation, end-to-end order request-budget
@@ -1273,8 +1287,10 @@ traceability, or reporting requirements below.
   paper startup remain disabled.
 - Phases 4A through 4AI are complete only as bounded local contract,
   persistence, and authenticated read-runtime slices with the explicit limits
-  described above. Phase 4 and its exit gate remain open. These slices are
-  local worktree changes and do not authorize paper or live trading.
+  described above. Phase 4AJ is complete only as a pure recorded-offline
+  provider and Accounts List request-description slice. Phase 4 and its exit
+  gate remain open. These slices are local worktree changes and do not authorize
+  paper or live trading.
   Phase 3's captured-tape, reconnect, shadow, economic
   segment-execution,
   traceability, and reporting gates also remain open and are not bypassed by
@@ -1282,16 +1298,21 @@ traceability, or reporting requirements below.
 
 ### Build
 
-- Add a distinct E\*TRADE provider track without changing historical Alpaca
-  schemas or evidence: fixed disjoint sandbox/production data/order REST origins
-  and secret scopes plus exact shared token/authorization origins and callback
-  policy; reviewed OAuth 1.0a session acquisition, renewal, expiry, and
-  revocation; exact numeric-account-ID plus opaque-`accountIdKey` binding; and
-  bounded raw-first Accounts, Balance, Portfolio, Orders, and Transactions
-  reads with strict pagination and status mapping. Start with conservative
-  account/operation budgets that reserve cancellation, token-control, and
-  reconciliation capacity; do not reuse Alpaca's request ceiling. Comet
-  streaming remains disabled until independently qualified.
+- Continue the distinct E\*TRADE provider track without changing historical
+  Alpaca schemas or evidence. Phase 4AJ implements the first pure boundary:
+  fixed disjoint sandbox/production data/order REST origins and nonsecret
+  consumer/token, account, budget, persistence, and audit scopes; exact shared
+  token/authorization service identities; exact OOB callback metadata; strict
+  syntax-only numeric-account-ID plus opaque-`accountIdKey` values; and a
+  deterministic non-I/O Accounts List request description. The exact next
+  dependency is a bounded recorded raw-first Accounts List response profile and
+  strict environment/media/provenance-bound decoder. Reviewed OAuth 1.0a
+  session acquisition, renewal, expiry, and revocation; authenticated account
+  binding; provider transport; and bounded raw-first Balance, Portfolio,
+  Orders, and Transactions reads remain pending. Later budgets must reserve
+  cancellation, token-control, and reconciliation capacity and must not reuse
+  Alpaca's request ceiling. Comet streaming remains disabled until independently
+  qualified.
 - Persist a separate deterministic, account-scoped E\*TRADE client-order ID that
   is collision-checked, at most twenty characters, and alphanumeric, mapped
   one-to-one to the unchanged canonical internal ID. Implement Preview then
@@ -1509,12 +1530,16 @@ publication, canonical position state,
 UNKNOWN resolution, authoritative reconciliation result, or lifecycle
 application and satisfy none of the runtime/fault gates below.
 
-E\*TRADE sandbox results may satisfy only protocol-contract checks and cannot
-close any lifecycle, reconciliation, timing, paper-soak, fault, or economic
-item. E\*TRADE live eligibility additionally requires exact production account
-binding, raw-first read-only and preview-only evidence, the Preview/Place
-contract, conservative request budgets, manual ambiguous-Place recovery, and
-the complete promotion ladder above.
+Phase 4AJ adds only deterministic E\*TRADE endpoint/profile/account-identifier
+and Accounts List request-description evidence. It adds no response evidence or
+authority and satisfies none of the runtime/fault gates below.
+
+Future E\*TRADE sandbox results may satisfy only protocol-contract checks and
+cannot close any traversal-semantics, completeness, lifecycle, reconciliation,
+timing, paper-soak, fault, economic, or readiness item. E\*TRADE live eligibility
+additionally requires exact production account binding, raw-first read-only and
+preview-only evidence, the Preview/Place contract, conservative request budgets,
+manual ambiguous-Place recovery, and the complete promotion ladder above.
 
 - Paper lifecycle works for accepted, rejected, partial, filled, canceled,
   cancel-rejected, expired, late-fill, bust/correction, and provider-specific

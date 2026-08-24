@@ -1481,6 +1481,15 @@ The selection is additive and non-authorizing. No existing Alpaca contract,
 table, migration, fixture, digest, or observation becomes E\*TRADE evidence, and
 no current component can preview or place an E\*TRADE order.
 
+[ADR 0113](adr/0113-recorded-offline-etrade-provider-foundation.md) implements
+the first Phase 4AJ boundary as a pure provider-specific contract. Exact
+`EtradeEnvironment` values construct complete endpoint-isolation profiles;
+callers cannot supply arbitrary origins. Separate consumer-secret, token-secret,
+account, request-budget, persistence, audit, and banner scope identities are
+cross-bound to sandbox or production. Strict syntax-only account values retain
+the numeric account ID as digit text and the opaque, case-preserving
+`accountIdKey` without claiming discovery or an authenticated binding.
+
 The production data/order API root is fixed to `https://api.etrade.com/v1`; the
 sandbox root is fixed to `https://apisb.etrade.com/v1`. The two environments
 have disjoint secret references, account bindings, request budgets, persistence
@@ -1491,6 +1500,15 @@ field/request/response shape, and strict decoding only. It cannot qualify
 pagination traversal ordering, completeness, termination, or convergence;
 stateful order behavior, fills, economics, visibility latency, production
 reconciliation, or a paper soak.
+
+Phase 4AJ enables only a deterministic JSON-media description of
+`GET /accounts/list` against the selected data root, with an empty query, no
+body, and no authorization material. Capability, endpoint-profile, request-
+profile, and complete request identities are content-authenticated; sandbox
+and production request identities are distinct. Balance, Portfolio, Orders,
+Transactions, every raw response/decoder, and all provider I/O remain
+unsupported. The next exact dependency is a bounded raw-first recorded Accounts
+List profile and strict environment/media/provenance-bound decoder.
 
 OAuth 1.0a/HMAC-SHA1 is a supervised session state machine, not ambient
 configuration. Nonces and trusted timestamps are generated at the final
@@ -1507,6 +1525,14 @@ scoped. Authorization URLs are secret-bearing and never logged or retained.
 Only the exact authorization page and an exact pre-registered callback
 origin/path, or the out-of-band verifier flow, may redirect; dynamic callbacks,
 open redirects, and verifier replay fail closed.
+
+The Phase 4AJ metadata pins the shared request-token, access-token, renewal, and
+revocation URLs and selects only the literal request-token callback value
+`oob`. It accepts no registered or dynamic callback origin/path and constructs
+no secret-bearing authorization URL. A future reviewed supervised session flow
+must separately pin any provider-preconfigured callback and still revalidate
+the ADR 0096 redirect policy; Phase 4AJ grants no browser, callback, verifier,
+token, credential, or transport authority.
 
 The canonical order ID remains provider-neutral. A separate durable E\*TRADE
 client-order-ID mapping is deterministic, account-scoped, collision-checked,

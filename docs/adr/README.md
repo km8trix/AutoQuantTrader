@@ -206,5 +206,11 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   fresh-loads every source before activation, and revalidation consumes the
   active binding; the zero-caller flow adds no sidecar, CLI, currentness,
   admission, lifecycle advance, runtime consumer, or shutdown effect)
+- [ADR 0113: Recorded-offline E\*TRADE provider foundation](0113-recorded-offline-etrade-provider-foundation.md)
+  (implements Phase 4AJ's typed sandbox/production endpoint and nonsecret scope
+  isolation, exact shared OAuth/OOB callback metadata, provider-specific
+  account identifiers, and one deterministic Accounts List description; it
+  adds no secrets, OAuth flow, decoder, provider call, persistence, account
+  binding, broker mutation, or trading authority)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
