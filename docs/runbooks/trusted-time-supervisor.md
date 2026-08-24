@@ -2630,23 +2630,34 @@ operator script. Generic `request_clean_stop` intentionally remains separate
 and cannot issue the bridge result. A decoded or scalar-equal request/result is
 not an issued process-local association.
 
-The host bridge can build a structural request only while the exact ADR-0106
-decision-artifact receipt still exists in the same process and the retained
-ADR-0110 attempt/progress revalidate. ADR 0112 now provides a separate
-read-only loader that can reconstruct the unchanged ADR-0106 receipt only by
-stably reading the exact owner-only decision candidate and reauthenticating the
-complete retained outcome, locator, currently supported v3-format attempt,
-reviewed Git authority, approval, provenance, revision, and image chain. It
-uses private pre-publication raw snapshot seams; it derives no truth from
-public retained-loader objects or a decoded receipt payload. It does not accept
-receipt bytes or a receipt digest and writes no sidecar. The
-ADR-0111 bridge does not consume the resulting loaded wrapper; do not substitute
-it manually or reconstruct a receipt from a digest or decision tuple.
-The host terminal binder consumes one ADR-0109 result once and returns only a
-same-process sealed cross-binding. Its two true facts are the bounded ADR-0109
-observation and an explicitly unqualified terminal-projection match. They are
-not current topology, admission, durability, lifecycle advancement, or
-shutdown success.
+The host bridge now builds a structural request only from the exact inert,
+pending ADR-0112 loaded wrapper and exact retained ADR-0110 attempt/progress.
+ADR 0112 reconstructs the unchanged ADR-0106 receipt only by stably reading the
+exact owner-only decision candidate and reauthenticating the complete retained
+outcome, locator, currently supported v3-format attempt, reviewed Git
+authority, approval, provenance, revision, and image chain. It uses private
+pre-publication raw snapshot seams; it derives no truth from public retained-
+loader objects or a decoded receipt payload, accepts no receipt bytes or
+receipt digest, and writes no sidecar.
+
+The ADR-0111 request builder owns authentication of that exact pending wrapper
+and immediate consuming revalidation of the resulting active registration. It
+receives only a private source-derived immutable snapshot bound to the exact
+wrapper, private bridge identity, PID, and Thread, and registers that snapshot
+with the exact constructed request. Do not authenticate or revalidate the
+wrapper separately before passing it to the builder: either call consumes its
+one-shot state and the builder must reject it. Never substitute the old raw
+ADR-0106 receipt, receipt bytes, a digest, a decoded decision, a clone, or a
+scalar-equal wrapper.
+
+The host terminal binder consumes that exact request/wrapper association, then
+uses its original bridge identity to consume one ADR-0109 result and returns
+only a same-process sealed cross-binding. Its four true facts are exact
+decision-artifact-receipt authentication, exact historical-start-chain
+authentication, the bounded ADR-0109 observation, and an explicitly
+unqualified terminal-projection match. Only the first two are newly promoted.
+They are not current topology, admission, durability, lifecycle advancement,
+or shutdown success.
 
 There is no operator procedure for ADR 0111. The host bridge has no production
 caller, no authenticated request/result transport, and no lifecycle writer.
@@ -2654,11 +2665,11 @@ ADR-0110 v1 still ends at ordinal one and may retain only its existing
 recovery-required classification. Do not create an ordinal two, append bridge
 bytes manually, or reinterpret an existing v1 prefix as post-signal evidence.
 
-There is also no operator procedure for ADR 0112. Its public loaded type, inert
-load, explicit authentication, and consuming revalidation APIs are dormant
-evidence-reader surfaces with zero production callers. Load alone grants no
-authority: the canonical diagnostic view rejects until the separate
-authentication call consumes
+There is also no operator procedure for ADR 0112. Its public inert loader has
+no live production caller; ADR 0111's dormant zero-caller request builder is
+the sole repository consumer of the loaded type and private consumed-snapshot
+handoff. Load alone grants no authority: the canonical diagnostic view rejects
+until the separate authentication call consumes
 the exact non-authorizing pending binding, fresh-loads the complete durable
 chain, compares the rebuilt primitive snapshot with its immutable load-time
 snapshot, installs the active binding solely from immutable source and
@@ -2679,13 +2690,14 @@ pending record is one-shot and non-authorizing; revalidation consumes the active
 record before validation and keeps it burned on every terminal path. After it
 returns success the wrapper is inactive and the canonical diagnostic view
 rejects again. Its heap
-properties are diagnostic only; only the consuming module-level revalidation
-result may supply the bounded historical fact. Tests use only injected temporary roots. Do not add a
-CLI, Make target, host/supervisor import, lifecycle writer,
-receipt sidecar, or ad hoc wrapper. A successfully revalidated loaded receipt
-proves point-in-time candidate retention and historical-chain authentication
-only; currentness, freshness, stop signature, single use, reservation,
-admission, outcome/recovery, and every shutdown effect remain false.
+properties are diagnostic only; only consuming module-level revalidation or
+the exact private ADR-0111 handoff may supply the bounded historical fact.
+Tests use only injected temporary roots. Do not add a CLI, Make target, another
+host/supervisor import, lifecycle writer, receipt sidecar, or ad hoc wrapper. A
+successfully revalidated loaded receipt proves point-in-time candidate retention
+and historical-chain authentication only; currentness, freshness, stop
+signature, effect single-use, reservation, admission, outcome/recovery, and
+every shutdown effect remain false.
 
 The dormant APIs depend on the separately reviewed native owned-descriptor
 prerequisite. Its C operations expose neither a descriptor nor a live owner
@@ -2703,14 +2715,13 @@ persistent Chrony-state and read-only leaf mount contracts. A developer editable
 install is never operational evidence.
 
 Before any live procedure is documented, a separately reviewed implementation
-must authenticate and integrate the exact ADR-0112 loaded receipt with consuming
-revalidation into ADR
-0111, then provide authenticated replay-safe transport, same-lock stop-authority/current-topology
+must build on the now-integrated exact ADR-0112-to-ADR-0111 handoff and provide
+authenticated replay-safe transport, same-lock stop-authority/current-topology
 admission, lifecycle v2 with pre-CALL/post-CALL and terminal retention,
-explicit at-fork invalidation and inherited-lock cleanup, and the complete
-ordered signal/teardown protocol while preserving both named volumes. Until
-then, every transport, currentness, durability, outcome, recovery-action, and
-effect flag remains false.
+explicit at-fork invalidation and inherited-lock cleanup for those later live
+registries, and the complete ordered signal/teardown protocol while preserving
+both named volumes. Until then, every transport, currentness, durability,
+outcome, recovery-action, and effect flag remains false.
 
 Repository review also requires the exact ADR-0111 raw-source manifest over
 `apps`, `packages`, and `scripts`. Its only lexical prune is

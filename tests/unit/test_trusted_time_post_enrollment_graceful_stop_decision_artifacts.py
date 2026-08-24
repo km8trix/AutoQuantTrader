@@ -2304,7 +2304,7 @@ def test_revalidator_consumes_registration_at_every_success_return_boundary(
     consumed_store_offset = max(
         instruction.offset
         for instruction in instructions
-        if instruction.opname == "STORE_FAST" and instruction.argval == "registration"
+        if instruction.opname == "STORE_FAST" and instruction.argval == "consumed_snapshot"
     )
 
     def revalidate_success() -> None:
@@ -3107,6 +3107,8 @@ def test_internal_authority_paths_never_read_public_receipt_heap_views() -> None
     source = Path(artifacts.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
     authority_functions = {
+        "_authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge",
+        "_consume_revalidate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt",
         "_consume_pending_loaded_receipt",
         "_pending_loaded_receipt_matches_live",
         "_register_pending_loaded_receipt",
@@ -3930,10 +3932,10 @@ def test_private_path_authority_is_exact_string_only() -> None:
         )
 
     invocation_consumers = {
+        "_consume_revalidate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt",
         "_prepare_post_enrollment_graceful_stop_decision_candidate_with_snapshot",
         "authenticate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt",
         "load_post_enrollment_graceful_stop_decision_artifact_receipt",
-        "revalidate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt",
     }
     consumer_definitions = {
         node.name: node
