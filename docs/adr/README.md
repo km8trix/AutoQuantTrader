@@ -206,5 +206,11 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   fresh-loads every source before activation, and revalidation consumes the
   active binding; the zero-caller flow adds no sidecar, CLI, currentness,
   admission, lifecycle advance, runtime consumer, or shutdown effect)
+- [ADR 0114: Fail-closed captured-tape research validity](0114-fail-closed-captured-tape-research-validity.md)
+  (adds a pure Phase 3E validity gate that rechecks Wave 1A prerequisites,
+  separately recomputes source admission, binds immutable capture/replay/config
+  evidence, and requires exact independent review; v1 has no authenticated-
+  origin trust root and therefore cannot emit positive eligibility, while all
+  source, admission, promotion, deployment, and trading effects remain absent)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

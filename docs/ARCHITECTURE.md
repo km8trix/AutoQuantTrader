@@ -2184,6 +2184,28 @@ genuine-raw, provenance, corporate-action, source, and licensed admission gates.
 Later stages cannot grant authority backward to an earlier stage. No stage
 invents `vendor_published_at`, a vendor revision, or a historical vintage.
 
+A provider-neutral in-memory prerequisite gate now makes that final external
+evidence boundary explicit before any production source implementation. Its
+frozen specification binds source, provider, dataset, feed, profile digest, and
+scope digest. Five typed opaque attestations cover production
+identity/lifecycle, calendar, corporate-action authority, genuine-raw price and
+market provenance, and production license/use rights plus current entitlement.
+A sixth typed artifact is an independent review of the exact canonical bundle.
+Each component carries an explicit observation and half-open validity interval;
+evaluation uses an injected timestamp and never ambient time.
+
+The gate rejects omissions, duplicate roles, contract/research/fixture evidence,
+cross-binding substitutions, rejected or expired components, causally impossible
+timestamps, review of a different bundle, and a reviewer matching either the
+gate executor or any evidence producer. `external_authority` is only an input
+classification: repository code validates its bindings and currentness but does
+not authenticate the external actor or truth of the referenced evidence. Even a
+complete inventory yields only `ready_for_admission_evaluation`, with source,
+canonical-data, admission, and trading effects permanently `none`. The sealed
+result has no `load()` or authority conversion and is not persisted. Existing
+Tiingo contract-only and research proofs therefore remain blockers rather than
+inputs that can be promoted into production authority.
+
 The transport timeout applies to socket I/O for each symbol request. It is not a
 strict wall-clock deadline for the complete multi-symbol capture; operational
 supervision supplies that stronger deadline until a later transport contract
@@ -2846,6 +2868,79 @@ subprocess quotas, walk-forward evaluation, cost/benchmark stress, criteria
 adjudication, captured/live tape, reconnect handling, shadow deployment, or
 paper/live authority. Phase 3 and its exit gate remain open. See
 [ADR 0037](adr/0037-configuration-bound-governed-segment-evaluation.md).
+
+### Current Phase 3E captured-tape research-validity gate
+
+Phase 3E adds a separate pure application boundary before any future captured
+tape may count as research-validity evidence. It deliberately does not widen
+`ManifestReplayTape`, `DatasetPin`, or `ExperimentDatasetReplayPin`: those
+contracts remain limited to repository-owned synthetic and recorded fixtures.
+The existing verified Tiingo snapshot also remains a research baseline; its
+type authenticates retained capture mechanics, not vendor origin, production
+admission, or canonical data.
+
+The gate receives the complete Wave 1A production-prerequisite inputs and their
+observed assessment. It reruns that assessment at its recorded time to detect a
+substituted result and again at the injected current evaluation time to detect
+expired prerequisites. The exact production specification must match the
+captured candidate's source, provider, dataset, feed, profile, and scope. Even a
+passing result remains only `ready_for_admission_evaluation` and cannot stand in
+for the separate source decision.
+
+Source admission is therefore a distinct input. The gate receives the exact
+generic `AdmissionSpecification`, `AdmissionEvidence`, and observed
+`AdmissionReport`, reruns `evaluate_admission`, requires exact equality and
+status `admitted`, and binds the report digest into the capture and research
+specification. A caller-authored report, a fixture source, readiness without
+admission, or admission without the Wave 1A prerequisites is insufficient. The
+bounded v1 contract treats the report, every required technical check, and its
+approval as independently current for 30 half-open days because the existing
+admission report has no authenticated revocation horizon. A fresh wrapper
+timestamp cannot hide stale underlying evidence.
+
+`CapturedDatasetTapeEvidence` binds an explicit origin class and verification
+decision, capture producer/executor, the exact production and admission
+digests, content-addressed capture and dataset-manifest identities, an ordered
+immutable-object-set digest, source-tape digest, coverage, capture and seal
+times, and validity. Verified `vendor_captured` evidence with
+`content_addressed_immutable` retention is a necessary caller-asserted shape,
+not authenticated origin. Synthetic fixtures, recorded fixtures, generic
+research captures, contract-only evidence, mutable retention, and every
+rejected, stale, future, or cross-bound value remain blocked; copying fixture
+digests into the vendor-labeled shape cannot upgrade them.
+
+A separate `CapturedTapeReplayEvidence` binds that exact capture to a
+content-addressed replay run/manifest, replay tape, input, plan, runtime, and
+research-configuration digest plus causal start/completion and validity times.
+The complete research specification is frozen strictly after capture sealing
+and strictly before replay; equal timestamps do not prove causal order. A
+structurally independent review binds the specification, capture, replay,
+source, admission, and configuration transitively through their exact semantic
+digests. The asserted reviewer identifier must differ from the gate executor,
+production-prerequisite producers/reviewer/executor, admission
+approver/executor, and capture and replay producers/executors. V1 does not
+authenticate reviewer identity or class.
+Reusing that review after a source, tape,
+configuration, specification, or review-context change fails as replayed or
+substituted evidence. This side-effect-free slice makes no claim of globally
+consuming an otherwise identical review; durable one-shot use would require a
+separate persistence design and centrally reserved migration.
+
+V1 has no external trust root, issuer, key/signature verifier, or validation path
+for authenticated capture origin. Every assessment therefore contains exactly
+one `authenticated_capture_provenance_missing` or
+`authenticated_capture_provenance_invalid` blocker. Even a caller-forged exact
+Python capability or recomputed unkeyed assessment digest cannot produce
+`eligible_as_captured_tape_research_evidence`. A future positive path requires a
+new independently reviewed contract that authenticates the issuer and trust
+root, binds validity and the exact combined bundle, and adds the issuer to the
+review-independence set. The assessment cannot load or create a source and
+permanently keeps historical-source, admission, canonical-market-data,
+promotion, deployment, and trading effects and authorizations absent. It adds
+no I/O, database state, API, worker, experiment mutation, promotion, deployment,
+broker, or runtime path. No repository-local or external-shaped bundle can
+qualify under v1, so Phase 3's captured-tape exit gate remains open. See
+[ADR 0114](adr/0114-fail-closed-captured-tape-research-validity.md).
 
 The broader backtesting roadmap expands the current narrow contract, when the
 required source evidence and explicit policies exist, to model:

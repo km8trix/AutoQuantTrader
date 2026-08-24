@@ -581,6 +581,17 @@ Passing one layer cannot substitute for another.
   isolation, adapter/profile metadata, frozen coverage and symbol requirements,
   deterministic admission specifications and evidence, independent-review
   semantics, immutable PostgreSQL reports/checks, and browser admission status.
+- Newly complete: a pure pre-source production-evidence prerequisite gate that
+  inventories exact production identity/lifecycle, calendar, corporate-action,
+  genuine-raw/provenance, license/use-rights/current-entitlement, and independent
+  exact-bundle-review references. It rejects missing or duplicate roles,
+  synthetic/research/fixture/contract-only classifications, source/profile/scope
+  mismatches, rejected, future, or expired evidence, stale or substituted
+  reviews, and review by the executor or any evidence producer. Its strongest
+  result is only `ready_for_admission_evaluation`; historical-source,
+  canonical-data, admission, and trading effects remain `none`. It performs no
+  I/O, authenticates no external actor, creates no source or admission evidence,
+  and adds no persistent state or migration.
 - Proven locally: mixed-source rows fail before storage; fixture profiles cannot
   claim a license; synthetic and recorded fixtures remain `blocked` regardless
   of their technical results; source/specification/evidence/report digests are
@@ -828,9 +839,22 @@ Passing one layer cannot substitute for another.
   target runtime and result digests, counts, running event, times, and
   evaluator. Read-only views expose proof metadata only; no transcript contents,
   performance metric, criteria decision, or promotion is produced.
+- **Phase 3E captured-tape research validity — pure fail-closed gate
+  implemented:** ADR 0114 composes the exact Wave 1A production-prerequisite
+  inputs with a separately recomputed admitted-source report, content-addressed
+  capture/dataset/tape and replay/runtime/configuration evidence, causal
+  half-open validity windows, and independent review of the exact combined
+  bundle. Synthetic, recorded-fixture, generic-research, contract-only,
+  mutable, mismatched, stale, context-replayed, or self-approved evidence fails
+  closed. Vendor labeling and content hashes cannot authenticate origin. V1 has
+  no external trust root or verifier, so every result retains exactly one
+  authenticated-provenance blocker and no repository-local or external-shaped
+  input can reach positive eligibility. Every source, admission, canonical-data,
+  promotion, deployment, and trading effect remains `none`.
 - Phase 3A and 3B remain in-memory full-tape evidence slices exercised on
   repository-owned synthetic fixtures. Phase 3C/3D do not connect to the Phase
-  2 job or worker. General durable segment execution and process isolation,
+  2 job or worker, and Phase 3E has no qualified external captured-tape input.
+  General durable segment execution and process isolation,
   separately queryable feature/target transcripts, arbitrary or fitted
   features and strategies, mutation APIs, performance/criteria evaluation,
   captured live tapes, reconnect/freshness behavior, and shadow mode remain
@@ -851,6 +875,15 @@ Passing one layer cannot substitute for another.
   including explicit waiting/reset steps and exact decision-feature lineage.
   Captured-tape feature/target parity and research workflow integration remain
   pending.
+- A pure captured-tape validity gate now checks current exact production
+  prerequisites, a separate recomputed `admitted` source decision, immutable
+  source/capture/dataset/tape/replay/runtime/configuration pins, causal
+  currentness, and a structurally independent exact-bundle review. It rejects
+  every v1 candidate because the repository has no externally anchored capture-
+  origin verifier; adding a positive path requires a separately reviewed trust
+  root, issuer-authentication contract, and issuer-independence rules. It does
+  not create or load a source, accept existing fixtures, or connect validity to
+  segment execution.
 - A durable bounded experiment registry records every stable attempted, failed,
   canceled, abandoned, and completed trial through append-only lifecycle
   evidence. The bounded reference completion path now requires exact
@@ -879,7 +912,10 @@ Status: **open**. The Phase 3A and 3B reference slices supply exact local
 feature-snapshot and feature-derived target parity evidence, and Phase 3C
 supplies a durable bounded governance registry and opaque pre-reveal holdout
 commitment. Phase 3D binds that target parity to an exact governed
-configuration and running attempt. These slices do not satisfy the
+configuration and running attempt. Phase 3E now freezes the fail-closed
+captured-tape evidence prerequisite, but v1 cannot qualify any bundle until a
+separately reviewed external provenance verifier exists.
+These slices do not satisfy the
 captured-tape, reconnect, economic segment-execution/isolation, end-to-end
 traceability, or reporting requirements below.
 
