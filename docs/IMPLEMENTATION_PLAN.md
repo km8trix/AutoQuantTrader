@@ -1236,6 +1236,24 @@ traceability, or reporting requirements below.
   binding, and every authority remain closed. Sandbox evidence remains
   protocol-only and cannot satisfy traversal, lifecycle, reconciliation,
   timing, economic, soak, or readiness gates.
+- **Phase 4AK bounded offline E\*TRADE Accounts List caller declarations — local
+  pure slice implemented:** ADR 0115 adds a separate in-memory raw-first
+  caller-declared response profile and strict decoder. Immutable supplied bytes
+  are bounded to 262,144 bytes and 128 accounts and bind the exact typed
+  provider, environment, endpoint/request description, declared origin,
+  JSON/UTF-8 media, explicit
+  `UNAUTHENTICATED_CALLER_DECLARATION`, and deterministic response and schema
+  profiles. These exact bindings prove internal consistency only: arbitrary
+  caller-supplied bytes, including a relabeled fixture, can be declared and
+  decoded, and no enum or digest authenticates provider origin. Every returned
+  layer exposes `provider_origin_authenticated=false` and
+  `fixture_relabeling_detection_supported=false`. Raw-string enum substitution,
+  malformed or drifted schema, duplicate keys, internally contradictory
+  bindings, and duplicate or ambiguous account ID/`accountIdKey` mappings fail
+  closed. Decoded identities remain historical unqualified caller-declared
+  observations that cannot be consumed as authenticated provider evidence;
+  transport, persistence, authenticated account discovery/binding, all other
+  operations, and every authority remain closed.
 - The capability value and translated request description are immutable and
   content-authenticated, and lookup/account/asset observations retain exact
   response digests, while the raw journal authenticates exact account-local
@@ -1275,9 +1293,10 @@ traceability, or reporting requirements below.
   one-page durable runtime, pure and source-authenticated comparisons, a
   predecessor-linked comparison repository, and a one-effect restart-safe
   supervisor. Phase 4AJ independently adds only the typed E\*TRADE isolation
-  and Accounts List request-description foundation; it does not reuse any
-  Alpaca evidence. All slices remain non-authorizing. A deployed
-  secret resolver, general
+  and Accounts List request-description foundation; Phase 4AK adds only its
+  bounded in-memory caller-declared raw evidence and strict historical decoder.
+  Neither reuses any Alpaca evidence. All slices remain non-authorizing. A
+  deployed secret resolver, general
   security-master publication, runtime
   calendar/quote/reduce-only validation, end-to-end order request-budget
   enforcement, authenticated deployed lookup supervision, deployed traversal
@@ -1287,10 +1306,11 @@ traceability, or reporting requirements below.
   paper startup remain disabled.
 - Phases 4A through 4AI are complete only as bounded local contract,
   persistence, and authenticated read-runtime slices with the explicit limits
-  described above. Phase 4AJ is complete only as a pure recorded-offline
-  provider and Accounts List request-description slice. Phase 4 and its exit
-  gate remain open. These slices are local worktree changes and do not authorize
-  paper or live trading.
+  described above. Phases 4AJ and 4AK are complete only as a pure recorded-
+  offline provider/request foundation and an unauthenticated caller-declared
+  in-memory raw-response/decoder slice. Phase 4
+  and its exit gate remain open. These slices are local worktree changes and do
+  not authorize paper or live trading.
   Phase 3's captured-tape, reconnect, shadow, economic
   segment-execution,
   traceability, and reporting gates also remain open and are not bypassed by
@@ -1304,15 +1324,18 @@ traceability, or reporting requirements below.
   consumer/token, account, budget, persistence, and audit scopes; exact shared
   token/authorization service identities; exact OOB callback metadata; strict
   syntax-only numeric-account-ID plus opaque-`accountIdKey` values; and a
-  deterministic non-I/O Accounts List request description. The exact next
-  dependency is a bounded recorded raw-first Accounts List response profile and
-  strict environment/media/provenance-bound decoder. Reviewed OAuth 1.0a
-  session acquisition, renewal, expiry, and revocation; authenticated account
-  binding; provider transport; and bounded raw-first Balance, Portfolio,
-  Orders, and Transactions reads remain pending. Later budgets must reserve
-  cancellation, token-control, and reconciliation capacity and must not reuse
-  Alpaca's request ceiling. Comet streaming remains disabled until independently
-  qualified.
+  deterministic non-I/O Accounts List request description. Phase 4AK adds the
+  bounded in-memory raw-first caller-declared Accounts List response profile and
+  strict request/environment/declared-origin/media/charset/declaration/schema-
+  bound decoder. Those bindings establish internal consistency, not provider
+  origin; authenticated capture admission and fixture-relabeling detection
+  remain pending.
+  Reviewed OAuth 1.0a session acquisition, renewal, expiry, and revocation;
+  authenticated account binding; provider transport; and bounded raw-first
+  Balance, Portfolio, Orders, and Transactions reads remain pending. Later
+  budgets must reserve cancellation, token-control, and reconciliation capacity
+  and must not reuse Alpaca's request ceiling. Comet streaming remains disabled
+  until independently qualified.
 - Persist a separate deterministic, account-scoped E\*TRADE client-order ID that
   is collision-checked, at most twenty characters, and alphanumeric, mapped
   one-to-one to the unchanged canonical internal ID. Implement Preview then
@@ -1531,8 +1554,14 @@ UNKNOWN resolution, authoritative reconciliation result, or lifecycle
 application and satisfy none of the runtime/fault gates below.
 
 Phase 4AJ adds only deterministic E\*TRADE endpoint/profile/account-identifier
-and Accounts List request-description evidence. It adds no response evidence or
-authority and satisfies none of the runtime/fault gates below.
+and Accounts List request-description evidence. Phase 4AK adds only bounded
+in-memory supplied raw evidence and unqualified historical decoded account
+identities with an explicit unauthenticated caller origin declaration. The
+declaration can wrap a relabeled fixture, and neither its enum nor any bound
+digest authenticates provider origin. No authenticated capture/admission
+artifact or authenticated provider-evidence consumer exists. Neither phase adds
+authenticated or current provider evidence, runtime authority, or satisfaction
+of any runtime/fault gate below.
 
 Future E\*TRADE sandbox results may satisfy only protocol-contract checks and
 cannot close any traversal-semantics, completeness, lifecycle, reconciliation,

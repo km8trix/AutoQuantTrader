@@ -3,7 +3,7 @@ source_roots = ["apps", "packages"]
 package_roots = ["packages"]
 production_python_source_manifest_roots = ["apps", "packages", "scripts"]
 production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]
-production_python_source_manifest_sha256 = "81aa2fe8672344a97e37aabf78107f92d631c384b94eb5f3f34feb67eace034d"
+production_python_source_manifest_sha256 = "d12fd78f7c1a9688900ee5ad697ad39549b9ffb6c687bb04cc71ddc9b6bb864a"
 project_build_bootstrap_manifest_paths = [
   ".python-version",
   "pyproject.toml",
@@ -179,7 +179,7 @@ trusted_time_topology_launch_lock_documentation_paths = [
 trusted_time_topology_launch_lock_reader_module_ast_sha256 = "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
 trusted_time_topology_launch_lock_issuer_class_ast_sha256 = "b64f79e1679e2bdefe40f6b36c82142fa367f6e6981c1b2e8fee1366a7d39bcd"
 trusted_time_topology_launch_lock_host_module_ast_sha256 = "15c3e62437dc070d223038e21097ce85cbbb68de71ced3a6574f506236ebf56c"
-trusted_time_topology_launch_lock_production_ast_sha256 = "47c25d39aef507690171178653b0a97196d73f4c889a86082624c74f40d688e9"
+trusted_time_topology_launch_lock_production_ast_sha256 = "735c2338a60971016bd99d446ab8ab6306b31148f281b5ceea70fe7ba1d5ce03"
 trusted_time_topology_launch_lock_lifecycle_tag = "trusted-time-issuer-lifecycle-v3"
 trusted_time_topology_launch_lock_lifecycle_tag_count = 13
 trusted_time_topology_launch_lock_launch_lock_binding_tag = "trusted-time-launch-lock-binding-v1"
@@ -576,6 +576,9 @@ side_effect_free_roots = [
   # Phase 4AJ freezes only typed E*TRADE endpoint, callback, account-identifier,
   # and Accounts List request evidence without ambient I/O or authority.
   "packages/adapters/broker/etrade.py",
+  # Phase 4AK retains and strictly decodes bounded caller-declared Accounts List
+  # bytes without authenticating origin or gaining ambient I/O or authority.
+  "packages/adapters/broker/etrade_accounts.py",
   # Phase 4AG authenticates injected durable sources and appends through an
   # injected repository without ambient clock, database, or transport access.
   "packages/application/alpaca_paper_account_activity_comparison.py",

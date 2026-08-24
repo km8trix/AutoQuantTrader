@@ -212,5 +212,11 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   account identifiers, and one deterministic Accounts List description; it
   adds no secrets, OAuth flow, decoder, provider call, persistence, account
   binding, broker mutation, or trading authority)
+- [ADR 0115: Bounded offline E\*TRADE Accounts List caller declarations](0115-bounded-recorded-offline-etrade-accounts-list-responses.md)
+  (implements Phase 4AK's pure in-memory raw-first caller-declared response and
+  strict decoder with exact internally consistent request/environment/origin/
+  media/charset/declaration/schema bindings; provider origin remains
+  unauthenticated, fixture relabeling is undetectable, and transport,
+  persistence, account binding, mutation, and trading authority remain closed)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

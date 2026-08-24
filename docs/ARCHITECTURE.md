@@ -1477,9 +1477,12 @@ economic-evaluation, and reporting gates are independently still open. See ADRs
 
 [ADR 0096](adr/0096-etrade-live-broker-and-sandbox-qualification.md)
 selects provider ID `etrade` and E\*TRADE production as the intended live venue.
-The selection is additive and non-authorizing. No existing Alpaca contract,
-table, migration, fixture, digest, or observation becomes E\*TRADE evidence, and
-no current component can preview or place an E\*TRADE order.
+The selection is additive and non-authorizing. No existing Alpaca typed
+contract, table, migration, fixture, digest, or observation is directly
+accepted as E\*TRADE evidence, and no current component can preview or place an
+E\*TRADE order. Phase 4AK can accept copied arbitrary bytes only inside a new,
+explicitly unauthenticated caller declaration; that conversion does not prove
+provider origin.
 
 [ADR 0113](adr/0113-recorded-offline-etrade-provider-foundation.md) implements
 the first Phase 4AJ boundary as a pure provider-specific contract. Exact
@@ -1507,8 +1510,44 @@ body, and no authorization material. Capability, endpoint-profile, request-
 profile, and complete request identities are content-authenticated; sandbox
 and production request identities are distinct. Balance, Portfolio, Orders,
 Transactions, every raw response/decoder, and all provider I/O remain
-unsupported. The next exact dependency is a bounded raw-first recorded Accounts
-List profile and strict environment/media/provenance-bound decoder.
+unsupported by Phase 4AJ.
+
+[ADR 0115](adr/0115-bounded-recorded-offline-etrade-accounts-list-responses.md)
+implements Phase 4AK as a separate pure in-memory raw-first Accounts List
+response contract. The fixed
+`phase4ak-etrade-accounts-list-unauthenticated-origin-declaration-v1` contract
+admits at most 262,144 exact bytes and 128 accounts under deterministic
+`etrade-accounts-list-unauthenticated-declared-json-utf8-v1` response and
+`etrade-accounts-list-response-schema-v1` schema profiles. Immutable evidence
+cross-binds the exact typed E\*TRADE provider and environment, endpoint and
+canonical request identities, environment-matching origin, JSON/UTF-8 media,
+the exact `UNAUTHENTICATED_CALLER_DECLARATION`, raw bytes, and raw digest. The
+public boundary is correspondingly named
+`create_etrade_accounts_list_unauthenticated_origin_declaration`,
+`create_etrade_accounts_list_caller_declared_response`, and
+`decode_etrade_accounts_list_caller_declared_response`. These bindings prove
+only that caller-supplied bytes and metadata are internally consistent. No
+enum, declaration ID, raw digest, or semantic digest authenticates provider
+origin, and the boundary cannot detect a fixture that its caller relabels.
+Every returned layer keeps `provider_origin_authenticated=false` and
+`fixture_relabeling_detection_supported=false`; no authenticated provider-
+evidence consumer is exposed.
+
+The strict decoder accepts only the closed
+`AccountListResponse -> Accounts -> Account` envelope and its nine required
+account keys. Malformed UTF-8/JSON, duplicate or unknown keys, wrong types,
+profile/schema drift, overflow, cross-request or cross-environment replay, and
+duplicate or ambiguous numeric-account-ID/`accountIdKey` mappings fail closed.
+Those replay checks reject contradictions inside one declaration; a caller can
+create another internally consistent declaration around arbitrary bytes, so
+they do not establish where the bytes actually originated. Display fields and
+response order do not establish identity. The decoded result remains an
+immutable historical, unqualified caller-declared observation with no local
+alias or authenticated account binding. Balance, Portfolio, Orders,
+Transactions, Preview, Place, Cancel, OAuth, transport, persistence,
+reconciliation, canonical application, broker mutation, startup, and trading
+authority all remain closed. Sandbox evidence is protocol-shape-only, not an
+economic simulator or readiness evidence, and Phase 4AK adds no migration.
 
 OAuth 1.0a/HMAC-SHA1 is a supervised session state machine, not ambient
 configuration. Nonces and trusted timestamps are generated at the final
