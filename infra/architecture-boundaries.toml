@@ -573,6 +573,12 @@ side_effect_free_roots = [
   "packages/adapters/broker/alpaca_paper_position_snapshot_comparison.py",
   "packages/adapters/broker/alpaca_paper_preflight.py",
   "packages/adapters/broker/alpaca_paper_reconciliation.py",
+  # Phase 4AJ freezes only typed E*TRADE endpoint, callback, account-identifier,
+  # and Accounts List request evidence without ambient I/O or authority.
+  "packages/adapters/broker/etrade.py",
+  # Phase 4AK retains and strictly decodes bounded caller-declared Accounts List
+  # bytes without authenticating origin or gaining ambient I/O or authority.
+  "packages/adapters/broker/etrade_accounts.py",
   # Phase 4AG authenticates injected durable sources and appends through an
   # injected repository without ambient clock, database, or transport access.
   "packages/application/alpaca_paper_account_activity_comparison.py",

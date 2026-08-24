@@ -206,11 +206,23 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   fresh-loads every source before activation, and revalidation consumes the
   active binding; the zero-caller flow adds no sidecar, CLI, currentness,
   admission, lifecycle advance, runtime consumer, or shutdown effect)
+- [ADR 0113: Recorded-offline E\*TRADE provider foundation](0113-recorded-offline-etrade-provider-foundation.md)
+  (implements Phase 4AJ's typed sandbox/production endpoint and nonsecret scope
+  isolation, exact shared OAuth/OOB callback metadata, provider-specific
+  account identifiers, and one deterministic Accounts List description; it
+  adds no secrets, OAuth flow, decoder, provider call, persistence, account
+  binding, broker mutation, or trading authority)
 - [ADR 0114: Fail-closed captured-tape research validity](0114-fail-closed-captured-tape-research-validity.md)
   (adds a pure Phase 3E validity gate that rechecks Wave 1A prerequisites,
   separately recomputes source admission, binds immutable capture/replay/config
   evidence, and requires exact independent review; v1 has no authenticated-
   origin trust root and therefore cannot emit positive eligibility, while all
   source, admission, promotion, deployment, and trading effects remain absent)
+- [ADR 0115: Bounded offline E\*TRADE Accounts List caller declarations](0115-bounded-recorded-offline-etrade-accounts-list-responses.md)
+  (implements Phase 4AK's pure in-memory raw-first caller-declared response and
+  strict decoder with exact internally consistent request/environment/origin/
+  media/charset/declaration/schema bindings; provider origin remains
+  unauthenticated, fixture relabeling is undetectable, and transport,
+  persistence, account binding, mutation, and trading authority remain closed)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
