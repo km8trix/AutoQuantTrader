@@ -4290,6 +4290,19 @@ rebuilds, and compares solely against that popped immutable tuple, and keeps the
 record burned on every terminal path, so success leaves the wrapper inactive
 again and neither pending authentication nor active revalidation is replayable.
 
+ADR 0111's dormant request builder is the sole repository consumer of a
+pending loaded wrapper. A private decision-artifact seam owns its exact pending
+authentication and immediate active consumption/revalidation as one interval,
+then returns only a capability-constructed immutable source snapshot. That
+snapshot binds the exact loaded wrapper, private bridge identity, origin PID,
+exact Thread, canonical root strings, complete historical and candidate source
+snapshots, and source-derived receipt identity values, bytes, and digest. Its
+private validator never reads the wrapper's heap fields or a public receipt.
+The host registers that snapshot with the exact constructed request and later
+requires the same loaded wrapper and bridge identity. Raw ADR-0106 receipts,
+receipt bytes, digests, decoded decisions, copies, clones, scalar-equal values,
+replay, wrong-thread or forked state, and source drift cannot substitute.
+
 Only during the explicitly authenticated active interval do its non-authorizing
 diagnostic properties report decision-receipt authentication,
 candidate-retention revalidation, historical-start-chain authentication, and
@@ -4423,13 +4436,14 @@ executable/tool/loader-byte admission, remaining process-callsite migration,
 containment, immutable image and effective-mount receipts, and root-owned
 read-only deployment remain explicit production-activation blockers.
 
-The public APIs have zero production callers and no receipt sidecar, decoder,
-CLI, Make workflow, runtime consumer, lifecycle writer, provider/database,
-network, signer, or effect surface. The reviewed prerequisite now includes the
-native build, fixed launcher, root-filesystem manifest, and packaging matrix;
-its admission receipts, caller migration, containment, and mount hardening are
-still open. The decision script itself remains Docker-excluded. ADR 0111 does
-not yet consume the loaded wrapper.
+The public loader has no live production caller. The loaded type and private
+consumed-snapshot seams have exactly one production importer, ADR 0111's dormant
+zero-caller host bridge. They add no receipt sidecar, decoder, CLI, Make
+workflow, runtime consumer, lifecycle writer, provider/database, network,
+signer, or effect surface. The reviewed prerequisite now includes the native
+build, fixed launcher, root-filesystem manifest, and packaging matrix; its
+admission receipts, caller migration, containment, and mount hardening are
+still open. The decision script itself remains Docker-excluded.
 
 There is no installed stop authority, signer, reviewed-Git stop-authority
 loader, current topology/head issuer, operation-bound replay reservation,
@@ -4675,31 +4689,45 @@ does not enter this registry or issue a bridge result.
 
 Dormant host module
 `scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py`
-builds the structural request only from the exact process-local ADR-0106
-decision receipt plus repeatedly revalidated ADR-0110 retained attempt and
-ordinal-one progress. ADR 0112 now supplies a separate zero-caller inert-load,
-explicit-authentication, and consuming-revalidation receipt flow, but this host
-builder does not consume that authenticated loaded wrapper, so its process-local
-receipt digest remains unqualified. Its terminal binder burns one ADR-0109
-postcondition first, retains the immutable consumed registry snapshot, strictly
-captures the request/result wire, and cross-binds the common anchor, head,
-intent, readback, receipt, count, ordinal, predecessor, and receipt-time fields.
+builds the structural request only from the exact inert, pending ADR-0112
+loaded wrapper plus repeatedly revalidated ADR-0110 retained attempt and
+ordinal-one progress. The builder creates one private bridge identity and owns
+the exact loaded-wrapper authentication plus immediate consuming revalidation.
+It receives only the private source-derived immutable receipt snapshot, then
+registers that snapshot, the exact wrapper and request identities, canonical
+wire, roots, PID, and Thread as one process-local single-use association. The
+receipt digest on the public request wire remains structural; only this private
+association carries the receipt and historical-chain authentication facts.
+
+The terminal binder consumes that exact authenticated-request association
+first and reuses its bridge identity to consume one ADR-0109 postcondition. It
+retains both immutable consumed registry snapshots, strictly captures the
+request/result wire, revalidates the ADR-0110 chain and ADR-0112 source handoff,
+and cross-binds the common anchor, head, intent, readback, receipt, count,
+ordinal, predecessor, and receipt-time fields. Any copy, replay, raw/scalar
+substitution, wrong wrapper, drift, cleanup failure, or wrong thread fails
+closed and burns the relevant one-shot association. A forked child rejects on
+the origin-PID gate before inherited registry locking and cannot consume the
+origin process's state.
 
 The sealed host composite uses contract
-`phase6d-post-enrollment-graceful-stop-supervisor-bridge-v1` and status
-`operation_bound_terminal_projection_cross_bound_unqualified`. Its only
-positive facts are the inherited bounded
+`phase6d-post-enrollment-graceful-stop-supervisor-bridge-v2` and status
+`receipt_authenticated_operation_bound_terminal_projection_cross_bound_unqualified`.
+Its positive facts are only exact
+`decision_artifact_receipt_authenticated`, exact
+`historical_start_chain_authenticated`, the inherited bounded
 `provider_terminal_observed_under_stable_sql_authenticated` observation and
 `exact_terminal_projection_cross_bound_unqualified`. It reports transport and
-origin authentication, lasting currentness and freshness, historical receipt
-authentication, topology and lifecycle currentness, durability, reservation,
-admission, signal, teardown, outcome, recovery, operational authority, and
-trading authority as false. The composite is process/thread sealed and has no
-public persistence or decoder contract.
+origin authentication, lasting currentness and freshness, current topology and
+lifecycle currentness, durability, reservation, admission, signal, teardown,
+outcome, recovery, operational authority, and trading authority as false. The
+composite is process/thread sealed and has no public persistence or decoder
+contract.
 
 No production code calls the core's private operation-bound request or take,
-and the host bridge imports only the low-level public wire types/codecs. The
-host bridge itself has zero production importers or callers. There is no
+and the host bridge imports only the low-level public wire types/codecs plus the
+exact ADR-0112 loaded type and private consumed-snapshot seams. The host bridge
+itself has zero production importers or callers. There is no
 host/supervisor transport, main/background integration, lifecycle writer,
 signal, Docker/Compose, CLI, Make, provider/SQL, topology mutation, or outcome
 effect. ADR-0110 v1 remains terminal at ordinal one, and
@@ -4751,13 +4779,13 @@ or unreachable recipes. Workflow execution and required-check branch
 protection are still external trusted controls; source review alone cannot
 prove that GitHub ran or enforced the check.
 
-Before live integration, one reviewed composition must still explicitly
-authenticate, integrate, and consume-revalidate ADR 0112's exact loaded
-ADR-0106 receipt, add authenticated replay-
-safe request/result transport, same-lock stop-authority/current-topology admission,
+Before live integration, one reviewed composition must build on the exact
+ADR-0112-to-ADR-0111 loaded-receipt handoff and add authenticated replay-safe
+request/result transport, same-lock stop-authority/current-topology admission,
 a new lifecycle version for pre-CALL/post-CALL and terminal retention, explicit
-at-fork invalidation and inherited-lock cleanup, and the ordered supervisor,
-source, container, and network effects while preserving both named volumes.
+at-fork invalidation and inherited-lock cleanup for those later live
+registries, and the ordered supervisor, source, container, and network effects
+while preserving both named volumes.
 
 Code-only contract `phase6d-post-enrollment-start-host-orchestrator-v3` now
 composes the complete start-only chain. Before mutation it consumes canonical

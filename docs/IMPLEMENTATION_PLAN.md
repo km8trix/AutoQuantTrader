@@ -3841,13 +3841,16 @@ unavailable before any watchdog consumer is designed or qualified. See
   consumer exists. ADR 0111 adds only a dormant exact preselection bridge:
   canonical structural request/result wire, exact WorkRequest/core/thread
   association, immutable second-consume ADR-0108 export, and one-shot ADR-0109
-  host cross-binding. The host and core private entry points remain uncalled;
-  transport/currentness/durability/outcome/effect facts stay false. Durable
-  ADR-0106 receipt reauthentication now exists only through ADR 0112's
-  zero-caller inert load, explicit authentication, and consuming revalidation
-  of the exact loaded wrapper. Its integration into ADR 0111,
-  authenticated transport, current topology admission, lifecycle v2, explicit
-  at-fork handling, and all effects remain deferred.
+  host cross-binding. Its request builder now owns exact ADR-0112 pending
+  loaded-wrapper authentication and immediate active consumption/revalidation,
+  binds the source-derived immutable receipt snapshot to the exact request and
+  bridge identity, and rejects raw/scalar/copy/replay/fork/drift substitution.
+  The composite promotes only
+  `decision_artifact_receipt_authenticated` and
+  `historical_start_chain_authenticated` from that handoff. The host and core
+  private entry points remain uncalled; authenticated transport, current
+  topology and stop-authority admission, lifecycle v2, later-live at-fork
+  handling, durability, outcomes, and all effects remain deferred.
   Claim persistence now uses one globally single-use fixed slot and rejects any
   current or legacy per-operation claim. An import-only coordinator checks the
   exact enrollment evidence before reauthentication and before and after claim
