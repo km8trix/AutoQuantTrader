@@ -22,6 +22,10 @@ from packages.domain.critical_alert import CriticalAlertDeliveryState
 from packages.domain.decimal_math import exact_decimal_sum
 from packages.domain.experiment_governance import ExperimentAttemptStatus
 from packages.domain.experiment_registry import EvaluationSegmentKind, PromotionComparison
+from packages.domain.fixture_segment_worker import (
+    FixtureSegmentJobStatus,
+    FixtureTranscriptKind,
+)
 from packages.domain.models import (
     DecisionStatus,
     LedgerEntry,
@@ -850,6 +854,76 @@ class ExperimentListResponse(ApiModel):
 class ExperimentResponse(ApiModel):
     as_of: datetime
     experiment: ExperimentView
+
+
+class FixtureTranscriptProvenanceView(ApiModel):
+    artifact_sha256: Sha256Text
+    kind: FixtureTranscriptKind
+    family_id: Sha256Text
+    attempt_id: Sha256Text
+    segment_kind: EvaluationSegmentKind
+    configuration_sha256: Sha256Text | None
+    certification_sha256: Sha256Text
+    parity_receipt_sha256: Sha256Text
+    transcript_sha256: Sha256Text
+    step_count: int = Field(ge=1, le=100_000)
+    output_count: int = Field(ge=0, le=5_000_000)
+    transcript_payload_sha256: Sha256Text
+    semantic_sha256: Sha256Text
+
+
+class FixtureSegmentEventProvenanceView(ApiModel):
+    event_sha256: Sha256Text
+    sequence: int = Field(ge=0, le=9_999)
+    status: FixtureSegmentJobStatus
+    occurred_at: datetime
+    attempt_number: int = Field(ge=0, le=9_999)
+    previous_event_sha256: Sha256Text | None
+    claim_expires_at: datetime | None
+    governance_event_sha256: Sha256Text
+    feature_artifact_sha256: Sha256Text
+    target_artifact_sha256: Sha256Text | None
+    completion_receipt_sha256: Sha256Text | None
+
+
+class FixtureSegmentJobSummaryView(ApiModel):
+    job_id: Sha256Text
+    family_id: Sha256Text
+    attempt_id: Sha256Text
+    configuration_sha256: Sha256Text
+    segment_kind: EvaluationSegmentKind
+    requested_at: datetime
+    status: FixtureSegmentJobStatus
+    event_count: int = Field(ge=1, le=10_000)
+    latest_sequence: int = Field(ge=0, le=9_999)
+    latest_event_sha256: Sha256Text
+    latest_occurred_at: datetime
+    feature_artifact_sha256: Sha256Text
+    target_artifact_sha256: Sha256Text | None
+    completion_receipt_sha256: Sha256Text | None
+
+
+class FixtureSegmentJobProvenanceView(ApiModel):
+    summary: FixtureSegmentJobSummaryView
+    configuration_validation_sha256: Sha256Text
+    queued_governance_event_sha256: Sha256Text
+    feature_certification_sha256: Sha256Text
+    feature_artifact: FixtureTranscriptProvenanceView
+    target_artifact: FixtureTranscriptProvenanceView | None
+    total_event_count: int = Field(ge=1, le=10_000)
+    events: list[FixtureSegmentEventProvenanceView] = Field(max_length=100)
+    next_before_sequence: int | None = Field(default=None, ge=1, le=9_999)
+
+
+class FixtureSegmentJobListResponse(ApiModel):
+    as_of: datetime
+    jobs: list[FixtureSegmentJobSummaryView] = Field(max_length=100)
+    next_before_job_id: Sha256Text | None
+
+
+class FixtureSegmentJobResponse(ApiModel):
+    as_of: datetime
+    job: FixtureSegmentJobProvenanceView
 
 
 class BacktestLaunchRequest(BaseModel):

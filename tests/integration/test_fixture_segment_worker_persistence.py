@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Barrier
 
@@ -24,9 +24,12 @@ from packages.domain.fixture_segment_worker import (
     FixtureSegmentJobStatus,
 )
 from packages.persistence.database import verify_operational_schema
+from packages.persistence.experiment_governance import SqlExperimentGovernance
 from packages.persistence.fixture_segment_worker import (
+    FixtureSegmentNotFound,
     FixtureSegmentPersistenceConflict,
     FixtureSegmentPersistenceError,
+    SqlFixtureSegmentProvenanceQuery,
     SqlFixtureSegmentWorkflow,
     _job_head_statement,
 )
@@ -77,6 +80,37 @@ def _queued_workflow(
         requested_by="phase3f-scheduler",
     )
     return fixture, engine, workflow, job
+
+
+def _enqueue_additional_job(
+    engine: Engine,
+    workflow: SqlFixtureSegmentWorkflow,
+    fixture: GovernanceFixture,
+    *,
+    attempt_requested_at: datetime,
+    job_requested_at: datetime,
+    key: str,
+) -> FixtureSegmentJobProjection:
+    current = workflow.governance_snapshot(fixture.family.family_id)
+    proposed = _request(
+        current,
+        fixture,
+        kind=EvaluationSegmentKind.VALIDATION,
+        requested_at=attempt_requested_at,
+    )
+    queued = _persist_attempt(
+        SqlExperimentGovernance(engine),
+        current,
+        proposed,
+        key=key,
+    )
+    return workflow.enqueue(
+        queued,
+        queued.attempts[-1].attempt_id,
+        fixture.validation_certification,
+        requested_at=job_requested_at,
+        requested_by="phase3f-scheduler",
+    )
 
 
 def test_durable_worker_publishes_transcripts_and_governed_receipt_atomically(
@@ -445,6 +479,123 @@ def test_corrupt_transcript_or_head_fails_closed(tmp_path: Path) -> None:
 
     with pytest.raises(FixtureSegmentPersistenceError, match="head diverges"):
         workflow.get(queued.job.job_id)
+
+
+def test_provenance_query_is_keyset_paginated_deterministic_and_bounded(
+    tmp_path: Path,
+) -> None:
+    fixture, engine, workflow, first = _queued_workflow(tmp_path)
+    tied = _enqueue_additional_job(
+        engine,
+        workflow,
+        fixture,
+        attempt_requested_at=FIRST_ATTEMPT_AT + timedelta(milliseconds=500),
+        job_requested_at=first.job.requested_at,
+        key="phase3g-tied-validation-attempt",
+    )
+    newest = _enqueue_additional_job(
+        engine,
+        workflow,
+        fixture,
+        attempt_requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=1),
+        job_requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=2),
+        key="phase3g-newest-validation-attempt",
+    )
+    query = SqlFixtureSegmentProvenanceQuery(engine)
+
+    page_one, cursor = query.jobs(limit=2)
+    expected_tie_order = sorted((first.job.job_id, tied.job.job_id))
+    assert [job.job_id for job in page_one] == [newest.job.job_id, expected_tie_order[0]]
+    assert cursor == expected_tie_order[0]
+    for summary in page_one:
+        for forbidden_attribute in (
+            "events",
+            "feature_artifact",
+            "target_artifact",
+            "transcript_payload",
+            "step_sha256s",
+            "output_ids",
+        ):
+            assert not hasattr(summary, forbidden_attribute)
+    page_two, final_cursor = query.jobs(limit=2, before_job_id=cursor)
+    assert [job.job_id for job in page_two] == [expected_tie_order[1]]
+    assert final_cursor is None
+    assert query.jobs(limit=2) == (page_one, cursor)
+
+    for invalid_limit in (0, 101, True):
+        with pytest.raises(FixtureSegmentPersistenceError, match="between 1 and 100"):
+            query.jobs(limit=invalid_limit)
+    with pytest.raises(FixtureSegmentPersistenceError, match="cursor must be a SHA-256"):
+        query.jobs(before_job_id="not-a-digest")
+    with pytest.raises(FixtureSegmentNotFound, match="unknown fixture-segment job"):
+        query.jobs(before_job_id="f" * 64)
+    with pytest.raises(FixtureSegmentNotFound, match="unknown fixture-segment job"):
+        query.get("e" * 64)
+
+
+def test_provenance_query_authenticates_corrupt_lookahead_before_emitting_cursor(
+    tmp_path: Path,
+) -> None:
+    fixture, engine, workflow, first = _queued_workflow(tmp_path)
+    _enqueue_additional_job(
+        engine,
+        workflow,
+        fixture,
+        attempt_requested_at=FIRST_ATTEMPT_AT + timedelta(milliseconds=500),
+        job_requested_at=first.job.requested_at,
+        key="phase3g-lookahead-validation-attempt",
+    )
+    newest = _enqueue_additional_job(
+        engine,
+        workflow,
+        fixture,
+        attempt_requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=1),
+        job_requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=2),
+        key="phase3g-lookahead-newest-attempt",
+    )
+    query = SqlFixtureSegmentProvenanceQuery(engine)
+    ordered, _cursor = query.jobs(limit=3)
+    assert ordered[0].job_id == newest.job.job_id
+    corrupt_lookahead_job_id = ordered[1].job_id
+    with engine.begin() as connection:
+        connection.execute(
+            sa.update(phase3_fixture_segment_job_events)
+            .where(
+                phase3_fixture_segment_job_events.c.job_id == corrupt_lookahead_job_id,
+                phase3_fixture_segment_job_events.c.sequence_number == 0,
+            )
+            .values(canonical_payload="{}")
+        )
+
+    with pytest.raises(FixtureSegmentPersistenceError, match="event digest is inconsistent"):
+        query.jobs(limit=1)
+
+
+def test_provenance_query_exports_only_the_allowlisted_redacted_shape(
+    tmp_path: Path,
+) -> None:
+    _fixture_value, engine, _workflow, queued = _queued_workflow(tmp_path)
+    provenance = SqlFixtureSegmentProvenanceQuery(engine).get(queued.job.job_id)
+
+    assert provenance.feature_artifact.transcript_payload_sha256
+    for value in (
+        provenance,
+        provenance.feature_artifact,
+        provenance.events[0],
+    ):
+        for forbidden_attribute in (
+            "transcript_payload",
+            "step_sha256s",
+            "output_ids",
+            "requested_by",
+            "actor_id",
+            "worker_id",
+            "segment_sha256",
+            "source_evidence_sha256",
+            "terminal_reason_code",
+            "terminal_reason_sha256",
+        ):
+            assert not hasattr(value, forbidden_attribute)
 
 
 def test_application_worker_success_failure_and_uncaught_crash_boundary(tmp_path: Path) -> None:

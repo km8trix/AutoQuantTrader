@@ -2722,6 +2722,395 @@
         "title": "FillView",
         "type": "object"
       },
+      "FixtureSegmentEventProvenanceView": {
+        "properties": {
+          "attempt_number": {
+            "maximum": 9999.0,
+            "minimum": 0.0,
+            "title": "Attempt Number",
+            "type": "integer"
+          },
+          "claim_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claim Expires At"
+          },
+          "completion_receipt_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256Text"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "feature_artifact_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "governance_event_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "previous_event_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256Text"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sequence": {
+            "maximum": 9999.0,
+            "minimum": 0.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FixtureSegmentJobStatus"
+          },
+          "target_artifact_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256Text"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "event_sha256",
+          "sequence",
+          "status",
+          "occurred_at",
+          "attempt_number",
+          "previous_event_sha256",
+          "claim_expires_at",
+          "governance_event_sha256",
+          "feature_artifact_sha256",
+          "target_artifact_sha256",
+          "completion_receipt_sha256"
+        ],
+        "title": "FixtureSegmentEventProvenanceView",
+        "type": "object"
+      },
+      "FixtureSegmentJobListResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/FixtureSegmentJobSummaryView"
+            },
+            "maxItems": 100,
+            "title": "Jobs",
+            "type": "array"
+          },
+          "next_before_job_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256Text"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "as_of",
+          "jobs",
+          "next_before_job_id"
+        ],
+        "title": "FixtureSegmentJobListResponse",
+        "type": "object"
+      },
+      "FixtureSegmentJobProvenanceView": {
+        "properties": {
+          "configuration_validation_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/FixtureSegmentEventProvenanceView"
+            },
+            "maxItems": 100,
+            "title": "Events",
+            "type": "array"
+          },
+          "feature_artifact": {
+            "$ref": "#/components/schemas/FixtureTranscriptProvenanceView"
+          },
+          "feature_certification_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "next_before_sequence": {
+            "anyOf": [
+              {
+                "maximum": 9999.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before Sequence"
+          },
+          "queued_governance_event_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/FixtureSegmentJobSummaryView"
+          },
+          "target_artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FixtureTranscriptProvenanceView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total_event_count": {
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Total Event Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "summary",
+          "configuration_validation_sha256",
+          "queued_governance_event_sha256",
+          "feature_certification_sha256",
+          "feature_artifact",
+          "target_artifact",
+          "total_event_count",
+          "events"
+        ],
+        "title": "FixtureSegmentJobProvenanceView",
+        "type": "object"
+      },
+      "FixtureSegmentJobResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "job": {
+            "$ref": "#/components/schemas/FixtureSegmentJobProvenanceView"
+          }
+        },
+        "required": [
+          "as_of",
+          "job"
+        ],
+        "title": "FixtureSegmentJobResponse",
+        "type": "object"
+      },
+      "FixtureSegmentJobStatus": {
+        "enum": [
+          "queued",
+          "running",
+          "completed",
+          "failed"
+        ],
+        "title": "FixtureSegmentJobStatus",
+        "type": "string"
+      },
+      "FixtureSegmentJobSummaryView": {
+        "properties": {
+          "attempt_id": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "completion_receipt_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256Text"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "configuration_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "event_count": {
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Event Count",
+            "type": "integer"
+          },
+          "family_id": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "feature_artifact_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "job_id": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "latest_event_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "latest_occurred_at": {
+            "format": "date-time",
+            "title": "Latest Occurred At",
+            "type": "string"
+          },
+          "latest_sequence": {
+            "maximum": 9999.0,
+            "minimum": 0.0,
+            "title": "Latest Sequence",
+            "type": "integer"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "segment_kind": {
+            "$ref": "#/components/schemas/EvaluationSegmentKind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FixtureSegmentJobStatus"
+          },
+          "target_artifact_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256Text"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "job_id",
+          "family_id",
+          "attempt_id",
+          "configuration_sha256",
+          "segment_kind",
+          "requested_at",
+          "status",
+          "event_count",
+          "latest_sequence",
+          "latest_event_sha256",
+          "latest_occurred_at",
+          "feature_artifact_sha256",
+          "target_artifact_sha256",
+          "completion_receipt_sha256"
+        ],
+        "title": "FixtureSegmentJobSummaryView",
+        "type": "object"
+      },
+      "FixtureTranscriptKind": {
+        "enum": [
+          "feature",
+          "target"
+        ],
+        "title": "FixtureTranscriptKind",
+        "type": "string"
+      },
+      "FixtureTranscriptProvenanceView": {
+        "properties": {
+          "artifact_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "attempt_id": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "certification_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "configuration_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256Text"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "family_id": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FixtureTranscriptKind"
+          },
+          "output_count": {
+            "maximum": 5000000.0,
+            "minimum": 0.0,
+            "title": "Output Count",
+            "type": "integer"
+          },
+          "parity_receipt_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "segment_kind": {
+            "$ref": "#/components/schemas/EvaluationSegmentKind"
+          },
+          "semantic_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "step_count": {
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Step Count",
+            "type": "integer"
+          },
+          "transcript_payload_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "transcript_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          }
+        },
+        "required": [
+          "artifact_sha256",
+          "kind",
+          "family_id",
+          "attempt_id",
+          "segment_kind",
+          "configuration_sha256",
+          "certification_sha256",
+          "parity_receipt_sha256",
+          "transcript_sha256",
+          "step_count",
+          "output_count",
+          "transcript_payload_sha256",
+          "semantic_sha256"
+        ],
+        "title": "FixtureTranscriptProvenanceView",
+        "type": "object"
+      },
       "FreshnessStatus": {
         "enum": [
           "current",
@@ -6117,6 +6506,181 @@
           }
         },
         "summary": "Experiment",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/v1/research/fixture-segment-jobs": {
+      "get": {
+        "operationId": "fixture_segment_jobs_api_v1_research_fixture_segment_jobs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before_job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FixtureSegmentJobListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Fixture provenance cursor not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Durable fixture provenance is unavailable."
+          }
+        },
+        "summary": "Fixture Segment Jobs",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/v1/research/fixture-segment-jobs/{job_id}": {
+      "get": {
+        "operationId": "fixture_segment_job_api_v1_research_fixture_segment_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "event_limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Event Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before_sequence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9999,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Sequence"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FixtureSegmentJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Fixture provenance or event cursor not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Durable fixture provenance is unavailable."
+          }
+        },
+        "summary": "Fixture Segment Job",
         "tags": [
           "research"
         ]

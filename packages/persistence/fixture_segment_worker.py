@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
@@ -60,6 +62,8 @@ from packages.persistence.schema import (
 )
 
 _SUPPORTED_DIALECTS = frozenset({"sqlite", "postgresql"})
+MAX_FIXTURE_SEGMENT_PROVENANCE_PAGE_SIZE = 100
+_SHA256_TEXT = re.compile(r"^[0-9a-f]{64}$")
 
 
 class FixtureSegmentPersistenceError(RuntimeError):
@@ -72,6 +76,88 @@ class FixtureSegmentPersistenceConflict(FixtureSegmentPersistenceError):
 
 class FixtureSegmentNotFound(FixtureSegmentPersistenceError):
     """A fixture-segment job does not exist."""
+
+
+@dataclass(frozen=True, slots=True)
+class FixtureTranscriptProvenance:
+    """Allowlisted identity metadata for one authenticated transcript artifact."""
+
+    artifact_sha256: str
+    kind: FixtureTranscriptKind
+    family_id: str
+    attempt_id: str
+    segment_kind: EvaluationSegmentKind
+    configuration_sha256: str | None
+    certification_sha256: str
+    parity_receipt_sha256: str
+    transcript_sha256: str
+    step_count: int
+    output_count: int
+    transcript_payload_sha256: str
+    semantic_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class FixtureSegmentEventProvenance:
+    """Allowlisted lifecycle metadata for one authenticated job event."""
+
+    event_sha256: str
+    sequence: int
+    status: FixtureSegmentJobStatus
+    occurred_at: datetime
+    attempt_number: int
+    previous_event_sha256: str | None
+    claim_expires_at: datetime | None
+    governance_event_sha256: str
+    feature_artifact_sha256: str
+    target_artifact_sha256: str | None
+    completion_receipt_sha256: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class FixtureSegmentJobProvenanceSummary:
+    """Constant-size allowlisted summary of one authenticated job chain."""
+
+    job_id: str
+    family_id: str
+    attempt_id: str
+    configuration_sha256: str
+    segment_kind: EvaluationSegmentKind
+    requested_at: datetime
+    status: FixtureSegmentJobStatus
+    event_count: int
+    latest_sequence: int
+    latest_event_sha256: str
+    latest_occurred_at: datetime
+    feature_artifact_sha256: str
+    target_artifact_sha256: str | None
+    completion_receipt_sha256: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class FixtureSegmentJobProvenance:
+    """Safe projection produced only after full Phase 3F chain authentication."""
+
+    job_id: str
+    family_id: str
+    attempt_id: str
+    configuration_sha256: str
+    configuration_validation_sha256: str
+    segment_kind: EvaluationSegmentKind
+    queued_governance_event_sha256: str
+    feature_certification_sha256: str
+    requested_at: datetime
+    feature_artifact: FixtureTranscriptProvenance
+    events: tuple[FixtureSegmentEventProvenance, ...]
+    target_artifact: FixtureTranscriptProvenance | None
+
+    @property
+    def latest(self) -> FixtureSegmentEventProvenance:
+        return self.events[-1]
+
+    @property
+    def status(self) -> FixtureSegmentJobStatus:
+        return self.latest.status
 
 
 def _artifact_values(artifact: FixtureTranscriptArtifact) -> dict[str, Any]:
@@ -346,6 +432,90 @@ def _projection(
     return projection
 
 
+def _artifact_provenance(
+    artifact: FixtureTranscriptArtifact,
+) -> FixtureTranscriptProvenance:
+    return FixtureTranscriptProvenance(
+        artifact_sha256=artifact.artifact_sha256,
+        kind=artifact.kind,
+        family_id=artifact.family_id,
+        attempt_id=artifact.attempt_id,
+        segment_kind=artifact.segment_kind,
+        configuration_sha256=artifact.configuration_sha256,
+        certification_sha256=artifact.certification_sha256,
+        parity_receipt_sha256=artifact.parity_receipt_sha256,
+        transcript_sha256=artifact.transcript_sha256,
+        step_count=len(artifact.step_sha256s),
+        output_count=len(artifact.output_ids),
+        transcript_payload_sha256=artifact.transcript_payload_sha256,
+        semantic_sha256=artifact.semantic_sha256,
+    )
+
+
+def _provenance(
+    projection: FixtureSegmentJobProjection,
+) -> FixtureSegmentJobProvenance:
+    return FixtureSegmentJobProvenance(
+        job_id=projection.job.job_id,
+        family_id=projection.job.family_id,
+        attempt_id=projection.job.attempt_id,
+        configuration_sha256=projection.job.configuration_sha256,
+        configuration_validation_sha256=(projection.job.configuration_validation_sha256),
+        segment_kind=projection.job.segment_kind,
+        queued_governance_event_sha256=projection.job.queued_governance_event_sha256,
+        feature_certification_sha256=projection.job.feature_certification_sha256,
+        requested_at=projection.job.requested_at,
+        feature_artifact=_artifact_provenance(projection.feature_artifact),
+        events=tuple(
+            FixtureSegmentEventProvenance(
+                event_sha256=event.event_sha256,
+                sequence=event.sequence,
+                status=event.status,
+                occurred_at=event.occurred_at,
+                attempt_number=event.attempt_number,
+                previous_event_sha256=event.previous_event_sha256,
+                claim_expires_at=event.claim_expires_at,
+                governance_event_sha256=event.governance_event_sha256,
+                feature_artifact_sha256=event.feature_artifact_sha256,
+                target_artifact_sha256=event.target_artifact_sha256,
+                completion_receipt_sha256=event.completion_receipt_sha256,
+            )
+            for event in projection.events
+        ),
+        target_artifact=(
+            None
+            if projection.target_artifact is None
+            else _artifact_provenance(projection.target_artifact)
+        ),
+    )
+
+
+def _provenance_summary(
+    projection: FixtureSegmentJobProjection,
+) -> FixtureSegmentJobProvenanceSummary:
+    latest = projection.latest
+    return FixtureSegmentJobProvenanceSummary(
+        job_id=projection.job.job_id,
+        family_id=projection.job.family_id,
+        attempt_id=projection.job.attempt_id,
+        configuration_sha256=projection.job.configuration_sha256,
+        segment_kind=projection.job.segment_kind,
+        requested_at=projection.job.requested_at,
+        status=projection.status,
+        event_count=len(projection.events),
+        latest_sequence=latest.sequence,
+        latest_event_sha256=latest.event_sha256,
+        latest_occurred_at=latest.occurred_at,
+        feature_artifact_sha256=projection.feature_artifact.artifact_sha256,
+        target_artifact_sha256=(
+            None
+            if projection.target_artifact is None
+            else projection.target_artifact.artifact_sha256
+        ),
+        completion_receipt_sha256=latest.completion_receipt_sha256,
+    )
+
+
 def _job(connection: Connection, job_id: str) -> FixtureSegmentJob:
     row = (
         connection.execute(
@@ -392,6 +562,15 @@ def _job_head_statement(
 
 def _load_governance(connection: Connection, family_id: str) -> ExperimentGovernanceSnapshot:
     history = _load_snapshot_history(connection, family_id, lock=True)
+    _verify_audits(connection, history)
+    return history[-1]
+
+
+def _load_governance_for_read(
+    connection: Connection,
+    family_id: str,
+) -> ExperimentGovernanceSnapshot:
+    history = _load_snapshot_history(connection, family_id)
     _verify_audits(connection, history)
     return history[-1]
 
@@ -479,6 +658,97 @@ def _verify_fixture_segment_integrity(connection: Connection) -> None:
         artifact = _artifact_from_row(row)
         if artifact.artifact_sha256 not in seen_artifacts:
             raise FixtureSegmentPersistenceError("fixture transcript artifact is orphaned")
+
+
+class SqlFixtureSegmentProvenanceQuery:
+    """Read-only authenticated Phase 3F job and transcript provenance queries."""
+
+    __slots__ = ("_engine",)
+
+    def __init__(self, engine: Engine) -> None:
+        if not isinstance(engine, Engine):
+            raise FixtureSegmentPersistenceError(
+                "fixture-segment provenance requires a SQLAlchemy engine"
+            )
+        if engine.dialect.name not in _SUPPORTED_DIALECTS:
+            raise FixtureSegmentPersistenceError(
+                f"fixture-segment provenance does not support {engine.dialect.name!r}"
+            )
+        self._engine = engine
+
+    def get(self, job_id: str) -> FixtureSegmentJobProvenance:
+        """Authenticate and return one complete stored provenance chain."""
+
+        if type(job_id) is not str or _SHA256_TEXT.fullmatch(job_id) is None:
+            raise FixtureSegmentPersistenceError("fixture provenance job ID must be a SHA-256")
+        with _repeatable_read_transaction(self._engine) as connection:
+            projection = _projection(connection, _job(connection, job_id))
+            _verify_governance_link(
+                projection,
+                _load_governance_for_read(connection, projection.job.family_id),
+            )
+            return _provenance(projection)
+
+    def jobs(
+        self,
+        *,
+        limit: int = 50,
+        before_job_id: str | None = None,
+    ) -> tuple[tuple[FixtureSegmentJobProvenanceSummary, ...], str | None]:
+        """Return a deterministic keyset page after authenticating every job."""
+
+        if type(limit) is not int or not 1 <= limit <= MAX_FIXTURE_SEGMENT_PROVENANCE_PAGE_SIZE:
+            raise FixtureSegmentPersistenceError(
+                "fixture provenance query limit must be between 1 and 100"
+            )
+        if before_job_id is not None and (
+            type(before_job_id) is not str or _SHA256_TEXT.fullmatch(before_job_id) is None
+        ):
+            raise FixtureSegmentPersistenceError(
+                "fixture provenance cursor must be a SHA-256 job ID"
+            )
+        with _repeatable_read_transaction(self._engine) as connection:
+            anchor: FixtureSegmentJobProjection | None = None
+            if before_job_id is not None:
+                anchor = _projection(connection, _job(connection, before_job_id))
+                _verify_governance_link(
+                    anchor,
+                    _load_governance_for_read(connection, anchor.job.family_id),
+                )
+
+            statement = sa.select(phase3_fixture_segment_jobs.c.job_id).order_by(
+                phase3_fixture_segment_jobs.c.requested_at.desc(),
+                phase3_fixture_segment_jobs.c.job_id,
+            )
+            if anchor is not None:
+                statement = statement.where(
+                    sa.or_(
+                        phase3_fixture_segment_jobs.c.requested_at < anchor.job.requested_at,
+                        sa.and_(
+                            phase3_fixture_segment_jobs.c.requested_at == anchor.job.requested_at,
+                            phase3_fixture_segment_jobs.c.job_id > anchor.job.job_id,
+                        ),
+                    )
+                )
+            job_ids = tuple(connection.scalars(statement.limit(limit + 1)))
+            governance_by_family: dict[str, ExperimentGovernanceSnapshot] = {}
+            summaries: list[FixtureSegmentJobProvenanceSummary] = []
+            for index, job_id in enumerate(job_ids):
+                projection = _projection(connection, _job(connection, str(job_id)))
+                governance = governance_by_family.get(projection.job.family_id)
+                if governance is None:
+                    governance = _load_governance_for_read(
+                        connection,
+                        projection.job.family_id,
+                    )
+                    governance_by_family[projection.job.family_id] = governance
+                _verify_governance_link(projection, governance)
+                if index < limit:
+                    summaries.append(_provenance_summary(projection))
+            next_before_job_id = (
+                summaries[-1].job_id if len(job_ids) > limit and summaries else None
+            )
+            return tuple(summaries), next_before_job_id
 
 
 class SqlFixtureSegmentWorkflow:
@@ -945,8 +1215,14 @@ class SqlFixtureSegmentWorkflow:
 
 __all__ = [
     "FIXTURE_SEGMENT_WORKER_CONTRACT_VERSION",
+    "MAX_FIXTURE_SEGMENT_PROVENANCE_PAGE_SIZE",
+    "FixtureSegmentEventProvenance",
+    "FixtureSegmentJobProvenance",
+    "FixtureSegmentJobProvenanceSummary",
     "FixtureSegmentNotFound",
     "FixtureSegmentPersistenceConflict",
     "FixtureSegmentPersistenceError",
+    "FixtureTranscriptProvenance",
+    "SqlFixtureSegmentProvenanceQuery",
     "SqlFixtureSegmentWorkflow",
 ]
