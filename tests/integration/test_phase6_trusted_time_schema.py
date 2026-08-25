@@ -483,8 +483,8 @@ def test_phase6_trusted_time_migration_is_additive_and_reversible(
     downgraded.dispose()
 
 
-def test_phase3_fixture_worker_revision_is_the_operational_alembic_head() -> None:
-    assert EXPECTED_SCHEMA_REVISION == "0037_phase3_fixture_worker"
+def test_etrade_oauth_coordinator_revision_is_the_operational_alembic_head() -> None:
+    assert EXPECTED_SCHEMA_REVISION == "0038_phase4_etrade_oauth"
 
 
 def test_phase6_anchor_upgrade_preserves_nonempty_0035_history_without_backfill(

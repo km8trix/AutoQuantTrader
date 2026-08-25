@@ -1402,6 +1402,33 @@ traceability, or reporting requirements below.
   callback runtime, provider response authentication, filesystem, persistence,
   proxy/redirect/network transport, provider-origin claim, account binding,
   broker call, or authority, and adds no migration.
+- **Phase 4AM durable E\*TRADE OAuth replay/session-head coordinator — local
+  persistence slice implemented:** ADR 0120 and migration 0038 add one
+  immutable sanitized event journal and one atomic current head per stable
+  typed environment/consumer-secret scope. The head key excludes the mutable
+  consumer-reference version; each event and head retain the current nonsecret
+  reference version/digest, and rotation is allowed only from a token-empty
+  `NEEDS_REQUEST_TOKEN` reauthorization generation with a strictly newer
+  reference. Every command supplies the exact prior durable snapshot including
+  its session, replay guard, event, and sequence cursor. SQLite
+  `BEGIN IMMEDIATE`, PostgreSQL exact-row locking, and final event/sequence
+  compare-and-swap make conflicting concurrent advancement exactly one-winner.
+  Exact current retries converge; stale or later-head retries, session forks,
+  fingerprint disappearance/reordering/reuse, signing-scope disappearance,
+  generation/time rollback, consumer-reference rollback, and changed immutable
+  reuse fail closed. Replay-only consumption advances the durable cursor even
+  when the session digest is unchanged. Reads reconstruct the complete chain,
+  reapply every replay/high-water delta, authenticate sanitized state and event
+  payloads/digests, recompute the stable scope, and match the final cursor to
+  the head. Persisted content is limited to typed nonsecret reference
+  identities, sanitized session metadata, fingerprints, high-waters,
+  predecessors, and digests; keys, tokens, secrets, verifier values,
+  signatures, Authorization/Cookie headers, request URLs/query strings, and
+  credential-bearing material are neither accepted nor retained. Nonempty
+  history blocks downgrade. This authenticates local SQL history only and adds
+  no secret resolver, token-response authentication, OOB/browser runtime,
+  provider transport/call, account binding, broker action, startup, or trading
+  authority.
 - The capability value and translated request description are immutable and
   content-authenticated, and lookup/account/asset observations retain exact
   response digests, while the raw journal authenticates exact account-local
@@ -1444,7 +1471,8 @@ traceability, or reporting requirements below.
   and Accounts List request-description foundation; Phase 4AK adds only its
   bounded in-memory caller-declared raw evidence and strict historical decoder;
   Phase 4AL adds only pure OAuth signing and secret-free supervised-session
-  transitions. None reuses any Alpaca evidence. All slices remain
+  transitions; Phase 4AM adds only the secret-free durable replay/session
+  current head. None reuses any Alpaca evidence. All slices remain
   non-authorizing. A
   deployed secret resolver, general
   security-master publication, runtime
@@ -1456,10 +1484,11 @@ traceability, or reporting requirements below.
   paper startup remain disabled.
 - Phases 4A through 4AI are complete only as bounded local contract,
   persistence, and authenticated read-runtime slices with the explicit limits
-  described above. Phases 4AJ through 4AL are complete only as a pure recorded-
+  described above. Phases 4AJ through 4AM are complete only as a pure recorded-
   offline provider/request foundation, an unauthenticated caller-declared
-  in-memory raw-response/decoder slice, and a non-I/O OAuth signing/session
-  contract. Phase 4
+  in-memory raw-response/decoder slice, a non-I/O OAuth signing/session
+  contract, and a local sanitized durable replay/session-head coordinator.
+  Phase 4
   and its exit gate remain open. These slices are local worktree changes and do
   not authorize paper or live trading.
   Phase 3's captured-tape, reconnect, shadow, economic
@@ -1482,13 +1511,17 @@ traceability, or reporting requirements below.
   origin; authenticated capture admission and fixture-relabeling detection
   remain pending. Phase 4AL adds exact pure HMAC-SHA1 signing and a secret-free
   supervised reducer for request/access token, OOB authorization, renewal,
-  inactivity/expiry, revocation, and reauthorization transitions. It retains
-  only typed nonsecret reference revisions and sanitized identities; all secret
-  values and signing output remain sealed and ephemeral. Access-token signing
+  inactivity/expiry, revocation, and reauthorization transitions. Phase 4AM
+  adds the separate atomic sanitized replay/session journal and stable-scope
+  current head, closing stale in-memory branch reuse across local restarts and
+  processes without retaining credential material. The combined local boundary
+  retains only typed nonsecret reference revisions and sanitized identities;
+  all secret values and signing output remain sealed and ephemeral. Access-token
+  signing
   consumes one in-process exact-verifier-identity capability, while the signing
   replay guard carries a per-scope nondecreasing time/generation high-water.
-  A deployed secret resolver, durable nonce/replay state, authenticated token
-  response and OOB handoff, authenticated account binding, provider transport,
+  A deployed secret resolver, authenticated token response and OOB handoff,
+  authenticated account binding, provider transport,
   and bounded raw-first Balance, Portfolio, Orders, and Transactions reads
   remain pending. Later
   budgets must reserve cancellation, token-control, and reconciliation capacity
@@ -1718,10 +1751,12 @@ identities with an explicit unauthenticated caller origin declaration. The
 declaration can wrap a relabeled fixture, and neither its enum nor any bound
 digest authenticates provider origin. No authenticated capture/admission
 artifact or authenticated provider-evidence consumer exists. Phase 4AL adds
-only deterministic signing and secret-free in-memory session transitions; its
-nonce guard is not durable and none of its states authenticates a token response
-or provider origin. These phases add no authenticated or current provider
-evidence, runtime authority, or satisfaction of any runtime/fault gate below.
+only deterministic signing and secret-free in-memory session transitions.
+Phase 4AM durably coordinates that sanitized replay/session prefix under one
+stable environment/consumer-secret-scope head, but authenticates only the local
+SQL chain; none of its states or events authenticates a token response or
+provider origin. These phases add no authenticated provider evidence, runtime
+authority, or satisfaction of any runtime/fault gate below.
 
 Future E\*TRADE sandbox results may satisfy only protocol-contract checks and
 cannot close any traversal-semantics, completeness, lifecycle, reconciliation,
@@ -4421,12 +4456,12 @@ Every change includes:
 13. Additive E\*TRADE contract, OAuth/session and account binding, raw-first
     reads, provider-ID mapping, Preview/Place durability, provider-specific
     `UNKNOWN` recovery, and the ADR 0096 qualification ladder. **Architecture
-    is selected. Phases 4AJ-4AL now implement the pure endpoint/request
+    is selected. Phases 4AJ-4AM now implement the pure endpoint/request
     foundation, unauthenticated caller-declared Accounts List decoder, exact
-    HMAC-SHA1 signing, and secret-free supervised-session reducer. Deployed
-    secret resolution, durable replay state, authenticated OAuth responses and
-    OOB handoff, all provider calls, account binding, broader reads,
-    Preview/Place, recovery, and qualification remain pending.**
+    HMAC-SHA1 signing, secret-free supervised-session reducer, and atomic local
+    sanitized replay/session head. Deployed secret resolution, authenticated
+    OAuth responses and OOB handoff, all provider calls, account binding,
+    broader reads, Preview/Place, recovery, and qualification remain pending.**
 14. Account lease/fence and submission attempts are **implemented by ADR 0032**;
     normalized broker inbox/application and the real reconciliation barrier
     remain Phase 4 work.

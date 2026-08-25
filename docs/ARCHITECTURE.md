@@ -1606,17 +1606,48 @@ The replay guard and access-exchange capability provide only current-object,
 in-process exclusion. Reusing an older immutable state/guard can fork history
 and mint a different capability, and neither object coordinates across a
 restart or process boundary. Phase 4AL therefore makes no durable-currentness,
-cross-process exact-once, or compare-and-swap claim; a later runtime must bind
-these transitions to one durable atomic current head.
+cross-process exact-once, or compare-and-swap claim by itself.
 
-A later reviewed runtime must supply ephemeral secret resolution, durable
-replay protection, authenticated raw-first token responses, interactive OOB
-handoff, transport/proxy/redirect enforcement, and operational supervision.
-Only then can an authenticated account alias bind both the numeric account ID
-and opaque `accountIdKey`; display labels and account-list ordering remain
-non-identity. The exact shared OAuth origin and authorization page do not weaken
-the disjoint sandbox/production scopes, and secret-bearing authorization URLs
-must still never be logged or retained.
+[ADR 0120](adr/0120-durable-etrade-oauth-replay-session-head.md) implements
+Phase 4AM as the separate local SQL current-head boundary. Migration 0038 adds
+one immutable sanitized event chain and one compare-and-swap head per stable
+typed environment/consumer-secret scope. The stable key intentionally excludes
+consumer-reference version; each event and the head retain the current
+nonsecret reference revision/digest, so rotation advances the original history
+instead of creating a second head. Rotation is allowed only from a token-empty
+`NEEDS_REQUEST_TOKEN` state after explicit reauthorization has started and must
+strictly increase the reference version. It is rejected while request/access
+tokens remain associated with the session.
+
+Each advance supplies the exact previously authenticated durable snapshot,
+successor session, and replay guard. SQLite serializes the write with
+`BEGIN IMMEDIATE`; PostgreSQL locks the exact head row; the final update compares
+both sequence and event identity. Exact retries recompute and match the already-
+current event, while stale branches, later-head retries, fingerprint reuse or
+prefix change, disappearing or regressing signing scopes, consumer-reference
+rollback, session high-water rollback, and conflicting concurrent successors
+fail closed. Replay-only events move the durable cursor even when session state
+is unchanged, so state equality cannot hide a stale replay head.
+
+Every load reconstructs the complete ordered chain from its root, reapplies
+each fingerprint/signing-high-water delta, rehydrates only sanitized ADR-0118
+session evidence, recomputes every payload/event/guard/stable-scope digest, and
+matches the final cursor to the head. Persisted rows contain typed nonsecret
+reference identities, sanitized session metadata, fingerprints, high-waters,
+predecessors, and digests only. Keys, token values, secrets, verifiers,
+signatures, Authorization/Cookie headers, request URLs/query strings, and
+credential-bearing material are neither accepted nor stored. This authenticates
+local durable history, not a provider response.
+
+A later reviewed runtime must still supply ephemeral secret resolution,
+authenticated raw-first token responses, interactive OOB handoff,
+transport/proxy/redirect enforcement, and operational supervision. Only then
+can an authenticated account alias bind both the numeric account ID and opaque
+`accountIdKey`; display labels and account-list ordering remain non-identity.
+The exact shared OAuth origin and authorization page do not weaken the disjoint
+sandbox/production scopes, and secret-bearing authorization URLs must still
+never be logged or retained. Phase 4AM adds no provider call, response-origin
+claim, account binding, broker action, startup, or trading authority.
 
 The canonical order ID remains provider-neutral. A separate durable E\*TRADE
 client-order-ID mapping is deterministic, account-scoped, collision-checked,
