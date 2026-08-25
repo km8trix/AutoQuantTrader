@@ -4905,36 +4905,45 @@ ADR 0116 freezes the remaining composition as a design-only, non-separable
 five-gate boundary. First, an authenticated, bounded, replay-safe
 host-to-supervisor request/result transport must bind exact endpoint origin,
 operation, topology, lifecycle, direction, process epoch, and deadline. Second,
-a separately versioned immutable lifecycle must retain every pre-CALL intent,
-separately authenticated post-CALL result, confirmed-success terminal, and
-recovery-required ambiguity without rewriting or reinterpreting ADR-0110 v1 or
-creating a second replay root. Third, one continuously held global launcher lock
-must cover fresh current topology, trusted-head, stop-authority, and operation
-admission before the permanent v2 root is reserved or any effect is dispatched.
+one continuously held global launcher lock must cover fresh current topology,
+trusted-head, stop-authority, and exact-operation admission before reservation
+or effect. Third, a separately versioned immutable lifecycle must consume that
+exact admission, reserve the permanent v2 root without releasing the lock, and
+retain every pre-CALL intent, separately authenticated post-CALL result,
+confirmed-success terminal, and recovery-required ambiguity without rewriting
+or reinterpreting ADR-0110 v1 or creating a second replay root. This preserves
+ADRs 0111 and 0112's accepted transport → same-lock admission → lifecycle-v2
+order.
 Fourth, every later transport, admission, lifecycle, and effect registry must
 reject wrong PID/thread state and close or invalidate inherited descriptors and
 locks before a forked child can reach any registry lock. None of those gates may
 be activated independently.
 
 Only after all four prerequisites are implemented and jointly admitted may the
-fifth gate run: retain supervisor-stop intent, obtain and retain the exact
-authenticated operation-bound result, stop the source, remove each exact
-admitted container and then the exact admitted network by ID, prove both named
-volumes unchanged, perform a fresh post-teardown ADR-0109 terminal
-reauthentication bound back to the exact ADR-0111 operation/result, and publish
-one durable terminal outcome. Every effect has its own durable pre-CALL intent
-and authenticated post-CALL result before the next intent. A missing result,
-ambiguous STORE, lock loss, deadline expiry, process loss, or failed terminal
-reauthentication after reservation is recovery-required and never an automatic
-retry. Generic stopped status, process exit, later absence, or a prior
-observation cannot manufacture progress or success.
+fifth gate run. It first retains a clean-stop-checkpoint intent and the exact
+transport-authenticated ADR-0111 wire result. That result remains structural and
+terminally unqualified. A fresh pre-effect ADR-0109 host SQL/provider
+reauthentication must then be consumed, cross-bound through the exact ADR-0111
+host seam, and durably bound before any supervisor/source/container/network
+effect. Only then may the controller stop the exact supervisor container, stop
+the exact source container, remove the admitted supervisor container, source
+container, and network by ID, and prove both named volumes unchanged. A second,
+distinct post-teardown terminal reauthentication must then bind the exact
+operation, lifecycle transcript, expected `CLEAN_STOP` head, pre-effect
+cross-binding, and provider identity before one durable outcome is published.
+Every effect has its own durable pre-CALL intent and authenticated post-CALL
+result before the next intent. A missing result, ambiguous STORE, lock loss,
+deadline expiry, process loss, or failed reauthentication after reservation is
+recovery-required and never an automatic retry. Generic stopped status, process
+exit, later absence, or a prior/pre-effect observation cannot manufacture
+progress or success.
 
 ADR 0116 adds no runtime state or authority. Transport technology and keys,
-numeric deadlines, exact lifecycle-v2 schema, same-lock admission mechanism,
-fork-safe native ownership, ID-bound teardown/volume proof, terminal reader,
-and recovery operator remain explicit external blockers. The stop authority and
-real lifecycle root remain absent, and `trusted-time-stop` remains the exact
-exit-2 no-effect target.
+numeric deadlines, same-lock admission mechanism, exact lifecycle-v2 schema,
+fork-safe native ownership, ID-bound teardown/volume proof, both reauthentication
+bindings, and recovery operator remain explicit external blockers. The stop
+authority and real lifecycle root remain absent, and `trusted-time-stop` remains
+the exact exit-2 no-effect target.
 
 The dormant boundary is frozen by a mandatory raw-source-byte manifest over
 all regular Python files in the exact `apps`, `packages`, and `scripts` roots,
@@ -4982,10 +4991,12 @@ prove that GitHub ran or enforced the check.
 Before live integration, the one reviewed composition frozen by ADR 0116 must
 build on the exact ADR-0112-to-ADR-0111 loaded-receipt handoff and satisfy the
 five gates above. In particular, transport cannot be activated before
-lifecycle-v2 ambiguity retention, same-lock admission, and fork-safe ownership
-are complete, and no success can precede exact supervisor-first/source-second
-effects, ID-bound container/network teardown, both-volume preservation,
-post-teardown terminal reauthentication, and durable outcome publication.
+same-lock admission, lifecycle-v2 ambiguity retention, and fork-safe ownership
+are complete. The structural ADR-0111 result must be freshly cross-bound to a
+pre-effect ADR-0109 observation before any stop/teardown effect, and no success
+can precede exact supervisor-first/source-second effects, ID-bound
+container/network teardown, both-volume preservation, a distinct post-teardown
+terminal reauthentication, and durable outcome publication.
 
 Code-only contract `phase6d-post-enrollment-start-host-orchestrator-v3` now
 composes the complete start-only chain. Before mutation it consumes canonical

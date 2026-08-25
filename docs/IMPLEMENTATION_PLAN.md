@@ -3544,18 +3544,24 @@ owns that exact private handoff. ADR-0110 v1 still stops at ordinal one.
 
 ADR 0116 freezes the remaining graceful-stop work as one non-separable,
 design-only dependency chain: authenticated bounded replay-safe host/supervisor
-request/result transport; a new immutable lifecycle-v2 contract for every
-pre-CALL intent, separately authenticated post-CALL result, confirmed-success
-terminal, and recovery-required ambiguity without changing v1; same-lock fresh
-current topology, trusted-head, stop-authority, and operation admission before
-reservation or effect; PID/thread/at-fork invalidation before any live registry
-construction; and only then the exact supervisor stop, source stop, ID-bound
-container/network teardown, two-volume preservation proof, post-teardown
-terminal reauthentication, and durable outcome. A missing or ambiguous result
-after reservation is recovery-required and never retry evidence. The transport,
-lifecycle schema, admission, fork mechanism, effects, recovery operator, and
-numeric deadlines remain unimplemented external blockers. ADR 0116 changes
-documentation only; `trusted-time-stop` remains hard closed.
+request/result transport; same-lock fresh current topology, trusted-head,
+stop-authority, and exact-operation admission before reservation or effect; a
+new immutable lifecycle-v2 contract that consumes that admission and retains
+every pre-CALL intent, separately authenticated post-CALL result,
+confirmed-success terminal, and recovery-required ambiguity without changing
+v1; PID/thread/at-fork invalidation before any live registry construction; and
+only then the effect sequence. That sequence retains the structural ADR-0111
+wire result, freshly consumes and durably cross-binds an ADR-0109 host
+reauthentication before any supervisor/source/container/network effect, stops
+the supervisor then source, performs exact ID-bound container/network teardown,
+proves both named volumes unchanged, performs a distinct post-teardown terminal
+reauthentication, and publishes one durable outcome. A missing or ambiguous
+result after reservation is recovery-required and never retry evidence. This
+preserves ADRs 0111 and 0112's accepted transport → same-lock admission →
+lifecycle-v2 order. The transport, admission, lifecycle schema, fork mechanism,
+effects, both reauthentication bindings, recovery operator, and numeric
+deadlines remain unimplemented external blockers. ADR 0116 changes documentation
+only; `trusted-time-stop` remains hard closed.
 
 The ADR-0111 static freeze includes a mandatory raw-byte manifest for every
 regular Python source below the exact `apps`, `packages`, and `scripts` roots.
@@ -3999,13 +4005,16 @@ unavailable before any watchdog consumer is designed or qualified. See
   topology and stop-authority admission, lifecycle v2, later-live at-fork
   handling, durability, outcomes, and all effects remain deferred. ADR 0116
   now freezes those deferrals as one design-only five-gate dependency order:
-  transport, lifecycle v2, same-lock current topology/trusted-head/authority/
-  operation admission, fork-safe live ownership, and only then supervisor-first
-  stop, source stop, exact container/network teardown, both-volume preservation,
-  terminal reauthentication, and durable outcome. It explicitly classifies
-  every post-reservation CALL/STORE ambiguity as recovery-required without
-  automatic retry. No component of that design is implemented or authorized,
-  and the stop target continues to exit 2.
+  transport, same-lock current topology/trusted-head/authority/operation
+  admission, lifecycle v2, fork-safe live ownership, and only then effects. The
+  transport-authenticated ADR-0111 result stays structural until a fresh
+  pre-effect ADR-0109 observation is consumed, cross-bound, and durably retained.
+  Only after that binding may the supervisor stop precede source stop, exact
+  container/network teardown, and both-volume preservation; a distinct fresh
+  post-teardown terminal reauthentication then precedes durable outcome. Every
+  post-reservation CALL/STORE ambiguity is recovery-required without automatic
+  retry. No component of that design is implemented or authorized, and the stop
+  target continues to exit 2.
   Claim persistence now uses one globally single-use fixed slot and rejects any
   current or legacy per-operation claim. An import-only coordinator checks the
   exact enrollment evidence before reauthentication and before and after claim
