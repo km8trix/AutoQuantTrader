@@ -42,9 +42,11 @@ job/report/API/UI/worker path. Phase 3 has begun with bounded, pure-domain
 manifest-bound feature and feature-derived target parity proofs for one
 reference path plus a durable bounded experiment-governance registry with
 opaque pre-reveal holdout commitments, configuration-bound target-evaluation
-receipts, and read-only inspection. General segment workers and process
-isolation, queryable replay transcripts, performance evaluation, captured-tape,
-shadow, and broader research-UI work are not complete. The repository does not
+receipts, a durable fixture-only segment worker with immutable transcripts, a
+fail-closed captured-tape validity gate, and read-only governance inspection.
+General segment workers and process isolation, queryable transcript views,
+performance evaluation, qualified captured tape, shadow, and broader research-
+UI work are not complete. The repository does not
 implement the target paper/live topology below. ADR 0096 selects E\*TRADE
 production as the future live venue but adds no E\*TRADE runtime or authority;
 the Phase 4 chronology that follows describes immutable historical Alpaca paper
@@ -2880,13 +2882,15 @@ projection. Read-only API and browser views expose the hypothesis, segment
 declarations, frozen criteria, budget, lifecycle history, and sealed/revealed
 state while withholding pre-reveal final-test evidence.
 
-This registry is not connected to the Phase 2 backtest job or worker. That
-runner consumes one fixed complete fixture tape and cannot truthfully label a
-run as a declared evaluation segment. Phase 3C adds no experiment mutation API,
-parameter-sweep or walk-forward runner, holdout byte isolation, process quota,
-automated criteria adjudication, promotion, deployment, or trading authority.
-The complete Phase 3A/3B synthetic transcript also remains in-memory evidence,
-not durable segment evidence. Phase 3 and its exit gate remain open. See
+This registry is not connected to the Phase 2 economic backtest job or worker.
+That runner consumes one fixed complete fixture tape and cannot truthfully
+label a run as a declared evaluation segment. Phase 3F instead adds the later
+separate bounded path that durably retains only exact repository-fixture
+feature/target transcripts and governed completion evidence. Phase 3C itself
+adds no experiment mutation API, parameter-sweep or walk-forward runner,
+holdout byte isolation, process quota, automated criteria adjudication,
+promotion, deployment, or trading authority. Phase 3 and its exit gate remain
+open. See
 [ADR 0036](adr/0036-bounded-experiment-governance-and-holdout-commitments.md).
 
 ### Current Phase 3D configuration-bound segment evaluation
@@ -2911,9 +2915,11 @@ the exact current `RUNNING` event.
 
 Completion retains strict recorded actor-identifier continuity: the worker actor
 identifier on `RUNNING` must also identify the receipt and completion event.
-Failed, canceled, and abandoned attempts keep typed non-executable reasons. A
-crashed worker is abandoned and a replacement consumes a new stable attempt;
-Phase 3D adds no worker-identity issuer, lease renewal, or claim stealing.
+Failed, canceled, and abandoned attempts keep typed non-executable reasons.
+Phase 3D by itself abandons a crashed actor and requires a new stable attempt.
+ADR 0117 supersedes that recovery rule only for the closed repository-fixture
+worker by separating one stable logical governed actor from rotating bounded
+physical-process claims; it does not relax the receipt's actor continuity.
 
 The existing authenticated attempt-event terminal payload stores the receipt.
 The locked completion command transiently requires the exact target
@@ -3006,6 +3012,66 @@ no I/O, database state, API, worker, experiment mutation, promotion, deployment,
 broker, or runtime path. No repository-local or external-shaped bundle can
 qualify under v1, so Phase 3's captured-tape exit gate remains open. See
 [ADR 0114](adr/0114-fail-closed-captured-tape-research-validity.md).
+
+### Current Phase 3F durable fixture-segment worker
+
+Phase 3F connects only the existing repository-owned reference evidence. An
+enqueue command accepts one exact queued Phase 3C attempt plus the exact Phase
+3A certification already named by its opened `ExperimentSegmentEvidence`.
+Train and validation inputs are available through the family. Final-test input
+is unavailable until the audited Phase 3C reveal opens the exact commitment;
+neither a complete tape nor evidence from another segment can be substituted.
+
+The deterministic fixture job binds family, stable attempt, configuration and
+schema-validation receipts, segment, source evidence, queued governance event,
+feature certification, and an immutable feature transcript artifact. Each
+transcript artifact retains its exact certification and parity receipt,
+ordered step and output identities, transcript digest, and canonical payload
+digest. Feature artifacts remain configuration-neutral. A target artifact also
+binds the attempt configuration and is proof-constructed only when the target
+policy exactly reproduces that configuration.
+
+Physical process authority is an expiring, rotating content-addressed claim
+token over the job, process identifier, physical attempt number, and latest
+job event. Renewal must strictly extend the current claim. Replacement is
+possible only after expiry and increments the physical attempt, so a stale
+token cannot renew, fail, or complete even if its process label is reused. The
+Phase 3D `RUNNING` actor is instead one deterministic logical actor derived from
+the job. It remains unchanged across physical recovery and therefore exactly
+matches the governed completion receipt and terminal attempt event without
+creating another stable research trial.
+
+`phase3_fixture_segment_jobs` and
+`phase3_fixture_segment_job_events` retain immutable input and append-only
+lifecycle history. `phase3_fixture_segment_job_heads` is only a verified
+compare-and-swap lock projection. PostgreSQL claim selection uses row locking
+with skip-locked behavior; SQLite serializes the immediate write transaction.
+An existing enqueue retry resolves the immutable family/attempt identity, locks
+and reloads the job head, then locks governance in the same order as lifecycle
+commands before comparing the original queued evidence. It therefore returns
+the current running or terminal projection rather than racing a concurrent
+claim or requiring the caller's snapshot to remain queued.
+`phase3_fixture_segment_transcript_artifacts` retains the feature artifact at
+enqueue and the target artifact only on success. Reads reconstruct the full job
+chain, authenticate artifacts and the head, and require the exact corresponding
+governance event and terminal status.
+
+Success is one transaction: persist the target artifact, re-prove and append
+the existing `GovernedSegmentEvaluationReceipt`, append the completed job
+event, and advance the head. A crash anywhere publishes none of these facts.
+Failures use one closed classification and its fixed contract digest and never
+persist exception type or raw exception text. Process death is left as an
+expiring running claim for safe takeover. Exact retries return the same job;
+changed time, actor, claim, configuration, segment, certification, transcript,
+or receipt conflicts.
+
+This is still a fixture target-parity worker, not an economic segment runner.
+It adds no API or browser mutation surface, arbitrary code or data loading,
+subprocess/resource isolation, P&L, benchmark or cost evaluation, criteria
+adjudication, captured-tape positive eligibility, provider I/O, shadow replay,
+promotion, deployment, source/admission effect, broker operation, or trading
+authority. Phase 3 and its exit gate remain open. See
+[ADR 0117](adr/0117-durable-fixture-segment-worker.md).
 
 The broader backtesting roadmap expands the current narrow contract, when the
 required source evidence and explicit policies exist, to model:

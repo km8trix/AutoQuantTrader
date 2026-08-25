@@ -150,6 +150,14 @@ PHASE3_TABLE_NAMES = frozenset(
         "phase3_holdout_reveals",
     }
 )
+PHASE3_FIXTURE_WORKER_TABLE_NAMES = frozenset(
+    {
+        "phase3_fixture_segment_job_events",
+        "phase3_fixture_segment_job_heads",
+        "phase3_fixture_segment_jobs",
+        "phase3_fixture_segment_transcript_artifacts",
+    }
+)
 PHASE4_TABLE_NAMES = frozenset(
     {
         "phase4_alpaca_paper_account_binding_heads",
@@ -361,6 +369,10 @@ def test_operational_schema_can_be_created_without_postgresql() -> None:
         "phase3_experiment_families",
         "phase3_experiment_tape_claims",
         "phase3_experiment_tape_policies",
+        "phase3_fixture_segment_job_events",
+        "phase3_fixture_segment_job_heads",
+        "phase3_fixture_segment_jobs",
+        "phase3_fixture_segment_transcript_artifacts",
         "phase3_holdout_reveals",
         "phase4_alpaca_paper_account_binding_heads",
         "phase4_alpaca_paper_account_bindings",
@@ -2037,6 +2049,7 @@ def test_phase2_durability_migration_is_additive_and_reversible(tmp_path: Path) 
         legacy_tables
         | PHASE2_TABLE_NAMES
         | PHASE3_TABLE_NAMES
+        | PHASE3_FIXTURE_WORKER_TABLE_NAMES
         | PHASE4_TABLE_NAMES
         | PHASE5_TABLE_NAMES
         | PHASE6_TABLE_NAMES
@@ -2102,6 +2115,7 @@ def test_phase3_governance_migration_is_additive_and_reversible(tmp_path: Path) 
     assert set(inspect(engine).get_table_names()) == (
         prior_tables
         | PHASE3_TABLE_NAMES
+        | PHASE3_FIXTURE_WORKER_TABLE_NAMES
         | PHASE4_TABLE_NAMES
         | PHASE5_TABLE_NAMES
         | PHASE6_TABLE_NAMES
@@ -2137,7 +2151,11 @@ def test_phase4_broker_ingress_migration_is_additive_and_reversible(
     command.upgrade(config, "head")
 
     assert set(inspect(engine).get_table_names()) == (
-        prior_tables | PHASE4_TABLE_NAMES | PHASE5_TABLE_NAMES | PHASE6_TABLE_NAMES
+        prior_tables
+        | PHASE3_FIXTURE_WORKER_TABLE_NAMES
+        | PHASE4_TABLE_NAMES
+        | PHASE5_TABLE_NAMES
+        | PHASE6_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
@@ -3125,7 +3143,11 @@ def test_phase5_operational_control_migration_is_additive_and_reversible(
     command.upgrade(config, "head")
 
     assert set(inspect(engine).get_table_names()) == (
-        prior_tables | PHASE4_TABLE_NAMES | PHASE5_TABLE_NAMES | PHASE6_TABLE_NAMES
+        prior_tables
+        | PHASE3_FIXTURE_WORKER_TABLE_NAMES
+        | PHASE4_TABLE_NAMES
+        | PHASE5_TABLE_NAMES
+        | PHASE6_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))

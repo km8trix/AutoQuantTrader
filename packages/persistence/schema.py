@@ -3064,6 +3064,285 @@ sa.Index(
     phase3_experiment_audit_events.c.occurred_at,
 )
 
+# Phase 3F durable repository-fixture segment work. Transcript artifacts and
+# job/event history are immutable; the head is a checked lock projection. A
+# stable governed actor remains distinct from rotating physical worker claims.
+phase3_fixture_segment_transcript_artifacts = sa.Table(
+    "phase3_fixture_segment_transcript_artifacts",
+    metadata,
+    sa.Column("artifact_sha256", sa.String(64), primary_key=True),
+    sa.Column("artifact_kind", sa.String(16), nullable=False),
+    sa.Column("family_id", sa.String(64), nullable=False),
+    sa.Column("attempt_id", sa.String(64), nullable=False),
+    sa.Column("segment_kind", sa.String(16), nullable=False),
+    sa.Column("segment_sha256", sa.String(64), nullable=False),
+    sa.Column("source_evidence_sha256", sa.String(64), nullable=False),
+    sa.Column("configuration_sha256", sa.String(64), nullable=True),
+    sa.Column("certification_sha256", sa.String(64), nullable=False),
+    sa.Column("parity_receipt_sha256", sa.String(64), nullable=False),
+    sa.Column("transcript_sha256", sa.String(64), nullable=False),
+    sa.Column("step_count", sa.Integer(), nullable=False),
+    sa.Column("output_count", sa.Integer(), nullable=False),
+    sa.Column("transcript_payload", sa.Text(), nullable=False),
+    sa.Column("transcript_payload_sha256", sa.String(64), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.ForeignKeyConstraint(
+        ["attempt_id", "family_id"],
+        [
+            "phase3_experiment_attempts.attempt_id",
+            "phase3_experiment_attempts.family_id",
+        ],
+        name="fk_phase3_fixture_artifacts_attempt_family",
+    ),
+    sa.UniqueConstraint(
+        "attempt_id",
+        "artifact_kind",
+        name="uq_phase3_fixture_artifacts_attempt_kind",
+    ),
+    sa.CheckConstraint(
+        "artifact_kind IN ('feature', 'target') "
+        "AND segment_kind IN ('train', 'validation', 'test') "
+        "AND ((artifact_kind = 'feature' AND configuration_sha256 IS NULL) "
+        "OR (artifact_kind = 'target' AND configuration_sha256 IS NOT NULL))",
+        name="phase3_fixture_artifact_kind_shape",
+    ),
+    sa.CheckConstraint(
+        "step_count BETWEEN 1 AND 100000 AND output_count BETWEEN 0 AND 5000000",
+        name="phase3_fixture_artifact_count_bounds",
+    ),
+    sa.CheckConstraint(
+        "length(artifact_sha256) = 64 "
+        "AND length(family_id) = 64 "
+        "AND length(attempt_id) = 64 "
+        "AND length(segment_sha256) = 64 "
+        "AND length(source_evidence_sha256) = 64 "
+        "AND (configuration_sha256 IS NULL OR length(configuration_sha256) = 64) "
+        "AND length(certification_sha256) = 64 "
+        "AND length(parity_receipt_sha256) = 64 "
+        "AND length(transcript_sha256) = 64 "
+        "AND length(transcript_payload_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="phase3_fixture_artifact_hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(transcript_payload) BETWEEN 2 AND 8388608",
+        name="phase3_fixture_artifact_payload_bound",
+    ),
+)
+sa.Index(
+    "ix_phase3_fixture_artifacts_family_attempt",
+    phase3_fixture_segment_transcript_artifacts.c.family_id,
+    phase3_fixture_segment_transcript_artifacts.c.attempt_id,
+)
+
+phase3_fixture_segment_jobs = sa.Table(
+    "phase3_fixture_segment_jobs",
+    metadata,
+    sa.Column("job_id", sa.String(64), primary_key=True),
+    sa.Column("family_id", sa.String(64), nullable=False),
+    sa.Column("attempt_id", sa.String(64), nullable=False, unique=True),
+    sa.Column("configuration_sha256", sa.String(64), nullable=False),
+    sa.Column("configuration_validation_sha256", sa.String(64), nullable=False),
+    sa.Column("segment_kind", sa.String(16), nullable=False),
+    sa.Column("segment_sha256", sa.String(64), nullable=False),
+    sa.Column("source_evidence_sha256", sa.String(64), nullable=False),
+    sa.Column("queued_governance_event_sha256", sa.String(64), nullable=False, unique=True),
+    sa.Column("feature_certification_sha256", sa.String(64), nullable=False),
+    sa.Column("feature_transcript_artifact_sha256", sa.String(64), nullable=False, unique=True),
+    sa.Column("governed_actor_id", sa.String(96), nullable=False, unique=True),
+    sa.Column("requested_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("requested_by", sa.String(128), nullable=False),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.ForeignKeyConstraint(
+        ["attempt_id", "family_id"],
+        [
+            "phase3_experiment_attempts.attempt_id",
+            "phase3_experiment_attempts.family_id",
+        ],
+        name="fk_phase3_fixture_jobs_attempt_family",
+    ),
+    sa.ForeignKeyConstraint(
+        ["queued_governance_event_sha256"],
+        ["phase3_experiment_attempt_events.event_sha256"],
+        name="fk_phase3_fixture_jobs_queued_event",
+    ),
+    sa.ForeignKeyConstraint(
+        ["feature_transcript_artifact_sha256"],
+        ["phase3_fixture_segment_transcript_artifacts.artifact_sha256"],
+        name="fk_phase3_fixture_jobs_feature_artifact",
+    ),
+    sa.CheckConstraint(
+        "segment_kind IN ('train', 'validation', 'test') "
+        "AND length(requested_by) BETWEEN 1 AND 128 "
+        "AND length(governed_actor_id) BETWEEN 1 AND 96",
+        name="phase3_fixture_job_text_shape",
+    ),
+    sa.CheckConstraint(
+        "length(job_id) = 64 "
+        "AND length(family_id) = 64 "
+        "AND length(attempt_id) = 64 "
+        "AND length(configuration_sha256) = 64 "
+        "AND length(configuration_validation_sha256) = 64 "
+        "AND length(segment_sha256) = 64 "
+        "AND length(source_evidence_sha256) = 64 "
+        "AND length(queued_governance_event_sha256) = 64 "
+        "AND length(feature_certification_sha256) = 64 "
+        "AND length(feature_transcript_artifact_sha256) = 64 "
+        "AND length(semantic_sha256) = 64",
+        name="phase3_fixture_job_hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(canonical_payload) BETWEEN 2 AND 262144",
+        name="phase3_fixture_job_payload_bound",
+    ),
+)
+sa.Index(
+    "ix_phase3_fixture_jobs_requested",
+    phase3_fixture_segment_jobs.c.requested_at,
+    phase3_fixture_segment_jobs.c.job_id,
+)
+
+phase3_fixture_segment_job_events = sa.Table(
+    "phase3_fixture_segment_job_events",
+    metadata,
+    sa.Column("event_sha256", sa.String(64), primary_key=True),
+    sa.Column(
+        "job_id",
+        sa.String(64),
+        sa.ForeignKey("phase3_fixture_segment_jobs.job_id", name="fk_phase3_fixture_events_job"),
+        nullable=False,
+    ),
+    sa.Column("sequence_number", sa.Integer(), nullable=False),
+    sa.Column("status", sa.String(16), nullable=False),
+    sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("actor_id", sa.String(128), nullable=False),
+    sa.Column("attempt_number", sa.Integer(), nullable=False),
+    sa.Column("previous_event_sha256", sa.String(64), nullable=True),
+    sa.Column("worker_id", sa.String(128), nullable=True),
+    sa.Column("claim_expires_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("governance_event_sha256", sa.String(64), nullable=False),
+    sa.Column("feature_artifact_sha256", sa.String(64), nullable=False),
+    sa.Column("target_artifact_sha256", sa.String(64), nullable=True),
+    sa.Column("completion_receipt_sha256", sa.String(64), nullable=True),
+    sa.Column("terminal_reason_code", sa.String(64), nullable=True),
+    sa.Column("terminal_reason_sha256", sa.String(64), nullable=True),
+    sa.Column("canonical_payload", sa.Text(), nullable=False),
+    sa.Column("semantic_sha256", sa.String(64), nullable=False, unique=True),
+    sa.ForeignKeyConstraint(
+        ["previous_event_sha256"],
+        ["phase3_fixture_segment_job_events.event_sha256"],
+        name="fk_phase3_fixture_events_predecessor",
+    ),
+    sa.ForeignKeyConstraint(
+        ["governance_event_sha256"],
+        ["phase3_experiment_attempt_events.event_sha256"],
+        name="fk_phase3_fixture_events_governance_event",
+    ),
+    sa.ForeignKeyConstraint(
+        ["feature_artifact_sha256"],
+        ["phase3_fixture_segment_transcript_artifacts.artifact_sha256"],
+        name="fk_phase3_fixture_events_feature_artifact",
+    ),
+    sa.ForeignKeyConstraint(
+        ["target_artifact_sha256"],
+        ["phase3_fixture_segment_transcript_artifacts.artifact_sha256"],
+        name="fk_phase3_fixture_events_target_artifact",
+    ),
+    sa.UniqueConstraint("job_id", "sequence_number", name="uq_phase3_fixture_events_job_sequence"),
+    sa.CheckConstraint(
+        "(sequence_number = 0 AND previous_event_sha256 IS NULL) "
+        "OR (sequence_number > 0 AND previous_event_sha256 IS NOT NULL)",
+        name="phase3_fixture_event_predecessor_shape",
+    ),
+    sa.CheckConstraint(
+        "status IN ('queued', 'running', 'completed', 'failed') "
+        "AND attempt_number >= 0 "
+        "AND length(actor_id) BETWEEN 1 AND 128 "
+        "AND (worker_id IS NULL OR length(worker_id) BETWEEN 1 AND 128)",
+        name="phase3_fixture_event_status_shape",
+    ),
+    sa.CheckConstraint(
+        "(status = 'queued' AND sequence_number = 0 AND attempt_number = 0 "
+        "AND worker_id IS NULL AND claim_expires_at IS NULL "
+        "AND target_artifact_sha256 IS NULL AND completion_receipt_sha256 IS NULL "
+        "AND terminal_reason_code IS NULL AND terminal_reason_sha256 IS NULL) "
+        "OR (status = 'running' AND attempt_number > 0 AND worker_id IS NOT NULL "
+        "AND claim_expires_at IS NOT NULL AND target_artifact_sha256 IS NULL "
+        "AND completion_receipt_sha256 IS NULL AND terminal_reason_code IS NULL "
+        "AND terminal_reason_sha256 IS NULL) "
+        "OR (status = 'completed' AND attempt_number > 0 AND worker_id IS NOT NULL "
+        "AND claim_expires_at IS NULL AND target_artifact_sha256 IS NOT NULL "
+        "AND completion_receipt_sha256 IS NOT NULL AND terminal_reason_code IS NULL "
+        "AND terminal_reason_sha256 IS NULL) "
+        "OR (status = 'failed' AND attempt_number > 0 AND worker_id IS NOT NULL "
+        "AND claim_expires_at IS NULL AND target_artifact_sha256 IS NULL "
+        "AND completion_receipt_sha256 IS NULL AND terminal_reason_code IS NOT NULL "
+        "AND terminal_reason_sha256 IS NOT NULL)",
+        name="phase3_fixture_event_evidence_shape",
+    ),
+    sa.CheckConstraint(
+        "length(event_sha256) = 64 "
+        "AND length(job_id) = 64 "
+        "AND (previous_event_sha256 IS NULL OR length(previous_event_sha256) = 64) "
+        "AND length(governance_event_sha256) = 64 "
+        "AND length(feature_artifact_sha256) = 64 "
+        "AND (target_artifact_sha256 IS NULL OR length(target_artifact_sha256) = 64) "
+        "AND (completion_receipt_sha256 IS NULL OR length(completion_receipt_sha256) = 64) "
+        "AND (terminal_reason_sha256 IS NULL OR length(terminal_reason_sha256) = 64) "
+        "AND length(semantic_sha256) = 64",
+        name="phase3_fixture_event_hash_lengths",
+    ),
+    sa.CheckConstraint(
+        "length(canonical_payload) BETWEEN 2 AND 262144",
+        name="phase3_fixture_event_payload_bound",
+    ),
+)
+sa.Index(
+    "ix_phase3_fixture_events_job_occurred",
+    phase3_fixture_segment_job_events.c.job_id,
+    phase3_fixture_segment_job_events.c.occurred_at,
+)
+
+phase3_fixture_segment_job_heads = sa.Table(
+    "phase3_fixture_segment_job_heads",
+    metadata,
+    sa.Column(
+        "job_id",
+        sa.String(64),
+        sa.ForeignKey("phase3_fixture_segment_jobs.job_id", name="fk_phase3_fixture_heads_job"),
+        primary_key=True,
+    ),
+    sa.Column("status", sa.String(16), nullable=False),
+    sa.Column("latest_sequence_number", sa.Integer(), nullable=False),
+    sa.Column("latest_event_sha256", sa.String(64), nullable=False, unique=True),
+    sa.Column("attempt_number", sa.Integer(), nullable=False),
+    sa.Column("worker_id", sa.String(128), nullable=True),
+    sa.Column("claim_expires_at", sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(
+        ["latest_event_sha256"],
+        ["phase3_fixture_segment_job_events.event_sha256"],
+        name="fk_phase3_fixture_heads_latest_event",
+    ),
+    sa.CheckConstraint(
+        "status IN ('queued', 'running', 'completed', 'failed') "
+        "AND latest_sequence_number >= 0 AND attempt_number >= 0 "
+        "AND ((status = 'running' AND worker_id IS NOT NULL AND claim_expires_at IS NOT NULL) "
+        "OR (status <> 'running' AND worker_id IS NULL AND claim_expires_at IS NULL))",
+        name="phase3_fixture_head_shape",
+    ),
+    sa.CheckConstraint(
+        "length(job_id) = 64 AND length(latest_event_sha256) = 64 "
+        "AND (worker_id IS NULL OR length(worker_id) BETWEEN 1 AND 128)",
+        name="phase3_fixture_head_identity",
+    ),
+)
+sa.Index(
+    "ix_phase3_fixture_heads_claimable",
+    phase3_fixture_segment_job_heads.c.status,
+    phase3_fixture_segment_job_heads.c.claim_expires_at,
+)
+
 phase4_broker_ingress_receipts = sa.Table(
     "phase4_broker_ingress_receipts",
     metadata,

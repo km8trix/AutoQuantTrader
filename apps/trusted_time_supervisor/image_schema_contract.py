@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import sys
 
-from packages.persistence.database import EXPECTED_SCHEMA_REVISION
 from packages.persistence.schema import metadata
 
 _TARGET_ID = "image-schema-contract"
 _RELATION_PREFIX = "phase6_trusted_time_head_anchor_"
 _FAILURE_MESSAGE = "trusted-time operational schema contract probe failed\n"
+EXPECTED_SCHEMA_REVISION = "0036_phase6_time_anchors"
 _INSTALLED_RELATION_TUPLE = tuple(
     sorted(
         name
