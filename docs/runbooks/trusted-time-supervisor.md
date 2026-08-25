@@ -16,6 +16,9 @@ boundary is defined by
 The dormant pure watchdog-state transition is defined by
 [ADR 0095](../adr/0095-dormant-provider-neutral-trusted-head-watchdog-state.md);
 it is not deployed and changes no procedure in this runbook.
+[ADR 0116](../adr/0116-fail-closed-replay-safe-graceful-stop-composition-ordering.md)
+freezes the future graceful-stop dependency and effect order as design only; it
+does not add an operator procedure or change the hard-closed stop target.
 ADR 0092's exact Netnod authority is preserved as the
 [archived v1 manifest](../adr/evidence/0092-source-authority-v1.json), SHA-256
 `356723c84e30478f18ad99f3cfef2ee65b3bdd3fc26936a7d5c9910fd1bcb3ab`.
@@ -2699,6 +2702,54 @@ and historical-chain authentication only; currentness, freshness, stop
 signature, effect single-use, reservation, admission, outcome/recovery, and
 every shutdown effect remain false.
 
+### ADR 0116 composition freeze; do not operate shutdown
+
+ADR 0116 is not a stop procedure. It freezes five non-separable prerequisites
+for a later implementation, in order:
+
+1. authenticated, bounded, replay-safe host/supervisor request/result transport
+   with exact origin, operation/topology/lifecycle binding, and fail-closed
+   deadlines;
+2. an immutable lifecycle-v2 contract with one durable pre-CALL intent and one
+   separately authenticated post-CALL result for every effect, plus exclusive
+   confirmed-success and recovery-required terminal outcomes, without changing
+   ADR-0110 v1 or creating a second replay root;
+3. one continuously held global launcher lock covering fresh current topology,
+   trusted-head, installed stop-authority, and exact-operation admission before
+   reservation or effect;
+4. PID, exact-Thread, and at-fork descriptor/lock/registry invalidation before
+   any live transport, admission, lifecycle, or effect registry is constructed;
+   and
+5. only after all four gates are jointly admitted, exact supervisor stop, source
+   stop, ID-bound container and network teardown, proof that both named volumes
+   are unchanged, fresh post-teardown terminal reauthentication bound to the
+   exact operation/result, and one durable terminal outcome.
+
+Do not implement or test-drive gate one against a running supervisor while the
+other gates are absent. Canonical ADR-0111 bytes, a local socket, stdout, a
+container label, process exit, generic stopped status, and a prior ADR-0109
+observation do not authenticate transport or authorize an effect. The source
+must never stop before or concurrently with the supervisor. Never use broad
+Compose teardown, name-only removal, or `down --volumes`.
+
+After permanent-root or pre-CALL-intent creation may have begun, any ambiguous
+STORE, missing/late/invalid result, process or lock loss, deadline expiry,
+teardown uncertainty, volume-proof failure, terminal-reauthentication failure,
+or outcome-commit ambiguity is recovery-required and never automatic retry
+evidence. Preserve the exact lifecycle prefix, named volumes, and external
+evidence. Do not delete, rewrite, migrate, recreate, resume, or manually append
+an ordinal. Even a fully authenticated result followed by process loss cannot
+continue after restart until a separate recovery/continuation ADR supplies that
+authority.
+
+The transport primitive and keys, numeric deadlines, exact lifecycle-v2 schema,
+same-lock admission transaction, fork-safe native mechanism, exact teardown and
+volume-proof method, terminal reader, and recovery operator are unresolved
+external blockers. Do not choose them in an operator script. No stop authority
+or lifecycle root was installed or reserved by ADR 0116, and every
+transport/currentness/admission/effect/outcome/recovery-action flag remains
+false.
+
 The dormant APIs depend on the separately reviewed native owned-descriptor
 prerequisite. Its C operations expose neither a descriptor nor a live owner
 through a Python frame. The reviewed fixed launcher statically registers the
@@ -2715,12 +2766,8 @@ persistent Chrony-state and read-only leaf mount contracts. A developer editable
 install is never operational evidence.
 
 Before any live procedure is documented, a separately reviewed implementation
-must build on the now-integrated exact ADR-0112-to-ADR-0111 handoff and provide
-authenticated replay-safe transport, same-lock stop-authority/current-topology
-admission, lifecycle v2 with pre-CALL/post-CALL and terminal retention,
-explicit at-fork invalidation and inherited-lock cleanup for those later live
-registries, and the complete ordered signal/teardown protocol while preserving
-both named volumes. Until then, every transport, currentness, durability,
+must build on the exact ADR-0112-to-ADR-0111 handoff and satisfy all five
+ADR-0116 gates together. Until then, every transport, currentness, durability,
 outcome, recovery-action, and effect flag remains false.
 
 Repository review also requires the exact ADR-0111 raw-source manifest over
@@ -2768,7 +2815,8 @@ repository's required-check branch protection is enabled and that GitHub
 actually executed the workflow. Those hosting controls are outside ADR 0111's
 evidence boundary.
 
-No effecting approved shutdown operator is implemented yet.
+No effecting approved shutdown operator is implemented yet. ADR 0116 freezes
+design order only and does not satisfy any implementation or admission gate.
 `make trusted-time-stop` reports that closure, intentionally exits 2, and must
 not be replaced with a live-checkout Compose command. Unenrolled admission mode
 performs and verifies its own container/network teardown. The one-shot
@@ -2778,12 +2826,13 @@ persistent shutdown.
 Before the persistent-start gate is reopened, implement and separately review
 a graceful shutdown that uses the approved HEAD Compose bytes and tuple,
 requests the supervisor stop first, waits for its bounded clean-stop result,
-then stops the source and verifies topology removal without deleting named
-volumes.
+then stops the source, removes only the exact admitted containers and network,
+proves both named volumes unchanged, performs the post-teardown terminal
+reauthentication, and commits one durable outcome.
 
-Do not reserve a permanent stop-attempt slot until a progress-sensitive durable
-stop outcome/recovery protocol covers every CALL/STORE ambiguity and forbids
-automatic retry. Also do not treat the current process-local clean-stop boolean,
+Do not reserve a permanent stop-attempt slot until the reviewed lifecycle-v2
+implementation durably covers every CALL/STORE ambiguity and forbids automatic
+retry. Also do not treat the current process-local clean-stop boolean,
 ADR 0111's dormant unqualified same-process composite, or generic supervisor
 `status=stopped` output as the required host successor proof. The exact current
 `clean_stop` request must

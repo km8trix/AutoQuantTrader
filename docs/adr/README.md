@@ -224,5 +224,10 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   media/charset/declaration/schema bindings; provider origin remains
   unauthenticated, fixture relabeling is undetectable, and transport,
   persistence, account binding, mutation, and trading authority remain closed)
+- [ADR 0116: Fail-closed replay-safe graceful-stop composition ordering](0116-fail-closed-replay-safe-graceful-stop-composition-ordering.md)
+  (freezes the design-only transport → lifecycle-v2 → same-lock admission →
+  fork-safety → ordered-effect dependency chain, including exact ambiguity and
+  recovery invariants; it adds no implementation, authority, reservation,
+  runtime caller, shutdown effect, or change to the exit-2 stop target)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

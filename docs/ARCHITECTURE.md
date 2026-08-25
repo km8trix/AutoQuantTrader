@@ -4194,6 +4194,7 @@ See historical
 [ADR 0108](adr/0108-sealed-new-record-clean-stop-terminal-result.md),
 [ADR 0111](adr/0111-dormant-operation-bound-clean-stop-supervisor-bridge.md),
 [ADR 0112](adr/0112-durable-graceful-stop-decision-artifact-receipt-reauthentication.md),
+[ADR 0116](adr/0116-fail-closed-replay-safe-graceful-stop-composition-ordering.md),
 and the
 [trusted-time supervisor runbook](runbooks/trusted-time-supervisor.md).
 
@@ -4626,13 +4627,17 @@ by
 by
 [ADR 0110](adr/0110-dormant-durable-graceful-stop-lifecycle-repository.md),
 [ADR 0111](adr/0111-dormant-operation-bound-clean-stop-supervisor-bridge.md),
+[ADR 0112](adr/0112-durable-graceful-stop-decision-artifact-receipt-reauthentication.md),
 and
-[ADR 0112](adr/0112-durable-graceful-stop-decision-artifact-receipt-reauthentication.md).
+[ADR 0116](adr/0116-fail-closed-replay-safe-graceful-stop-composition-ordering.md).
 
-Before any effecting graceful stop, the design must close two additional
-evidence gaps. A progress-sensitive durable stop outcome/recovery protocol must
-exist before permanent stop-attempt reservation begins, so no CALL/STORE
-ambiguity can become an automatic retry. ADR 0110 now supplies only that
+Before any effecting graceful stop, the earlier design identified two broad
+evidence gaps: durable ambiguity-safe progress/outcome retention and exact
+current operation/topology binding. ADR 0116 decomposes the complete closure
+into the five non-separable gates described below. A progress-sensitive durable
+stop outcome/recovery protocol must exist before permanent stop-attempt
+reservation begins, so no CALL/STORE ambiguity can become an automatic retry.
+ADR 0110 now supplies only that
 protocol's dormant append-only repository; operation-bound creation,
 post-signal progress, and a confirmed-success terminal outcome remain absent.
 Its only terminal publication is the non-authorizing `recovery_required`
@@ -4896,6 +4901,41 @@ effect. ADR-0110 v1 remains terminal at ordinal one, and
 and
 [ADR 0112](adr/0112-durable-graceful-stop-decision-artifact-receipt-reauthentication.md).
 
+ADR 0116 freezes the remaining composition as a design-only, non-separable
+five-gate boundary. First, an authenticated, bounded, replay-safe
+host-to-supervisor request/result transport must bind exact endpoint origin,
+operation, topology, lifecycle, direction, process epoch, and deadline. Second,
+a separately versioned immutable lifecycle must retain every pre-CALL intent,
+separately authenticated post-CALL result, confirmed-success terminal, and
+recovery-required ambiguity without rewriting or reinterpreting ADR-0110 v1 or
+creating a second replay root. Third, one continuously held global launcher lock
+must cover fresh current topology, trusted-head, stop-authority, and operation
+admission before the permanent v2 root is reserved or any effect is dispatched.
+Fourth, every later transport, admission, lifecycle, and effect registry must
+reject wrong PID/thread state and close or invalidate inherited descriptors and
+locks before a forked child can reach any registry lock. None of those gates may
+be activated independently.
+
+Only after all four prerequisites are implemented and jointly admitted may the
+fifth gate run: retain supervisor-stop intent, obtain and retain the exact
+authenticated operation-bound result, stop the source, remove each exact
+admitted container and then the exact admitted network by ID, prove both named
+volumes unchanged, perform a fresh post-teardown ADR-0109 terminal
+reauthentication bound back to the exact ADR-0111 operation/result, and publish
+one durable terminal outcome. Every effect has its own durable pre-CALL intent
+and authenticated post-CALL result before the next intent. A missing result,
+ambiguous STORE, lock loss, deadline expiry, process loss, or failed terminal
+reauthentication after reservation is recovery-required and never an automatic
+retry. Generic stopped status, process exit, later absence, or a prior
+observation cannot manufacture progress or success.
+
+ADR 0116 adds no runtime state or authority. Transport technology and keys,
+numeric deadlines, exact lifecycle-v2 schema, same-lock admission mechanism,
+fork-safe native ownership, ID-bound teardown/volume proof, terminal reader,
+and recovery operator remain explicit external blockers. The stop authority and
+real lifecycle root remain absent, and `trusted-time-stop` remains the exact
+exit-2 no-effect target.
+
 The dormant boundary is frozen by a mandatory raw-source-byte manifest over
 all regular Python files in the exact `apps`, `packages`, and `scripts` roots,
 including `scripts/check_architecture.py`. Its only lexical prune is the
@@ -4939,13 +4979,13 @@ or unreachable recipes. Workflow execution and required-check branch
 protection are still external trusted controls; source review alone cannot
 prove that GitHub ran or enforced the check.
 
-Before live integration, one reviewed composition must build on the exact
-ADR-0112-to-ADR-0111 loaded-receipt handoff and add authenticated replay-safe
-request/result transport, same-lock stop-authority/current-topology admission,
-a new lifecycle version for pre-CALL/post-CALL and terminal retention, explicit
-at-fork invalidation and inherited-lock cleanup for those later live
-registries, and the ordered supervisor, source, container, and network effects
-while preserving both named volumes.
+Before live integration, the one reviewed composition frozen by ADR 0116 must
+build on the exact ADR-0112-to-ADR-0111 loaded-receipt handoff and satisfy the
+five gates above. In particular, transport cannot be activated before
+lifecycle-v2 ambiguity retention, same-lock admission, and fork-safe ownership
+are complete, and no success can precede exact supervisor-first/source-second
+effects, ID-bound container/network teardown, both-volume preservation,
+post-teardown terminal reauthentication, and durable outcome publication.
 
 Code-only contract `phase6d-post-enrollment-start-host-orchestrator-v3` now
 composes the complete start-only chain. Before mutation it consumes canonical
