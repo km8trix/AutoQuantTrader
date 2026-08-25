@@ -8,10 +8,14 @@ from packages.domain.experiment_governance import (
     ExperimentAttemptStatus,
     ExperimentGovernanceSnapshot,
     GovernedSegmentEvaluationReceipt,
+    NonExecutableTerminalEvidence,
 )
 from packages.domain.experiment_registry import EvaluationSegmentKind
 from packages.domain.feature import CertifiedFeatureReplay
 from packages.domain.fixture_segment_worker import (
+    FIXTURE_SEGMENT_FAILURE_CODE,
+    FIXTURE_SEGMENT_FAILURE_DETAIL,
+    FIXTURE_SEGMENT_FAILURE_SHA256,
     FixtureSegmentJob,
     FixtureSegmentJobProjection,
     FixtureSegmentWorkerConflict,
@@ -20,6 +24,8 @@ from packages.domain.fixture_segment_worker import (
     FixtureTranscriptKind,
     claim_fixture_segment_job,
     complete_fixture_segment_job,
+    fail_fixture_segment_job,
+    fixture_segment_failure_evidence,
     queue_fixture_segment_job,
     renew_fixture_segment_claim,
 )
@@ -278,6 +284,48 @@ def test_complete_publishes_exact_target_artifact_and_governed_receipt() -> None
     assert completed.target_artifact == target_artifact
     assert completed.latest.completion_receipt_sha256 == receipt.semantic_sha256
     assert completed.latest.governance_event_sha256 == completed_event.semantic_sha256
+
+
+def test_failure_requires_the_exact_closed_governance_evidence() -> None:
+    _fixture_value, governed, _certification, projection = _running()
+    token = projection.claim_token
+    assert token is not None
+    attempt = next(
+        item for item in governed.attempts if item.attempt_id == projection.job.attempt_id
+    )
+    expected = fixture_segment_failure_evidence(attempt)
+    assert expected.reason_code == FIXTURE_SEGMENT_FAILURE_CODE
+    assert expected.detail == FIXTURE_SEGMENT_FAILURE_DETAIL
+
+    for reason_code, detail in (
+        ("different_bounded_reason", FIXTURE_SEGMENT_FAILURE_DETAIL),
+        (FIXTURE_SEGMENT_FAILURE_CODE, "A different bounded terminal detail."),
+    ):
+        substituted = NonExecutableTerminalEvidence.unsuccessful(
+            attempt,
+            status=ExperimentAttemptStatus.FAILED,
+            reason_code=reason_code,
+            detail=detail,
+        )
+        failed_governance = governed.transition_attempt(
+            projection.job.attempt_id,
+            status=ExperimentAttemptStatus.FAILED,
+            occurred_at=FIRST_ATTEMPT_AT + timedelta(minutes=2),
+            actor_id=projection.job.governed_actor_id,
+            terminal_evidence=substituted,
+        )
+        with pytest.raises(
+            FixtureSegmentWorkerConflict,
+            match="changed its governed terminal event",
+        ):
+            fail_fixture_segment_job(
+                projection,
+                token,
+                governance_failed_event=failed_governance.latest_event(projection.job.attempt_id),
+                failed_at=FIRST_ATTEMPT_AT + timedelta(minutes=2),
+                reason_code=FIXTURE_SEGMENT_FAILURE_CODE,
+                reason_sha256=FIXTURE_SEGMENT_FAILURE_SHA256,
+            )
 
 
 def test_completion_rejects_configuration_substitution() -> None:

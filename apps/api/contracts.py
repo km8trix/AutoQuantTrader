@@ -857,7 +857,6 @@ class ExperimentResponse(ApiModel):
 
 
 class FixtureTranscriptProvenanceView(ApiModel):
-    artifact_sha256: Sha256Text
     kind: FixtureTranscriptKind
     family_id: Sha256Text
     attempt_id: Sha256Text
@@ -868,21 +867,15 @@ class FixtureTranscriptProvenanceView(ApiModel):
     transcript_sha256: Sha256Text
     step_count: int = Field(ge=1, le=100_000)
     output_count: int = Field(ge=0, le=5_000_000)
-    transcript_payload_sha256: Sha256Text
-    semantic_sha256: Sha256Text
 
 
 class FixtureSegmentEventProvenanceView(ApiModel):
-    event_sha256: Sha256Text
     sequence: int = Field(ge=0, le=9_999)
     status: FixtureSegmentJobStatus
     occurred_at: datetime
     attempt_number: int = Field(ge=0, le=9_999)
-    previous_event_sha256: Sha256Text | None
     claim_expires_at: datetime | None
     governance_event_sha256: Sha256Text
-    feature_artifact_sha256: Sha256Text
-    target_artifact_sha256: Sha256Text | None
     completion_receipt_sha256: Sha256Text | None
 
 
@@ -896,10 +889,7 @@ class FixtureSegmentJobSummaryView(ApiModel):
     status: FixtureSegmentJobStatus
     event_count: int = Field(ge=1, le=10_000)
     latest_sequence: int = Field(ge=0, le=9_999)
-    latest_event_sha256: Sha256Text
     latest_occurred_at: datetime
-    feature_artifact_sha256: Sha256Text
-    target_artifact_sha256: Sha256Text | None
     completion_receipt_sha256: Sha256Text | None
 
 

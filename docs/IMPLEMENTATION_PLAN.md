@@ -935,15 +935,22 @@ Passing one layer cannot substitute for another.
   governance/audit history, attempt, status, and completion linkage. The
   verifier requires exact cross-ledger lifecycle shape: queued job/event
   identity, every physical running claim, and terminal status/time/receipt must
-  match their governed attempt facts without extras or gaps. Feature artifact
-  fields/counts are
-  cross-bound to reconstructed segment evidence, and successful target
-  fields/counts are cross-bound to the governed evaluation receipt. Jobs use
+  match their governed attempt facts without extras or gaps; failed jobs must
+  also carry the one fixed governed non-executable reason, detail, and semantic
+  identity. Feature artifact fields/counts are cross-bound to reconstructed
+  segment evidence, and successful target fields/counts are cross-bound to the
+  governed evaluation receipt. Ordered feature and target step tuples must
+  independently reproduce the governed transcript/result/certification roots.
+  Output cardinality is governed but ordered output members lack an independent
+  governed root, so output members and identities whose only anchor is the
+  stored artifact payload are excluded from the public claim. Jobs use
   deterministic keyset pages of at most 100 and retain only constant-size
   summary DTOs; details authenticate all events while exposing reverse-
   chronological sequence pages of at most 100. Frozen
-  allowlisted records expose only opaque digests, counts, lifecycle
-  ordinals/status, safe timestamps, and predecessor linkage. Transcript
+  allowlisted records expose only independently authenticated opaque job,
+  governance, certification, transcript, parity, completion, and context
+  digests; counts; lifecycle ordinals/status; and safe timestamps. Artifact/
+  payload identities, event/predecessor/artifact-link identities, transcript
   payloads and members, holdout identities/material, configuration values,
   caller-controlled labels, terminal detail, economic results, criteria, and
   promotion decisions remain structurally absent.

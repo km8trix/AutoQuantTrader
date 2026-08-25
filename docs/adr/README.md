@@ -250,7 +250,8 @@ choice is recorded in a new ADR that supersedes the earlier decision.
 - [ADR 0119: Authenticated fixture-segment provenance views](0119-authenticated-fixture-segment-provenance-views.md)
   (implements Phase 3G's GET-only, keyset-paginated job and bounded event views
   over fully authenticated Phase 3F chains; only opaque digests, counts, safe
-  lifecycle ordinals/timestamps, and status cross a structurally redacted query
-  boundary, with no schema, mutation, economic, provider, or trading authority)
+  lifecycle ordinals/timestamps, and status with independent governed anchors
+  cross a structurally redacted query boundary, with no schema, mutation,
+  economic, provider, or trading authority)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

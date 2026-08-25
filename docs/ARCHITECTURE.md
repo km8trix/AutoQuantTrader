@@ -3134,8 +3134,14 @@ physical claim, renewal, and takeover binds the single governed `RUNNING`
 event; and the terminal fixture event binds the exact governed terminal status,
 time, and completion receipt. Feature transcript identity fields and counts are
 cross-bound to reconstructed segment evidence, while successful target fields
-and counts are cross-bound to the governed evaluation receipt. Extra, missing,
-or substituted lifecycle and artifact facts fail closed.
+and counts are cross-bound to the governed evaluation receipt. The verifier
+recomputes each ordered feature and target step tuple through its independently
+governed transcript/result/certification commitment. Failed jobs require the
+one fixed governed non-executable reason, detail, and semantic identity. Extra,
+missing, or substituted lifecycle and authenticated artifact facts fail closed.
+Output cardinality is governed, but the ordered output-member tuples have no
+independent governed root; they and every identity whose only anchor is the
+stored artifact payload remain outside the public claim.
 
 Job pages use the deterministic keyset order `requested_at DESC, job_id ASC`,
 with a maximum of 100 results. List reads authenticate all events but expose
@@ -3146,14 +3152,17 @@ job, list-cursor, and event-cursor cases share one generic not-found response;
 corrupt or malformed durable evidence yields one generic unavailable response.
 
 The persistence boundary constructs frozen allowlisted provenance values only
-after verification. Views contain opaque relationship digests, bounded counts,
-segment kind, lifecycle status and ordinals, safe timestamps, and predecessor
-linkage. They structurally omit transcript payloads, ordered step/output
-members, segment and source-evidence identities, holdout material,
-configuration values, caller-controlled requester/actor/worker labels,
-terminal-reason material, target contents, positions, returns, P&L, metrics,
-criteria outcomes, and promotion decisions. Post-reveal final-test jobs receive
-no expanded view.
+after verification. Internal query records retain the proof links needed to
+validate exact DTO structure, but views contain only opaque job, family,
+attempt, configuration, validation, governance, certification, transcript,
+parity, and completion digests; independently governed bounded counts; segment
+kind; lifecycle status and ordinals; and safe timestamps. They structurally
+omit artifact/transcript-payload identities, event/predecessor/artifact-link
+identities, transcript payloads, ordered step/output members, segment and
+source-evidence identities, holdout material, configuration values, caller-
+controlled requester/actor/worker labels, terminal-reason material, target
+contents, positions, returns, P&L, metrics, criteria outcomes, and promotion
+decisions. Post-reveal final-test jobs receive no expanded view.
 
 Phase 3G reuses the Phase 3F schema and adds no repair, write, worker command,
 experiment mutation, provider or filesystem I/O, captured-tape admission,

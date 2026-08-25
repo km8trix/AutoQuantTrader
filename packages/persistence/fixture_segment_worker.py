@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ import sqlalchemy as sa
 from sqlalchemy import Connection, Engine
 from sqlalchemy.engine import RowMapping
 
+from packages.domain.canonical import canonical_json_bytes
 from packages.domain.experiment_governance import (
     ExperimentAttempt,
     ExperimentAttemptStatus,
@@ -24,9 +26,18 @@ from packages.domain.experiment_governance import (
     ExperimentGovernanceError as DomainExperimentGovernanceError,
 )
 from packages.domain.experiment_registry import EvaluationSegmentKind
-from packages.domain.feature import CertifiedFeatureReplay
-from packages.domain.feature_target import CertifiedFeatureTargetReplay
+from packages.domain.feature import (
+    FEATURE_REPLAY_CONTRACT_VERSION,
+    CertifiedFeatureReplay,
+    FeatureComputationMode,
+)
+from packages.domain.feature_target import (
+    FEATURE_TARGET_CONTRACT_VERSION,
+    CertifiedFeatureTargetReplay,
+)
 from packages.domain.fixture_segment_worker import (
+    FIXTURE_SEGMENT_FAILURE_CODE,
+    FIXTURE_SEGMENT_FAILURE_SHA256,
     FIXTURE_SEGMENT_WORKER_CONTRACT_VERSION,
     FixtureSegmentClaimToken,
     FixtureSegmentJob,
@@ -40,6 +51,7 @@ from packages.domain.fixture_segment_worker import (
     claim_fixture_segment_job,
     complete_fixture_segment_job,
     fail_fixture_segment_job,
+    fixture_segment_failure_evidence,
     queue_fixture_segment_job,
     renew_fixture_segment_claim,
     segment_evidence_for_attempt,
@@ -71,6 +83,108 @@ from packages.persistence.schema import (
 _SUPPORTED_DIALECTS = frozenset({"sqlite", "postgresql"})
 MAX_FIXTURE_SEGMENT_PROVENANCE_PAGE_SIZE = 100
 _SHA256_TEXT = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _contract_sha256(value: object) -> str:
+    return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+
+
+def _feature_transcript_commitments(
+    evidence: ExperimentSegmentEvidence,
+    artifact: FixtureTranscriptArtifact,
+) -> tuple[str, str, str, str]:
+    transcript_sha256 = _contract_sha256(
+        (
+            FEATURE_REPLAY_CONTRACT_VERSION,
+            "feature-replay-transcript",
+            evidence.feature_artifact_sha256,
+            evidence.replay_result_sha256,
+            artifact.step_sha256s,
+        )
+    )
+    batch_result_sha256 = _contract_sha256(
+        (
+            FEATURE_REPLAY_CONTRACT_VERSION,
+            "feature-replay-result",
+            FeatureComputationMode.BATCH.value,
+            transcript_sha256,
+        )
+    )
+    incremental_result_sha256 = _contract_sha256(
+        (
+            FEATURE_REPLAY_CONTRACT_VERSION,
+            "feature-replay-result",
+            FeatureComputationMode.INCREMENTAL.value,
+            transcript_sha256,
+        )
+    )
+    certification_sha256 = _contract_sha256(
+        (
+            FEATURE_REPLAY_CONTRACT_VERSION,
+            "certified-feature-replay",
+            evidence.feature_artifact_sha256,
+            batch_result_sha256,
+            incremental_result_sha256,
+            evidence.feature_parity_receipt_sha256,
+        )
+    )
+    return (
+        transcript_sha256,
+        batch_result_sha256,
+        incremental_result_sha256,
+        certification_sha256,
+    )
+
+
+def _target_transcript_commitments(
+    source_evidence: ExperimentSegmentEvidence,
+    receipt: GovernedSegmentEvaluationReceipt,
+    artifact: FixtureTranscriptArtifact,
+) -> tuple[str, str, str, str]:
+    transcript_sha256 = _contract_sha256(
+        (
+            FEATURE_TARGET_CONTRACT_VERSION,
+            "feature-target-transcript",
+            receipt.target_runtime_pin_sha256,
+            source_evidence.feature_transcript_sha256,
+            source_evidence.feature_parity_receipt_sha256,
+            artifact.step_sha256s,
+        )
+    )
+    batch_result_sha256 = _contract_sha256(
+        (
+            FEATURE_TARGET_CONTRACT_VERSION,
+            "feature-target-replay-result",
+            FeatureComputationMode.BATCH.value,
+            transcript_sha256,
+        )
+    )
+    incremental_result_sha256 = _contract_sha256(
+        (
+            FEATURE_TARGET_CONTRACT_VERSION,
+            "feature-target-replay-result",
+            FeatureComputationMode.INCREMENTAL.value,
+            transcript_sha256,
+        )
+    )
+    certification_sha256 = _contract_sha256(
+        (
+            FEATURE_TARGET_CONTRACT_VERSION,
+            "certified-feature-target-replay",
+            source_evidence.feature_certification_sha256,
+            receipt.target_policy_sha256,
+            receipt.target_runtime_pin_sha256,
+            batch_result_sha256,
+            incremental_result_sha256,
+            receipt.target_parity_receipt_sha256,
+        )
+    )
+    return (
+        transcript_sha256,
+        batch_result_sha256,
+        incremental_result_sha256,
+        certification_sha256,
+    )
 
 
 class FixtureSegmentPersistenceError(RuntimeError):
@@ -108,6 +222,7 @@ class FixtureTranscriptProvenance:
 class FixtureSegmentEventProvenance:
     """Allowlisted lifecycle metadata for one authenticated job event."""
 
+    job_id: str
     event_sha256: str
     sequence: int
     status: FixtureSegmentJobStatus
@@ -475,6 +590,7 @@ def _provenance(
         feature_artifact=_artifact_provenance(projection.feature_artifact),
         events=tuple(
             FixtureSegmentEventProvenance(
+                job_id=event.job_id,
                 event_sha256=event.event_sha256,
                 sequence=event.sequence,
                 status=event.status,
@@ -604,6 +720,12 @@ def _assert_job_context(
             "fixture job cannot resolve exact opened segment evidence"
         ) from error
     feature_artifact = projection.feature_artifact
+    (
+        expected_feature_transcript_sha256,
+        _expected_feature_batch_result_sha256,
+        _expected_feature_incremental_result_sha256,
+        expected_feature_certification_sha256,
+    ) = _feature_transcript_commitments(source_evidence, feature_artifact)
     if (
         attempt.family_id != job.family_id
         or attempt.configuration.semantic_sha256 != job.configuration_sha256
@@ -620,6 +742,8 @@ def _assert_job_context(
         or feature_artifact.certification_sha256 != source_evidence.feature_certification_sha256
         or feature_artifact.parity_receipt_sha256 != source_evidence.feature_parity_receipt_sha256
         or feature_artifact.transcript_sha256 != source_evidence.feature_transcript_sha256
+        or feature_artifact.transcript_sha256 != expected_feature_transcript_sha256
+        or feature_artifact.certification_sha256 != expected_feature_certification_sha256
         or len(feature_artifact.step_sha256s) != source_evidence.step_count
         or len(feature_artifact.output_ids) != source_evidence.snapshot_count
     ):
@@ -712,6 +836,26 @@ def _verify_governance_link(
                 "fixture terminal event diverges from governed attempt history"
             )
 
+    if expected_status is ExperimentAttemptStatus.FAILED:
+        terminal_governance_event = governance_events[2]
+        terminal_evidence = terminal_governance_event.terminal_evidence
+        expected_terminal_evidence = fixture_segment_failure_evidence(attempt)
+        if (
+            terminal_governance_event.family_id != projection.job.family_id
+            or type(terminal_evidence) is not NonExecutableTerminalEvidence
+            or terminal_evidence.attempt_id != projection.job.attempt_id
+            or terminal_evidence.status is not ExperimentAttemptStatus.FAILED
+            or terminal_evidence.reason_code != FIXTURE_SEGMENT_FAILURE_CODE
+            or terminal_evidence.detail != expected_terminal_evidence.detail
+            or terminal_evidence.semantic_sha256 != expected_terminal_evidence.semantic_sha256
+            or terminal_evidence != expected_terminal_evidence
+            or terminal_fixture_event.terminal_reason_code != FIXTURE_SEGMENT_FAILURE_CODE
+            or terminal_fixture_event.terminal_reason_sha256 != FIXTURE_SEGMENT_FAILURE_SHA256
+        ):
+            raise FixtureSegmentPersistenceError(
+                "fixture failure evidence diverges from its closed governance fact"
+            )
+
     if expected_status is ExperimentAttemptStatus.COMPLETED:
         terminal_governance_event = governance_events[2]
         receipt = terminal_governance_event.terminal_evidence
@@ -719,7 +863,22 @@ def _verify_governance_link(
         if (
             type(receipt) is not GovernedSegmentEvaluationReceipt
             or type(target_artifact) is not FixtureTranscriptArtifact
-            or terminal_fixture_event.completion_receipt_sha256 != receipt.semantic_sha256
+        ):
+            raise FixtureSegmentPersistenceError(
+                "fixture completion evidence diverges from its governed receipt"
+            )
+        (
+            expected_target_transcript_sha256,
+            expected_target_batch_result_sha256,
+            expected_target_incremental_result_sha256,
+            expected_target_certification_sha256,
+        ) = _target_transcript_commitments(
+            source_evidence,
+            receipt,
+            target_artifact,
+        )
+        if (
+            terminal_fixture_event.completion_receipt_sha256 != receipt.semantic_sha256
             or receipt.family_id != projection.job.family_id
             or receipt.attempt_id != projection.job.attempt_id
             or receipt.configuration_sha256 != projection.job.configuration_sha256
@@ -741,6 +900,11 @@ def _verify_governance_link(
             or target_artifact.certification_sha256 != receipt.target_certification_sha256
             or target_artifact.parity_receipt_sha256 != receipt.target_parity_receipt_sha256
             or target_artifact.transcript_sha256 != receipt.target_transcript_sha256
+            or target_artifact.transcript_sha256 != expected_target_transcript_sha256
+            or receipt.batch_result_sha256 != expected_target_batch_result_sha256
+            or receipt.incremental_result_sha256 != expected_target_incremental_result_sha256
+            or target_artifact.certification_sha256 != expected_target_certification_sha256
+            or receipt.target_certification_sha256 != expected_target_certification_sha256
             or len(target_artifact.step_sha256s) != receipt.step_count
             or len(target_artifact.output_ids) != receipt.target_count
         ):
@@ -1248,15 +1412,7 @@ class SqlFixtureSegmentWorkflow:
                     return prior
                 _verify_governance_link(prior, current)
                 attempt = _attempt(current, prior.job.attempt_id)
-                terminal_evidence = NonExecutableTerminalEvidence.unsuccessful(
-                    attempt,
-                    status=ExperimentAttemptStatus.FAILED,
-                    reason_code=reason_code,
-                    detail=(
-                        "Bounded fixture-segment evaluation failed; raw exception text was not "
-                        "retained."
-                    ),
-                )
+                terminal_evidence = fixture_segment_failure_evidence(attempt)
                 proposed = current.transition_attempt(
                     prior.job.attempt_id,
                     status=ExperimentAttemptStatus.FAILED,

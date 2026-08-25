@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
@@ -25,7 +26,13 @@ from packages.persistence.schema import (
     phase3_experiment_audit_events,
     phase3_fixture_segment_transcript_artifacts,
 )
-from tests.integration.test_fixture_segment_worker_persistence import _queued_workflow
+from tests.integration.test_fixture_segment_worker_persistence import (
+    _artifact_variant,
+    _projection_with_feature_variant,
+    _projection_with_target_variant,
+    _queued_workflow,
+    _replace_persisted_fixture_projection,
+)
 from tests.unit.test_experiment_governance import (
     FIRST_ATTEMPT_AT,
     GovernanceFixture,
@@ -91,6 +98,26 @@ class _MalformedExactQuery:
     ) -> tuple[tuple[FixtureSegmentJobProvenanceSummary, ...], str | None]:
         del limit, before_job_id
         return (self.summary,), "stored-detail-must-not-escape"  # type: ignore[return-value]
+
+
+@dataclass(slots=True)
+class _ExactResultQuery:
+    provenance: FixtureSegmentJobProvenance
+    summaries: tuple[FixtureSegmentJobProvenanceSummary, ...]
+    cursor: str | None = None
+
+    def get(self, job_id: str) -> FixtureSegmentJobProvenance:
+        del job_id
+        return self.provenance
+
+    def jobs(
+        self,
+        *,
+        limit: int = 50,
+        before_job_id: str | None = None,
+    ) -> tuple[tuple[FixtureSegmentJobProvenanceSummary, ...], str | None]:
+        del limit, before_job_id
+        return self.summaries, self.cursor
 
 
 def _query_client(query: object | None, *, ready: bool = True) -> TestClient:
@@ -192,6 +219,14 @@ def test_routes_are_get_only_bounded_paginated_and_redact_transcript_material(
         "holdout_commitment",
         "terminal_reason_code",
         "terminal_reason_sha256",
+        "artifact_sha256",
+        "transcript_payload_sha256",
+        "semantic_sha256",
+        "event_sha256",
+        "previous_event_sha256",
+        "feature_artifact_sha256",
+        "target_artifact_sha256",
+        "latest_event_sha256",
         "positions",
         "returns",
         "pnl",
@@ -203,6 +238,95 @@ def test_routes_are_get_only_bounded_paginated_and_redact_transcript_material(
     paths = client.app.openapi()["paths"]
     assert set(paths["/api/v1/research/fixture-segment-jobs"]) == {"get"}
     assert set(paths["/api/v1/research/fixture-segment-jobs/{job_id}"]) == {"get"}
+
+
+def test_same_length_output_substitutions_are_outside_the_public_claim(
+    tmp_path: Path,
+) -> None:
+    fixture, engine, workflow, _queued = _queued_workflow(tmp_path)
+    claimed = workflow.claim_next(
+        worker_id="private-worker-label-must-not-escape",
+        claimed_at=FIRST_ATTEMPT_AT + timedelta(minutes=1),
+        claim_expires_at=FIRST_ATTEMPT_AT + timedelta(minutes=6),
+    )
+    assert claimed is not None and claimed.claim_token is not None
+    completed = workflow.complete(
+        claimed.job.job_id,
+        claimed.claim_token,
+        _target_certification(fixture.validation_certification, fixture.configuration),
+        completed_at=FIRST_ATTEMPT_AT + timedelta(minutes=2),
+    )
+    assert completed.feature_artifact.output_ids
+    assert completed.target_artifact is not None
+    assert completed.target_artifact.output_ids
+    query = SqlFixtureSegmentProvenanceQuery(engine)
+    client = _query_client(query)
+    detail_path = f"/api/v1/research/fixture-segment-jobs/{completed.job.job_id}"
+    baseline_detail = client.get(detail_path).json()["job"]
+    baseline_list = client.get("/api/v1/research/fixture-segment-jobs").json()["jobs"]
+
+    original_feature_output = completed.feature_artifact.output_ids[0]
+    replacement_feature_output = "f" * 64 if original_feature_output != "f" * 64 else "e" * 64
+    feature_artifact = _artifact_variant(
+        completed.feature_artifact,
+        output_ids=(
+            replacement_feature_output,
+            *completed.feature_artifact.output_ids[1:],
+        ),
+    )
+    feature_replacement = _projection_with_feature_variant(completed, feature_artifact)
+    _replace_persisted_fixture_projection(engine, completed, feature_replacement)
+    feature_detail = client.get(detail_path)
+    feature_list = client.get("/api/v1/research/fixture-segment-jobs")
+    assert feature_detail.status_code == feature_list.status_code == 200
+    assert feature_detail.json()["job"] == baseline_detail
+    assert feature_list.json()["jobs"] == baseline_list
+
+    original_target_output = feature_replacement.target_artifact.output_ids[0]
+    replacement_target_output = (
+        "phase3g-redacted-target-output"
+        if original_target_output != "phase3g-redacted-target-output"
+        else "phase3g-alternate-redacted-target-output"
+    )
+    target_artifact = _artifact_variant(
+        feature_replacement.target_artifact,
+        output_ids=(
+            replacement_target_output,
+            *feature_replacement.target_artifact.output_ids[1:],
+        ),
+    )
+    target_replacement = _projection_with_target_variant(
+        feature_replacement,
+        target_artifact,
+    )
+    _replace_persisted_fixture_projection(engine, feature_replacement, target_replacement)
+    target_detail = client.get(detail_path)
+    target_list = client.get("/api/v1/research/fixture-segment-jobs")
+    assert target_detail.status_code == target_list.status_code == 200
+    assert target_detail.json()["job"] == baseline_detail
+    assert target_list.json()["jobs"] == baseline_list
+
+    encoded = json.dumps((target_detail.json()["job"], target_list.json()["jobs"]))
+    for hidden_value in (
+        original_feature_output,
+        replacement_feature_output,
+        original_target_output,
+        replacement_target_output,
+    ):
+        assert hidden_value not in encoded
+    for omitted_member_identity in (
+        "artifact_sha256",
+        "transcript_payload_sha256",
+        "semantic_sha256",
+        "event_sha256",
+        "previous_event_sha256",
+        "feature_artifact_sha256",
+        "target_artifact_sha256",
+        "latest_event_sha256",
+        "step_sha256s",
+        "output_ids",
+    ):
+        assert f'"{omitted_member_identity}"' not in encoded
 
 
 def test_validation_missing_records_and_cursors_are_bounded_and_non_oracular(
@@ -294,6 +418,81 @@ def test_exact_type_malformed_and_governance_failures_return_generic_503(
             "detail": "durable fixture-segment provenance is unavailable or malformed"
         }
         assert stored_detail not in response.text
+
+
+def test_exact_detail_dto_chain_substitutions_return_generic_503(tmp_path: Path) -> None:
+    _fixture, _engine, provenance, summary, _payload, _output = _completed_provenance(tmp_path)
+    events = provenance.events
+    assert len(events) == 3 and provenance.target_artifact is not None
+    variants = (
+        replace(provenance, events=tuple(reversed(events))),
+        replace(provenance, events=(events[0], events[0], events[2])),
+        replace(
+            provenance,
+            events=(events[0], replace(events[1], sequence=7), events[2]),
+        ),
+        replace(
+            provenance,
+            events=(
+                events[0],
+                replace(events[1], job_id="d" * 64),
+                events[2],
+            ),
+        ),
+        replace(
+            provenance,
+            events=(
+                events[0],
+                replace(events[1], feature_artifact_sha256="f" * 64),
+                events[2],
+            ),
+        ),
+        replace(
+            provenance,
+            events=(
+                events[0],
+                events[1],
+                replace(events[2], target_artifact_sha256="e" * 64),
+            ),
+        ),
+        replace(provenance, requested_at=provenance.requested_at + timedelta(seconds=1)),
+    )
+    for variant in variants:
+        response = _query_client(_ExactResultQuery(variant, (summary,))).get(
+            f"/api/v1/research/fixture-segment-jobs/{provenance.job_id}"
+        )
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": "durable fixture-segment provenance is unavailable or malformed"
+        }
+        assert "inconsistent" not in response.text
+
+
+def test_exact_summary_dto_order_and_shape_substitutions_return_generic_503(
+    tmp_path: Path,
+) -> None:
+    _fixture, _engine, provenance, summary, _payload, _output = _completed_provenance(tmp_path)
+    older = replace(
+        summary,
+        job_id="f" * 64,
+        requested_at=summary.requested_at - timedelta(seconds=1),
+    )
+    pages = (
+        (older, summary),
+        (summary, summary),
+        (replace(summary, latest_sequence=summary.latest_sequence + 1),),
+        (replace(summary, target_artifact_sha256=None),),
+        (replace(summary, latest_event_sha256="stored-detail-must-not-escape"),),
+    )
+    for summaries in pages:
+        response = _query_client(_ExactResultQuery(provenance, summaries)).get(
+            "/api/v1/research/fixture-segment-jobs"
+        )
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": "durable fixture-segment provenance is unavailable or malformed"
+        }
+        assert "stored-detail-must-not-escape" not in response.text
 
 
 def test_repository_translates_governance_audit_failure_before_api_boundary(

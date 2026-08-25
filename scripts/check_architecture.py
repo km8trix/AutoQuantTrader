@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "e680f62bd5c19e5e6e7898844669a38d3403bed1b40e157810bd33d5604c2fbb"
+    "8d6c91b8ef7d873fb08d110e53d8b998d2d77b8551e87df598362efb81fd41c7"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 

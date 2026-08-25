@@ -481,14 +481,10 @@ export interface components {
       "attempt_number": number;
       "claim_expires_at": (string) | (null);
       "completion_receipt_sha256": (components["schemas"]["Sha256Text"]) | (null);
-      "event_sha256": components["schemas"]["Sha256Text"];
-      "feature_artifact_sha256": components["schemas"]["Sha256Text"];
       "governance_event_sha256": components["schemas"]["Sha256Text"];
       "occurred_at": string;
-      "previous_event_sha256": (components["schemas"]["Sha256Text"]) | (null);
       "sequence": number;
       "status": components["schemas"]["FixtureSegmentJobStatus"];
-      "target_artifact_sha256": (components["schemas"]["Sha256Text"]) | (null);
     };
     "FixtureSegmentJobListResponse": {
       "as_of": string;
@@ -517,19 +513,15 @@ export interface components {
       "configuration_sha256": components["schemas"]["Sha256Text"];
       "event_count": number;
       "family_id": components["schemas"]["Sha256Text"];
-      "feature_artifact_sha256": components["schemas"]["Sha256Text"];
       "job_id": components["schemas"]["Sha256Text"];
-      "latest_event_sha256": components["schemas"]["Sha256Text"];
       "latest_occurred_at": string;
       "latest_sequence": number;
       "requested_at": string;
       "segment_kind": components["schemas"]["EvaluationSegmentKind"];
       "status": components["schemas"]["FixtureSegmentJobStatus"];
-      "target_artifact_sha256": (components["schemas"]["Sha256Text"]) | (null);
     };
     "FixtureTranscriptKind": "feature" | "target";
     "FixtureTranscriptProvenanceView": {
-      "artifact_sha256": components["schemas"]["Sha256Text"];
       "attempt_id": components["schemas"]["Sha256Text"];
       "certification_sha256": components["schemas"]["Sha256Text"];
       "configuration_sha256": (components["schemas"]["Sha256Text"]) | (null);
@@ -538,9 +530,7 @@ export interface components {
       "output_count": number;
       "parity_receipt_sha256": components["schemas"]["Sha256Text"];
       "segment_kind": components["schemas"]["EvaluationSegmentKind"];
-      "semantic_sha256": components["schemas"]["Sha256Text"];
       "step_count": number;
-      "transcript_payload_sha256": components["schemas"]["Sha256Text"];
       "transcript_sha256": components["schemas"]["Sha256Text"];
     };
     "FreshnessStatus": "current" | "stale" | "unavailable";

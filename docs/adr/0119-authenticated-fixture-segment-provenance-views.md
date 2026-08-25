@@ -37,15 +37,25 @@ resource bounds.
    renewal, or takeover must bind the attempt's single exact `RUNNING` event;
    and a terminal fixture event must bind the exact governed terminal status,
    time, and completion receipt. Extra or missing governed lifecycle facts fail
-   closed. Feature-artifact segment, source-evidence, certification, parity,
-   transcript, step-count, and output-count fields are cross-bound to the
-   reconstructed `ExperimentSegmentEvidence`; a successful target artifact's
-   corresponding fields, including configuration identity, are cross-bound to
-   its `GovernedSegmentEvaluationReceipt`. A list authenticates every returned
-   row and the one-row lookahead before emitting either results or a
-   continuation cursor. A supplied cursor row is itself fully authenticated
-   before its order key is used. Any missing link, corruption, substitution, or
-   divergence makes the entire read unavailable.
+   closed. A failed fixture event must carry the worker's one fixed
+   `NonExecutableTerminalEvidence` reason, detail, and semantic identity; a
+   self-consistent alternate governed failure fact is rejected. Feature-
+   artifact segment, source-evidence, certification, parity, transcript,
+   step-count, and output-count fields are cross-bound to the reconstructed
+   `ExperimentSegmentEvidence`. The ordered feature-step tuple independently
+   reproduces that governed transcript, result, and certification commitment.
+   A successful target artifact's corresponding fields, including
+   configuration identity, are cross-bound to its
+   `GovernedSegmentEvaluationReceipt`, and its ordered step tuple independently
+   reproduces the receipt's transcript, batch, incremental, and certification
+   commitments. The governed evidence records output cardinality but no
+   independently reconstructible ordered-output root, so output members and
+   every identity derived only from the complete artifact payload remain
+   outside the public claim. A list authenticates every returned row and the
+   one-row lookahead before emitting either results or a continuation cursor. A
+   supplied cursor row is itself fully authenticated before its order key is
+   used. Any missing link, corruption, substitution, or divergence makes the
+   entire read unavailable.
 3. Order job pages by `requested_at DESC, job_id ASC`. The opaque
    `before_job_id` keyset cursor resolves to the authenticated row's exact
    timestamp and identity; the next page admits earlier timestamps or, for a
@@ -60,20 +70,24 @@ resource bounds.
    `before_sequence` cursor must name an event in that authenticated chain and
    returns only lower sequences. Total count and continuation metadata make
    truncation explicit; no response can contain more than 100 events.
-5. Cross the query boundary only with frozen allowlisted provenance records.
-   Job views include opaque family, attempt, configuration, validation,
-   governance, certification, artifact, event, transcript, payload, parity, and
-   completion digests; segment kind; bounded counts; status; physical-attempt
-   ordinal; request/event/claim-expiry timestamps; and predecessor linkage.
-   These values identify authenticated relationships but do not disclose the
-   referenced content.
+5. Cross the repository query boundary only with frozen allowlisted provenance
+   records. Internal detail records retain artifact/event/predecessor links so
+   the API can reject malformed exact-type repository results before
+   conversion. The public job views narrow that proof again to opaque job,
+   family, attempt, configuration, validation, governance, certification,
+   transcript, parity, and completion digests; segment kind; independently
+   governed bounded counts; status; physical-attempt ordinal; and safe
+   request/event/claim-expiry timestamps. They omit artifact, transcript-
+   payload, event, predecessor, and artifact-link identities because those
+   identities commit the unanchored output-member tuple.
 6. Never return transcript payloads, ordered step digests, output identifiers,
-   segment/source-evidence identities, holdout commitment or reveal material,
-   configuration values, requester/actor/worker labels, terminal-reason
-   material, target values, positions, returns, P&L, metrics, criteria outcomes,
-   or promotion decisions. Final-test jobs remain impossible before the ADR
-   0117 audited reveal, but post-reveal views still receive the same metadata
-   allowlist and no holdout-specific expansion.
+   artifact or transcript-payload identities, event/predecessor/artifact-link
+   identities, segment/source-evidence identities, holdout commitment or reveal
+   material, configuration values, requester/actor/worker labels, terminal-
+   reason material, target values, positions, returns, P&L, metrics, criteria
+   outcomes, or promotion decisions. Final-test jobs remain impossible before
+   the ADR 0117 audited reveal, but post-reveal views still receive the same
+   metadata allowlist and no holdout-specific expansion.
 7. Add only GET routes at
    `/api/v1/research/fixture-segment-jobs` and
    `/api/v1/research/fixture-segment-jobs/{job_id}`. Advertise the capability
@@ -89,9 +103,12 @@ resource bounds.
 
 Operators and browser clients can traverse durable fixture-job provenance with
 deterministic bounded pages while every presented relationship is derived from
-a fully authenticated stored chain. The structural redaction boundary prevents
-internal transcript members and caller-controlled labels from reaching the API
-even if a future route accidentally inspects all fields of the query result.
+a fully authenticated stored chain. Ordered step substitutions fail against an
+independent governed transcript commitment. Same-cardinality output-member
+substitutions do not alter the narrowed public view because output members and
+all payload-dependent identities are structurally absent. The redaction
+boundary also prevents caller-controlled labels from reaching the API even if a
+future route accidentally inspects all fields of the query result.
 
 These views remain proof metadata for a repository-owned synthetic fixture.
 They do not make the transcript an economic report, qualify captured data,

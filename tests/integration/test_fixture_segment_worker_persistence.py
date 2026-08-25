@@ -22,6 +22,7 @@ from packages.domain.experiment_registry import EvaluationSegmentKind
 from packages.domain.feature import CertifiedFeatureReplay
 from packages.domain.fixture_segment_worker import (
     FIXTURE_SEGMENT_FAILURE_CODE,
+    FIXTURE_SEGMENT_FAILURE_DETAIL,
     FIXTURE_SEGMENT_FAILURE_SHA256,
     FixtureSegmentJob,
     FixtureSegmentJobEvent,
@@ -845,13 +846,96 @@ def test_provenance_rejects_extra_and_missing_governance_lifecycle_shape(
         SqlFixtureSegmentProvenanceQuery(engine).get(queued.job.job_id)
 
 
+@pytest.mark.parametrize(
+    ("reason_code", "detail", "key"),
+    (
+        (
+            "different_bounded_reason",
+            FIXTURE_SEGMENT_FAILURE_DETAIL,
+            "phase3g-rehashed-governance-failure-reason",
+        ),
+        (
+            FIXTURE_SEGMENT_FAILURE_CODE,
+            "A different bounded terminal detail.",
+            "phase3g-rehashed-governance-failure-detail",
+        ),
+    ),
+)
+def test_provenance_rejects_fully_rehashed_governance_failure_evidence(
+    tmp_path: Path,
+    reason_code: str,
+    detail: str,
+    key: str,
+) -> None:
+    _fixture_value, engine, workflow, queued = _queued_workflow(tmp_path)
+    claimed = workflow.claim_next(
+        worker_id="phase3g-physical-worker",
+        claimed_at=FIRST_ATTEMPT_AT + timedelta(minutes=1),
+        claim_expires_at=FIRST_ATTEMPT_AT + timedelta(minutes=6),
+    )
+    assert claimed is not None and claimed.latest.worker_id is not None
+    current = workflow.governance_snapshot(queued.job.family_id)
+    attempt = next(item for item in current.attempts if item.attempt_id == queued.job.attempt_id)
+    substituted_evidence = NonExecutableTerminalEvidence.unsuccessful(
+        attempt,
+        status=ExperimentAttemptStatus.FAILED,
+        reason_code=reason_code,
+        detail=detail,
+    )
+    proposed = current.transition_attempt(
+        attempt.attempt_id,
+        status=ExperimentAttemptStatus.FAILED,
+        occurred_at=FIRST_ATTEMPT_AT + timedelta(minutes=2),
+        actor_id=queued.job.governed_actor_id,
+        terminal_evidence=substituted_evidence,
+    )
+    persisted = _persist_transition(
+        SqlExperimentGovernance(engine),
+        current,
+        proposed,
+        key=key,
+    )
+    substituted_governance_event = persisted.latest_event(attempt.attempt_id)
+    terminal = _event(
+        job_id=claimed.job.job_id,
+        sequence=len(claimed.events),
+        status=FixtureSegmentJobStatus.FAILED,
+        occurred_at=substituted_governance_event.occurred_at,
+        actor_id=claimed.latest.worker_id,
+        attempt_number=claimed.latest.attempt_number,
+        previous_event_sha256=claimed.latest.event_sha256,
+        worker_id=claimed.latest.worker_id,
+        claim_expires_at=None,
+        governance_event_sha256=substituted_governance_event.semantic_sha256,
+        feature_artifact_sha256=claimed.feature_artifact.artifact_sha256,
+        target_artifact_sha256=None,
+        completion_receipt_sha256=None,
+        terminal_reason_code=FIXTURE_SEGMENT_FAILURE_CODE,
+        terminal_reason_sha256=FIXTURE_SEGMENT_FAILURE_SHA256,
+    )
+    replacement = FixtureSegmentJobProjection(
+        job=claimed.job,
+        feature_artifact=claimed.feature_artifact,
+        events=(*claimed.events, terminal),
+    )
+    _replace_persisted_fixture_projection(engine, claimed, replacement)
+
+    query = SqlFixtureSegmentProvenanceQuery(engine)
+    with pytest.raises(FixtureSegmentPersistenceError, match="closed governance fact"):
+        query.get(queued.job.job_id)
+    with pytest.raises(FixtureSegmentPersistenceError, match="closed governance fact"):
+        query.jobs(limit=1)
+
+
 def test_provenance_selected_row_rejects_fully_rehashed_feature_metadata(
     tmp_path: Path,
 ) -> None:
     _fixture_value, engine, _workflow, queued = _queued_workflow(tmp_path)
+    substituted_steps = ("a" * 64, *queued.feature_artifact.step_sha256s[1:])
+    assert substituted_steps != queued.feature_artifact.step_sha256s
     replacement_artifact = _artifact_variant(
         queued.feature_artifact,
-        parity_receipt_sha256="a" * 64,
+        step_sha256s=substituted_steps,
     )
     replacement = _projection_with_feature_variant(queued, replacement_artifact)
     _replace_persisted_fixture_projection(engine, queued, replacement)
@@ -885,9 +969,11 @@ def test_provenance_lookahead_rejects_fully_rehashed_target_metadata(
         key="phase3g-target-lookahead-newest",
     )
     assert completed.target_artifact is not None
+    substituted_steps = ("d" * 64, *completed.target_artifact.step_sha256s[1:])
+    assert substituted_steps != completed.target_artifact.step_sha256s
     replacement_artifact = _artifact_variant(
         completed.target_artifact,
-        output_ids=(*completed.target_artifact.output_ids, "rehashed-extra-output"),
+        step_sha256s=substituted_steps,
     )
     replacement = _projection_with_target_variant(completed, replacement_artifact)
     _replace_persisted_fixture_projection(engine, completed, replacement)
@@ -928,7 +1014,7 @@ def test_governance_verifier_cross_binds_every_feature_and_target_artifact_field
         _artifact_variant(feature, certification_sha256="3" * 64),
         _artifact_variant(feature, parity_receipt_sha256="4" * 64),
         _artifact_variant(feature, transcript_sha256="5" * 64),
-        _artifact_variant(feature, step_sha256s=(*feature.step_sha256s, "6" * 64)),
+        _artifact_variant(feature, step_sha256s=("6" * 64, *feature.step_sha256s[1:])),
         _artifact_variant(feature, output_ids=(*feature.output_ids, "extra-feature-output")),
     )
     for variant in feature_variants:
@@ -946,7 +1032,7 @@ def test_governance_verifier_cross_binds_every_feature_and_target_artifact_field
         _artifact_variant(target, certification_sha256="a" * 64),
         _artifact_variant(target, parity_receipt_sha256="b" * 64),
         _artifact_variant(target, transcript_sha256="c" * 64),
-        _artifact_variant(target, step_sha256s=(*target.step_sha256s, "d" * 64)),
+        _artifact_variant(target, step_sha256s=("d" * 64, *target.step_sha256s[1:])),
         _artifact_variant(target, output_ids=(*target.output_ids, "extra-target-output")),
     )
     for variant in target_variants:
