@@ -467,8 +467,11 @@ enrollment and implements the post-enrollment start controller/orchestrator in
 code, but no start has been operationally admitted. ADR 0111/0112 now
 reauthenticate and cross-bind the exact decision-artifact receipt and historical
 start chain into the dormant operation-bound clean-stop supervisor bridge, but
-its host/core private entry points still have zero callers. Current-topology and
-stop-authority admission, durability, outcomes, and all effects remain absent;
+its host/core private entry points still have zero callers. ADR 0116 freezes only
+the design-only transport → same-lock admission → lifecycle-v2 composition and
+its distinct pre-effect and post-teardown reauthentication order; none of that
+chain is implemented or authorized. Current-topology and stop-authority
+admission, durability, outcomes, and all effects remain absent;
 `trusted-time-stop` remains hard closed. Phase 6E is only a dormant watchdog-
 state reducer. The Phase 6 paper-MVP gate remains unmet, and the Phase 7
 supervised paper soak and Phase 8 human-approved minimum-size live canary remain
