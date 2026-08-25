@@ -3,12 +3,14 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import Engine
+from sqlalchemy.dialects import postgresql
 
 from packages.application.fixture_segment_worker import process_one_fixture_segment
 from packages.domain.experiment_governance import ExperimentAttemptStatus
@@ -26,6 +28,7 @@ from packages.persistence.fixture_segment_worker import (
     FixtureSegmentPersistenceConflict,
     FixtureSegmentPersistenceError,
     SqlFixtureSegmentWorkflow,
+    _job_head_statement,
 )
 from packages.persistence.schema import (
     phase3_fixture_segment_job_events,
@@ -152,6 +155,137 @@ def test_enqueue_exact_retry_is_idempotent_and_changed_input_conflicts(tmp_path:
             connection.scalar(sa.select(sa.func.count()).select_from(phase3_fixture_segment_jobs))
             == 1
         )
+
+
+def test_enqueue_exact_retry_returns_running_and_completed_durable_state(tmp_path: Path) -> None:
+    fixture, engine, workflow, queued = _queued_workflow(tmp_path)
+    original_snapshot = workflow.governance_snapshot(queued.job.family_id)
+    claimed = workflow.claim_next(
+        worker_id="phase3f-process-a",
+        claimed_at=FIRST_ATTEMPT_AT + timedelta(minutes=1),
+        claim_expires_at=FIRST_ATTEMPT_AT + timedelta(minutes=6),
+    )
+    assert claimed is not None and claimed.claim_token is not None
+    running_snapshot = workflow.governance_snapshot(queued.job.family_id)
+
+    for supplied_snapshot in (original_snapshot, running_snapshot):
+        assert (
+            workflow.enqueue(
+                supplied_snapshot,
+                queued.job.attempt_id,
+                fixture.validation_certification,
+                requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=1),
+                requested_by="phase3f-scheduler",
+            )
+            == claimed
+        )
+    with pytest.raises(FixtureSegmentPersistenceConflict, match="changed its exact input"):
+        workflow.enqueue(
+            running_snapshot,
+            queued.job.attempt_id,
+            fixture.validation_certification,
+            requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=2),
+            requested_by="phase3f-scheduler",
+        )
+
+    completed = workflow.complete(
+        queued.job.job_id,
+        claimed.claim_token,
+        _target_certification(fixture.validation_certification, fixture.configuration),
+        completed_at=FIRST_ATTEMPT_AT + timedelta(minutes=2),
+    )
+    completed_snapshot = workflow.governance_snapshot(queued.job.family_id)
+    for supplied_snapshot in (original_snapshot, completed_snapshot):
+        assert (
+            workflow.enqueue(
+                supplied_snapshot,
+                queued.job.attempt_id,
+                fixture.validation_certification,
+                requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=1),
+                requested_by="phase3f-scheduler",
+            )
+            == completed
+        )
+    with pytest.raises(FixtureSegmentPersistenceConflict):
+        workflow.enqueue(
+            completed_snapshot,
+            queued.job.attempt_id,
+            _scoped_certification(40),
+            requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=1),
+            requested_by="phase3f-scheduler",
+        )
+
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(sa.select(sa.func.count()).select_from(phase3_fixture_segment_jobs))
+            == 1
+        )
+        assert (
+            connection.scalar(
+                sa.select(sa.func.count()).select_from(phase3_fixture_segment_job_events)
+            )
+            == 3
+        )
+
+
+def test_concurrent_exact_enqueue_retry_and_claim_converge(tmp_path: Path) -> None:
+    fixture, engine, workflow, queued = _queued_workflow(tmp_path)
+    original_snapshot = workflow.governance_snapshot(queued.job.family_id)
+    barrier = Barrier(2)
+
+    def retry_enqueue() -> FixtureSegmentJobProjection:
+        barrier.wait()
+        return workflow.enqueue(
+            original_snapshot,
+            queued.job.attempt_id,
+            fixture.validation_certification,
+            requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=1),
+            requested_by="phase3f-scheduler",
+        )
+
+    def claim() -> FixtureSegmentJobProjection | None:
+        barrier.wait()
+        return workflow.claim_next(
+            worker_id="phase3f-process-a",
+            claimed_at=FIRST_ATTEMPT_AT + timedelta(minutes=1),
+            claim_expires_at=FIRST_ATTEMPT_AT + timedelta(minutes=6),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        retry_future = executor.submit(retry_enqueue)
+        claim_future = executor.submit(claim)
+        retry_result = retry_future.result()
+        claim_result = claim_future.result()
+
+    assert claim_result is not None
+    assert retry_result.status in {
+        FixtureSegmentJobStatus.QUEUED,
+        FixtureSegmentJobStatus.RUNNING,
+    }
+    final = workflow.get(queued.job.job_id)
+    assert final.status is FixtureSegmentJobStatus.RUNNING
+    assert (
+        workflow.enqueue(
+            workflow.governance_snapshot(queued.job.family_id),
+            queued.job.attempt_id,
+            fixture.validation_certification,
+            requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=1),
+            requested_by="phase3f-scheduler",
+        )
+        == final
+    )
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(sa.select(sa.func.count()).select_from(phase3_fixture_segment_jobs))
+            == 1
+        )
+
+
+def test_postgresql_retry_head_statement_locks_the_exact_projection_row() -> None:
+    statement = _job_head_statement("a" * 64, lock=True)
+    compiled = str(statement.compile(dialect=postgresql.dialect()))
+
+    assert "FOR UPDATE OF phase3_fixture_segment_job_heads" in compiled
 
 
 def test_concurrent_claim_has_one_winner_and_stale_claim_cannot_complete(tmp_path: Path) -> None:
@@ -380,6 +514,16 @@ def test_failure_does_not_publish_target_artifact(tmp_path: Path) -> None:
         reason_sha256=FIXTURE_SEGMENT_FAILURE_SHA256,
     )
     assert failed.status is FixtureSegmentJobStatus.FAILED
+    assert (
+        workflow.enqueue(
+            workflow.governance_snapshot(queued.job.family_id),
+            queued.job.attempt_id,
+            _fixture_value.validation_certification,
+            requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=1),
+            requested_by="phase3f-scheduler",
+        )
+        == failed
+    )
     with engine.connect() as connection:
         assert (
             connection.scalar(

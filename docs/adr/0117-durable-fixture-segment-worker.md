@@ -57,9 +57,12 @@ creating a completed governance fact separately from its transcript evidence.
    event chain. The SQL head is only a compare-and-swap lock projection and is
    rechecked against the full chain. PostgreSQL claims use row locking with
    skip-locked selection; SQLite uses its serialized immediate write
-   transaction. Reads authenticate jobs, artifacts, events, heads, and their
-   exact governance event linkage and fail closed on corruption, gaps,
-   substitution, orphan artifacts, or divergent terminal status.
+   transaction. Existing enqueue retries resolve family/attempt first, lock and
+   reload the job head, then lock governance in lifecycle-command order and
+   compare the immutable original queued evidence. Reads authenticate jobs,
+   artifacts, events, heads, and their exact governance event linkage and fail
+   closed on corruption, gaps, substitution, orphan artifacts, or divergent
+   terminal status.
 6. Publish success atomically. One SQL transaction inserts the target artifact,
    re-proves and stores the existing `GovernedSegmentEvaluationReceipt`, appends
    the completed fixture event, and advances the job head. A crash at any point

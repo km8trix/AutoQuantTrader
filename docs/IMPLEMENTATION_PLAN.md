@@ -917,9 +917,10 @@ Passing one layer cannot substitute for another.
   renewable/expired-claim-safe physical worker tokens, and one stable logical
   governed actor. Target artifact, governed completion receipt, terminal job
   event, and head advance commit atomically; crashes publish none of them.
-  Enqueue and terminal retries are exact and idempotent, changed input
-  conflicts, corruption fails closed, and final-test evidence is admitted only
-  after its audited reveal.
+  Enqueue retries lock and reload the current job/governance state and remain
+  exact from running or terminal lifecycles; terminal retries are likewise
+  idempotent. Changed input conflicts, corruption fails closed, and final-test
+  evidence is admitted only after its audited reveal.
 - Phase 3A and 3B evidence remains limited to repository-owned synthetic
   fixtures, Phase 3F deliberately does not reuse the Phase 2 economic backtest
   worker, and Phase 3E has no qualified external captured-tape input. General

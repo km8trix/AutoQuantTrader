@@ -377,6 +377,19 @@ def _current_claim_from_terminal(
     )
 
 
+def _job_head_statement(
+    job_id: str,
+    *,
+    lock: bool,
+) -> sa.Select[tuple[Any, ...]]:
+    statement = sa.select(phase3_fixture_segment_job_heads).where(
+        phase3_fixture_segment_job_heads.c.job_id == job_id
+    )
+    if lock:
+        statement = statement.with_for_update(of=phase3_fixture_segment_job_heads)
+    return statement
+
+
 def _load_governance(connection: Connection, family_id: str) -> ExperimentGovernanceSnapshot:
     history = _load_snapshot_history(connection, family_id, lock=True)
     _verify_audits(connection, history)
@@ -495,48 +508,53 @@ class SqlFixtureSegmentWorkflow:
         requested_by: str,
     ) -> FixtureSegmentJobProjection:
         try:
-            job, artifact = FixtureSegmentJob.from_queued_attempt(
-                snapshot,
-                attempt_id,
-                certification,
-                requested_at=requested_at,
-                requested_by=requested_by,
-            )
-            proposed = queue_fixture_segment_job(job, artifact)
-            with _write_transaction(self._engine) as connection:
-                existing_row = (
-                    connection.execute(
-                        sa.select(phase3_fixture_segment_jobs).where(
-                            phase3_fixture_segment_jobs.c.job_id == job.job_id
-                        )
-                    )
-                    .mappings()
-                    .one_or_none()
+            if type(snapshot) is not ExperimentGovernanceSnapshot:
+                raise FixtureSegmentPersistenceConflict(
+                    "fixture enqueue requires an exact governance snapshot"
                 )
-                if existing_row is not None:
-                    existing_job = _job_from_row(existing_row)
-                    existing = _projection(connection, existing_job)
-                    if existing_job != job or existing.feature_artifact != artifact:
+            supplied_attempt = _attempt(snapshot, attempt_id)
+            family_id = supplied_attempt.family_id
+            with _write_transaction(self._engine) as connection:
+                existing_job_id = connection.scalar(
+                    sa.select(phase3_fixture_segment_jobs.c.job_id).where(
+                        phase3_fixture_segment_jobs.c.family_id == family_id,
+                        phase3_fixture_segment_jobs.c.attempt_id == attempt_id,
+                    )
+                )
+                if existing_job_id is not None:
+                    # Claim/renew/terminal commands take the job head before
+                    # governance. Preserve that order so a PostgreSQL retry
+                    # cannot observe a pre-claim projection and post-claim
+                    # governance snapshot or deadlock with the claimer.
+                    existing = self._locked_projection(connection, str(existing_job_id))
+                    current = _load_governance(connection, family_id)
+                    expected_job, expected_artifact = FixtureSegmentJob._from_original_enqueue(
+                        current,
+                        attempt_id,
+                        certification,
+                        requested_at=requested_at,
+                        requested_by=requested_by,
+                        require_current_queued=False,
+                    )
+                    if (
+                        existing.job != expected_job
+                        or existing.feature_artifact != expected_artifact
+                    ):
                         raise FixtureSegmentPersistenceConflict(
                             "fixture enqueue retry changed its exact input"
                         )
-                    _verify_governance_link(
-                        existing,
-                        _load_governance(connection, job.family_id),
-                    )
+                    _verify_governance_link(existing, current)
                     return existing
-                current = _load_governance(connection, job.family_id)
-                exact_job, exact_artifact = FixtureSegmentJob.from_queued_attempt(
+
+                current = _load_governance(connection, family_id)
+                job, artifact = FixtureSegmentJob.from_queued_attempt(
                     current,
                     attempt_id,
                     certification,
                     requested_at=requested_at,
                     requested_by=requested_by,
                 )
-                if exact_job != job or exact_artifact != artifact:
-                    raise FixtureSegmentPersistenceConflict(
-                        "enqueue changed the exact governed fixture input"
-                    )
+                proposed = queue_fixture_segment_job(job, artifact)
                 insert_or_verify_atomic(
                     connection,
                     phase3_fixture_segment_transcript_artifacts,
@@ -873,11 +891,10 @@ class SqlFixtureSegmentWorkflow:
         connection: Connection,
         job_id: str,
     ) -> FixtureSegmentJobProjection:
-        statement = sa.select(phase3_fixture_segment_job_heads).where(
-            phase3_fixture_segment_job_heads.c.job_id == job_id
+        statement = _job_head_statement(
+            job_id,
+            lock=connection.dialect.name == "postgresql",
         )
-        if connection.dialect.name == "postgresql":
-            statement = statement.with_for_update()
         connection.execute(statement).mappings().one_or_none()
         return _projection(connection, _job(connection, job_id))
 

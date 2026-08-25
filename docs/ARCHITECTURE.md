@@ -3046,6 +3046,11 @@ creating another stable research trial.
 lifecycle history. `phase3_fixture_segment_job_heads` is only a verified
 compare-and-swap lock projection. PostgreSQL claim selection uses row locking
 with skip-locked behavior; SQLite serializes the immediate write transaction.
+An existing enqueue retry resolves the immutable family/attempt identity, locks
+and reloads the job head, then locks governance in the same order as lifecycle
+commands before comparing the original queued evidence. It therefore returns
+the current running or terminal projection rather than racing a concurrent
+claim or requiring the caller's snapshot to remain queued.
 `phase3_fixture_segment_transcript_artifacts` retains the feature artifact at
 enqueue and the target artifact only on success. Reads reconstruct the full job
 chain, authenticate artifacts and the head, and require the exact corresponding

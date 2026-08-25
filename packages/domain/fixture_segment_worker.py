@@ -434,9 +434,48 @@ class FixtureSegmentJob:
         requested_at: datetime,
         requested_by: str,
     ) -> tuple[Self, FixtureTranscriptArtifact]:
+        return cls._from_original_enqueue(
+            snapshot,
+            attempt_id,
+            certification,
+            requested_at=requested_at,
+            requested_by=requested_by,
+            require_current_queued=True,
+        )
+
+    @classmethod
+    def _from_original_enqueue(
+        cls,
+        snapshot: ExperimentGovernanceSnapshot,
+        attempt_id: str,
+        certification: CertifiedFeatureReplay,
+        *,
+        requested_at: datetime,
+        requested_by: str,
+        require_current_queued: bool,
+    ) -> tuple[Self, FixtureTranscriptArtifact]:
+        """Reconstruct immutable enqueue input from the attempt's first event.
+
+        Persistence uses the non-current form only after it has resolved and
+        locked an already durable job. New work must still use
+        :meth:`from_queued_attempt` and therefore requires a currently queued
+        governed attempt.
+        """
+
         attempt = _attempt(snapshot, attempt_id)
-        queued = snapshot.latest_event(attempt_id)
-        if queued.status is not ExperimentAttemptStatus.QUEUED:
+        queued = next(
+            (
+                event
+                for event in snapshot.lifecycle_events
+                if event.attempt_id == attempt_id and event.attempt_sequence_number == 0
+            ),
+            None,
+        )
+        if (
+            type(queued) is not ExperimentAttemptEvent
+            or queued.status is not ExperimentAttemptStatus.QUEUED
+            or (require_current_queued and snapshot.latest_event(attempt_id) != queued)
+        ):
             raise FixtureSegmentWorkerError("fixture work can be enqueued only for queued attempts")
         _require_utc(requested_at, "fixture job requested_at")
         if requested_at < queued.occurred_at:
