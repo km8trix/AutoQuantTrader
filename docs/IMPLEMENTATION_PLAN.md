@@ -932,7 +932,13 @@ Passing one layer cannot substitute for another.
   implemented:** ADR 0119 adds a query-only SQL boundary and GET-only job list
   and detail routes. Every returned job, supplied cursor, and list lookahead is
   authenticated through its artifacts, full event/head chain, complete
-  governance/audit history, attempt, status, and completion linkage. Jobs use
+  governance/audit history, attempt, status, and completion linkage. The
+  verifier requires exact cross-ledger lifecycle shape: queued job/event
+  identity, every physical running claim, and terminal status/time/receipt must
+  match their governed attempt facts without extras or gaps. Feature artifact
+  fields/counts are
+  cross-bound to reconstructed segment evidence, and successful target
+  fields/counts are cross-bound to the governed evaluation receipt. Jobs use
   deterministic keyset pages of at most 100 and retain only constant-size
   summary DTOs; details authenticate all events while exposing reverse-
   chronological sequence pages of at most 100. Frozen

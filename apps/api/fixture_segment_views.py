@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from itertools import islice
@@ -20,6 +21,7 @@ from apps.api.contracts import (
     FixtureSegmentJobSummaryView,
     FixtureTranscriptProvenanceView,
 )
+from packages.persistence.experiment_governance import ExperimentGovernanceError
 from packages.persistence.fixture_segment_worker import (
     FixtureSegmentEventProvenance,
     FixtureSegmentJobProvenance,
@@ -30,6 +32,8 @@ from packages.persistence.fixture_segment_worker import (
 )
 
 logger = logging.getLogger(__name__)
+_SHA256_TEXT = re.compile(r"^[0-9a-f]{64}$")
+_MAX_STORED_EVENTS = 10_000
 
 
 class FixtureSegmentProvenanceQuery(Protocol):
@@ -47,6 +51,20 @@ class FixtureSegmentProvenanceQuery(Protocol):
 
 class _FixtureSegmentEventCursorNotFound(ValueError):
     """An event cursor does not belong to the authenticated job chain."""
+
+
+def _require_detail_projection(provenance: FixtureSegmentJobProvenance) -> None:
+    if (
+        type(provenance.events) is not tuple
+        or not 1 <= len(provenance.events) <= _MAX_STORED_EVENTS
+        or any(type(event) is not FixtureSegmentEventProvenance for event in provenance.events)
+        or type(provenance.feature_artifact) is not FixtureTranscriptProvenance
+        or (
+            provenance.target_artifact is not None
+            and type(provenance.target_artifact) is not FixtureTranscriptProvenance
+        )
+    ):
+        raise TypeError("fixture provenance query returned malformed immutable detail")
 
 
 def _artifact_view(
@@ -95,6 +113,7 @@ def fixture_segment_summary_view(
         )
     if type(provenance) is not FixtureSegmentJobProvenance:
         raise TypeError("fixture provenance query returned an unexpected job type")
+    _require_detail_projection(provenance)
     latest = provenance.latest
     return FixtureSegmentJobSummaryView(
         job_id=provenance.job_id,
@@ -148,6 +167,7 @@ def fixture_segment_provenance_view(
 
     if type(provenance) is not FixtureSegmentJobProvenance:
         raise TypeError("fixture provenance query returned an unexpected job type")
+    _require_detail_projection(provenance)
     if type(event_limit) is not int or not 1 <= event_limit <= 100:
         raise ValueError("fixture provenance event limit must be between 1 and 100")
     if before_sequence is not None and (
@@ -243,8 +263,19 @@ def create_fixture_segment_router(
                 limit=limit,
                 before_job_id=before_job_id,
             )
-            if type(jobs) is not tuple or any(
-                type(job) is not FixtureSegmentJobProvenanceSummary for job in jobs
+            if (
+                type(jobs) is not tuple
+                or len(jobs) > limit
+                or any(type(job) is not FixtureSegmentJobProvenanceSummary for job in jobs)
+                or (
+                    next_before_job_id is not None
+                    and (
+                        type(next_before_job_id) is not str
+                        or _SHA256_TEXT.fullmatch(next_before_job_id) is None
+                        or len(jobs) != limit
+                        or jobs[-1].job_id != next_before_job_id
+                    )
+                )
             ):
                 raise TypeError("fixture provenance query must return immutable jobs")
             return FixtureSegmentJobListResponse(
@@ -256,10 +287,12 @@ def create_fixture_segment_router(
             raise _not_found() from error
         except (
             SQLAlchemyError,
+            ExperimentGovernanceError,
             FixtureSegmentPersistenceError,
             ValueError,
             TypeError,
             AttributeError,
+            IndexError,
         ) as error:
             logger.exception("fixture-segment provenance list read failed")
             raise _unavailable() from error
@@ -300,10 +333,12 @@ def create_fixture_segment_router(
             raise _not_found() from error
         except (
             SQLAlchemyError,
+            ExperimentGovernanceError,
             FixtureSegmentPersistenceError,
             ValueError,
             TypeError,
             AttributeError,
+            IndexError,
         ) as error:
             logger.exception("fixture-segment provenance detail read failed")
             raise _unavailable() from error

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
 
+import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
@@ -13,12 +14,17 @@ from apps.api.config import Settings
 from apps.api.fixture_segment_views import create_fixture_segment_router
 from apps.api.main import create_app
 from packages.domain.fixture_segment_worker import FixtureSegmentJobStatus
+from packages.persistence.experiment_governance import ExperimentGovernanceError
 from packages.persistence.fixture_segment_worker import (
     FixtureSegmentJobProvenance,
     FixtureSegmentJobProvenanceSummary,
+    FixtureSegmentPersistenceError,
     SqlFixtureSegmentProvenanceQuery,
 )
-from packages.persistence.schema import phase3_fixture_segment_transcript_artifacts
+from packages.persistence.schema import (
+    phase3_experiment_audit_events,
+    phase3_fixture_segment_transcript_artifacts,
+)
 from tests.integration.test_fixture_segment_worker_persistence import _queued_workflow
 from tests.unit.test_experiment_governance import (
     FIRST_ATTEMPT_AT,
@@ -48,6 +54,43 @@ class _QueryStub:
         if self.malformed:
             return ([self.summary], None)  # type: ignore[return-value]
         return (self.summary,), None
+
+
+@dataclass(slots=True)
+class _GovernanceFailureQuery:
+    detail: str
+
+    def get(self, job_id: str) -> FixtureSegmentJobProvenance:
+        del job_id
+        raise ExperimentGovernanceError(self.detail)
+
+    def jobs(
+        self,
+        *,
+        limit: int = 50,
+        before_job_id: str | None = None,
+    ) -> tuple[tuple[FixtureSegmentJobProvenanceSummary, ...], str | None]:
+        del limit, before_job_id
+        raise ExperimentGovernanceError(self.detail)
+
+
+@dataclass(slots=True)
+class _MalformedExactQuery:
+    provenance: FixtureSegmentJobProvenance
+    summary: FixtureSegmentJobProvenanceSummary
+
+    def get(self, job_id: str) -> FixtureSegmentJobProvenance:
+        del job_id
+        return replace(self.provenance, events=())
+
+    def jobs(
+        self,
+        *,
+        limit: int = 50,
+        before_job_id: str | None = None,
+    ) -> tuple[tuple[FixtureSegmentJobProvenanceSummary, ...], str | None]:
+        del limit, before_job_id
+        return (self.summary,), "stored-detail-must-not-escape"  # type: ignore[return-value]
 
 
 def _query_client(query: object | None, *, ready: bool = True) -> TestClient:
@@ -226,6 +269,69 @@ def test_malformed_unavailable_and_corrupt_queries_fail_closed(tmp_path: Path) -
     assert response.json() == {
         "detail": "durable fixture-segment provenance is unavailable or malformed"
     }
+
+
+def test_exact_type_malformed_and_governance_failures_return_generic_503(
+    tmp_path: Path,
+) -> None:
+    _fixture, _engine, provenance, summary, _payload, _output = _completed_provenance(tmp_path)
+    malformed = _query_client(_MalformedExactQuery(provenance, summary))
+    malformed_list = malformed.get("/api/v1/research/fixture-segment-jobs")
+    malformed_detail = malformed.get(f"/api/v1/research/fixture-segment-jobs/{provenance.job_id}")
+
+    stored_detail = "governance audit disclosed a private operator label"
+    governance = _query_client(_GovernanceFailureQuery(stored_detail))
+    governance_list = governance.get("/api/v1/research/fixture-segment-jobs")
+    governance_detail = governance.get(f"/api/v1/research/fixture-segment-jobs/{provenance.job_id}")
+    for response in (
+        malformed_list,
+        malformed_detail,
+        governance_list,
+        governance_detail,
+    ):
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": "durable fixture-segment provenance is unavailable or malformed"
+        }
+        assert stored_detail not in response.text
+
+
+def test_repository_translates_governance_audit_failure_before_api_boundary(
+    tmp_path: Path,
+) -> None:
+    _fixture, engine, provenance, _summary, _payload, _output = _completed_provenance(tmp_path)
+    with engine.begin() as connection:
+        connection.execute(
+            sa.delete(phase3_experiment_audit_events).where(
+                phase3_experiment_audit_events.c.family_id == provenance.family_id
+            )
+        )
+
+    query = SqlFixtureSegmentProvenanceQuery(engine)
+    with pytest.raises(
+        FixtureSegmentPersistenceError,
+        match="governance is unavailable or malformed",
+    ) as raised:
+        query.get(provenance.job_id)
+    assert isinstance(raised.value.__cause__, ExperimentGovernanceError)
+    with pytest.raises(
+        FixtureSegmentPersistenceError,
+        match="governance is unavailable or malformed",
+    ) as listed:
+        query.jobs()
+    assert isinstance(listed.value.__cause__, ExperimentGovernanceError)
+
+    client = _query_client(query)
+    responses = (
+        client.get("/api/v1/research/fixture-segment-jobs"),
+        client.get(f"/api/v1/research/fixture-segment-jobs/{provenance.job_id}"),
+    )
+    for response in responses:
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": "durable fixture-segment provenance is unavailable or malformed"
+        }
+        assert "audit" not in response.text
 
 
 def test_durable_main_composes_fixture_provenance_query_capability(tmp_path: Path) -> None:

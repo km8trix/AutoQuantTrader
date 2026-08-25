@@ -3128,8 +3128,17 @@ perform the same verification for every row plus the one-row lookahead before
 publishing continuation metadata. A supplied cursor is fully authenticated
 before its ordering key can affect a query.
 
+The cross-ledger verifier requires the exact per-attempt governance shape: the
+job and fixture sequence zero bind governance sequence-zero `QUEUED`; every
+physical claim, renewal, and takeover binds the single governed `RUNNING`
+event; and the terminal fixture event binds the exact governed terminal status,
+time, and completion receipt. Feature transcript identity fields and counts are
+cross-bound to reconstructed segment evidence, while successful target fields
+and counts are cross-bound to the governed evaluation receipt. Extra, missing,
+or substituted lifecycle and artifact facts fail closed.
+
 Job pages use the deterministic keyset order `requested_at DESC, job_id ASC`,
-with a maximum of 100 results. Detail reads authenticate all events but expose
+with a maximum of 100 results. List reads authenticate all events but expose
 only the selected list rows as constant-size immutable summaries with no event
 or artifact collections. Detail reads expose at most 100 events at a time,
 latest first, through an exact sequence cursor. Missing

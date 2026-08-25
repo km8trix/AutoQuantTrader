@@ -32,11 +32,20 @@ resource bounds.
    authenticate the immutable job digest, feature artifact, complete contiguous
    event chain, optional target artifact, checked head, complete family
    governance history, audit chain, current attempt identity, lifecycle status,
-   and completion receipt linkage. A list authenticates every returned row and
-   the one-row lookahead before emitting either results or a continuation
-   cursor. A supplied cursor row is itself fully authenticated before its order
-   key is used. Any missing link, corruption, substitution, or divergence makes
-   the entire read unavailable.
+   and completion receipt linkage. The job and fixture sequence zero must bind
+   the attempt's exact sequence-zero `QUEUED` event; every physical claim,
+   renewal, or takeover must bind the attempt's single exact `RUNNING` event;
+   and a terminal fixture event must bind the exact governed terminal status,
+   time, and completion receipt. Extra or missing governed lifecycle facts fail
+   closed. Feature-artifact segment, source-evidence, certification, parity,
+   transcript, step-count, and output-count fields are cross-bound to the
+   reconstructed `ExperimentSegmentEvidence`; a successful target artifact's
+   corresponding fields, including configuration identity, are cross-bound to
+   its `GovernedSegmentEvaluationReceipt`. A list authenticates every returned
+   row and the one-row lookahead before emitting either results or a
+   continuation cursor. A supplied cursor row is itself fully authenticated
+   before its order key is used. Any missing link, corruption, substitution, or
+   divergence makes the entire read unavailable.
 3. Order job pages by `requested_at DESC, job_id ASC`. The opaque
    `before_job_id` keyset cursor resolves to the authenticated row's exact
    timestamp and identity; the next page admits earlier timestamps or, for a
