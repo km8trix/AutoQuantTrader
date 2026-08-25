@@ -3598,28 +3598,62 @@ canonical bytes once. Generic clean stop does not issue this result.
 
 Dormant host module
 `scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py`
-rebuilds the request from one exact process-local ADR-0106 receipt and
-revalidated ADR-0110 attempt/progress, then burns and cross-binds one exact
-ADR-0109 registry snapshot. Its same-process composite has only the bounded
-ADR-0109 observation and unqualified exact-terminal-cross-binding facts true.
-Transport/origin, decision receipt, historical chain, currentness, freshness,
-topology, lifecycle, durability, reservation, admission, outcome, recovery,
-signal, teardown, operational control, and trading authority remain false.
+builds the request from one exact inert, pending ADR-0112 loaded wrapper and
+revalidated ADR-0110 attempt/progress. It owns the wrapper's exact pending
+authentication and immediate active consumption/revalidation, then burns and
+cross-binds one exact ADR-0109 registry snapshot. Its same-process composite
+promotes only the exact decision-receipt and historical-chain authentication
+facts from that private handoff, the bounded ADR-0109 observation, and an
+explicitly unqualified exact-terminal-cross-binding fact. Transport/origin,
+currentness, freshness, topology, lifecycle, durability, reservation,
+admission, outcome, recovery, signal, teardown, operational control, and
+trading authority remain false.
 
 This is not a runnable milestone. Both private core entry points and the host
 bridge have zero production callers; no main/background, transport, lifecycle
 writer, CLI, Make, Docker/Compose, signal, provider/SQL, or effect surface was
-added. ADR 0112 now provides the dormant inert-load, explicit-authentication,
-and consuming-revalidation flow for the durable ADR-0106 receipt, but ADR 0111
-deliberately does not consume it and ADR-0110 v1
-still stops at ordinal one. Before any runtime integration, the next separately
-reviewed slice must provide: exact ADR-0112 loaded-receipt integration;
-authenticated replay-safe request/result transport;
-same-lock stop-authority and current-topology admission; a lifecycle-v2 schema
-for pre-CALL, post-CALL, confirmed/recovery terminal retention; explicit
-at-fork invalidation and inherited-lock cleanup; and the ordered supervisor,
-source, container, and network effects with both named volumes preserved.
-`trusted-time-stop` remains hard closed.
+added. ADR 0112 provides the dormant inert-load, explicit-authentication, and
+consuming-revalidation flow for the durable ADR-0106 receipt, and ADR 0111 now
+owns that exact private handoff. ADR-0110 v1 still stops at ordinal one.
+
+ADR 0116 freezes the remaining graceful-stop work as one non-separable,
+design-only dependency chain: authenticated bounded replay-safe host/supervisor
+request/result transport for a separately versioned lifecycle-v2-compatible
+wire family; same-lock fresh current topology, trusted-head, stop-authority, and
+exact-operation admission before reservation or effect; a new immutable
+lifecycle-v2 repository and compatible request/result/host-binding family that
+consume that admission and retain every pre-CALL intent, separately
+authenticated post-CALL result, confirmed-success terminal, and
+recovery-required ambiguity without constructing, consuming, or reinterpreting
+ADR-0110/0111 v1 state; PID/thread/at-fork invalidation before any live registry
+construction; and only then the effect sequence. That sequence retains the
+structural v2 wire result, freshly consumes and durably cross-binds an ADR-0109
+host reauthentication through the v2 host seam before any
+supervisor/source/container/network effect, stops the supervisor then source,
+performs exact ID-bound container/network teardown, proves both named volumes
+unchanged, performs a distinct post-teardown terminal reauthentication through
+a separate v2 seam, and publishes one durable outcome. A missing or ambiguous
+result after reservation is recovery-required and never retry evidence. This
+preserves ADRs 0111 and 0112's accepted transport → same-lock admission →
+lifecycle-v2 order while keeping their v1 types dormant. The v2 family must
+reject v1 contract strings, bytes, decoded objects, attempt/progress receipts or
+digests, host composites, scalar/digest adapters, and every mixed-version root,
+prefix, directory, or object graph; v1 decoders must reject v2 in the opposite
+direction, and wrapping v1 bytes in a v2 envelope is forbidden. The transport,
+admission, lifecycle schema and contract IDs, worker association, v2
+historical-receipt handoff, cross-version import/decoder boundaries, fork
+mechanism, effects, both reauthentication bindings, recovery operator, and
+numeric deadlines remain unimplemented external blockers. ADR 0116 changes
+documentation only; `trusted-time-stop` remains hard closed.
+
+ADR 0112's current private handoff is bound to ADR 0111's v1 bridge and is not a
+v2 input. A later implementation review must choose either a separately
+versioned ADR-0112 consumed-snapshot seam bound to the v2 bridge identity or an
+independent v2 loader/consumer of the same historical durable sources. Direct
+v1↔v2 negative vectors and an architecture/import guard proving that v2 cannot
+reach v1 lifecycle loaders, codecs, builders, or host binders are mandatory
+acceptance evidence; this plan does not select the concrete schema or handoff
+implementation.
 
 The ADR-0111 static freeze includes a mandatory raw-byte manifest for every
 regular Python source below the exact `apps`, `packages`, and `scripts` roots.
@@ -4061,7 +4095,22 @@ unavailable before any watchdog consumer is designed or qualified. See
   `historical_start_chain_authenticated` from that handoff. The host and core
   private entry points remain uncalled; authenticated transport, current
   topology and stop-authority admission, lifecycle v2, later-live at-fork
-  handling, durability, outcomes, and all effects remain deferred.
+  handling, durability, outcomes, and all effects remain deferred. ADR 0116
+  now freezes those deferrals as one design-only five-gate dependency order:
+  lifecycle-v2-compatible transport, same-lock current topology/trusted-head/
+  authority/operation admission, lifecycle v2 with a separately versioned
+  request/result/host-binding family, fork-safe live ownership, and only then
+  effects. The transport-authenticated v2 result stays structural until a fresh
+  pre-effect ADR-0109 observation is consumed, cross-bound through the v2 host
+  seam, and durably retained. Only after that binding may the supervisor stop
+  precede source stop, exact container/network teardown, and both-volume
+  preservation; a distinct fresh post-teardown terminal reauthentication
+  through a separate v2 seam then precedes durable outcome. ADR-0110/0111 v1
+  types, bytes, receipts, binders, and adapted projections remain forbidden as
+  v2 inputs, every v1↔v2 mix must reject, and the historical-receipt v2 handoff
+  remains an explicit schema/loader choice. Every post-reservation CALL/STORE
+  ambiguity is recovery-required without automatic retry. No component of that
+  design is implemented or authorized, and the stop target continues to exit 2.
   Claim persistence now uses one globally single-use fixed slot and rejects any
   current or legacy per-operation claim. An import-only coordinator checks the
   exact enrollment evidence before reauthentication and before and after claim

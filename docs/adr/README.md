@@ -224,6 +224,14 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   media/charset/declaration/schema bindings; provider origin remains
   unauthenticated, fixture relabeling is undetectable, and transport,
   persistence, account binding, mutation, and trading authority remain closed)
+- [ADR 0116: Fail-closed replay-safe graceful-stop composition ordering](0116-fail-closed-replay-safe-graceful-stop-composition-ordering.md)
+  (freezes the design-only transport → same-lock admission → lifecycle-v2 →
+  fork-safety → ordered-effect dependency chain with a separately versioned
+  lifecycle-v2-compatible request/result/host-binding family that rejects every
+  v1↔v2 mix, a fresh pre-effect ADR-0109 cross-binding, distinct post-teardown
+  terminal reauthentication, exact ambiguity, and recovery invariants; it adds
+  no implementation, authority, reservation, runtime caller, shutdown effect,
+  or change to the exit-2 stop target)
 - [ADR 0117: Durable bounded fixture-segment worker](0117-durable-fixture-segment-worker.md)
   (implements Phase 3F's repository-fixture-only durable job, rotating physical
   claim, content-addressed feature/target transcripts, and atomic governed
