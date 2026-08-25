@@ -2804,6 +2804,11 @@ channel confirmation—bind their exact contract/status/field sets, both socket
 and peer views, two fresh 32-byte channel challenges, and the deterministic
 channel preimage. Host counters are zero/one/two for hello/confirmation/request;
 supervisor counters are zero/one for hello/result-or-error. Request/result/error
+signatures also bind the lifecycle dispatch prefix. The host retains an exact
+non-circular request-basis digest at ordinal one, derives that prefix from the
+stable root plus ordinal-one intent, and only then constructs the final signed
+request; the basis, intent, prefix, and request carry one admission start and
+checked operation cutoff. Request/result/error
 packets are capped at 262,144 bytes with at most 8,192 fixed envelope bytes;
 decoded payload ceilings are 65,536, 180,224, and 32,768 bytes and the padded-
 base64 formula is verified before allocation.
@@ -2812,9 +2817,16 @@ boot/process/channel mismatch, and deadline equality fail closed. Budgets are
 five seconds for lock and handshake, two seconds per frame, 120 seconds for the
 clean-stop result and each ADR-0109 observation, 30 seconds per container stop,
 15 seconds per removal, 10 seconds for volume proof, five seconds per STORE,
-and 600 seconds overall through the exact fixed ordinal-23 outcome commit.
-Equality at the final precommit check is expired; the deadline does not extend
-to non-authoritative disposal after that commit.
+and 600 seconds from one exact `admission_started_boottime_ns` sample. That sample occurs
+immediately after stable lock/owner/boot/clock qualification and before any
+authority, key, endpoint, evidence, or root work; checked addition of
+`600_000_000_000` nanoseconds derives the cutoff, overflow fails before
+authority, and equality expires. Both the five-second publication window and
+600-second cutoff authorize publication; marker/artifact staging, fsync,
+rename, and readback may cross them. Candidate readback and every success-
+relevant cleanup precede the last check, only the fixed-marker protocol follows,
+and no later clock read or non-authoritative disposal can reclassify a stable
+commit.
 
 The exact v2 family keeps
 `.post-enrollment-graceful-stop-attempt-slot` as the single v1/v2 replay root.
@@ -2840,7 +2852,7 @@ fsync, no-replace rename, stable readback/re-encode/signature/hash validation,
 and an exact receipt must agree. Ordinal-two evidence binds the artifact name,
 absolute admitted artifact path, full-envelope/payload/signature digests,
 schemas, key, channel, counter,
-deadline, and receipt, and the transcript entry binds both that evidence and
+root-plus-ordinal-one dispatch prefix, deadline, and receipt, and the transcript entry binds both that evidence and
 exact wire file. Payload-only, digest-only, orphan, paired result/error, or
 interrupted state is retention-unconfirmed. Result payloads contain one exact nested request,
 twenty-field terminal projection, and signed supervisor-cleanup commitment. ADR 0121 chooses an
@@ -2899,7 +2911,10 @@ result.
 Recovery never continues or repeats an effect. The separate generation-pinned
 profile may authenticate a known prefix, durably consume one signed recovery
 classification, and retain only its deterministic recovery-required outcome or
-finish one already-created exact outcome candidate. It cannot open the
+finish one already-created exact outcome candidate. A confirmed-success
+candidate alone is insufficient; finalization requires its exact authenticated
+fixed-marker staging/final preimage with matching admission start, checked
+operation cutoff, and timely final authorization sample. It cannot open the
 transport channel, load host/supervisor keys, or call Docker. Unknown,
 mixed-version, conflicting, or unstable state permits no write. Recovery binds
 a published classified-prefix transcript, then a distinct final transcript

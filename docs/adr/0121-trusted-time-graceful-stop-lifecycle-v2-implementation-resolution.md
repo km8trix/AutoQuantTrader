@@ -122,14 +122,17 @@ The exact v2 root field set is:
 - `supervisor_container_id`, `source_container_id`, `project_network_id`,
   `chrony_command_socket_volume_identity_sha256`, and
   `chrony_state_volume_identity_sha256`;
-- `clean_stop_result_deadline_boottime_ns`,
+- `admission_started_boottime_ns`, `clean_stop_result_deadline_boottime_ns`,
   `operation_deadline_boottime_ns`, and `root_created_at_utc`.
 
 `lifecycle_version` is the integer `2`, `phase` is exactly `root_reserved`, and
 `ordinal` is the integer zero. UTC values are audit metadata only. No wall-clock
 value supplies freshness, expiry, ordering, or authority.
-`operation_deadline_boottime_ns` is the 600-second normal-path precommit
-authorization cutoff defined below, not a durable-marker completion time.
+`admission_started_boottime_ns` is the one admission-start sample defined below.
+`operation_deadline_boottime_ns` is exactly its checked sum with
+`600_000_000_000` nanoseconds: the 600-second normal-path precommit
+authorization cutoff, not a durable-marker completion time. Both values equal
+the consumed admission projection; neither is caller supplied.
 
 The root is created exclusive/no-follow through the admitted native owned-file
 boundary, file- and directory-fsynced, read back, canonical-decoded, rebound to
@@ -247,8 +250,9 @@ selected by the typed stage. There is no public or private generic append API.
 Each stage has a dedicated constructor, allowed predecessor, exact evidence
 schema, and maximum size.
 
-Intent evidence has exactly `target_identity_sha256`, `arguments_sha256`,
-`admission_sha256`, `channel_id`, and `call_deadline_boottime_ns`. Result
+Intent evidence except ordinal one has exactly `target_identity_sha256`,
+`arguments_sha256`, `admission_sha256`, `channel_id`, and
+`call_deadline_boottime_ns`. Result
 evidence has exactly `intent_sha256`, `responder_identity_sha256`,
 `disposition`, `result_semantic_sha256`, `call_started_boottime_ns`, and
 `call_completed_boottime_ns`. The two reauthentication result stages add the
@@ -271,6 +275,9 @@ SHA-256 over the ASCII domain
 NUL byte, and the complete canonical basis. The ordinal-one constructor derives
 that basis only from the stable root/admission and fixed constants, stores its
 digest as `arguments_sha256`, and exposes no caller-selected basis object.
+Ordinal-one intent evidence has the five intent fields above plus exactly
+`admission_started_boottime_ns` and `operation_deadline_boottime_ns`; they equal
+the basis/root/admission and reproduce the checked 600-second sum.
 `request_intent_sha256` is then ordinary SHA-256 of the complete canonical
 ordinal-one progress-record bytes. Only after that record is stably read back
 may the dispatch prefix and final request be constructed.
@@ -419,13 +426,16 @@ The terminal outcome field set is exactly `contract_version`, `service`,
 `reason_code`, `pre_effect_binding_sha256`,
 `post_teardown_binding_sha256`, `volume_proof_sha256`,
 `terminal_cleanup_sha256`, `stop_effects_confirmed`, `teardown_confirmed`,
-`terminal_cleanup_confirmed`, `commit_protocol_started_boottime_ns`,
+`terminal_cleanup_confirmed`, `admission_started_boottime_ns`,
+`operation_deadline_boottime_ns`, `commit_protocol_started_boottime_ns`,
 `commit_publication_authorization_deadline_boottime_ns`,
 `commit_authorized_boottime_ns`, and `created_at_utc`.
 `status` is exactly `confirmed_success` or `recovery_required`. Confirmed success
 requires non-null exact binding/proof/cleanup digests and all three booleans
 true. Recovery-required requires all three booleans false; its nullable evidence
 fields describe only the last durable prefix and grant no effect authority.
+The admission-start and operation-deadline fields equal the root/admission and
+must reproduce the checked 600-second addition before the candidate qualifies.
 Both commit-window fields are built-in integers in `0..2^63-1`, and the
 five-second addition is checked before use; overflow rejects. The publication-
 authorization deadline is strictly after the protocol start.
@@ -444,6 +454,7 @@ the deterministic next ordinal and names only its exact last retained stage.
 The fixed commit contains exactly `contract_version`, `service`, `status`,
 `lifecycle_version`, `graceful_stop_operation_id`, `root_sha256`,
 `outcome_sha256`, `outcome_status`, `transcript_sha256`,
+`admission_started_boottime_ns`,
 `commit_protocol_started_boottime_ns`,
 `commit_publication_authorization_deadline_boottime_ns`,
 `commit_authorized_boottime_ns`, `operation_deadline_boottime_ns`, and
@@ -453,7 +464,9 @@ deadline is exactly `commit_protocol_started_boottime_ns + 5_000_000_000` for
 a recovery-required candidate and
 `min(commit_protocol_started_boottime_ns + 5_000_000_000,
 operation_deadline_boottime_ns)` for confirmed success.
-`operation_deadline_boottime_ns` equals the root field and is the absolute
+`admission_started_boottime_ns` and `operation_deadline_boottime_ns` equal the
+candidate, root, and consumed admission, and reproduce the checked 600-second
+addition. `operation_deadline_boottime_ns` is the absolute
 precommit authorization cutoff; `commit_authorized_boottime_ns` is the final
 authoritative `CLOCK_BOOTTIME` sample, equals the recovery-required candidate's
 non-null value, and replaces the confirmed-success candidate's null. The
@@ -947,11 +960,14 @@ All acceptance time uses Linux `CLOCK_BOOTTIME`. Numeric budgets are:
 - 10 seconds for the complete two-volume preservation proof;
 - 5 seconds from each durable record/transcript/outcome publication procedure's
   start through its final prepublication authorization check; and
-- 600 seconds from admission start through the ordinal-23 final precommit
-  authorization check.
+- 600 seconds from the exact `admission_started_boottime_ns` sample through the
+  ordinal-23 final precommit authorization check.
 
 Every normal-path prepublication deadline is the minimum of its stated
 authorization window and the absolute whole-operation authorization cutoff.
+That cutoff is always the checked exact sum
+`admission_started_boottime_ns + 600_000_000_000`; a supplied, recomputed, or
+recovered alternative rejects.
 The separately admitted recovery classifier has a fresh five-second
 publication-authorization window and may classify after the normal operation
 cutoff, but may never publish a new confirmed-success candidate. Both endpoints bind the same absolute boot-time
@@ -999,9 +1015,9 @@ The request contract is
 - `supervisor_container_id`, `channel_id`, `boot_epoch_sha256`,
   `host_process_epoch_sha256`, and `supervisor_process_epoch_sha256`;
 - `checkpoint_reason`, `exact_new_record_required`,
-  `clean_stop_result_deadline_boottime_ns`, and
-  `transport_cleanup_required`, `transport_cleanup_deadline_boottime_ns`, and
-  `operation_deadline_boottime_ns`.
+  `clean_stop_result_deadline_boottime_ns`, `transport_cleanup_required`,
+  `transport_cleanup_deadline_boottime_ns`, `admission_started_boottime_ns`,
+  and `operation_deadline_boottime_ns`.
 
 The final request copies every non-derived primitive from the exact ordinal-one
 basis, replaces only its basis contract/status with the final request contract/
@@ -1018,7 +1034,9 @@ quiescence sequence without waiting for another frame. The request is at most
 Its `lifecycle_dispatch_prefix_sha256` is the exact value recomputed from its
 stable root and request-intent artifacts above and equals the signed
 transport envelope field; the supervisor rejects any disagreement before
-constructing a typed request.
+constructing a typed request. Its admission-start and operation-deadline values
+equal the request basis, ordinal-one admission evidence, lifecycle root, and
+consumed admission projection and must reproduce the checked 600-second sum.
 
 The result contract is
 `phase6d-trusted-time-head-anchor-clean-stop-result-v2`, with status
@@ -1216,6 +1234,27 @@ that terminal commit, already-empty registry invalidation and descriptor close
 are non-authoritative disposal outside the lifecycle and deadline; the process
 does not run another lifecycle transition while holding or releasing them.
 
+Immediately after lock acquisition returns one stably revalidated lease, the
+fixed native owner validates the origin PID, exact Thread, fork epoch, boot
+epoch, and exact `CLOCK_BOOTTIME` identity/readability. It then takes exactly
+one `clock_gettime(CLOCK_BOOTTIME)` sample; that syscall return is the precise
+admission-start boundary and becomes `admission_started_boottime_ns`. The sample
+precedes root-absence lookup, executable/import or authority-manifest reads,
+private-key loading, endpoint/socket/channel work, stop-authority, topology,
+Docker, provider/database, trusted-head, or historical-receipt reads, and any
+admission/root construction. The native owner requires a built-in integer in
+`0..2^63-1`: `tv_sec` is nonnegative, `tv_nsec` is in `0..999_999_999`,
+and checked multiply/add of `tv_sec * 1_000_000_000 + tv_nsec` produces that
+integer without overflow. It then proves the value is at most
+`2^63-1 - 600_000_000_000`, and performs one checked addition to derive exactly
+`operation_deadline_boottime_ns` as the sum of
+`admission_started_boottime_ns` and `600_000_000_000`. Read failure, wrong
+clock, overflow, or owner/boot drift
+releases the still-empty lease and fails before any authority, key, endpoint,
+admission, or root can exist. Every later normal-path time sample must be no
+earlier than the admission-start sample and strictly earlier than the derived
+deadline; equality is expired.
+
 Under that lease, the controller performs this exact admission order:
 
 1. validate origin PID/Thread/fork epoch, deployment executable/import
@@ -1238,8 +1277,9 @@ Under that lease, the controller performs this exact admission order:
    immediately consume it in the lifecycle repository to create/revalidate the
    root and retain/revalidate ordinal-one request intent.
 
-The admission is never serialized and reserves nothing itself. The lifecycle
-root stores its exact primitive projection and digest. Caller-selected digests,
+The admission is never serialized and reserves nothing itself. Its exact
+immutable primitive projection and digest bind both admission-start values; the
+lifecycle root stores that projection digest and repeats both values. Caller-selected digests,
 previously loaded objects, booleans, or equality of public views are not inputs.
 
 The global launcher lease is the only cross-process host orchestration lock.
@@ -1264,7 +1304,7 @@ reauthentication intent; no `0..19` or other shortened success lineage exists.
 | Ordinal | Stage | Required boundary |
 |---:|---|---|
 | 0 | `root_reserved` | One admission consumed; fixed permanent root durable |
-| 1 | `clean_stop_request_intent_retained` | Exact signed-request arguments and deadline durable before dispatch |
+| 1 | `clean_stop_request_intent_retained` | Exact request-basis digest, admission start/deadline, and intent evidence durable; derive the dispatch prefix from the stable ordinal-zero root plus this ordinal-one intent, then construct and dispatch the final signed request; no final-request byte feeds the intent |
 | 2 | `clean_stop_result_retained` | Complete canonical signed result-envelope file, publication receipt, and exact typed evidence durable |
 | 3 | `transport_cleanup_commitment_retained` | Signed supervisor cleanup commitment and exact host cleanup plan, owner, socket, key-path, challenge, nonce, and cleanup-deadline identities durable |
 | 4 | `transport_channel_quiesced` | Host signer/challenge/nonce zeroized, both raw-key paths absent, accepted channel/listener closed, and exact socket inode unlinked before any effect |
@@ -2001,7 +2041,8 @@ actions while holding the same global launcher lock:
 
 1. stable-load and authenticate the fixed root, complete namespace, transcript,
    every transcript-referenced signed wire artifact, staging names, outcome
-   candidate, and commit marker;
+   candidate, and commit marker; recompute the checked admission-start plus
+   600-second deadline and require equality everywhere it is repeated;
 2. report an exact already committed confirmed-success or recovery-required
    outcome without mutation;
 3. if there is one exact known gap-free v2 prefix and no outcome publication
@@ -2016,8 +2057,8 @@ actions while holding the same global launcher lock:
    another outcome. A confirmed-success candidate is eligible only when an
    exact canonical fixed-marker staging or final preimage authenticates the
    candidate and contains the matching protocol start, five-second publication-
-   authorization cutoff, 600-second operation cutoff, and final authorization
-   sample strictly before both. An exact recovery-required candidate's own
+   authorization cutoff, admission start, checked 600-second operation cutoff,
+   and final authorization sample strictly before both. An exact recovery-required candidate's own
    non-null sample may authorize finalization under its bound timing rules; a
    confirmed-success candidate alone does not prove that the final check
    occurred and permits no recovery write.
@@ -2034,6 +2075,7 @@ The recovery-classification contract is
 `phase6d-trusted-time-graceful-stop-recovery-classification-envelope-v1`.
 Its exact unsigned fields are `contract_version`, `service`, `status`,
 `environment`, `graceful_stop_operation_id`, `root_sha256`,
+`admission_started_boottime_ns`, `operation_deadline_boottime_ns`,
 `transcript_sha256`, `last_ordinal`, `last_stage`, `reason_code`,
 `transport_authority_manifest_sha256`, `key_generation`, `recovery_key_id`,
 `operator_nonce_base64`, and `issued_at_utc`; encoded bytes add only
@@ -2046,8 +2088,9 @@ The signature input is the ASCII domain
 byte, and the complete canonical unsigned envelope. The recovery signer is
 accepted only under the same-generation reload and manifest-selection rules
 above. Its envelope binds environment, operation, root and transcript digests,
-exact last stage and ordinal, reason, authority manifest/generation, role key,
-and one-use nonce. It cannot select a target or effect. Its allowlisted reason
+the root's exact admission start and checked 600-second deadline, exact last
+stage and ordinal, reason, authority manifest/generation, role key, and one-use
+nonce. It cannot select a target or effect. Its allowlisted reason
 is one of `call_or_result_ambiguous`, `pre_effect_reauthentication_unconfirmed`,
 `supervisor_stop_unconfirmed`, `source_stop_unconfirmed`,
 `supervisor_remove_unconfirmed`, `source_remove_unconfirmed`,
@@ -2060,7 +2103,9 @@ Envelope consumption is exact-identity and one shot in process, then durable.
 The recovery-intent record evidence has exactly
 `recovery_classification_envelope_sha256`, `operator_nonce_sha256`,
 `recovery_key_id`, `transport_authority_manifest_sha256`,
-`classified_transcript_sha256`, and `reason_code`. Once its STORE may have
+`classified_transcript_sha256`, `admission_started_boottime_ns`,
+`operation_deadline_boottime_ns`, and `reason_code`. Both time values equal the
+signed envelope/root and reproduce the checked sum. Once its STORE may have
 begun, another envelope or nonce is forbidden. If the intent is exact and
 durable after restart, only the deterministic outcome derived from that same
 envelope and predecessor may be retained; the signer is not invoked again. If
@@ -2095,7 +2140,8 @@ The implementation must preserve all of these invariants:
 
 - exactly one fixed lifecycle/replay root exists across v1 and v2;
 - one root binds one environment, operation, admission, topology, trusted head,
-  transport generation, boot/process epochs, channel, and deadline context;
+  transport generation, boot/process epochs, channel, exact admission-start
+  sample, and checked 600-second deadline;
 - one channel has exactly one signed request and exactly one signed result or
   error, with exact direction counters and no retransmission;
 - request, result, and error signatures cover direction, schema, channel,
@@ -2216,6 +2262,10 @@ Before any production caller exists, review must retain:
   accepted socket closure;
 - fixed-publication timing vectors proving every five-second STORE/commit value
   and the 600-second operation value are prepublication authorization cutoffs,
+  the exact admission-start sample occurs at the frozen pre-authority boundary,
+  checked addition passes at `2^63-1 - 600_000_000_000` and rejects one above,
+  root/admission/request-basis/final-request/candidate/marker/recovery values
+  correlate and equality expires,
   equality rejects before protocol entry, ordinal-23 final authorization follows
   candidate readback/descriptor closure/empty-registry proof, only exact marker
   publication follows it, a recovery-required candidate carries and a confirmed-

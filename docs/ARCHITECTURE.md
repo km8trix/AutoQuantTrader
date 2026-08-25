@@ -5092,8 +5092,12 @@ peer views, and a deterministic domain-separated channel preimage before any
 application request. The host counters are hello zero, confirmation one,
 request two; supervisor counters are hello zero and result/error one.
 Signatures bind direction, schema, environment, generation, boot and exact
-process epochs, channel, unsigned 64-bit direction counter, absolute
-`CLOCK_BOOTTIME` deadline, and complete payload. There is intentionally no
+process epochs, channel, the exact lifecycle dispatch prefix, unsigned 64-bit
+direction counter, absolute `CLOCK_BOOTTIME` deadline, and complete payload.
+The host first retains an exact non-circular request-basis digest at ordinal
+one, derives the dispatch prefix from the stable root plus that ordinal-one
+intent, then constructs the final signed request; no final-request byte feeds
+the intent digest. There is intentionally no
 confidentiality claim. Unknown or overlapping key generations, private-key
 persistence outside the three named root-created tmpfs secret mounts, endpoint or
 permission drift, counter gap/reuse/wrap, boot/process/channel mismatch, and
@@ -5101,6 +5105,11 @@ deadline equality fail closed. Connect/handshake is bounded to five seconds,
 frame I/O to two seconds, clean stop and each ADR-0109 observation to 120
 seconds, container stop to 30 seconds, each removal to 15 seconds, volume proof
 to 10 seconds, STORE to five seconds, and the whole operation to 600 seconds.
+Immediately after stable lock/owner/boot/clock qualification and before any
+authority, key, endpoint, evidence, or root work, one exact
+`admission_started_boottime_ns` sample is bound into admission/root. Checked
+addition of `600_000_000_000` nanoseconds derives the operation cutoff;
+overflow fails before authority and equality is expired.
 The 262,144-byte packet bound reserves at most 8,192 bytes for fixed envelope
 and signature overhead and caps decoded request/result/error payloads at
 65,536/180,224/32,768 bytes; base64 length is checked mathematically before
@@ -5123,7 +5132,9 @@ verification, and an exact nested publication receipt precede ordinal-two
 retention. Its typed progress evidence binds absolute admitted path, artifact
 name, complete-envelope/
 payload/signature digests, envelope and payload schemas, key generation/ID,
-channel, counter, deadline, and receipt. The transcript's ordinal-two entry
+channel, root-plus-ordinal-one dispatch prefix, counter, deadline, and receipt.
+The request basis, ordinal-one intent, derived prefix, and final request repeat
+the exact admission start and checked operation cutoff. The transcript's ordinal-two entry
 binds both that progress record and exact wire artifact; payload-only,
 digest-only, orphan, paired result/error, or interrupted publication is
 retention-unconfirmed. The result has exact top-level
@@ -5146,10 +5157,14 @@ cleanup commitment, EOF/path/inode plus stable
 supervisor-FD-table absence observation, host zeroization, supervisor process
 removal, empty mount proof,
 and native cleanup receipts must all be durable before the final transcript and
-success commit; the last whole-operation deadline check also precedes that
-commit, and the 600-second lifecycle deadline ends there. A precommit cleanup
-failure permits only recovery-required and never effect continuation or a
-previously committed success. After the ordinal-23 confirmed-success commit,
+success candidate. The five-second publication window and checked 600-second
+operation cutoff authorize publication; they do not assert that marker or
+artifact staging/fsync/rename/readback I/O completes before either cutoff. After
+candidate readback and every success-relevant cleanup, the last equality-
+expired check precedes the one fixed-marker protocol. A later clock read cannot
+reclassify a stably authenticated commit. A precommit cleanup failure permits
+only recovery-required and never effect continuation or a previously committed
+success. After the ordinal-23 confirmed-success commit,
 only invalidation of an
 already-empty process-local repository registry and close of the lease FD
 remain. That disposal is outside the lifecycle/deadline, owns no private key,
@@ -5199,7 +5214,10 @@ volume proof and cannot reuse the first issuer, object, interval, or binding.
 Recovery is classification-only: after process loss or any ambiguity, a
 separately signed recovery profile may authenticate the exact prefix and commit
 only a deterministic recovery-required outcome or an already-created exact
-candidate. It cannot dispatch transport, continue, retry, compensate, or reach
+candidate. A confirmed-success candidate alone is insufficient: finalization
+requires its exact authenticated fixed-marker staging/final preimage carrying
+the matching admission start, checked operation cutoff, and timely final
+authorization sample. It cannot dispatch transport, continue, retry, compensate, or reach
 Docker mutation. Unknown or conflicting state permits no recovery write.
 
 ADR 0121 still adds documentation only. The endpoint, keys, manifest, native

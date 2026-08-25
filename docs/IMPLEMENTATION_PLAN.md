@@ -3686,6 +3686,10 @@ host-confirmation sequence bind stable Linux boot UUID, namespace-local PID/
 start/inode, executable/import closure, process nonces, two fresh 32-byte
 channel challenges, both endpoint/peer views, and one domain-separated channel
 digest. Host counters are zero/one/two; supervisor counters are zero/one. The
+final signed request is non-circular: ordinal one retains an exact request-basis
+digest, the stable root plus ordinal-one intent derive the lifecycle dispatch
+prefix, and only then is the final request constructed. The basis, intent,
+prefix, and request bind the same admission start and operation cutoff. The
 262,144-byte packet, 8,192-byte envelope-overhead ceiling, base64 formula, and
 65,536/180,224/32,768 request/result/error payload limits are exact. Counter gap/reuse/wrap,
 channel/epoch mismatch, path or permission drift, unknown or overlapping keys,
@@ -3694,9 +3698,15 @@ for lock and handshake, two seconds per frame, 120 seconds for the clean-stop
 result and each ADR-0109 observation, 30 seconds per container stop, 15 seconds
 per container/network removal, 10 seconds for both-volume proof, five seconds
 per STORE, and 600 seconds overall, all on `CLOCK_BOOTTIME`.
-The whole-operation deadline ends at the fixed ordinal-23 outcome commit; every
-success-relevant cleanup receipt and the last equality-expired deadline check
-must complete before it.
+Immediately after stable lock/owner/boot/clock qualification and before any
+authority, key, endpoint, evidence, or root work, one
+`admission_started_boottime_ns` sample enters admission/root. Checked addition
+of `600_000_000_000` nanoseconds derives the operation cutoff; overflow fails
+before authority and equality expires. The five-second STORE/commit window and
+600-second operation cutoff authorize publication, not completion of artifact
+or marker staging/fsync/rename/readback I/O. Candidate readback and every
+success-relevant cleanup precede the last check; only fixed-marker publication
+follows, and no later clock read may reclassify a stable commit.
 
 The exact v2 family uses one fixed
 `.post-enrollment-graceful-stop-attempt-slot` across v1 and v2, independent
@@ -3709,7 +3719,7 @@ literal result/error artifact name. Exclusive no-follow staging, file/directory
 fsync, no-replace rename, stable readback/re-encoding/signature/hash validation,
 and an exact publication receipt precede ordinal two; its evidence binds the
 absolute admitted path and artifact name plus envelope/payload/schema/key/
-channel/counter/deadline identities,
+channel/root-plus-ordinal-one-dispatch-prefix/counter/deadline identities,
 and the transcript binds that record to the exact wire artifact. Payload-only,
 digest-only, orphan, conflicting, or interrupted wire state is retention-
 unconfirmed. The family has a typed gap-free normal path from root ordinal zero through
@@ -3751,7 +3761,10 @@ Recovery is classification-only. A generation-pinned recovery launcher may
 authenticate one known prefix, durably consume one signed recovery envelope,
 bind distinct classified-prefix and final-intent transcript snapshots, and
 retain only the deterministic recovery-required outcome or finish the one
-exact already-created outcome candidate. It cannot load host/supervisor keys,
+exact already-created outcome candidate. A confirmed-success candidate alone
+is insufficient: finalization requires the exact authenticated fixed-marker
+staging/final preimage with the matching admission start, checked operation
+cutoff, and timely final authorization sample. It cannot load host/supervisor keys,
 sign a transport frame, open the transport channel, reach Docker mutation,
 retry, continue, compensate, or select an effect. Unknown or mixed state permits
 no write. These decisions remove schema and choreography ambiguity, but every
@@ -4216,11 +4229,15 @@ unavailable before any watchdog consumer is designed or qualified. See
   root-signed generation selection, tmpfs-only role-key custody, boot/process/
   exact root:GID-10001 writable mount, private-PID asymmetric peer admission,
   three-message handshake, bounded envelope math, challenge/channel/counter
-  binding, and fixed `CLOCK_BOOTTIME` deadlines; one
+  binding, exact admission-start plus checked 600-second cutoff, non-circular
+  request-basis/ordinal-one-intent/dispatch-prefix/final-request construction,
+  and fixed `CLOCK_BOOTTIME` deadlines; one
   permanent v1/v2 lifecycle root and independent typed v2 request/result/error
   and exact transcript/result family with full signed-wire-envelope publication
   at ordinal two, authenticated cleanup at ordinals four and twenty-two, and the
-  last deadline check before fixed success commit ordinal twenty-three; post-
+  last publication-authorization check before the fixed-marker protocol at
+  ordinal twenty-three, whose I/O may cross the cutoff without later
+  reclassification; post-
   commit empty-registry/lease-FD disposal is non-authoritative and cannot
   reclassify; one continuously held
   native launcher lease; pre-lock fork invalidation and no live process spawn;
