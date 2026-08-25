@@ -25,7 +25,7 @@ project_build_bootstrap_forbidden_paths = [
   "uv.toml",
 ]
 architecture_checker_invocation_source_sha256."Makefile" = "189b041060855fbb6218fdc9d8425c25f534d1885d1207725b8022a84e7de758"
-architecture_checker_invocation_source_sha256.".github/workflows/ci.yml" = "8da27296e12d3e7a8bed8559ca0e849e919ec5dee4423b824c98c5fbf68a05a5"
+architecture_checker_invocation_source_sha256.".github/workflows/ci.yml" = "31a7fc15be589bab7b2e50b8c8f902bdf79d548a4cbb63012ed6142ec0220338"
 builtin_namespace_integrity_roots = ["apps", "packages", "scripts"]
 builtin_namespace_integrity_excluded_roots = ["scripts/check_architecture.py"]
 builtin_namespace_integrity_allowed_imports."packages/adapters/market_data/recorded.py" = [

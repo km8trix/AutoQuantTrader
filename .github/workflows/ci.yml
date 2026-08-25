@@ -192,7 +192,6 @@ jobs:
       PYTHONDONTWRITEBYTECODE: "1"
       SOURCE_DATE_EPOCH: "0"
       UV_BUILD_CONSTRAINT: build_support/native_build_constraints.txt
-      NATIVE_DIST_ROOT: ${{ runner.temp }}/autoquant-native-${{ matrix.python-version }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -223,6 +222,8 @@ jobs:
           scripts/check_architecture.py
 
       - name: Build sdist and two platform wheels
+        env:
+          NATIVE_DIST_ROOT: ${{ runner.temp }}/autoquant-native-${{ matrix.python-version }}
         run: |
           uv build --sdist --clear --no-sources \
             --build-constraints build_support/native_build_constraints.txt \
@@ -255,6 +256,8 @@ jobs:
           scripts/check_architecture.py
 
       - name: Require byte-for-byte reproducible wheels
+        env:
+          NATIVE_DIST_ROOT: ${{ runner.temp }}/autoquant-native-${{ matrix.python-version }}
         run: |
           .venv/bin/python -I -B - <<'PY'
           import hashlib
@@ -272,6 +275,8 @@ jobs:
           PY
 
       - name: Install the reviewed wheel into the test environment
+        env:
+          NATIVE_DIST_ROOT: ${{ runner.temp }}/autoquant-native-${{ matrix.python-version }}
         run: |
           wheel_paths=("${NATIVE_DIST_ROOT}"/wheel-one/*.whl)
           test "${#wheel_paths[@]}" -eq 1
