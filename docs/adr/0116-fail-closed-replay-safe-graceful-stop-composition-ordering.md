@@ -23,6 +23,14 @@ or effect authority. ADR 0110 v1 deliberately ends at ordinal one and cannot
 retain a bridge result, pre-CALL intent, authenticated post-CALL result, or
 confirmed-success outcome.
 
+ADR 0111's request, result, and host binder are also specifically bound to the
+ADR-0110 v1 attempt/progress receipts. They cannot be the live wire or host
+binding for a lifecycle-v2 path that must never construct or consume those v1
+receipts. ADR 0111 therefore supplies reviewed correlation invariants only; its
+v1 contract strings, codecs, decoded objects, attempt/progress inputs, process
+seal, and host composite remain dormant historical design inputs, not values
+that a v2 implementation may wrap, translate, or reinterpret.
+
 Implementing only the missing host-to-supervisor transport would create a
 dangerous partial milestone. A correctly authenticated request could reach the
 supervisor while the host still lacked same-lock current admission, a lifecycle
@@ -43,14 +51,18 @@ Future implementation and review must close these gates in this dependency
 order:
 
 1. authenticated, bounded, replay-safe host-to-supervisor request/result
-   transport with exact endpoint origin, deadline, and failure semantics;
+   transport for a separately versioned lifecycle-v2-compatible wire family,
+   with exact endpoint origin, deadline, and failure semantics and no ADR-0111
+   v1 payload or host binding;
 2. one same-lock admission that freshly authenticates current topology, current
    trusted head, installed stop authority and signed stop operation, and the
    exact operation before any reservation or effect;
-3. a separately versioned lifecycle-v2 repository that consumes that exact
-   admission and durably retains every pre-CALL intent, separately authenticated
-   post-CALL result, confirmed-success terminal, and recovery-required ambiguity
-   without rewriting or reinterpreting ADR-0110 v1;
+3. a separately versioned lifecycle-v2 repository and compatible
+   request/result/host-binding family that consume that exact admission and
+   durably retain every pre-CALL intent, separately authenticated post-CALL
+   result, confirmed-success terminal, and recovery-required ambiguity without
+   constructing, consuming, rewriting, or reinterpreting ADR-0110/0111 v1
+   state;
 4. origin-PID, exact-thread, and at-fork invalidation for every transport,
    admission, lifecycle, and effect registry, including inherited descriptor and
    lock cleanup before any such registry may be constructed in a process that
@@ -70,18 +82,29 @@ admission-only, or lifecycle-only production milestone is valid. The complete
 composition must remain unreachable until all five gates have one reviewed
 integration and fault proof. This preserves ADRs 0111 and 0112's accepted
 transport → same-lock admission → lifecycle-v2 dependency order; ADR 0116 does
-not supersede or silently reorder it.
+not supersede or silently reorder it. Preserving that order does not preserve
+their v1 payloads as live inputs.
 
 ### Require authenticated, bounded, replay-safe transport
 
-The future transport must carry only the exact canonical ADR-0111 request and
-result bytes inside a separately authenticated envelope. The envelope must bind
-the stop operation, permanent attempt-root identity, lifecycle-v2 transcript
-identity, admitted topology and trusted-head identities, exact supervisor
-container identity, request/result direction, endpoint role, protocol version,
-one-use message identity, and an explicit deadline context. A request identity
-cannot be reused for another operation, topology, result, process epoch, or
-direction.
+The future transport must carry only canonical bytes from a separately
+versioned lifecycle-v2-compatible request/result contract family inside a
+separately authenticated envelope. The v2 family must preserve ADR 0111's
+structural invariants—request registration before worker selection, exact
+worker/core/thread association, immutable terminal-result snapshot, one-shot
+issue/take, and structural/unqualified wire result—but it must bind a v2 root
+and v2 progress only. It must not call, import, construct, decode, consume, or
+reinterpret ADR-0110 v1 attempt/progress receipts or ADR-0111 v1
+request/result codecs, objects, process seal, host binder, or composite. In
+particular, wrapping canonical v1 bytes in a v2-authenticated outer envelope is
+not a v2 contract.
+
+The envelope must bind the stop operation, permanent attempt-root identity,
+lifecycle-v2 transcript identity, admitted topology and trusted-head
+identities, exact supervisor-container identity, request/result direction,
+endpoint role, protocol version, one-use message identity, and an explicit
+deadline context. A request identity cannot be reused for another operation,
+topology, result, process epoch, or direction.
 
 Both endpoints must authenticate the peer and the exact origin of each message;
 possession of canonical bytes, a filesystem path, a process ID, stdout, a
@@ -98,6 +121,15 @@ selected must treat equality with a deadline as expired, reject clock or counter
 regression, authenticate both request and result directions independently, and
 make duplicate, delayed, reordered, reflected, cross-operation, cross-topology,
 cross-boot, and cross-direction messages terminal failures for that attempt.
+
+Every version boundary is fail-closed. The future v2 decoder, builder, and host
+binder must reject ADR-0111 v1 contract strings, canonical v1 wire bytes,
+decoded v1 request/result objects, ADR-0110 v1 attempt/progress receipts or
+digests, the v1 host composite/process seal, caller-adapted scalar or digest
+projections of any of them, and any object graph or artifact set that mixes v1
+and v2 state. Existing v1 decoders must continue rejecting future or v2
+contracts. No common decoder may guess a version from shape, fall back across
+versions, or normalize one version into the other.
 
 Transport qualification never authorizes dispatch by itself. No operation
 message may be dispatched before gate three has consumed the exact same-lock
@@ -116,8 +148,10 @@ reservation or transport dispatch, it must freshly:
 
 - authenticate the exact installed, reviewed-Git stop authority and exact
   signed stop envelope without accepting a caller-supplied authority digest;
-- reauthenticate the ADR-0112 historical decision receipt and exact ADR-0111
-  operation/request inputs;
+- reauthenticate the ADR-0112 historical decision receipt through a separately
+  reviewed lifecycle-v2-compatible historical-receipt handoff, and bind the
+  exact v2 operation/request inputs without constructing or consuming the
+  current ADR-0112-to-ADR-0111 v1 handoff;
 - observe and authenticate the current topology, exact container/network and
   named-volume identities, durable shutdown locator, and live topology lease;
 - authenticate the current trusted head and prove it is the exact admitted
@@ -143,7 +177,17 @@ evidence. The future design must also specify bounded lock acquisition,
 owner-death handling, and the exact relationship between the host lock and any
 supervisor-side lock without permitting a deadlock-dependent success path.
 
-### Introduce lifecycle v2 without changing v1 history
+ADR 0112's current private consumed-snapshot handoff is bound to ADR 0111's v1
+bridge identity and is not a v2 input. A later implementation ADR must choose
+and freeze either (a) a separately versioned private ADR-0112 consumed-snapshot
+seam bound directly to the v2 bridge identity while leaving every existing v1
+meaning unchanged, or (b) an independent v2 historical decision-receipt
+loader/consumer that reconstructs and authenticates the same durable source
+facts. This ADR does not choose between them. Neither choice may pass a v1
+lifecycle receipt, bridge request/result, host composite, process seal, or
+adapted projection into the v2 object graph.
+
+### Introduce lifecycle v2 and compatible correlation without changing v1 history
 
 ADR-0110 v1 remains immutable and terminal at ordinal one. Existing v1 bytes,
 filenames, digests, meanings, loaders, and recovery-only outcome cannot be
@@ -154,6 +198,13 @@ version while preserving the single global replay domain and the same fixed
 permanent attempt-slot meaning; it must not create a second replay slot or a
 per-operation root. Exact v2 filenames, stage names, byte bounds, and
 publication protocol remain an implementation-review choice.
+
+The lifecycle-v2 request, result, worker association, historical-receipt
+handoff, pre-effect host binder, and post-teardown terminal binder must form one
+separately versioned correlation family. The family may reproduce ADR 0111's
+accepted safety properties, but it cannot reuse its v1 types or bytes and cannot
+use a v1 root as normal-path evidence. An exact existing v1 root blocks normal
+v2 activation; an unknown or mixed-version root/prefix is recovery-required.
 
 While the gate-two global lock and one-shot admission remain live, the first v2
 transition must consume that exact admission and atomically reserve and
@@ -175,16 +226,18 @@ The intent binds the operation, admitted evidence, exact target identity,
 effect kind, exact immutable arguments, deadline, and predecessor. The result
 binds the same values plus authenticated responder/origin identity, disposition,
 returned evidence, and the intent digest. A result cannot be synthesized from
-process exit, absence, a boolean, generic `status=stopped`, decoded ADR-0111
-bytes, caller-supplied output, or a later observation.
+process exit, absence, a boolean, generic `status=stopped`, decoded ADR-0111 v1
+bytes or objects, caller-supplied output, or a later observation.
 
-The transport-authenticated ADR-0111 wire result remains structural and
-terminally unqualified. After retaining it and before any supervisor-container,
+The transport-authenticated v2 wire result remains structural and terminally
+unqualified. After retaining it and before any supervisor-container,
 source-container, container-removal, or network-removal effect, v2 must retain a
-fresh ADR-0109 host SQL/provider reauthentication cross-bound through the exact
-ADR-0111 host seam to that operation/request/result. A distinct fresh
-post-teardown terminal reauthentication is a later required record and cannot
-reuse or infer truth from the consumed pre-effect observation.
+fresh ADR-0109 host SQL/provider reauthentication cross-bound through the
+separately versioned v2 host-binding seam to that exact v2
+operation/request/result/root. A distinct fresh post-teardown terminal
+reauthentication, bound through a separate v2 terminal seam, is a later
+required record and cannot reuse or infer truth from the consumed pre-effect
+observation.
 The durable pre-effect record must be constructed through a private lifecycle
 integration from the consumed composite's exact authenticated primitive
 projection. Serializing the process-local composite or seal, or accepting a
@@ -229,14 +282,14 @@ same host lock, operation, topology binding, lifecycle lineage, PID/thread, and
 deadline context remain valid:
 
 1. durably retain the exact clean-stop-checkpoint request intent, dispatch the
-   authenticated ADR-0111 operation-bound `clean_stop` request, receive the
-   exact transport-authenticated wire result, and durably retain that structural
-   post-CALL result; transport authentication does not qualify its terminal
-   meaning;
+   authenticated lifecycle-v2-compatible operation-bound `clean_stop` request,
+   receive the exact transport-authenticated v2 wire result, and durably retain
+   that structural post-CALL result; transport authentication does not qualify
+   its terminal meaning;
 2. issue a fresh ADR-0109 host SQL/provider reauthentication, consume and
-   cross-bind it through the exact ADR-0111 host seam to the same
-   operation/request/result, and durably bind that pre-effect composite before
-   any supervisor-container, source-container, container-removal, or
+   cross-bind it through the exact v2 host-binding seam to the same v2
+   operation/request/result/root, and durably bind that pre-effect composite
+   before any supervisor-container, source-container, container-removal, or
    network-removal effect;
 3. durably retain the exact supervisor-container-stop intent, stop only the
    admitted supervisor-container identity, and durably retain its separately
@@ -261,15 +314,15 @@ deadline context remain valid:
    other post-reservation disposition is recovery-required.
 
 The clean-stop checkpoint transaction in steps one and two is a prerequisite
-to the supervisor-container stop effect in step three. The ADR-0111 wire result
-is structural and unqualified until the fresh pre-effect ADR-0109 observation
-is consumed and cross-bound; no supervisor/source/container/network effect may
-precede that durable binding. A signal-delivery return or container exit alone
-is not completion. The source never stops first, and supervisor and source
-stops are not parallelized. The post-teardown terminal reauthentication is a
-distinct observation intentionally issued only after exact teardown and
-volume-preservation proof; the pre-effect ADR-0109 observation cannot be reused
-as the final outcome proof.
+to the supervisor-container stop effect in step three. The v2 wire result is
+structural and unqualified until the fresh pre-effect ADR-0109 observation is
+consumed and cross-bound through the v2 host-binding seam; no
+supervisor/source/container/network effect may precede that durable binding. A
+signal-delivery return or container exit alone is not completion. The source
+never stops first, and supervisor and source stops are not parallelized. The
+post-teardown terminal reauthentication is a distinct observation intentionally
+issued only after exact teardown and volume-preservation proof; the pre-effect
+ADR-0109 observation cannot be reused as the final outcome proof.
 
 ### Freeze conceptual states without inventing a wire schema
 
@@ -280,7 +333,7 @@ The future v2 state machine must distinguish at least these semantic states:
 - exact pre-CALL intent durable for each ordered effect;
 - exact authenticated post-CALL result durable for that intent;
 - fresh pre-effect ADR-0109 observation cross-bound to the exact structural
-  ADR-0111 operation/request/result;
+  lifecycle-v2-compatible operation/request/result/root;
 - exact supervisor-container and source-container stop results durable;
 - topology absent with both named volumes preserved;
 - distinct post-teardown terminal reauthentication durable;
@@ -300,10 +353,13 @@ the implementation ADR must freeze exact status values and encodings.
 | Last provable boundary | Required classification | Retry or advance rule |
 |---|---|---|
 | No root creation began and no effect authority was issued | No attempt is proven; all effects remain closed | A later attempt requires complete fresh admission; transport state is not reusable |
+| Exact v1 root or prefix is observed before v2 reservation | Normal v2 is permanently denied because the permanent slot is consumed | Preserve exact v1 evidence; only a separately reviewed recovery path may act |
+| A v1 input or mixed v1/v2 object graph is rejected before any v2 STORE begins | This operation is closed; no v2 attempt is proven unless durable artifact state is itself mixed or untrusted | Never wrap, adapt, fall back, or reuse transport state; a later attempt requires complete fresh admission and exact root absence |
 | Root or intent STORE may have begun, but exact durability cannot be revalidated | Recovery required; retention may be unconfirmed | Never retry, recreate, clean up, or infer absence |
+| A cross-version value or artifact is detected after v2 reservation may have begun | Recovery required; no later intent or effect is admitted | Preserve the complete prefix; never substitute a same-looking value from either version |
 | Exact pre-CALL intent is durable, but control is lost before or during CALL | Recovery required because call occurrence or completion is not durably known | Never repeat the call automatically |
 | CALL returned, but authenticated result was absent, invalid, late, or its STORE is ambiguous | Recovery required | A return value, process exit, later absence, or observation cannot manufacture the missing result |
-| Structural ADR-0111 wire result is durable, but fresh pre-effect ADR-0109 reauthentication/cross-binding is absent, failed, or ambiguously stored | Recovery required; no stop or teardown effect is admitted | Never treat transport authentication as terminal qualification or use a prior observation |
+| Structural v2 wire result is durable, but fresh pre-effect ADR-0109 reauthentication/cross-binding is absent, failed, or ambiguously stored | Recovery required; no stop or teardown effect is admitted | Never treat transport authentication as terminal qualification or use a prior observation |
 | Fresh pre-effect cross-binding is durable, but control is lost before supervisor-container-stop intent | The checkpoint result is cross-bound, but no later effect is authorized by this ADR | Preserve the prefix; require separately reviewed recovery/continuation authority |
 | Exact authenticated result is durable, but the process stops before the next intent | The previous call is confirmed, but continuation is not authorized by this ADR | Preserve the prefix; require a separately reviewed recovery/continuation decision |
 | Teardown result is durable, but volume preservation or the distinct post-teardown terminal reauthentication is absent/failed | Recovery required; success is false | Preserve volumes and evidence; do not replay teardown or reuse the pre-effect observation |
@@ -323,9 +379,10 @@ not erase or rewrite any possibly durable lifecycle or outcome artifact.
 - Any state after reservation that is not exact durable confirmed success is
   hard closed. Recovery evidence grants no signal, retry, teardown, re-arm,
   exposure, broker, paper, or live-trading authority.
-- The structural ADR-0111 result grants no supervisor/source/container/network
-  effect. The fresh pre-effect ADR-0109 cross-binding must be durable first, and
-  it can never substitute for the distinct post-teardown terminal observation.
+- The structural v2 result grants no supervisor/source/container/network
+  effect. The fresh pre-effect ADR-0109 cross-binding through the v2 host seam
+  must be durable first, and it can never substitute for the distinct
+  post-teardown terminal observation.
 - Missing artifacts, missing containers, an empty network inventory, preserved
   volumes, current SQL, provider state, or a generic stopped process never
   proves that a prior call did or did not occur.
@@ -366,9 +423,13 @@ The future composition must fail closed against:
 - a local same-UID process, replaced socket, inherited descriptor, hostile
   stdout/stderr, mutable environment, path replacement, process injection, or
   container-label spoofing attempting to impersonate either endpoint;
-- canonical but unauthenticated ADR-0111 bytes, scalar-equal heap objects,
-  copied tokens, caller-supplied digests, and stale process-local seals;
-- a transport-authenticated but structurally unqualified ADR-0111 result being
+- canonical but unauthenticated bytes, ADR-0111 v1 bytes or decoded objects
+  offered to a v2 boundary, scalar-equal heap objects, copied tokens,
+  caller-supplied digests, and stale process-local seals;
+- cross-version confusion, downgrade, fallback, or adaptation that wraps v1
+  request/result bytes, receipts, host composites, or scalar/digest projections
+  in a v2 envelope or object graph;
+- a transport-authenticated but structurally unqualified v2 result being
   treated as permission to stop a container, and a pre-effect ADR-0109
   observation being replayed as post-teardown terminal evidence;
 - a forked child, wrong thread, PID reuse, inherited mutex or flock, dead owner,
@@ -405,9 +466,14 @@ items:
 - one atomic current-topology/trusted-head/authority/operation admission method,
   lock acquisition/owner-death semantics, and any supervisor-side lock order;
 - lifecycle-v2 contract strings, canonical schema, filename namespace, bounds,
-  fixed staging/commit protocol, transition list, and v1/v2 loader behavior,
-  including durable pre-effect cross-binding and distinct post-teardown terminal
-  reauthentication records;
+  request/result/host-binding and terminal-binding schemas, worker association,
+  fixed staging/commit protocol, transition list, and v1/v2 loader and import
+  boundaries, including durable pre-effect cross-binding and distinct
+  post-teardown terminal reauthentication records;
+- the lifecycle-v2-compatible historical decision-receipt handoff: either a
+  separately versioned private ADR-0112 consumed-snapshot seam bound to the v2
+  bridge identity or an independent v2 loader/consumer of the same durable
+  sources, with neither path consuming or adapting the existing v1 handoff;
 - fork-safe native ownership and invalidation implementation, supported
   interpreter/platform matrix, and proof against inherited-lock deadlock;
 - admitted fixed executables, immutable image and dependency closure, sanitized
@@ -439,9 +505,19 @@ Acceptance of this ADR requires only documentation evidence:
 
 A later implementation cannot claim this ADR satisfied until review retains:
 
-- canonical request/result and authenticated-envelope test vectors plus
-  tamper, origin, replay, reflection, duplicate, ordering, size, deadline,
-  cross-operation, cross-topology, and cross-boot failures;
+- canonical v2 request/result/host-binding and authenticated-envelope test
+  vectors plus tamper, origin, replay, reflection, duplicate, ordering, size,
+  deadline, cross-operation, cross-topology, and cross-boot failures;
+- direct v1↔v2 negative vectors—v1-to-v2 and v2-to-v1—proving that each
+  decoder, builder, binder, and loader rejects the other version's contract
+  strings, bytes, decoded objects, receipts, digests, roots, prefixes, process
+  seals, host composites, and caller-adapted projections; mixed-version
+  directories and object graphs must fail closed rather than select a trusted
+  prefix;
+- an architecture/import guard proving that the v2 implementation cannot
+  import or reach ADR-0110 v1 lifecycle loaders or ADR-0111 v1 codecs, builders,
+  host binder, or composite, plus evidence that no v1 bytes are wrapped inside
+  a v2 transport envelope;
 - deterministic crash and asynchronous fault injection at every intent STORE,
   CALL, result STORE, pre-effect reauthentication/cross-binding STORE,
   post-teardown terminal-reauthentication STORE, outcome staging/commit, and
@@ -460,7 +536,8 @@ A later implementation cannot claim this ADR satisfied until review retains:
   volumes, distinct post-teardown terminal reauthentication, and exclusive
   terminal outcome;
 - proof that v1 artifacts remain byte-for-byte immutable and terminal, v2 uses
-  no second replay root, and unknown/partial/cross-version state fails closed;
+  no second replay root, and exact v1, unknown, partial, and cross-version state
+  blocks normal v2 and fails closed;
   and
 - separately approved deployment, key, executable, image, mount, provider,
   database, and recovery evidence before any operator surface is exposed.
@@ -488,12 +565,21 @@ and `trusted-time-stop` continues to fail closed with exit 2.
   can cross the effect boundary without durable ambiguity handling, current
   admission, fork safety, or a terminal outcome. Transport may be developed and
   tested only as an unreachable prerequisite.
-- **Treat canonical ADR-0111 bytes or local socket access as authentication.**
-  Syntax and filesystem reachability do not prove endpoint origin, currency, or
-  one-use delivery.
+- **Reuse ADR-0111 v1 request/result bytes or host binding in lifecycle v2.**
+  Those contracts require ADR-0110 v1 attempt/progress state. Constructing,
+  consuming, decoding, or reinterpreting that state would contradict the v2
+  lifecycle boundary.
+- **Wrap or adapt v1 state behind a v2 envelope.** A new outer contract string,
+  copied scalar fields, or a digest projection does not remove the inner v1
+  lifecycle dependency and creates cross-version downgrade ambiguity. The v2
+  family must be independently encoded and typed.
+- **Treat canonical bytes or local socket access as authentication.** Syntax and
+  filesystem reachability do not prove endpoint origin, currency, or one-use
+  delivery.
 - **Stop the supervisor container after only the authenticated wire result.**
-  ADR 0111's result remains structural and unqualified; a fresh ADR-0109 host
-  observation must be consumed, cross-bound, and durably retained first.
+  The v2 result remains structural and unqualified; a fresh ADR-0109 host
+  observation must be consumed, cross-bound through the v2 host seam, and
+  durably retained first.
 - **Extend or reinterpret ADR-0110 v1 in place.** V1 has no ordinal two or
   success schema. Changing its meaning would alter immutable historical
   evidence and permit cross-version ambiguity.

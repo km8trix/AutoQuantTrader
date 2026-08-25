@@ -226,10 +226,11 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   persistence, account binding, mutation, and trading authority remain closed)
 - [ADR 0116: Fail-closed replay-safe graceful-stop composition ordering](0116-fail-closed-replay-safe-graceful-stop-composition-ordering.md)
   (freezes the design-only transport → same-lock admission → lifecycle-v2 →
-  fork-safety → ordered-effect dependency chain, including a fresh pre-effect
-  ADR-0109 cross-binding, distinct post-teardown terminal reauthentication,
-  exact ambiguity, and recovery invariants; it adds no implementation,
-  authority, reservation, runtime caller, shutdown effect, or change to the
-  exit-2 stop target)
+  fork-safety → ordered-effect dependency chain with a separately versioned
+  lifecycle-v2-compatible request/result/host-binding family that rejects every
+  v1↔v2 mix, a fresh pre-effect ADR-0109 cross-binding, distinct post-teardown
+  terminal reauthentication, exact ambiguity, and recovery invariants; it adds
+  no implementation, authority, reservation, runtime caller, shutdown effect,
+  or change to the exit-2 stop target)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
