@@ -1,8 +1,9 @@
 # ADR 0112: Durable graceful-stop decision-artifact receipt reauthentication
 
 - Status: Accepted for code-only, read-only historical receipt
-  reauthentication; no production caller, stop admission, lifecycle advance,
-  runtime integration, or shutdown effect exists
+  reauthentication and exact dormant ADR-0111 handoff; no live production
+  caller, stop admission, lifecycle advance, runtime integration, or shutdown
+  effect exists
 - Date: 2026-08-18
 - Extends:
   [ADR 0103](0103-atomic-operator-attested-post-enrollment-execution-admission.md),
@@ -19,19 +20,19 @@ bytes are derived from the publishing process's private immutable snapshot;
 the returned heap receipt is only a view. The candidate is durable, but no
 serialized receipt exists for a later process to trust or decode.
 
-ADR 0111 therefore accepts only that exact process-local receipt. Its dormant
-host bridge can bind the receipt digest structurally, but cannot establish
-that a decision candidate reloaded later still has the same owner-only file
-identity or is derived from the same authenticated historical start chain.
-Treating a caller-supplied receipt, digest, or decision tuple as equivalent
-would turn an assertion into authentication.
+ADR 0111 originally accepted only that exact process-local receipt. Its
+dormant host bridge could bind the receipt digest structurally, but could not
+establish that a decision candidate reloaded later still had the same
+owner-only file identity or was derived from the same authenticated historical
+start chain. Treating a caller-supplied receipt, digest, or decision tuple as
+equivalent would turn an assertion into authentication.
 
-The smallest next slice is a strict evidence reader. It must recover the exact
-ADR-0106 receipt by redoing the historical authentication, not by adding a
-second persistence transaction or by decoding a new receipt artifact. It must
-remain unused by ADR 0111 and every live path until a later composition reviews
-transport, current topology, authority, replay, lifecycle, and effects
-together.
+The strict evidence reader therefore recovers the exact ADR-0106 receipt by
+redoing the historical authentication, not by adding a second persistence
+transaction or by decoding a new receipt artifact. The dormant ADR-0111 host
+request now owns one exact authenticate-and-consume handoff from that reader.
+Every live path remains absent until a later composition reviews transport,
+current topology, authority, lifecycle, and effects together.
 
 ## Decision
 
@@ -255,6 +256,41 @@ false, including currentness, freshness, stop-signature authentication,
 single use, attempt reservation, admission, effect authorization, and
 outcome/recovery availability.
 
+### Hand one consumed source snapshot to the dormant host bridge
+
+The ADR-0111 request builder is the sole repository consumer of a pending
+loaded wrapper. It does not ask its caller to authenticate the wrapper first.
+Instead, one private decision-artifact seam owns the complete transition:
+consume the exact pending registration, perform the public authentication's
+fresh source rebuild and comparison, immediately consume the resulting active
+registration, and revalidate the complete durable source graph again. No
+authenticated wrapper state crosses that interval for the host to interpret.
+Every failure or asynchronous exception runs pending and active cleanup and
+keeps both one-shot entries burned.
+
+Successful consumption returns only a private frozen
+`_ConsumedLoadedDecisionArtifactReceiptSnapshot`. It is capability-constructed
+and binds the exact loaded-wrapper identity, the host's private bridge identity,
+origin PID, exact `threading.Thread` object, complete historical and candidate
+source snapshots, canonical root strings, receipt identity values, canonical
+receipt bytes, and receipt digest. The private validator requires those exact
+identities and recomputes the receipt bytes and digest from the source snapshot;
+it never reads a wrapper field or public receipt. A raw ADR-0106 receipt,
+canonical bytes, digest, scalar-equal wrapper, private-constructor clone, copy,
+replay, wrong thread, forked identity, or drifted source cannot produce this
+handoff.
+
+The ADR-0111 builder binds that consumed snapshot to the exact constructed
+request in its own one-shot process-local registry. Its terminal binder must
+consume the same request, loaded wrapper, and bridge identity before the
+ADR-0109 observation can be cross-bound. Only the final host composite may
+promote `decision_artifact_receipt_authenticated=true` and
+`historical_start_chain_authenticated=true`; the receipt digest in the public
+ADR-0111 wire remains structural and independently substitutable bytes carry
+no authentication. The existing public revalidation function still consumes
+the active registration and returns only a boolean for its separate test-only
+surface.
+
 ### Enforce a zero-caller read-only boundary
 
 The architecture contract pins the exact public `__all__`, loaded-wrapper
@@ -270,64 +306,68 @@ dependency objects,
 `Path` or domain objects inside snapshots, and any reader-reachable write,
 currentness, replay, admission, or effect capability.
 
-The new public loaded-wrapper, load, authentication, and revalidation names
-have zero production importers, re-exports, wrappers, and callsites.
-Tests exercise them only against injected temporary artifact roots. Mutation
+The loaded-wrapper type and the three private consumed-snapshot seams have one
+production importer: ADR 0111's dormant host bridge. The public loader has no
+live production caller, so the complete composition remains zero-caller.
+Tests exercise it only against injected temporary artifact roots. Mutation
 tests reject writer reachability, unaudited reads, helper aliasing or dynamic
-lookup, fact promotion, seal-field removal, public receipt decoding, expected-
-receipt injection, CLI growth, and any runtime consumer.
+lookup, unreviewed fact promotion, seal-field removal, public receipt decoding,
+expected-receipt injection, CLI growth, scalar/raw receipt handoff, and any
+runtime consumer.
 
 The public ADR-0112 flow adds no CLI subcommand or option, Make workflow,
-supervisor or host-bridge import, lifecycle writer, provider or database
-access, network, signer, private key, signal, container or network teardown,
-outcome, recovery executor, watchdog, or trading consumer. The decision-
-artifact module remains excluded exactly once from Docker build contexts and
-has zero runtime caller. Its native prerequisite now includes the pinned
-build-only compiler stage, fixed launcher, final-image manifest, and CI
-packaging matrix; admission receipts, process-callsite migration/containment,
-and writable-mount hardening remain open. None is yet an operational receipt or
-stop consumer.
+lifecycle writer, provider or database access, network, signer, private key,
+signal, container or network teardown, outcome, recovery executor, watchdog,
+or trading consumer. Its only host-bridge integration is the private,
+same-process, effect-free evidence handoff above. The decision-artifact module
+remains excluded exactly once from Docker build contexts and has zero runtime
+caller. Its native prerequisite now includes the pinned build-only compiler
+stage, fixed launcher, final-image manifest, and CI packaging matrix; admission
+receipts, process-callsite migration/containment, and writable-mount hardening
+remain open. None is yet an operational receipt or stop consumer.
 `trusted-time-stop` remains the existing exact hard-close target.
 
 ### Preserve the remaining live-ordering deferrals
 
-ADR 0112 closes only durable receipt reconstruction and point-in-time
-revalidation. ADR 0111 deliberately continues to consume the exact
-process-local ADR-0106 receipt; wiring this loaded wrapper into the host bridge
-is a separate reviewed change.
+ADR 0112 now closes durable receipt reconstruction, point-in-time
+revalidation, and the exact private handoff into ADR 0111's dormant host
+request. It does not close any live ordering or authority boundary.
 
 Before any stop effect, later work must still provide, in one explicit
 fail-closed ordering:
 
-1. exact loaded-receipt integration into the operation-bound host request;
-2. authenticated, bounded, replay-safe host-to-supervisor request/result
+1. authenticated, bounded, replay-safe host-to-supervisor request/result
    transport with explicit origin and failure semantics;
-3. same-lock fresh topology, stop-authority, trusted-head, and operation
+2. same-lock fresh topology, stop-authority, trusted-head, and operation
    admission before reservation or effect;
-4. a separately versioned lifecycle successor with pre-CALL intent,
+3. a separately versioned lifecycle successor with pre-CALL intent,
    post-CALL result, confirmed-success, and recovery-required retention across
    every ambiguity;
-5. explicit at-fork invalidation and inherited-lock cleanup for every later
+4. explicit at-fork invalidation and inherited-lock cleanup for every later
    transport, admission, lifecycle, and effect registry; and
-6. reviewed signal, source stop, exact container/network teardown, named-volume
+5. reviewed signal, source stop, exact container/network teardown, named-volume
    preservation, terminal reauthentication, and durable outcome choreography.
 
 ## Consequences
 
 A later process can now rederive an inert exact public ADR-0106 receipt
-projection from durable evidence, then explicitly authenticate its already-
-owned wrapper with a second complete reload, while detecting candidate or
-historical-source drift. Operators do not need to retain the original
-process-local ADR-0106 object, and no unauthenticated receipt file becomes a
-new source of truth.
+projection from durable evidence, then either explicitly authenticate its
+already-owned wrapper for the standalone consuming revalidator or pass that
+still-pending exact wrapper to the dormant ADR-0111 builder, which owns
+authentication and immediate consuming revalidation. Both paths detect
+candidate or historical-source drift. Operators do not need to retain the
+original process-local ADR-0106 object, and no unauthenticated receipt file
+becomes a new source of truth.
 
-The result remains dormant, historical, and verification-only. It does not
+The result remains dormant, historical, and verification-only. It promotes
+only ADR 0111's decision-receipt and historical-start-chain facts. It does not
 make the decision current, authenticate the separate stop signature, consume a
-replay slot, advance ADR 0110, qualify ADR 0111, or permit any shutdown action.
-No receipt sidecar, decision candidate, lifecycle record, or operational stop
-artifact is written by the ADR-0112 load/authentication/revalidation APIs, and
-no operational stop is attempted. The installed extension and executable/import
-manifest belong only to the separately admitted native/image prerequisite.
+durable stop replay slot, advance ADR 0110, qualify transport, topology,
+lifecycle, effect, or permit any shutdown action. No receipt sidecar, decision
+candidate, lifecycle record, or operational stop artifact is written by the
+ADR-0112 load/authentication/revalidation APIs, and no operational stop is
+attempted. The installed extension and executable/import manifest belong only
+to the separately admitted native/image prerequisite.
 
 ## Rejected alternatives
 
@@ -343,8 +383,9 @@ manifest belong only to the separately admitted native/image prerequisite.
   authority, provenance, or start tuple by itself.
 - **Revalidate only bytes or a SHA-256.** Same-content replacement can change
   the owner-only file and directory identity that the stable read authenticated.
-- **Wire ADR 0111 in the same slice.** Host integration changes the consumer
-  trust boundary and must be reviewed with the remaining transport,
-  currentness, admission, lifecycle, and failure ordering.
+- **Pass a raw ADR-0106 receipt, receipt bytes, digest, or decoded decision to
+  ADR 0111.** None carries the consumed source snapshot, exact loaded-wrapper
+  identity, or one-shot bridge association, so every such substitution is
+  rejected.
 - **Add currentness, stop authority, replay, or effects.** None follows from a
   historical decision receipt, and the required live protocols remain absent.

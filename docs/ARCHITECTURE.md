@@ -1477,9 +1477,21 @@ economic-evaluation, and reporting gates are independently still open. See ADRs
 
 [ADR 0096](adr/0096-etrade-live-broker-and-sandbox-qualification.md)
 selects provider ID `etrade` and E\*TRADE production as the intended live venue.
-The selection is additive and non-authorizing. No existing Alpaca contract,
-table, migration, fixture, digest, or observation becomes E\*TRADE evidence, and
-no current component can preview or place an E\*TRADE order.
+The selection is additive and non-authorizing. No existing Alpaca typed
+contract, table, migration, fixture, digest, or observation is directly
+accepted as E\*TRADE evidence, and no current component can preview or place an
+E\*TRADE order. Phase 4AK can accept copied arbitrary bytes only inside a new,
+explicitly unauthenticated caller declaration; that conversion does not prove
+provider origin.
+
+[ADR 0113](adr/0113-recorded-offline-etrade-provider-foundation.md) implements
+the first Phase 4AJ boundary as a pure provider-specific contract. Exact
+`EtradeEnvironment` values construct complete endpoint-isolation profiles;
+callers cannot supply arbitrary origins. Separate consumer-secret, token-secret,
+account, request-budget, persistence, audit, and banner scope identities are
+cross-bound to sandbox or production. Strict syntax-only account values retain
+the numeric account ID as digit text and the opaque, case-preserving
+`accountIdKey` without claiming discovery or an authenticated binding.
 
 The production data/order API root is fixed to `https://api.etrade.com/v1`; the
 sandbox root is fixed to `https://apisb.etrade.com/v1`. The two environments
@@ -1491,6 +1503,51 @@ field/request/response shape, and strict decoding only. It cannot qualify
 pagination traversal ordering, completeness, termination, or convergence;
 stateful order behavior, fills, economics, visibility latency, production
 reconciliation, or a paper soak.
+
+Phase 4AJ enables only a deterministic JSON-media description of
+`GET /accounts/list` against the selected data root, with an empty query, no
+body, and no authorization material. Capability, endpoint-profile, request-
+profile, and complete request identities are content-authenticated; sandbox
+and production request identities are distinct. Balance, Portfolio, Orders,
+Transactions, every raw response/decoder, and all provider I/O remain
+unsupported by Phase 4AJ.
+
+[ADR 0115](adr/0115-bounded-recorded-offline-etrade-accounts-list-responses.md)
+implements Phase 4AK as a separate pure in-memory raw-first Accounts List
+response contract. The fixed
+`phase4ak-etrade-accounts-list-unauthenticated-origin-declaration-v1` contract
+admits at most 262,144 exact bytes and 128 accounts under deterministic
+`etrade-accounts-list-unauthenticated-declared-json-utf8-v1` response and
+`etrade-accounts-list-response-schema-v1` schema profiles. Immutable evidence
+cross-binds the exact typed E\*TRADE provider and environment, endpoint and
+canonical request identities, environment-matching origin, JSON/UTF-8 media,
+the exact `UNAUTHENTICATED_CALLER_DECLARATION`, raw bytes, and raw digest. The
+public boundary is correspondingly named
+`create_etrade_accounts_list_unauthenticated_origin_declaration`,
+`create_etrade_accounts_list_caller_declared_response`, and
+`decode_etrade_accounts_list_caller_declared_response`. These bindings prove
+only that caller-supplied bytes and metadata are internally consistent. No
+enum, declaration ID, raw digest, or semantic digest authenticates provider
+origin, and the boundary cannot detect a fixture that its caller relabels.
+Every returned layer keeps `provider_origin_authenticated=false` and
+`fixture_relabeling_detection_supported=false`; no authenticated provider-
+evidence consumer is exposed.
+
+The strict decoder accepts only the closed
+`AccountListResponse -> Accounts -> Account` envelope and its nine required
+account keys. Malformed UTF-8/JSON, duplicate or unknown keys, wrong types,
+profile/schema drift, overflow, cross-request or cross-environment replay, and
+duplicate or ambiguous numeric-account-ID/`accountIdKey` mappings fail closed.
+Those replay checks reject contradictions inside one declaration; a caller can
+create another internally consistent declaration around arbitrary bytes, so
+they do not establish where the bytes actually originated. Display fields and
+response order do not establish identity. The decoded result remains an
+immutable historical, unqualified caller-declared observation with no local
+alias or authenticated account binding. Balance, Portfolio, Orders,
+Transactions, Preview, Place, Cancel, OAuth, transport, persistence,
+reconciliation, canonical application, broker mutation, startup, and trading
+authority all remain closed. Sandbox evidence is protocol-shape-only, not an
+economic simulator or readiness evidence, and Phase 4AK adds no migration.
 
 OAuth 1.0a/HMAC-SHA1 is a supervised session state machine, not ambient
 configuration. Nonces and trusted timestamps are generated at the final
@@ -1507,6 +1564,14 @@ scoped. Authorization URLs are secret-bearing and never logged or retained.
 Only the exact authorization page and an exact pre-registered callback
 origin/path, or the out-of-band verifier flow, may redirect; dynamic callbacks,
 open redirects, and verifier replay fail closed.
+
+The Phase 4AJ metadata pins the shared request-token, access-token, renewal, and
+revocation URLs and selects only the literal request-token callback value
+`oob`. It accepts no registered or dynamic callback origin/path and constructs
+no secret-bearing authorization URL. A future reviewed supervised session flow
+must separately pin any provider-preconfigured callback and still revalidate
+the ADR 0096 redirect policy; Phase 4AJ grants no browser, callback, verifier,
+token, credential, or transport authority.
 
 The canonical order ID remains provider-neutral. A separate durable E\*TRADE
 client-order-ID mapping is deterministic, account-scoped, collision-checked,
@@ -2184,6 +2249,28 @@ genuine-raw, provenance, corporate-action, source, and licensed admission gates.
 Later stages cannot grant authority backward to an earlier stage. No stage
 invents `vendor_published_at`, a vendor revision, or a historical vintage.
 
+A provider-neutral in-memory prerequisite gate now makes that final external
+evidence boundary explicit before any production source implementation. Its
+frozen specification binds source, provider, dataset, feed, profile digest, and
+scope digest. Five typed opaque attestations cover production
+identity/lifecycle, calendar, corporate-action authority, genuine-raw price and
+market provenance, and production license/use rights plus current entitlement.
+A sixth typed artifact is an independent review of the exact canonical bundle.
+Each component carries an explicit observation and half-open validity interval;
+evaluation uses an injected timestamp and never ambient time.
+
+The gate rejects omissions, duplicate roles, contract/research/fixture evidence,
+cross-binding substitutions, rejected or expired components, causally impossible
+timestamps, review of a different bundle, and a reviewer matching either the
+gate executor or any evidence producer. `external_authority` is only an input
+classification: repository code validates its bindings and currentness but does
+not authenticate the external actor or truth of the referenced evidence. Even a
+complete inventory yields only `ready_for_admission_evaluation`, with source,
+canonical-data, admission, and trading effects permanently `none`. The sealed
+result has no `load()` or authority conversion and is not persisted. Existing
+Tiingo contract-only and research proofs therefore remain blockers rather than
+inputs that can be promoted into production authority.
+
 The transport timeout applies to socket I/O for each symbol request. It is not a
 strict wall-clock deadline for the complete multi-symbol capture; operational
 supervision supplies that stronger deadline until a later transport contract
@@ -2846,6 +2933,79 @@ subprocess quotas, walk-forward evaluation, cost/benchmark stress, criteria
 adjudication, captured/live tape, reconnect handling, shadow deployment, or
 paper/live authority. Phase 3 and its exit gate remain open. See
 [ADR 0037](adr/0037-configuration-bound-governed-segment-evaluation.md).
+
+### Current Phase 3E captured-tape research-validity gate
+
+Phase 3E adds a separate pure application boundary before any future captured
+tape may count as research-validity evidence. It deliberately does not widen
+`ManifestReplayTape`, `DatasetPin`, or `ExperimentDatasetReplayPin`: those
+contracts remain limited to repository-owned synthetic and recorded fixtures.
+The existing verified Tiingo snapshot also remains a research baseline; its
+type authenticates retained capture mechanics, not vendor origin, production
+admission, or canonical data.
+
+The gate receives the complete Wave 1A production-prerequisite inputs and their
+observed assessment. It reruns that assessment at its recorded time to detect a
+substituted result and again at the injected current evaluation time to detect
+expired prerequisites. The exact production specification must match the
+captured candidate's source, provider, dataset, feed, profile, and scope. Even a
+passing result remains only `ready_for_admission_evaluation` and cannot stand in
+for the separate source decision.
+
+Source admission is therefore a distinct input. The gate receives the exact
+generic `AdmissionSpecification`, `AdmissionEvidence`, and observed
+`AdmissionReport`, reruns `evaluate_admission`, requires exact equality and
+status `admitted`, and binds the report digest into the capture and research
+specification. A caller-authored report, a fixture source, readiness without
+admission, or admission without the Wave 1A prerequisites is insufficient. The
+bounded v1 contract treats the report, every required technical check, and its
+approval as independently current for 30 half-open days because the existing
+admission report has no authenticated revocation horizon. A fresh wrapper
+timestamp cannot hide stale underlying evidence.
+
+`CapturedDatasetTapeEvidence` binds an explicit origin class and verification
+decision, capture producer/executor, the exact production and admission
+digests, content-addressed capture and dataset-manifest identities, an ordered
+immutable-object-set digest, source-tape digest, coverage, capture and seal
+times, and validity. Verified `vendor_captured` evidence with
+`content_addressed_immutable` retention is a necessary caller-asserted shape,
+not authenticated origin. Synthetic fixtures, recorded fixtures, generic
+research captures, contract-only evidence, mutable retention, and every
+rejected, stale, future, or cross-bound value remain blocked; copying fixture
+digests into the vendor-labeled shape cannot upgrade them.
+
+A separate `CapturedTapeReplayEvidence` binds that exact capture to a
+content-addressed replay run/manifest, replay tape, input, plan, runtime, and
+research-configuration digest plus causal start/completion and validity times.
+The complete research specification is frozen strictly after capture sealing
+and strictly before replay; equal timestamps do not prove causal order. A
+structurally independent review binds the specification, capture, replay,
+source, admission, and configuration transitively through their exact semantic
+digests. The asserted reviewer identifier must differ from the gate executor,
+production-prerequisite producers/reviewer/executor, admission
+approver/executor, and capture and replay producers/executors. V1 does not
+authenticate reviewer identity or class.
+Reusing that review after a source, tape,
+configuration, specification, or review-context change fails as replayed or
+substituted evidence. This side-effect-free slice makes no claim of globally
+consuming an otherwise identical review; durable one-shot use would require a
+separate persistence design and centrally reserved migration.
+
+V1 has no external trust root, issuer, key/signature verifier, or validation path
+for authenticated capture origin. Every assessment therefore contains exactly
+one `authenticated_capture_provenance_missing` or
+`authenticated_capture_provenance_invalid` blocker. Even a caller-forged exact
+Python capability or recomputed unkeyed assessment digest cannot produce
+`eligible_as_captured_tape_research_evidence`. A future positive path requires a
+new independently reviewed contract that authenticates the issuer and trust
+root, binds validity and the exact combined bundle, and adds the issuer to the
+review-independence set. The assessment cannot load or create a source and
+permanently keeps historical-source, admission, canonical-market-data,
+promotion, deployment, and trading effects and authorizations absent. It adds
+no I/O, database state, API, worker, experiment mutation, promotion, deployment,
+broker, or runtime path. No repository-local or external-shaped bundle can
+qualify under v1, so Phase 3's captured-tape exit gate remains open. See
+[ADR 0114](adr/0114-fail-closed-captured-tape-research-validity.md).
 
 The broader backtesting roadmap expands the current narrow contract, when the
 required source evidence and explicit policies exist, to model:
@@ -4290,6 +4450,19 @@ rebuilds, and compares solely against that popped immutable tuple, and keeps the
 record burned on every terminal path, so success leaves the wrapper inactive
 again and neither pending authentication nor active revalidation is replayable.
 
+ADR 0111's dormant request builder is the sole repository consumer of a
+pending loaded wrapper. A private decision-artifact seam owns its exact pending
+authentication and immediate active consumption/revalidation as one interval,
+then returns only a capability-constructed immutable source snapshot. That
+snapshot binds the exact loaded wrapper, private bridge identity, origin PID,
+exact Thread, canonical root strings, complete historical and candidate source
+snapshots, and source-derived receipt identity values, bytes, and digest. Its
+private validator never reads the wrapper's heap fields or a public receipt.
+The host registers that snapshot with the exact constructed request and later
+requires the same loaded wrapper and bridge identity. Raw ADR-0106 receipts,
+receipt bytes, digests, decoded decisions, copies, clones, scalar-equal values,
+replay, wrong-thread or forked state, and source drift cannot substitute.
+
 Only during the explicitly authenticated active interval do its non-authorizing
 diagnostic properties report decision-receipt authentication,
 candidate-retention revalidation, historical-start-chain authentication, and
@@ -4423,13 +4596,14 @@ executable/tool/loader-byte admission, remaining process-callsite migration,
 containment, immutable image and effective-mount receipts, and root-owned
 read-only deployment remain explicit production-activation blockers.
 
-The public APIs have zero production callers and no receipt sidecar, decoder,
-CLI, Make workflow, runtime consumer, lifecycle writer, provider/database,
-network, signer, or effect surface. The reviewed prerequisite now includes the
-native build, fixed launcher, root-filesystem manifest, and packaging matrix;
-its admission receipts, caller migration, containment, and mount hardening are
-still open. The decision script itself remains Docker-excluded. ADR 0111 does
-not yet consume the loaded wrapper.
+The public loader has no live production caller. The loaded type and private
+consumed-snapshot seams have exactly one production importer, ADR 0111's dormant
+zero-caller host bridge. They add no receipt sidecar, decoder, CLI, Make
+workflow, runtime consumer, lifecycle writer, provider/database, network,
+signer, or effect surface. The reviewed prerequisite now includes the native
+build, fixed launcher, root-filesystem manifest, and packaging matrix; its
+admission receipts, caller migration, containment, and mount hardening are
+still open. The decision script itself remains Docker-excluded.
 
 There is no installed stop authority, signer, reviewed-Git stop-authority
 loader, current topology/head issuer, operation-bound replay reservation,
@@ -4675,31 +4849,45 @@ does not enter this registry or issue a bridge result.
 
 Dormant host module
 `scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py`
-builds the structural request only from the exact process-local ADR-0106
-decision receipt plus repeatedly revalidated ADR-0110 retained attempt and
-ordinal-one progress. ADR 0112 now supplies a separate zero-caller inert-load,
-explicit-authentication, and consuming-revalidation receipt flow, but this host
-builder does not consume that authenticated loaded wrapper, so its process-local
-receipt digest remains unqualified. Its terminal binder burns one ADR-0109
-postcondition first, retains the immutable consumed registry snapshot, strictly
-captures the request/result wire, and cross-binds the common anchor, head,
-intent, readback, receipt, count, ordinal, predecessor, and receipt-time fields.
+builds the structural request only from the exact inert, pending ADR-0112
+loaded wrapper plus repeatedly revalidated ADR-0110 retained attempt and
+ordinal-one progress. The builder creates one private bridge identity and owns
+the exact loaded-wrapper authentication plus immediate consuming revalidation.
+It receives only the private source-derived immutable receipt snapshot, then
+registers that snapshot, the exact wrapper and request identities, canonical
+wire, roots, PID, and Thread as one process-local single-use association. The
+receipt digest on the public request wire remains structural; only this private
+association carries the receipt and historical-chain authentication facts.
+
+The terminal binder consumes that exact authenticated-request association
+first and reuses its bridge identity to consume one ADR-0109 postcondition. It
+retains both immutable consumed registry snapshots, strictly captures the
+request/result wire, revalidates the ADR-0110 chain and ADR-0112 source handoff,
+and cross-binds the common anchor, head, intent, readback, receipt, count,
+ordinal, predecessor, and receipt-time fields. Any copy, replay, raw/scalar
+substitution, wrong wrapper, drift, cleanup failure, or wrong thread fails
+closed and burns the relevant one-shot association. A forked child rejects on
+the origin-PID gate before inherited registry locking and cannot consume the
+origin process's state.
 
 The sealed host composite uses contract
-`phase6d-post-enrollment-graceful-stop-supervisor-bridge-v1` and status
-`operation_bound_terminal_projection_cross_bound_unqualified`. Its only
-positive facts are the inherited bounded
+`phase6d-post-enrollment-graceful-stop-supervisor-bridge-v2` and status
+`receipt_authenticated_operation_bound_terminal_projection_cross_bound_unqualified`.
+Its positive facts are only exact
+`decision_artifact_receipt_authenticated`, exact
+`historical_start_chain_authenticated`, the inherited bounded
 `provider_terminal_observed_under_stable_sql_authenticated` observation and
 `exact_terminal_projection_cross_bound_unqualified`. It reports transport and
-origin authentication, lasting currentness and freshness, historical receipt
-authentication, topology and lifecycle currentness, durability, reservation,
-admission, signal, teardown, outcome, recovery, operational authority, and
-trading authority as false. The composite is process/thread sealed and has no
-public persistence or decoder contract.
+origin authentication, lasting currentness and freshness, current topology and
+lifecycle currentness, durability, reservation, admission, signal, teardown,
+outcome, recovery, operational authority, and trading authority as false. The
+composite is process/thread sealed and has no public persistence or decoder
+contract.
 
 No production code calls the core's private operation-bound request or take,
-and the host bridge imports only the low-level public wire types/codecs. The
-host bridge itself has zero production importers or callers. There is no
+and the host bridge imports only the low-level public wire types/codecs plus the
+exact ADR-0112 loaded type and private consumed-snapshot seams. The host bridge
+itself has zero production importers or callers. There is no
 host/supervisor transport, main/background integration, lifecycle writer,
 signal, Docker/Compose, CLI, Make, provider/SQL, topology mutation, or outcome
 effect. ADR-0110 v1 remains terminal at ordinal one, and
@@ -4751,13 +4939,13 @@ or unreachable recipes. Workflow execution and required-check branch
 protection are still external trusted controls; source review alone cannot
 prove that GitHub ran or enforced the check.
 
-Before live integration, one reviewed composition must still explicitly
-authenticate, integrate, and consume-revalidate ADR 0112's exact loaded
-ADR-0106 receipt, add authenticated replay-
-safe request/result transport, same-lock stop-authority/current-topology admission,
+Before live integration, one reviewed composition must build on the exact
+ADR-0112-to-ADR-0111 loaded-receipt handoff and add authenticated replay-safe
+request/result transport, same-lock stop-authority/current-topology admission,
 a new lifecycle version for pre-CALL/post-CALL and terminal retention, explicit
-at-fork invalidation and inherited-lock cleanup, and the ordered supervisor,
-source, container, and network effects while preserving both named volumes.
+at-fork invalidation and inherited-lock cleanup for those later live
+registries, and the ordered supervisor, source, container, and network effects
+while preserving both named volumes.
 
 Code-only contract `phase6d-post-enrollment-start-host-orchestrator-v3` now
 composes the complete start-only chain. Before mutation it consumes canonical

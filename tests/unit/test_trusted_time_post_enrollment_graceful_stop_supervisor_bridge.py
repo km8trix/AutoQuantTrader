@@ -8,6 +8,7 @@ import os
 import pickle
 import select
 import signal
+import threading
 from dataclasses import dataclass
 from dataclasses import fields as dataclass_fields
 from datetime import timedelta
@@ -31,6 +32,7 @@ from scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication i
     TrustedTimePostEnrollmentCleanStopTerminalReauthenticationIssuer,
 )
 from scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts import (
+    LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt,
     TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt,
 )
 from scripts.trusted_time_post_enrollment_graceful_stop_lifecycle import (
@@ -48,6 +50,8 @@ from tests.unit import test_trusted_time_post_enrollment_graceful_stop_lifecycle
 @dataclass(frozen=True, slots=True)
 class _LifecycleEvidence:
     receipt: TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+    loaded_receipt: LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+    start_operator_attested_approval_artifact: Path
     attempt: RetainedTrustedTimePostEnrollmentGracefulStopAttempt
     progress: RetainedTrustedTimePostEnrollmentGracefulStopProgress
     artifact_directory: Path
@@ -122,8 +126,20 @@ def _load_lifecycle_evidence(roots: tuple[Path, Path]) -> _LifecycleEvidence:
         start_supervisor_image_id=cast(str, launch["supervisor_image_id"]),
         _construction_capability=decision_artifacts._RECEIPT_CONSTRUCTION_CAPABILITY,
     )
+    receipt_encoded = bridge.canonical_first_enrollment_json_bytes(receipt.public_payload)
+    loaded_receipt = LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt(
+        artifact_path=artifact_directory / receipt.artifact_location,
+        encoded=b"{}\n",
+        directory_identity=(1, 2),
+        file_identity=(1, 2, 0o100600, os.geteuid(), 0, 1, 3, 0, 0),
+        receipt_encoded=receipt_encoded,
+        receipt_sha256=hashlib.sha256(receipt_encoded).hexdigest(),
+        _construction_capability=decision_artifacts._LOADED_RECEIPT_CONSTRUCTION_CAPABILITY,
+    )
     return _LifecycleEvidence(
         receipt=receipt,
+        loaded_receipt=loaded_receipt,
+        start_operator_attested_approval_artifact=(artifact_directory / "test-start-approval.json"),
         attempt=attempt,
         progress=progress,
         artifact_directory=artifact_directory,
@@ -151,6 +167,58 @@ def _fast_stable_lifecycle_view(
     attempt_seal = lifecycle_evidence.attempt._sealed_fields
     progress_record_identity = lifecycle_evidence.progress.record
     progress_seal = lifecycle_evidence.progress._sealed_fields
+    loaded_seal = lifecycle_evidence.loaded_receipt._sealed_fields
+
+    bridge._AUTHENTICATED_REQUEST_REGISTRY.clear()
+    bridge._AUTHENTICATED_REQUEST_ID_BY_LOADED_ID.clear()
+    bridge._AUTHENTICATED_REQUEST_ID_BY_SHA256.clear()
+    bridge._SEEN_AUTHENTICATED_REQUEST_SHA256S.clear()
+    bridge._COMPOSITE_REGISTRY.clear()
+
+    def consume_loaded_receipt(
+        loaded: object,
+        *,
+        consumer_identity: object,
+        **_: object,
+    ) -> object:
+        assert loaded is lifecycle_evidence.loaded_receipt
+        receipt_encoded = bridge.canonical_first_enrollment_json_bytes(
+            lifecycle_evidence.receipt.public_payload
+        )
+        candidate = object.__new__(bridge._ConsumedLoadedDecisionArtifactReceiptSnapshot)
+        for name, value in {
+            "loaded_identity": loaded,
+            "consumer_identity": consumer_identity,
+            "owner_pid": bridge._ORIGIN_PID,
+            "owner_thread": threading.current_thread(),
+            "historical_snapshot": (),
+            "source_snapshot": (),
+            "artifact_directory": os.fspath(lifecycle_evidence.artifact_directory),
+            "ignored_root": os.fspath(lifecycle_evidence.ignored_root),
+            "receipt_identity_values": tuple(
+                getattr(lifecycle_evidence.receipt, name)
+                for name in bridge._DECISION_RECEIPT_IDENTITY_FIELDS
+            ),
+            "receipt_encoded": receipt_encoded,
+            "receipt_sha256": hashlib.sha256(receipt_encoded).hexdigest(),
+            "_construction_capability": object(),
+        }.items():
+            object.__setattr__(candidate, name, value)
+        return candidate
+
+    def require_consumed(
+        value: object,
+        *,
+        loaded_identity: object,
+        consumer_identity: object,
+    ) -> object:
+        if (
+            type(value) is not bridge._ConsumedLoadedDecisionArtifactReceiptSnapshot
+            or value.loaded_identity is not loaded_identity
+            or value.consumer_identity is not consumer_identity
+        ):
+            raise ValueError
+        return value
 
     class State:
         status = bridge.TrustedTimePostEnrollmentGracefulStopRecoveryStateStatus.RECOVERY_REQUIRED
@@ -219,6 +287,16 @@ def _fast_stable_lifecycle_view(
         "inspect_post_enrollment_graceful_stop_recovery_state",
         lambda **_: State(),
     )
+    monkeypatch.setattr(
+        bridge,
+        "_authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge",
+        consume_loaded_receipt,
+    )
+    monkeypatch.setattr(
+        bridge,
+        "_require_consumed_loaded_decision_artifact_receipt_snapshot",
+        require_consumed,
+    )
     yield
     for name, value in receipt_values.items():
         object.__setattr__(lifecycle_evidence.receipt, name, value)
@@ -227,17 +305,52 @@ def _fast_stable_lifecycle_view(
     object.__setattr__(lifecycle_evidence.attempt, "_sealed_fields", attempt_seal)
     object.__setattr__(lifecycle_evidence.progress, "record", progress_record_identity)
     object.__setattr__(lifecycle_evidence.progress, "_sealed_fields", progress_seal)
+    object.__setattr__(lifecycle_evidence.loaded_receipt, "_sealed_fields", loaded_seal)
+    bridge._AUTHENTICATED_REQUEST_REGISTRY.clear()
+    bridge._AUTHENTICATED_REQUEST_ID_BY_LOADED_ID.clear()
+    bridge._AUTHENTICATED_REQUEST_ID_BY_SHA256.clear()
+    bridge._SEEN_AUTHENTICATED_REQUEST_SHA256S.clear()
+    bridge._COMPOSITE_REGISTRY.clear()
 
 
 def _request(
     evidence: _LifecycleEvidence,
 ) -> core_bridge.TrustedTimeHeadAnchorOperationBoundCleanStopRequest:
     return bridge.build_post_enrollment_graceful_stop_supervisor_clean_stop_request(
-        decision_artifact_receipt=evidence.receipt,
+        loaded_decision_artifact_receipt=evidence.loaded_receipt,
+        start_operator_attested_approval_artifact=(
+            evidence.start_operator_attested_approval_artifact
+        ),
+        expected_graceful_stop_decision_v1_sha256=(
+            evidence.receipt.graceful_stop_decision_v1_sha256
+        ),
         retained_attempt=evidence.attempt,
         retained_progress=evidence.progress,
         artifact_directory=evidence.artifact_directory,
         ignored_root=evidence.ignored_root,
+    )
+
+
+def _consumed_receipt_snapshot(
+    evidence: _LifecycleEvidence,
+) -> bridge._DecisionReceiptSnapshot:
+    bridge_identity = bridge._new_bridge_identity()
+    consumed = bridge._authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge(  # noqa: E501
+        evidence.loaded_receipt,
+        start_operator_attested_approval_artifact=(
+            evidence.start_operator_attested_approval_artifact
+        ),
+        expected_graceful_stop_decision_v1_sha256=(
+            evidence.receipt.graceful_stop_decision_v1_sha256
+        ),
+        artifact_directory=evidence.artifact_directory,
+        ignored_root=evidence.ignored_root,
+        consumer_identity=bridge_identity,
+    )
+    return bridge._capture_consumed_receipt_snapshot(
+        consumed,
+        loaded_identity=evidence.loaded_receipt,
+        bridge_identity=bridge_identity,
     )
 
 
@@ -293,7 +406,7 @@ def _bind(
     terminal: _TerminalEvidence,
 ) -> bridge.TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation:
     return bridge.bind_post_enrollment_graceful_stop_operation_bound_terminal_observation(
-        decision_artifact_receipt=evidence.receipt,
+        loaded_decision_artifact_receipt=evidence.loaded_receipt,
         retained_attempt=evidence.attempt,
         retained_progress=evidence.progress,
         artifact_directory=evidence.artifact_directory,
@@ -324,6 +437,8 @@ def test_request_and_terminal_composite_are_exact_inert_projections(
     )
     assert observation.operation_bound_request_sha256 == request.request_sha256
     assert observation.operation_bound_result_sha256 == terminal.result.result_sha256
+    assert observation.decision_artifact_receipt_authenticated is True
+    assert observation.historical_start_chain_authenticated is True
     assert observation.provider_terminal_observed_under_stable_sql_authenticated is True
     assert observation.exact_terminal_projection_cross_bound_unqualified is True
     assert observation.status == bridge.POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_STATUS
@@ -338,7 +453,9 @@ def test_request_and_terminal_composite_are_exact_inert_projections(
         assert observation.payload()[field_name] is False
     registration = bridge._COMPOSITE_REGISTRY[id(observation)]
     assert registration.source_identities == (
-        evidence.receipt,
+        evidence.loaded_receipt,
+        registration.request_evidence_snapshot.receipt.consumed_identity,
+        registration.authenticated_request_registration,
         evidence.attempt,
         evidence.progress,
         request,
@@ -349,7 +466,7 @@ def test_request_and_terminal_composite_are_exact_inert_projections(
     )
 
 
-def test_request_builder_uses_two_coherent_inspections_and_rejects_live_mutation(
+def test_request_builder_uses_coherent_inspections_and_rejects_live_record_mutation(
     monkeypatch: pytest.MonkeyPatch,
     lifecycle_evidence: _LifecycleEvidence,
 ) -> None:
@@ -362,15 +479,22 @@ def test_request_builder_uses_two_coherent_inspections_and_rejects_live_mutation
         calls += 1
         state = original(**cast(Any, kwargs))
         if calls == 1:
+            clone = _scalar_equal_clone(evidence.attempt.record)
             object.__setattr__(
-                evidence.receipt,
-                "start_approved_image_provenance_source_revision_sha256",
-                "e" * 64,
+                evidence.attempt,
+                "record",
+                clone,
             )
             object.__setattr__(
-                evidence.receipt,
+                evidence.attempt,
                 "_sealed_fields",
-                decision_artifacts._receipt_seal_values(evidence.receipt),
+                (
+                    clone,
+                    evidence.attempt.artifact_sha256,
+                    evidence.attempt.artifact_path,
+                    evidence.attempt.encoded,
+                    evidence.attempt.file_identity,
+                ),
             )
         return state
 
@@ -384,37 +508,49 @@ def test_request_builder_uses_two_coherent_inspections_and_rejects_live_mutation
     assert calls == 1
 
 
-@pytest.mark.parametrize("spoofed_capture", [1, 2, 3, 4])
-def test_request_builder_rejects_receipt_payload_spoof_at_every_capture_boundary(
+@pytest.mark.parametrize(
+    "mutation",
+    ["loaded_identity", "consumer_identity", "identity_values", "encoded", "sha256"],
+)
+def test_request_builder_rejects_consumed_receipt_snapshot_identity_and_value_spoof(
     monkeypatch: pytest.MonkeyPatch,
     lifecycle_evidence: _LifecycleEvidence,
-    spoofed_capture: int,
+    mutation: str,
 ) -> None:
     evidence = lifecycle_evidence
-    receipt_type = type(evidence.receipt)
-    original_getter = cast(Any, receipt_type.public_payload).fget
+    original = bridge._authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge  # noqa: E501
     calls = 0
 
-    def public_payload(
-        receipt: TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt,
-    ) -> dict[str, object]:
+    def consume(*args: object, **kwargs: object) -> object:
         nonlocal calls
-        payload = cast(dict[str, object], original_getter(receipt))
-        if receipt is evidence.receipt:
-            calls += 1
-            if calls == spoofed_capture:
-                payload["start_approved_image_provenance_source_revision_sha256"] = "e" * 64
-        return payload
+        calls += 1
+        consumed = original(*cast(Any, args), **cast(Any, kwargs))
+        if mutation == "loaded_identity":
+            object.__setattr__(consumed, "loaded_identity", object())
+        elif mutation == "consumer_identity":
+            object.__setattr__(consumed, "consumer_identity", object())
+        elif mutation == "identity_values":
+            values = list(consumed.receipt_identity_values)
+            values[bridge._DECISION_RECEIPT_IDENTITY_FIELDS.index("start_git_revision")] = "e" * 40
+            object.__setattr__(consumed, "receipt_identity_values", tuple(values))
+        elif mutation == "encoded":
+            object.__setattr__(consumed, "receipt_encoded", b"{}\n")
+        else:
+            object.__setattr__(consumed, "receipt_sha256", "0" * 64)
+        return consumed
 
-    monkeypatch.setattr(receipt_type, "public_payload", property(public_payload))
+    monkeypatch.setattr(
+        bridge,
+        "_authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge",
+        consume,
+    )
 
     with pytest.raises(bridge.TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected):
         _request(evidence)
 
-    assert calls == spoofed_capture
+    assert calls == 1
 
 
-@pytest.mark.parametrize("spoofed_capture", [1, 4])
 @pytest.mark.parametrize(
     ("field_name", "replacement"),
     [
@@ -429,41 +565,43 @@ def test_request_builder_rejects_receipt_payload_spoof_at_every_capture_boundary
 def test_request_builder_rejects_every_receipt_semantic_category_spoof(
     monkeypatch: pytest.MonkeyPatch,
     lifecycle_evidence: _LifecycleEvidence,
-    spoofed_capture: int,
     field_name: str,
     replacement: object,
 ) -> None:
     evidence = lifecycle_evidence
     assert field_name in bridge.POST_ENROLLMENT_GRACEFUL_STOP_DECISION_ARTIFACT_RECEIPT_FIELDS
-    receipt_type = type(evidence.receipt)
-    original_getter = cast(Any, receipt_type.public_payload).fget
-    calls = 0
+    original = bridge._authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge  # noqa: E501
 
-    def public_payload(
-        receipt: TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt,
-    ) -> dict[str, object]:
-        nonlocal calls
-        payload = cast(dict[str, object], original_getter(receipt))
-        if receipt is evidence.receipt:
-            calls += 1
-            if calls == spoofed_capture:
-                payload[field_name] = replacement
-        return payload
+    def consume(*args: object, **kwargs: object) -> object:
+        consumed = original(*cast(Any, args), **cast(Any, kwargs))
+        payload = evidence.receipt.public_payload
+        payload[field_name] = replacement
+        encoded = bridge.canonical_first_enrollment_json_bytes(payload)
+        object.__setattr__(consumed, "receipt_encoded", encoded)
+        object.__setattr__(
+            consumed,
+            "receipt_sha256",
+            hashlib.sha256(encoded).hexdigest(),
+        )
+        return consumed
 
-    monkeypatch.setattr(receipt_type, "public_payload", property(public_payload))
+    monkeypatch.setattr(
+        bridge,
+        "_authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge",
+        consume,
+    )
 
     with pytest.raises(bridge.TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected):
         _request(evidence)
-
-    assert calls == spoofed_capture
 
 
 def test_request_snapshot_rejects_values_not_decoded_from_its_receipt_bytes(
     lifecycle_evidence: _LifecycleEvidence,
 ) -> None:
     evidence = lifecycle_evidence
+    receipt_snapshot = _consumed_receipt_snapshot(evidence)
     snapshot = bridge._capture_request_evidence_snapshot(
-        decision_artifact_receipt=evidence.receipt,
+        decision_artifact_receipt=receipt_snapshot,
         retained_attempt=evidence.attempt,
         retained_progress=evidence.progress,
     )
@@ -471,9 +609,12 @@ def test_request_snapshot_rejects_values_not_decoded_from_its_receipt_bytes(
     values[bridge._DECISION_RECEIPT_IDENTITY_FIELDS.index("start_git_revision")] = "e" * 40
     inconsistent = bridge._RequestEvidenceSnapshot(
         receipt=bridge._DecisionReceiptSnapshot(
-            identity=snapshot.receipt.identity,
+            loaded_identity=snapshot.receipt.loaded_identity,
+            bridge_identity=snapshot.receipt.bridge_identity,
+            consumed_identity=snapshot.receipt.consumed_identity,
             values=tuple(values),
             encoded=snapshot.receipt.encoded,
+            receipt_sha256=snapshot.receipt.receipt_sha256,
         ),
         attempt=snapshot.attempt,
         progress=snapshot.progress,
@@ -532,7 +673,14 @@ def test_request_builder_aba_callback_never_changes_snapshot_derived_request(
     lifecycle_evidence: _LifecycleEvidence,
 ) -> None:
     evidence = lifecycle_evidence
-    expected = _request(evidence).encoded
+    receipt_snapshot = _consumed_receipt_snapshot(evidence)
+    expected = bridge._request_from_exact_evidence(
+        decision_artifact_receipt=receipt_snapshot,
+        retained_attempt=evidence.attempt,
+        retained_progress=evidence.progress,
+        artifact_directory=evidence.artifact_directory,
+        ignored_root=evidence.ignored_root,
+    ).encoded
     original = bridge.inspect_post_enrollment_graceful_stop_recovery_state
     calls = 0
 
@@ -570,8 +718,156 @@ def test_request_builder_aba_callback_never_changes_snapshot_derived_request(
     )
     observed = _request(evidence)
 
-    assert calls == 2
+    assert calls == 3
     assert observed.encoded == expected
+
+
+def test_abandoned_authenticated_request_gc_cleans_every_live_index(
+    lifecycle_evidence: _LifecycleEvidence,
+) -> None:
+    evidence = lifecycle_evidence
+    request = _request(evidence)
+    request_id = id(request)
+    request_sha256 = request.request_sha256
+    loaded_id = id(evidence.loaded_receipt)
+
+    assert bridge._AUTHENTICATED_REQUEST_REGISTRY[request_id].request_reference() is request
+    assert bridge._AUTHENTICATED_REQUEST_ID_BY_LOADED_ID[loaded_id] == request_id
+    assert bridge._AUTHENTICATED_REQUEST_ID_BY_SHA256[request_sha256] == request_id
+
+    del request
+    gc.collect()
+
+    assert request_id not in bridge._AUTHENTICATED_REQUEST_REGISTRY
+    assert loaded_id not in bridge._AUTHENTICATED_REQUEST_ID_BY_LOADED_ID
+    assert request_sha256 not in bridge._AUTHENTICATED_REQUEST_ID_BY_SHA256
+    assert request_sha256 in bridge._SEEN_AUTHENTICATED_REQUEST_SHA256S
+
+
+def test_scalar_equal_request_copy_burns_request_and_postcondition(
+    lifecycle_evidence: _LifecycleEvidence,
+) -> None:
+    evidence = lifecycle_evidence
+    request = _request(evidence)
+    copied_request = core_bridge.decode_trusted_time_head_anchor_operation_bound_clean_stop_request(
+        request.encoded
+    )
+    terminal = _terminal_evidence(request)
+
+    with pytest.raises(bridge.TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected):
+        _bind(evidence, copied_request, terminal)
+    with pytest.raises(bridge.TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected):
+        _bind(evidence, request, terminal)
+
+    assert bridge._AUTHENTICATED_REQUEST_REGISTRY == {}
+    assert bridge._AUTHENTICATED_REQUEST_ID_BY_LOADED_ID == {}
+    assert bridge._AUTHENTICATED_REQUEST_ID_BY_SHA256 == {}
+
+
+def test_interrupted_request_pop_is_retried_to_complete_burn(
+    monkeypatch: pytest.MonkeyPatch,
+    lifecycle_evidence: _LifecycleEvidence,
+) -> None:
+    evidence = lifecycle_evidence
+    request = _request(evidence)
+    terminal = _terminal_evidence(request)
+    original = bridge._remove_authenticated_request_registration_locked
+    calls = 0
+
+    def interrupt_once(request_id: int, registration: object) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise KeyboardInterrupt
+        original(request_id, cast(Any, registration))
+
+    monkeypatch.setattr(
+        bridge,
+        "_remove_authenticated_request_registration_locked",
+        interrupt_once,
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        _bind(evidence, request, terminal)
+
+    assert calls == 2
+    assert bridge._AUTHENTICATED_REQUEST_REGISTRY == {}
+    assert bridge._AUTHENTICATED_REQUEST_ID_BY_LOADED_ID == {}
+    assert bridge._AUTHENTICATED_REQUEST_ID_BY_SHA256 == {}
+    with pytest.raises(bridge.TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected):
+        _bind(evidence, request, terminal)
+
+
+def test_wrong_thread_request_use_burns_the_one_shot_association(
+    lifecycle_evidence: _LifecycleEvidence,
+) -> None:
+    evidence = lifecycle_evidence
+    request = _request(evidence)
+    terminal = _terminal_evidence(request)
+    observed: list[BaseException | None] = []
+
+    def bind_in_thread() -> None:
+        try:
+            _bind(evidence, request, terminal)
+        except BaseException as error:
+            observed.append(error)
+        else:
+            observed.append(None)
+
+    thread = threading.Thread(target=bind_in_thread)
+    thread.start()
+    thread.join(timeout=2.0)
+
+    assert not thread.is_alive()
+    assert len(observed) == 1
+    assert isinstance(
+        observed[0],
+        bridge.TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected,
+    )
+    with pytest.raises(bridge.TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected):
+        _bind(evidence, request, terminal)
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires fork process semantics")
+def test_request_registry_held_across_fork_rejects_child_without_deadlock(
+    lifecycle_evidence: _LifecycleEvidence,
+) -> None:
+    evidence = lifecycle_evidence
+    request = _request(evidence)
+    terminal = _terminal_evidence(request)
+    read_fd, write_fd = os.pipe()
+    bridge._AUTHENTICATED_REQUEST_REGISTRY_LOCK.acquire()
+    child_pid = os.fork()
+    if child_pid == 0:  # pragma: no cover - asserted through the pipe
+        os.close(read_fd)
+        try:
+            _bind(evidence, request, terminal)
+        except bridge.TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected:
+            observed = b"1"
+        else:
+            observed = b"0"
+        os.write(write_fd, observed)
+        os.close(write_fd)
+        os._exit(0)
+
+    os.close(write_fd)
+    try:
+        readable, _, _ = select.select([read_fd], [], [], 2.0)
+    finally:
+        bridge._AUTHENTICATED_REQUEST_REGISTRY_LOCK.release()
+    if readable:
+        observed = os.read(read_fd, 1)
+    else:
+        observed = b""
+        os.kill(child_pid, signal.SIGKILL)
+    os.close(read_fd)
+    _, status = os.waitpid(child_pid, 0)
+
+    assert readable == [read_fd]
+    assert status == 0
+    assert observed == b"1"
+    observation = _bind(evidence, request, terminal)
+    assert observation.decision_artifact_receipt_authenticated is True
 
 
 def test_terminal_projection_mismatch_burns_postcondition_before_correct_retry(
@@ -593,7 +889,7 @@ def test_terminal_projection_mismatch_burns_postcondition_before_correct_retry(
 
     with pytest.raises(bridge.TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected):
         bridge.bind_post_enrollment_graceful_stop_operation_bound_terminal_observation(
-            decision_artifact_receipt=evidence.receipt,
+            loaded_decision_artifact_receipt=evidence.loaded_receipt,
             retained_attempt=evidence.attempt,
             retained_progress=evidence.progress,
             artifact_directory=evidence.artifact_directory,
@@ -657,7 +953,7 @@ def test_binder_rejects_wire_payload_spoof_at_initial_and_issuance_boundaries(
     with pytest.raises(bridge.TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected):
         _bind(evidence, request, terminal)
 
-    assert calls == spoofed_capture
+    assert calls == spoofed_capture + (2 if wire_kind == "request" else 0)
 
 
 @pytest.mark.parametrize("mutating_read", [1, 2])
@@ -692,7 +988,7 @@ def test_binder_rejects_postcondition_mutation_after_registry_snapshot_read(
     with pytest.raises(bridge.TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected):
         _bind(evidence, request, terminal)
 
-    assert calls == mutating_read + 1
+    assert calls == mutating_read + 2
 
 
 def test_all_thirteen_terminal_projection_equalities_are_required(
@@ -789,14 +1085,9 @@ def test_composite_rejects_nested_seal_rewrites_and_scalar_equal_swaps(
 
     if mutation in {"receipt_inner", "joint_inner"}:
         object.__setattr__(
-            evidence.receipt,
-            "start_approved_image_provenance_source_revision_sha256",
-            "e" * 64,
-        )
-        object.__setattr__(
-            evidence.receipt,
-            "_sealed_fields",
-            decision_artifacts._receipt_seal_values(evidence.receipt),
+            registration.request_evidence_snapshot.receipt.consumed_identity,
+            "receipt_sha256",
+            _different_digest(registration.request_evidence_snapshot.receipt.receipt_sha256),
         )
     if mutation in {"attempt_record_swap", "joint_inner"}:
         clone = _scalar_equal_clone(evidence.attempt.record)
@@ -928,7 +1219,10 @@ def test_composite_registry_held_across_fork_rejects_gc_and_issue_without_deadlo
             rejected.extend(b"0")
         try:
             bridge._issue_composite(
-                decision_artifact_receipt=evidence.receipt,
+                loaded_decision_artifact_receipt=evidence.loaded_receipt,
+                authenticated_request_registration=(
+                    registration.authenticated_request_registration
+                ),
                 retained_attempt=evidence.attempt,
                 retained_progress=evidence.progress,
                 request=request,

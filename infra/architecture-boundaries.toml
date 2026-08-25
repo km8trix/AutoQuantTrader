@@ -3,7 +3,7 @@ source_roots = ["apps", "packages"]
 package_roots = ["packages"]
 production_python_source_manifest_roots = ["apps", "packages", "scripts"]
 production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]
-production_python_source_manifest_sha256 = "5a3346cc04c721fc08e587d86e27884756944e64aebff17972f29237670ca0dd"
+production_python_source_manifest_sha256 = "d1574f49bb8a51e82462d41d4065992714e2d5397431bdc30279e05e5fd0f8f0"
 project_build_bootstrap_manifest_paths = [
   ".python-version",
   "pyproject.toml",
@@ -179,7 +179,7 @@ trusted_time_topology_launch_lock_documentation_paths = [
 trusted_time_topology_launch_lock_reader_module_ast_sha256 = "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
 trusted_time_topology_launch_lock_issuer_class_ast_sha256 = "b64f79e1679e2bdefe40f6b36c82142fa367f6e6981c1b2e8fee1366a7d39bcd"
 trusted_time_topology_launch_lock_host_module_ast_sha256 = "15c3e62437dc070d223038e21097ce85cbbb68de71ced3a6574f506236ebf56c"
-trusted_time_topology_launch_lock_production_ast_sha256 = "0b9fac22d464ee20145ef73a40cccc5dac95817986637d2ac84c1b067503e55e"
+trusted_time_topology_launch_lock_production_ast_sha256 = "6ede506c1f96504d32848b893d871cf84640f5ac6756328458c7204d0e7c5bf0"
 trusted_time_topology_launch_lock_lifecycle_tag = "trusted-time-issuer-lifecycle-v3"
 trusted_time_topology_launch_lock_lifecycle_tag_count = 13
 trusted_time_topology_launch_lock_launch_lock_binding_tag = "trusted-time-launch-lock-binding-v1"
@@ -573,6 +573,12 @@ side_effect_free_roots = [
   "packages/adapters/broker/alpaca_paper_position_snapshot_comparison.py",
   "packages/adapters/broker/alpaca_paper_preflight.py",
   "packages/adapters/broker/alpaca_paper_reconciliation.py",
+  # Phase 4AJ freezes only typed E*TRADE endpoint, callback, account-identifier,
+  # and Accounts List request evidence without ambient I/O or authority.
+  "packages/adapters/broker/etrade.py",
+  # Phase 4AK retains and strictly decodes bounded caller-declared Accounts List
+  # bytes without authenticating origin or gaining ambient I/O or authority.
+  "packages/adapters/broker/etrade_accounts.py",
   # Phase 4AG authenticates injected durable sources and appends through an
   # injected repository without ambient clock, database, or transport access.
   "packages/application/alpaca_paper_account_activity_comparison.py",
@@ -600,6 +606,15 @@ side_effect_free_roots = [
   # identity to digest-only historical evidence without ambient clock,
   # persistence, credential, transport, control, or broker authority.
   "packages/application/paper_account_enrollment.py",
+  # Phase 1 production-data admission inventories injected prerequisite
+  # references and exact review bindings without owning ambient clock,
+  # filesystem, credential, network, persistence, source, or trading authority.
+  "packages/application/production_market_data_admission.py",
+  # Phase 3E composes only injected production prerequisites, source-admission
+  # inputs, capture/replay pins, time, and review claims. V1 has no external
+  # provenance trust root and always blocks; it owns no ambient clock, I/O,
+  # persistence, source, experiment, promotion, or trading authority.
+  "packages/application/captured_tape_research_validity.py",
   # Phase 6A samples only injected clocks and a provider-neutral time-source
   # port. It owns no ambient clock, scheduler, persistence, network, control,
   # broker, or re-arm authority.
@@ -2159,14 +2174,15 @@ operation_bound_clean_stop_bridge_worker_private_callsites._take_trusted_time_he
 ]
 
 # ADR 0111's host bridge is the sole audited cross-module exception.  It may
-# consume exactly the ADR 0109 registry snapshot seams and inspect/decode only
+# authenticate and consume exactly ADR 0112's loaded decision-artifact receipt,
+# consume exactly the ADR 0109 registry snapshot seams, and inspect/decode only
 # ADR 0110's retained v1 attempt/progress chain.  It has no production importer
 # or caller and is excluded from every runtime image.
 graceful_stop_supervisor_bridge_roots = [
   "scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py",
 ]
 graceful_stop_supervisor_bridge_module = "scripts.trusted_time_post_enrollment_graceful_stop_supervisor_bridge"
-graceful_stop_supervisor_bridge_module_ast_sha256 = "f440f7bc4612fd3ab5ab806be7d33bef6070626aba16bce4f6c5192a4e3b38b7"
+graceful_stop_supervisor_bridge_module_ast_sha256 = "b3c35a7086eb2de22a7ea8dec929c179f59660901de53a00fdfb5f0fddfaa14d"
 graceful_stop_supervisor_bridge_allowed_project_imports = [
   "packages.application.trusted_time_head_anchor:TrustedTimeHeadAnchorCheckpointReason",
   "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge:TrustedTimeHeadAnchorOperationBoundCleanStopRequest",
@@ -2186,8 +2202,11 @@ graceful_stop_supervisor_bridge_allowed_project_imports = [
   "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:ARTIFACT_RECEIPT_CONTRACT_VERSION",
   "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:ARTIFACT_WORKFLOW_SERVICE",
   "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:DECISION_CANDIDATE_PREPARED_STATUS",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt",
   "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:POST_ENROLLMENT_GRACEFUL_STOP_DECISION_ARTIFACT_RECEIPT_FIELDS",
-  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:_ConsumedLoadedDecisionArtifactReceiptSnapshot",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:_authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:_require_consumed_loaded_decision_artifact_receipt_snapshot",
   "scripts.trusted_time_post_enrollment_graceful_stop_lifecycle:RetainedTrustedTimePostEnrollmentGracefulStopAttempt",
   "scripts.trusted_time_post_enrollment_graceful_stop_lifecycle:RetainedTrustedTimePostEnrollmentGracefulStopProgress",
   "scripts.trusted_time_post_enrollment_graceful_stop_lifecycle:TrustedTimePostEnrollmentGracefulStopRecoveryStateStatus",
@@ -2249,6 +2268,7 @@ graceful_stop_supervisor_bridge_public_symbols = [
   "build_post_enrollment_graceful_stop_supervisor_clean_stop_request",
 ]
 graceful_stop_supervisor_bridge_private_symbols = [
+  "_AuthenticatedRequestRegistration",
   "_AttemptSnapshot",
   "_BridgeIdentity",
   "_ClosedHostBridgeEvidence",
@@ -2260,14 +2280,15 @@ graceful_stop_supervisor_bridge_private_symbols = [
   "_ResultWireSnapshot",
   "_attempt_projection",
   "_capture_attempt_snapshot",
+  "_capture_consumed_receipt_snapshot",
   "_capture_progress_snapshot",
-  "_capture_receipt_snapshot",
   "_capture_request_evidence_snapshot",
   "_capture_request_wire_snapshot",
   "_capture_result_wire_snapshot",
   "_composite_field_values",
   "_composite_payload",
   "_composite_values",
+  "_consume_authenticated_request_registration",
   "_decode_receipt_identity_values",
   "_decode_request_wire_snapshot",
   "_decode_result_wire_snapshot",
@@ -2278,12 +2299,17 @@ graceful_stop_supervisor_bridge_private_symbols = [
   "_progress_projection",
   "_request_from_exact_evidence",
   "_request_from_snapshot",
+  "_register_authenticated_request",
   "_require_consumed_postcondition_snapshot",
+  "_require_consumed_receipt_snapshot_current",
   "_require_inspected_chain",
   "_require_snapshot_current",
+  "_revoke_authenticated_request_if_registered",
   "_same_consumed_postcondition_snapshot",
   "_terminal_projection_matches",
   "_validate_composite_values",
+  "_validate_authenticated_request_registration",
+  "_validate_authenticated_request_registration_values",
   "_validate_registered_composite",
 ]
 graceful_stop_supervisor_bridge_closed_fields = [
@@ -2306,7 +2332,6 @@ graceful_stop_supervisor_bridge_closed_fields = [
   "currentness_authenticated",
   "currentness_qualified",
   "database_secret_disclosed",
-  "decision_artifact_receipt_authenticated",
   "decision_authenticated",
   "durability_authenticated",
   "durable",
@@ -2319,7 +2344,6 @@ graceful_stop_supervisor_bridge_closed_fields = [
   "freshness_authenticated",
   "freshness_qualified",
   "graceful_stop_authorized",
-  "historical_start_chain_authenticated",
   "lifecycle_currentness_authenticated",
   "live_trading_authorized",
   "network_removal_authorized",
@@ -2372,31 +2396,43 @@ graceful_stop_supervisor_bridge_closed_fields = [
   "watchdog_authorized",
 ]
 graceful_stop_supervisor_bridge_true_payload_facts._composite_payload = [
+  "decision_artifact_receipt_authenticated",
   "exact_terminal_projection_cross_bound_unqualified",
+  "historical_start_chain_authenticated",
   "provider_terminal_observed_under_stable_sql_authenticated",
 ]
-graceful_stop_supervisor_bridge_payload_callable_ast_sha256._composite_payload = "ec14dbee01b5f85d1095f65a1bd5b00ee6d05d8c02f45283d74fe2ee8af87db9"
+graceful_stop_supervisor_bridge_payload_callable_ast_sha256._composite_payload = "39c364056997f0edb0ba7ba29af178b0ab706a4557b244c9c415326847663da8"
 graceful_stop_supervisor_bridge_payload_callable_ast_sha256._closed_payload = "46dd541bcb118173905eeaf669e897fb4bde09e46842a8c86dc573d390cbd68d"
 graceful_stop_supervisor_bridge_payload_callable_ast_sha256."TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation.payload" = "76addf99df33bc51783ba1e881aa97c28b69e3f9563b030319af1b3bb69d8bd4"
-graceful_stop_supervisor_bridge_payload_owner_class_ast_sha256.TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation = "4d5b597edd0cb4624740636aa37deed4fc46e48763fdf37107154433eb4f90d3"
+graceful_stop_supervisor_bridge_payload_owner_class_ast_sha256.TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation = "de8a78e38934b9af30d7c17f556bfe95113d3b7d8ec15ea8979ddab6576d662c"
 graceful_stop_supervisor_bridge_closed_evidence_class = "_ClosedHostBridgeEvidence"
 graceful_stop_supervisor_bridge_positive_evidence_class = "TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation"
 graceful_stop_supervisor_bridge_positive_properties = [
+  "decision_artifact_receipt_authenticated",
   "exact_terminal_projection_cross_bound_unqualified",
+  "historical_start_chain_authenticated",
   "provider_terminal_observed_under_stable_sql_authenticated",
 ]
 graceful_stop_supervisor_bridge_positive_callable_names = [
   "payload",
 ]
 graceful_stop_supervisor_bridge_external_private_symbols = [
+  "_AuthenticatedRequestRegistration",
   "_BridgeIdentity",
   "_CompositeRegistration",
   "_RequestEvidenceSnapshot",
   "_RequestWireSnapshot",
   "_ResultWireSnapshot",
+  "_capture_consumed_receipt_snapshot",
+  "_consume_authenticated_request_registration",
   "_issue_composite",
+  "_register_authenticated_request",
   "_request_from_exact_evidence",
   "_require_consumed_postcondition_snapshot",
+  "_require_consumed_receipt_snapshot_current",
+  "_revoke_authenticated_request_if_registered",
+  "_validate_authenticated_request_registration",
+  "_validate_authenticated_request_registration_values",
   "_validate_registered_composite",
 ]
 graceful_stop_supervisor_bridge_forbidden_symbols = [
@@ -2504,11 +2540,15 @@ graceful_stop_supervisor_bridge_forbidden_path_methods = [
 ]
 graceful_stop_supervisor_bridge_dependency_private_owner_roots = [
   "scripts/trusted_time_post_enrollment_clean_stop_terminal_reauthentication.py",
+  "scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py",
   "scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py",
 ]
 graceful_stop_supervisor_bridge_dependency_private_symbols = [
+  "_ConsumedLoadedDecisionArtifactReceiptSnapshot",
   "_ConsumedPostconditionRegistrySnapshot",
+  "_authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge",
   "_consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once",
+  "_require_consumed_loaded_decision_artifact_receipt_snapshot",
   "_validate_trusted_time_post_enrollment_clean_stop_terminal_postcondition_consumed_by",
 ]
 graceful_stop_supervisor_bridge_lifecycle_owner_roots = [
@@ -2523,9 +2563,9 @@ graceful_stop_supervisor_bridge_lifecycle_symbols = [
   "decode_post_enrollment_graceful_stop_progress_bytes",
   "inspect_post_enrollment_graceful_stop_recovery_state",
 ]
-graceful_stop_supervisor_bridge_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_CONTRACT_VERSION = "phase6d-post-enrollment-graceful-stop-supervisor-bridge-v1"
+graceful_stop_supervisor_bridge_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_CONTRACT_VERSION = "phase6d-post-enrollment-graceful-stop-supervisor-bridge-v2"
 graceful_stop_supervisor_bridge_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_SERVICE = "trusted-time-post-enrollment-graceful-stop-supervisor-bridge"
-graceful_stop_supervisor_bridge_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_STATUS = "operation_bound_terminal_projection_cross_bound_unqualified"
+graceful_stop_supervisor_bridge_literal_constants.POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_STATUS = "receipt_authenticated_operation_bound_terminal_projection_cross_bound_unqualified"
 graceful_stop_supervisor_bridge_protected_function_bindings = [
   "_closed_payload",
   "_composite_payload",
@@ -2543,6 +2583,15 @@ graceful_stop_supervisor_bridge_protected_closed_field_loads = [
 ]
 graceful_stop_supervisor_bridge_private_callsites._consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once = [
   "bind_post_enrollment_graceful_stop_operation_bound_terminal_observation",
+  "bind_post_enrollment_graceful_stop_operation_bound_terminal_observation",
+  "bind_post_enrollment_graceful_stop_operation_bound_terminal_observation",
+]
+graceful_stop_supervisor_bridge_private_callsites._authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge = [
+  "build_post_enrollment_graceful_stop_supervisor_clean_stop_request",
+]
+graceful_stop_supervisor_bridge_private_callsites._require_consumed_loaded_decision_artifact_receipt_snapshot = [
+  "_capture_consumed_receipt_snapshot",
+  "_require_consumed_receipt_snapshot_current",
 ]
 graceful_stop_supervisor_bridge_private_callsites._validate_trusted_time_post_enrollment_clean_stop_terminal_postcondition_consumed_by = [
   "_issue_composite",

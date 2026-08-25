@@ -7653,6 +7653,14 @@ def test_graceful_stop_lifecycle_repository_is_exact_dormant_and_unconnected() -
             "host",
             "_validate_trusted_time_post_enrollment_clean_stop_terminal_postcondition_consumed_by",
         ),
+        (
+            "host",
+            "_authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge",
+        ),
+        (
+            "host",
+            "_require_consumed_loaded_decision_artifact_receipt_snapshot",
+        ),
         ("host", "inspect_post_enrollment_graceful_stop_recovery_state"),
         ("host", "decode_post_enrollment_graceful_stop_attempt_bytes"),
         ("host", "decode_post_enrollment_graceful_stop_progress_bytes"),
@@ -11301,8 +11309,14 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
     host_relative_path = Path(
         "scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py"
     )
+    decision_artifact_relative_path = Path(
+        "scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py"
+    )
     low_module = "packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge"
     host_module = "scripts.trusted_time_post_enrollment_graceful_stop_supervisor_bridge"
+    decision_artifact_module = (
+        "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts"
+    )
     lifecycle_module = "scripts.trusted_time_post_enrollment_graceful_stop_lifecycle"
     architecture_config = tomllib.loads(
         (ROOT / "infra/architecture-boundaries.toml").read_text(encoding="utf-8")
@@ -11317,7 +11331,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
         "apps/web/node_modules"
     ]
     assert architecture_config["production_python_source_manifest_sha256"] == (
-        "5a3346cc04c721fc08e587d86e27884756944e64aebff17972f29237670ca0dd"
+        "d1574f49bb8a51e82462d41d4065992714e2d5397431bdc30279e05e5fd0f8f0"
     )
     assert (
         _production_python_source_manifest_sha256(
@@ -11839,7 +11853,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
     ]
     assert architecture_config["graceful_stop_supervisor_bridge_module"] == host_module
     assert architecture_config["graceful_stop_supervisor_bridge_module_ast_sha256"] == (
-        "f440f7bc4612fd3ab5ab806be7d33bef6070626aba16bce4f6c5192a4e3b38b7"
+        "b3c35a7086eb2de22a7ea8dec929c179f59660901de53a00fdfb5f0fddfaa14d"
     )
     assert (
         _canonical_ast_sha256(host_tree)
@@ -11872,7 +11886,9 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
     }
     assert architecture_config["graceful_stop_supervisor_bridge_true_payload_facts"] == {
         "_composite_payload": [
+            "decision_artifact_receipt_authenticated",
             "exact_terminal_projection_cross_bound_unqualified",
+            "historical_start_chain_authenticated",
             "provider_terminal_observed_under_stable_sql_authenticated",
         ]
     }
@@ -11881,13 +11897,13 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
             "76addf99df33bc51783ba1e881aa97c28b69e3f9563b030319af1b3bb69d8bd4"
         ),
         "_closed_payload": "46dd541bcb118173905eeaf669e897fb4bde09e46842a8c86dc573d390cbd68d",
-        "_composite_payload": "ec14dbee01b5f85d1095f65a1bd5b00ee6d05d8c02f45283d74fe2ee8af87db9",
+        "_composite_payload": "39c364056997f0edb0ba7ba29af178b0ab706a4557b244c9c415326847663da8",
     }
     assert architecture_config[
         "graceful_stop_supervisor_bridge_payload_owner_class_ast_sha256"
     ] == {
         "TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation": (
-            "4d5b597edd0cb4624740636aa37deed4fc46e48763fdf37107154433eb4f90d3"
+            "de8a78e38934b9af30d7c17f556bfe95113d3b7d8ec15ea8979ddab6576d662c"
         )
     }
     assert architecture_config["operation_bound_clean_stop_bridge_closed_evidence_class"] == (
@@ -11933,7 +11949,9 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
         "TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation"
     )
     assert architecture_config["graceful_stop_supervisor_bridge_positive_properties"] == [
+        "decision_artifact_receipt_authenticated",
         "exact_terminal_projection_cross_bound_unqualified",
+        "historical_start_chain_authenticated",
         "provider_terminal_observed_under_stable_sql_authenticated",
     ]
     assert architecture_config["graceful_stop_supervisor_bridge_positive_callable_names"] == [
@@ -11968,7 +11986,11 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
         "threading.Thread"
     ]
     assert len(architecture_config["operation_bound_clean_stop_bridge_closed_fields"]) == 76
-    assert len(architecture_config["graceful_stop_supervisor_bridge_closed_fields"]) == 83
+    assert len(architecture_config["graceful_stop_supervisor_bridge_closed_fields"]) == 81
+    assert {
+        "decision_artifact_receipt_authenticated",
+        "historical_start_chain_authenticated",
+    }.isdisjoint(architecture_config["graceful_stop_supervisor_bridge_closed_fields"])
     assert {
         "database_secret_disclosed",
         "transport_authenticated",
@@ -11990,6 +12012,27 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
 
     assert _production_importers(low_module) == {worker_relative_path, host_relative_path}
     assert _production_importers(host_module) == set()
+    decision_artifact_private_seams = {
+        "_ConsumedLoadedDecisionArtifactReceiptSnapshot",
+        "_authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge",
+        "_require_consumed_loaded_decision_artifact_receipt_snapshot",
+    }
+    terminal_reauthentication_private_seams = {
+        "_ConsumedPostconditionRegistrySnapshot",
+        "_consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once",
+        "_validate_trusted_time_post_enrollment_clean_stop_terminal_postcondition_consumed_by",
+    }
+    assert (
+        set(architecture_config["graceful_stop_supervisor_bridge_dependency_private_symbols"])
+        == decision_artifact_private_seams | terminal_reauthentication_private_seams
+    )
+    assert architecture_config[
+        "graceful_stop_supervisor_bridge_dependency_private_owner_roots"
+    ] == [
+        "scripts/trusted_time_post_enrollment_clean_stop_terminal_reauthentication.py",
+        decision_artifact_relative_path.as_posix(),
+        host_relative_path.as_posix(),
+    ]
     reviewed_symbols = {
         low_module: set(architecture_config["operation_bound_clean_stop_bridge_private_symbols"]),
         "packages.application.trusted_time_head_anchor_clean_stop": set(
@@ -11998,9 +12041,8 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
         "packages.application.trusted_time_head_anchor_worker": set(
             architecture_config["operation_bound_clean_stop_bridge_worker_private_symbols"]
         ),
-        _CLEAN_STOP_TERMINAL_REAUTHENTICATION_MODULE: set(
-            architecture_config["graceful_stop_supervisor_bridge_dependency_private_symbols"]
-        ),
+        _CLEAN_STOP_TERMINAL_REAUTHENTICATION_MODULE: (terminal_reauthentication_private_seams),
+        decision_artifact_module: decision_artifact_private_seams,
         lifecycle_module: set(
             architecture_config["graceful_stop_supervisor_bridge_lifecycle_symbols"]
         ),
@@ -12053,12 +12095,12 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
             ]
             == set()
         )
-    for private_seam in architecture_config[
-        "graceful_stop_supervisor_bridge_dependency_private_symbols"
-    ]:
+    for private_seam in terminal_reauthentication_private_seams:
         assert observed_importers[_CLEAN_STOP_TERMINAL_REAUTHENTICATION_MODULE][private_seam] == {
             host_relative_path
         }
+    for private_seam in decision_artifact_private_seams:
+        assert observed_importers[decision_artifact_module][private_seam] == {host_relative_path}
     for lifecycle_symbol in architecture_config[
         "graceful_stop_supervisor_bridge_lifecycle_symbols"
     ]:

@@ -2,8 +2,13 @@
 
 ## Current implementation status
 
-The substantial local Phase 0 foundation/walking thread and bounded Phase 1A/1B
-point-in-time ingestion and admission slices are implemented as a local,
+Current gate view: the substantial Phase 0 foundation/walking thread is
+implemented locally, but the plan does not mark its complete exit gate passed;
+Phase 1's local ingestion and admission mechanics, including the pure fail-closed
+production-evidence prerequisite gate, exist while licensed vendor admission
+remains open; Phase 2 is the only phase whose exit gate is explicitly passed
+locally; Phases 3-6 have bounded local implementations but remain open; and
+Phases 7-8 have not started operationally. The runnable product remains a local,
 simulation-only browser application. Production Auth0/OIDC server sessions and
 an enabled server SSE stream remain Phase 6 hardening work; their contracts and
 browser client seams exist, but this status does not claim those production
@@ -401,14 +406,56 @@ an exact match remains explicitly unqualified with `converged=false`. The slice
 adds no persistence, runtime, request, permit, transport, readiness,
 reconciliation, or trading authority.
 
-Massive remains the deferred intraday candidate. No credential,
-authorization, synthetic fixture, or capture has been
-treated as admission or evidence that a vendor's real history, entitlement,
-identifiers, calendars, corrections, or corporate actions have passed
-qualification. The trader remains `not_ready`; no paper or live broker/data
-adapter is enabled. The remaining Phase 1 vendor admission, remaining Phase 3
-work, the rest of Phase 4, and Phases 5-8 below retain their exit gates,
-including the Phase 4 paper-broker gate.
+Massive remains the deferred intraday data candidate, and Phase 1 vendor
+admission remains open. The pure production-evidence prerequisite gate can reach
+only `ready_for_admission_evaluation`; it creates neither a production
+`HistoricalBarSource` nor admission evidence. No licensed production feed,
+admitted production source, or paper/live trading authority exists; the trader
+remains `not_ready`.
+
+Phases 3A-3D provide bounded local feature, target, governance, and
+configuration-bound evaluation evidence. Phase 3E implements a separate pure
+fail-closed captured-tape validity gate, but v1 has no external provenance trust
+root or verifier, so no bundle can become eligible. Captured live-tape,
+reconnect, shadow, economic segment-execution/isolation, end-to-end traceability,
+and reporting gates remain open.
+
+Phases 4A-4AI are implemented as bounded local historical Alpaca contracts,
+persistence, authenticated read runtimes, comparisons, and restart-safe
+supervision. They remain non-authorizing: authoritative broker-fact application,
+reconciliation, coordinator dispatch, paper startup, and the Phase 4 fault gates
+are incomplete. E\*TRADE is the selected live target. Phase 4AJ adds only its
+typed environment, scope, account-identifier, and deterministic non-I/O Accounts
+List request-description foundation; Phase 4AK adds only bounded in-memory
+raw-first caller-declared response evidence and a strict historical decoder.
+Those bindings prove internal consistency only: provider origin is
+unauthenticated, fixture relabeling cannot be detected, and no authenticated
+provider-evidence consumer exists. OAuth, provider transport and calls,
+authenticated capture/admission and account binding, Balance, Portfolio, Orders,
+and Transactions reads, Preview, Place, Cancel, recovery, qualification, and
+every authority remain pending.
+
+Phase 5A-5I provide local operational-control, advanced-risk,
+supervised-strategy, critical-alert, authenticated-operations, dashboard,
+drill-evidence, and historical enrollment-attestation slices;
+OpenTelemetry/Sentry composition remains partial. Phase 5 stays open because
+authoritative deployment producers, account assignment, broker control,
+external alert routes, telemetry ingestion, runtime sandboxing, and timed
+deployed drills remain absent.
+
+Phase 6A and 6B provide local trusted-time persistence and browser bundle
+admission. Phase 6C has one qualified point-in-time Cloudflare/System76 window.
+Phase 6D has confirmed the separately approved sequence-1 external-head
+enrollment and implements the post-enrollment start controller/orchestrator in
+code, but no start has been operationally admitted. ADR 0111/0112 now
+reauthenticate and cross-bind the exact decision-artifact receipt and historical
+start chain into the dormant operation-bound clean-stop supervisor bridge, but
+its host/core private entry points still have zero callers. Current-topology and
+stop-authority admission, durability, outcomes, and all effects remain absent;
+`trusted-time-stop` remains hard closed. Phase 6E is only a dormant watchdog-
+state reducer. The Phase 6 paper-MVP gate remains unmet, and the Phase 7
+supervised paper soak and Phase 8 human-approved minimum-size live canary remain
+entirely ahead. No paper or live order authority is enabled.
 
 ## Delivery strategy
 
@@ -581,6 +628,17 @@ Passing one layer cannot substitute for another.
   isolation, adapter/profile metadata, frozen coverage and symbol requirements,
   deterministic admission specifications and evidence, independent-review
   semantics, immutable PostgreSQL reports/checks, and browser admission status.
+- Newly complete: a pure pre-source production-evidence prerequisite gate that
+  inventories exact production identity/lifecycle, calendar, corporate-action,
+  genuine-raw/provenance, license/use-rights/current-entitlement, and independent
+  exact-bundle-review references. It rejects missing or duplicate roles,
+  synthetic/research/fixture/contract-only classifications, source/profile/scope
+  mismatches, rejected, future, or expired evidence, stale or substituted
+  reviews, and review by the executor or any evidence producer. Its strongest
+  result is only `ready_for_admission_evaluation`; historical-source,
+  canonical-data, admission, and trading effects remain `none`. It performs no
+  I/O, authenticates no external actor, creates no source or admission evidence,
+  and adds no persistent state or migration.
 - Proven locally: mixed-source rows fail before storage; fixture profiles cannot
   claim a license; synthetic and recorded fixtures remain `blocked` regardless
   of their technical results; source/specification/evidence/report digests are
@@ -828,9 +886,22 @@ Passing one layer cannot substitute for another.
   target runtime and result digests, counts, running event, times, and
   evaluator. Read-only views expose proof metadata only; no transcript contents,
   performance metric, criteria decision, or promotion is produced.
+- **Phase 3E captured-tape research validity — pure fail-closed gate
+  implemented:** ADR 0114 composes the exact Wave 1A production-prerequisite
+  inputs with a separately recomputed admitted-source report, content-addressed
+  capture/dataset/tape and replay/runtime/configuration evidence, causal
+  half-open validity windows, and independent review of the exact combined
+  bundle. Synthetic, recorded-fixture, generic-research, contract-only,
+  mutable, mismatched, stale, context-replayed, or self-approved evidence fails
+  closed. Vendor labeling and content hashes cannot authenticate origin. V1 has
+  no external trust root or verifier, so every result retains exactly one
+  authenticated-provenance blocker and no repository-local or external-shaped
+  input can reach positive eligibility. Every source, admission, canonical-data,
+  promotion, deployment, and trading effect remains `none`.
 - Phase 3A and 3B remain in-memory full-tape evidence slices exercised on
   repository-owned synthetic fixtures. Phase 3C/3D do not connect to the Phase
-  2 job or worker. General durable segment execution and process isolation,
+  2 job or worker, and Phase 3E has no qualified external captured-tape input.
+  General durable segment execution and process isolation,
   separately queryable feature/target transcripts, arbitrary or fitted
   features and strategies, mutation APIs, performance/criteria evaluation,
   captured live tapes, reconnect/freshness behavior, and shadow mode remain
@@ -851,6 +922,15 @@ Passing one layer cannot substitute for another.
   including explicit waiting/reset steps and exact decision-feature lineage.
   Captured-tape feature/target parity and research workflow integration remain
   pending.
+- A pure captured-tape validity gate now checks current exact production
+  prerequisites, a separate recomputed `admitted` source decision, immutable
+  source/capture/dataset/tape/replay/runtime/configuration pins, causal
+  currentness, and a structurally independent exact-bundle review. It rejects
+  every v1 candidate because the repository has no externally anchored capture-
+  origin verifier; adding a positive path requires a separately reviewed trust
+  root, issuer-authentication contract, and issuer-independence rules. It does
+  not create or load a source, accept existing fixtures, or connect validity to
+  segment execution.
 - A durable bounded experiment registry records every stable attempted, failed,
   canceled, abandoned, and completed trial through append-only lifecycle
   evidence. The bounded reference completion path now requires exact
@@ -879,7 +959,10 @@ Status: **open**. The Phase 3A and 3B reference slices supply exact local
 feature-snapshot and feature-derived target parity evidence, and Phase 3C
 supplies a durable bounded governance registry and opaque pre-reveal holdout
 commitment. Phase 3D binds that target parity to an exact governed
-configuration and running attempt. These slices do not satisfy the
+configuration and running attempt. Phase 3E now freezes the fail-closed
+captured-tape evidence prerequisite, but v1 cannot qualify any bundle until a
+separately reviewed external provenance verifier exists.
+These slices do not satisfy the
 captured-tape, reconnect, economic segment-execution/isolation, end-to-end
 traceability, or reporting requirements below.
 
@@ -1224,6 +1307,36 @@ traceability, or reporting requirements below.
   or one explicit no-I/O wait. It retains no in-process traversal state,
   exposes stalled claims instead of retrying them, and grants no reconciliation
   or trading authority.
+- **Phase 4AJ recorded-offline E\*TRADE provider foundation — local pure slice
+  implemented:** ADR 0113 adds exact provider-specific types for environment,
+  nonsecret consumer/token scope, OOB callback policy, numeric account ID, and
+  opaque `accountIdKey`. Sandbox and production data/order roots and all local
+  scopes are cross-bound and disjoint, while both profiles retain the exact
+  shared OAuth service identities. The sole enabled request description is a
+  deterministic `GET /accounts/list` JSON-media profile with empty query/body
+  and no authorization material. Balance, Portfolio, Orders, Transactions,
+  Preview, Place, Cancel, raw decoding, persistence, OAuth, transport, account
+  binding, and every authority remain closed. Sandbox evidence remains
+  protocol-only and cannot satisfy traversal, lifecycle, reconciliation,
+  timing, economic, soak, or readiness gates.
+- **Phase 4AK bounded offline E\*TRADE Accounts List caller declarations — local
+  pure slice implemented:** ADR 0115 adds a separate in-memory raw-first
+  caller-declared response profile and strict decoder. Immutable supplied bytes
+  are bounded to 262,144 bytes and 128 accounts and bind the exact typed
+  provider, environment, endpoint/request description, declared origin,
+  JSON/UTF-8 media, explicit
+  `UNAUTHENTICATED_CALLER_DECLARATION`, and deterministic response and schema
+  profiles. These exact bindings prove internal consistency only: arbitrary
+  caller-supplied bytes, including a relabeled fixture, can be declared and
+  decoded, and no enum or digest authenticates provider origin. Every returned
+  layer exposes `provider_origin_authenticated=false` and
+  `fixture_relabeling_detection_supported=false`. Raw-string enum substitution,
+  malformed or drifted schema, duplicate keys, internally contradictory
+  bindings, and duplicate or ambiguous account ID/`accountIdKey` mappings fail
+  closed. Decoded identities remain historical unqualified caller-declared
+  observations that cannot be consumed as authenticated provider evidence;
+  transport, persistence, authenticated account discovery/binding, all other
+  operations, and every authority remain closed.
 - The capability value and translated request description are immutable and
   content-authenticated, and lookup/account/asset observations retain exact
   response digests, while the raw journal authenticates exact account-local
@@ -1262,8 +1375,11 @@ traceability, or reporting requirements below.
   4AD-4AI implement bounded raw-first FILL-activity models, an authenticated
   one-page durable runtime, pure and source-authenticated comparisons, a
   predecessor-linked comparison repository, and a one-effect restart-safe
-  supervisor. All slices remain non-authorizing. A deployed
-  secret resolver, general
+  supervisor. Phase 4AJ independently adds only the typed E\*TRADE isolation
+  and Accounts List request-description foundation; Phase 4AK adds only its
+  bounded in-memory caller-declared raw evidence and strict historical decoder.
+  Neither reuses any Alpaca evidence. All slices remain non-authorizing. A
+  deployed secret resolver, general
   security-master publication, runtime
   calendar/quote/reduce-only validation, end-to-end order request-budget
   enforcement, authenticated deployed lookup supervision, deployed traversal
@@ -1273,8 +1389,11 @@ traceability, or reporting requirements below.
   paper startup remain disabled.
 - Phases 4A through 4AI are complete only as bounded local contract,
   persistence, and authenticated read-runtime slices with the explicit limits
-  described above. Phase 4 and its exit gate remain open. These slices are
-  local worktree changes and do not authorize paper or live trading.
+  described above. Phases 4AJ and 4AK are complete only as a pure recorded-
+  offline provider/request foundation and an unauthenticated caller-declared
+  in-memory raw-response/decoder slice. Phase 4
+  and its exit gate remain open. These slices are local worktree changes and do
+  not authorize paper or live trading.
   Phase 3's captured-tape, reconnect, shadow, economic
   segment-execution,
   traceability, and reporting gates also remain open and are not bypassed by
@@ -1282,16 +1401,24 @@ traceability, or reporting requirements below.
 
 ### Build
 
-- Add a distinct E\*TRADE provider track without changing historical Alpaca
-  schemas or evidence: fixed disjoint sandbox/production data/order REST origins
-  and secret scopes plus exact shared token/authorization origins and callback
-  policy; reviewed OAuth 1.0a session acquisition, renewal, expiry, and
-  revocation; exact numeric-account-ID plus opaque-`accountIdKey` binding; and
-  bounded raw-first Accounts, Balance, Portfolio, Orders, and Transactions
-  reads with strict pagination and status mapping. Start with conservative
-  account/operation budgets that reserve cancellation, token-control, and
-  reconciliation capacity; do not reuse Alpaca's request ceiling. Comet
-  streaming remains disabled until independently qualified.
+- Continue the distinct E\*TRADE provider track without changing historical
+  Alpaca schemas or evidence. Phase 4AJ implements the first pure boundary:
+  fixed disjoint sandbox/production data/order REST origins and nonsecret
+  consumer/token, account, budget, persistence, and audit scopes; exact shared
+  token/authorization service identities; exact OOB callback metadata; strict
+  syntax-only numeric-account-ID plus opaque-`accountIdKey` values; and a
+  deterministic non-I/O Accounts List request description. Phase 4AK adds the
+  bounded in-memory raw-first caller-declared Accounts List response profile and
+  strict request/environment/declared-origin/media/charset/declaration/schema-
+  bound decoder. Those bindings establish internal consistency, not provider
+  origin; authenticated capture admission and fixture-relabeling detection
+  remain pending.
+  Reviewed OAuth 1.0a session acquisition, renewal, expiry, and revocation;
+  authenticated account binding; provider transport; and bounded raw-first
+  Balance, Portfolio, Orders, and Transactions reads remain pending. Later
+  budgets must reserve cancellation, token-control, and reconciliation capacity
+  and must not reuse Alpaca's request ceiling. Comet streaming remains disabled
+  until independently qualified.
 - Persist a separate deterministic, account-scoped E\*TRADE client-order ID that
   is collision-checked, at most twenty characters, and alphanumeric, mapped
   one-to-one to the unchanged canonical internal ID. Implement Preview then
@@ -1509,12 +1636,22 @@ publication, canonical position state,
 UNKNOWN resolution, authoritative reconciliation result, or lifecycle
 application and satisfy none of the runtime/fault gates below.
 
-E\*TRADE sandbox results may satisfy only protocol-contract checks and cannot
-close any lifecycle, reconciliation, timing, paper-soak, fault, or economic
-item. E\*TRADE live eligibility additionally requires exact production account
-binding, raw-first read-only and preview-only evidence, the Preview/Place
-contract, conservative request budgets, manual ambiguous-Place recovery, and
-the complete promotion ladder above.
+Phase 4AJ adds only deterministic E\*TRADE endpoint/profile/account-identifier
+and Accounts List request-description evidence. Phase 4AK adds only bounded
+in-memory supplied raw evidence and unqualified historical decoded account
+identities with an explicit unauthenticated caller origin declaration. The
+declaration can wrap a relabeled fixture, and neither its enum nor any bound
+digest authenticates provider origin. No authenticated capture/admission
+artifact or authenticated provider-evidence consumer exists. Neither phase adds
+authenticated or current provider evidence, runtime authority, or satisfaction
+of any runtime/fault gate below.
+
+Future E\*TRADE sandbox results may satisfy only protocol-contract checks and
+cannot close any traversal-semantics, completeness, lifecycle, reconciliation,
+timing, paper-soak, fault, economic, or readiness item. E\*TRADE live eligibility
+additionally requires exact production account binding, raw-first read-only and
+preview-only evidence, the Preview/Place contract, conservative request budgets,
+manual ambiguous-Place recovery, and the complete promotion ladder above.
 
 - Paper lifecycle works for accepted, rejected, partial, filled, canceled,
   cancel-rejected, expired, late-fill, bust/correction, and provider-specific
@@ -3841,13 +3978,16 @@ unavailable before any watchdog consumer is designed or qualified. See
   consumer exists. ADR 0111 adds only a dormant exact preselection bridge:
   canonical structural request/result wire, exact WorkRequest/core/thread
   association, immutable second-consume ADR-0108 export, and one-shot ADR-0109
-  host cross-binding. The host and core private entry points remain uncalled;
-  transport/currentness/durability/outcome/effect facts stay false. Durable
-  ADR-0106 receipt reauthentication now exists only through ADR 0112's
-  zero-caller inert load, explicit authentication, and consuming revalidation
-  of the exact loaded wrapper. Its integration into ADR 0111,
-  authenticated transport, current topology admission, lifecycle v2, explicit
-  at-fork handling, and all effects remain deferred.
+  host cross-binding. Its request builder now owns exact ADR-0112 pending
+  loaded-wrapper authentication and immediate active consumption/revalidation,
+  binds the source-derived immutable receipt snapshot to the exact request and
+  bridge identity, and rejects raw/scalar/copy/replay/fork/drift substitution.
+  The composite promotes only
+  `decision_artifact_receipt_authenticated` and
+  `historical_start_chain_authenticated` from that handoff. The host and core
+  private entry points remain uncalled; authenticated transport, current
+  topology and stop-authority admission, lifecycle v2, later-live at-fork
+  handling, durability, outcomes, and all effects remain deferred.
   Claim persistence now uses one globally single-use fixed slot and rejects any
   current or legacy per-operation claim. An import-only coordinator checks the
   exact enrollment evidence before reauthentication and before and after claim

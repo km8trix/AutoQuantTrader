@@ -1,8 +1,9 @@
 # ADR 0111: Dormant operation-bound clean-stop supervisor bridge
 
-- Status: Accepted for code-only, unqualified operation/result correlation and
-  same-process terminal composition; no production caller, transport,
-  lifecycle advance, stop outcome, or shutdown effect exists
+- Status: Accepted for code-only, exact durable receipt reauthentication,
+  unqualified operation/result correlation, and same-process terminal
+  composition; no production caller, transport, lifecycle advance, stop
+  outcome, or shutdown effect exists
 - Date: 2026-08-17
 - Extends:
   [ADR 0099](0099-approval-bound-post-enrollment-start-and-graceful-stop.md),
@@ -41,9 +42,11 @@ fields after a callback would let a relabeled work request become the new
 authority. Likewise, copying live ADR-0108 fields before one-shot export would
 permit an ABA mutation to create a mixed terminal projection.
 
-This slice closes those code-level correlation gaps without claiming that the
-wire came from the supervisor, that the stop evidence is current, that the
-ADR-0110 lifecycle advanced, or that any external effect is safe.
+This slice closes those code-level correlation gaps and now binds ADR 0112's
+exact durable receipt reauthentication into the dormant host request. It does
+so without claiming that the wire came from the supervisor, that the stop
+evidence is current, that the ADR-0110 lifecycle advanced, or that any external
+effect is safe.
 
 ## Decision
 
@@ -75,9 +78,11 @@ The exact request binds:
 
 Its checkpoint reason is `clean_stop`, `exact_new_record_required=true`, and
 its exact progress binding is ordinal one and phase
-`operation_bound_supervisor_bridge_required`. The request is structural and
-unqualified. In particular, the decision-artifact-receipt digest is not a
-durably reloaded ADR-0106 receipt authentication fact.
+`operation_bound_supervisor_bridge_required`. The low-level request and its
+decision-artifact-receipt digest remain structural and unqualified. Durable
+receipt authentication exists only in the separate private, same-process
+ADR-0112-to-host-request association described below; decoded bytes or a
+caller-supplied digest cannot carry that fact.
 
 The result embeds the complete canonical request plus its SHA-256 and carries
 the exact ADR-0108 terminal projection: worker sequence and scheduled monotonic
@@ -169,55 +174,74 @@ background close behavior remain unchanged.
 Dormant host module
 `scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py`
 defines contract
-`phase6d-post-enrollment-graceful-stop-supervisor-bridge-v1`, service
+`phase6d-post-enrollment-graceful-stop-supervisor-bridge-v2`, service
 `trusted-time-post-enrollment-graceful-stop-supervisor-bridge`, and status
-`operation_bound_terminal_projection_cross_bound_unqualified`.
+`receipt_authenticated_operation_bound_terminal_projection_cross_bound_unqualified`.
 
-Its public request builder accepts only the exact process-local ADR-0106
-decision-artifact receipt and exact retained ADR-0110 attempt and ordinal-one
-progress receipts. It repeatedly reloads and revalidates the retained attempt
-and progress from one explicitly injected ignored root, snapshots each source,
-and requires all operation, target, decision, envelope, locator, controller,
-topology, progress, and supervisor bindings to agree. Because ADR 0106 has no
-durable receipt input in this composition, the supplied receipt and its digest
-remain process-local structural inputs. ADR 0112 later adds a zero-caller
-inert loader, explicit fresh authenticator, and consuming revalidator for the
-exact durable receipt projection, but this builder does not consume its
-authenticated loaded wrapper. It is still not a historical receipt recovery
-path.
+Its public request builder accepts only the exact inert, pending ADR-0112
+`LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt`, the
+explicit start-approval artifact and expected decision identity used to select
+its durable sources, and exact retained ADR-0110 attempt and ordinal-one
+progress receipts. The builder creates one private bridge identity and owns the
+entire ADR-0112 transition: authenticate the exact pending wrapper, immediately
+consume and revalidate its active registration, and receive one private
+source-derived immutable snapshot. That snapshot is bound to the exact loaded
+wrapper, bridge identity, PID, and Thread and carries the complete historical
+and candidate source snapshots plus canonical receipt identity values, bytes,
+and digest. No authority is copied from wrapper fields, a public receipt, raw
+bytes, a digest, or scalar-equal values.
 
-The public terminal binder creates one private bridge identity and consumes the
+The builder repeatedly reloads and revalidates the retained attempt and
+progress from one explicitly injected ignored root, snapshots each source, and
+requires all operation, target, decision, envelope, locator, controller,
+topology, progress, and supervisor bindings to agree. It then registers the
+exact constructed request, loaded-wrapper identity, bridge identity, consumed
+receipt snapshot, evidence snapshot, canonical wire snapshot, roots, PID, and
+Thread as one process-local single-use association. The decision-receipt digest
+on the request wire remains structural; only that private association carries
+the two historical authentication facts. A copied, decoded, scalar-equal,
+replayed, drifted, wrong-thread, or post-fork request or wrapper cannot replace
+it. Validation failure and asynchronous cleanup burn the association.
+
+The public terminal binder first consumes the exact authenticated-request
+association and reuses its original private bridge identity to consume the
 exact ADR-0109 postcondition before later validation. The ADR-0109 consumer
 returns its immutable registered projection, issuer identity, and bridge
-identity; a wrong result, issuer, bridge, thread, process, mutation, or second
-attempt burns the observation. The binder then captures and strictly decodes
-the low-level request and result wire, revalidates the ADR-0110 evidence chain,
-and requires the ADR-0108 result and ADR-0109 postcondition to agree on the
-anchor sequence, reason, counts, terminal ordinal, predecessor, current head,
-signed-record byte digest and semantics, intent, readback, receipt, and receipt
-UTC.
+identity; a wrong loaded wrapper, request, result, issuer, bridge, thread,
+mutation, copy, replay, or second attempt burns the relevant one-shot state.
+Wrong-process and post-fork use reject before inherited registry locking and
+cannot consume the origin process's state. The binder then captures and
+strictly decodes the low-level request and result wire, revalidates the ADR-0110
+evidence chain and private consumed ADR-0112 snapshot, and requires the
+ADR-0108 result and ADR-0109 postcondition to agree on the anchor sequence,
+reason, counts, terminal ordinal, predecessor, current head, signed-record byte
+digest and semantics, intent, readback, receipt, and receipt UTC.
 
 The returned
 `TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation` is a
 same-process, process/thread-bound, registry-sealed composite. Its only
 positive facts are:
 
+- `decision_artifact_receipt_authenticated=true`, derived only from the exact
+  consumed ADR-0112 source snapshot;
+- `historical_start_chain_authenticated=true`, preserving that snapshot's
+  complete historical-chain reauthentication;
 - `provider_terminal_observed_under_stable_sql_authenticated=true`, preserving
   ADR 0109's bounded point-in-time observation; and
 - `exact_terminal_projection_cross_bound_unqualified=true`, reporting that the
   exact thirteen terminal fields shared by the structural ADR-0108 result and
   consumed ADR-0109 snapshot matched.
 
-The second fact deliberately contains `unqualified`. Even the first remains
-only ADR 0109's observation interval, not lasting currentness. The composite's
-decision-receipt authentication, historical-chain authentication, low-level
+Only the two historical facts are promoted by this slice. The terminal-match
+fact deliberately contains `unqualified`, and the ADR-0109 fact remains only
+one observation interval, not lasting currentness. The composite's low-level
 request/work/result qualification, transport and origin authentication,
-currentness, freshness, topology, lifecycle, durability, single use for an
-effect, slot reservation, admission, signal, teardown, outcome, recovery,
-operational, and trading facts are false. Its payload and semantic digest are
-inspectable only while every exact source object and consumed registry snapshot
-remain valid; there is no public composite decoder, persistence format, or
-effect consumer.
+currentness, freshness, current topology, lifecycle, durability, single use
+for an effect, slot reservation, admission, signal, teardown, outcome,
+recovery, operational, and trading facts remain false. Its payload and
+semantic digest are inspectable only while every exact source object and
+consumed registry snapshot remain valid; there is no public composite decoder,
+persistence format, or effect consumer.
 
 ### Keep the complete composition dormant
 
@@ -236,21 +260,18 @@ that exits 2 without invoking Python or Docker.
 
 The following work remains explicitly deferred:
 
-1. explicit authentication and integration of ADR 0112's exact loaded ADR-0106
-   decision-artifact receipt into this operation-bound host request, with
-   consuming revalidation at the reviewed use boundary;
-2. an authenticated, bounded, replay-safe host-to-supervisor request/result
+1. an authenticated, bounded, replay-safe host-to-supervisor request/result
    transport with explicit origin identity and failure semantics;
-3. same-lock current topology, stop-authority, and operation admission that
+2. same-lock current topology, stop-authority, and operation admission that
    binds the live topology lease to the request before reservation or effect;
-4. a separately versioned lifecycle successor to ADR-0110 v1 that can retain
+3. a separately versioned lifecycle successor to ADR-0110 v1 that can retain
    the bridge result, pre-CALL intents, authenticated post-CALL results,
    confirmed success or recovery-required terminal, and every CALL/STORE
    ambiguity without rewriting the immutable v1 prefix;
-5. explicit at-fork invalidation and inherited-lock cleanup for every live
-   core, host-composite, ADR-0109, and lifecycle registry before a process that
-   can fork may construct them; and
-6. the reviewed supervisor signal, source stop, exact container/network
+4. explicit at-fork invalidation and inherited-lock cleanup for every later
+   live transport, admission, lifecycle, and effect registry before a process
+   that can fork may construct them; and
+5. the reviewed supervisor signal, source stop, exact container/network
    teardown, named-volume preservation, terminal reauthentication, and durable
    outcome choreography.
 
@@ -300,12 +321,13 @@ actually ran the workflow or enforced its result.
 ## Consequences
 
 The repository can now express and test the exact missing correlation: one
-preselected stop operation can be bound to one exact worker request, one exact
-new-record ADR-0108 result, and one one-shot ADR-0109 host observation without
-accepting scalar clones, post-hoc registration, field drift, process-local
-association or postcondition replay, forked state, or asynchronous partial
-commit. The structural wire itself remains replayable; replay-safe transport is
-explicitly deferred.
+preselected stop operation and one exact source-reauthenticated ADR-0112 loaded
+receipt can be bound to one exact worker request, one exact new-record ADR-0108
+result, and one one-shot ADR-0109 host observation without accepting scalar or
+raw-receipt substitution, copies, post-hoc registration, field drift,
+process-local association or receipt/postcondition replay, forked state, or
+asynchronous partial commit. The structural wire itself remains replayable;
+replay-safe transport is explicitly deferred.
 
 That result is intentionally dormant and unqualified. It does not advance the
 ADR-0110 lifecycle, authenticate its own transport, prove current topology or
@@ -313,10 +335,10 @@ lasting provider terminality, reserve a real attempt, or authorize any stop
 effect. No production stop was executed and no real lifecycle artifact was
 created while accepting this ADR.
 
-Future work must compose the deferred loaded evidence, transport, admission, lifecycle
-successor, at-fork behavior, and effects as one reviewed ordering. Exposing the
-private core methods, treating decoded bytes as issued evidence, or wiring the
-host builder alone would reopen the exact identity and ambiguity gaps this ADR
+Future work must compose transport, admission, lifecycle successor, later-live
+at-fork behavior, and effects as one reviewed ordering. Exposing the private
+core methods, treating decoded bytes as issued evidence, or wiring the host
+builder alone would reopen the exact identity and ambiguity gaps this ADR
 closes.
 
 ## Rejected alternatives
@@ -337,6 +359,9 @@ closes.
 - **Advance ADR-0110 v1 directly.** That contract has no ordinal-two,
   post-signal, or confirmed-success schema; a new reviewed lifecycle version is
   required.
-- **Wire `trusted-time-stop` now.** Loaded-receipt integration, transport,
-  topology admission, lifecycle successor, at-fork protocol, and all effects
+- **Pass the raw ADR-0106 receipt, receipt bytes, or digest into the host
+  builder.** Those values cannot carry ADR-0112's consumed source snapshot or
+  exact one-shot loaded-wrapper association.
+- **Wire `trusted-time-stop` now.** Transport, topology and stop-authority
+  admission, lifecycle successor, later-live at-fork protocol, and all effects
   remain absent.

@@ -185,6 +185,8 @@ POST_ENROLLMENT_GRACEFUL_STOP_DECISION_ARTIFACT_RECEIPT_FIELDS = frozenset(
 
 _RECEIPT_CONSTRUCTION_CAPABILITY = object()
 _LOADED_RECEIPT_CONSTRUCTION_CAPABILITY = object()
+_CONSUMED_LOADED_RECEIPT_SNAPSHOT_CAPABILITY = object()
+_PUBLIC_REVALIDATION_CONSUMER_IDENTITY = object()
 _StatIdentity = tuple[int, int, int, int, int, int, int, int, int]
 type _ExternalBinding = tuple[
     str,
@@ -4740,6 +4742,75 @@ for _authority_field in POST_ENROLLMENT_GRACEFUL_STOP_AUTHORITY_FIELDS:
     )
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class _ConsumedLoadedDecisionArtifactReceiptSnapshot:
+    """Private source-derived handoff from one consuming revalidation."""
+
+    loaded_identity: LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+    consumer_identity: object
+    owner_pid: int
+    owner_thread: threading.Thread
+    historical_snapshot: _HistoricalStartFileSnapshot
+    source_snapshot: _LoadedReceiptSourceSnapshot
+    artifact_directory: str
+    ignored_root: str
+    receipt_identity_values: tuple[str, ...]
+    receipt_encoded: bytes
+    receipt_sha256: str
+    _construction_capability: object = field(repr=False, compare=False)
+
+
+def _require_consumed_loaded_decision_artifact_receipt_snapshot(
+    value: object,
+    *,
+    loaded_identity: object,
+    consumer_identity: object,
+) -> _ConsumedLoadedDecisionArtifactReceiptSnapshot:
+    """Validate one exact private handoff without reading the loaded heap view."""
+
+    try:
+        if (
+            type(value) is not _ConsumedLoadedDecisionArtifactReceiptSnapshot
+            or type(loaded_identity)
+            is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+            or value.loaded_identity is not loaded_identity
+            or value.consumer_identity is not consumer_identity
+            or consumer_identity is None
+            or value._construction_capability is not _CONSUMED_LOADED_RECEIPT_SNAPSHOT_CAPABILITY
+            or not _registry_process_matches_origin()
+            or value.owner_pid != _registry_origin_pid()
+            or value.owner_thread is not _registry_current_thread()
+            or type(value.artifact_directory) is not str
+            or type(value.ignored_root) is not str
+            or value.artifact_directory != _captured_path_join(value.ignored_root, "trusted-time")
+            or type(value.receipt_identity_values) is not tuple
+            or len(value.receipt_identity_values) != 15
+            or any(type(item) is not str for item in value.receipt_identity_values)
+            or type(value.receipt_encoded) is not bytes
+            or not _is_sha256(value.receipt_sha256)
+        ):
+            raise ValueError
+        _historical_slot(value.historical_snapshot, 1)
+        _source_slot(value.source_snapshot, 1)
+        if (
+            value.receipt_identity_values != _source_slot(value.source_snapshot, 19)
+            or value.receipt_encoded != _source_slot(value.source_snapshot, 20)
+            or value.receipt_sha256 != _source_slot(value.source_snapshot, 21)
+            or _captured_receipt_bytes(value.receipt_identity_values) != value.receipt_encoded
+            or _captured_sha256_hexdigest(value.receipt_encoded) != value.receipt_sha256
+        ):
+            raise ValueError
+        return value
+    except TrustedTimePostEnrollmentGracefulStopDecisionArtifactError:
+        raise
+    except BaseException as error:
+        if not isinstance(error, Exception):
+            raise
+        raise TrustedTimePostEnrollmentGracefulStopDecisionArtifactError(
+            "loaded_decision_artifact_receipt_invalid"
+        ) from None
+
+
 def _same_loaded_receipt(
     left: object,
     right: object,
@@ -5183,16 +5254,22 @@ def authenticate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt(
         ) from None
 
 
-def revalidate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt(
+def _consume_revalidate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt(
     loaded: object,
     *,
     artifact_directory: Path,
     ignored_root: Path,
-) -> bool:
-    """Reload and compare the exact candidate, inode, and full historical chain."""
+    consumer_identity: object,
+) -> _ConsumedLoadedDecisionArtifactReceiptSnapshot:
+    """Consume, revalidate, and return only a private immutable source snapshot."""
 
-    if type(loaded) is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt:
-        return False
+    if (
+        type(loaded) is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+        or consumer_identity is None
+    ):
+        raise TrustedTimePostEnrollmentGracefulStopDecisionArtifactError(
+            "loaded_decision_artifact_receipt_invalid"
+        )
     registration: _LoadedReceiptRegistration | None = None
     cleanup_error: BaseException | None = None
     cleanup_transition_error: BaseException | None = None
@@ -5304,7 +5381,31 @@ def revalidate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt(
             or _source_slot(source_snapshot, 21) != registration_receipt_sha256
         ):
             raise ValueError
-        return True
+        receipt_identity_values = cast(
+            tuple[str, ...],
+            _source_slot(source_snapshot, 19),
+        )
+        receipt_encoded = cast(bytes, _source_slot(source_snapshot, 20))
+        receipt_sha256 = cast(str, _source_slot(source_snapshot, 21))
+        snapshot = _ConsumedLoadedDecisionArtifactReceiptSnapshot(
+            loaded_identity=loaded,
+            consumer_identity=consumer_identity,
+            owner_pid=_registry_origin_pid(),
+            owner_thread=_registry_current_thread(),
+            historical_snapshot=historical_snapshot,
+            source_snapshot=source_snapshot,
+            artifact_directory=registration_artifact_directory,
+            ignored_root=registration_ignored_root,
+            receipt_identity_values=receipt_identity_values,
+            receipt_encoded=receipt_encoded,
+            receipt_sha256=receipt_sha256,
+            _construction_capability=_CONSUMED_LOADED_RECEIPT_SNAPSHOT_CAPABILITY,
+        )
+        return _require_consumed_loaded_decision_artifact_receipt_snapshot(
+            snapshot,
+            loaded_identity=loaded,
+            consumer_identity=consumer_identity,
+        )
     except BaseException as error:
         try:
             try:
@@ -5314,6 +5415,145 @@ def revalidate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt(
         finally:
             try:
                 cleanup_retry_error = _burn_loaded_receipt_targets(((loaded, registration),))
+            except BaseException as observed_retry_error:
+                cleanup_retry_error = observed_retry_error
+        terminal = _preferred_registry_exceptions(
+            error,
+            cleanup_transition_error,
+            cleanup_error,
+            cleanup_retry_error,
+        )
+        if terminal is not None and not isinstance(terminal, Exception):
+            if terminal is error:
+                raise
+            raise terminal from error
+        if isinstance(
+            error,
+            TrustedTimePostEnrollmentGracefulStopDecisionArtifactError,
+        ):
+            raise
+        if isinstance(
+            error,
+            _audited_fs.TrustedTimePostEnrollmentOperatorAttestationArtifactError,
+        ):
+            raise TrustedTimePostEnrollmentGracefulStopDecisionArtifactError(
+                error.reason_code
+            ) from None
+        raise TrustedTimePostEnrollmentGracefulStopDecisionArtifactError(
+            "decision_artifact_receipt_unavailable"
+        ) from None
+
+
+def _authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge(  # noqa: E501
+    loaded: object,
+    *,
+    start_operator_attested_approval_artifact: Path,
+    expected_graceful_stop_decision_v1_sha256: str,
+    artifact_directory: Path,
+    ignored_root: Path,
+    consumer_identity: object,
+) -> _ConsumedLoadedDecisionArtifactReceiptSnapshot:
+    """Own the pending-authentication and active-consumption bridge interval."""
+
+    if (
+        type(loaded) is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+        or consumer_identity is None
+    ):
+        raise TrustedTimePostEnrollmentGracefulStopDecisionArtifactError(
+            "loaded_decision_artifact_receipt_invalid"
+        )
+    pending_cleanup_error: BaseException | None = None
+    active_cleanup_error: BaseException | None = None
+    cleanup_transition_error: BaseException | None = None
+    pending_retry_error: BaseException | None = None
+    active_retry_error: BaseException | None = None
+    try:
+        authenticate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt(
+            loaded,
+            start_operator_attested_approval_artifact=(start_operator_attested_approval_artifact),
+            expected_graceful_stop_decision_v1_sha256=(expected_graceful_stop_decision_v1_sha256),
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        return _consume_revalidate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt(
+            loaded,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+            consumer_identity=consumer_identity,
+        )
+    except BaseException as error:
+        try:
+            try:
+                pending_cleanup_error = _burn_pending_loaded_receipt_targets(((loaded, None),))
+                active_cleanup_error = _burn_loaded_receipt_targets(((loaded, None),))
+            except BaseException as observed_cleanup_error:
+                cleanup_transition_error = observed_cleanup_error
+        finally:
+            try:
+                pending_retry_error = _burn_pending_loaded_receipt_targets(((loaded, None),))
+            except BaseException as observed_pending_retry_error:
+                pending_retry_error = observed_pending_retry_error
+            try:
+                active_retry_error = _burn_loaded_receipt_targets(((loaded, None),))
+            except BaseException as observed_active_retry_error:
+                active_retry_error = observed_active_retry_error
+        terminal = _preferred_registry_exceptions(
+            error,
+            cleanup_transition_error,
+            pending_cleanup_error,
+            active_cleanup_error,
+            pending_retry_error,
+            active_retry_error,
+        )
+        if terminal is not None and not isinstance(terminal, Exception):
+            if terminal is error:
+                raise
+            raise terminal from error
+        if isinstance(
+            error,
+            TrustedTimePostEnrollmentGracefulStopDecisionArtifactError,
+        ):
+            raise
+        raise TrustedTimePostEnrollmentGracefulStopDecisionArtifactError(
+            "decision_artifact_receipt_unavailable"
+        ) from None
+
+
+def revalidate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt(
+    loaded: object,
+    *,
+    artifact_directory: Path,
+    ignored_root: Path,
+) -> bool:
+    """Reload and compare the exact candidate, inode, and full historical chain."""
+
+    if type(loaded) is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt:
+        return False
+    exact_loaded = loaded
+    cleanup_error: BaseException | None = None
+    cleanup_transition_error: BaseException | None = None
+    cleanup_retry_error: BaseException | None = None
+    try:
+        consumed_snapshot = (
+            _consume_revalidate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt(
+                exact_loaded,
+                artifact_directory=artifact_directory,
+                ignored_root=ignored_root,
+                consumer_identity=_PUBLIC_REVALIDATION_CONSUMER_IDENTITY,
+            )
+        )
+        if type(consumed_snapshot) is not _ConsumedLoadedDecisionArtifactReceiptSnapshot:
+            raise ValueError
+        return True
+    except BaseException as error:
+        try:
+            try:
+                cleanup_error = _burn_loaded_receipt_targets(((exact_loaded, None),))
+            except BaseException as observed_cleanup_error:
+                cleanup_transition_error = observed_cleanup_error
+        finally:
+            try:
+                cleanup_retry_error = _burn_loaded_receipt_targets(((exact_loaded, None),))
             except BaseException as observed_retry_error:
                 cleanup_retry_error = observed_retry_error
         terminal = _preferred_registry_exceptions(

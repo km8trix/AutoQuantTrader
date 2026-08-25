@@ -1,10 +1,10 @@
 """Inert host binding for one operation-bound graceful-stop terminal projection.
 
-The request builder joins an exact process-local ADR-0106 receipt to the
-publicly revalidated ADR-0110 attempt/progress chain.  The receipt digest is a
-structural, unqualified input only: ADR-0106 has no durable receipt loader, so
-this module does not claim historical authentication or provide a production
-runtime caller.
+The request builder owns ADR-0112 pending-receipt authentication and immediate
+consuming revalidation, then binds the source-derived immutable receipt
+projection to the exact request identity and the publicly revalidated ADR-0110
+attempt/progress chain.  The scalar receipt digest remains structural on the
+wire; only the private process-local association authenticates its source.
 
 The terminal binder consumes one exact ADR-0109 postcondition before it
 performs the remaining structural checks.  A mismatch therefore burns that
@@ -31,13 +31,13 @@ from pathlib import Path
 from typing import Any, Never, SupportsIndex, cast
 
 POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_CONTRACT_VERSION = (
-    "phase6d-post-enrollment-graceful-stop-supervisor-bridge-v1"
+    "phase6d-post-enrollment-graceful-stop-supervisor-bridge-v2"
 )
 POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_SERVICE = (
     "trusted-time-post-enrollment-graceful-stop-supervisor-bridge"
 )
 POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_STATUS = (
-    "operation_bound_terminal_projection_cross_bound_unqualified"
+    "receipt_authenticated_operation_bound_terminal_projection_cross_bound_unqualified"
 )
 
 _ORIGIN_PID = os.getpid()
@@ -209,7 +209,6 @@ _CLOSED_FIELDS = frozenset(
         "currentness_authenticated",
         "currentness_qualified",
         "database_secret_disclosed",
-        "decision_artifact_receipt_authenticated",
         "decision_authenticated",
         "durability_authenticated",
         "durable",
@@ -222,7 +221,6 @@ _CLOSED_FIELDS = frozenset(
         "freshness_authenticated",
         "freshness_qualified",
         "graceful_stop_authorized",
-        "historical_start_chain_authenticated",
         "lifecycle_currentness_authenticated",
         "live_trading_authorized",
         "network_removal_authorized",
@@ -333,7 +331,6 @@ class _ClosedHostBridgeEvidence:
     currentness_authenticated = _EVIDENCE_PROPERTY(lambda _: False)
     currentness_qualified = _EVIDENCE_PROPERTY(lambda _: False)
     database_secret_disclosed = _EVIDENCE_PROPERTY(lambda _: False)
-    decision_artifact_receipt_authenticated = _EVIDENCE_PROPERTY(lambda _: False)
     decision_authenticated = _EVIDENCE_PROPERTY(lambda _: False)
     durability_authenticated = _EVIDENCE_PROPERTY(lambda _: False)
     durable = _EVIDENCE_PROPERTY(lambda _: False)
@@ -346,7 +343,6 @@ class _ClosedHostBridgeEvidence:
     freshness_authenticated = _EVIDENCE_PROPERTY(lambda _: False)
     freshness_qualified = _EVIDENCE_PROPERTY(lambda _: False)
     graceful_stop_authorized = _EVIDENCE_PROPERTY(lambda _: False)
-    historical_start_chain_authenticated = _EVIDENCE_PROPERTY(lambda _: False)
     lifecycle_currentness_authenticated = _EVIDENCE_PROPERTY(lambda _: False)
     live_trading_authorized = _EVIDENCE_PROPERTY(lambda _: False)
     network_removal_authorized = _EVIDENCE_PROPERTY(lambda _: False)
@@ -434,9 +430,12 @@ def _exact_roots(
 
 @dataclass(frozen=True, slots=True)
 class _DecisionReceiptSnapshot:
-    identity: TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+    loaded_identity: LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+    bridge_identity: _BridgeIdentity
+    consumed_identity: _ConsumedLoadedDecisionArtifactReceiptSnapshot
     values: tuple[object, ...]
     encoded: bytes
+    receipt_sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -642,18 +641,62 @@ def _same_consumed_postcondition_snapshot(
     )
 
 
-def _capture_receipt_snapshot(
+def _capture_consumed_receipt_snapshot(
     value: object,
+    *,
+    loaded_identity: object,
+    bridge_identity: object,
 ) -> _DecisionReceiptSnapshot:
-    if type(value) is not TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt:
+    if (
+        type(loaded_identity)
+        is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+        or type(bridge_identity) is not _BridgeIdentity
+    ):
         raise ValueError
-    value.__post_init__()
-    encoded = canonical_first_enrollment_json_bytes(value.public_payload)
+    consumed = _require_consumed_loaded_decision_artifact_receipt_snapshot(
+        value,
+        loaded_identity=loaded_identity,
+        consumer_identity=bridge_identity,
+    )
+    encoded = consumed.receipt_encoded
     values = _decode_receipt_identity_values(encoded)
-    value.__post_init__()
-    if tuple(getattr(value, name) for name in _DECISION_RECEIPT_IDENTITY_FIELDS) != values:
+    if (
+        values != consumed.receipt_identity_values
+        or not _is_sha256(consumed.receipt_sha256)
+        or hashlib.sha256(encoded).hexdigest() != consumed.receipt_sha256
+    ):
         raise ValueError
-    return _DecisionReceiptSnapshot(identity=value, values=values, encoded=encoded)
+    return _DecisionReceiptSnapshot(
+        loaded_identity=loaded_identity,
+        bridge_identity=bridge_identity,
+        consumed_identity=consumed,
+        values=values,
+        encoded=encoded,
+        receipt_sha256=consumed.receipt_sha256,
+    )
+
+
+def _require_consumed_receipt_snapshot_current(
+    snapshot: _DecisionReceiptSnapshot,
+) -> None:
+    if (
+        type(snapshot) is not _DecisionReceiptSnapshot
+        or type(snapshot.loaded_identity)
+        is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+        or type(snapshot.bridge_identity) is not _BridgeIdentity
+        or _require_consumed_loaded_decision_artifact_receipt_snapshot(
+            snapshot.consumed_identity,
+            loaded_identity=snapshot.loaded_identity,
+            consumer_identity=snapshot.bridge_identity,
+        )
+        is not snapshot.consumed_identity
+        or _decode_receipt_identity_values(snapshot.encoded) != snapshot.values
+        or snapshot.values != snapshot.consumed_identity.receipt_identity_values
+        or snapshot.encoded != snapshot.consumed_identity.receipt_encoded
+        or snapshot.receipt_sha256 != snapshot.consumed_identity.receipt_sha256
+        or hashlib.sha256(snapshot.encoded).hexdigest() != snapshot.receipt_sha256
+    ):
+        raise ValueError
 
 
 def _capture_attempt_snapshot(value: object) -> _AttemptSnapshot:
@@ -691,8 +734,11 @@ def _capture_request_evidence_snapshot(
     retained_attempt: object,
     retained_progress: object,
 ) -> _RequestEvidenceSnapshot:
+    if type(decision_artifact_receipt) is not _DecisionReceiptSnapshot:
+        raise ValueError
+    _require_consumed_receipt_snapshot_current(decision_artifact_receipt)
     return _RequestEvidenceSnapshot(
-        receipt=_capture_receipt_snapshot(decision_artifact_receipt),
+        receipt=decision_artifact_receipt,
         attempt=_capture_attempt_snapshot(retained_attempt),
         progress=_capture_progress_snapshot(retained_progress),
     )
@@ -718,15 +764,17 @@ def _progress_projection(snapshot: _ProgressSnapshot) -> tuple[object, ...]:
 
 
 def _require_snapshot_current(snapshot: _RequestEvidenceSnapshot) -> None:
+    _require_consumed_receipt_snapshot_current(snapshot.receipt)
     current = _capture_request_evidence_snapshot(
-        decision_artifact_receipt=snapshot.receipt.identity,
+        decision_artifact_receipt=snapshot.receipt,
         retained_attempt=snapshot.attempt.identity,
         retained_progress=snapshot.progress.identity,
     )
     if (
-        current.receipt.identity is not snapshot.receipt.identity
+        current.receipt is not snapshot.receipt
         or current.receipt.values != snapshot.receipt.values
         or current.receipt.encoded != snapshot.receipt.encoded
+        or current.receipt.receipt_sha256 != snapshot.receipt.receipt_sha256
         or current.attempt.identity is not snapshot.attempt.identity
         or current.attempt.record_identity is not snapshot.attempt.record_identity
         or _attempt_projection(current.attempt) != _attempt_projection(snapshot.attempt)
@@ -825,9 +873,7 @@ def _request_from_snapshot(
         graceful_stop_operation_id=attempt_record.graceful_stop_operation_id,
         graceful_stop_target_sha256=attempt_record.graceful_stop_target_sha256,
         graceful_stop_decision_v1_sha256=attempt_record.graceful_stop_decision_v1_sha256,
-        graceful_stop_decision_artifact_receipt_sha256=hashlib.sha256(
-            snapshot.receipt.encoded
-        ).hexdigest(),
+        graceful_stop_decision_artifact_receipt_sha256=snapshot.receipt.receipt_sha256,
         operator_attestation_envelope_sha256=(attempt_record.operator_attestation_envelope_sha256),
         attempt_slot_sha256=snapshot.attempt.artifact_sha256,
         bridge_required_progress_sha256=snapshot.progress.artifact_sha256,
@@ -842,7 +888,7 @@ def _request_from_snapshot(
 
 def _request_from_exact_evidence(
     *,
-    decision_artifact_receipt: object,
+    decision_artifact_receipt: _DecisionReceiptSnapshot,
     retained_attempt: object,
     retained_progress: object,
     artifact_directory: object,
@@ -880,28 +926,486 @@ def _request_from_exact_evidence(
 
 def build_post_enrollment_graceful_stop_supervisor_clean_stop_request(
     *,
-    decision_artifact_receipt: TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt,
+    loaded_decision_artifact_receipt: (
+        LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+    ),
+    start_operator_attested_approval_artifact: Path,
+    expected_graceful_stop_decision_v1_sha256: str,
     retained_attempt: RetainedTrustedTimePostEnrollmentGracefulStopAttempt,
     retained_progress: RetainedTrustedTimePostEnrollmentGracefulStopProgress,
     artifact_directory: Path,
     ignored_root: Path,
 ) -> TrustedTimeHeadAnchorOperationBoundCleanStopRequest:
-    """Build one unqualified request from exact receipt and retained lifecycle evidence."""
+    """Authenticate one loaded receipt and bind its consumed snapshot to one request."""
 
+    bridge_identity = _new_bridge_identity()
+    request: TrustedTimeHeadAnchorOperationBoundCleanStopRequest | None = None
     try:
-        return _request_from_exact_evidence(
-            decision_artifact_receipt=decision_artifact_receipt,
+        consumed_receipt = _authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge(  # noqa: E501
+            loaded_decision_artifact_receipt,
+            start_operator_attested_approval_artifact=(start_operator_attested_approval_artifact),
+            expected_graceful_stop_decision_v1_sha256=(expected_graceful_stop_decision_v1_sha256),
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+            consumer_identity=bridge_identity,
+        )
+        receipt_snapshot = _capture_consumed_receipt_snapshot(
+            consumed_receipt,
+            loaded_identity=loaded_decision_artifact_receipt,
+            bridge_identity=bridge_identity,
+        )
+        request = _request_from_exact_evidence(
+            decision_artifact_receipt=receipt_snapshot,
             retained_attempt=retained_attempt,
             retained_progress=retained_progress,
             artifact_directory=artifact_directory,
             ignored_root=ignored_root,
         )
-    except TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected:
-        raise
-    except Exception:
+        request_evidence_snapshot = _capture_request_evidence_snapshot(
+            decision_artifact_receipt=receipt_snapshot,
+            retained_attempt=retained_attempt,
+            retained_progress=retained_progress,
+        )
+        _require_snapshot_current(request_evidence_snapshot)
+        request_wire_snapshot = _capture_request_wire_snapshot(request)
+        registration = _register_authenticated_request(
+            request=request,
+            loaded_decision_artifact_receipt=loaded_decision_artifact_receipt,
+            bridge_identity=bridge_identity,
+            request_evidence_snapshot=request_evidence_snapshot,
+            request_wire_snapshot=request_wire_snapshot,
+            artifact_directory=artifact_directory,
+            ignored_root=ignored_root,
+        )
+        _validate_authenticated_request_registration(
+            request,
+            loaded_decision_artifact_receipt=loaded_decision_artifact_receipt,
+            registration=registration,
+        )
+        return request
+    except BaseException as error:
+        cleanup_error: BaseException | None = None
+        cleanup_transition_error: BaseException | None = None
+        cleanup_retry_error: BaseException | None = None
+        if request is not None:
+            try:
+                try:
+                    cleanup_error = _revoke_authenticated_request_if_registered(
+                        request,
+                        loaded_decision_artifact_receipt=(loaded_decision_artifact_receipt),
+                    )
+                except BaseException as observed_cleanup_error:
+                    cleanup_transition_error = observed_cleanup_error
+            finally:
+                try:
+                    cleanup_retry_error = _revoke_authenticated_request_if_registered(
+                        request,
+                        loaded_decision_artifact_receipt=(loaded_decision_artifact_receipt),
+                    )
+                except BaseException as observed_retry_error:
+                    cleanup_retry_error = observed_retry_error
+        terminal = _preferred_registry_exceptions(
+            error,
+            cleanup_transition_error,
+            cleanup_error,
+            cleanup_retry_error,
+        )
+        if terminal is not None and not isinstance(terminal, Exception):
+            if terminal is error:
+                raise
+            raise terminal from error
+        if isinstance(
+            error,
+            TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected,
+        ):
+            raise
         raise TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected(
             "trusted-time graceful-stop supervisor request is unavailable"
         ) from None
+
+
+@dataclass(slots=True)
+class _AuthenticatedRequestRegistration:
+    request_reference: weakref.ReferenceType[TrustedTimeHeadAnchorOperationBoundCleanStopRequest]
+    loaded_decision_artifact_receipt: (
+        LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+    )
+    bridge_identity: _BridgeIdentity
+    owner_pid: int
+    owner_thread: threading.Thread
+    request_sha256: str
+    request_evidence_snapshot: _RequestEvidenceSnapshot
+    request_wire_snapshot: _RequestWireSnapshot
+    artifact_directory: Path
+    ignored_root: Path
+    source_identities: tuple[object, ...]
+
+
+_AUTHENTICATED_REQUEST_REGISTRY_LOCK = threading.Lock()
+_AUTHENTICATED_REQUEST_REGISTRY: dict[int, _AuthenticatedRequestRegistration] = {}
+_AUTHENTICATED_REQUEST_ID_BY_LOADED_ID: dict[int, int] = {}
+_AUTHENTICATED_REQUEST_ID_BY_SHA256: dict[str, int] = {}
+_SEEN_AUTHENTICATED_REQUEST_SHA256S: set[str] = set()
+
+
+def _preferred_registry_exception(
+    primary: BaseException | None,
+    cleanup: BaseException | None,
+) -> BaseException | None:
+    if primary is not None and not isinstance(primary, Exception):
+        return primary
+    if cleanup is not None and not isinstance(cleanup, Exception):
+        return cleanup
+    return primary if primary is not None else cleanup
+
+
+def _preferred_registry_exceptions(
+    *errors: BaseException | None,
+) -> BaseException | None:
+    preferred: BaseException | None = None
+    for error in errors:
+        preferred = _preferred_registry_exception(preferred, error)
+    return preferred
+
+
+def _remove_authenticated_request_registration_locked(
+    request_id: int,
+    registration: _AuthenticatedRequestRegistration,
+) -> None:
+    if _AUTHENTICATED_REQUEST_REGISTRY.get(request_id) is registration:
+        _AUTHENTICATED_REQUEST_REGISTRY.pop(request_id, None)
+    loaded_id = id(registration.loaded_decision_artifact_receipt)
+    if _AUTHENTICATED_REQUEST_ID_BY_LOADED_ID.get(loaded_id) == request_id:
+        _AUTHENTICATED_REQUEST_ID_BY_LOADED_ID.pop(loaded_id, None)
+    if _AUTHENTICATED_REQUEST_ID_BY_SHA256.get(registration.request_sha256) == request_id:
+        _AUTHENTICATED_REQUEST_ID_BY_SHA256.pop(registration.request_sha256, None)
+
+
+def _burn_authenticated_request_registration_keys(
+    *,
+    request_id: int,
+    loaded_id: int,
+    request_sha256: str | None,
+    expected_reference: weakref.ReferenceType[TrustedTimeHeadAnchorOperationBoundCleanStopRequest]
+    | None = None,
+) -> BaseException | None:
+    """Best-effort idempotent burn of every index for one request association."""
+
+    if os.getpid() != _ORIGIN_PID:
+        return None
+    first_error: BaseException | None = None
+    for _ in range(16):
+        clean = False
+        try:
+            with _AUTHENTICATED_REQUEST_REGISTRY_LOCK:
+                candidate_ids = {request_id}
+                loaded_request_id = _AUTHENTICATED_REQUEST_ID_BY_LOADED_ID.get(loaded_id)
+                if loaded_request_id is not None:
+                    candidate_ids.add(loaded_request_id)
+                if request_sha256 is not None:
+                    digest_request_id = _AUTHENTICATED_REQUEST_ID_BY_SHA256.get(request_sha256)
+                    if digest_request_id is not None:
+                        candidate_ids.add(digest_request_id)
+                for candidate_id in candidate_ids:
+                    registration = _AUTHENTICATED_REQUEST_REGISTRY.get(candidate_id)
+                    if registration is None:
+                        continue
+                    if (
+                        expected_reference is not None
+                        and registration.request_reference is not expected_reference
+                    ):
+                        continue
+                    try:
+                        _remove_authenticated_request_registration_locked(
+                            candidate_id,
+                            registration,
+                        )
+                    except BaseException as error:
+                        first_error = _preferred_registry_exception(first_error, error)
+                for loaded_key, candidate_id in tuple(
+                    _AUTHENTICATED_REQUEST_ID_BY_LOADED_ID.items()
+                ):
+                    if (
+                        candidate_id in candidate_ids
+                        and _AUTHENTICATED_REQUEST_REGISTRY.get(candidate_id) is None
+                    ):
+                        _AUTHENTICATED_REQUEST_ID_BY_LOADED_ID.pop(loaded_key, None)
+                for digest_key, candidate_id in tuple(_AUTHENTICATED_REQUEST_ID_BY_SHA256.items()):
+                    if (
+                        candidate_id in candidate_ids
+                        and _AUTHENTICATED_REQUEST_REGISTRY.get(candidate_id) is None
+                    ):
+                        _AUTHENTICATED_REQUEST_ID_BY_SHA256.pop(digest_key, None)
+                if all(
+                    _AUTHENTICATED_REQUEST_REGISTRY.get(candidate_id) is None
+                    for candidate_id in candidate_ids
+                ) and all(
+                    candidate_id not in candidate_ids
+                    for index in (
+                        _AUTHENTICATED_REQUEST_ID_BY_LOADED_ID,
+                        _AUTHENTICATED_REQUEST_ID_BY_SHA256,
+                    )
+                    for candidate_id in index.values()
+                ):
+                    clean = True
+        except BaseException as error:
+            first_error = _preferred_registry_exception(first_error, error)
+        if clean:
+            return first_error
+    return _preferred_registry_exception(
+        first_error,
+        RuntimeError("authenticated request registry entry could not be revoked"),
+    )
+
+
+def _burn_authenticated_request_targets(
+    request: object,
+    *,
+    loaded_decision_artifact_receipt: object,
+) -> BaseException | None:
+    request_sha256: str | None = None
+    capture_error: BaseException | None = None
+    if type(request) is TrustedTimeHeadAnchorOperationBoundCleanStopRequest:
+        try:
+            request_sha256 = _capture_request_wire_snapshot(request).request_sha256
+        except BaseException as error:
+            capture_error = error
+    cleanup_error = _burn_authenticated_request_registration_keys(
+        request_id=id(request),
+        loaded_id=id(loaded_decision_artifact_receipt),
+        request_sha256=request_sha256,
+    )
+    return _preferred_registry_exception(capture_error, cleanup_error)
+
+
+def _revoke_authenticated_request_if_registered(
+    request: object,
+    *,
+    loaded_decision_artifact_receipt: object,
+) -> BaseException | None:
+    return _burn_authenticated_request_targets(
+        request,
+        loaded_decision_artifact_receipt=loaded_decision_artifact_receipt,
+    )
+
+
+def _validate_authenticated_request_registration_values(
+    request: object,
+    *,
+    loaded_decision_artifact_receipt: object,
+    registration: _AuthenticatedRequestRegistration,
+) -> None:
+    if (
+        os.getpid() != _ORIGIN_PID
+        or type(request) is not TrustedTimeHeadAnchorOperationBoundCleanStopRequest
+        or type(loaded_decision_artifact_receipt)
+        is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+        or type(registration) is not _AuthenticatedRequestRegistration
+        or registration.request_reference() is not request
+        or registration.loaded_decision_artifact_receipt is not loaded_decision_artifact_receipt
+        or type(registration.bridge_identity) is not _BridgeIdentity
+        or registration.owner_pid != os.getpid()
+        or registration.owner_thread is not threading.current_thread()
+        or registration.request_evidence_snapshot.receipt.loaded_identity
+        is not loaded_decision_artifact_receipt
+        or registration.request_evidence_snapshot.receipt.bridge_identity
+        is not registration.bridge_identity
+    ):
+        raise ValueError
+    sources = (
+        loaded_decision_artifact_receipt,
+        registration.request_evidence_snapshot.receipt.consumed_identity,
+        registration.request_evidence_snapshot.attempt.identity,
+        registration.request_evidence_snapshot.progress.identity,
+        registration.bridge_identity,
+    )
+    if len(registration.source_identities) != len(sources) or any(
+        observed is not captured
+        for observed, captured in zip(sources, registration.source_identities, strict=True)
+    ):
+        raise ValueError
+    exact_directory, exact_root = _exact_roots(
+        registration.artifact_directory,
+        ignored_root=registration.ignored_root,
+    )
+    _require_snapshot_current(registration.request_evidence_snapshot)
+    _require_inspected_chain(
+        registration.request_evidence_snapshot,
+        artifact_directory=exact_directory,
+        ignored_root=exact_root,
+    )
+    current_request = _capture_request_wire_snapshot(request)
+    expected_request = _capture_request_wire_snapshot(
+        _request_from_snapshot(registration.request_evidence_snapshot)
+    )
+    if (
+        current_request != registration.request_wire_snapshot
+        or expected_request != registration.request_wire_snapshot
+        or registration.request_sha256 != registration.request_wire_snapshot.request_sha256
+    ):
+        raise ValueError
+
+
+def _validate_authenticated_request_registration(
+    request: object,
+    *,
+    loaded_decision_artifact_receipt: object,
+    registration: _AuthenticatedRequestRegistration,
+) -> None:
+    if os.getpid() != _ORIGIN_PID:
+        raise ValueError
+    with _AUTHENTICATED_REQUEST_REGISTRY_LOCK:
+        if _AUTHENTICATED_REQUEST_REGISTRY.get(id(request)) is not registration:
+            raise ValueError
+    _validate_authenticated_request_registration_values(
+        request,
+        loaded_decision_artifact_receipt=loaded_decision_artifact_receipt,
+        registration=registration,
+    )
+
+
+def _register_authenticated_request(
+    *,
+    request: TrustedTimeHeadAnchorOperationBoundCleanStopRequest,
+    loaded_decision_artifact_receipt: (
+        LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+    ),
+    bridge_identity: _BridgeIdentity,
+    request_evidence_snapshot: _RequestEvidenceSnapshot,
+    request_wire_snapshot: _RequestWireSnapshot,
+    artifact_directory: Path,
+    ignored_root: Path,
+) -> _AuthenticatedRequestRegistration:
+    if os.getpid() != _ORIGIN_PID:
+        raise ValueError
+    exact_directory, exact_root = _exact_roots(
+        artifact_directory,
+        ignored_root=ignored_root,
+    )
+    if (
+        type(request) is not TrustedTimeHeadAnchorOperationBoundCleanStopRequest
+        or type(loaded_decision_artifact_receipt)
+        is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+        or type(bridge_identity) is not _BridgeIdentity
+        or type(request_evidence_snapshot) is not _RequestEvidenceSnapshot
+        or type(request_wire_snapshot) is not _RequestWireSnapshot
+        or request_evidence_snapshot.receipt.loaded_identity is not loaded_decision_artifact_receipt
+        or request_evidence_snapshot.receipt.bridge_identity is not bridge_identity
+        or _capture_request_wire_snapshot(request) != request_wire_snapshot
+        or _capture_request_wire_snapshot(_request_from_snapshot(request_evidence_snapshot))
+        != request_wire_snapshot
+    ):
+        raise ValueError
+    request_id = id(request)
+    loaded_id = id(loaded_decision_artifact_receipt)
+    request_sha256 = request_wire_snapshot.request_sha256
+    owner_thread = threading.current_thread()
+
+    def request_lost(
+        reference: weakref.ReferenceType[TrustedTimeHeadAnchorOperationBoundCleanStopRequest],
+    ) -> None:
+        _burn_authenticated_request_registration_keys(
+            request_id=request_id,
+            loaded_id=loaded_id,
+            request_sha256=request_sha256,
+            expected_reference=reference,
+        )
+
+    reference = weakref.ref(request, request_lost)
+    registration = _AuthenticatedRequestRegistration(
+        request_reference=reference,
+        loaded_decision_artifact_receipt=loaded_decision_artifact_receipt,
+        bridge_identity=bridge_identity,
+        owner_pid=os.getpid(),
+        owner_thread=owner_thread,
+        request_sha256=request_sha256,
+        request_evidence_snapshot=request_evidence_snapshot,
+        request_wire_snapshot=request_wire_snapshot,
+        artifact_directory=exact_directory,
+        ignored_root=exact_root,
+        source_identities=(
+            loaded_decision_artifact_receipt,
+            request_evidence_snapshot.receipt.consumed_identity,
+            request_evidence_snapshot.attempt.identity,
+            request_evidence_snapshot.progress.identity,
+            bridge_identity,
+        ),
+    )
+    with _AUTHENTICATED_REQUEST_REGISTRY_LOCK:
+        if (
+            request_id in _AUTHENTICATED_REQUEST_REGISTRY
+            or loaded_id in _AUTHENTICATED_REQUEST_ID_BY_LOADED_ID
+            or request_sha256 in _SEEN_AUTHENTICATED_REQUEST_SHA256S
+        ):
+            raise ValueError
+        _SEEN_AUTHENTICATED_REQUEST_SHA256S.add(request_sha256)
+        _AUTHENTICATED_REQUEST_REGISTRY[request_id] = registration
+        _AUTHENTICATED_REQUEST_ID_BY_LOADED_ID[loaded_id] = request_id
+        _AUTHENTICATED_REQUEST_ID_BY_SHA256[request_sha256] = request_id
+    return registration
+
+
+def _consume_authenticated_request_registration(
+    request: object,
+    *,
+    loaded_decision_artifact_receipt: object,
+) -> _AuthenticatedRequestRegistration:
+    if (
+        os.getpid() != _ORIGIN_PID
+        or type(loaded_decision_artifact_receipt)
+        is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+    ):
+        raise ValueError
+    candidate_ids = {id(request)}
+    with _AUTHENTICATED_REQUEST_REGISTRY_LOCK:
+        loaded_request_id = _AUTHENTICATED_REQUEST_ID_BY_LOADED_ID.get(
+            id(loaded_decision_artifact_receipt)
+        )
+        if loaded_request_id is not None:
+            candidate_ids.add(loaded_request_id)
+        observed_registrations: list[_AuthenticatedRequestRegistration] = []
+        for candidate_id in candidate_ids:
+            observed = _AUTHENTICATED_REQUEST_REGISTRY.get(candidate_id)
+            if observed is not None and all(
+                observed is not existing for existing in observed_registrations
+            ):
+                observed_registrations.append(observed)
+        registrations = tuple(observed_registrations)
+        for registration in registrations:
+            registered_request_id = _AUTHENTICATED_REQUEST_ID_BY_SHA256.get(
+                registration.request_sha256
+            )
+            if registered_request_id is not None:
+                _remove_authenticated_request_registration_locked(
+                    registered_request_id,
+                    registration,
+                )
+    if not registrations:
+        request_snapshot: _RequestWireSnapshot | None = None
+        if type(request) is TrustedTimeHeadAnchorOperationBoundCleanStopRequest:
+            try:
+                request_snapshot = _capture_request_wire_snapshot(request)
+            except Exception:
+                request_snapshot = None
+        if request_snapshot is not None:
+            with _AUTHENTICATED_REQUEST_REGISTRY_LOCK:
+                digest_request_id = _AUTHENTICATED_REQUEST_ID_BY_SHA256.get(
+                    request_snapshot.request_sha256
+                )
+                if digest_request_id is not None:
+                    digest_registration = _AUTHENTICATED_REQUEST_REGISTRY.get(digest_request_id)
+                    if digest_registration is not None:
+                        _remove_authenticated_request_registration_locked(
+                            digest_request_id,
+                            digest_registration,
+                        )
+                        registrations = (digest_registration,)
+    if len(registrations) != 1:
+        raise ValueError
+    # Return the already-popped association without inspecting its nested values.
+    # The binder needs its exact identity to burn ADR-0109 before any remaining
+    # request, loaded-receipt, source-chain, or terminal validation can fail.
+    return registrations[0]
 
 
 @dataclass(slots=True)
@@ -913,7 +1417,9 @@ class _CompositeRegistration:
     owner_thread: threading.Thread
     values: tuple[object, ...]
     semantic_sha256: str
-    decision_artifact_receipt: TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+    loaded_decision_artifact_receipt: (
+        LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+    )
     retained_attempt: RetainedTrustedTimePostEnrollmentGracefulStopAttempt
     retained_progress: RetainedTrustedTimePostEnrollmentGracefulStopProgress
     request: TrustedTimeHeadAnchorOperationBoundCleanStopRequest
@@ -923,6 +1429,7 @@ class _CompositeRegistration:
         TrustedTimePostEnrollmentCleanStopTerminalReauthenticationIssuer
     )
     bridge_identity: _BridgeIdentity
+    authenticated_request_registration: _AuthenticatedRequestRegistration
     source_identities: tuple[object, ...]
     request_evidence_snapshot: _RequestEvidenceSnapshot
     request_wire_snapshot: _RequestWireSnapshot
@@ -1024,7 +1531,9 @@ def _composite_payload(
     payload.update(
         {
             "contract_version": POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_CONTRACT_VERSION,
+            "decision_artifact_receipt_authenticated": True,
             "exact_terminal_projection_cross_bound_unqualified": True,
+            "historical_start_chain_authenticated": True,
             "provider_terminal_observed_under_stable_sql_authenticated": True,
             "service": POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_SERVICE,
             "status": POST_ENROLLMENT_GRACEFUL_STOP_SUPERVISOR_BRIDGE_STATUS,
@@ -1063,7 +1572,9 @@ def _validate_registered_composite(value: object) -> None:
         ):
             raise ValueError
         sources = (
-            registration.decision_artifact_receipt,
+            registration.loaded_decision_artifact_receipt,
+            registration.request_evidence_snapshot.receipt.consumed_identity,
+            registration.authenticated_request_registration,
             registration.retained_attempt,
             registration.retained_progress,
             registration.request,
@@ -1082,8 +1593,10 @@ def _validate_registered_composite(value: object) -> None:
                     strict=True,
                 )
             )
-            or type(registration.decision_artifact_receipt)
-            is not TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+            or type(registration.loaded_decision_artifact_receipt)
+            is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+            or type(registration.authenticated_request_registration)
+            is not _AuthenticatedRequestRegistration
             or type(registration.retained_attempt)
             is not RetainedTrustedTimePostEnrollmentGracefulStopAttempt
             or type(registration.retained_progress)
@@ -1095,14 +1608,21 @@ def _validate_registered_composite(value: object) -> None:
             or type(registration.terminal_reauthentication_issuer)
             is not TrustedTimePostEnrollmentCleanStopTerminalReauthenticationIssuer
             or type(registration.bridge_identity) is not _BridgeIdentity
-            or registration.request_evidence_snapshot.receipt.identity
-            is not registration.decision_artifact_receipt
+            or registration.request_evidence_snapshot.receipt.loaded_identity
+            is not registration.loaded_decision_artifact_receipt
+            or registration.request_evidence_snapshot.receipt.bridge_identity
+            is not registration.bridge_identity
             or registration.request_evidence_snapshot.attempt.identity
             is not registration.retained_attempt
             or registration.request_evidence_snapshot.progress.identity
             is not registration.retained_progress
         ):
             raise ValueError
+        _validate_authenticated_request_registration_values(
+            registration.request,
+            loaded_decision_artifact_receipt=(registration.loaded_decision_artifact_receipt),
+            registration=registration.authenticated_request_registration,
+        )
         _require_snapshot_current(registration.request_evidence_snapshot)
         expected_request = _capture_request_wire_snapshot(
             _request_from_snapshot(registration.request_evidence_snapshot)
@@ -1254,6 +1774,16 @@ class TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation(
         self.__post_init__()
         return True
 
+    @_EVIDENCE_PROPERTY
+    def decision_artifact_receipt_authenticated(self) -> bool:
+        self.__post_init__()
+        return True
+
+    @_EVIDENCE_PROPERTY
+    def historical_start_chain_authenticated(self) -> bool:
+        self.__post_init__()
+        return True
+
     def payload(self) -> dict[str, object]:
         self.__post_init__()
         return _composite_payload(self)
@@ -1304,7 +1834,10 @@ from scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts impor
     ARTIFACT_WORKFLOW_SERVICE,
     DECISION_CANDIDATE_PREPARED_STATUS,
     POST_ENROLLMENT_GRACEFUL_STOP_DECISION_ARTIFACT_RECEIPT_FIELDS,
-    TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt,
+    LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt,
+    _authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge,
+    _ConsumedLoadedDecisionArtifactReceiptSnapshot,
+    _require_consumed_loaded_decision_artifact_receipt_snapshot,
 )
 from scripts.trusted_time_post_enrollment_graceful_stop_lifecycle import (  # noqa: E402
     RetainedTrustedTimePostEnrollmentGracefulStopAttempt,
@@ -1355,7 +1888,10 @@ def _terminal_projection_matches(
 
 def _issue_composite(
     *,
-    decision_artifact_receipt: TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt,
+    loaded_decision_artifact_receipt: (
+        LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+    ),
+    authenticated_request_registration: _AuthenticatedRequestRegistration,
     retained_attempt: RetainedTrustedTimePostEnrollmentGracefulStopAttempt,
     retained_progress: RetainedTrustedTimePostEnrollmentGracefulStopProgress,
     request: TrustedTimeHeadAnchorOperationBoundCleanStopRequest,
@@ -1374,8 +1910,9 @@ def _issue_composite(
             "trusted-time graceful-stop supervisor terminal observation is unavailable"
         )
     if (
-        type(decision_artifact_receipt)
-        is not TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+        type(loaded_decision_artifact_receipt)
+        is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+        or type(authenticated_request_registration) is not _AuthenticatedRequestRegistration
         or type(retained_attempt) is not RetainedTrustedTimePostEnrollmentGracefulStopAttempt
         or type(retained_progress) is not RetainedTrustedTimePostEnrollmentGracefulStopProgress
         or type(request) is not TrustedTimeHeadAnchorOperationBoundCleanStopRequest
@@ -1390,11 +1927,23 @@ def _issue_composite(
         or type(postcondition_registry_snapshot) is not _ConsumedPostconditionRegistrySnapshot
     ):
         raise ValueError
-    request_evidence_snapshot = _capture_request_evidence_snapshot(
-        decision_artifact_receipt=decision_artifact_receipt,
-        retained_attempt=retained_attempt,
-        retained_progress=retained_progress,
+    if (
+        authenticated_request_registration.bridge_identity is not bridge_identity
+        or authenticated_request_registration.loaded_decision_artifact_receipt
+        is not loaded_decision_artifact_receipt
+        or authenticated_request_registration.request_reference() is not request
+        or authenticated_request_registration.request_evidence_snapshot.attempt.identity
+        is not retained_attempt
+        or authenticated_request_registration.request_evidence_snapshot.progress.identity
+        is not retained_progress
+    ):
+        raise ValueError
+    _validate_authenticated_request_registration_values(
+        request,
+        loaded_decision_artifact_receipt=loaded_decision_artifact_receipt,
+        registration=authenticated_request_registration,
     )
+    request_evidence_snapshot = authenticated_request_registration.request_evidence_snapshot
     _require_snapshot_current(request_evidence_snapshot)
     expected_request = _capture_request_wire_snapshot(
         _request_from_snapshot(request_evidence_snapshot)
@@ -1486,7 +2035,7 @@ def _issue_composite(
         owner_thread=threading.current_thread(),
         values=values,
         semantic_sha256=semantic_sha256,
-        decision_artifact_receipt=decision_artifact_receipt,
+        loaded_decision_artifact_receipt=loaded_decision_artifact_receipt,
         retained_attempt=retained_attempt,
         retained_progress=retained_progress,
         request=request,
@@ -1494,8 +2043,11 @@ def _issue_composite(
         terminal_postcondition=terminal_postcondition,
         terminal_reauthentication_issuer=terminal_reauthentication_issuer,
         bridge_identity=bridge_identity,
+        authenticated_request_registration=authenticated_request_registration,
         source_identities=(
-            decision_artifact_receipt,
+            loaded_decision_artifact_receipt,
+            request_evidence_snapshot.receipt.consumed_identity,
+            authenticated_request_registration,
             retained_attempt,
             retained_progress,
             request,
@@ -1532,7 +2084,9 @@ def _issue_composite(
 
 def bind_post_enrollment_graceful_stop_operation_bound_terminal_observation(
     *,
-    decision_artifact_receipt: TrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt,
+    loaded_decision_artifact_receipt: (
+        LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
+    ),
     retained_attempt: RetainedTrustedTimePostEnrollmentGracefulStopAttempt,
     retained_progress: RetainedTrustedTimePostEnrollmentGracefulStopProgress,
     artifact_directory: Path,
@@ -1544,10 +2098,15 @@ def bind_post_enrollment_graceful_stop_operation_bound_terminal_observation(
         TrustedTimePostEnrollmentCleanStopTerminalReauthenticationIssuer
     ),
 ) -> TrustedTimePostEnrollmentGracefulStopOperationBoundTerminalObservation:
-    """Burn one ADR-0109 observation, then cross-bind all structural projections."""
+    """Burn the authenticated request and ADR-0109 observation, then cross-bind them."""
 
-    bridge_identity = _new_bridge_identity()
+    authenticated_request_registration: _AuthenticatedRequestRegistration | None = None
     try:
+        authenticated_request_registration = _consume_authenticated_request_registration(
+            request,
+            loaded_decision_artifact_receipt=loaded_decision_artifact_receipt,
+        )
+        bridge_identity = authenticated_request_registration.bridge_identity
         postcondition_registry_snapshot = _require_consumed_postcondition_snapshot(
             _consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once(
                 terminal_postcondition,
@@ -1556,15 +2115,6 @@ def bind_post_enrollment_graceful_stop_operation_bound_terminal_observation(
             ),
             issuer=terminal_reauthentication_issuer,
             bridge_identity=bridge_identity,
-        )
-        expected_request = _capture_request_wire_snapshot(
-            _request_from_exact_evidence(
-                decision_artifact_receipt=decision_artifact_receipt,
-                retained_attempt=retained_attempt,
-                retained_progress=retained_progress,
-                artifact_directory=artifact_directory,
-                ignored_root=ignored_root,
-            )
         )
         if (
             type(request) is not TrustedTimeHeadAnchorOperationBoundCleanStopRequest
@@ -1576,6 +2126,19 @@ def bind_post_enrollment_graceful_stop_operation_bound_terminal_observation(
             is not TrustedTimePostEnrollmentCleanStopTerminalReauthenticationIssuer
         ):
             raise ValueError
+        if (
+            authenticated_request_registration.request_evidence_snapshot.attempt.identity
+            is not retained_attempt
+            or authenticated_request_registration.request_evidence_snapshot.progress.identity
+            is not retained_progress
+        ):
+            raise ValueError
+        _validate_authenticated_request_registration_values(
+            request,
+            loaded_decision_artifact_receipt=loaded_decision_artifact_receipt,
+            registration=authenticated_request_registration,
+        )
+        expected_request = authenticated_request_registration.request_wire_snapshot
         request_wire_snapshot = _capture_request_wire_snapshot(request)
         result_wire_snapshot = _capture_result_wire_snapshot(operation_bound_result)
         if (
@@ -1591,11 +2154,12 @@ def bind_post_enrollment_graceful_stop_operation_bound_terminal_observation(
             artifact_directory,
             ignored_root=ignored_root,
         )
-        final_snapshot = _capture_request_evidence_snapshot(
-            decision_artifact_receipt=decision_artifact_receipt,
-            retained_attempt=retained_attempt,
-            retained_progress=retained_progress,
-        )
+        if (
+            exact_directory != authenticated_request_registration.artifact_directory
+            or exact_root != authenticated_request_registration.ignored_root
+        ):
+            raise ValueError
+        final_snapshot = authenticated_request_registration.request_evidence_snapshot
         _require_snapshot_current(final_snapshot)
         _require_inspected_chain(
             final_snapshot,
@@ -1609,7 +2173,8 @@ def bind_post_enrollment_graceful_stop_operation_bound_terminal_observation(
         ):
             raise ValueError
         return _issue_composite(
-            decision_artifact_receipt=decision_artifact_receipt,
+            loaded_decision_artifact_receipt=loaded_decision_artifact_receipt,
+            authenticated_request_registration=authenticated_request_registration,
             retained_attempt=retained_attempt,
             retained_progress=retained_progress,
             request=request,
@@ -1621,10 +2186,68 @@ def bind_post_enrollment_graceful_stop_operation_bound_terminal_observation(
             result_wire_snapshot=result_wire_snapshot,
             postcondition_registry_snapshot=postcondition_registry_snapshot,
         )
-    except TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected:
-        raise
     except BaseException as error:
-        if not isinstance(error, Exception):
+        request_cleanup_error: BaseException | None = None
+        request_cleanup_transition_error: BaseException | None = None
+        request_cleanup_retry_error: BaseException | None = None
+        postcondition_cleanup_error: BaseException | None = None
+        postcondition_cleanup_transition_error: BaseException | None = None
+        postcondition_cleanup_retry_error: BaseException | None = None
+        try:
+            try:
+                request_cleanup_error = _burn_authenticated_request_targets(
+                    request,
+                    loaded_decision_artifact_receipt=(loaded_decision_artifact_receipt),
+                )
+            except BaseException as observed_request_cleanup_error:
+                request_cleanup_transition_error = observed_request_cleanup_error
+        finally:
+            try:
+                request_cleanup_retry_error = _burn_authenticated_request_targets(
+                    request,
+                    loaded_decision_artifact_receipt=(loaded_decision_artifact_receipt),
+                )
+            except BaseException as observed_request_retry_error:
+                request_cleanup_retry_error = observed_request_retry_error
+        if authenticated_request_registration is not None:
+            bridge_identity = authenticated_request_registration.bridge_identity
+            try:
+                try:
+                    _consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once(
+                        terminal_postcondition,
+                        issuer=terminal_reauthentication_issuer,
+                        bridge_identity=bridge_identity,
+                    )
+                except BaseException as observed_postcondition_cleanup_error:
+                    postcondition_cleanup_error = observed_postcondition_cleanup_error
+            except BaseException as observed_postcondition_transition_error:
+                postcondition_cleanup_transition_error = observed_postcondition_transition_error
+            finally:
+                try:
+                    _consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once(
+                        terminal_postcondition,
+                        issuer=terminal_reauthentication_issuer,
+                        bridge_identity=bridge_identity,
+                    )
+                except BaseException as observed_postcondition_retry_error:
+                    postcondition_cleanup_retry_error = observed_postcondition_retry_error
+        terminal = _preferred_registry_exceptions(
+            error,
+            request_cleanup_transition_error,
+            request_cleanup_error,
+            request_cleanup_retry_error,
+            postcondition_cleanup_transition_error,
+            postcondition_cleanup_error,
+            postcondition_cleanup_retry_error,
+        )
+        if terminal is not None and not isinstance(terminal, Exception):
+            if terminal is error:
+                raise
+            raise terminal from error
+        if isinstance(
+            error,
+            TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected,
+        ):
             raise
         raise TrustedTimePostEnrollmentGracefulStopSupervisorBridgeRejected(
             "trusted-time graceful-stop supervisor terminal observation is unavailable"
