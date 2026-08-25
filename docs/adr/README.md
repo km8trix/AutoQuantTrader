@@ -224,5 +224,11 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   media/charset/declaration/schema bindings; provider origin remains
   unauthenticated, fixture relabeling is undetectable, and transport,
   persistence, account binding, mutation, and trading authority remain closed)
+- [ADR 0117: Durable bounded fixture-segment worker](0117-durable-fixture-segment-worker.md)
+  (implements Phase 3F's repository-fixture-only durable job, rotating physical
+  claim, content-addressed feature/target transcripts, and atomic governed
+  completion; economic evaluation, captured-tape eligibility, promotion,
+  provider I/O, and every source, deployment, broker, or trading authority
+  remain closed)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

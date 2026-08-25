@@ -1390,6 +1390,125 @@ class SqlExperimentGovernance:
         except ImmutableFactConflict as error:
             raise ExperimentGovernanceConflict(str(error)) from error
 
+    def _persist_in_transaction(
+        self,
+        connection: Connection,
+        proposed: ExperimentGovernanceSnapshot,
+        *,
+        expected_action: _MutationAction,
+        expected_registry_sha256: str,
+        actor_id: str,
+        idempotency_key: str,
+        occurred_at: datetime,
+        certification: CertifiedFeatureTargetReplay | None = None,
+    ) -> ExperimentGovernanceSnapshot:
+        """Persist one mutation inside a caller-owned atomic transaction.
+
+        Phase 3F uses this narrow package-private seam to publish its terminal
+        job fact and the existing Phase 3D completion receipt in one commit.
+        All ordinary callers continue through :meth:`_persist`.
+        """
+
+        if type(proposed) is not ExperimentGovernanceSnapshot:
+            raise ExperimentGovernanceError(
+                "experiment mutation requires an exact governance snapshot"
+            )
+        family_id = proposed.family_id
+        request_sha256 = _mutation_request_sha256(proposed)
+        actor = _text(actor_id, "experiment command actor")
+        key = _validate_idempotency(idempotency_key)
+        command_time = _utc(occurred_at, "experiment command time")
+        history = _load_snapshot_history(connection, family_id, lock=True)
+        _verify_audits(connection, history)
+        current = history[-1]
+        existing = (
+            connection.execute(
+                sa.select(phase3_experiment_audit_events).where(
+                    phase3_experiment_audit_events.c.actor_id == actor,
+                    phase3_experiment_audit_events.c.idempotency_key == key,
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if existing is not None:
+            if (
+                existing["family_id"] != family_id
+                or existing["action"] != expected_action
+                or existing["request_sha256"] != request_sha256
+                or existing["expected_registry_sha256"] != expected_registry_sha256
+                or as_aware_utc(cast(datetime, existing["occurred_at"])) != command_time
+            ):
+                raise ExperimentGovernanceConflict(
+                    "idempotency key was already used for a different experiment command"
+                )
+            _verify_audit_row(existing)
+            result = _load_snapshot_result(
+                connection,
+                family_id,
+                cast(str, existing["result_registry_sha256"]),
+            )
+            if result != proposed:
+                raise ExperimentGovernanceConflict(
+                    "idempotent experiment retry changed its exact result"
+                )
+            previous = _load_snapshot_result(
+                connection,
+                family_id,
+                cast(str, existing["expected_registry_sha256"]),
+            )
+            _require_exact_mutation(
+                previous,
+                result,
+                expected_action=expected_action,
+                certification=certification,
+            )
+            return result
+        if _snapshot_sha256(current) != expected_registry_sha256:
+            raise ExperimentGovernanceConflict("experiment family head changed concurrently")
+        exact_mutation = _require_exact_mutation(
+            current,
+            proposed,
+            expected_action=expected_action,
+            certification=certification,
+        )
+        (
+            action,
+            resource_sha256,
+            exact_actor,
+            exact_command_time,
+        ) = _persist_delta(connection, current, proposed)
+        if (
+            action,
+            resource_sha256,
+            exact_actor,
+            exact_command_time,
+        ) != exact_mutation:
+            raise ExperimentGovernanceConflict("experiment mutation changed while being persisted")
+        if actor != exact_actor or command_time != exact_command_time:
+            raise ExperimentGovernanceConflict(
+                "experiment audit actor/time must match the exact appended fact"
+            )
+        reconstructed = _load_snapshot(connection, family_id)
+        if reconstructed != proposed:
+            raise ExperimentGovernanceConflict(
+                "persisted experiment mutation changed its domain evidence"
+            )
+        _record_audit(
+            connection,
+            action=action,
+            family_id=family_id,
+            actor_id=actor,
+            idempotency_key=key,
+            request_sha256=request_sha256,
+            expected_registry_sha256=expected_registry_sha256,
+            result_registry_sha256=_snapshot_sha256(reconstructed),
+            resource_sha256=resource_sha256,
+            occurred_at=command_time,
+        )
+        _verify_audits(connection, _load_snapshot_history(connection, family_id))
+        return reconstructed
+
     def _persist(
         self,
         proposed: ExperimentGovernanceSnapshot,
@@ -1401,114 +1520,18 @@ class SqlExperimentGovernance:
         occurred_at: datetime,
         certification: CertifiedFeatureTargetReplay | None = None,
     ) -> ExperimentGovernanceSnapshot:
-        if type(proposed) is not ExperimentGovernanceSnapshot:
-            raise ExperimentGovernanceError(
-                "experiment mutation requires an exact governance snapshot"
-            )
-        family_id = proposed.family_id
-        request_sha256 = _mutation_request_sha256(proposed)
-        actor = _text(actor_id, "experiment command actor")
-        key = _validate_idempotency(idempotency_key)
-        command_time = _utc(occurred_at, "experiment command time")
         try:
             with _write_transaction(self._engine) as connection:
-                history = _load_snapshot_history(connection, family_id, lock=True)
-                _verify_audits(connection, history)
-                current = history[-1]
-                existing = (
-                    connection.execute(
-                        sa.select(phase3_experiment_audit_events).where(
-                            phase3_experiment_audit_events.c.actor_id == actor,
-                            phase3_experiment_audit_events.c.idempotency_key == key,
-                        )
-                    )
-                    .mappings()
-                    .one_or_none()
-                )
-                if existing is not None:
-                    if (
-                        existing["family_id"] != family_id
-                        or existing["action"] != expected_action
-                        or existing["request_sha256"] != request_sha256
-                        or existing["expected_registry_sha256"] != expected_registry_sha256
-                        or as_aware_utc(cast(datetime, existing["occurred_at"])) != command_time
-                    ):
-                        raise ExperimentGovernanceConflict(
-                            "idempotency key was already used for a different experiment command"
-                        )
-                    _verify_audit_row(existing)
-                    result = _load_snapshot_result(
-                        connection,
-                        family_id,
-                        cast(str, existing["result_registry_sha256"]),
-                    )
-                    if result != proposed:
-                        raise ExperimentGovernanceConflict(
-                            "idempotent experiment retry changed its exact result"
-                        )
-                    previous = _load_snapshot_result(
-                        connection,
-                        family_id,
-                        cast(str, existing["expected_registry_sha256"]),
-                    )
-                    _require_exact_mutation(
-                        previous,
-                        result,
-                        expected_action=expected_action,
-                        certification=certification,
-                    )
-                    return result
-                if _snapshot_sha256(current) != expected_registry_sha256:
-                    raise ExperimentGovernanceConflict(
-                        "experiment family head changed concurrently"
-                    )
-                exact_mutation = _require_exact_mutation(
-                    current,
+                return self._persist_in_transaction(
+                    connection,
                     proposed,
                     expected_action=expected_action,
+                    expected_registry_sha256=expected_registry_sha256,
+                    actor_id=actor_id,
+                    idempotency_key=idempotency_key,
+                    occurred_at=occurred_at,
                     certification=certification,
                 )
-                (
-                    action,
-                    resource_sha256,
-                    exact_actor,
-                    exact_command_time,
-                ) = _persist_delta(connection, current, proposed)
-                if (
-                    action,
-                    resource_sha256,
-                    exact_actor,
-                    exact_command_time,
-                ) != exact_mutation:
-                    raise ExperimentGovernanceConflict(
-                        "experiment mutation changed while being persisted"
-                    )
-                if actor != exact_actor or command_time != exact_command_time:
-                    raise ExperimentGovernanceConflict(
-                        "experiment audit actor/time must match the exact appended fact"
-                    )
-                reconstructed = _load_snapshot(connection, family_id)
-                if reconstructed != proposed:
-                    raise ExperimentGovernanceConflict(
-                        "persisted experiment mutation changed its domain evidence"
-                    )
-                _record_audit(
-                    connection,
-                    action=action,
-                    family_id=family_id,
-                    actor_id=actor,
-                    idempotency_key=key,
-                    request_sha256=request_sha256,
-                    expected_registry_sha256=expected_registry_sha256,
-                    result_registry_sha256=_snapshot_sha256(reconstructed),
-                    resource_sha256=resource_sha256,
-                    occurred_at=command_time,
-                )
-                _verify_audits(
-                    connection,
-                    _load_snapshot_history(connection, family_id),
-                )
-                return reconstructed
         except ImmutableFactConflict as error:
             raise ExperimentGovernanceConflict(str(error)) from error
 

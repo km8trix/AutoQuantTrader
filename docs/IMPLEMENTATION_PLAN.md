@@ -235,6 +235,19 @@ recorded actor-identifier continuity, and is exposed only as allowlisted
 read-only proof. It is not
 a P&L report, promotion decision, general segment runner, or trading authority.
 
+ADR 0117 implements the bounded Phase 3F durable fixture-segment worker. One
+exact queued governed attempt can retain its content-addressed feature
+transcript, acquire a rotating bounded physical-worker claim, reproduce the
+attempt configuration's target parity, and atomically publish the target
+transcript with the existing Phase 3D completion receipt. A deterministic
+logical governed actor preserves receipt continuity while expired physical
+claims can be replaced without allowing stale publication. Exact retries are
+idempotent; changed attempt, actor, configuration, segment, certification, or
+terminal evidence conflicts. Final-test input remains inaccessible before the
+audited reveal. This repository-fixture path adds no economic report,
+captured-tape eligibility, provider I/O, promotion, deployment, source,
+admission, or trading authority.
+
 ADR 0038 begins Phase 4A with an offline, non-authorizing Alpaca paper
 capability contract. The reviewed contract freezes the paper endpoint and
 authentication-header names, provider breadth, a narrow local request shape,
@@ -898,11 +911,19 @@ Passing one layer cannot substitute for another.
   authenticated-provenance blocker and no repository-local or external-shaped
   input can reach positive eligibility. Every source, admission, canonical-data,
   promotion, deployment, and trading effect remains `none`.
-- Phase 3A and 3B remain in-memory full-tape evidence slices exercised on
-  repository-owned synthetic fixtures. Phase 3C/3D do not connect to the Phase
-  2 job or worker, and Phase 3E has no qualified external captured-tape input.
-  General durable segment execution and process isolation,
-  separately queryable feature/target transcripts, arbitrary or fitted
+- **Phase 3F durable fixture-segment execution — bounded worker implemented:**
+  ADR 0117 connects one exact Phase 3A certification to its queued Phase 3C/D
+  attempt through immutable transcript artifacts, append-only job history,
+  renewable/expired-claim-safe physical worker tokens, and one stable logical
+  governed actor. Target artifact, governed completion receipt, terminal job
+  event, and head advance commit atomically; crashes publish none of them.
+  Enqueue and terminal retries are exact and idempotent, changed input
+  conflicts, corruption fails closed, and final-test evidence is admitted only
+  after its audited reveal.
+- Phase 3A and 3B evidence remains limited to repository-owned synthetic
+  fixtures, Phase 3F deliberately does not reuse the Phase 2 economic backtest
+  worker, and Phase 3E has no qualified external captured-tape input. General
+  segment execution and process/resource isolation, arbitrary or fitted
   features and strategies, mutation APIs, performance/criteria evaluation,
   captured live tapes, reconnect/freshness behavior, and shadow mode remain
   pending. Phase 3 is not complete and its exit gate has not passed.
@@ -936,8 +957,10 @@ Passing one layer cannot substitute for another.
   evidence. The bounded reference completion path now requires exact
   configuration-derived target-parity evidence and running actor-identifier
   continuity.
-  General worker scheduling, worker-process concurrency, and resource quotas
-  remain pending.
+  The bounded repository-fixture worker now schedules one exact attempt with
+  rotating physical claims, immutable feature/target transcript artifacts, and
+  atomic governed completion. General scheduling, arbitrary execution,
+  subprocess isolation, and resource quotas remain pending.
 - Chronological and nested walk-forward evaluation, purging/embargo for
   overlapping labels, benchmark/cost stress, parameter stability, uncertainty,
   and declared multiple-testing treatment.
@@ -962,6 +985,8 @@ commitment. Phase 3D binds that target parity to an exact governed
 configuration and running attempt. Phase 3E now freezes the fail-closed
 captured-tape evidence prerequisite, but v1 cannot qualify any bundle until a
 separately reviewed external provenance verifier exists.
+Phase 3F durably executes only the repository fixture's configuration-bound
+target-parity segment and publishes no economic result or promotion decision.
 These slices do not satisfy the
 captured-tape, reconnect, economic segment-execution/isolation, end-to-end
 traceability, or reporting requirements below.

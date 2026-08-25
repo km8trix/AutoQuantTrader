@@ -453,7 +453,7 @@ def test_phase6_trusted_time_migration_is_additive_and_reversible(
         for table_name in prior_tables
     }
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0036_phase6_time_anchors")
 
     upgraded = sa.inspect(engine)
     assert set(upgraded.get_table_names()) == prior_tables | PHASE6_TABLE_NAMES
@@ -473,7 +473,7 @@ def test_phase6_trusted_time_migration_is_additive_and_reversible(
         )
     with engine.connect() as connection:
         assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == (
-            EXPECTED_SCHEMA_REVISION
+            "0036_phase6_time_anchors"
         )
 
     engine.dispose()
@@ -483,8 +483,8 @@ def test_phase6_trusted_time_migration_is_additive_and_reversible(
     downgraded.dispose()
 
 
-def test_phase6_anchor_revision_is_the_operational_alembic_head() -> None:
-    assert EXPECTED_SCHEMA_REVISION == "0036_phase6_time_anchors"
+def test_phase3_fixture_worker_revision_is_the_operational_alembic_head() -> None:
+    assert EXPECTED_SCHEMA_REVISION == "0037_phase3_fixture_worker"
 
 
 def test_phase6_anchor_upgrade_preserves_nonempty_0035_history_without_backfill(

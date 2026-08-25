@@ -920,6 +920,14 @@ def _target_policy_from_configuration(
         ) from error
 
 
+def governed_target_policy(
+    configuration: StrategyConfigurationRecord,
+) -> RollingCloseMeanTargetPolicy:
+    """Return the closed Phase 3D policy encoded by one exact configuration."""
+
+    return _target_policy_from_configuration(configuration)
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class NonExecutableTerminalEvidence:
     """Typed unsuccessful evidence that explicitly makes no execution claim."""
@@ -2270,4 +2278,5 @@ __all__ = [
     "NonExecutableTerminalEvidence",
     "StrategyConfigurationValidationReceipt",
     "TestSegmentCommitment",
+    "governed_target_policy",
 ]
