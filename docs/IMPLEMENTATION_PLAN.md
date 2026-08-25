@@ -2,8 +2,13 @@
 
 ## Current implementation status
 
-The substantial local Phase 0 foundation/walking thread and bounded Phase 1A/1B
-point-in-time ingestion and admission slices are implemented as a local,
+Current gate view: the substantial Phase 0 foundation/walking thread is
+implemented locally, but the plan does not mark its complete exit gate passed;
+Phase 1's local ingestion and admission mechanics, including the pure fail-closed
+production-evidence prerequisite gate, exist while licensed vendor admission
+remains open; Phase 2 is the only phase whose exit gate is explicitly passed
+locally; Phases 3-6 have bounded local implementations but remain open; and
+Phases 7-8 have not started operationally. The runnable product remains a local,
 simulation-only browser application. Production Auth0/OIDC server sessions and
 an enabled server SSE stream remain Phase 6 hardening work; their contracts and
 browser client seams exist, but this status does not claim those production
@@ -401,14 +406,56 @@ an exact match remains explicitly unqualified with `converged=false`. The slice
 adds no persistence, runtime, request, permit, transport, readiness,
 reconciliation, or trading authority.
 
-Massive remains the deferred intraday candidate. No credential,
-authorization, synthetic fixture, or capture has been
-treated as admission or evidence that a vendor's real history, entitlement,
-identifiers, calendars, corrections, or corporate actions have passed
-qualification. The trader remains `not_ready`; no paper or live broker/data
-adapter is enabled. The remaining Phase 1 vendor admission, remaining Phase 3
-work, the rest of Phase 4, and Phases 5-8 below retain their exit gates,
-including the Phase 4 paper-broker gate.
+Massive remains the deferred intraday data candidate, and Phase 1 vendor
+admission remains open. The pure production-evidence prerequisite gate can reach
+only `ready_for_admission_evaluation`; it creates neither a production
+`HistoricalBarSource` nor admission evidence. No licensed production feed,
+admitted production source, or paper/live trading authority exists; the trader
+remains `not_ready`.
+
+Phases 3A-3D provide bounded local feature, target, governance, and
+configuration-bound evaluation evidence. Phase 3E implements a separate pure
+fail-closed captured-tape validity gate, but v1 has no external provenance trust
+root or verifier, so no bundle can become eligible. Captured live-tape,
+reconnect, shadow, economic segment-execution/isolation, end-to-end traceability,
+and reporting gates remain open.
+
+Phases 4A-4AI are implemented as bounded local historical Alpaca contracts,
+persistence, authenticated read runtimes, comparisons, and restart-safe
+supervision. They remain non-authorizing: authoritative broker-fact application,
+reconciliation, coordinator dispatch, paper startup, and the Phase 4 fault gates
+are incomplete. E\*TRADE is the selected live target. Phase 4AJ adds only its
+typed environment, scope, account-identifier, and deterministic non-I/O Accounts
+List request-description foundation; Phase 4AK adds only bounded in-memory
+raw-first caller-declared response evidence and a strict historical decoder.
+Those bindings prove internal consistency only: provider origin is
+unauthenticated, fixture relabeling cannot be detected, and no authenticated
+provider-evidence consumer exists. OAuth, provider transport and calls,
+authenticated capture/admission and account binding, Balance, Portfolio, Orders,
+and Transactions reads, Preview, Place, Cancel, recovery, qualification, and
+every authority remain pending.
+
+Phase 5A-5I provide local operational-control, advanced-risk,
+supervised-strategy, critical-alert, authenticated-operations, dashboard,
+drill-evidence, and historical enrollment-attestation slices;
+OpenTelemetry/Sentry composition remains partial. Phase 5 stays open because
+authoritative deployment producers, account assignment, broker control,
+external alert routes, telemetry ingestion, runtime sandboxing, and timed
+deployed drills remain absent.
+
+Phase 6A and 6B provide local trusted-time persistence and browser bundle
+admission. Phase 6C has one qualified point-in-time Cloudflare/System76 window.
+Phase 6D has confirmed the separately approved sequence-1 external-head
+enrollment and implements the post-enrollment start controller/orchestrator in
+code, but no start has been operationally admitted. ADR 0111/0112 now
+reauthenticate and cross-bind the exact decision-artifact receipt and historical
+start chain into the dormant operation-bound clean-stop supervisor bridge, but
+its host/core private entry points still have zero callers. Current-topology and
+stop-authority admission, durability, outcomes, and all effects remain absent;
+`trusted-time-stop` remains hard closed. Phase 6E is only a dormant watchdog-
+state reducer. The Phase 6 paper-MVP gate remains unmet, and the Phase 7
+supervised paper soak and Phase 8 human-approved minimum-size live canary remain
+entirely ahead. No paper or live order authority is enabled.
 
 ## Delivery strategy
 
