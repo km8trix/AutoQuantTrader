@@ -42,10 +42,12 @@ provider response authenticity, session currentness, or operational authority.
    | Revoke access token | `GET` | `https://api.etrade.com/oauth/revoke_access_token` |
 
    Request-token signing includes only the exact OOB callback metadata
-   `oauth_callback=oob`. Access-token signing requires a verifier bound to the
-   active authorization challenge. Renewal and revocation require the active
-   access-token reference. Caller-supplied endpoint URLs, methods, callback
-   values, query/body parameters, or OAuth parameters are unsupported.
+   `oauth_callback=oob`. Access-token signing requires the exact verifier object
+   accepted by the active authorization confirmation, its one-use ephemeral
+   exchange capability, and the exact confirmed-state identity. Renewal and
+   revocation require the active access-token reference. Caller-supplied
+   endpoint URLs, methods, callback values, query/body parameters, or OAuth
+   parameters are unsupported.
 3. Implement RFC 5849 percent encoding over UTF-8, encoded-name/encoded-value
    sorting, normalized parameter construction, signature-base-string
    construction, and HMAC-SHA1/Base64 signing. Duplicate decoded parameter
@@ -58,12 +60,18 @@ provider response authenticity, session currentness, or operational authority.
    trust-evidence identity; this type does not authenticate that upstream
    evidence. No ambient time or randomness fallback exists. The bounded pure
    replay guard consumes environment/consumer-reference/timestamp/nonce
-   fingerprints and OOB authorization-challenge consumption fingerprints. The
-   current returned guard must be threaded through every signing and verifier-
-   consumption transition; reuse against that guard fails, including nonce
-   reuse across operations and immutable-state verifier branching. Because this
-   slice adds no persistence, the guard is explicitly not durable replay
-   protection and cannot satisfy a deployed session gate.
+   fingerprints and OOB authorization-challenge consumption fingerprints. It
+   also retains the latest generation and nondecreasing signing-time high-water
+   for each typed environment/endpoint/consumer-reference scope, across all
+   four operations and later reauthorization generations. The current returned
+   guard must be threaded through every signing and verifier-consumption
+   transition; nonce reuse, signing-time rollback, generation rollback, and
+   immutable-state verifier branching against that guard fail closed. Because
+   this slice adds no persistence or durable compare-and-swap coordination, the
+   guard is explicitly not durable replay protection. A caller that reuses a
+   stale previously returned guard can still fork an in-memory history; this
+   contract cannot discover or invalidate that stale branch and cannot satisfy
+   a deployed session gate.
 5. Represent secret locations only through typed nonsecret reference
    revisions. Sandbox references must use the sandbox consumer/token scopes;
    production references must use the production scopes. Request-token and
@@ -72,18 +80,24 @@ provider response authenticity, session currentness, or operational authority.
    reuse, or a credential wrapper bound to another reference fail closed.
 6. Keep values that must transiently participate in signing inside exact
    ephemeral wrappers: consumer key, consumer secret, request/access token,
-   token secret, and OOB verifier. The signature and Authorization header exist
-   only in an ephemeral signing result. These wrappers redact `repr` and `str`,
-   reject serialization, expose no evidence digest, and cannot be substituted
-   by raw strings. The result exposes only constant-time test predicates for
-   frozen vectors; it exposes no header/signature property or transport method.
+   token secret, and OOB verifier. Authorization confirmation returns a sealed,
+   non-serializable, one-use in-process capability that retains the exact
+   verifier object only in memory; access signing rejects a different object
+   even when it carries the same challenge or value. The signature and
+   Authorization header exist only in a sealed ephemeral signing result. These
+   wrappers redact `repr` and `str`, reject serialization and ordinary post-
+   construction mutation, revalidate at signing/consumption boundaries, expose
+   no secret-derived evidence digest, and cannot be substituted by raw strings.
+   The result exposes only constant-time test predicates for frozen vectors; it
+   exposes no header/signature property or transport method.
 7. Serialize and digest only sanitized intent material: provider/environment,
    exact endpoint/profile/operation, nonsecret reference versions and their
-   sanitized identities, trusted timestamp and trust-evidence identity, nonce
-   SHA-256, OOB callback-policy identity, and optional authorization-challenge
-   identity. Session state also retains one monotonic trusted-time high-water
-   and the sanitized identity of every driving signing intent or trusted-time
-   observation. Consumer/token values, consumer/token secrets, verifier values,
+   sanitized identities, session generation, trusted timestamp and trust-
+   evidence identity, nonce SHA-256, OOB callback-policy identity, and optional
+   authorization-challenge and confirmed-state identities. Session state also
+   retains one monotonic trusted-time high-water and the sanitized identity of
+   every driving signing intent or trusted-time observation. Consumer/token
+   values, consumer/token secrets, verifier values,
    signatures, Authorization headers, signature base strings, signing keys,
    and token-bearing authorization URLs never enter any `repr`, log call,
    serialized evidence, or semantic digest. Changing ephemeral secret values
@@ -102,9 +116,13 @@ provider response authenticity, session currentness, or operational authority.
    2. that state opens one OOB authorization challenge without constructing a
       token-bearing URL;
    3. one challenge-bound verifier advances authorization once relative to the
-      required current replay guard, without retaining or hashing the verifier;
-   4. the exact access-token intent replaces the request-token reference with
-      one newer access-token reference and caller-injected issuance/daily-expiry
+      required current replay guard and issues one ephemeral exact-verifier-
+      identity access-exchange capability, without serializing or hashing the
+      verifier;
+   4. access signing consumes that same capability exactly once, requires the
+      same verifier object and confirmed-state identity, and the exact access-
+      token intent then replaces the request-token reference with one newer
+      access-token reference plus caller-injected issuance/daily-expiry
       horizons;
    5. an active session can record caller-supervised activity before both
       horizons, while the documented renewal path can reactivate an active or
@@ -118,12 +136,13 @@ provider response authenticity, session currentness, or operational authority.
       reauthorization state before a new generation can request a strictly
       newer token-reference revision.
 
-   The trusted-time high-water survives authorization and reauthorization
-   generations. Time regression, verifier replay relative to the threaded
-   guard, token-reference replay, skipped phases, renewal/revocation after a
-   horizon, and every other transition fail closed. Observations, activity,
-   renewal, and revocation bind their sanitized trusted-time or signing-intent
-   identities into predecessor-linked session evidence.
+   The session trusted-time high-water and signing-guard time high-water survive
+   authorization and reauthorization generations. Time regression, verifier or
+   access-exchange-capability reuse, token-reference replay, skipped phases,
+   renewal/revocation after a horizon, and every other transition fail closed
+   when the latest state, capability, and replay guard are threaded.
+   Observations, activity, renewal, and revocation bind their sanitized trusted-
+   time or signing-intent identities into predecessor-linked session evidence.
 10. Every session and intent authority flag remains false. Transition names
     record caller-supervised protocol state only; they do not authenticate a
     provider response, resolve credentials, create a browser handoff, validate
@@ -141,8 +160,9 @@ AutoQuantTrader can now reproduce and test the exact E\*TRADE OAuth control
 signature algorithm and reduce a secret-free supervised session history. It
 can deterministically reject canonicalization drift, duplicate parameters,
 wrong endpoints, cross-environment material, nonce reuse, stale token-reference
-versions, verifier reuse within the active chain, time regression, renewal
-after daily expiry or revocation, and skipped transitions.
+versions, verifier substitution or capability reuse within the active chain,
+signing/session-time regression, renewal after daily expiry or revocation, and
+skipped transitions.
 
 The result is still not an executable OAuth client. There is no secret-store
 resolver, durable nonce store, authenticated provider response decoder,
@@ -152,6 +172,13 @@ request, or current-session proof. A later reviewed runtime must keep secret
 resolution ephemeral, bind durable replay protection and provider response
 evidence, preserve the exact endpoint/environment rules, and obtain separate
 operator authorization before any sandbox or production call.
+
+The one-use capability is only an in-process object. It closes substitution,
+repeat use, and concurrent consumption for that exact object, but it cannot
+coordinate across processes or restarts. Replaying an older immutable state and
+older replay guard can mint a separate stale-branch capability; preventing that
+requires a later durable, atomic, current-head coordinator. No capability or
+digest in this slice claims that durable currentness.
 
 No database migration is necessary for this pure slice. Any durable session,
 nonce, token-reference, or authenticated response evidence requires a separate

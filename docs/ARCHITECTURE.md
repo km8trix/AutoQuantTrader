@@ -1559,7 +1559,10 @@ implements Phase 4AL as a separate pure OAuth 1.0a/HMAC-SHA1 signing and
 supervised-session contract. Signing intents admit only exact typed `GET`
 operations for ADR 0113's shared request-token, access-token, renewal, and
 revocation URLs. Request-token signing fixes `oauth_callback=oob`; access-token
-signing requires a verifier bound to the exact OOB authorization challenge.
+signing requires the exact verifier object accepted by authorization
+confirmation, a sealed one-use in-process access-exchange capability, and the
+exact confirmed-state identity. The capability retains the verifier only
+ephemerally and never hashes or serializes it.
 RFC 5849 UTF-8 percent encoding, encoded-name/value sorting, parameter
 normalization, signature-base construction, HMAC-SHA1, and Base64 are
 deterministic. Duplicate parameters, caller query/body parameters, raw-string
@@ -1569,10 +1572,11 @@ references, and timestamp/nonce replay fail closed.
 Sandbox and production consumer/token reference revisions remain typed and
 disjoint. Actual consumer keys, consumer secrets, request/access tokens, token
 secrets, verifiers, signatures, and Authorization headers live only in
-non-serializable ephemeral wrappers with redacted representations. The
-sanitized intent identity contains only endpoint/profile/operation, reference
-revision, trusted-time evidence, timestamp, nonce digest, callback-policy, and
-authorization-challenge metadata. It never hashes or serializes a secret,
+sealed non-serializable ephemeral wrappers with redacted representations and
+sensitive-boundary revalidation. The sanitized intent identity contains only
+endpoint/profile/operation/generation, reference revision, trusted-time
+evidence, timestamp, nonce digest, callback-policy, authorization-challenge,
+and confirmed-state metadata. It never hashes or serializes a secret,
 token, verifier, signature, authorization header, signing base/key, or
 token-bearing authorization URL.
 
@@ -1581,17 +1585,27 @@ challenge-bound verifier consumption, access-token availability, activity,
 two-hour inactivity, caller-injected daily expiry, renewal, revocation, and
 reasoned reauthorization separate fail-closed transitions. A trusted-time
 high-water survives every phase and reauthorization generation, so time cannot
-regress. Inactivity blocks ordinary activity but can be recovered through the
-exact renewal path before daily expiry; expired or revoked sessions cannot
-renew, and token-reference versions cannot replay within a state chain.
-Verifier consumption must thread the same bounded in-memory replay guard used
-for signing; that guard is explicitly not durable. Every observation and token-
-control transition retains its sanitized trusted-time or signing-intent
-identity. Every state reports provider-origin authentication and all runtime
-authorities false. Phase 4AL resolves no credential, constructs no
+regress. The signing replay guard separately retains a nondecreasing timestamp
+and latest generation per typed environment/endpoint/consumer-reference scope
+across operations and reauthorization. Inactivity blocks ordinary activity but
+can be recovered through the exact renewal path before daily expiry; expired or
+revoked sessions cannot renew, and token-reference versions cannot replay
+within a state chain. Verifier consumption and signing must thread the current
+bounded in-memory replay guard; access signing additionally consumes the exact
+authorization capability once. Every observation and token-control transition
+retains its sanitized trusted-time or signing-intent identity. Every state
+reports provider-origin authentication and all runtime authorities false.
+Phase 4AL resolves no credential, constructs no
 authorization URL,
 opens no browser or callback, performs no transport, authenticates no provider
 response, persists nothing, binds no account, and makes no broker call.
+
+The replay guard and access-exchange capability provide only current-object,
+in-process exclusion. Reusing an older immutable state/guard can fork history
+and mint a different capability, and neither object coordinates across a
+restart or process boundary. Phase 4AL therefore makes no durable-currentness,
+cross-process exact-once, or compare-and-swap claim; a later runtime must bind
+these transitions to one durable atomic current head.
 
 A later reviewed runtime must supply ephemeral secret resolution, durable
 replay protection, authenticated raw-first token responses, interactive OOB

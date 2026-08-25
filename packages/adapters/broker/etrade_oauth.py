@@ -2,10 +2,11 @@
 
 The module canonicalizes and signs the four ADR-0113-pinned OAuth control
 requests from caller-injected timestamps and nonces.  Secret values exist only
-inside deliberately non-serializable ephemeral wrappers.  Returned evidence
-contains reference versions and sanitized protocol identities, never keys,
-tokens, secrets, verifiers, signatures, authorization headers, or
-token-bearing authorization URLs.
+inside sealed, deliberately non-serializable ephemeral wrappers. Authorization
+confirmation issues one in-process exact-verifier-identity capability that
+access signing consumes once. Returned evidence contains reference versions and
+sanitized protocol identities, never keys, tokens, secrets, verifiers,
+signatures, authorization headers, or token-bearing authorization URLs.
 
 The session reducer is caller-supervised and in-memory.  It models protocol
 transitions but authenticates no provider response and grants no credential,
@@ -23,8 +24,9 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from threading import Lock
 from types import MappingProxyType
-from typing import Never, cast
+from typing import Any, Never, cast
 from urllib.parse import quote
 
 from packages.adapters.broker.etrade import (
@@ -148,6 +150,20 @@ def _require_exact_bool_false(value: object, field_name: str) -> None:
         raise EtradeOAuthContractError(f"E*TRADE OAuth authority {field_name} must remain false")
 
 
+class _EtradeOAuthSealed:
+    """Reject ordinary post-construction mutation of ephemeral OAuth objects."""
+
+    __slots__ = ()
+
+    def __setattr__(self, name: str, value: object) -> Never:
+        del name, value
+        raise AttributeError("ephemeral E*TRADE OAuth objects are sealed")
+
+    def __delattr__(self, name: str) -> Never:
+        del name
+        raise AttributeError("ephemeral E*TRADE OAuth objects are sealed")
+
+
 def etrade_oauth_percent_encode(value: str) -> str:
     """Apply RFC 5849 UTF-8 percent encoding to caller-identified nonsecret text."""
 
@@ -223,10 +239,11 @@ def normalize_etrade_oauth_nonsecret_parameters(
     return _normalize_parameter_pairs(tuple(pairs))
 
 
-class _EtradeOAuthSensitiveText:
+class _EtradeOAuthSensitiveText(_EtradeOAuthSealed):
     """Opaque ephemeral text that refuses useful repr, str, and serialization."""
 
     __slots__ = ("__value",)
+    __value: str
 
     def __init__(self, value: str) -> None:
         if type(value) is not str:
@@ -245,15 +262,33 @@ class _EtradeOAuthSensitiveText:
             raise EtradeOAuthContractError(
                 "sensitive OAuth material is empty, invalid, or oversized"
             )
-        self.__value = value
+        object.__setattr__(self, "_EtradeOAuthSensitiveText__value", value)
+
+    def _validate(self) -> None:
+        value = self.__value
+        if type(value) is not str:
+            raise EtradeOAuthContractError("sealed sensitive OAuth material was corrupted")
+        try:
+            encoded = value.encode("utf-8", errors="strict")
+        except UnicodeEncodeError as exc:
+            raise EtradeOAuthContractError("sealed sensitive OAuth material was corrupted") from exc
+        if (
+            not encoded
+            or len(encoded) > _SENSITIVE_TEXT_MAX_UTF8_BYTES
+            or any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+        ):
+            raise EtradeOAuthContractError("sealed sensitive OAuth material was corrupted")
 
     def _ephemeral_value(self) -> str:
+        self._validate()
         return self.__value
 
     def __repr__(self) -> str:
+        self._validate()
         return f"{type(self).__name__}(<redacted>)"
 
     def __str__(self) -> str:
+        self._validate()
         return "<redacted>"
 
     def __reduce__(self) -> Never:
@@ -403,10 +438,13 @@ class EtradeOAuthTokenSecretReference:
         )
 
 
-class EtradeOAuthConsumerCredentials:
+class EtradeOAuthConsumerCredentials(_EtradeOAuthSealed):
     """Ephemeral reference-bound consumer material with a fully redacted repr."""
 
     __slots__ = ("__consumer_key", "__consumer_secret", "reference")
+    __consumer_key: EtradeOAuthConsumerKey
+    __consumer_secret: EtradeOAuthConsumerSecret
+    reference: EtradeOAuthConsumerSecretReference
 
     def __init__(
         self,
@@ -419,17 +457,44 @@ class EtradeOAuthConsumerCredentials:
         reference.__post_init__()
         _require_exact_type(consumer_key, EtradeOAuthConsumerKey, "consumer key")
         _require_exact_type(consumer_secret, EtradeOAuthConsumerSecret, "consumer secret")
-        self.reference = reference
-        self.__consumer_key = consumer_key
-        self.__consumer_secret = consumer_secret
+        object.__setattr__(self, "reference", reference)
+        object.__setattr__(
+            self,
+            "_EtradeOAuthConsumerCredentials__consumer_key",
+            consumer_key,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthConsumerCredentials__consumer_secret",
+            consumer_secret,
+        )
+        self._validate()
+
+    def _validate(self) -> None:
+        _require_exact_type(
+            self.reference,
+            EtradeOAuthConsumerSecretReference,
+            "consumer reference",
+        )
+        self.reference.__post_init__()
+        _require_exact_type(self.__consumer_key, EtradeOAuthConsumerKey, "consumer key")
+        _require_exact_type(
+            self.__consumer_secret,
+            EtradeOAuthConsumerSecret,
+            "consumer secret",
+        )
+        self.__consumer_key._validate()
+        self.__consumer_secret._validate()
 
     def _ephemeral_values(self) -> tuple[str, str]:
+        self._validate()
         return (
             self.__consumer_key._ephemeral_value(),
             self.__consumer_secret._ephemeral_value(),
         )
 
     def __repr__(self) -> str:
+        self._validate()
         return (
             "EtradeOAuthConsumerCredentials("
             f"reference={self.reference!r}, consumer_key=<redacted>, consumer_secret=<redacted>)"
@@ -439,10 +504,13 @@ class EtradeOAuthConsumerCredentials:
         raise TypeError("ephemeral OAuth credentials are intentionally non-serializable")
 
 
-class EtradeOAuthTokenCredentials:
+class EtradeOAuthTokenCredentials(_EtradeOAuthSealed):
     """Ephemeral reference-bound token material with a fully redacted repr."""
 
     __slots__ = ("__token", "__token_secret", "reference")
+    __token: EtradeOAuthToken
+    __token_secret: EtradeOAuthTokenSecret
+    reference: EtradeOAuthTokenSecretReference
 
     def __init__(
         self,
@@ -455,14 +523,33 @@ class EtradeOAuthTokenCredentials:
         reference.__post_init__()
         _require_exact_type(token, EtradeOAuthToken, "OAuth token")
         _require_exact_type(token_secret, EtradeOAuthTokenSecret, "OAuth token secret")
-        self.reference = reference
-        self.__token = token
-        self.__token_secret = token_secret
+        object.__setattr__(self, "reference", reference)
+        object.__setattr__(self, "_EtradeOAuthTokenCredentials__token", token)
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTokenCredentials__token_secret",
+            token_secret,
+        )
+        self._validate()
+
+    def _validate(self) -> None:
+        _require_exact_type(
+            self.reference,
+            EtradeOAuthTokenSecretReference,
+            "token reference",
+        )
+        self.reference.__post_init__()
+        _require_exact_type(self.__token, EtradeOAuthToken, "OAuth token")
+        _require_exact_type(self.__token_secret, EtradeOAuthTokenSecret, "OAuth token secret")
+        self.__token._validate()
+        self.__token_secret._validate()
 
     def _ephemeral_values(self) -> tuple[str, str]:
+        self._validate()
         return self.__token._ephemeral_value(), self.__token_secret._ephemeral_value()
 
     def __repr__(self) -> str:
+        self._validate()
         return (
             "EtradeOAuthTokenCredentials("
             f"reference={self.reference!r}, token=<redacted>, token_secret=<redacted>)"
@@ -472,10 +559,12 @@ class EtradeOAuthTokenCredentials:
         raise TypeError("ephemeral OAuth credentials are intentionally non-serializable")
 
 
-class EtradeOAuthBoundVerifier:
+class EtradeOAuthBoundVerifier(_EtradeOAuthSealed):
     """One authorization-challenge-bound ephemeral OOB verifier."""
 
     __slots__ = ("__verifier", "authorization_challenge_sha256")
+    __verifier: EtradeOAuthVerifierValue
+    authorization_challenge_sha256: str
 
     def __init__(
         self,
@@ -483,17 +572,32 @@ class EtradeOAuthBoundVerifier:
         authorization_challenge_sha256: str,
         verifier: EtradeOAuthVerifierValue,
     ) -> None:
-        self.authorization_challenge_sha256 = _require_sha256(
-            authorization_challenge_sha256,
-            "authorization challenge identity",
+        object.__setattr__(
+            self,
+            "authorization_challenge_sha256",
+            _require_sha256(
+                authorization_challenge_sha256,
+                "authorization challenge identity",
+            ),
         )
         _require_exact_type(verifier, EtradeOAuthVerifierValue, "OAuth verifier")
-        self.__verifier = verifier
+        object.__setattr__(self, "_EtradeOAuthBoundVerifier__verifier", verifier)
+        self._validate()
+
+    def _validate(self) -> None:
+        _require_sha256(
+            self.authorization_challenge_sha256,
+            "authorization challenge identity",
+        )
+        _require_exact_type(self.__verifier, EtradeOAuthVerifierValue, "OAuth verifier")
+        self.__verifier._validate()
 
     def _ephemeral_value(self) -> str:
+        self._validate()
         return self.__verifier._ephemeral_value()
 
     def __repr__(self) -> str:
+        self._validate()
         return (
             "EtradeOAuthBoundVerifier("
             f"authorization_challenge_sha256={self.authorization_challenge_sha256!r}, "
@@ -533,11 +637,13 @@ class EtradeOAuthSigningIntent:
     environment: EtradeEnvironment
     endpoint_profile: EtradeEndpointIsolationProfile
     operation: EtradeOAuthOperation
+    generation: int
     consumer_reference: EtradeOAuthConsumerSecretReference
     token_reference: EtradeOAuthTokenSecretReference | None
     timestamp: EtradeOAuthTrustedTimestamp
     nonce: EtradeOAuthNonce
     authorization_challenge_sha256: str | None = None
+    authorization_state_sha256: str | None = None
     callback_policy: EtradeOAuthCallbackPolicy = ETRADE_OUT_OF_BAND_CALLBACK_POLICY
     http_method: str = ETRADE_OAUTH_HTTP_METHOD
     endpoint_url: str = ""
@@ -558,6 +664,8 @@ class EtradeOAuthSigningIntent:
         if self.endpoint_profile.environment is not self.environment:
             raise EtradeOAuthContractError("OAuth endpoint profile conflicts with the environment")
         _require_exact_type(self.operation, EtradeOAuthOperation, "OAuth operation")
+        if type(self.generation) is not int or self.generation < 1:
+            raise EtradeOAuthContractError("OAuth signing generation must be positive")
         _require_exact_type(
             self.consumer_reference,
             EtradeOAuthConsumerSecretReference,
@@ -622,10 +730,15 @@ class EtradeOAuthSigningIntent:
                 self.authorization_challenge_sha256,
                 "authorization challenge identity",
             )
-        elif self.authorization_challenge_sha256 is not None:
-            raise EtradeOAuthContractError(
-                "only access-token signing can bind an authorization challenge"
+            _require_sha256(
+                self.authorization_state_sha256,
+                "confirmed authorization state identity",
             )
+        elif (
+            self.authorization_challenge_sha256 is not None
+            or self.authorization_state_sha256 is not None
+        ):
+            raise EtradeOAuthContractError("only access-token signing can bind authorization state")
 
     @property
     def semantic_sha256(self) -> str:
@@ -637,6 +750,7 @@ class EtradeOAuthSigningIntent:
                 self.environment,
                 self.endpoint_profile.semantic_sha256,
                 self.operation,
+                self.generation,
                 self.http_method,
                 self.endpoint_url,
                 self.consumer_reference.semantic_sha256,
@@ -645,6 +759,7 @@ class EtradeOAuthSigningIntent:
                 self.timestamp.trust_evidence_sha256,
                 self.nonce.sha256,
                 self.authorization_challenge_sha256,
+                self.authorization_state_sha256,
                 self.callback_policy.semantic_sha256,
             )
         )
@@ -655,12 +770,14 @@ class EtradeOAuthSigningIntent:
         return json.dumps(
             {
                 "authorization_challenge_sha256": self.authorization_challenge_sha256,
+                "authorization_state_sha256": self.authorization_state_sha256,
                 "callback_mode": self.callback_policy.mode.value,
                 "consumer_reference_sha256": self.consumer_reference.semantic_sha256,
                 "consumer_reference_version": self.consumer_reference.version,
                 "contract_version": ETRADE_OAUTH_SESSION_CONTRACT_VERSION,
                 "endpoint_url": self.endpoint_url,
                 "environment": self.environment.value,
+                "generation": self.generation,
                 "http_method": self.http_method,
                 "nonce_sha256": self.nonce.sha256,
                 "operation": self.operation.value,
@@ -691,11 +808,13 @@ def create_etrade_oauth_signing_intent(
     environment: EtradeEnvironment,
     endpoint_profile: EtradeEndpointIsolationProfile,
     operation: EtradeOAuthOperation,
+    generation: int,
     consumer_reference: EtradeOAuthConsumerSecretReference,
     token_reference: EtradeOAuthTokenSecretReference | None,
     timestamp: EtradeOAuthTrustedTimestamp,
     nonce: EtradeOAuthNonce,
     authorization_challenge_sha256: str | None = None,
+    authorization_state_sha256: str | None = None,
 ) -> EtradeOAuthSigningIntent:
     """Build one exact OAuth intent without resolving secrets or performing I/O."""
 
@@ -705,13 +824,33 @@ def create_etrade_oauth_signing_intent(
         environment=environment,
         endpoint_profile=endpoint_profile,
         operation=operation,
+        generation=generation,
         consumer_reference=consumer_reference,
         token_reference=token_reference,
         timestamp=timestamp,
         nonce=nonce,
         authorization_challenge_sha256=authorization_challenge_sha256,
+        authorization_state_sha256=authorization_state_sha256,
         endpoint_url=_OPERATION_ENDPOINTS[operation],
     )
+
+
+@dataclass(frozen=True, slots=True)
+class EtradeOAuthSigningTimeHighWater:
+    """Latest generation and signing timestamp for one sanitized OAuth scope."""
+
+    scope_sha256: str
+    generation: int
+    unix_seconds: int
+
+    def __post_init__(self) -> None:
+        _require_sha256(self.scope_sha256, "OAuth signing-time scope identity")
+        if type(self.generation) is not int or self.generation < 1:
+            raise EtradeOAuthContractError("OAuth signing-time generation must be positive")
+        if type(self.unix_seconds) is not int or not 1 <= self.unix_seconds < 2**63:
+            raise EtradeOAuthContractError(
+                "OAuth signing-time high-water must be positive Unix seconds"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -719,6 +858,7 @@ class EtradeOAuthReplayGuard:
     """Pure bounded replay memory; it is explicitly not durable replay protection."""
 
     consumed_fingerprints: tuple[str, ...] = ()
+    signing_time_high_waters: tuple[EtradeOAuthSigningTimeHighWater, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.consumed_fingerprints) is not tuple or (
@@ -731,6 +871,44 @@ class EtradeOAuthReplayGuard:
             if fingerprint in seen:
                 raise EtradeOAuthContractError("OAuth replay guard contains duplicate fingerprints")
             seen.add(fingerprint)
+        if type(self.signing_time_high_waters) is not tuple or (
+            len(self.signing_time_high_waters) > ETRADE_OAUTH_REPLAY_GUARD_MAX_FINGERPRINTS
+        ):
+            raise EtradeOAuthContractError(
+                "OAuth signing-time high-water set is malformed or over capacity"
+            )
+        scopes: set[str] = set()
+        for high_water in self.signing_time_high_waters:
+            _require_exact_type(
+                high_water,
+                EtradeOAuthSigningTimeHighWater,
+                "OAuth signing-time high-water",
+            )
+            high_water.__post_init__()
+            if high_water.scope_sha256 in scopes:
+                raise EtradeOAuthContractError(
+                    "OAuth replay guard contains duplicate signing-time scopes"
+                )
+            scopes.add(high_water.scope_sha256)
+        if (
+            tuple(sorted(self.signing_time_high_waters, key=lambda value: value.scope_sha256))
+            != self.signing_time_high_waters
+        ):
+            raise EtradeOAuthContractError("OAuth signing-time high-water scopes must be canonical")
+
+    @property
+    def semantic_sha256(self) -> str:
+        return _semantic_sha256(
+            (
+                ETRADE_OAUTH_SESSION_CONTRACT_VERSION,
+                "oauth_replay_guard",
+                self.consumed_fingerprints,
+                tuple(
+                    (entry.scope_sha256, entry.generation, entry.unix_seconds)
+                    for entry in self.signing_time_high_waters
+                ),
+            )
+        )
 
     @property
     def durable_replay_protection_authorized(self) -> bool:
@@ -750,6 +928,19 @@ def _replay_fingerprint(intent: EtradeOAuthSigningIntent) -> str:
     )
 
 
+def _signing_scope_sha256(intent: EtradeOAuthSigningIntent) -> str:
+    return _semantic_sha256(
+        (
+            ETRADE_OAUTH_SESSION_CONTRACT_VERSION,
+            "signing_time_scope",
+            intent.provider.value,
+            intent.environment,
+            intent.endpoint_profile.semantic_sha256,
+            intent.consumer_reference.semantic_sha256,
+        )
+    )
+
+
 def _consume_replay_fingerprint(
     replay_guard: EtradeOAuthReplayGuard,
     fingerprint: str,
@@ -762,20 +953,75 @@ def _consume_replay_fingerprint(
     if len(replay_guard.consumed_fingerprints) >= ETRADE_OAUTH_REPLAY_GUARD_MAX_FINGERPRINTS:
         raise EtradeOAuthContractError("OAuth replay guard requires supervised rotation")
     return EtradeOAuthReplayGuard(
-        consumed_fingerprints=(*replay_guard.consumed_fingerprints, fingerprint)
+        consumed_fingerprints=(*replay_guard.consumed_fingerprints, fingerprint),
+        signing_time_high_waters=replay_guard.signing_time_high_waters,
     )
 
 
-class EtradeOAuthEphemeralSigningResult:
+def _consume_signing_intent(
+    replay_guard: EtradeOAuthReplayGuard,
+    intent: EtradeOAuthSigningIntent,
+) -> EtradeOAuthReplayGuard:
+    """Consume one signing intent and advance its scope/generation time high-water."""
+
+    _require_exact_type(replay_guard, EtradeOAuthReplayGuard, "OAuth replay guard")
+    replay_guard.__post_init__()
+    intent.__post_init__()
+    fingerprint = _replay_fingerprint(intent)
+    if fingerprint in replay_guard.consumed_fingerprints:
+        raise EtradeOAuthContractError("OAuth replay was rejected")
+    if len(replay_guard.consumed_fingerprints) >= ETRADE_OAUTH_REPLAY_GUARD_MAX_FINGERPRINTS:
+        raise EtradeOAuthContractError("OAuth replay guard requires supervised rotation")
+
+    scope_sha256 = _signing_scope_sha256(intent)
+    high_waters = list(replay_guard.signing_time_high_waters)
+    matching_index: int | None = None
+    for index, high_water in enumerate(high_waters):
+        if high_water.scope_sha256 != scope_sha256:
+            continue
+        matching_index = index
+        if intent.generation < high_water.generation:
+            raise EtradeOAuthContractError("OAuth signing generation cannot regress")
+        if intent.timestamp.unix_seconds < high_water.unix_seconds:
+            raise EtradeOAuthContractError("OAuth signing time cannot regress")
+        break
+    advanced = EtradeOAuthSigningTimeHighWater(
+        scope_sha256=scope_sha256,
+        generation=intent.generation,
+        unix_seconds=intent.timestamp.unix_seconds,
+    )
+    if matching_index is None:
+        high_waters.append(advanced)
+    else:
+        high_waters[matching_index] = advanced
+    high_waters.sort(key=lambda value: value.scope_sha256)
+    return EtradeOAuthReplayGuard(
+        consumed_fingerprints=(*replay_guard.consumed_fingerprints, fingerprint),
+        signing_time_high_waters=tuple(high_waters),
+    )
+
+
+class EtradeOAuthEphemeralSigningResult(_EtradeOAuthSealed):
     """Redacted signature/header result plus sanitized evidence and next replay state."""
 
     __slots__ = (
         "__authorization_header",
+        "__evidence_sha256",
+        "__intent_sha256",
+        "__replay_guard_sha256",
         "__signature",
         "intent",
         "next_replay_guard",
         "sanitized_evidence_bytes",
     )
+    __authorization_header: str
+    __evidence_sha256: str
+    __intent_sha256: str
+    __replay_guard_sha256: str
+    __signature: str
+    intent: EtradeOAuthSigningIntent
+    next_replay_guard: EtradeOAuthReplayGuard
+    sanitized_evidence_bytes: bytes
 
     def __init__(
         self,
@@ -785,27 +1031,91 @@ class EtradeOAuthEphemeralSigningResult:
         authorization_header: str,
         next_replay_guard: EtradeOAuthReplayGuard,
     ) -> None:
-        self.intent = intent
-        self.__signature = signature
-        self.__authorization_header = authorization_header
-        self.next_replay_guard = next_replay_guard
-        self.sanitized_evidence_bytes = intent.to_evidence_bytes()
+        _require_exact_type(intent, EtradeOAuthSigningIntent, "OAuth signing result intent")
+        intent.__post_init__()
+        _require_exact_type(
+            next_replay_guard,
+            EtradeOAuthReplayGuard,
+            "OAuth signing result replay guard",
+        )
+        next_replay_guard.__post_init__()
+        evidence = intent.to_evidence_bytes()
+        object.__setattr__(self, "intent", intent)
+        object.__setattr__(self, "_EtradeOAuthEphemeralSigningResult__signature", signature)
+        object.__setattr__(
+            self,
+            "_EtradeOAuthEphemeralSigningResult__authorization_header",
+            authorization_header,
+        )
+        object.__setattr__(self, "next_replay_guard", next_replay_guard)
+        object.__setattr__(self, "sanitized_evidence_bytes", evidence)
+        object.__setattr__(
+            self,
+            "_EtradeOAuthEphemeralSigningResult__intent_sha256",
+            intent.semantic_sha256,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthEphemeralSigningResult__replay_guard_sha256",
+            next_replay_guard.semantic_sha256,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthEphemeralSigningResult__evidence_sha256",
+            hashlib.sha256(evidence).hexdigest(),
+        )
+        self._validate()
+
+    def _validate(self) -> None:
+        _require_exact_type(self.intent, EtradeOAuthSigningIntent, "OAuth signing result intent")
+        self.intent.__post_init__()
+        if self.intent.semantic_sha256 != self.__intent_sha256:
+            raise EtradeOAuthContractError("sealed OAuth signing result intent was mutated")
+        _require_exact_type(
+            self.next_replay_guard,
+            EtradeOAuthReplayGuard,
+            "OAuth signing result replay guard",
+        )
+        self.next_replay_guard.__post_init__()
+        if self.next_replay_guard.semantic_sha256 != self.__replay_guard_sha256:
+            raise EtradeOAuthContractError("sealed OAuth signing replay guard was mutated")
+        if (
+            type(self.sanitized_evidence_bytes) is not bytes
+            or hashlib.sha256(self.sanitized_evidence_bytes).hexdigest() != self.__evidence_sha256
+            or self.sanitized_evidence_bytes != self.intent.to_evidence_bytes()
+        ):
+            raise EtradeOAuthContractError("sealed OAuth signing evidence was mutated")
+        if (
+            type(self.__signature) is not str
+            or re.fullmatch(r"[A-Za-z0-9+/]{27}=", self.__signature) is None
+            or type(self.__authorization_header) is not str
+            or not self.__authorization_header.startswith("OAuth ")
+            or any(
+                ord(character) < 0x20 or ord(character) == 0x7F
+                for character in self.__authorization_header
+            )
+        ):
+            raise EtradeOAuthContractError("sealed OAuth signing output was corrupted")
 
     def signature_matches(self, expected: str) -> bool:
+        self._validate()
         if type(expected) is not str:
             return False
         return hmac.compare_digest(self.__signature, expected)
 
     def authorization_header_matches(self, expected: str) -> bool:
+        self._validate()
         if type(expected) is not str:
             return False
         return hmac.compare_digest(self.__authorization_header, expected)
 
     @property
     def authority(self) -> Mapping[str, bool]:
+        self._validate()
         return MappingProxyType({name: False for name in _AUTHORITY_FIELDS})
 
     def __repr__(self) -> str:
+        self._validate()
         return (
             "EtradeOAuthEphemeralSigningResult("
             f"intent_sha256={self.intent.semantic_sha256!r}, signature=<redacted>, "
@@ -823,8 +1133,9 @@ def sign_etrade_oauth_intent(
     consumer_credentials: EtradeOAuthConsumerCredentials,
     token_credentials: EtradeOAuthTokenCredentials | None = None,
     verifier: EtradeOAuthBoundVerifier | None = None,
+    access_exchange_capability: EtradeOAuthAccessExchangeCapability | None = None,
 ) -> EtradeOAuthEphemeralSigningResult:
-    """Deterministically sign one intent and consume its timestamp/nonce fingerprint."""
+    """Sign once while consuming replay time and any exact access-exchange capability."""
 
     _require_exact_type(intent, EtradeOAuthSigningIntent, "OAuth signing intent")
     intent.__post_init__()
@@ -833,6 +1144,7 @@ def sign_etrade_oauth_intent(
         EtradeOAuthConsumerCredentials,
         "consumer credentials",
     )
+    consumer_credentials._validate()
     if consumer_credentials.reference != intent.consumer_reference:
         raise EtradeOAuthContractError("consumer credentials do not match the signing intent")
 
@@ -843,19 +1155,34 @@ def sign_etrade_oauth_intent(
     else:
         _require_exact_type(token_credentials, EtradeOAuthTokenCredentials, "token credentials")
         bound_token_credentials = cast(EtradeOAuthTokenCredentials, token_credentials)
+        bound_token_credentials._validate()
         if bound_token_credentials.reference != intent.token_reference:
             raise EtradeOAuthContractError("token credentials do not match the signing intent")
 
     if intent.operation is EtradeOAuthOperation.ACCESS_TOKEN:
         _require_exact_type(verifier, EtradeOAuthBoundVerifier, "bound OAuth verifier")
         bound_verifier = cast(EtradeOAuthBoundVerifier, verifier)
-        if bound_verifier.authorization_challenge_sha256 != (intent.authorization_challenge_sha256):
-            raise EtradeOAuthContractError("OAuth verifier belongs to another authorization state")
-    elif verifier is not None:
-        raise EtradeOAuthContractError("only access-token signing can accept an OAuth verifier")
+        bound_verifier._validate()
+        _require_exact_type(
+            access_exchange_capability,
+            EtradeOAuthAccessExchangeCapability,
+            "access-exchange capability",
+        )
+        bound_capability = cast(
+            EtradeOAuthAccessExchangeCapability,
+            access_exchange_capability,
+        )
+    elif verifier is not None or access_exchange_capability is not None:
+        raise EtradeOAuthContractError("only access-token signing can accept a verifier capability")
 
-    fingerprint = _replay_fingerprint(intent)
-    next_guard = _consume_replay_fingerprint(replay_guard, fingerprint)
+    next_guard = _consume_signing_intent(replay_guard, intent)
+
+    verifier_value = ""
+    if intent.operation is EtradeOAuthOperation.ACCESS_TOKEN:
+        verifier_value = bound_capability._consume_for(
+            intent=intent,
+            verifier=bound_verifier,
+        )
 
     consumer_key, consumer_secret = consumer_credentials._ephemeral_values()
     token = ""
@@ -875,9 +1202,7 @@ def sign_etrade_oauth_intent(
     else:
         parameters.append(("oauth_token", token))
     if intent.operation is EtradeOAuthOperation.ACCESS_TOKEN:
-        parameters.append(
-            ("oauth_verifier", cast(EtradeOAuthBoundVerifier, verifier)._ephemeral_value())
-        )
+        parameters.append(("oauth_verifier", verifier_value))
 
     normalized_parameters = _normalize_parameter_pairs(tuple(parameters))
     signature_base_string = "&".join(
@@ -1267,12 +1592,230 @@ class EtradeOAuthSessionState:
         return MappingProxyType({name: False for name in _AUTHORITY_FIELDS})
 
 
+_ACCESS_EXCHANGE_CAPABILITY_ISSUER = object()
+
+
+class EtradeOAuthAccessExchangeCapability(_EtradeOAuthSealed):
+    """One-use in-process binding from one exact confirmed verifier to access signing."""
+
+    __slots__ = (
+        "__authorization_challenge_sha256",
+        "__authorization_state_sha256",
+        "__consumed",
+        "__consumer_reference_sha256",
+        "__endpoint_profile_sha256",
+        "__environment",
+        "__generation",
+        "__lock",
+        "__request_token_reference_sha256",
+        "__verifier",
+    )
+    __authorization_challenge_sha256: str
+    __authorization_state_sha256: str
+    __consumed: bool
+    __consumer_reference_sha256: str
+    __endpoint_profile_sha256: str
+    __environment: EtradeEnvironment
+    __generation: int
+    __lock: Any
+    __request_token_reference_sha256: str
+    __verifier: EtradeOAuthBoundVerifier
+
+    def __init__(
+        self,
+        *,
+        issuer: object,
+        state: EtradeOAuthSessionState,
+        verifier: EtradeOAuthBoundVerifier,
+    ) -> None:
+        if issuer is not _ACCESS_EXCHANGE_CAPABILITY_ISSUER:
+            raise EtradeOAuthContractError(
+                "access-exchange capabilities can only follow authorization confirmation"
+            )
+        _require_exact_type(state, EtradeOAuthSessionState, "confirmed authorization state")
+        state.__post_init__()
+        if state.phase is not EtradeOAuthSessionPhase.AUTHORIZATION_CONFIRMED:
+            raise EtradeOAuthContractError(
+                "access-exchange capability requires confirmed authorization"
+            )
+        _require_exact_type(verifier, EtradeOAuthBoundVerifier, "bound OAuth verifier")
+        verifier._validate()
+        if verifier.authorization_challenge_sha256 != state.authorization_challenge_sha256:
+            raise EtradeOAuthContractError("OAuth verifier belongs to another authorization state")
+        request_reference = cast(
+            EtradeOAuthTokenSecretReference,
+            state.request_token_reference,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthAccessExchangeCapability__authorization_challenge_sha256",
+            state.authorization_challenge_sha256,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthAccessExchangeCapability__authorization_state_sha256",
+            state.semantic_sha256,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthAccessExchangeCapability__consumer_reference_sha256",
+            state.consumer_reference.semantic_sha256,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthAccessExchangeCapability__endpoint_profile_sha256",
+            state.endpoint_profile_sha256,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthAccessExchangeCapability__environment",
+            state.environment,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthAccessExchangeCapability__generation",
+            state.generation,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthAccessExchangeCapability__request_token_reference_sha256",
+            request_reference.semantic_sha256,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthAccessExchangeCapability__verifier",
+            verifier,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthAccessExchangeCapability__consumed",
+            False,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthAccessExchangeCapability__lock",
+            Lock(),
+        )
+        self._validate()
+
+    def _validate(self) -> None:
+        _require_sha256(
+            self.__authorization_challenge_sha256,
+            "capability authorization challenge identity",
+        )
+        _require_sha256(
+            self.__authorization_state_sha256,
+            "capability authorization state identity",
+        )
+        _require_sha256(
+            self.__consumer_reference_sha256,
+            "capability consumer reference identity",
+        )
+        _require_sha256(
+            self.__endpoint_profile_sha256,
+            "capability endpoint profile identity",
+        )
+        _require_sha256(
+            self.__request_token_reference_sha256,
+            "capability request token reference identity",
+        )
+        _require_exact_type(self.__environment, EtradeEnvironment, "capability environment")
+        if type(self.__generation) is not int or self.__generation < 1:
+            raise EtradeOAuthContractError("capability generation is invalid")
+        if type(self.__consumed) is not bool:
+            raise EtradeOAuthContractError("capability consumption state is invalid")
+        _require_exact_type(self.__verifier, EtradeOAuthBoundVerifier, "capability verifier")
+        self.__verifier._validate()
+        if self.__verifier.authorization_challenge_sha256 != self.__authorization_challenge_sha256:
+            raise EtradeOAuthContractError("capability verifier binding was corrupted")
+
+    def _validate_for_state(self, state: EtradeOAuthSessionState) -> None:
+        self._validate()
+        _require_exact_type(state, EtradeOAuthSessionState, "confirmed authorization state")
+        state.__post_init__()
+        request_reference = cast(
+            EtradeOAuthTokenSecretReference,
+            state.request_token_reference,
+        )
+        if (
+            state.phase is not EtradeOAuthSessionPhase.AUTHORIZATION_CONFIRMED
+            or state.semantic_sha256 != self.__authorization_state_sha256
+            or state.authorization_challenge_sha256 != self.__authorization_challenge_sha256
+            or state.environment is not self.__environment
+            or state.endpoint_profile_sha256 != self.__endpoint_profile_sha256
+            or state.consumer_reference.semantic_sha256 != self.__consumer_reference_sha256
+            or state.generation != self.__generation
+            or request_reference.semantic_sha256 != self.__request_token_reference_sha256
+        ):
+            raise EtradeOAuthContractError(
+                "access-exchange capability conflicts with authorization state"
+            )
+
+    def _consume_for(
+        self,
+        *,
+        intent: EtradeOAuthSigningIntent,
+        verifier: EtradeOAuthBoundVerifier,
+    ) -> str:
+        _require_exact_type(intent, EtradeOAuthSigningIntent, "access-token signing intent")
+        intent.__post_init__()
+        _require_exact_type(verifier, EtradeOAuthBoundVerifier, "bound OAuth verifier")
+        verifier._validate()
+        with self.__lock:
+            self._validate()
+            if verifier is not self.__verifier:
+                raise EtradeOAuthContractError(
+                    "access-token signing requires the exact confirmed verifier identity"
+                )
+            token_reference = cast(
+                EtradeOAuthTokenSecretReference,
+                intent.token_reference,
+            )
+            if (
+                intent.operation is not EtradeOAuthOperation.ACCESS_TOKEN
+                or intent.authorization_state_sha256 != self.__authorization_state_sha256
+                or intent.authorization_challenge_sha256 != self.__authorization_challenge_sha256
+                or intent.environment is not self.__environment
+                or intent.endpoint_profile.semantic_sha256 != self.__endpoint_profile_sha256
+                or intent.consumer_reference.semantic_sha256 != self.__consumer_reference_sha256
+                or intent.generation != self.__generation
+                or token_reference.semantic_sha256 != self.__request_token_reference_sha256
+            ):
+                raise EtradeOAuthContractError(
+                    "access-token signing intent conflicts with the verifier capability"
+                )
+            if self.__consumed:
+                raise EtradeOAuthContractError("access-exchange capability was already consumed")
+            object.__setattr__(
+                self,
+                "_EtradeOAuthAccessExchangeCapability__consumed",
+                True,
+            )
+            return self.__verifier._ephemeral_value()
+
+    @property
+    def authority(self) -> Mapping[str, bool]:
+        self._validate()
+        return MappingProxyType({name: False for name in _AUTHORITY_FIELDS})
+
+    def __repr__(self) -> str:
+        self._validate()
+        return "EtradeOAuthAccessExchangeCapability(verifier=<redacted>, one_use=True)"
+
+    def __reduce__(self) -> Never:
+        raise TypeError("ephemeral access-exchange capability is intentionally non-serializable")
+
+
 @dataclass(frozen=True, slots=True)
 class EtradeOAuthAuthorizationTransitionResult:
     """One challenge consumption plus the replay guard that must be threaded forward."""
 
     state: EtradeOAuthSessionState
     next_replay_guard: EtradeOAuthReplayGuard
+    access_exchange_capability: EtradeOAuthAccessExchangeCapability = field(
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         _require_exact_type(self.state, EtradeOAuthSessionState, "authorization session state")
@@ -1285,6 +1828,12 @@ class EtradeOAuthAuthorizationTransitionResult:
             "authorization replay guard",
         )
         self.next_replay_guard.__post_init__()
+        _require_exact_type(
+            self.access_exchange_capability,
+            EtradeOAuthAccessExchangeCapability,
+            "authorization access-exchange capability",
+        )
+        self.access_exchange_capability._validate_for_state(self.state)
 
     @property
     def authority(self) -> Mapping[str, bool]:
@@ -1305,6 +1854,7 @@ def _require_session_intent(
         or intent.environment is not state.environment
         or intent.endpoint_profile.semantic_sha256 != state.endpoint_profile_sha256
         or intent.consumer_reference != state.consumer_reference
+        or intent.generation != state.generation
     ):
         raise EtradeOAuthContractError("OAuth signing intent conflicts with session state")
     if intent.timestamp.unix_seconds < state.trusted_time_high_water_seconds:
@@ -1438,6 +1988,7 @@ def record_etrade_oauth_authorization_transition(
     if state.phase is not EtradeOAuthSessionPhase.AUTHORIZATION_PENDING:
         raise EtradeOAuthContractError("authorization confirmation is unsupported from this phase")
     _require_exact_type(verifier, EtradeOAuthBoundVerifier, "bound OAuth verifier")
+    verifier._validate()
     if verifier.authorization_challenge_sha256 != state.authorization_challenge_sha256:
         raise EtradeOAuthContractError("OAuth verifier belongs to another authorization state")
     fingerprint = _semantic_sha256(
@@ -1457,9 +2008,15 @@ def record_etrade_oauth_authorization_transition(
         transition_evidence_sha256=fingerprint,
         predecessor_sha256=state.semantic_sha256,
     )
+    access_exchange_capability = EtradeOAuthAccessExchangeCapability(
+        issuer=_ACCESS_EXCHANGE_CAPABILITY_ISSUER,
+        state=confirmed,
+        verifier=verifier,
+    )
     return EtradeOAuthAuthorizationTransitionResult(
         state=confirmed,
         next_replay_guard=next_guard,
+        access_exchange_capability=access_exchange_capability,
     )
 
 
@@ -1477,6 +2034,8 @@ def record_etrade_oauth_access_token_transition(
         raise EtradeOAuthContractError("access-token transition is unsupported from this phase")
     if signing_intent.authorization_challenge_sha256 != state.authorization_challenge_sha256:
         raise EtradeOAuthContractError("access-token intent belongs to another authorization state")
+    if signing_intent.authorization_state_sha256 != state.semantic_sha256:
+        raise EtradeOAuthContractError("access-token intent does not bind the confirmed state")
     if signing_intent.token_reference != state.request_token_reference:
         raise EtradeOAuthContractError("access-token intent does not bind the active request token")
     _require_exact_type(
@@ -1716,6 +2275,7 @@ __all__ = [
     "ETRADE_OAUTH_SESSION_CONTRACT_VERSION",
     "ETRADE_OAUTH_SESSION_REVIEWED_ON",
     "ETRADE_OAUTH_SIGNATURE_METHOD",
+    "EtradeOAuthAccessExchangeCapability",
     "EtradeOAuthAuthorizationTransitionResult",
     "EtradeOAuthBoundVerifier",
     "EtradeOAuthConsumerCredentials",
@@ -1732,6 +2292,7 @@ __all__ = [
     "EtradeOAuthSessionPhase",
     "EtradeOAuthSessionState",
     "EtradeOAuthSigningIntent",
+    "EtradeOAuthSigningTimeHighWater",
     "EtradeOAuthToken",
     "EtradeOAuthTokenCredentials",
     "EtradeOAuthTokenKind",

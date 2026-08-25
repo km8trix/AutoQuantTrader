@@ -31,12 +31,14 @@ from packages.adapters.broker.etrade_oauth import (
     ETRADE_OAUTH_PROTOCOL_VERSION,
     ETRADE_OAUTH_SESSION_CONTRACT_VERSION,
     ETRADE_OAUTH_SIGNATURE_METHOD,
+    EtradeOAuthAccessExchangeCapability,
     EtradeOAuthBoundVerifier,
     EtradeOAuthConsumerCredentials,
     EtradeOAuthConsumerKey,
     EtradeOAuthConsumerSecret,
     EtradeOAuthConsumerSecretReference,
     EtradeOAuthContractError,
+    EtradeOAuthEphemeralSigningResult,
     EtradeOAuthNonce,
     EtradeOAuthNonsecretParameter,
     EtradeOAuthOperation,
@@ -45,6 +47,7 @@ from packages.adapters.broker.etrade_oauth import (
     EtradeOAuthSessionPhase,
     EtradeOAuthSessionState,
     EtradeOAuthSigningIntent,
+    EtradeOAuthSigningTimeHighWater,
     EtradeOAuthToken,
     EtradeOAuthTokenCredentials,
     EtradeOAuthTokenKind,
@@ -108,6 +111,7 @@ def _endpoint(environment: EtradeEnvironment) -> EtradeEndpointIsolationProfile:
 
 def _consumer_reference(
     environment: EtradeEnvironment = EtradeEnvironment.SANDBOX,
+    generation: int = 1,
     *,
     version: int = 1,
 ) -> EtradeOAuthConsumerSecretReference:
@@ -161,19 +165,23 @@ def _intent(
     timestamp: int,
     nonce: str,
     environment: EtradeEnvironment = EtradeEnvironment.SANDBOX,
+    generation: int = 1,
     consumer_reference: EtradeOAuthConsumerSecretReference | None = None,
     token_reference: EtradeOAuthTokenSecretReference | None = None,
     authorization_challenge_sha256: str | None = None,
+    authorization_state_sha256: str | None = None,
 ) -> EtradeOAuthSigningIntent:
     return create_etrade_oauth_signing_intent(
         environment=environment,
         endpoint_profile=_endpoint(environment),
         operation=operation,
+        generation=generation,
         consumer_reference=consumer_reference or _consumer_reference(environment),
         token_reference=token_reference,
         timestamp=_timestamp(timestamp),
         nonce=_nonce(nonce),
         authorization_challenge_sha256=authorization_challenge_sha256,
+        authorization_state_sha256=authorization_state_sha256,
     )
 
 
@@ -249,6 +257,7 @@ def _active_state(
         nonce="fedcba9876543210",
         token_reference=request_reference,
         authorization_challenge_sha256=confirmed.authorization_challenge_sha256,
+        authorization_state_sha256=confirmed.semantic_sha256,
     )
     access_reference = _token_reference(EtradeOAuthTokenKind.ACCESS_TOKEN, 2)
     active = record_etrade_oauth_access_token_transition(
@@ -277,12 +286,14 @@ def test_exact_endpoint_method_callback_and_scope_contract_is_pinned() -> None:
             EtradeOAuthOperation.REVOKE_ACCESS_TOKEN: access_reference,
         }[operation]
         challenge = "c" * 64 if operation is EtradeOAuthOperation.ACCESS_TOKEN else None
+        authorization_state = "d" * 64 if operation is EtradeOAuthOperation.ACCESS_TOKEN else None
         intent = _intent(
             operation,
             timestamp=1_700_000_000 + index,
             nonce=f"oauth-nonce-{index:05d}",
             token_reference=token_reference,
             authorization_challenge_sha256=challenge,
+            authorization_state_sha256=authorization_state,
         )
         assert intent.http_method == ETRADE_OAUTH_HTTP_METHOD == "GET"
         assert intent.endpoint_url == endpoint
@@ -356,47 +367,109 @@ def test_request_token_hmac_sha1_synthetic_vector_is_exact() -> None:
 
 
 def test_access_token_hmac_sha1_synthetic_vector_and_verifier_binding_are_exact() -> None:
-    request_reference = _token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1)
-    challenge_sha256 = "c" * 64
+    pending = _authorization_pending_state()
+    challenge_sha256 = cast(str, pending.authorization_challenge_sha256)
+    verifier_a = EtradeOAuthBoundVerifier(
+        authorization_challenge_sha256=challenge_sha256,
+        verifier=EtradeOAuthVerifierValue(SYNTHETIC_VERIFIER),
+    )
+    authorization = record_etrade_oauth_authorization_transition(
+        pending,
+        verifier=verifier_a,
+        replay_guard=EtradeOAuthReplayGuard(),
+    )
+    confirmed = authorization.state
+    assert SYNTHETIC_VERIFIER not in repr(authorization.access_exchange_capability)
+    assert SYNTHETIC_VERIFIER not in repr(authorization)
+    assert all(
+        value is False for value in authorization.access_exchange_capability.authority.values()
+    )
+    with pytest.raises(TypeError, match="non-serializable"):
+        pickle.dumps(authorization.access_exchange_capability)
+    request_reference = cast(
+        EtradeOAuthTokenSecretReference,
+        confirmed.request_token_reference,
+    )
     intent = _intent(
         EtradeOAuthOperation.ACCESS_TOKEN,
         timestamp=1_700_000_100,
         nonce="fedcba9876543210",
         token_reference=request_reference,
         authorization_challenge_sha256=challenge_sha256,
+        authorization_state_sha256=confirmed.semantic_sha256,
     )
-    result = sign_etrade_oauth_intent(
-        intent,
-        replay_guard=EtradeOAuthReplayGuard(),
-        consumer_credentials=_consumer_credentials(),
-        token_credentials=_token_credentials(
-            request_reference,
-            token=SYNTHETIC_REQUEST_TOKEN,
-            secret=SYNTHETIC_REQUEST_TOKEN_SECRET,
-        ),
-        verifier=EtradeOAuthBoundVerifier(
+    for substituted_value in (SYNTHETIC_VERIFIER, "substituted-verifier"):
+        verifier_b = EtradeOAuthBoundVerifier(
             authorization_challenge_sha256=challenge_sha256,
-            verifier=EtradeOAuthVerifierValue(SYNTHETIC_VERIFIER),
-        ),
-    )
+            verifier=EtradeOAuthVerifierValue(substituted_value),
+        )
+        with pytest.raises(
+            EtradeOAuthContractError,
+            match="exact confirmed verifier identity",
+        ):
+            sign_etrade_oauth_intent(
+                intent,
+                replay_guard=authorization.next_replay_guard,
+                consumer_credentials=_consumer_credentials(),
+                token_credentials=_token_credentials(
+                    request_reference,
+                    token=SYNTHETIC_REQUEST_TOKEN,
+                    secret=SYNTHETIC_REQUEST_TOKEN_SECRET,
+                ),
+                verifier=verifier_b,
+                access_exchange_capability=authorization.access_exchange_capability,
+            )
 
-    assert result.signature_matches(ACCESS_TOKEN_SIGNATURE)
-    assert result.authorization_header_matches(ACCESS_TOKEN_HEADER)
-
-    with pytest.raises(EtradeOAuthContractError, match="another authorization"):
+    with pytest.raises(EtradeOAuthContractError, match="conflicts with the verifier capability"):
         sign_etrade_oauth_intent(
-            intent,
-            replay_guard=EtradeOAuthReplayGuard(),
+            replace(intent, authorization_state_sha256="e" * 64),
+            replay_guard=authorization.next_replay_guard,
             consumer_credentials=_consumer_credentials(),
             token_credentials=_token_credentials(
                 request_reference,
                 token=SYNTHETIC_REQUEST_TOKEN,
                 secret=SYNTHETIC_REQUEST_TOKEN_SECRET,
             ),
-            verifier=EtradeOAuthBoundVerifier(
-                authorization_challenge_sha256="d" * 64,
-                verifier=EtradeOAuthVerifierValue(SYNTHETIC_VERIFIER),
+            verifier=verifier_a,
+            access_exchange_capability=authorization.access_exchange_capability,
+        )
+
+    result = sign_etrade_oauth_intent(
+        intent,
+        replay_guard=authorization.next_replay_guard,
+        consumer_credentials=_consumer_credentials(),
+        token_credentials=_token_credentials(
+            request_reference,
+            token=SYNTHETIC_REQUEST_TOKEN,
+            secret=SYNTHETIC_REQUEST_TOKEN_SECRET,
+        ),
+        verifier=verifier_a,
+        access_exchange_capability=authorization.access_exchange_capability,
+    )
+
+    assert result.signature_matches(ACCESS_TOKEN_SIGNATURE)
+    assert result.authorization_header_matches(ACCESS_TOKEN_HEADER)
+
+    second_intent = _intent(
+        EtradeOAuthOperation.ACCESS_TOKEN,
+        timestamp=1_700_000_101,
+        nonce="second-access-001",
+        token_reference=request_reference,
+        authorization_challenge_sha256=challenge_sha256,
+        authorization_state_sha256=confirmed.semantic_sha256,
+    )
+    with pytest.raises(EtradeOAuthContractError, match="already consumed"):
+        sign_etrade_oauth_intent(
+            second_intent,
+            replay_guard=result.next_replay_guard,
+            consumer_credentials=_consumer_credentials(),
+            token_credentials=_token_credentials(
+                request_reference,
+                token=SYNTHETIC_REQUEST_TOKEN,
+                secret=SYNTHETIC_REQUEST_TOKEN_SECRET,
             ),
+            verifier=verifier_a,
+            access_exchange_capability=authorization.access_exchange_capability,
         )
 
 
@@ -435,6 +508,76 @@ def test_timestamp_nonce_replay_is_rejected_across_operations() -> None:
                 token=SYNTHETIC_ACCESS_TOKEN,
                 secret=SYNTHETIC_ACCESS_TOKEN_SECRET,
             ),
+        )
+
+
+def test_signing_time_high_water_rejects_rollback_across_operations_and_generations() -> None:
+    first = sign_etrade_oauth_intent(
+        _intent(
+            EtradeOAuthOperation.REQUEST_TOKEN,
+            timestamp=1_700_000_000,
+            nonce="high-water-first-01",
+        ),
+        replay_guard=EtradeOAuthReplayGuard(),
+        consumer_credentials=_consumer_credentials(),
+    )
+    assert first.next_replay_guard.signing_time_high_waters == (
+        EtradeOAuthSigningTimeHighWater(
+            scope_sha256=first.next_replay_guard.signing_time_high_waters[0].scope_sha256,
+            generation=1,
+            unix_seconds=1_700_000_000,
+        ),
+    )
+
+    access_reference = _token_reference(EtradeOAuthTokenKind.ACCESS_TOKEN, 2)
+    with pytest.raises(EtradeOAuthContractError, match="signing time cannot regress"):
+        sign_etrade_oauth_intent(
+            _intent(
+                EtradeOAuthOperation.RENEW_ACCESS_TOKEN,
+                timestamp=1_699_999_900,
+                nonce="rollback-renew-001",
+                token_reference=access_reference,
+            ),
+            replay_guard=first.next_replay_guard,
+            consumer_credentials=_consumer_credentials(),
+            token_credentials=_token_credentials(
+                access_reference,
+                token=SYNTHETIC_ACCESS_TOKEN,
+                secret=SYNTHETIC_ACCESS_TOKEN_SECRET,
+            ),
+        )
+    with pytest.raises(EtradeOAuthContractError, match="signing time cannot regress"):
+        sign_etrade_oauth_intent(
+            _intent(
+                EtradeOAuthOperation.REQUEST_TOKEN,
+                timestamp=1_699_999_999,
+                nonce="rollback-reauth-01",
+                generation=2,
+            ),
+            replay_guard=first.next_replay_guard,
+            consumer_credentials=_consumer_credentials(),
+        )
+
+    reauthorized = sign_etrade_oauth_intent(
+        _intent(
+            EtradeOAuthOperation.REQUEST_TOKEN,
+            timestamp=1_700_000_100,
+            nonce="reauth-forward-001",
+            generation=2,
+        ),
+        replay_guard=first.next_replay_guard,
+        consumer_credentials=_consumer_credentials(),
+    )
+    with pytest.raises(EtradeOAuthContractError, match="generation cannot regress"):
+        sign_etrade_oauth_intent(
+            _intent(
+                EtradeOAuthOperation.REQUEST_TOKEN,
+                timestamp=1_700_000_200,
+                nonce="stale-generation-1",
+                generation=1,
+            ),
+            replay_guard=reauthorized.next_replay_guard,
+            consumer_credentials=_consumer_credentials(),
         )
 
 
@@ -559,6 +702,7 @@ def test_session_happy_path_is_explicit_secret_free_and_verifier_single_use() ->
         nonce="fedcba9876543210",
         token_reference=request_reference,
         authorization_challenge_sha256=confirmed.authorization_challenge_sha256,
+        authorization_state_sha256=confirmed.semantic_sha256,
     )
     active = record_etrade_oauth_access_token_transition(
         confirmed,
@@ -600,6 +744,7 @@ def test_session_time_high_water_rejects_pre_access_and_reauthorization_rollback
                 nonce="rollback-access-01",
                 token_reference=request_reference,
                 authorization_challenge_sha256=confirmed.authorization_challenge_sha256,
+                authorization_state_sha256=confirmed.semantic_sha256,
             ),
             access_token_reference=_token_reference(EtradeOAuthTokenKind.ACCESS_TOKEN, 2),
             expires_at=_timestamp(1_700_100_000),
@@ -621,6 +766,7 @@ def test_session_time_high_water_rejects_pre_access_and_reauthorization_rollback
                 EtradeOAuthOperation.REQUEST_TOKEN,
                 timestamp=restarted.trusted_time_high_water_seconds - 1,
                 nonce="rollback-reauth-01",
+                generation=2,
             ),
             request_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 3),
         )
@@ -726,6 +872,7 @@ def test_renewal_activity_inactivity_expiry_revocation_and_reauthorization() -> 
                 EtradeOAuthOperation.REQUEST_TOKEN,
                 timestamp=renew_time + ETRADE_OAUTH_INACTIVITY_SECONDS + 1,
                 nonce="reauth-nonce-0001",
+                generation=2,
             ),
             request_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 2),
         )
@@ -914,6 +1061,107 @@ def test_frozen_values_revalidate_hostile_replace_and_mutation() -> None:
             phase=EtradeOAuthSessionPhase.REAUTHORIZATION_REQUIRED,
             reauthorization_reason=EtradeOAuthReauthorizationReason.DAILY_EXPIRY,
         )
+
+
+def test_ephemeral_wrappers_and_signing_results_are_sealed_and_revalidated() -> None:
+    consumer_key = EtradeOAuthConsumerKey(SYNTHETIC_CONSUMER_KEY)
+    credentials = _consumer_credentials()
+    pending = _authorization_pending_state()
+    verifier = EtradeOAuthBoundVerifier(
+        authorization_challenge_sha256=cast(str, pending.authorization_challenge_sha256),
+        verifier=EtradeOAuthVerifierValue(SYNTHETIC_VERIFIER),
+    )
+    authorization = record_etrade_oauth_authorization_transition(
+        pending,
+        verifier=verifier,
+        replay_guard=EtradeOAuthReplayGuard(),
+    )
+    capability = authorization.access_exchange_capability
+    assert isinstance(capability, EtradeOAuthAccessExchangeCapability)
+
+    sealed_mutations = (
+        (
+            consumer_key,
+            "_EtradeOAuthSensitiveText__value",
+            "mutated-consumer-key",
+        ),
+        (credentials, "reference", _consumer_reference(version=2)),
+        (verifier, "authorization_challenge_sha256", "d" * 64),
+        (
+            capability,
+            "_EtradeOAuthAccessExchangeCapability__consumed",
+            False,
+        ),
+    )
+    for target, name, mutation_value in sealed_mutations:
+        with pytest.raises(AttributeError, match="sealed"):
+            setattr(target, name, mutation_value)
+    with pytest.raises(FrozenInstanceError):
+        authorization.next_replay_guard = EtradeOAuthReplayGuard()  # type: ignore[misc]
+
+    def signing_result(*, timestamp: int, nonce: str) -> EtradeOAuthEphemeralSigningResult:
+        intent = _intent(
+            EtradeOAuthOperation.REQUEST_TOKEN,
+            timestamp=timestamp,
+            nonce=nonce,
+        )
+        return sign_etrade_oauth_intent(
+            intent,
+            replay_guard=EtradeOAuthReplayGuard(),
+            consumer_credentials=_consumer_credentials(),
+        )
+
+    sealed_result = signing_result(timestamp=1_700_000_010, nonce="sealed-result-001")
+    for name, replacement_value in (
+        (
+            "intent",
+            _intent(
+                EtradeOAuthOperation.REQUEST_TOKEN,
+                timestamp=1_700_000_011,
+                nonce="sealed-intent-001",
+            ),
+        ),
+        ("next_replay_guard", EtradeOAuthReplayGuard()),
+        ("sanitized_evidence_bytes", b"{}"),
+    ):
+        with pytest.raises(AttributeError, match="sealed"):
+            setattr(sealed_result, name, replacement_value)
+
+    corrupted_intent = signing_result(
+        timestamp=1_700_000_020,
+        nonce="corrupt-intent-01",
+    )
+    object.__setattr__(
+        corrupted_intent,
+        "intent",
+        _intent(
+            EtradeOAuthOperation.REQUEST_TOKEN,
+            timestamp=1_700_000_021,
+            nonce="changed-intent-01",
+        ),
+    )
+    with pytest.raises(EtradeOAuthContractError, match="intent was mutated"):
+        corrupted_intent.signature_matches(REQUEST_TOKEN_SIGNATURE)
+
+    corrupted_guard = signing_result(
+        timestamp=1_700_000_030,
+        nonce="corrupt-guard-001",
+    )
+    object.__setattr__(
+        corrupted_guard,
+        "next_replay_guard",
+        EtradeOAuthReplayGuard(),
+    )
+    with pytest.raises(EtradeOAuthContractError, match="replay guard was mutated"):
+        corrupted_guard.authorization_header_matches(REQUEST_TOKEN_HEADER)
+
+    corrupted_evidence = signing_result(
+        timestamp=1_700_000_040,
+        nonce="corrupt-evid-0001",
+    )
+    object.__setattr__(corrupted_evidence, "sanitized_evidence_bytes", b"{}")
+    with pytest.raises(EtradeOAuthContractError, match="evidence was mutated"):
+        corrupted_evidence.signature_matches(REQUEST_TOKEN_SIGNATURE)
 
 
 def test_module_is_pure_and_broker_root_exports_are_additive() -> None:

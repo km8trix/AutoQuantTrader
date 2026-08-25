@@ -1348,7 +1348,14 @@ traceability, or reporting requirements below.
   encoding, encoded-name/value sorting, normalized parameters, HMAC-SHA1, and
   Base64 are pinned by RFC and synthetic vectors. Exact caller-injected trusted
   timestamps/nonces and a bounded in-memory fingerprint guard reject signing
-  and verifier-consumption replay when its current returned state is threaded;
+  and verifier-consumption replay when its current returned state is threaded.
+  The guard retains a nondecreasing signing timestamp and latest generation per
+  typed environment/endpoint/consumer-reference scope across operations and
+  reauthorization. Authorization confirmation returns one sealed,
+  non-serializable exact-verifier-identity capability; access signing requires
+  that same verifier object and confirmed-state identity and consumes the
+  capability once. Secret wrappers and signing results are sealed and
+  revalidated at sensitive boundaries;
   typed consumer/token reference revisions reject raw-string, wrong-kind, and
   cross-environment substitution. Consumer keys, tokens, consumer/token
   secrets, verifiers, signatures, Authorization headers, signing material, and
@@ -1358,7 +1365,10 @@ traceability, or reporting requirements below.
   activity, renewal, two-hour inactivity, daily expiry, revocation, and
   reasoned reauthorization explicit fail-closed transitions. A monotonic time
   high-water survives every phase/generation, and each time/signing-driven
-  transition retains its sanitized input identity. It adds no secret
+  transition retains its sanitized input identity. Reusing an older immutable
+  state/guard can still fork in-memory history and mint a separate capability;
+  there is no restart/process coordination, durable current-head comparison, or
+  durable exact-once claim. It adds no secret
   resolution, ambient time/randomness, durable replay protection, browser or
   callback runtime, provider response authentication, filesystem, persistence,
   proxy/redirect/network transport, provider-origin claim, account binding,
@@ -1445,7 +1455,9 @@ traceability, or reporting requirements below.
   supervised reducer for request/access token, OOB authorization, renewal,
   inactivity/expiry, revocation, and reauthorization transitions. It retains
   only typed nonsecret reference revisions and sanitized identities; all secret
-  values and signing output remain ephemeral.
+  values and signing output remain sealed and ephemeral. Access-token signing
+  consumes one in-process exact-verifier-identity capability, while the signing
+  replay guard carries a per-scope nondecreasing time/generation high-water.
   A deployed secret resolver, durable nonce/replay state, authenticated token
   response and OOB handoff, authenticated account binding, provider transport,
   and bounded raw-first Balance, Portfolio, Orders, and Transactions reads
