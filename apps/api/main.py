@@ -55,6 +55,10 @@ from apps.api.experiment_views import (
     ExperimentGovernanceQuery,
     create_experiment_router,
 )
+from apps.api.fixture_segment_views import (
+    FixtureSegmentProvenanceQuery,
+    create_fixture_segment_router,
+)
 from apps.api.operations_dashboard_views import (
     WalkingThreadOperationsDashboardQuery,
     create_operations_dashboard_router,
@@ -86,6 +90,10 @@ from packages.persistence.database import (
 from packages.persistence.experiment_governance import (
     ExperimentGovernanceError,
     SqlExperimentGovernance,
+)
+from packages.persistence.fixture_segment_worker import (
+    FixtureSegmentPersistenceError,
+    SqlFixtureSegmentProvenanceQuery,
 )
 from packages.persistence.immutable import ImmutableFactConflict
 from packages.persistence.local_operations import SqlLocalOperationsSnapshotReader
@@ -168,6 +176,7 @@ def _bootstrap(
     if persistence_status is PersistenceMode.DURABLE:
         capabilities.append("fixture-backtest-query")
         capabilities.append("experiment-governance-query")
+        capabilities.append("fixture-segment-provenance-query")
     if backtest_launch.enabled:
         capabilities.append("fixture-backtest-launch")
     if operations_query_available:
@@ -206,6 +215,7 @@ def _bootstrap(
             "data_admission": True,
             "backtest_query": persistence_status is PersistenceMode.DURABLE,
             "experiment_query": persistence_status is PersistenceMode.DURABLE,
+            "fixture_segment_query": persistence_status is PersistenceMode.DURABLE,
             "backtest_launch": backtest_launch.enabled,
             "operations_query": operations_query_available,
             "operations_control": operations_control_available,
@@ -319,6 +329,7 @@ def create_app(
     result: WalkingThreadResult | None = None
     backtest_workflow: SqlBacktestWorkflow | None = None
     experiment_governance: ExperimentGovernanceQuery | None = None
+    fixture_segment_provenance: FixtureSegmentProvenanceQuery | None = None
     try:
         if persistence_engine is None:
             persistence_engine = create_database_engine(resolved_settings.database_url)
@@ -344,6 +355,7 @@ def create_app(
             backtest_workflow = SqlBacktestWorkflow(persistence_engine)
             ensure_golden_research_catalog(backtest_workflow)
             experiment_governance = SqlExperimentGovernance(persistence_engine)
+            fixture_segment_provenance = SqlFixtureSegmentProvenanceQuery(persistence_engine)
             verify_operational_schema(persistence_engine)
         persistence_status = PersistenceMode(persistence_mode(persistence_engine))
     except (
@@ -351,6 +363,7 @@ def create_app(
         DatabaseSchemaNotReady,
         BacktestWorkflowError,
         ExperimentGovernanceError,
+        FixtureSegmentPersistenceError,
         ImmutableFactConflict,
         RiskAuthorizationError,
     ):
@@ -564,6 +577,15 @@ def create_app(
     router.include_router(
         create_experiment_router(
             repository=experiment_governance,
+            persistence_ready=lambda: (
+                _probe_persistence(persistence_engine, persistence_status)[0]
+                is PersistenceMode.DURABLE
+            ),
+        )
+    )
+    router.include_router(
+        create_fixture_segment_router(
+            repository=fixture_segment_provenance,
             persistence_ready=lambda: (
                 _probe_persistence(persistence_engine, persistence_status)[0]
                 is PersistenceMode.DURABLE

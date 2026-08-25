@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
@@ -10,17 +13,31 @@ import sqlalchemy as sa
 from sqlalchemy import Connection, Engine
 from sqlalchemy.engine import RowMapping
 
+from packages.domain.canonical import canonical_json_bytes
 from packages.domain.experiment_governance import (
     ExperimentAttempt,
     ExperimentAttemptStatus,
     ExperimentGovernanceSnapshot,
+    ExperimentSegmentEvidence,
     GovernedSegmentEvaluationReceipt,
     NonExecutableTerminalEvidence,
 )
+from packages.domain.experiment_governance import (
+    ExperimentGovernanceError as DomainExperimentGovernanceError,
+)
 from packages.domain.experiment_registry import EvaluationSegmentKind
-from packages.domain.feature import CertifiedFeatureReplay
-from packages.domain.feature_target import CertifiedFeatureTargetReplay
+from packages.domain.feature import (
+    FEATURE_REPLAY_CONTRACT_VERSION,
+    CertifiedFeatureReplay,
+    FeatureComputationMode,
+)
+from packages.domain.feature_target import (
+    FEATURE_TARGET_CONTRACT_VERSION,
+    CertifiedFeatureTargetReplay,
+)
 from packages.domain.fixture_segment_worker import (
+    FIXTURE_SEGMENT_FAILURE_CODE,
+    FIXTURE_SEGMENT_FAILURE_SHA256,
     FIXTURE_SEGMENT_WORKER_CONTRACT_VERSION,
     FixtureSegmentClaimToken,
     FixtureSegmentJob,
@@ -34,6 +51,7 @@ from packages.domain.fixture_segment_worker import (
     claim_fixture_segment_job,
     complete_fixture_segment_job,
     fail_fixture_segment_job,
+    fixture_segment_failure_evidence,
     queue_fixture_segment_job,
     renew_fixture_segment_claim,
     segment_evidence_for_attempt,
@@ -45,6 +63,9 @@ from packages.persistence.experiment_governance import (
     _load_snapshot_history,
     _verify_audits,
     _write_transaction,
+)
+from packages.persistence.experiment_governance import (
+    ExperimentGovernanceError as PersistedExperimentGovernanceError,
 )
 from packages.persistence.immutable import (
     ImmutableFactConflict,
@@ -60,6 +81,110 @@ from packages.persistence.schema import (
 )
 
 _SUPPORTED_DIALECTS = frozenset({"sqlite", "postgresql"})
+MAX_FIXTURE_SEGMENT_PROVENANCE_PAGE_SIZE = 100
+_SHA256_TEXT = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _contract_sha256(value: object) -> str:
+    return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+
+
+def _feature_transcript_commitments(
+    evidence: ExperimentSegmentEvidence,
+    artifact: FixtureTranscriptArtifact,
+) -> tuple[str, str, str, str]:
+    transcript_sha256 = _contract_sha256(
+        (
+            FEATURE_REPLAY_CONTRACT_VERSION,
+            "feature-replay-transcript",
+            evidence.feature_artifact_sha256,
+            evidence.replay_result_sha256,
+            artifact.step_sha256s,
+        )
+    )
+    batch_result_sha256 = _contract_sha256(
+        (
+            FEATURE_REPLAY_CONTRACT_VERSION,
+            "feature-replay-result",
+            FeatureComputationMode.BATCH.value,
+            transcript_sha256,
+        )
+    )
+    incremental_result_sha256 = _contract_sha256(
+        (
+            FEATURE_REPLAY_CONTRACT_VERSION,
+            "feature-replay-result",
+            FeatureComputationMode.INCREMENTAL.value,
+            transcript_sha256,
+        )
+    )
+    certification_sha256 = _contract_sha256(
+        (
+            FEATURE_REPLAY_CONTRACT_VERSION,
+            "certified-feature-replay",
+            evidence.feature_artifact_sha256,
+            batch_result_sha256,
+            incremental_result_sha256,
+            evidence.feature_parity_receipt_sha256,
+        )
+    )
+    return (
+        transcript_sha256,
+        batch_result_sha256,
+        incremental_result_sha256,
+        certification_sha256,
+    )
+
+
+def _target_transcript_commitments(
+    source_evidence: ExperimentSegmentEvidence,
+    receipt: GovernedSegmentEvaluationReceipt,
+    artifact: FixtureTranscriptArtifact,
+) -> tuple[str, str, str, str]:
+    transcript_sha256 = _contract_sha256(
+        (
+            FEATURE_TARGET_CONTRACT_VERSION,
+            "feature-target-transcript",
+            receipt.target_runtime_pin_sha256,
+            source_evidence.feature_transcript_sha256,
+            source_evidence.feature_parity_receipt_sha256,
+            artifact.step_sha256s,
+        )
+    )
+    batch_result_sha256 = _contract_sha256(
+        (
+            FEATURE_TARGET_CONTRACT_VERSION,
+            "feature-target-replay-result",
+            FeatureComputationMode.BATCH.value,
+            transcript_sha256,
+        )
+    )
+    incremental_result_sha256 = _contract_sha256(
+        (
+            FEATURE_TARGET_CONTRACT_VERSION,
+            "feature-target-replay-result",
+            FeatureComputationMode.INCREMENTAL.value,
+            transcript_sha256,
+        )
+    )
+    certification_sha256 = _contract_sha256(
+        (
+            FEATURE_TARGET_CONTRACT_VERSION,
+            "certified-feature-target-replay",
+            source_evidence.feature_certification_sha256,
+            receipt.target_policy_sha256,
+            receipt.target_runtime_pin_sha256,
+            batch_result_sha256,
+            incremental_result_sha256,
+            receipt.target_parity_receipt_sha256,
+        )
+    )
+    return (
+        transcript_sha256,
+        batch_result_sha256,
+        incremental_result_sha256,
+        certification_sha256,
+    )
 
 
 class FixtureSegmentPersistenceError(RuntimeError):
@@ -72,6 +197,89 @@ class FixtureSegmentPersistenceConflict(FixtureSegmentPersistenceError):
 
 class FixtureSegmentNotFound(FixtureSegmentPersistenceError):
     """A fixture-segment job does not exist."""
+
+
+@dataclass(frozen=True, slots=True)
+class FixtureTranscriptProvenance:
+    """Allowlisted identity metadata for one authenticated transcript artifact."""
+
+    artifact_sha256: str
+    kind: FixtureTranscriptKind
+    family_id: str
+    attempt_id: str
+    segment_kind: EvaluationSegmentKind
+    configuration_sha256: str | None
+    certification_sha256: str
+    parity_receipt_sha256: str
+    transcript_sha256: str
+    step_count: int
+    output_count: int
+    transcript_payload_sha256: str
+    semantic_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class FixtureSegmentEventProvenance:
+    """Allowlisted lifecycle metadata for one authenticated job event."""
+
+    job_id: str
+    event_sha256: str
+    sequence: int
+    status: FixtureSegmentJobStatus
+    occurred_at: datetime
+    attempt_number: int
+    previous_event_sha256: str | None
+    claim_expires_at: datetime | None
+    governance_event_sha256: str
+    feature_artifact_sha256: str
+    target_artifact_sha256: str | None
+    completion_receipt_sha256: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class FixtureSegmentJobProvenanceSummary:
+    """Constant-size allowlisted summary of one authenticated job chain."""
+
+    job_id: str
+    family_id: str
+    attempt_id: str
+    configuration_sha256: str
+    segment_kind: EvaluationSegmentKind
+    requested_at: datetime
+    status: FixtureSegmentJobStatus
+    event_count: int
+    latest_sequence: int
+    latest_event_sha256: str
+    latest_occurred_at: datetime
+    feature_artifact_sha256: str
+    target_artifact_sha256: str | None
+    completion_receipt_sha256: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class FixtureSegmentJobProvenance:
+    """Safe projection produced only after full Phase 3F chain authentication."""
+
+    job_id: str
+    family_id: str
+    attempt_id: str
+    configuration_sha256: str
+    configuration_validation_sha256: str
+    segment_kind: EvaluationSegmentKind
+    queued_governance_event_sha256: str
+    feature_certification_sha256: str
+    requested_at: datetime
+    feature_artifact: FixtureTranscriptProvenance
+    events: tuple[FixtureSegmentEventProvenance, ...]
+    target_artifact: FixtureTranscriptProvenance | None
+
+    @property
+    def latest(self) -> FixtureSegmentEventProvenance:
+        return self.events[-1]
+
+    @property
+    def status(self) -> FixtureSegmentJobStatus:
+        return self.latest.status
 
 
 def _artifact_values(artifact: FixtureTranscriptArtifact) -> dict[str, Any]:
@@ -346,6 +554,91 @@ def _projection(
     return projection
 
 
+def _artifact_provenance(
+    artifact: FixtureTranscriptArtifact,
+) -> FixtureTranscriptProvenance:
+    return FixtureTranscriptProvenance(
+        artifact_sha256=artifact.artifact_sha256,
+        kind=artifact.kind,
+        family_id=artifact.family_id,
+        attempt_id=artifact.attempt_id,
+        segment_kind=artifact.segment_kind,
+        configuration_sha256=artifact.configuration_sha256,
+        certification_sha256=artifact.certification_sha256,
+        parity_receipt_sha256=artifact.parity_receipt_sha256,
+        transcript_sha256=artifact.transcript_sha256,
+        step_count=len(artifact.step_sha256s),
+        output_count=len(artifact.output_ids),
+        transcript_payload_sha256=artifact.transcript_payload_sha256,
+        semantic_sha256=artifact.semantic_sha256,
+    )
+
+
+def _provenance(
+    projection: FixtureSegmentJobProjection,
+) -> FixtureSegmentJobProvenance:
+    return FixtureSegmentJobProvenance(
+        job_id=projection.job.job_id,
+        family_id=projection.job.family_id,
+        attempt_id=projection.job.attempt_id,
+        configuration_sha256=projection.job.configuration_sha256,
+        configuration_validation_sha256=(projection.job.configuration_validation_sha256),
+        segment_kind=projection.job.segment_kind,
+        queued_governance_event_sha256=projection.job.queued_governance_event_sha256,
+        feature_certification_sha256=projection.job.feature_certification_sha256,
+        requested_at=projection.job.requested_at,
+        feature_artifact=_artifact_provenance(projection.feature_artifact),
+        events=tuple(
+            FixtureSegmentEventProvenance(
+                job_id=event.job_id,
+                event_sha256=event.event_sha256,
+                sequence=event.sequence,
+                status=event.status,
+                occurred_at=event.occurred_at,
+                attempt_number=event.attempt_number,
+                previous_event_sha256=event.previous_event_sha256,
+                claim_expires_at=event.claim_expires_at,
+                governance_event_sha256=event.governance_event_sha256,
+                feature_artifact_sha256=event.feature_artifact_sha256,
+                target_artifact_sha256=event.target_artifact_sha256,
+                completion_receipt_sha256=event.completion_receipt_sha256,
+            )
+            for event in projection.events
+        ),
+        target_artifact=(
+            None
+            if projection.target_artifact is None
+            else _artifact_provenance(projection.target_artifact)
+        ),
+    )
+
+
+def _provenance_summary(
+    projection: FixtureSegmentJobProjection,
+) -> FixtureSegmentJobProvenanceSummary:
+    latest = projection.latest
+    return FixtureSegmentJobProvenanceSummary(
+        job_id=projection.job.job_id,
+        family_id=projection.job.family_id,
+        attempt_id=projection.job.attempt_id,
+        configuration_sha256=projection.job.configuration_sha256,
+        segment_kind=projection.job.segment_kind,
+        requested_at=projection.job.requested_at,
+        status=projection.status,
+        event_count=len(projection.events),
+        latest_sequence=latest.sequence,
+        latest_event_sha256=latest.event_sha256,
+        latest_occurred_at=latest.occurred_at,
+        feature_artifact_sha256=projection.feature_artifact.artifact_sha256,
+        target_artifact_sha256=(
+            None
+            if projection.target_artifact is None
+            else projection.target_artifact.artifact_sha256
+        ),
+        completion_receipt_sha256=latest.completion_receipt_sha256,
+    )
+
+
 def _job(connection: Connection, job_id: str) -> FixtureSegmentJob:
     row = (
         connection.execute(
@@ -396,6 +689,15 @@ def _load_governance(connection: Connection, family_id: str) -> ExperimentGovern
     return history[-1]
 
 
+def _load_governance_for_read(
+    connection: Connection,
+    family_id: str,
+) -> ExperimentGovernanceSnapshot:
+    history = _load_snapshot_history(connection, family_id)
+    _verify_audits(connection, history)
+    return history[-1]
+
+
 def _attempt(snapshot: ExperimentGovernanceSnapshot, attempt_id: str) -> ExperimentAttempt:
     try:
         return next(attempt for attempt in snapshot.attempts if attempt.attempt_id == attempt_id)
@@ -408,7 +710,7 @@ def _attempt(snapshot: ExperimentGovernanceSnapshot, attempt_id: str) -> Experim
 def _assert_job_context(
     projection: FixtureSegmentJobProjection,
     snapshot: ExperimentGovernanceSnapshot,
-) -> None:
+) -> tuple[ExperimentAttempt, ExperimentSegmentEvidence]:
     job = projection.job
     attempt = _attempt(snapshot, job.attempt_id)
     try:
@@ -417,6 +719,13 @@ def _assert_job_context(
         raise FixtureSegmentPersistenceConflict(
             "fixture job cannot resolve exact opened segment evidence"
         ) from error
+    feature_artifact = projection.feature_artifact
+    (
+        expected_feature_transcript_sha256,
+        _expected_feature_batch_result_sha256,
+        _expected_feature_incremental_result_sha256,
+        expected_feature_certification_sha256,
+    ) = _feature_transcript_commitments(source_evidence, feature_artifact)
     if (
         attempt.family_id != job.family_id
         or attempt.configuration.semantic_sha256 != job.configuration_sha256
@@ -425,41 +734,198 @@ def _assert_job_context(
         or attempt.segment_sha256 != job.segment_sha256
         or source_evidence.semantic_sha256 != job.source_evidence_sha256
         or source_evidence.feature_certification_sha256 != job.feature_certification_sha256
-        or projection.feature_artifact.certification_sha256 != job.feature_certification_sha256
+        or feature_artifact.kind is not FixtureTranscriptKind.FEATURE
+        or feature_artifact.segment_kind is not source_evidence.segment.kind
+        or feature_artifact.segment_sha256 != source_evidence.segment.semantic_sha256
+        or feature_artifact.source_evidence_sha256 != source_evidence.semantic_sha256
+        or feature_artifact.configuration_sha256 is not None
+        or feature_artifact.certification_sha256 != source_evidence.feature_certification_sha256
+        or feature_artifact.parity_receipt_sha256 != source_evidence.feature_parity_receipt_sha256
+        or feature_artifact.transcript_sha256 != source_evidence.feature_transcript_sha256
+        or feature_artifact.transcript_sha256 != expected_feature_transcript_sha256
+        or feature_artifact.certification_sha256 != expected_feature_certification_sha256
+        or len(feature_artifact.step_sha256s) != source_evidence.step_count
+        or len(feature_artifact.output_ids) != source_evidence.snapshot_count
     ):
         raise FixtureSegmentPersistenceConflict(
             "fixture job changed attempt, configuration, segment, or feature identity"
         )
+    return attempt, source_evidence
 
 
 def _verify_governance_link(
     projection: FixtureSegmentJobProjection,
     snapshot: ExperimentGovernanceSnapshot,
 ) -> None:
-    _assert_job_context(projection, snapshot)
-    latest = snapshot.latest_event(projection.job.attempt_id)
-    job_event = projection.latest
-    if latest.semantic_sha256 != job_event.governance_event_sha256:
-        raise FixtureSegmentPersistenceError(
-            "fixture job head diverges from governed attempt history"
-        )
+    attempt, source_evidence = _assert_job_context(projection, snapshot)
+    governance_events = tuple(
+        event
+        for event in snapshot.lifecycle_events
+        if event.attempt_id == projection.job.attempt_id
+    )
     expected_status = {
         FixtureSegmentJobStatus.QUEUED: ExperimentAttemptStatus.QUEUED,
         FixtureSegmentJobStatus.RUNNING: ExperimentAttemptStatus.RUNNING,
         FixtureSegmentJobStatus.COMPLETED: ExperimentAttemptStatus.COMPLETED,
         FixtureSegmentJobStatus.FAILED: ExperimentAttemptStatus.FAILED,
-    }[job_event.status]
-    if latest.status is not expected_status:
-        raise FixtureSegmentPersistenceError("fixture and governance terminal states disagree")
-    if latest.status is ExperimentAttemptStatus.RUNNING and (
-        latest.actor_id != projection.job.governed_actor_id
+    }[projection.latest.status]
+    expected_governance_statuses = (
+        (ExperimentAttemptStatus.QUEUED,)
+        if expected_status is ExperimentAttemptStatus.QUEUED
+        else (
+            ExperimentAttemptStatus.QUEUED,
+            ExperimentAttemptStatus.RUNNING,
+        )
+        if expected_status is ExperimentAttemptStatus.RUNNING
+        else (
+            ExperimentAttemptStatus.QUEUED,
+            ExperimentAttemptStatus.RUNNING,
+            expected_status,
+        )
+    )
+    if tuple(event.status for event in governance_events) != expected_governance_statuses or tuple(
+        event.attempt_sequence_number for event in governance_events
+    ) != tuple(range(len(expected_governance_statuses))):
+        raise FixtureSegmentPersistenceError("fixture and governance lifecycle shapes disagree")
+
+    queued_fixture_event = projection.events[0]
+    queued_governance_event = governance_events[0]
+    if (
+        projection.job.queued_governance_event_sha256 != queued_governance_event.semantic_sha256
+        or queued_fixture_event.governance_event_sha256 != queued_governance_event.semantic_sha256
     ):
-        raise FixtureSegmentPersistenceError("governed running actor changed fixture authority")
-    if latest.status is ExperimentAttemptStatus.COMPLETED and (
-        type(latest.terminal_evidence) is not GovernedSegmentEvaluationReceipt
-        or latest.terminal_evidence.semantic_sha256 != job_event.completion_receipt_sha256
-    ):
-        raise FixtureSegmentPersistenceError("fixture completion receipt is inconsistent")
+        raise FixtureSegmentPersistenceError(
+            "fixture queued event diverges from governed attempt history"
+        )
+
+    physical_running_events = tuple(
+        event for event in projection.events if event.status is FixtureSegmentJobStatus.RUNNING
+    )
+    if expected_status is not ExperimentAttemptStatus.QUEUED:
+        running_governance_event = governance_events[1]
+        if (
+            not physical_running_events
+            or physical_running_events[0].occurred_at != running_governance_event.occurred_at
+            or running_governance_event.actor_id != projection.job.governed_actor_id
+            or any(
+                event.governance_event_sha256 != running_governance_event.semantic_sha256
+                for event in physical_running_events
+            )
+        ):
+            raise FixtureSegmentPersistenceError(
+                "fixture claims diverge from the exact governed running event"
+            )
+    elif physical_running_events:
+        raise FixtureSegmentPersistenceError(
+            "queued fixture job unexpectedly retained a physical claim"
+        )
+
+    terminal_fixture_event = projection.latest
+    if expected_status not in {
+        ExperimentAttemptStatus.QUEUED,
+        ExperimentAttemptStatus.RUNNING,
+    }:
+        terminal_governance_event = governance_events[2]
+        if (
+            terminal_fixture_event.governance_event_sha256
+            != terminal_governance_event.semantic_sha256
+            or terminal_fixture_event.occurred_at != terminal_governance_event.occurred_at
+            or terminal_governance_event.actor_id != projection.job.governed_actor_id
+        ):
+            raise FixtureSegmentPersistenceError(
+                "fixture terminal event diverges from governed attempt history"
+            )
+
+    if expected_status is ExperimentAttemptStatus.FAILED:
+        terminal_governance_event = governance_events[2]
+        terminal_evidence = terminal_governance_event.terminal_evidence
+        expected_terminal_evidence = fixture_segment_failure_evidence(attempt)
+        if (
+            terminal_governance_event.family_id != projection.job.family_id
+            or type(terminal_evidence) is not NonExecutableTerminalEvidence
+            or terminal_evidence.attempt_id != projection.job.attempt_id
+            or terminal_evidence.status is not ExperimentAttemptStatus.FAILED
+            or terminal_evidence.reason_code != FIXTURE_SEGMENT_FAILURE_CODE
+            or terminal_evidence.detail != expected_terminal_evidence.detail
+            or terminal_evidence.semantic_sha256 != expected_terminal_evidence.semantic_sha256
+            or terminal_evidence != expected_terminal_evidence
+            or terminal_fixture_event.terminal_reason_code != FIXTURE_SEGMENT_FAILURE_CODE
+            or terminal_fixture_event.terminal_reason_sha256 != FIXTURE_SEGMENT_FAILURE_SHA256
+        ):
+            raise FixtureSegmentPersistenceError(
+                "fixture failure evidence diverges from its closed governance fact"
+            )
+
+    if expected_status is ExperimentAttemptStatus.COMPLETED:
+        terminal_governance_event = governance_events[2]
+        receipt = terminal_governance_event.terminal_evidence
+        target_artifact = projection.target_artifact
+        if (
+            type(receipt) is not GovernedSegmentEvaluationReceipt
+            or type(target_artifact) is not FixtureTranscriptArtifact
+        ):
+            raise FixtureSegmentPersistenceError(
+                "fixture completion evidence diverges from its governed receipt"
+            )
+        (
+            expected_target_transcript_sha256,
+            expected_target_batch_result_sha256,
+            expected_target_incremental_result_sha256,
+            expected_target_certification_sha256,
+        ) = _target_transcript_commitments(
+            source_evidence,
+            receipt,
+            target_artifact,
+        )
+        if (
+            terminal_fixture_event.completion_receipt_sha256 != receipt.semantic_sha256
+            or receipt.family_id != projection.job.family_id
+            or receipt.attempt_id != projection.job.attempt_id
+            or receipt.configuration_sha256 != projection.job.configuration_sha256
+            or receipt.configuration_validation_sha256
+            != projection.job.configuration_validation_sha256
+            or receipt.segment_kind is not projection.job.segment_kind
+            or receipt.segment_sha256 != projection.job.segment_sha256
+            or receipt.source_evidence_sha256 != source_evidence.semantic_sha256
+            or receipt.feature_certification_sha256 != source_evidence.feature_certification_sha256
+            or receipt.running_event_sha256 != governance_events[1].semantic_sha256
+            or receipt.started_at != governance_events[1].occurred_at
+            or receipt.completed_at != terminal_governance_event.occurred_at
+            or receipt.evaluated_by != terminal_governance_event.actor_id
+            or target_artifact.kind is not FixtureTranscriptKind.TARGET
+            or target_artifact.configuration_sha256 != receipt.configuration_sha256
+            or target_artifact.segment_kind is not receipt.segment_kind
+            or target_artifact.segment_sha256 != receipt.segment_sha256
+            or target_artifact.source_evidence_sha256 != receipt.source_evidence_sha256
+            or target_artifact.certification_sha256 != receipt.target_certification_sha256
+            or target_artifact.parity_receipt_sha256 != receipt.target_parity_receipt_sha256
+            or target_artifact.transcript_sha256 != receipt.target_transcript_sha256
+            or target_artifact.transcript_sha256 != expected_target_transcript_sha256
+            or receipt.batch_result_sha256 != expected_target_batch_result_sha256
+            or receipt.incremental_result_sha256 != expected_target_incremental_result_sha256
+            or target_artifact.certification_sha256 != expected_target_certification_sha256
+            or receipt.target_certification_sha256 != expected_target_certification_sha256
+            or len(target_artifact.step_sha256s) != receipt.step_count
+            or len(target_artifact.output_ids) != receipt.target_count
+        ):
+            raise FixtureSegmentPersistenceError(
+                "fixture completion evidence diverges from its governed receipt"
+            )
+        try:
+            receipt.require_context(
+                family=snapshot.family,
+                attempt=attempt,
+                running_event=governance_events[1],
+                source_evidence=source_evidence,
+            )
+        except DomainExperimentGovernanceError as error:
+            raise FixtureSegmentPersistenceError(
+                "fixture completion receipt changed its governance context"
+            ) from error
+    elif terminal_fixture_event.completion_receipt_sha256 is not None:
+        raise FixtureSegmentPersistenceError(
+            "non-completed fixture job retained completion evidence"
+        )
 
 
 def _verify_fixture_segment_integrity(connection: Connection) -> None:
@@ -479,6 +945,114 @@ def _verify_fixture_segment_integrity(connection: Connection) -> None:
         artifact = _artifact_from_row(row)
         if artifact.artifact_sha256 not in seen_artifacts:
             raise FixtureSegmentPersistenceError("fixture transcript artifact is orphaned")
+
+
+class SqlFixtureSegmentProvenanceQuery:
+    """Read-only authenticated Phase 3F job and transcript provenance queries."""
+
+    __slots__ = ("_engine",)
+
+    def __init__(self, engine: Engine) -> None:
+        if not isinstance(engine, Engine):
+            raise FixtureSegmentPersistenceError(
+                "fixture-segment provenance requires a SQLAlchemy engine"
+            )
+        if engine.dialect.name not in _SUPPORTED_DIALECTS:
+            raise FixtureSegmentPersistenceError(
+                f"fixture-segment provenance does not support {engine.dialect.name!r}"
+            )
+        self._engine = engine
+
+    def get(self, job_id: str) -> FixtureSegmentJobProvenance:
+        """Authenticate and return one complete stored provenance chain."""
+
+        if type(job_id) is not str or _SHA256_TEXT.fullmatch(job_id) is None:
+            raise FixtureSegmentPersistenceError("fixture provenance job ID must be a SHA-256")
+        try:
+            with _repeatable_read_transaction(self._engine) as connection:
+                projection = _projection(connection, _job(connection, job_id))
+                _verify_governance_link(
+                    projection,
+                    _load_governance_for_read(connection, projection.job.family_id),
+                )
+                return _provenance(projection)
+        except (
+            DomainExperimentGovernanceError,
+            PersistedExperimentGovernanceError,
+        ) as error:
+            raise FixtureSegmentPersistenceError(
+                "persisted fixture governance is unavailable or malformed"
+            ) from error
+
+    def jobs(
+        self,
+        *,
+        limit: int = 50,
+        before_job_id: str | None = None,
+    ) -> tuple[tuple[FixtureSegmentJobProvenanceSummary, ...], str | None]:
+        """Return a deterministic keyset page after authenticating every job."""
+
+        if type(limit) is not int or not 1 <= limit <= MAX_FIXTURE_SEGMENT_PROVENANCE_PAGE_SIZE:
+            raise FixtureSegmentPersistenceError(
+                "fixture provenance query limit must be between 1 and 100"
+            )
+        if before_job_id is not None and (
+            type(before_job_id) is not str or _SHA256_TEXT.fullmatch(before_job_id) is None
+        ):
+            raise FixtureSegmentPersistenceError(
+                "fixture provenance cursor must be a SHA-256 job ID"
+            )
+        try:
+            with _repeatable_read_transaction(self._engine) as connection:
+                anchor: FixtureSegmentJobProjection | None = None
+                if before_job_id is not None:
+                    anchor = _projection(connection, _job(connection, before_job_id))
+                    _verify_governance_link(
+                        anchor,
+                        _load_governance_for_read(connection, anchor.job.family_id),
+                    )
+
+                statement = sa.select(phase3_fixture_segment_jobs.c.job_id).order_by(
+                    phase3_fixture_segment_jobs.c.requested_at.desc(),
+                    phase3_fixture_segment_jobs.c.job_id,
+                )
+                if anchor is not None:
+                    statement = statement.where(
+                        sa.or_(
+                            phase3_fixture_segment_jobs.c.requested_at < anchor.job.requested_at,
+                            sa.and_(
+                                phase3_fixture_segment_jobs.c.requested_at
+                                == anchor.job.requested_at,
+                                phase3_fixture_segment_jobs.c.job_id > anchor.job.job_id,
+                            ),
+                        )
+                    )
+                job_ids = tuple(connection.scalars(statement.limit(limit + 1)))
+                governance_by_family: dict[str, ExperimentGovernanceSnapshot] = {}
+                summaries: list[FixtureSegmentJobProvenanceSummary] = []
+                for index, job_id in enumerate(job_ids):
+                    projection = _projection(connection, _job(connection, str(job_id)))
+                    governance = governance_by_family.get(projection.job.family_id)
+                    if governance is None:
+                        governance = _load_governance_for_read(
+                            connection,
+                            projection.job.family_id,
+                        )
+                        governance_by_family[projection.job.family_id] = governance
+                    _verify_governance_link(projection, governance)
+                    if index < limit:
+                        summaries.append(_provenance_summary(projection))
+                next_before_job_id = (
+                    summaries[-1].job_id if len(job_ids) > limit and summaries else None
+                )
+                return tuple(summaries), next_before_job_id
+        except (
+            DomainExperimentGovernanceError,
+            PersistedExperimentGovernanceError,
+        ) as error:
+            raise FixtureSegmentPersistenceError(
+                "persisted fixture governance is unavailable or malformed"
+            ) from error
 
 
 class SqlFixtureSegmentWorkflow:
@@ -838,15 +1412,7 @@ class SqlFixtureSegmentWorkflow:
                     return prior
                 _verify_governance_link(prior, current)
                 attempt = _attempt(current, prior.job.attempt_id)
-                terminal_evidence = NonExecutableTerminalEvidence.unsuccessful(
-                    attempt,
-                    status=ExperimentAttemptStatus.FAILED,
-                    reason_code=reason_code,
-                    detail=(
-                        "Bounded fixture-segment evaluation failed; raw exception text was not "
-                        "retained."
-                    ),
-                )
+                terminal_evidence = fixture_segment_failure_evidence(attempt)
                 proposed = current.transition_attempt(
                     prior.job.attempt_id,
                     status=ExperimentAttemptStatus.FAILED,
@@ -945,8 +1511,14 @@ class SqlFixtureSegmentWorkflow:
 
 __all__ = [
     "FIXTURE_SEGMENT_WORKER_CONTRACT_VERSION",
+    "MAX_FIXTURE_SEGMENT_PROVENANCE_PAGE_SIZE",
+    "FixtureSegmentEventProvenance",
+    "FixtureSegmentJobProvenance",
+    "FixtureSegmentJobProvenanceSummary",
     "FixtureSegmentNotFound",
     "FixtureSegmentPersistenceConflict",
     "FixtureSegmentPersistenceError",
+    "FixtureTranscriptProvenance",
+    "SqlFixtureSegmentProvenanceQuery",
     "SqlFixtureSegmentWorkflow",
 ]

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from dataclasses import replace
+from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Barrier
 
@@ -13,22 +14,39 @@ from sqlalchemy import Engine
 from sqlalchemy.dialects import postgresql
 
 from packages.application.fixture_segment_worker import process_one_fixture_segment
-from packages.domain.experiment_governance import ExperimentAttemptStatus
+from packages.domain.experiment_governance import (
+    ExperimentAttemptStatus,
+    NonExecutableTerminalEvidence,
+)
 from packages.domain.experiment_registry import EvaluationSegmentKind
 from packages.domain.feature import CertifiedFeatureReplay
 from packages.domain.fixture_segment_worker import (
     FIXTURE_SEGMENT_FAILURE_CODE,
+    FIXTURE_SEGMENT_FAILURE_DETAIL,
     FIXTURE_SEGMENT_FAILURE_SHA256,
     FixtureSegmentJob,
+    FixtureSegmentJobEvent,
     FixtureSegmentJobProjection,
     FixtureSegmentJobStatus,
+    FixtureTranscriptArtifact,
+    _event,
+    claim_fixture_segment_job,
+    queue_fixture_segment_job,
 )
 from packages.persistence.database import verify_operational_schema
+from packages.persistence.experiment_governance import SqlExperimentGovernance
 from packages.persistence.fixture_segment_worker import (
+    FixtureSegmentNotFound,
     FixtureSegmentPersistenceConflict,
     FixtureSegmentPersistenceError,
+    SqlFixtureSegmentProvenanceQuery,
     SqlFixtureSegmentWorkflow,
+    _artifact_values,
+    _event_values,
+    _head_values,
     _job_head_statement,
+    _job_values,
+    _verify_governance_link,
 )
 from packages.persistence.schema import (
     phase3_fixture_segment_job_events,
@@ -38,6 +56,7 @@ from packages.persistence.schema import (
 )
 from tests.integration.test_experiment_governance_persistence import (
     _persist_attempt,
+    _persist_transition,
     _registered_repository,
 )
 from tests.unit.test_experiment_governance import (
@@ -77,6 +96,180 @@ def _queued_workflow(
         requested_by="phase3f-scheduler",
     )
     return fixture, engine, workflow, job
+
+
+def _enqueue_additional_job(
+    engine: Engine,
+    workflow: SqlFixtureSegmentWorkflow,
+    fixture: GovernanceFixture,
+    *,
+    attempt_requested_at: datetime,
+    job_requested_at: datetime,
+    key: str,
+) -> FixtureSegmentJobProjection:
+    current = workflow.governance_snapshot(fixture.family.family_id)
+    proposed = _request(
+        current,
+        fixture,
+        kind=EvaluationSegmentKind.VALIDATION,
+        requested_at=attempt_requested_at,
+    )
+    queued = _persist_attempt(
+        SqlExperimentGovernance(engine),
+        current,
+        proposed,
+        key=key,
+    )
+    return workflow.enqueue(
+        queued,
+        queued.attempts[-1].attempt_id,
+        fixture.validation_certification,
+        requested_at=job_requested_at,
+        requested_by="phase3f-scheduler",
+    )
+
+
+def _replace_persisted_fixture_projection(
+    engine: Engine,
+    prior: FixtureSegmentJobProjection,
+    replacement: FixtureSegmentJobProjection,
+) -> None:
+    """Replace one fixture ledger with a fully rehashed, internally valid variant."""
+
+    assert replacement.job.job_id == prior.job.job_id
+    with engine.begin() as connection:
+        connection.execute(
+            sa.delete(phase3_fixture_segment_job_heads).where(
+                phase3_fixture_segment_job_heads.c.job_id == prior.job.job_id
+            )
+        )
+        for event in reversed(prior.events):
+            connection.execute(
+                sa.delete(phase3_fixture_segment_job_events).where(
+                    phase3_fixture_segment_job_events.c.event_sha256 == event.event_sha256
+                )
+            )
+        connection.execute(
+            sa.delete(phase3_fixture_segment_jobs).where(
+                phase3_fixture_segment_jobs.c.job_id == prior.job.job_id
+            )
+        )
+        connection.execute(
+            sa.delete(phase3_fixture_segment_transcript_artifacts).where(
+                phase3_fixture_segment_transcript_artifacts.c.attempt_id == prior.job.attempt_id
+            )
+        )
+        connection.execute(
+            sa.insert(phase3_fixture_segment_transcript_artifacts).values(
+                **_artifact_values(replacement.feature_artifact)
+            )
+        )
+        if replacement.target_artifact is not None:
+            connection.execute(
+                sa.insert(phase3_fixture_segment_transcript_artifacts).values(
+                    **_artifact_values(replacement.target_artifact)
+                )
+            )
+        connection.execute(
+            sa.insert(phase3_fixture_segment_jobs).values(**_job_values(replacement.job))
+        )
+        for event in replacement.events:
+            connection.execute(
+                sa.insert(phase3_fixture_segment_job_events).values(**_event_values(event))
+            )
+        connection.execute(
+            sa.insert(phase3_fixture_segment_job_heads).values(**_head_values(replacement))
+        )
+
+
+def _artifact_variant(
+    artifact: FixtureTranscriptArtifact,
+    **changes: object,
+) -> FixtureTranscriptArtifact:
+    values: dict[str, object] = {
+        "kind": artifact.kind,
+        "family_id": artifact.family_id,
+        "attempt_id": artifact.attempt_id,
+        "segment_kind": artifact.segment_kind,
+        "segment_sha256": artifact.segment_sha256,
+        "source_evidence_sha256": artifact.source_evidence_sha256,
+        "configuration_sha256": artifact.configuration_sha256,
+        "certification_sha256": artifact.certification_sha256,
+        "parity_receipt_sha256": artifact.parity_receipt_sha256,
+        "transcript_sha256": artifact.transcript_sha256,
+        "step_sha256s": artifact.step_sha256s,
+        "output_ids": artifact.output_ids,
+    }
+    values.update(changes)
+    return FixtureTranscriptArtifact._restore(**values)  # type: ignore[arg-type]
+
+
+def _event_variant(
+    event: FixtureSegmentJobEvent,
+    **changes: object,
+) -> FixtureSegmentJobEvent:
+    values: dict[str, object] = {
+        "job_id": event.job_id,
+        "sequence": event.sequence,
+        "status": event.status,
+        "occurred_at": event.occurred_at,
+        "actor_id": event.actor_id,
+        "attempt_number": event.attempt_number,
+        "previous_event_sha256": event.previous_event_sha256,
+        "worker_id": event.worker_id,
+        "claim_expires_at": event.claim_expires_at,
+        "governance_event_sha256": event.governance_event_sha256,
+        "feature_artifact_sha256": event.feature_artifact_sha256,
+        "target_artifact_sha256": event.target_artifact_sha256,
+        "completion_receipt_sha256": event.completion_receipt_sha256,
+        "terminal_reason_code": event.terminal_reason_code,
+        "terminal_reason_sha256": event.terminal_reason_sha256,
+    }
+    values.update(changes)
+    return _event(**values)
+
+
+def _projection_with_feature_variant(
+    projection: FixtureSegmentJobProjection,
+    feature_artifact: FixtureTranscriptArtifact,
+) -> FixtureSegmentJobProjection:
+    job = replace(
+        projection.job,
+        feature_transcript_artifact_sha256=feature_artifact.artifact_sha256,
+    )
+    events: list[FixtureSegmentJobEvent] = []
+    previous: str | None = None
+    for event in projection.events:
+        rebuilt = _event_variant(
+            event,
+            previous_event_sha256=previous,
+            feature_artifact_sha256=feature_artifact.artifact_sha256,
+        )
+        events.append(rebuilt)
+        previous = rebuilt.event_sha256
+    return FixtureSegmentJobProjection(
+        job=job,
+        feature_artifact=feature_artifact,
+        events=tuple(events),
+        target_artifact=projection.target_artifact,
+    )
+
+
+def _projection_with_target_variant(
+    projection: FixtureSegmentJobProjection,
+    target_artifact: FixtureTranscriptArtifact,
+) -> FixtureSegmentJobProjection:
+    assert projection.target_artifact is not None
+    terminal = _event_variant(
+        projection.latest,
+        target_artifact_sha256=target_artifact.artifact_sha256,
+    )
+    return FixtureSegmentJobProjection(
+        job=projection.job,
+        feature_artifact=projection.feature_artifact,
+        events=(*projection.events[:-1], terminal),
+        target_artifact=target_artifact,
+    )
 
 
 def test_durable_worker_publishes_transcripts_and_governed_receipt_atomically(
@@ -445,6 +638,436 @@ def test_corrupt_transcript_or_head_fails_closed(tmp_path: Path) -> None:
 
     with pytest.raises(FixtureSegmentPersistenceError, match="head diverges"):
         workflow.get(queued.job.job_id)
+
+
+def test_provenance_query_is_keyset_paginated_deterministic_and_bounded(
+    tmp_path: Path,
+) -> None:
+    fixture, engine, workflow, first = _queued_workflow(tmp_path)
+    tied = _enqueue_additional_job(
+        engine,
+        workflow,
+        fixture,
+        attempt_requested_at=FIRST_ATTEMPT_AT + timedelta(milliseconds=500),
+        job_requested_at=first.job.requested_at,
+        key="phase3g-tied-validation-attempt",
+    )
+    newest = _enqueue_additional_job(
+        engine,
+        workflow,
+        fixture,
+        attempt_requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=1),
+        job_requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=2),
+        key="phase3g-newest-validation-attempt",
+    )
+    query = SqlFixtureSegmentProvenanceQuery(engine)
+
+    page_one, cursor = query.jobs(limit=2)
+    expected_tie_order = sorted((first.job.job_id, tied.job.job_id))
+    assert [job.job_id for job in page_one] == [newest.job.job_id, expected_tie_order[0]]
+    assert cursor == expected_tie_order[0]
+    for summary in page_one:
+        for forbidden_attribute in (
+            "events",
+            "feature_artifact",
+            "target_artifact",
+            "transcript_payload",
+            "step_sha256s",
+            "output_ids",
+        ):
+            assert not hasattr(summary, forbidden_attribute)
+    page_two, final_cursor = query.jobs(limit=2, before_job_id=cursor)
+    assert [job.job_id for job in page_two] == [expected_tie_order[1]]
+    assert final_cursor is None
+    assert query.jobs(limit=2) == (page_one, cursor)
+
+    for invalid_limit in (0, 101, True):
+        with pytest.raises(FixtureSegmentPersistenceError, match="between 1 and 100"):
+            query.jobs(limit=invalid_limit)
+    with pytest.raises(FixtureSegmentPersistenceError, match="cursor must be a SHA-256"):
+        query.jobs(before_job_id="not-a-digest")
+    with pytest.raises(FixtureSegmentNotFound, match="unknown fixture-segment job"):
+        query.jobs(before_job_id="f" * 64)
+    with pytest.raises(FixtureSegmentNotFound, match="unknown fixture-segment job"):
+        query.get("e" * 64)
+
+
+def test_provenance_query_authenticates_corrupt_lookahead_before_emitting_cursor(
+    tmp_path: Path,
+) -> None:
+    fixture, engine, workflow, first = _queued_workflow(tmp_path)
+    _enqueue_additional_job(
+        engine,
+        workflow,
+        fixture,
+        attempt_requested_at=FIRST_ATTEMPT_AT + timedelta(milliseconds=500),
+        job_requested_at=first.job.requested_at,
+        key="phase3g-lookahead-validation-attempt",
+    )
+    newest = _enqueue_additional_job(
+        engine,
+        workflow,
+        fixture,
+        attempt_requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=1),
+        job_requested_at=FIRST_ATTEMPT_AT + timedelta(seconds=2),
+        key="phase3g-lookahead-newest-attempt",
+    )
+    query = SqlFixtureSegmentProvenanceQuery(engine)
+    ordered, _cursor = query.jobs(limit=3)
+    assert ordered[0].job_id == newest.job.job_id
+    corrupt_lookahead_job_id = ordered[1].job_id
+    with engine.begin() as connection:
+        connection.execute(
+            sa.update(phase3_fixture_segment_job_events)
+            .where(
+                phase3_fixture_segment_job_events.c.job_id == corrupt_lookahead_job_id,
+                phase3_fixture_segment_job_events.c.sequence_number == 0,
+            )
+            .values(canonical_payload="{}")
+        )
+
+    with pytest.raises(FixtureSegmentPersistenceError, match="event digest is inconsistent"):
+        query.jobs(limit=1)
+
+
+def test_provenance_detail_rejects_fully_rehashed_queued_link_substitution(
+    tmp_path: Path,
+) -> None:
+    fixture, engine, workflow, queued = _queued_workflow(tmp_path)
+    current = workflow.governance_snapshot(fixture.family.family_id)
+    proposed = _request(
+        current,
+        fixture,
+        kind=EvaluationSegmentKind.VALIDATION,
+        requested_at=FIRST_ATTEMPT_AT + timedelta(milliseconds=500),
+    )
+    other_attempt = _persist_attempt(
+        SqlExperimentGovernance(engine),
+        current,
+        proposed,
+        key="phase3g-substituted-queued-link",
+    )
+    other_queued_event = other_attempt.latest_event(other_attempt.attempts[-1].attempt_id)
+    replacement_job = replace(
+        queued.job,
+        queued_governance_event_sha256=other_queued_event.semantic_sha256,
+    )
+    replacement = queue_fixture_segment_job(replacement_job, queued.feature_artifact)
+    _replace_persisted_fixture_projection(engine, queued, replacement)
+
+    with pytest.raises(FixtureSegmentPersistenceError, match="queued event diverges"):
+        SqlFixtureSegmentProvenanceQuery(engine).get(queued.job.job_id)
+
+
+def test_provenance_cursor_anchor_rejects_fully_rehashed_running_link_substitution(
+    tmp_path: Path,
+) -> None:
+    _fixture_value, engine, workflow, queued = _queued_workflow(tmp_path)
+    claimed_at = FIRST_ATTEMPT_AT + timedelta(minutes=1)
+    claim_expires_at = FIRST_ATTEMPT_AT + timedelta(minutes=6)
+    claimed = workflow.claim_next(
+        worker_id="phase3g-physical-worker",
+        claimed_at=claimed_at,
+        claim_expires_at=claim_expires_at,
+    )
+    assert claimed is not None
+    replacement = claim_fixture_segment_job(
+        queued,
+        worker_id="phase3g-physical-worker",
+        claimed_at=claimed_at,
+        claim_expires_at=claim_expires_at,
+        governance_running_event_sha256=queued.job.queued_governance_event_sha256,
+    )
+    _replace_persisted_fixture_projection(engine, claimed, replacement)
+
+    with pytest.raises(FixtureSegmentPersistenceError, match="exact governed running event"):
+        SqlFixtureSegmentProvenanceQuery(engine).jobs(before_job_id=queued.job.job_id)
+
+
+def test_provenance_rejects_extra_and_missing_governance_lifecycle_shape(
+    tmp_path: Path,
+) -> None:
+    _fixture_value, engine, workflow, queued = _queued_workflow(tmp_path / "extra")
+    current = workflow.governance_snapshot(queued.job.family_id)
+    attempt = next(item for item in current.attempts if item.attempt_id == queued.job.attempt_id)
+    failed_evidence = NonExecutableTerminalEvidence.unsuccessful(
+        attempt,
+        status=ExperimentAttemptStatus.FAILED,
+        reason_code="external_bounded_failure",
+        detail="An external terminal fact must not be hidden by a queued fixture ledger.",
+    )
+    externally_failed = current.transition_attempt(
+        attempt.attempt_id,
+        status=ExperimentAttemptStatus.FAILED,
+        occurred_at=FIRST_ATTEMPT_AT + timedelta(minutes=1),
+        actor_id="external-governance-actor",
+        terminal_evidence=failed_evidence,
+    )
+    _persist_transition(
+        SqlExperimentGovernance(engine),
+        current,
+        externally_failed,
+        key="phase3g-extra-governance-terminal",
+    )
+    with pytest.raises(FixtureSegmentPersistenceError, match="lifecycle shapes disagree"):
+        SqlFixtureSegmentProvenanceQuery(engine).get(queued.job.job_id)
+
+    _fixture_value, engine, workflow, queued = _queued_workflow(tmp_path / "missing")
+    claimed = workflow.claim_next(
+        worker_id="phase3g-physical-worker",
+        claimed_at=FIRST_ATTEMPT_AT + timedelta(minutes=1),
+        claim_expires_at=FIRST_ATTEMPT_AT + timedelta(minutes=6),
+    )
+    assert claimed is not None and claimed.latest.worker_id is not None
+    fake_terminal = _event(
+        job_id=claimed.job.job_id,
+        sequence=2,
+        status=FixtureSegmentJobStatus.FAILED,
+        occurred_at=FIRST_ATTEMPT_AT + timedelta(minutes=2),
+        actor_id=claimed.latest.worker_id,
+        attempt_number=claimed.latest.attempt_number,
+        previous_event_sha256=claimed.latest.event_sha256,
+        worker_id=claimed.latest.worker_id,
+        claim_expires_at=None,
+        governance_event_sha256=claimed.latest.governance_event_sha256,
+        feature_artifact_sha256=claimed.feature_artifact.artifact_sha256,
+        target_artifact_sha256=None,
+        completion_receipt_sha256=None,
+        terminal_reason_code=FIXTURE_SEGMENT_FAILURE_CODE,
+        terminal_reason_sha256=FIXTURE_SEGMENT_FAILURE_SHA256,
+    )
+    replacement = FixtureSegmentJobProjection(
+        job=claimed.job,
+        feature_artifact=claimed.feature_artifact,
+        events=(*claimed.events, fake_terminal),
+    )
+    _replace_persisted_fixture_projection(engine, claimed, replacement)
+    with pytest.raises(FixtureSegmentPersistenceError, match="lifecycle shapes disagree"):
+        SqlFixtureSegmentProvenanceQuery(engine).get(queued.job.job_id)
+
+
+@pytest.mark.parametrize(
+    ("reason_code", "detail", "key"),
+    (
+        (
+            "different_bounded_reason",
+            FIXTURE_SEGMENT_FAILURE_DETAIL,
+            "phase3g-rehashed-governance-failure-reason",
+        ),
+        (
+            FIXTURE_SEGMENT_FAILURE_CODE,
+            "A different bounded terminal detail.",
+            "phase3g-rehashed-governance-failure-detail",
+        ),
+    ),
+)
+def test_provenance_rejects_fully_rehashed_governance_failure_evidence(
+    tmp_path: Path,
+    reason_code: str,
+    detail: str,
+    key: str,
+) -> None:
+    _fixture_value, engine, workflow, queued = _queued_workflow(tmp_path)
+    claimed = workflow.claim_next(
+        worker_id="phase3g-physical-worker",
+        claimed_at=FIRST_ATTEMPT_AT + timedelta(minutes=1),
+        claim_expires_at=FIRST_ATTEMPT_AT + timedelta(minutes=6),
+    )
+    assert claimed is not None and claimed.latest.worker_id is not None
+    current = workflow.governance_snapshot(queued.job.family_id)
+    attempt = next(item for item in current.attempts if item.attempt_id == queued.job.attempt_id)
+    substituted_evidence = NonExecutableTerminalEvidence.unsuccessful(
+        attempt,
+        status=ExperimentAttemptStatus.FAILED,
+        reason_code=reason_code,
+        detail=detail,
+    )
+    proposed = current.transition_attempt(
+        attempt.attempt_id,
+        status=ExperimentAttemptStatus.FAILED,
+        occurred_at=FIRST_ATTEMPT_AT + timedelta(minutes=2),
+        actor_id=queued.job.governed_actor_id,
+        terminal_evidence=substituted_evidence,
+    )
+    persisted = _persist_transition(
+        SqlExperimentGovernance(engine),
+        current,
+        proposed,
+        key=key,
+    )
+    substituted_governance_event = persisted.latest_event(attempt.attempt_id)
+    terminal = _event(
+        job_id=claimed.job.job_id,
+        sequence=len(claimed.events),
+        status=FixtureSegmentJobStatus.FAILED,
+        occurred_at=substituted_governance_event.occurred_at,
+        actor_id=claimed.latest.worker_id,
+        attempt_number=claimed.latest.attempt_number,
+        previous_event_sha256=claimed.latest.event_sha256,
+        worker_id=claimed.latest.worker_id,
+        claim_expires_at=None,
+        governance_event_sha256=substituted_governance_event.semantic_sha256,
+        feature_artifact_sha256=claimed.feature_artifact.artifact_sha256,
+        target_artifact_sha256=None,
+        completion_receipt_sha256=None,
+        terminal_reason_code=FIXTURE_SEGMENT_FAILURE_CODE,
+        terminal_reason_sha256=FIXTURE_SEGMENT_FAILURE_SHA256,
+    )
+    replacement = FixtureSegmentJobProjection(
+        job=claimed.job,
+        feature_artifact=claimed.feature_artifact,
+        events=(*claimed.events, terminal),
+    )
+    _replace_persisted_fixture_projection(engine, claimed, replacement)
+
+    query = SqlFixtureSegmentProvenanceQuery(engine)
+    with pytest.raises(FixtureSegmentPersistenceError, match="closed governance fact"):
+        query.get(queued.job.job_id)
+    with pytest.raises(FixtureSegmentPersistenceError, match="closed governance fact"):
+        query.jobs(limit=1)
+
+
+def test_provenance_selected_row_rejects_fully_rehashed_feature_metadata(
+    tmp_path: Path,
+) -> None:
+    _fixture_value, engine, _workflow, queued = _queued_workflow(tmp_path)
+    substituted_steps = ("a" * 64, *queued.feature_artifact.step_sha256s[1:])
+    assert substituted_steps != queued.feature_artifact.step_sha256s
+    replacement_artifact = _artifact_variant(
+        queued.feature_artifact,
+        step_sha256s=substituted_steps,
+    )
+    replacement = _projection_with_feature_variant(queued, replacement_artifact)
+    _replace_persisted_fixture_projection(engine, queued, replacement)
+
+    with pytest.raises(FixtureSegmentPersistenceError, match="feature identity"):
+        SqlFixtureSegmentProvenanceQuery(engine).jobs(limit=1)
+
+
+def test_provenance_lookahead_rejects_fully_rehashed_target_metadata(
+    tmp_path: Path,
+) -> None:
+    fixture, engine, workflow, _queued = _queued_workflow(tmp_path)
+    claimed = workflow.claim_next(
+        worker_id="phase3g-physical-worker",
+        claimed_at=FIRST_ATTEMPT_AT + timedelta(minutes=1),
+        claim_expires_at=FIRST_ATTEMPT_AT + timedelta(minutes=6),
+    )
+    assert claimed is not None and claimed.claim_token is not None
+    completed = workflow.complete(
+        claimed.job.job_id,
+        claimed.claim_token,
+        _target_certification(fixture.validation_certification, fixture.configuration),
+        completed_at=FIRST_ATTEMPT_AT + timedelta(minutes=2),
+    )
+    newest = _enqueue_additional_job(
+        engine,
+        workflow,
+        fixture,
+        attempt_requested_at=FIRST_ATTEMPT_AT + timedelta(minutes=3),
+        job_requested_at=FIRST_ATTEMPT_AT + timedelta(minutes=3, seconds=1),
+        key="phase3g-target-lookahead-newest",
+    )
+    assert completed.target_artifact is not None
+    substituted_steps = ("d" * 64, *completed.target_artifact.step_sha256s[1:])
+    assert substituted_steps != completed.target_artifact.step_sha256s
+    replacement_artifact = _artifact_variant(
+        completed.target_artifact,
+        step_sha256s=substituted_steps,
+    )
+    replacement = _projection_with_target_variant(completed, replacement_artifact)
+    _replace_persisted_fixture_projection(engine, completed, replacement)
+
+    query = SqlFixtureSegmentProvenanceQuery(engine)
+    with pytest.raises(FixtureSegmentPersistenceError, match="governed receipt"):
+        query.jobs(limit=1)
+    with pytest.raises(FixtureSegmentPersistenceError, match="governed receipt"):
+        query.get(completed.job.job_id)
+    assert newest.job.requested_at > completed.job.requested_at
+
+
+def test_governance_verifier_cross_binds_every_feature_and_target_artifact_field(
+    tmp_path: Path,
+) -> None:
+    fixture, _engine, workflow, _queued = _queued_workflow(tmp_path)
+    claimed = workflow.claim_next(
+        worker_id="phase3g-physical-worker",
+        claimed_at=FIRST_ATTEMPT_AT + timedelta(minutes=1),
+        claim_expires_at=FIRST_ATTEMPT_AT + timedelta(minutes=6),
+    )
+    assert claimed is not None and claimed.claim_token is not None
+    completed = workflow.complete(
+        claimed.job.job_id,
+        claimed.claim_token,
+        _target_certification(fixture.validation_certification, fixture.configuration),
+        completed_at=FIRST_ATTEMPT_AT + timedelta(minutes=2),
+    )
+    snapshot = workflow.governance_snapshot(completed.job.family_id)
+    feature = completed.feature_artifact
+    assert completed.target_artifact is not None
+    target = completed.target_artifact
+
+    feature_variants = (
+        _artifact_variant(feature, segment_kind=EvaluationSegmentKind.TRAIN),
+        _artifact_variant(feature, segment_sha256="1" * 64),
+        _artifact_variant(feature, source_evidence_sha256="2" * 64),
+        _artifact_variant(feature, certification_sha256="3" * 64),
+        _artifact_variant(feature, parity_receipt_sha256="4" * 64),
+        _artifact_variant(feature, transcript_sha256="5" * 64),
+        _artifact_variant(feature, step_sha256s=("6" * 64, *feature.step_sha256s[1:])),
+        _artifact_variant(feature, output_ids=(*feature.output_ids, "extra-feature-output")),
+    )
+    for variant in feature_variants:
+        with pytest.raises(FixtureSegmentPersistenceError, match="feature identity"):
+            _verify_governance_link(
+                _projection_with_feature_variant(completed, variant),
+                snapshot,
+            )
+
+    target_variants = (
+        _artifact_variant(target, configuration_sha256="7" * 64),
+        _artifact_variant(target, segment_kind=EvaluationSegmentKind.TRAIN),
+        _artifact_variant(target, segment_sha256="8" * 64),
+        _artifact_variant(target, source_evidence_sha256="9" * 64),
+        _artifact_variant(target, certification_sha256="a" * 64),
+        _artifact_variant(target, parity_receipt_sha256="b" * 64),
+        _artifact_variant(target, transcript_sha256="c" * 64),
+        _artifact_variant(target, step_sha256s=("d" * 64, *target.step_sha256s[1:])),
+        _artifact_variant(target, output_ids=(*target.output_ids, "extra-target-output")),
+    )
+    for variant in target_variants:
+        with pytest.raises((FixtureSegmentPersistenceError, ValueError)):
+            _verify_governance_link(
+                _projection_with_target_variant(completed, variant),
+                snapshot,
+            )
+
+
+def test_provenance_query_exports_only_the_allowlisted_redacted_shape(
+    tmp_path: Path,
+) -> None:
+    _fixture_value, engine, _workflow, queued = _queued_workflow(tmp_path)
+    provenance = SqlFixtureSegmentProvenanceQuery(engine).get(queued.job.job_id)
+
+    assert provenance.feature_artifact.transcript_payload_sha256
+    for value in (
+        provenance,
+        provenance.feature_artifact,
+        provenance.events[0],
+    ):
+        for forbidden_attribute in (
+            "transcript_payload",
+            "step_sha256s",
+            "output_ids",
+            "requested_by",
+            "actor_id",
+            "worker_id",
+            "segment_sha256",
+            "source_evidence_sha256",
+            "terminal_reason_code",
+            "terminal_reason_sha256",
+        ):
+            assert not hasattr(value, forbidden_attribute)
 
 
 def test_application_worker_success_failure_and_uncaught_crash_boundary(tmp_path: Path) -> None:

@@ -43,10 +43,10 @@ manifest-bound feature and feature-derived target parity proofs for one
 reference path plus a durable bounded experiment-governance registry with
 opaque pre-reveal holdout commitments, configuration-bound target-evaluation
 receipts, a durable fixture-only segment worker with immutable transcripts, a
-fail-closed captured-tape validity gate, and read-only governance inspection.
-General segment workers and process isolation, queryable transcript views,
-performance evaluation, qualified captured tape, shadow, and broader research-
-UI work are not complete. The repository does not
+fail-closed captured-tape validity gate, read-only governance inspection, and
+bounded authenticated fixture-job/transcript provenance views. General segment
+workers and process isolation, economic/performance views, qualified captured
+tape, shadow, and broader research-UI work are not complete. The repository does not
 implement the target paper/live topology below. ADR 0096 selects E\*TRADE
 production as the future live venue but adds no E\*TRADE runtime or authority;
 the Phase 4 chronology that follows describes immutable historical Alpaca paper
@@ -3146,6 +3146,66 @@ adjudication, captured-tape positive eligibility, provider I/O, shadow replay,
 promotion, deployment, source/admission effect, broker operation, or trading
 authority. Phase 3 and its exit gate remain open. See
 [ADR 0117](adr/0117-durable-fixture-segment-worker.md).
+
+### Current Phase 3G authenticated fixture provenance views
+
+Phase 3G composes a dedicated `SqlFixtureSegmentProvenanceQuery`, rather than
+the Phase 3F worker repository, into two GET-only research routes. Before
+returning one job, the query reconstructs and authenticates its immutable job,
+feature artifact, complete event chain, optional target artifact, checked head,
+complete governance history and audits, current attempt identity, lifecycle
+status, and completion linkage inside one repeatable-read snapshot. List reads
+perform the same verification for every row plus the one-row lookahead before
+publishing continuation metadata. A supplied cursor is fully authenticated
+before its ordering key can affect a query.
+
+The cross-ledger verifier requires the exact per-attempt governance shape: the
+job and fixture sequence zero bind governance sequence-zero `QUEUED`; every
+physical claim, renewal, and takeover binds the single governed `RUNNING`
+event; and the terminal fixture event binds the exact governed terminal status,
+time, and completion receipt. Feature transcript identity fields and counts are
+cross-bound to reconstructed segment evidence, while successful target fields
+and counts are cross-bound to the governed evaluation receipt. The verifier
+recomputes each ordered feature and target step tuple through its independently
+governed transcript/result/certification commitment. Failed jobs require the
+one fixed governed non-executable reason, detail, and semantic identity. Extra,
+missing, or substituted lifecycle and authenticated artifact facts fail closed.
+Output cardinality is governed, but the ordered output-member tuples have no
+independent governed root; they and every identity whose only anchor is the
+stored artifact payload remain outside the public claim.
+
+Job pages use the deterministic keyset order `requested_at DESC, job_id ASC`,
+with a maximum of 100 results. List reads authenticate all events but expose
+only the selected list rows as constant-size immutable summaries with no event
+or artifact collections. The API rejects a returned cursor row, duplicate job
+identities, or any page that diverges from the exact timestamp/identity order.
+Detail reads require the returned job identity to equal the requested path and
+expose at most 100 events at a time, latest first, through an exact sequence
+cursor whose response field is required but nullable. Event identities are
+globally unique; queued, running, and terminal governance roles are pairwise
+distinct, while every physical running event shares the one running identity.
+Missing
+job, list-cursor, and event-cursor cases share one generic not-found response;
+corrupt or malformed durable evidence yields one generic unavailable response.
+
+The persistence boundary constructs frozen allowlisted provenance values only
+after verification. Internal query records retain the proof links needed to
+validate exact DTO structure, but views contain only opaque job, family,
+attempt, configuration, validation, governance, certification, transcript,
+parity, and completion digests; independently governed bounded counts; segment
+kind; lifecycle status and ordinals; and safe timestamps. They structurally
+omit artifact/transcript-payload identities, event/predecessor/artifact-link
+identities, transcript payloads, ordered step/output members, segment and
+source-evidence identities, holdout material, configuration values, caller-
+controlled requester/actor/worker labels, terminal-reason material, target
+contents, positions, returns, P&L, metrics, criteria outcomes, and promotion
+decisions. Post-reveal final-test jobs receive no expanded view.
+
+Phase 3G reuses the Phase 3F schema and adds no repair, write, worker command,
+experiment mutation, provider or filesystem I/O, captured-tape admission,
+economic evaluation, promotion, deployment, broker operation, or trading
+authority. See
+[ADR 0119](adr/0119-authenticated-fixture-segment-provenance-views.md).
 
 The broader backtesting roadmap expands the current narrow contract, when the
 required source evidence and explicit policies exist, to model:

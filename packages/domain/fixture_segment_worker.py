@@ -23,6 +23,7 @@ from packages.domain.experiment_governance import (
     ExperimentGovernanceSnapshot,
     ExperimentSegmentEvidence,
     GovernedSegmentEvaluationReceipt,
+    NonExecutableTerminalEvidence,
     governed_target_policy,
 )
 from packages.domain.experiment_registry import EvaluationSegmentKind
@@ -65,6 +66,9 @@ def _sha256(value: object) -> str:
 
 
 FIXTURE_SEGMENT_FAILURE_CODE = "fixture_segment_evaluation_failed"
+FIXTURE_SEGMENT_FAILURE_DETAIL = (
+    "Bounded fixture-segment evaluation failed; raw exception text was not retained."
+)
 FIXTURE_SEGMENT_FAILURE_SHA256 = _sha256(
     (
         FIXTURE_SEGMENT_WORKER_CONTRACT_VERSION,
@@ -72,6 +76,30 @@ FIXTURE_SEGMENT_FAILURE_SHA256 = _sha256(
         FIXTURE_SEGMENT_FAILURE_CODE,
     )
 )
+
+
+def _fixture_segment_failure_evidence_for_attempt_id(
+    attempt_id: str,
+) -> NonExecutableTerminalEvidence:
+    return NonExecutableTerminalEvidence._restore(
+        attempt_id=attempt_id,
+        status=ExperimentAttemptStatus.FAILED,
+        source_evidence_sha256=None,
+        reason_code=FIXTURE_SEGMENT_FAILURE_CODE,
+        detail=FIXTURE_SEGMENT_FAILURE_DETAIL,
+    )
+
+
+def fixture_segment_failure_evidence(
+    attempt: ExperimentAttempt,
+) -> NonExecutableTerminalEvidence:
+    """Return the one closed governance failure fact accepted by this worker."""
+
+    if type(attempt) is not ExperimentAttempt:
+        raise FixtureSegmentWorkerError(
+            "fixture failure evidence requires an exact governed attempt"
+        )
+    return _fixture_segment_failure_evidence_for_attempt_id(attempt.attempt_id)
 
 
 def _payload_sha256(value: str) -> str:
@@ -1028,11 +1056,17 @@ def fail_fixture_segment_job(
         or reason_sha256 != FIXTURE_SEGMENT_FAILURE_SHA256
     ):
         raise FixtureSegmentWorkerConflict("fixture failure classification is not closed")
+    expected_terminal_evidence = _fixture_segment_failure_evidence_for_attempt_id(
+        projection.job.attempt_id
+    )
     if (
         type(governance_failed_event) is not ExperimentAttemptEvent
         or governance_failed_event.status is not ExperimentAttemptStatus.FAILED
+        or governance_failed_event.family_id != projection.job.family_id
         or governance_failed_event.attempt_id != projection.job.attempt_id
         or governance_failed_event.occurred_at != failed_at
+        or type(governance_failed_event.terminal_evidence) is not NonExecutableTerminalEvidence
+        or governance_failed_event.terminal_evidence != expected_terminal_evidence
     ):
         raise FixtureSegmentWorkerConflict("fixture failure changed its governed terminal event")
     latest = projection.latest
@@ -1064,6 +1098,7 @@ def fail_fixture_segment_job(
 __all__ = [
     "FIXTURE_SEGMENT_CLAIM_TOKEN_CONTRACT_VERSION",
     "FIXTURE_SEGMENT_FAILURE_CODE",
+    "FIXTURE_SEGMENT_FAILURE_DETAIL",
     "FIXTURE_SEGMENT_FAILURE_SHA256",
     "FIXTURE_SEGMENT_WORKER_CONTRACT_VERSION",
     "FixtureSegmentClaimToken",
@@ -1078,6 +1113,7 @@ __all__ = [
     "claim_fixture_segment_job",
     "complete_fixture_segment_job",
     "fail_fixture_segment_job",
+    "fixture_segment_failure_evidence",
     "queue_fixture_segment_job",
     "renew_fixture_segment_claim",
     "segment_evidence_for_attempt",

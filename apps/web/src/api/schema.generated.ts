@@ -477,6 +477,62 @@ export interface components {
       "side": components["schemas"]["Side"];
       "symbol": string;
     };
+    "FixtureSegmentEventProvenanceView": {
+      "attempt_number": number;
+      "claim_expires_at": (string) | (null);
+      "completion_receipt_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "governance_event_sha256": components["schemas"]["Sha256Text"];
+      "occurred_at": string;
+      "sequence": number;
+      "status": components["schemas"]["FixtureSegmentJobStatus"];
+    };
+    "FixtureSegmentJobListResponse": {
+      "as_of": string;
+      "jobs": Array<components["schemas"]["FixtureSegmentJobSummaryView"]>;
+      "next_before_job_id": (components["schemas"]["Sha256Text"]) | (null);
+    };
+    "FixtureSegmentJobProvenanceView": {
+      "configuration_validation_sha256": components["schemas"]["Sha256Text"];
+      "events": Array<components["schemas"]["FixtureSegmentEventProvenanceView"]>;
+      "feature_artifact": components["schemas"]["FixtureTranscriptProvenanceView"];
+      "feature_certification_sha256": components["schemas"]["Sha256Text"];
+      "next_before_sequence": (number) | (null);
+      "queued_governance_event_sha256": components["schemas"]["Sha256Text"];
+      "summary": components["schemas"]["FixtureSegmentJobSummaryView"];
+      "target_artifact": (components["schemas"]["FixtureTranscriptProvenanceView"]) | (null);
+      "total_event_count": number;
+    };
+    "FixtureSegmentJobResponse": {
+      "as_of": string;
+      "job": components["schemas"]["FixtureSegmentJobProvenanceView"];
+    };
+    "FixtureSegmentJobStatus": "queued" | "running" | "completed" | "failed";
+    "FixtureSegmentJobSummaryView": {
+      "attempt_id": components["schemas"]["Sha256Text"];
+      "completion_receipt_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "configuration_sha256": components["schemas"]["Sha256Text"];
+      "event_count": number;
+      "family_id": components["schemas"]["Sha256Text"];
+      "job_id": components["schemas"]["Sha256Text"];
+      "latest_occurred_at": string;
+      "latest_sequence": number;
+      "requested_at": string;
+      "segment_kind": components["schemas"]["EvaluationSegmentKind"];
+      "status": components["schemas"]["FixtureSegmentJobStatus"];
+    };
+    "FixtureTranscriptKind": "feature" | "target";
+    "FixtureTranscriptProvenanceView": {
+      "attempt_id": components["schemas"]["Sha256Text"];
+      "certification_sha256": components["schemas"]["Sha256Text"];
+      "configuration_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "family_id": components["schemas"]["Sha256Text"];
+      "kind": components["schemas"]["FixtureTranscriptKind"];
+      "output_count": number;
+      "parity_receipt_sha256": components["schemas"]["Sha256Text"];
+      "segment_kind": components["schemas"]["EvaluationSegmentKind"];
+      "step_count": number;
+      "transcript_sha256": components["schemas"]["Sha256Text"];
+    };
     "FreshnessStatus": "current" | "stale" | "unavailable";
     "HTTPValidationError": {
       "detail"?: Array<components["schemas"]["ValidationError"]>;
@@ -1202,6 +1258,58 @@ export interface paths {
         "200": {
           content: {
             "application/json": components["schemas"]["ExperimentResponse"];
+          }
+        }
+        "404": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+        "503": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/fixture-segment-jobs": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["FixtureSegmentJobListResponse"];
+          }
+        }
+        "404": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+        "503": {
+          content: {
+            "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/fixture-segment-jobs/{job_id}": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["FixtureSegmentJobResponse"];
           }
         }
         "404": {

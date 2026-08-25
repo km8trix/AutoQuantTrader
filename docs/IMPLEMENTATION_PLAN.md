@@ -928,8 +928,39 @@ Passing one layer cannot substitute for another.
   exact from running or terminal lifecycles; terminal retries are likewise
   idempotent. Changed input conflicts, corruption fails closed, and final-test
   evidence is admitted only after its audited reveal.
+- **Phase 3G authenticated fixture provenance — bounded read views
+  implemented:** ADR 0119 adds a query-only SQL boundary and GET-only job list
+  and detail routes. Every returned job, supplied cursor, and list lookahead is
+  authenticated through its artifacts, full event/head chain, complete
+  governance/audit history, attempt, status, and completion linkage. The
+  verifier requires exact cross-ledger lifecycle shape: queued job/event
+  identity, every physical running claim, and terminal status/time/receipt must
+  match their governed attempt facts without extras or gaps; failed jobs must
+  also carry the one fixed governed non-executable reason, detail, and semantic
+  identity. Feature artifact fields/counts are cross-bound to reconstructed
+  segment evidence, and successful target fields/counts are cross-bound to the
+  governed evaluation receipt. Ordered feature and target step tuples must
+  independently reproduce the governed transcript/result/certification roots.
+  Output cardinality is governed but ordered output members lack an independent
+  governed root, so output members and identities whose only anchor is the
+  stored artifact payload are excluded from the public claim. Jobs use
+  deterministic keyset pages of at most 100 and retain only constant-size
+  unique summary DTOs, exclude the requested cursor row, and revalidate exact
+  timestamp/identity order. Details require the returned job identity to match
+  the requested path and authenticate globally unique events with pairwise-
+  distinct queued/running/terminal governance roles while every physical
+  running event shares one governed identity. Reverse-chronological sequence
+  pages expose at most 100 events and always include a nullable continuation
+  field. Frozen
+  allowlisted records expose only independently authenticated opaque job,
+  governance, certification, transcript, parity, completion, and context
+  digests; counts; lifecycle ordinals/status; and safe timestamps. Artifact/
+  payload identities, event/predecessor/artifact-link identities, transcript
+  payloads and members, holdout identities/material, configuration values,
+  caller-controlled labels, terminal detail, economic results, criteria, and
+  promotion decisions remain structurally absent.
 - Phase 3A and 3B evidence remains limited to repository-owned synthetic
-  fixtures, Phase 3F deliberately does not reuse the Phase 2 economic backtest
+  fixtures, Phase 3F/3G deliberately do not reuse the Phase 2 economic backtest
   worker, and Phase 3E has no qualified external captured-tape input. General
   segment execution and process/resource isolation, arbitrary or fitted
   features and strategies, mutation APIs, performance/criteria evaluation,
@@ -967,8 +998,11 @@ Passing one layer cannot substitute for another.
   continuity.
   The bounded repository-fixture worker now schedules one exact attempt with
   rotating physical claims, immutable feature/target transcript artifacts, and
-  atomic governed completion. General scheduling, arbitrary execution,
-  subprocess isolation, and resource quotas remain pending.
+  atomic governed completion. Its job and transcript proof metadata is
+  available through deterministic bounded authenticated read pages without
+  exposing transcript members or caller-controlled labels. General scheduling,
+  arbitrary execution, subprocess isolation, and resource quotas remain
+  pending.
 - Chronological and nested walk-forward evaluation, purging/embargo for
   overlapping labels, benchmark/cost stress, parameter stability, uncertainty,
   and declared multiple-testing treatment.
@@ -980,9 +1014,10 @@ Passing one layer cannot substitute for another.
 - A live market-data adapter with feed-entitlement metadata, quote/NBBO support,
   per-symbol freshness, gap backfill, reconnect watermarking, and captured event
   tapes. Run the candidate in shadow mode without any broker submission.
-- CLI- and browser-accessible provenance/performance reports, experiment
+- Broader CLI- and browser-accessible economic/performance reports, experiment
   comparison, feature lineage, captured-tape playback, feed freshness, and
-  replay-versus-shadow views.
+  replay-versus-shadow views. Phase 3G supplies only fixture job/transcript
+  proof metadata through the API.
 
 ### Exit gate
 
@@ -995,6 +1030,8 @@ captured-tape evidence prerequisite, but v1 cannot qualify any bundle until a
 separately reviewed external provenance verifier exists.
 Phase 3F durably executes only the repository fixture's configuration-bound
 target-parity segment and publishes no economic result or promotion decision.
+Phase 3G makes that job's bounded authenticated proof metadata queryable but
+does not expose transcript members or add an economic or criteria view.
 These slices do not satisfy the
 captured-tape, reconnect, economic segment-execution/isolation, end-to-end
 traceability, or reporting requirements below.
