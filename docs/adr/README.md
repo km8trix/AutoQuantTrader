@@ -247,5 +247,11 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   revocation, and reauthorization transitions; all secrets and signing output
   remain ephemeral and every credential, persistence, provider, account,
   broker, and trading authority remains closed)
+- [ADR 0120: Durable E\*TRADE OAuth replay and session head](0120-durable-etrade-oauth-replay-session-head.md)
+  (implements Phase 4AM's secret-free immutable replay/session journal and one
+  atomic current head per stable environment/consumer-secret scope; exact
+  snapshot retries converge, stale branches/replay/rollback lose, full history
+  is authenticated, reference rotation is token-empty and monotonic, and no
+  resolver, provider, account, broker, or trading authority is added)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

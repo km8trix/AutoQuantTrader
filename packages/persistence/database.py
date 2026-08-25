@@ -119,6 +119,8 @@ from packages.persistence.schema import (
     phase4_broker_reconciliation_heads,
     phase4_broker_request_heads,
     phase4_broker_request_permits,
+    phase4_etrade_oauth_session_events,
+    phase4_etrade_oauth_session_heads,
     phase4_unknown_lookup_recovery_events,
     phase4_unknown_lookup_recovery_heads,
     phase4_unknown_lookup_recovery_plans,
@@ -156,7 +158,7 @@ from packages.persistence.schema import (
 )
 from packages.persistence.sqlite_config import enforce_sqlite_foreign_keys
 
-EXPECTED_SCHEMA_REVISION = "0037_phase3_fixture_worker"
+EXPECTED_SCHEMA_REVISION = "0038_phase4_etrade_oauth"
 
 
 class DatabaseSchemaNotReady(RuntimeError):
@@ -1290,6 +1292,7 @@ def verify_operational_schema(
     if expected_revision not in {
         "0035_phase6_time_uncertainty",
         "0036_phase6_time_anchors",
+        "0037_phase3_fixture_worker",
         EXPECTED_SCHEMA_REVISION,
     }:
         raise DatabaseSchemaNotReady("requested database revision is not supported")
@@ -1428,17 +1431,26 @@ def verify_operational_schema(
                 phase6_trusted_time_probe_evaluations,
                 phase6_trusted_time_host_heads,
             )
-            if expected_revision in {"0036_phase6_time_anchors", EXPECTED_SCHEMA_REVISION}:
+            if expected_revision in {
+                "0036_phase6_time_anchors",
+                "0037_phase3_fixture_worker",
+                EXPECTED_SCHEMA_REVISION,
+            }:
                 required_tables += (
                     phase6_trusted_time_head_anchor_intents,
                     phase6_trusted_time_head_anchor_receipts,
                 )
-            if expected_revision == EXPECTED_SCHEMA_REVISION:
+            if expected_revision in {"0037_phase3_fixture_worker", EXPECTED_SCHEMA_REVISION}:
                 required_tables += (
                     phase3_fixture_segment_transcript_artifacts,
                     phase3_fixture_segment_jobs,
                     phase3_fixture_segment_job_events,
                     phase3_fixture_segment_job_heads,
+                )
+            if expected_revision == EXPECTED_SCHEMA_REVISION:
+                required_tables += (
+                    phase4_etrade_oauth_session_events,
+                    phase4_etrade_oauth_session_heads,
                 )
             for table in required_tables:
                 connection.execute(sa.select(table).limit(0))
@@ -1718,7 +1730,7 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 3 experiment-governance integrity verification failed"
                 ) from error
-            if expected_revision == EXPECTED_SCHEMA_REVISION:
+            if expected_revision in {"0037_phase3_fixture_worker", EXPECTED_SCHEMA_REVISION}:
                 from packages.persistence.fixture_segment_worker import (
                     FixtureSegmentPersistenceError,
                     _verify_fixture_segment_integrity,
@@ -1729,6 +1741,18 @@ def verify_operational_schema(
                 except FixtureSegmentPersistenceError as error:
                     raise DatabaseSchemaNotReady(
                         "Phase 3 fixture-segment integrity verification failed"
+                    ) from error
+            if expected_revision == EXPECTED_SCHEMA_REVISION:
+                from packages.persistence.etrade_oauth_coordinator import (
+                    EtradeOAuthCoordinatorError,
+                    _verify_etrade_oauth_coordinator_integrity,
+                )
+
+                try:
+                    _verify_etrade_oauth_coordinator_integrity(connection)
+                except EtradeOAuthCoordinatorError as error:
+                    raise DatabaseSchemaNotReady(
+                        "Phase 4 E*TRADE OAuth coordinator integrity verification failed"
                     ) from error
             if not require_phase_zero_facts:
                 _verify_data_plane_integrity(connection)
