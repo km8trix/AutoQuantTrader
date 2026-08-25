@@ -44,7 +44,11 @@ from packages.adapters.broker.etrade_oauth import (
     record_etrade_oauth_request_token_transition,
     require_etrade_oauth_reauthorization,
 )
-from packages.persistence.database import create_database_engine
+from packages.persistence.database import (
+    DatabaseSchemaNotReady,
+    create_database_engine,
+    verify_operational_schema,
+)
 from packages.persistence.etrade_oauth_coordinator import (
     EtradeOAuthCoordinatorConflict,
     EtradeOAuthCoordinatorError,
@@ -212,11 +216,24 @@ def test_consumer_reference_rotation_stays_on_one_head_and_stale_version_loses(
         current.state,
         _consumer_reference(version=2),
     )
+    forged_rotation = replace(rotated, transition_evidence_sha256="e" * 64)
+
+    with pytest.raises(EtradeOAuthCoordinatorConflict, match="exact canonical"):
+        repository.advance(current, forged_rotation, current.replay_guard)
 
     rotation = repository.advance(current, rotated, current.replay_guard)
+    exact_retry = repository.advance(current, rotated, current.replay_guard)
     assert rotation.sequence == current.sequence + 1
+    assert exact_retry == rotation
     assert rotation.scope_sha256 == current.scope_sha256
     assert rotation.state.consumer_reference.version == 2
+    assert (
+        repository.load(
+            EtradeEnvironment.SANDBOX,
+            EtradeSecretScope.SANDBOX_CONSUMER,
+        )
+        == rotation
+    )
     with engine.connect() as connection:
         assert (
             connection.scalar(
@@ -396,6 +413,99 @@ def test_digest_consistent_cross_environment_scope_forgery_fails_reconstruction(
         )
 
     repository = SqlEtradeOAuthCoordinator(engine)
+    with pytest.raises(EtradeOAuthCoordinatorError, match="authenticated reconstruction"):
+        repository.load(EtradeEnvironment.SANDBOX, EtradeSecretScope.SANDBOX_CONSUMER)
+
+
+def test_digest_consistent_active_generation_one_root_fails_load_and_schema_verification(
+    tmp_path: Path,
+) -> None:
+    source_engine = _engine(tmp_path / "phase4am-active-root-source.sqlite")
+    _, active = _active_head(SqlEtradeOAuthCoordinator(source_engine))
+    source_engine.dispose()
+    assert active.phase.value == "access_token_active"
+    assert active.generation == 1
+
+    database_path = tmp_path / "phase4am-active-root-forgery.sqlite"
+    database_url = f"sqlite+pysqlite:///{database_path}"
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    scope_sha256 = etrade_oauth_coordinator_scope_sha256(
+        active.environment,
+        active.consumer_reference.scope,
+    )
+    guard = EtradeOAuthReplayGuard()
+    values = _event_values(
+        scope_sha256=scope_sha256,
+        sequence=1,
+        previous_event_sha256=None,
+        prior_session_state_sha256=None,
+        state=active,
+        replay_guard=guard,
+        delta=_ReplayDelta(None, None),
+    )
+    with engine.begin() as connection:
+        connection.execute(sa.insert(phase4_etrade_oauth_session_events).values(**values))
+        connection.execute(
+            sa.insert(phase4_etrade_oauth_session_heads).values(
+                scope_sha256=scope_sha256,
+                environment=active.environment.value,
+                consumer_scope=active.consumer_reference.scope.value,
+                consumer_reference_version=active.consumer_reference.version,
+                consumer_reference_sha256=active.consumer_reference.semantic_sha256,
+                latest_sequence_number=1,
+                latest_event_sha256=values["event_sha256"],
+                current_session_state_sha256=active.semantic_sha256,
+                current_replay_guard_sha256=guard.semantic_sha256,
+            )
+        )
+
+    repository = SqlEtradeOAuthCoordinator(engine)
+    with pytest.raises(EtradeOAuthCoordinatorError, match="authenticated reconstruction"):
+        repository.load(EtradeEnvironment.SANDBOX, EtradeSecretScope.SANDBOX_CONSUMER)
+    with pytest.raises(DatabaseSchemaNotReady, match=r"Phase 4 E\*TRADE OAuth coordinator"):
+        verify_operational_schema(engine, require_phase_zero_facts=False)
+
+
+def test_digest_consistent_noncanonical_consumer_rotation_fails_reconstruction(
+    tmp_path: Path,
+) -> None:
+    engine = _engine(tmp_path / "phase4am-rotation-forgery.sqlite")
+    repository = SqlEtradeOAuthCoordinator(engine)
+    current, _ = _reauthorization_head(repository)
+    canonical = rotate_etrade_oauth_consumer_reference(
+        current.state,
+        _consumer_reference(version=2),
+    )
+    forged = replace(canonical, transition_evidence_sha256="e" * 64)
+    assert forged != canonical
+    values = _event_values(
+        scope_sha256=current.scope_sha256,
+        sequence=current.sequence + 1,
+        previous_event_sha256=current.current_event_sha256,
+        prior_session_state_sha256=current.state.semantic_sha256,
+        state=forged,
+        replay_guard=current.replay_guard,
+        delta=_ReplayDelta(None, None),
+    )
+    with engine.begin() as connection:
+        connection.execute(sa.insert(phase4_etrade_oauth_session_events).values(**values))
+        connection.execute(
+            sa.update(phase4_etrade_oauth_session_heads)
+            .where(phase4_etrade_oauth_session_heads.c.scope_sha256 == current.scope_sha256)
+            .values(
+                consumer_reference_version=forged.consumer_reference.version,
+                consumer_reference_sha256=forged.consumer_reference.semantic_sha256,
+                latest_sequence_number=current.sequence + 1,
+                latest_event_sha256=values["event_sha256"],
+                current_session_state_sha256=forged.semantic_sha256,
+                current_replay_guard_sha256=current.replay_guard.semantic_sha256,
+            )
+        )
+
     with pytest.raises(EtradeOAuthCoordinatorError, match="authenticated reconstruction"):
         repository.load(EtradeEnvironment.SANDBOX, EtradeSecretScope.SANDBOX_CONSUMER)
 

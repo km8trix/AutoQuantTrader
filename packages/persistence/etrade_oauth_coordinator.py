@@ -103,7 +103,7 @@ def _require_exact_state(value: object, field_name: str) -> EtradeOAuthSessionSt
         raise EtradeOAuthCoordinatorConflict(
             f"E*TRADE OAuth coordinator {field_name} must be an exact sanitized session state"
         )
-    state = cast(EtradeOAuthSessionState, value)
+    state = value
     try:
         state.__post_init__()
     except EtradeOAuthContractError as error:
@@ -116,7 +116,7 @@ def _require_exact_guard(value: object) -> EtradeOAuthReplayGuard:
         raise EtradeOAuthCoordinatorConflict(
             "E*TRADE OAuth coordinator replay guard must use the exact sanitized type"
         )
-    guard = cast(EtradeOAuthReplayGuard, value)
+    guard = value
     try:
         guard.__post_init__()
     except EtradeOAuthContractError as error:
@@ -201,6 +201,48 @@ def rotate_etrade_oauth_consumer_reference(
         raise EtradeOAuthCoordinatorConflict(
             "consumer-reference rotation produced an invalid sanitized session state"
         ) from error
+
+
+def _is_exact_initial_state(state: EtradeOAuthSessionState) -> bool:
+    """Match the only sanitized session state admitted as a durable root."""
+
+    return (
+        state.phase is EtradeOAuthSessionPhase.NEEDS_REQUEST_TOKEN
+        and state.generation == 1
+        and state.renewal_count == 0
+        and state.highest_token_reference_version == 0
+        and state.trusted_time_high_water_seconds == 0
+        and state.transition_evidence_sha256 is None
+        and state.request_token_reference is None
+        and state.access_token_reference is None
+        and state.request_token_intent_sha256 is None
+        and state.authorization_challenge_sha256 is None
+        and state.access_token_intent_sha256 is None
+        and state.issued_at_seconds is None
+        and state.last_activity_at_seconds is None
+        and state.last_observed_at_seconds is None
+        and state.expires_at_seconds is None
+        and state.reauthorization_reason is None
+        and state.predecessor_sha256 is None
+    )
+
+
+def _is_canonical_consumer_reference_rotation(
+    previous: EtradeOAuthSessionState,
+    successor: EtradeOAuthSessionState,
+) -> bool:
+    """Require the exact predecessor-bound result of the public rotation helper."""
+
+    if successor.consumer_reference.version <= previous.consumer_reference.version:
+        return False
+    try:
+        canonical = rotate_etrade_oauth_consumer_reference(
+            previous,
+            successor.consumer_reference,
+        )
+    except EtradeOAuthCoordinatorConflict:
+        return False
+    return successor == canonical
 
 
 @dataclass(frozen=True, slots=True)
@@ -540,6 +582,8 @@ def _event_from_row(
                 raise TypeError("malformed journal root")
             if fingerprint is not None or high_water is not None:
                 raise TypeError("journal root carries replay delta")
+            if not _is_exact_initial_state(state):
+                raise TypeError("journal root is not the exact initialization state")
         else:
             if previous is None or sequence != previous.sequence + 1:
                 raise TypeError("non-contiguous journal sequence")
@@ -558,11 +602,11 @@ def _event_from_row(
                 raise TypeError("consumer scope changed")
             if state.consumer_reference.version < previous.state.consumer_reference.version:
                 raise TypeError("consumer reference version rolled back")
-            if state.consumer_reference.version > previous.state.consumer_reference.version and (
-                not _is_token_empty_reauthorization_state(previous.state)
-                or not _is_token_empty_reauthorization_state(state)
+            if (
+                state.consumer_reference.version > previous.state.consumer_reference.version
+                and not _is_canonical_consumer_reference_rotation(previous.state, state)
             ):
-                raise TypeError("consumer reference rotated outside token-empty reauthorization")
+                raise TypeError("consumer reference rotation is not canonical")
             if state.endpoint_profile_sha256 != previous.state.endpoint_profile_sha256:
                 raise TypeError("endpoint profile changed")
             if state.generation < previous.state.generation:
@@ -713,13 +757,7 @@ class SqlEtradeOAuthCoordinator:
         """Commit the exact empty generation-one root, or verify an exact retry."""
 
         state = _require_exact_state(state, "initial state")
-        if (
-            state.phase is not EtradeOAuthSessionPhase.NEEDS_REQUEST_TOKEN
-            or state.generation != 1
-            or state.predecessor_sha256 is not None
-            or state.highest_token_reference_version != 0
-            or state.trusted_time_high_water_seconds != 0
-        ):
+        if not _is_exact_initial_state(state):
             raise EtradeOAuthCoordinatorConflict(
                 "durable E*TRADE OAuth initialization requires the exact empty generation-one state"
             )
@@ -848,14 +886,14 @@ class SqlEtradeOAuthCoordinator:
                 if (
                     successor_state.consumer_reference.version
                     > expected_state.consumer_reference.version
-                    and (
-                        not _is_token_empty_reauthorization_state(expected_state)
-                        or not _is_token_empty_reauthorization_state(successor_state)
+                    and not _is_canonical_consumer_reference_rotation(
+                        expected_state,
+                        successor_state,
                     )
                 ):
                     raise EtradeOAuthCoordinatorConflict(
-                        "E*TRADE OAuth consumer-reference rotation requires token-empty "
-                        "reauthorization states"
+                        "E*TRADE OAuth consumer-reference version advance must be the exact "
+                        "canonical token-empty reauthorization rotation"
                     )
                 if (
                     successor_state.endpoint_profile_sha256
