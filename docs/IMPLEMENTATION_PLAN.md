@@ -430,10 +430,14 @@ List request-description foundation; Phase 4AK adds only bounded in-memory
 raw-first caller-declared response evidence and a strict historical decoder.
 Those bindings prove internal consistency only: provider origin is
 unauthenticated, fixture relabeling cannot be detected, and no authenticated
-provider-evidence consumer exists. OAuth, provider transport and calls,
-authenticated capture/admission and account binding, Balance, Portfolio, Orders,
-and Transactions reads, Preview, Place, Cancel, recovery, qualification, and
-every authority remain pending.
+provider-evidence consumer exists. Phase 4AL adds only deterministic OAuth
+1.0a/HMAC-SHA1 signing and a secret-free pure supervised-session reducer over
+typed nonsecret reference revisions and caller-injected timestamp/nonce values.
+It adds no resolver, durable replay guard, authenticated token response,
+browser/OOB runtime, provider transport or call, or authority. Authenticated
+capture/admission and account binding, Balance, Portfolio, Orders, and
+Transactions reads, Preview, Place, Cancel, recovery, qualification, and every
+authority remain pending.
 
 Phase 5A-5I provide local operational-control, advanced-risk,
 supervised-strategy, critical-alert, authenticated-operations, dashboard,
@@ -1337,6 +1341,28 @@ traceability, or reporting requirements below.
   observations that cannot be consumed as authenticated provider evidence;
   transport, persistence, authenticated account discovery/binding, all other
   operations, and every authority remain closed.
+- **Phase 4AL pure E\*TRADE OAuth 1.0a signing and supervised session — local
+  pure slice implemented:** ADR 0118 adds exact typed `GET` signing intents for
+  ADR 0113's request-token, access-token, renewal, and revocation endpoints,
+  with the request-token callback fixed to `oob`. RFC 5849 UTF-8 percent
+  encoding, encoded-name/value sorting, normalized parameters, HMAC-SHA1, and
+  Base64 are pinned by RFC and synthetic vectors. Exact caller-injected trusted
+  timestamps/nonces and a bounded in-memory fingerprint guard reject signing
+  and verifier-consumption replay when its current returned state is threaded;
+  typed consumer/token reference revisions reject raw-string, wrong-kind, and
+  cross-environment substitution. Consumer keys, tokens, consumer/token
+  secrets, verifiers, signatures, Authorization headers, signing material, and
+  token-bearing authorization URLs remain ephemeral and cannot enter `repr`,
+  serialized evidence, or semantic digests. The secret-free reducer makes
+  request-token, OOB authorization, verifier consumption, access-token,
+  activity, renewal, two-hour inactivity, daily expiry, revocation, and
+  reasoned reauthorization explicit fail-closed transitions. A monotonic time
+  high-water survives every phase/generation, and each time/signing-driven
+  transition retains its sanitized input identity. It adds no secret
+  resolution, ambient time/randomness, durable replay protection, browser or
+  callback runtime, provider response authentication, filesystem, persistence,
+  proxy/redirect/network transport, provider-origin claim, account binding,
+  broker call, or authority, and adds no migration.
 - The capability value and translated request description are immutable and
   content-authenticated, and lookup/account/asset observations retain exact
   response digests, while the raw journal authenticates exact account-local
@@ -1377,8 +1403,10 @@ traceability, or reporting requirements below.
   predecessor-linked comparison repository, and a one-effect restart-safe
   supervisor. Phase 4AJ independently adds only the typed E\*TRADE isolation
   and Accounts List request-description foundation; Phase 4AK adds only its
-  bounded in-memory caller-declared raw evidence and strict historical decoder.
-  Neither reuses any Alpaca evidence. All slices remain non-authorizing. A
+  bounded in-memory caller-declared raw evidence and strict historical decoder;
+  Phase 4AL adds only pure OAuth signing and secret-free supervised-session
+  transitions. None reuses any Alpaca evidence. All slices remain
+  non-authorizing. A
   deployed secret resolver, general
   security-master publication, runtime
   calendar/quote/reduce-only validation, end-to-end order request-budget
@@ -1389,9 +1417,10 @@ traceability, or reporting requirements below.
   paper startup remain disabled.
 - Phases 4A through 4AI are complete only as bounded local contract,
   persistence, and authenticated read-runtime slices with the explicit limits
-  described above. Phases 4AJ and 4AK are complete only as a pure recorded-
-  offline provider/request foundation and an unauthenticated caller-declared
-  in-memory raw-response/decoder slice. Phase 4
+  described above. Phases 4AJ through 4AL are complete only as a pure recorded-
+  offline provider/request foundation, an unauthenticated caller-declared
+  in-memory raw-response/decoder slice, and a non-I/O OAuth signing/session
+  contract. Phase 4
   and its exit gate remain open. These slices are local worktree changes and do
   not authorize paper or live trading.
   Phase 3's captured-tape, reconnect, shadow, economic
@@ -1412,10 +1441,15 @@ traceability, or reporting requirements below.
   strict request/environment/declared-origin/media/charset/declaration/schema-
   bound decoder. Those bindings establish internal consistency, not provider
   origin; authenticated capture admission and fixture-relabeling detection
-  remain pending.
-  Reviewed OAuth 1.0a session acquisition, renewal, expiry, and revocation;
-  authenticated account binding; provider transport; and bounded raw-first
-  Balance, Portfolio, Orders, and Transactions reads remain pending. Later
+  remain pending. Phase 4AL adds exact pure HMAC-SHA1 signing and a secret-free
+  supervised reducer for request/access token, OOB authorization, renewal,
+  inactivity/expiry, revocation, and reauthorization transitions. It retains
+  only typed nonsecret reference revisions and sanitized identities; all secret
+  values and signing output remain ephemeral.
+  A deployed secret resolver, durable nonce/replay state, authenticated token
+  response and OOB handoff, authenticated account binding, provider transport,
+  and bounded raw-first Balance, Portfolio, Orders, and Transactions reads
+  remain pending. Later
   budgets must reserve cancellation, token-control, and reconciliation capacity
   and must not reuse Alpaca's request ceiling. Comet streaming remains disabled
   until independently qualified.
@@ -1642,9 +1676,11 @@ in-memory supplied raw evidence and unqualified historical decoded account
 identities with an explicit unauthenticated caller origin declaration. The
 declaration can wrap a relabeled fixture, and neither its enum nor any bound
 digest authenticates provider origin. No authenticated capture/admission
-artifact or authenticated provider-evidence consumer exists. Neither phase adds
-authenticated or current provider evidence, runtime authority, or satisfaction
-of any runtime/fault gate below.
+artifact or authenticated provider-evidence consumer exists. Phase 4AL adds
+only deterministic signing and secret-free in-memory session transitions; its
+nonce guard is not durable and none of its states authenticates a token response
+or provider origin. These phases add no authenticated or current provider
+evidence, runtime authority, or satisfaction of any runtime/fault gate below.
 
 Future E\*TRADE sandbox results may satisfy only protocol-contract checks and
 cannot close any traversal-semantics, completeness, lifecycle, reconciliation,
@@ -4295,7 +4331,12 @@ Every change includes:
 13. Additive E\*TRADE contract, OAuth/session and account binding, raw-first
     reads, provider-ID mapping, Preview/Place durability, provider-specific
     `UNKNOWN` recovery, and the ADR 0096 qualification ladder. **Architecture
-    is selected; implementation and all provider calls remain pending.**
+    is selected. Phases 4AJ-4AL now implement the pure endpoint/request
+    foundation, unauthenticated caller-declared Accounts List decoder, exact
+    HMAC-SHA1 signing, and secret-free supervised-session reducer. Deployed
+    secret resolution, durable replay state, authenticated OAuth responses and
+    OOB handoff, all provider calls, account binding, broader reads,
+    Preview/Place, recovery, and qualification remain pending.**
 14. Account lease/fence and submission attempts are **implemented by ADR 0032**;
     normalized broker inbox/application and the real reconciliation barrier
     remain Phase 4 work.

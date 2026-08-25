@@ -144,13 +144,18 @@ page's own lease through request and reload. Phase 4AC makes the UNKNOWN
 recovery composition restart-safe. Phases 4AD-4AI add bounded raw-first
 FILL-activity pages, an authenticated durable one-page runtime, pure and
 source-authenticated comparisons, migration 0033 comparison history, and
-one-effect restart-safe supervision. No deployed resolver, general security
-master, stream, reconciliation, order effect, or dispatch authority exists.
+one-effect restart-safe supervision. Phases 4AJ and 4AK add the pure E\*TRADE
+provider/request foundation and caller-declared Accounts List decoder. Phase
+4AL adds deterministic OAuth 1.0a/HMAC-SHA1 signing and a secret-free pure
+supervised-session reducer over caller-injected time and nonce values. No
+deployed resolver, general security master, stream, reconciliation, order
+effect, or dispatch authority exists.
 The trader remains `not_ready`, Phase 4's exit gate
 is open, and no network-capable order transport or production market-data
-adapter is enabled. No E\*TRADE OAuth session manager, account binding,
-Preview/Place workflow, production reconciliation adapter, or live authority
-exists. Phase 3's external gates remain open as well. Phase 5A now provides a
+adapter is enabled. No E\*TRADE OAuth runtime/session manager, durable replay
+guard, authenticated token response, account binding, Preview/Place workflow,
+production reconciliation adapter, or live authority exists. Phase 3's
+external gates remain open as well. Phase 5A now provides a
 local durable operational-control contract and persistence spine. It freezes
 the five-state severity order, actor-bound exact retries, fail-closed absence,
 breaker trips, explicit drain/flatten results, and proof-bound manual re-arm
@@ -1544,34 +1549,58 @@ they do not establish where the bytes actually originated. Display fields and
 response order do not establish identity. The decoded result remains an
 immutable historical, unqualified caller-declared observation with no local
 alias or authenticated account binding. Balance, Portfolio, Orders,
-Transactions, Preview, Place, Cancel, OAuth, transport, persistence,
+Transactions, Preview, Place, Cancel, transport, persistence,
 reconciliation, canonical application, broker mutation, startup, and trading
 authority all remain closed. Sandbox evidence is protocol-shape-only, not an
 economic simulator or readiness evidence, and Phase 4AK adds no migration.
 
-OAuth 1.0a/HMAC-SHA1 is a supervised session state machine, not ambient
-configuration. Nonces and trusted timestamps are generated at the final
-transport boundary. Request/access token acquisition, authorization, renewal,
-inactivity, daily expiry, revocation, and interactive reauthorization are
-explicit fail-closed transitions. Secret values, verifier material,
-signatures, and authorization headers are neither persisted nor logged. A
-local account alias binds both the authenticated numeric account ID and opaque
-`accountIdKey`; display labels and account-list ordering are not identity.
-Both credential scopes use the shared, exact-allowlisted token origin beneath
-`https://api.etrade.com/oauth/` and interactive authorization page
-`https://us.etrade.com/e/t/etws/authorize`; sandbox tokens remain sandbox-
-scoped. Authorization URLs are secret-bearing and never logged or retained.
-Only the exact authorization page and an exact pre-registered callback
-origin/path, or the out-of-band verifier flow, may redirect; dynamic callbacks,
-open redirects, and verifier replay fail closed.
+[ADR 0118](adr/0118-pure-etrade-oauth1-signing-and-supervised-session.md)
+implements Phase 4AL as a separate pure OAuth 1.0a/HMAC-SHA1 signing and
+supervised-session contract. Signing intents admit only exact typed `GET`
+operations for ADR 0113's shared request-token, access-token, renewal, and
+revocation URLs. Request-token signing fixes `oauth_callback=oob`; access-token
+signing requires a verifier bound to the exact OOB authorization challenge.
+RFC 5849 UTF-8 percent encoding, encoded-name/value sorting, parameter
+normalization, signature-base construction, HMAC-SHA1, and Base64 are
+deterministic. Duplicate parameters, caller query/body parameters, raw-string
+enums, endpoint/method/callback drift, wrong token kinds, cross-environment
+references, and timestamp/nonce replay fail closed.
 
-The Phase 4AJ metadata pins the shared request-token, access-token, renewal, and
-revocation URLs and selects only the literal request-token callback value
-`oob`. It accepts no registered or dynamic callback origin/path and constructs
-no secret-bearing authorization URL. A future reviewed supervised session flow
-must separately pin any provider-preconfigured callback and still revalidate
-the ADR 0096 redirect policy; Phase 4AJ grants no browser, callback, verifier,
-token, credential, or transport authority.
+Sandbox and production consumer/token reference revisions remain typed and
+disjoint. Actual consumer keys, consumer secrets, request/access tokens, token
+secrets, verifiers, signatures, and Authorization headers live only in
+non-serializable ephemeral wrappers with redacted representations. The
+sanitized intent identity contains only endpoint/profile/operation, reference
+revision, trusted-time evidence, timestamp, nonce digest, callback-policy, and
+authorization-challenge metadata. It never hashes or serializes a secret,
+token, verifier, signature, authorization header, signing base/key, or
+token-bearing authorization URL.
+
+The pure reducer makes request-token availability, OOB authorization,
+challenge-bound verifier consumption, access-token availability, activity,
+two-hour inactivity, caller-injected daily expiry, renewal, revocation, and
+reasoned reauthorization separate fail-closed transitions. A trusted-time
+high-water survives every phase and reauthorization generation, so time cannot
+regress. Inactivity blocks ordinary activity but can be recovered through the
+exact renewal path before daily expiry; expired or revoked sessions cannot
+renew, and token-reference versions cannot replay within a state chain.
+Verifier consumption must thread the same bounded in-memory replay guard used
+for signing; that guard is explicitly not durable. Every observation and token-
+control transition retains its sanitized trusted-time or signing-intent
+identity. Every state reports provider-origin authentication and all runtime
+authorities false. Phase 4AL resolves no credential, constructs no
+authorization URL,
+opens no browser or callback, performs no transport, authenticates no provider
+response, persists nothing, binds no account, and makes no broker call.
+
+A later reviewed runtime must supply ephemeral secret resolution, durable
+replay protection, authenticated raw-first token responses, interactive OOB
+handoff, transport/proxy/redirect enforcement, and operational supervision.
+Only then can an authenticated account alias bind both the numeric account ID
+and opaque `accountIdKey`; display labels and account-list ordering remain
+non-identity. The exact shared OAuth origin and authorization page do not weaken
+the disjoint sandbox/production scopes, and secret-bearing authorization URLs
+must still never be logged or retained.
 
 The canonical order ID remains provider-neutral. A separate durable E\*TRADE
 client-order-ID mapping is deterministic, account-scoped, collision-checked,
