@@ -11,6 +11,8 @@
   [ADR 0111](0111-dormant-operation-bound-clean-stop-supervisor-bridge.md),
   and
   [ADR 0112](0112-durable-graceful-stop-decision-artifact-receipt-reauthentication.md)
+- Extended by:
+  [ADR 0121](0121-trusted-time-graceful-stop-lifecycle-v2-implementation-resolution.md)
 
 ## Context
 
@@ -143,7 +145,16 @@ recovery-required and never automatic retry evidence.
 
 One future host controller must acquire the exact global trusted-time launcher
 lock and keep it continuously held from current-evidence admission through
-terminal-outcome publication and owner cleanup. Under that same lock, before
+all success-relevant owner cleanup and the fixed terminal-outcome commit. ADR
+0121 requires every success-relevant zeroize/unlink/unmount receipt and the
+final deadline check before that confirmed-success commit; a precommit cleanup
+failure permits only recovery-required and cannot leave success committed.
+After the ordinal-23 confirmed-success fixed commit, only invalidation of an already-empty non-authoritative
+registry and close of the lease descriptor remain. That disposal is outside
+the lifecycle and whole-operation deadline, owns no secret, effect,
+observation, or outcome candidate, cannot invalidate or reclassify the commit,
+and is guaranteed to release the flock on kernel process exit. Under that same
+lock, before
 reservation or transport dispatch, it must freshly:
 
 - authenticate the exact installed, reviewed-Git stop authority and exact
@@ -283,9 +294,12 @@ deadline context remain valid:
 
 1. durably retain the exact clean-stop-checkpoint request intent, dispatch the
    authenticated lifecycle-v2-compatible operation-bound `clean_stop` request,
-   receive the exact transport-authenticated v2 wire result, and durably retain
-   that structural post-CALL result; transport authentication does not qualify
-   its terminal meaning;
+   receive the exact transport-authenticated v2 wire result, publish the
+   complete canonical signed envelope bytes—including payload and signature—as
+   an immutable content-addressed artifact, and durably retain typed evidence
+   that binds its absolute admitted path, artifact name, full-envelope/payload/signature digests,
+   schema, key, channel, counter, deadline, and publication receipt;
+   transport authentication does not qualify its terminal meaning;
 2. issue a fresh ADR-0109 host SQL/provider reauthentication, consume and
    cross-bind it through the exact v2 host-binding seam to the same v2
    operation/request/result/root, and durably bind that pre-effect composite
@@ -308,10 +322,15 @@ deadline context remain valid:
    reauthentication and durably bind it to the exact operation, v2 transcript,
    expected `CLEAN_STOP` head, pre-effect cross-binding, and provider identity;
    and
-8. publish exactly one durable terminal outcome. Confirmed success requires
-   every prior result plus both the pre-effect cross-binding and distinct
-   post-teardown terminal reauthentication to be durably revalidated. Every
-   other post-reservation disposition is recovery-required.
+8. complete and durably prove every success-relevant transport/native-owner/
+   secret-mount cleanup, publish the final transcript, perform the last
+   whole-operation deadline check, and publish exactly one durable terminal
+   outcome and fixed commit. Confirmed success requires every prior result plus
+   both the pre-effect cross-binding and distinct post-teardown terminal
+   reauthentication to be durably revalidated. Every other precommit post-
+   reservation disposition is recovery-required. Empty registry invalidation
+   and lease-FD close after that confirmed-success commit are non-authoritative disposal, not a
+   ninth lifecycle step or cleanup result.
 
 The clean-stop checkpoint transaction in steps one and two is a prerequisite
 to the supervisor-container stop effect in step three. The v2 wire result is
@@ -323,6 +342,22 @@ never stops first, and supervisor and source stops are not parallelized. The
 post-teardown terminal reauthentication is a distinct observation intentionally
 issued only after exact teardown and volume-preservation proof; the pre-effect
 ADR-0109 observation cannot be reused as the final outcome proof.
+
+ADR 0121 resolves Docker evidence as canonical objects, not generic status.
+Admission performs only the fixed six-read sequence `/info`, supervisor full-ID
+inspect, source full-ID inspect, project-network full-ID inspect, command-socket
+volume inspect, and state-volume inspect. Its ordered request, complete
+connection-identity, exchange, and method-trace object lists plus parallel
+digests are hashed into the admission/root. Every later call uses one fresh connection whose exact socket
+mount/path/device/inode, peer credential and daemon process, local socket
+device/inode/`SO_COOKIE`, fixed connection ordinal, and capture/revalidation
+times are domain-hashed without treating a raw FD number as identity. Closed
+container-stop, container-remove, network-remove, and volume-preservation result
+objects embed the exact primary/post-inspect exchanges and connection objects,
+complete trace-entry objects and parallel request/connection/exchange/trace
+digests, HTTP/framing/body/projection digests, timestamps, and outcome. The
+gap-free Docker connection/method order is exactly `0..17`; no implicit read,
+reorder, retry, or digest-only result can qualify.
 
 ### Freeze conceptual states without inventing a wire schema
 
@@ -528,8 +563,10 @@ A later implementation cannot claim this ADR satisfied until review retains:
 - an exact trace proving the global lock spans fresh four-way admission,
   lifecycle-v2 reservation, clean-stop request/result, fresh pre-effect
   ADR-0109 cross-binding, every stop/teardown effect, distinct post-teardown
-  terminal reauthentication, outcome publication, and owner cleanup without a
-  state-changing gap;
+  terminal reauthentication, transport and terminal cleanup, final transcript,
+  and the fixed outcome commit without a state-changing gap, plus a separately
+  classified postcommit trace proving empty-registry invalidation and lease-FD
+  close cannot invoke lifecycle, recovery, outcome, effect, or deadline code;
 - ID-bound fake-driver and isolated integration evidence for the structural
   clean-stop result, fresh pre-effect cross-binding, supervisor-container stop,
   source-container stop, per-container/network teardown, both unchanged named

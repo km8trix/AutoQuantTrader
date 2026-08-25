@@ -4304,6 +4304,7 @@ See historical
 [ADR 0111](adr/0111-dormant-operation-bound-clean-stop-supervisor-bridge.md),
 [ADR 0112](adr/0112-durable-graceful-stop-decision-artifact-receipt-reauthentication.md),
 [ADR 0116](adr/0116-fail-closed-replay-safe-graceful-stop-composition-ordering.md),
+[ADR 0121](adr/0121-trusted-time-graceful-stop-lifecycle-v2-implementation-resolution.md),
 and the
 [trusted-time supervisor runbook](runbooks/trusted-time-supervisor.md).
 
@@ -5059,20 +5060,156 @@ contract strings, bytes, decoded objects, ADR-0110 v1 attempt/progress receipts
 or digests, scalar/digest adapters, and any mixed v1/v2 root, prefix, directory,
 or object graph. Existing v1 decoders must reject v2 in the opposite direction.
 Wrapping v1 bytes in a v2 envelope is forbidden. ADR 0112's current private
-consumed-snapshot handoff is bound to the v1 bridge; a later review must choose
-either a new separately versioned v2-bound seam or an independent v2 loader of
-the same durable historical source, never reuse or reinterpret the v1 handoff.
+consumed-snapshot handoff remains bound to the v1 bridge. ADR 0121 chooses an
+additive private ADR-0112 consumer bound to an independent v2 bridge capability,
+operation, admission, channel, PID, and Thread. It reuses the reviewed stable
+historical-source reconstruction, not the v1 bridge identity or a second
+historical loader; every existing ADR-0112 public and v1-private meaning stays
+unchanged.
 
-ADR 0116 adds no runtime state or authority. Transport technology and keys,
-numeric deadlines, same-lock admission mechanism, exact lifecycle-v2 schema and
-contract identifiers, v2 request/result/host/terminal bindings, v2 worker
-association, the v2 historical-receipt handoff choice, cross-version import and
-decoder boundaries, fork-safe native ownership, ID-bound teardown/volume proof,
-both reauthentication bindings, and recovery operator remain explicit external
-blockers. Later acceptance requires direct v1↔v2 rejection vectors and an
-architecture/import guard proving the v2 path cannot reach v1 lifecycle or
-bridge types. The stop authority and real lifecycle root remain absent, and
-`trusted-time-stop` remains the exact exit-2 no-effect target.
+ADR 0121 resolves the implementation choices without adding runtime state or
+authority. Transport is Linux `AF_UNIX` `SOCK_SEQPACKET` at the fixed
+root-created tmpfs path
+`/run/autoquant/trusted-time/graceful-stop-v2/transport/supervisor.sock`.
+The transport tmpfs is exactly `0:10001:0770`, privately projected read-write
+into only the UID/GID-10001 supervisor, whose socket is `10001:10001:0600`;
+`0750`, read-only, extra-projection, owner/mode, and path/inode drift reject.
+Docker's private PID namespace remains intact. The host fully maps the positive
+supervisor `SO_PEERCRED` PID/start/cgroup/container identity; the supervisor
+requires the outside-namespace host peer as UID/GID `0:0`, PID zero and relies
+on the host-key-signed exact process epoch rather than attempting `/proc/0`.
+User-namespace remap is forbidden by future admission.
+
+Role-separated Ed25519 keys, authenticated by one non-expiring offline-root-
+signed transport manifest and one exact root-signed generation/recovery
+selection record, sign the full canonical nonsecret request/result/error
+envelopes. The pinned decrypt profile writes each TPM-bound blob directly to
+one preopened inode in the named role tmpfs; `LoadCredentialEncrypted` and any
+second plaintext path are forbidden. Exact host hello, supervisor hello, and
+host confirmation contracts
+bind full process-epoch objects, fresh process/channel nonces, both endpoint and
+peer views, and a deterministic domain-separated channel preimage before any
+application request. The host counters are hello zero, confirmation one,
+request two; supervisor counters are hello zero and result/error one.
+Signatures bind direction, schema, environment, generation, boot and exact
+process epochs, channel, unsigned 64-bit direction counter, absolute
+`CLOCK_BOOTTIME` deadline, and complete payload. There is intentionally no
+confidentiality claim. Unknown or overlapping key generations, private-key
+persistence outside the three named root-created tmpfs secret mounts, endpoint or
+permission drift, counter gap/reuse/wrap, boot/process/channel mismatch, and
+deadline equality fail closed. Connect/handshake is bounded to five seconds,
+frame I/O to two seconds, clean stop and each ADR-0109 observation to 120
+seconds, container stop to 30 seconds, each removal to 15 seconds, volume proof
+to 10 seconds, STORE to five seconds, and the whole operation to 600 seconds.
+The 262,144-byte packet bound reserves at most 8,192 bytes for fixed envelope
+and signature overhead and caps decoded request/result/error payloads at
+65,536/180,224/32,768 bytes; base64 length is checked mathematically before
+allocation.
+
+V2 preserves `.post-enrollment-graceful-stop-attempt-slot` as the one permanent
+v1/v2 lifecycle and replay root. Its independent canonical root, progress,
+transcript, outcome, commit, request, result, and error contracts form one
+gap-free typed family; an exact v1 root consumes the slot, and every unknown or
+mixed v1/v2 root, prefix, directory, or object graph is retention-unconfirmed.
+Each immutable content-addressed transcript snapshot has an exact root/progress
+entry list and a domain-separated digest; exclusive staging, no-replace rename/
+fsync, and readback are its publication commit. Ordinal two first publishes the
+complete canonical signed result-or-error transport envelope bytes—including
+payload and signature—as the one immutable content-addressed wire artifact
+under `<ignored-root>/trusted-time`; ordinary SHA-256 of those exact bytes
+selects the literal result/error filename. Exclusive no-follow staging, file
+and directory fsync, no-replace rename, stable readback/re-encode/signature/hash
+verification, and an exact nested publication receipt precede ordinal-two
+retention. Its typed progress evidence binds absolute admitted path, artifact
+name, complete-envelope/
+payload/signature digests, envelope and payload schemas, key generation/ID,
+channel, counter, deadline, and receipt. The transcript's ordinal-two entry
+binds both that progress record and exact wire artifact; payload-only,
+digest-only, orphan, paired result/error, or interrupted publication is
+retention-unconfirmed. The result has exact top-level
+correlators, a complete nested request, a closed twenty-field ADR-0108 primitive
+projection, and a complete signed supervisor-cleanup commitment rather than a
+prose or giant-object schema. The normal path retains
+request intent/result, transport cleanup commitment/quiescence at ordinals three/
+four, pre-effect reauthentication, supervisor stop, source stop, per-ID
+container and network removals, two-volume preservation, distinct post-teardown
+reauthentication, terminal cleanup intent/result at twenty-one/twenty-two, and
+only then confirmed outcome ordinal twenty-three. Every
+CALL has a dedicated durable pre-CALL intent and separately authenticated
+post-CALL result. Missing or ambiguous evidence is never retry permission.
+
+The existing native global launcher lease is the only host cross-process lock
+and remains held from authenticated channel preflight through four-way fresh
+admission, root reservation, every STORE/CALL pair, transport and terminal
+cleanup, final transcript, and the fixed outcome commit. Signed transport
+cleanup commitment, EOF/path/inode plus stable
+supervisor-FD-table absence observation, host zeroization, supervisor process
+removal, empty mount proof,
+and native cleanup receipts must all be durable before the final transcript and
+success commit; the last whole-operation deadline check also precedes that
+commit, and the 600-second lifecycle deadline ends there. A precommit cleanup
+failure permits only recovery-required and never effect continuation or a
+previously committed success. After the ordinal-23 confirmed-success commit,
+only invalidation of an
+already-empty process-local repository registry and close of the lease FD
+remain. That disposal is outside the lifecycle/deadline, owns no private key,
+socket, effect, observation, or outcome candidate, cannot invalidate or
+reclassify the fixed commit, and is guaranteed to release the flock on kernel
+process exit. The supervisor never acquires that flock, and v2 adds no second
+repository flock. A native pre-Python `pthread_atfork` guard
+invalidates and closes a fixed owner table in the child before any registry
+lock; every entrypoint checks PID, exact Thread, and fork epoch before locking.
+Process creation is denied while v2 ownership is live. Effects therefore use a
+method-narrowed Docker Engine `/v1.45` client over the admitted exact Unix
+socket, not Docker CLI or Compose. It can stop/delete only admitted container
+IDs, delete only the admitted network ID, cannot delete volumes, and must prove
+both exact named-volume identity projections unchanged with a retained zero-
+volume-delete trace. ADR 0121 freezes every literal inspect/stop/delete target,
+including `POST .../stop?t=30`, explicit preserving container-delete flags
+`v=false&force=false&link=false`, empty network-delete query/body, and exact-ID
+GET paths. Each durable intent, result, and method-trace entry binds the full
+method/path/ordered-query/fixed-header/absent-body digest; any alternate query,
+header, body, signal, or path fails before socket I/O.
+Responses reject non-HTTP/1.1, chunking, invalid/duplicate framing, length/body
+drift, or endpoint byte-ceiling excess; 204 is zero-body and normal delete
+post-inspects require the exact one-field 404 JSON. `/info`, container, network,
+and volume bodies are duplicate-aware bounded JSON decoded into exact allowlisted
+projections. Unknown raw fields are explicitly ignored only after that parse and
+remain bound by the raw-body digest; framing, body, and projection digests all
+enter each result and trace entry. Same-lock admission performs exactly six
+Docker reads in order: `/info`, supervisor full-ID inspect, source full-ID
+inspect, project-network full-ID inspect, command-socket-volume inspect, then
+state-volume inspect. The admission/root binds the ordered request, complete
+connection-identity, HTTP-exchange, and trace objects and their digests.
+Thereafter, one fresh connection serves each fixed call in the literal ordinal
+sequence `6..17`. Each canonical connection identity binds the socket
+mount/path/device/inode, root peer credential and daemon process identity,
+local socket device/inode/`SO_COOKIE`, call ordinal, admitted daemon projection,
+and capture/revalidation times; a raw FD number is never authority. Closed
+container-stop, container-remove, network-remove, and volume-preservation
+result objects embed complete primary/post-inspect connection and exchange
+objects, complete trace-entry objects, and parallel request/connection/exchange/
+trace digests plus HTTP/framing/body/projection digests, timestamps, and exact
+outcome. Reorder, implicit reads, identity drift, retry, or a digest-
+only result is recovery-required.
+
+Fresh ADR-0109 observations are consumed by separate v2 pre-effect and terminal
+binding seams. The second observation must start after durable teardown and
+volume proof and cannot reuse the first issuer, object, interval, or binding.
+Recovery is classification-only: after process loss or any ambiguity, a
+separately signed recovery profile may authenticate the exact prefix and commit
+only a deterministic recovery-required outcome or an already-created exact
+candidate. It cannot dispatch transport, continue, retry, compensate, or reach
+Docker mutation. Unknown or conflicting state permits no recovery write.
+
+ADR 0121 still adds documentation only. The endpoint, keys, manifest, native
+guard, schemas, repository, admission, Docker client, both bindings, recovery
+classifier, integration, deployment evidence, stop authority, and real
+lifecycle root remain absent. Later acceptance requires the complete vectors,
+fault injection, cross-version import guards, key-custody/zeroization proof,
+same-lock trace, fork proof, exact-ID isolated teardown, volume proof, and
+recovery non-reachability specified by ADR 0121. `trusted-time-stop` remains the
+exact exit-2 no-effect target.
 
 The dormant boundary is frozen by a mandatory raw-source-byte manifest over
 all regular Python files in the exact `apps`, `packages`, and `scripts` roots,
@@ -5118,16 +5255,17 @@ protection are still external trusted controls; source review alone cannot
 prove that GitHub ran or enforced the check.
 
 Before live integration, the one reviewed composition frozen by ADR 0116 must
-use the separately reviewed lifecycle-v2-compatible historical-receipt handoff
-and v2 request/result/host-binding family, never the current
-ADR-0112-to-ADR-0111 v1 handoff, and satisfy the five gates above. In particular,
-transport cannot be activated before same-lock admission, lifecycle-v2
-ambiguity retention, and fork-safe ownership are complete. The structural v2
-result must be freshly cross-bound through the v2 host seam to a pre-effect
-ADR-0109 observation before any stop/teardown effect, and no success can precede
-exact supervisor-first/source-second effects, ID-bound container/network
-teardown, both-volume preservation, a distinct post-teardown terminal
-reauthentication through its separate v2 seam, and durable outcome publication.
+implement ADR 0121's additive v2-bound ADR-0112 historical-receipt handoff and
+independent v2 request/result/error/lifecycle family, never the current
+ADR-0112-to-ADR-0111 v1 handoff, and satisfy the five gates above. Transport
+cannot be activated before same-lock admission, lifecycle-v2 ambiguity
+retention, fork-safe ownership, exact key/endpoint admission, and classification-
+only recovery are complete. The structural v2 result must be freshly
+cross-bound through the v2 host seam to a pre-effect ADR-0109 observation before
+any stop/teardown effect, and no success can precede exact supervisor-first/
+source-second effects, ID-bound container/network teardown, both-volume
+preservation, a distinct post-teardown terminal reauthentication through its
+separate v2 seam, and durable outcome publication.
 
 Code-only contract `phase6d-post-enrollment-start-host-orchestrator-v3` now
 composes the complete start-only chain. Before mutation it consumes canonical

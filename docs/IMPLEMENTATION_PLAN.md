@@ -3650,13 +3650,113 @@ numeric deadlines remain unimplemented external blockers. ADR 0116 changes
 documentation only; `trusted-time-stop` remains hard closed.
 
 ADR 0112's current private handoff is bound to ADR 0111's v1 bridge and is not a
-v2 input. A later implementation review must choose either a separately
-versioned ADR-0112 consumed-snapshot seam bound to the v2 bridge identity or an
-independent v2 loader/consumer of the same historical durable sources. Direct
-v1↔v2 negative vectors and an architecture/import guard proving that v2 cannot
-reach v1 lifecycle loaders, codecs, builders, or host binders are mandatory
-acceptance evidence; this plan does not select the concrete schema or handoff
-implementation.
+v2 input. [ADR 0121](adr/0121-trusted-time-graceful-stop-lifecycle-v2-implementation-resolution.md)
+selects an additive private ADR-0112 consumer bound to a separate v2 bridge
+capability, exact operation/admission/channel, PID, and Thread. It reuses the
+reviewed fresh historical-source reconstruction without calling or adapting the
+current v1 handoff and leaves every existing ADR-0112 public and v1-private
+meaning unchanged. Direct v1↔v2 negative vectors and an architecture/import
+guard must prove that v2 cannot reach ADR-0110/0111 lifecycle loaders, codecs,
+builders, binders, objects, bytes, or adapted projections.
+
+ADR 0121 also freezes the exact implementation target. The channel is Linux
+pathname `AF_UNIX` `SOCK_SEQPACKET` on a root-created tmpfs endpoint with exact
+path/inode/mount and `SO_PEERCRED` binding. Its mount is exactly
+`0:10001:0770`, privately projected read-write into only the supervisor. Docker
+private PID isolation remains: the host fully maps the supervisor peer, while
+the supervisor requires the outside-namespace host as UID/GID `0:0`, PID zero,
+and authenticates its signed process epoch; user-namespace remap is denied.
+Role-separated Ed25519 host and
+supervisor keys sign complete canonical nonsecret frames; a third role signs
+only recovery classification. One offline-root-signed, non-expiring authority
+manifest plus one exact root-signed selection record controls the sole new-root
+generation and separately permits or denies recovery signing for a retained
+root. There is no wall-clock expiry predicate or overlapping generation. Raw
+host, supervisor, and recovery seeds originate only from their exact TPM2-bound
+`systemd-creds` encrypted blobs, exist only in three named root-created tmpfs
+mounts, enter native non-dumpable signers without crossing Python, and are
+unlinked and explicitly zeroized on every terminal path. The pinned decrypt
+profile writes directly to the single preopened role-tmpfs inode and forbids a
+credential-directory plaintext copy. Once a lifecycle root
+exists, host/supervisor seeds cannot reload; recovery can load only its exact
+root-pinned generation when the signed selection permits it.
+
+Exact canonical process-epoch objects and a signed host-hello, supervisor-hello,
+host-confirmation sequence bind stable Linux boot UUID, namespace-local PID/
+start/inode, executable/import closure, process nonces, two fresh 32-byte
+channel challenges, both endpoint/peer views, and one domain-separated channel
+digest. Host counters are zero/one/two; supervisor counters are zero/one. The
+262,144-byte packet, 8,192-byte envelope-overhead ceiling, base64 formula, and
+65,536/180,224/32,768 request/result/error payload limits are exact. Counter gap/reuse/wrap,
+channel/epoch mismatch, path or permission drift, unknown or overlapping keys,
+and equality with any deadline fail closed. Numeric budgets are five seconds
+for lock and handshake, two seconds per frame, 120 seconds for the clean-stop
+result and each ADR-0109 observation, 30 seconds per container stop, 15 seconds
+per container/network removal, 10 seconds for both-volume proof, five seconds
+per STORE, and 600 seconds overall, all on `CLOCK_BOOTTIME`.
+The whole-operation deadline ends at the fixed ordinal-23 outcome commit; every
+success-relevant cleanup receipt and the last equality-expired deadline check
+must complete before it.
+
+The exact v2 family uses one fixed
+`.post-enrollment-graceful-stop-attempt-slot` across v1 and v2, independent
+canonical request/result/error/root/progress/transcript/outcome/commit schemas,
+an exact nested clean-stop result with signed cleanup commitment, immutable
+content-addressed storage of the complete signed result-or-error envelope bytes,
+and a no-replace content-addressed prefix-transcript schema. Ordinary SHA-256 of
+the full canonical wire envelope—including payload and signature—selects its
+literal result/error artifact name. Exclusive no-follow staging, file/directory
+fsync, no-replace rename, stable readback/re-encoding/signature/hash validation,
+and an exact publication receipt precede ordinal two; its evidence binds the
+absolute admitted path and artifact name plus envelope/payload/schema/key/
+channel/counter/deadline identities,
+and the transcript binds that record to the exact wire artifact. Payload-only,
+digest-only, orphan, conflicting, or interrupted wire state is retention-
+unconfirmed. The family has a typed gap-free normal path from root ordinal zero through
+transport quiescence at four, terminal cleanup at twenty-two, and confirmed
+outcome only at twenty-three. The existing global native launcher lease is the only
+host flock and spans channel preflight, four-way fresh admission, root and every
+STORE/CALL pair, distinct pre-effect and post-teardown ADR-0109 bindings,
+transport/terminal cleanup, final transcript, and fixed outcome commit. A
+success-relevant precommit cleanup failure cannot leave committed success or
+grant effect continuation. Only after the ordinal-23 confirmed-success commit,
+invalidation of an already-empty
+non-authoritative registry and lease-FD close follow the commit; this disposal
+is outside lifecycle/deadline, owns no secret/effect/observation/candidate,
+cannot reclassify the commit, and kernel process exit guarantees flock release.
+A native pre-Python
+`pthread_atfork` guard closes inherited owners before child registry access;
+process creation is denied while v2 is live. Effects therefore use a
+method-narrowed Docker Engine `/v1.45` Unix-socket client that can stop/delete
+only admitted container IDs and delete only the admitted network ID, has no
+volume-delete or generic request surface, and must retain proof that both named
+volume identity projections are unchanged and the volume-delete call count is
+zero. Its exact HTTP/1.1 response framing rejects chunking/truncation, bounds
+each endpoint, requires zero-body 204 and exact container/network 404 JSON, and
+reduces bounded duplicate-aware `/info`/container/network/volume JSON to closed
+projections while retaining raw-body, framing, and projection digests. Same-lock
+admission fixes the literal six-read order `/info`, supervisor container, source
+container, project network, command-socket volume, state volume and binds the
+ordered request-digest list and complete connection/exchange/trace object lists
+with their parallel digests into admission/root.
+Each call has one fixed ordinal `0..17` and a fresh canonical connection identity
+covering socket mount/path/device/inode, peer and daemon process, local socket
+device/inode/`SO_COOKIE`, and capture/revalidation time; raw FD numbers are not
+authority. Exact container-stop, container-remove, network-remove, and volume-
+preservation semantic objects embed complete connection/exchange objects and
+complete trace-entry objects with parallel request/connection/exchange/trace
+digests, every HTTP/framing/body/projection digest, timestamps, and outcome.
+
+Recovery is classification-only. A generation-pinned recovery launcher may
+authenticate one known prefix, durably consume one signed recovery envelope,
+bind distinct classified-prefix and final-intent transcript snapshots, and
+retain only the deterministic recovery-required outcome or finish the one
+exact already-created outcome candidate. It cannot load host/supervisor keys,
+sign a transport frame, open the transport channel, reach Docker mutation,
+retry, continue, compensate, or select an effect. Unknown or mixed state permits
+no write. These decisions remove schema and choreography ambiguity, but every
+implementation, key, endpoint, manifest, root, effect, authority, and
+integration gate remains ahead; `trusted-time-stop` remains hard closed.
 
 The ADR-0111 static freeze includes a mandatory raw-byte manifest for every
 regular Python source below the exact `apps`, `packages`, and `scripts` roots.
@@ -4110,10 +4210,33 @@ unavailable before any watchdog consumer is designed or qualified. See
   preservation; a distinct fresh post-teardown terminal reauthentication
   through a separate v2 seam then precedes durable outcome. ADR-0110/0111 v1
   types, bytes, receipts, binders, and adapted projections remain forbidden as
-  v2 inputs, every v1↔v2 mix must reject, and the historical-receipt v2 handoff
-  remains an explicit schema/loader choice. Every post-reservation CALL/STORE
-  ambiguity is recovery-required without automatic retry. No component of that
-  design is implemented or authorized, and the stop target continues to exit 2.
+  v2 inputs, and every v1↔v2 mix must reject. ADR 0121 now resolves the concrete
+  design: an additive private ADR-0112 v2-bound historical-receipt consumer;
+  mutually signed nonsecret Linux Unix-seqpacket frames with exact endpoint,
+  root-signed generation selection, tmpfs-only role-key custody, boot/process/
+  exact root:GID-10001 writable mount, private-PID asymmetric peer admission,
+  three-message handshake, bounded envelope math, challenge/channel/counter
+  binding, and fixed `CLOCK_BOOTTIME` deadlines; one
+  permanent v1/v2 lifecycle root and independent typed v2 request/result/error
+  and exact transcript/result family with full signed-wire-envelope publication
+  at ordinal two, authenticated cleanup at ordinals four and twenty-two, and the
+  last deadline check before fixed success commit ordinal twenty-three; post-
+  commit empty-registry/lease-FD disposal is non-authoritative and cannot
+  reclassify; one continuously held
+  native launcher lease; pre-lock fork invalidation and no live process spawn;
+  a method-narrowed exact-ID Docker Engine client with literal v1.45 inspect,
+  `stop?t=30`, volume-preserving `v=false&force=false&link=false` container
+  delete, and empty-query network-delete requests, no generic or volume-delete
+  surface, full request-shape digests, bounded HTTP response framing, exact
+  204/404 semantics, typed allowlisted projections, a fixed six-read admission
+  order, exact connection identities and ordinals `0..17`, and closed semantic
+  result/exchange objects in every result/trace;
+  separate fresh pre-effect and post-teardown ADR-0109 binding seams; and
+  generation-pinned, one-use, classification-only recovery that cannot reach
+  transport or Docker mutation. Every post-reservation CALL/STORE ambiguity is
+  recovery-required without automatic retry. The design choices are closed,
+  but no component is implemented or authorized, and the stop target continues
+  to exit 2.
   Claim persistence now uses one globally single-use fixed slot and rejects any
   current or legacy per-operation claim. An import-only coordinator checks the
   exact enrollment evidence before reauthentication and before and after claim
