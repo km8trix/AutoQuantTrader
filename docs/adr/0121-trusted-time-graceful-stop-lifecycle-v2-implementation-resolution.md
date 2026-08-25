@@ -14,11 +14,11 @@
 ADR 0116 freezes the graceful-stop composition as one non-separable sequence:
 authenticated transport, same-lock current admission, lifecycle v2, fork-safe
 ownership, and ordered effects with distinct pre-effect and post-teardown
-reauthentication. It deliberately leaves the implementation choices unresolved.
+reauthentication. It originally left the implementation choices unresolved.
 That protects the current runtime from a partial activation, but it is not yet
 specific enough to implement or review the prerequisites independently.
 
-The unresolved choices are security boundaries, not interchangeable details.
+Those choices were security boundaries, not interchangeable details.
 A local socket without peer and key binding would authenticate only pathname
 reachability. A counter without a boot and process epoch could restart into an
 accepted replay domain. A new lifecycle root beside ADR 0110 v1 would create two
@@ -58,10 +58,13 @@ launcher-lock lease remains continuously held:
    before any effect;
 5. perform every effect and reauthentication STORE/CALL pair in state-machine
    order, then durably retain and complete empty-mount/terminal-owner cleanup;
-6. only after that cleanup result is durable, publish exactly one confirmed-
-   success outcome and fixed commit; a failure path may instead publish only a
-   recovery-required outcome. The fixed commit is the terminal lifecycle and
-   whole-operation deadline boundary; and
+6. only after that cleanup result is durable, publish and revalidate exactly
+   one confirmed-success outcome candidate, dispose every remaining success-
+   relevant candidate handle, and pass the final equality-expired precommit
+   authorization check; then publish its one fixed commit. A failure path may
+   instead publish only a recovery-required outcome. The authorization check is
+   the whole-operation cutoff, while the fixed commit is the terminal lifecycle
+   boundary; and
 7. after an ordinal-23 confirmed-success fixed commit and outside the lifecycle
    and its deadline, dispose of already-empty
    non-authority registries and close the lease descriptor. This post-commit
@@ -70,7 +73,11 @@ launcher-lock lease remains continuously held:
 
 Before root creation may have begun, failure closes the channel and requires a
 completely fresh lock, channel, admission, and challenges. After root creation
-may have begun and before a fixed commit, every failure is recovery-required.
+may have begun and before outcome-candidate publication may have begun, every
+failure is recovery-required. Once candidate or fixed-marker publication may
+have begun, failure is `outcome_commit_unconfirmed`: only the exact candidate/
+marker rules below apply, and an unauthorized confirmed-success candidate alone
+is retention-unconfirmed rather than permission to create a second outcome.
 No transport error or apparently unperformed call reopens the normal-attempt domain. Once an exact
 fixed commit is stably authenticated, no later disposal error, signal, deadline
 read, or process-exit status may invalidate, replace, or reclassify it.
@@ -121,6 +128,8 @@ The exact v2 root field set is:
 `lifecycle_version` is the integer `2`, `phase` is exactly `root_reserved`, and
 `ordinal` is the integer zero. UTC values are audit metadata only. No wall-clock
 value supplies freshness, expiry, ordering, or authority.
+`operation_deadline_boottime_ns` is the 600-second normal-path precommit
+authorization cutoff defined below, not a durable-marker completion time.
 
 The root is created exclusive/no-follow through the admitted native owned-file
 boundary, file- and directory-fsynced, read back, canonical-decoded, rebound to
@@ -187,7 +196,8 @@ signature. These three digests are distinct and never substituted.
 After the one `recvmsg` and before ordinal two may be retained, the host must
 bound the still-complete packet, canonical-decode and re-encode it byte-for-
 byte, authenticate its schema/signature/channel/counter/deadline/payload, and
-publish those same bytes. Publication uses exclusive no-follow creation of the
+take the final equality-expired publication-authorization sample before
+publishing those same bytes. Publication uses exclusive no-follow creation of the
 one frame-type staging name as owner-only mode `0600`, complete write and file
 fsync, `renameat2(RENAME_NOREPLACE)` to the digest-derived final name,
 parent-directory fsync, then stable no-follow readback, canonical re-encoding,
@@ -207,16 +217,20 @@ service `trusted-time-post-enrollment-graceful-stop-lifecycle-v2`, status
 `file_inode`, `file_mode`, `file_size`, `signed_envelope_sha256`, `envelope_contract_version`,
 `frame_type`, `payload_contract_version`, `payload_sha256`,
 `signature_sha256`, `key_generation`, `signing_key_id`, `channel_id`,
-`message_counter`, `deadline_boottime_ns`, `directory_fsync_completed`,
-`stable_readback_completed`, and `published_boottime_ns`. Artifact kind is
+`lifecycle_dispatch_prefix_sha256`, `message_counter`, `deadline_boottime_ns`,
+`directory_fsync_completed`,
+`stable_readback_completed`, and `publication_authorized_boottime_ns`. Artifact kind is
 exactly `signed_result_envelope` or `signed_error_envelope`; mode is integer
 `384` (`0600`), directory/file device/inode and size are positive bounded
 integers, path/name obey the exact construction above, and both completion
 booleans are true. File size equals the complete signed-envelope byte length and
 is at most 262,144; artifact kind/frame type/path/name/full-envelope digest map
 exactly to result or error; envelope/payload/signature/key/channel/counter/
-deadline fields equal the decoded authenticated envelope; and
-`published_boottime_ns < deadline_boottime_ns`. Its digest is SHA-256 over the ASCII domain
+dispatch-prefix/deadline fields equal the decoded authenticated envelope; and
+`publication_authorized_boottime_ns < deadline_boottime_ns`. The sample is
+taken immediately before staging creation; it is not a postpublication
+completion timestamp, and stable readback after the cutoff cannot reclassify
+the authenticated bytes. Its digest is SHA-256 over the ASCII domain
 `AutoQuantTrader/trusted-time/graceful-stop/wire-envelope-publication-receipt/v2`,
 one NUL byte, and the complete canonical receipt.
 
@@ -245,6 +259,22 @@ instead adds `command_socket_volume_identity_sha256`,
 `volume_delete_call_count`, whose value must be integer zero. A typed decoder
 rejects fields from any other stage rather than normalizing them.
 
+For ordinal one, `arguments_sha256` is the digest of an exact non-circular
+request basis, not the digest of the later signed request. The basis uses
+`contract_version="phase6d-trusted-time-head-anchor-clean-stop-request-basis-v2"`,
+service `trusted-time-head-anchor-clean-stop-v2`, status
+`operation_bound_clean_stop_request_basis_retained`, and exactly the final
+request fields defined below except `request_basis_sha256`,
+`request_intent_sha256`, and `lifecycle_dispatch_prefix_sha256`. Its digest is
+SHA-256 over the ASCII domain
+`AutoQuantTrader/trusted-time/graceful-stop/clean-stop-request-basis/v2`, one
+NUL byte, and the complete canonical basis. The ordinal-one constructor derives
+that basis only from the stable root/admission and fixed constants, stores its
+digest as `arguments_sha256`, and exposes no caller-selected basis object.
+`request_intent_sha256` is then ordinary SHA-256 of the complete canonical
+ordinal-one progress-record bytes. Only after that record is stably read back
+may the dispatch prefix and final request be constructed.
+
 Ordinal two is deliberately not the generic result shape. Result-stage
 evidence has exactly `intent_sha256`, `responder_identity_sha256`,
 `disposition`, `clean_stop_result_artifact_path`,
@@ -252,15 +282,17 @@ evidence has exactly `intent_sha256`, `responder_identity_sha256`,
 `envelope_contract_version`, `frame_type`, `payload_contract_version`,
 `clean_stop_result_payload_sha256`, `clean_stop_result_signature_sha256`,
 `terminal_projection_sha256`, `key_generation`, `signing_key_id`, `channel_id`,
-`message_counter`, `deadline_boottime_ns`, `wire_publication_receipt`,
+`lifecycle_dispatch_prefix_sha256`, `message_counter`,
+`deadline_boottime_ns`, `wire_publication_receipt`,
 `wire_publication_receipt_sha256`, `call_started_boottime_ns`, and
 `call_completed_boottime_ns`. Disposition is `authenticated_result`, frame type
 is `clean_stop_result`, counter is integer one, and the nested publication
 receipt must re-encode and hash to its repeated digest and exact result file.
 The evidence path/name/full-envelope/payload/signature/schema/key/channel/
-counter/deadline values equal the nested receipt and decoded envelope, and
+dispatch-prefix/counter/deadline values equal the nested receipt and decoded
+envelope, and
 `call_started_boottime_ns <= call_completed_boottime_ns` while
-`call_completed_boottime_ns <= published_boottime_ns < deadline_boottime_ns`.
+`call_completed_boottime_ns <= publication_authorized_boottime_ns < deadline_boottime_ns`.
 
 Error-stage evidence has the identical correlator/publication shape with
 `clean_stop_error_artifact_path`, `clean_stop_error_artifact_name`,
@@ -269,8 +301,9 @@ Error-stage evidence has the identical correlator/publication shape with
 place of the five result artifact fields, omits
 `terminal_projection_sha256`, and adds `error_code` and `failure_boundary`;
 disposition is `authenticated_error` and frame type is `clean_stop_error`. The envelope/payload contracts, supervisor
-key/generation, channel, counter, absolute deadline, receipt, and complete
-canonical bytes must agree at every nesting. Exactly one of these two typed
+key/generation, channel, lifecycle dispatch prefix, counter, absolute deadline,
+receipt, and complete canonical bytes must agree at every nesting. Exactly one
+of these two typed
 ordinal-two records and exactly its one wire artifact may exist.
 The same artifact/receipt/evidence equalities and timestamp inequalities apply
 to the error names and bytes.
@@ -344,6 +377,32 @@ retention-unconfirmed and permits no outcome. The terminal outcome and fixed
 outcome commit must reference the exact published final transcript, making its
 digest deterministic for normal execution, recovery, and later inspection.
 
+The immutable transport-time transcript identity is
+`lifecycle_dispatch_prefix_sha256`. It is computed only after stable readback of
+the ordinal-zero root and ordinal-one request-intent artifacts and before the
+application request is constructed. Its canonical preimage has exactly
+`contract_version="phase6d-post-enrollment-graceful-stop-lifecycle-dispatch-prefix-v2"`,
+`service="trusted-time-post-enrollment-graceful-stop-lifecycle-v2"`,
+`status="lifecycle_dispatch_prefix_bound"`, `environment`,
+`graceful_stop_operation_id`, `root_sha256`, `request_basis_sha256`,
+`request_intent_sha256`,
+`root_ordinal=0`, `root_stage="root_reserved"`, `request_intent_ordinal=1`,
+`request_intent_stage="clean_stop_request_intent_retained"`, and
+`request_intent_predecessor_sha256`. The last field equals `root_sha256`.
+`request_basis_sha256` equals ordinal one's `arguments_sha256`.
+Its digest is SHA-256 over the ASCII domain
+`AutoQuantTrader/trusted-time/graceful-stop/lifecycle-dispatch-prefix/v2`, one
+NUL byte, and that complete canonical object.
+
+This value is not caller supplied and does not hash a future mutable transcript.
+It names the exact durable transcript prefix that exists at dispatch, avoiding
+a request/transcript circularity. Every later transcript used by a result,
+recovery classifier, binding, outcome, or commit must begin with exactly those
+two entries, artifact digests, stages, ordinals, and predecessor relation; the
+decoder recomputes the dispatch-prefix digest from those stable artifacts before
+accepting the transcript. A different root, intent, first-two-entry projection,
+or dispatch-prefix digest is a cross-lifecycle frame and rejects.
+
 Canonical JSON is UTF-8, has lexicographically sorted keys, no insignificant
 whitespace, and exactly one trailing newline. Duplicate keys at any depth,
 floats, non-finite values, booleans as integers, unknown or missing fields,
@@ -360,39 +419,89 @@ The terminal outcome field set is exactly `contract_version`, `service`,
 `reason_code`, `pre_effect_binding_sha256`,
 `post_teardown_binding_sha256`, `volume_proof_sha256`,
 `terminal_cleanup_sha256`, `stop_effects_confirmed`, `teardown_confirmed`,
-`terminal_cleanup_confirmed`, and `created_at_utc`.
+`terminal_cleanup_confirmed`, `commit_protocol_started_boottime_ns`,
+`commit_publication_authorization_deadline_boottime_ns`,
+`commit_authorized_boottime_ns`, and `created_at_utc`.
 `status` is exactly `confirmed_success` or `recovery_required`. Confirmed success
 requires non-null exact binding/proof/cleanup digests and all three booleans
 true. Recovery-required requires all three booleans false; its nullable evidence
 fields describe only the last durable prefix and grant no effect authority.
+Both commit-window fields are built-in integers in `0..2^63-1`, and the
+five-second addition is checked before use; overflow rejects. The publication-
+authorization deadline is strictly after the protocol start.
+For recovery-required, `commit_authorized_boottime_ns` is a non-null built-in
+integer sampled before candidate publication. It is no earlier than
+`commit_protocol_started_boottime_ns` and strictly earlier than
+`commit_publication_authorization_deadline_boottime_ns`; the fixed marker
+repeats it, so recovery can finalize that exact candidate after the window. For confirmed
+success the candidate field is null because its final authorization check must
+follow candidate stable readback and owner disposal; only the exact marker
+staging/final preimage may carry the later non-null sample.
 Confirmed success has ordinal 23, predecessor equal to the ordinal-22 record,
 and `final_stage=terminal_cleanup_confirmed`. A recovery-required outcome has
 the deterministic next ordinal and names only its exact last retained stage.
 
 The fixed commit contains exactly `contract_version`, `service`, `status`,
 `lifecycle_version`, `graceful_stop_operation_id`, `root_sha256`,
-`outcome_sha256`, `outcome_status`, `transcript_sha256`, and
-`committed_at_utc`. Its status is `terminal_outcome_committed`. One exact
-committed outcome is terminal. A success and recovery outcome cannot both
-qualify. A confirmed-success candidate or commit is invalid unless its exact
+`outcome_sha256`, `outcome_status`, `transcript_sha256`,
+`commit_protocol_started_boottime_ns`,
+`commit_publication_authorization_deadline_boottime_ns`,
+`commit_authorized_boottime_ns`, `operation_deadline_boottime_ns`, and
+`committed_at_utc`. Its status is `terminal_outcome_committed`. The protocol
+start and publication-authorization deadline equal the candidate fields; the
+deadline is exactly `commit_protocol_started_boottime_ns + 5_000_000_000` for
+a recovery-required candidate and
+`min(commit_protocol_started_boottime_ns + 5_000_000_000,
+operation_deadline_boottime_ns)` for confirmed success.
+`operation_deadline_boottime_ns` equals the root field and is the absolute
+precommit authorization cutoff; `commit_authorized_boottime_ns` is the final
+authoritative `CLOCK_BOOTTIME` sample, equals the recovery-required candidate's
+non-null value, and replaces the confirmed-success candidate's null. The
+protocol start must be less than or equal to that sample, which must be strictly
+less than the publication-authorization deadline for both statuses and also
+strictly less than the operation cutoff for confirmed success. A recovery-
+required outcome may be classified after the operation cutoff but cannot
+thereby become success. One exact committed outcome is terminal. A success and
+recovery outcome cannot both qualify. A confirmed-success candidate or commit
+is invalid unless its exact
 predecessor is the durable terminal-cleanup result and its published transcript
 ends at that result.
 
 For confirmed success, ordinal twenty-three is one fixed commit procedure, not
 a progress STORE followed by later authoritative work. After ordinal twenty-two
-and final-transcript stable readback, it publishes and revalidates the one
-content-addressed outcome candidate, completes the last
-`CLOCK_BOOTTIME < whole_operation_deadline_boottime_ns` check, then publishes
-the fixed marker by its exclusive staging/file-fsync/no-replace-rename/
-directory-fsync/stable-readback protocol. Before the procedure reports the
-fixed commit boundary, every transient outcome/transcript file or directory
-descriptor is kernel-closed, the in-memory candidate handle is consumed, and a
-stable registry projection is empty. Failure or ambiguity anywhere in that
-procedure is `outcome_commit_unconfirmed`; it permits only revalidation of that
-same candidate/marker and never an alternate outcome. At the reported fixed
-commit boundary no repository owner retains a candidate or artifact descriptor,
-so the only later descriptors are the already-empty registry shell's own
-non-authoritative bookkeeping and the global lease FD described below.
+and final-transcript stable readback, it samples
+`commit_protocol_started_boottime_ns`, derives the two bounded authorization
+cutoffs above, and publishes and revalidates the one content-addressed outcome
+candidate that binds those values. It prepares and validates one preallocated
+canonical fixed-marker template whose only absent value is the authorization
+sample. It then kernel-closes every transient
+outcome/transcript file or directory descriptor, consumes the in-memory
+candidate handle, proves a stable registry projection empty, and performs the
+last authoritative check that `commit_authorized_boottime_ns` is strictly less
+than both `commit_publication_authorization_deadline_boottime_ns` and
+`operation_deadline_boottime_ns` and is no earlier than the protocol start.
+Equality is expired. That check is the last
+fallible success-classifying lifecycle work
+before fixed-marker creation; the implementation enters the exclusive staging/
+file-fsync/no-replace-rename/directory-fsync/stable-readback marker protocol
+immediately afterward. Mechanically inserting the sampled integer into the
+preallocated template and canonical-encoding the exact marker bytes are its
+first steps; no intervening cleanup, lookup, allocation, validation, deadline
+read, or policy decision is allowed.
+
+The five-second commit value and 600-second whole-operation value are therefore
+precommit authorization cutoffs, not claims that the marker's durable I/O
+completes before either instant. Marker publication is the single authorized
+post-cutoff lifecycle procedure. Its already-authorized bounded attempt may
+either yield one stably authenticated fixed marker or
+`outcome_commit_unconfirmed`; timeout, uncertain return, crash, or I/O failure
+permits only revalidation/finalization of that same candidate/marker and never
+an alternate outcome. A `CLOCK_BOOTTIME` sample after a stably authenticated
+marker is telemetry only and cannot invalidate or reclassify it. At the
+reported fixed commit boundary no repository owner retains a candidate or
+artifact descriptor, so the only later descriptors are the already-empty
+registry shell's own non-authoritative bookkeeping and the global lease FD
+described below.
 
 ### Use a Linux pathname Unix-seqpacket transport with mutual signatures
 
@@ -518,7 +627,8 @@ The transport frame contract is
 set is exactly `contract_version`, `service`, `protocol_version`, `environment`,
 `direction`, `frame_type`, `payload_contract_version`, `key_generation`,
 `signing_key_id`, `boot_epoch_sha256`, `host_process_epoch_sha256`,
-`supervisor_process_epoch_sha256`, `channel_id`, `message_counter`,
+`supervisor_process_epoch_sha256`, `channel_id`,
+`lifecycle_dispatch_prefix_sha256`, `message_counter`,
 `deadline_boottime_ns`, `payload_sha256`, and `payload_base64`. The encoded
 envelope adds only `signature_ed25519_base64`.
 
@@ -537,9 +647,10 @@ The Ed25519 signature input is the ASCII domain
 `AutoQuantTrader/trusted-time/graceful-stop/transport-envelope/v2`, one NUL
 byte, and the complete canonical unsigned envelope. Thus every request,
 result, and error signature binds its direction, schema, environment, key
-generation and role, channel, boot and both process epochs, counter, deadline,
-and the SHA-256 and complete canonical bytes of its payload. A verified digest
-without the verified full payload is insufficient.
+generation and role, channel, boot and both process epochs, exact durable
+ordinal-zero/one lifecycle dispatch prefix, counter, deadline, and the SHA-256
+and complete canonical bytes of its payload. A verified digest without the
+verified full payload is insufficient.
 
 One seqpacket contains one complete canonical message and is at most exactly
 262,144 bytes. For an application payload of `P` bytes, let `O` be the exact
@@ -834,18 +945,35 @@ All acceptance time uses Linux `CLOCK_BOOTTIME`. Numeric budgets are:
 - 30 seconds for each exact container stop;
 - 15 seconds for each exact container or network removal;
 - 10 seconds for the complete two-volume preservation proof;
-- 5 seconds for each durable record or outcome commit; and
-- 600 seconds from admission start through the exact fixed outcome commit at
-  ordinal 23.
+- 5 seconds from each durable record/transcript/outcome publication procedure's
+  start through its final prepublication authorization check; and
+- 600 seconds from admission start through the ordinal-23 final precommit
+  authorization check.
 
-Every narrower deadline is the minimum of its stated budget and the absolute
-whole-operation deadline. Both endpoints bind the same absolute boot-time
+Every normal-path prepublication deadline is the minimum of its stated
+authorization window and the absolute whole-operation authorization cutoff.
+The separately admitted recovery classifier has a fresh five-second
+publication-authorization window and may classify after the normal operation
+cutoff, but may never publish a new confirmed-success candidate. Both endpoints bind the same absolute boot-time
 request/result deadlines. Equality is expired. Clock read failure, regression,
 wrong clock ID, different boot epoch, over-budget cleanup, or deadline equality
-fails closed. Before possible root creation that means no attempt; afterward it
-means recovery-required until the fixed commit is durable. No success-relevant
-cleanup or deadline check remains after that commit, and post-commit disposal
-does not consult or extend the operation deadline.
+fails closed. Before the authorization check, the publisher completes every
+success-relevant prerequisite and prepares a bounded exact template/basis. If
+the artifact carries the authorization sample, mechanically inserting that
+sample into a preallocated template and canonical-encoding the exact bytes are
+the first steps of the already-authorized fixed publication protocol; otherwise
+the bytes are already canonical before the check. No policy, validation,
+cleanup, lookup, or allocation may intervene. The protocol may cross its
+authorization cutoff; it either produces one stably authenticated immutable
+artifact or an ambiguous return, and no postpublication clock read can
+reclassify the artifact.
+Before possible root creation failure means no attempt; afterward it means
+recovery-required until outcome-candidate publication may have begun. From that
+point it is `outcome_commit_unconfirmed` and permits only the exact candidate/
+marker recovery rules above. The ordinal-23 marker uses the exact dual-cutoff
+procedure above. No success-relevant cleanup or deadline check remains after
+that commit, and post-commit disposal does not consult or extend either
+authorization cutoff.
 
 ### Freeze independent request, result, and error schemas
 
@@ -864,8 +992,10 @@ The request contract is
   `graceful_stop_decision_v1_sha256`,
   `historical_decision_receipt_sha256`, and
   `graceful_stop_operator_attestation_envelope_sha256`;
-- `lifecycle_root_sha256`, `request_intent_sha256`, `admission_sha256`,
-  `topology_sha256`, `topology_lease_sha256`, and `trusted_head_sha256`;
+- `lifecycle_root_sha256`, `request_basis_sha256`,
+  `request_intent_sha256`, `admission_sha256`,
+  `lifecycle_dispatch_prefix_sha256`, `topology_sha256`,
+  `topology_lease_sha256`, and `trusted_head_sha256`;
 - `supervisor_container_id`, `channel_id`, `boot_epoch_sha256`,
   `host_process_epoch_sha256`, and `supervisor_process_epoch_sha256`;
 - `checkpoint_reason`, `exact_new_record_required`,
@@ -873,21 +1003,30 @@ The request contract is
   `transport_cleanup_required`, `transport_cleanup_deadline_boottime_ns`, and
   `operation_deadline_boottime_ns`.
 
-The reason is exactly `clean_stop`; `exact_new_record_required` and
+The final request copies every non-derived primitive from the exact ordinal-one
+basis, replaces only its basis contract/status with the final request contract/
+status above, and adds `request_basis_sha256`, `request_intent_sha256`, and the
+derived `lifecycle_dispatch_prefix_sha256`. No final-request byte or digest is
+an ordinal-one input. The reason is exactly `clean_stop`; `exact_new_record_required` and
 `transport_cleanup_required` are true. The cleanup deadline is exactly
 `min(clean_stop_result_deadline_boottime_ns + 5_000_000_000,
 operation_deadline_boottime_ns)` and admission rejects unless it is strictly
 after the result deadline. The already-durable signed request therefore directs
 the supervisor to send its one result/error and immediately execute the fixed
 quiescence sequence without waiting for another frame. The request is at most
-64 KiB.
+64 KiB. Its `request_basis_sha256` equals ordinal one's `arguments_sha256`.
+Its `lifecycle_dispatch_prefix_sha256` is the exact value recomputed from its
+stable root and request-intent artifacts above and equals the signed
+transport envelope field; the supervisor rejects any disagreement before
+constructing a typed request.
 
 The result contract is
 `phase6d-trusted-time-head-anchor-clean-stop-result-v2`, with status
 `exact_operation_bound_new_record_clean_stop_correlated_unqualified`. Its exact
 top-level fields are `contract_version`, `service`, `status`, `environment`,
 `graceful_stop_operation_id`, `lifecycle_root_sha256`, `admission_sha256`,
-`channel_id`, `boot_epoch_sha256`, `host_process_epoch_sha256`,
+`lifecycle_dispatch_prefix_sha256`, `channel_id`, `boot_epoch_sha256`,
+`host_process_epoch_sha256`,
 `supervisor_process_epoch_sha256`, `supervisor_container_id`,
 `operation_bound_request`, `request_sha256`, `terminal_projection`,
 `terminal_projection_sha256`,
@@ -924,8 +1063,11 @@ sum is one, and `current_candidate_remote_readback_sha256` equals
 `current_anchor_sha256`.
 
 `request_sha256` is SHA-256 of the complete canonical request bytes. Every
-duplicated operation/root/admission/channel/epoch/container/deadline field must
-equal `operation_bound_request`; re-encoding must reproduce its bytes exactly.
+duplicated operation/root/request-basis/request-intent/admission/dispatch-
+prefix/channel/epoch/container/deadline field must equal
+`operation_bound_request`; the result envelope's
+dispatch-prefix field must equal both payload occurrences, and re-encoding must
+reproduce the request bytes exactly.
 The nested `clean_stop_terminal_result_semantic_sha256` is independently
 recomputed from the first nineteen ADR-0108 primitive fields under ADR 0108's
 exact canonical semantic construction without importing or accepting its v1
@@ -998,7 +1140,8 @@ The error contract is
 `operation_bound_clean_stop_failed_unqualified`. Its exact fields are
 `contract_version`, `service`, `status`, `environment`,
 `graceful_stop_operation_id`, `lifecycle_root_sha256`, `request_sha256`,
-`admission_sha256`, `channel_id`, `boot_epoch_sha256`,
+`admission_sha256`, `lifecycle_dispatch_prefix_sha256`, `channel_id`,
+`boot_epoch_sha256`,
 `host_process_epoch_sha256`, `supervisor_process_epoch_sha256`,
 `supervisor_container_id`, `error_code`, `failure_boundary`,
 `call_may_have_occurred`, `retryable`, `observed_boottime_ns`,
@@ -1029,7 +1172,8 @@ application error frame; it never guesses correlators from a partial payload.
 The error payload is at most 32,768 bytes. Both booleans are exact built-in
 booleans; boottime values are built-in integers in `0..2^63-1`, observation is
 strictly before the operation deadline, and every duplicated correlator equals
-the durable root/request intent and signed envelope. The error, result, and
+the durable root/request intent, including the recomputed lifecycle dispatch
+prefix, and signed envelope. The error, result, and
 request payload contracts each reject bytes for either sibling contract before
 constructing any typed object.
 
@@ -1869,12 +2013,20 @@ actions while holding the same global launcher lock:
    following-ordinal recovery-required outcome; or
 4. if one exact content-addressed outcome candidate exists and only its fixed
    commit is uncertain, revalidate and commit that same candidate—never create
-   another outcome.
+   another outcome. A confirmed-success candidate is eligible only when an
+   exact canonical fixed-marker staging or final preimage authenticates the
+   candidate and contains the matching protocol start, five-second publication-
+   authorization cutoff, 600-second operation cutoff, and final authorization
+   sample strictly before both. An exact recovery-required candidate's own
+   non-null sample may authorize finalization under its bound timing rules; a
+   confirmed-success candidate alone does not prove that the final check
+   occurred and permits no recovery write.
 
 A prefix containing ordinal two is known only when its transcript, progress
 evidence, nested publication receipt, digest-derived wire filename, complete
-signed-envelope bytes, payload/schema/signature/channel/counter/deadline, and
-result-versus-error choice all reauthenticate to one value. A missing/orphaned
+signed-envelope bytes, payload/schema/signature/channel/lifecycle-dispatch-
+prefix/counter/deadline, recomputation from the exact root and ordinal-one
+request intent, and result-versus-error choice all reauthenticate to one value. A missing/orphaned
 wire file, progress-only digest, payload-only reconstruction, or result/error
 conflict is retention-unconfirmed and permits no recovery write.
 
@@ -1947,7 +2099,8 @@ The implementation must preserve all of these invariants:
 - one channel has exactly one signed request and exactly one signed result or
   error, with exact direction counters and no retransmission;
 - request, result, and error signatures cover direction, schema, channel,
-  boot/process epochs, counter, deadline, and complete canonical payload;
+  boot/process epochs, the exact root-plus-intent lifecycle dispatch prefix,
+  counter, deadline, and complete canonical payload;
 - no operation frame precedes durable root and request-intent revalidation;
 - every potentially effecting CALL has an exact durable intent, and no next
   intent precedes a separately authenticated durable result;
@@ -1960,7 +2113,8 @@ The implementation must preserve all of these invariants:
   second flock and no reverse supervisor lock dependency;
 - every registry rejects fork/process/thread substitution before locking;
 - confirmed success requires ordinal 0 through 22 exactly, the published final
-  prefix transcript, and one committed ordinal-23 outcome; and
+  prefix transcript whose first two entries recompute the signed dispatch
+  prefix, and one committed ordinal-23 outcome; and
 - every other state after possible root creation is recovery-required or
   retention-unconfirmed and never retry evidence.
 
@@ -2045,9 +2199,10 @@ Before any production caller exists, review must retain:
   stage, transcript snapshot, outcome, commit, and recovery-
   classification vectors, including exact size/depth/node boundaries and the
   envelope formula at overhead/payload/packet `-1`, exact, and `+1`;
-- signature tamper vectors for every signed field and complete payload, wrong
-  role/key/generation/environment/direction, generation overlap, and root-
-  signature failure;
+- signature tamper vectors for every signed field and complete payload,
+  including a wrong root, request-intent, or derived lifecycle dispatch prefix,
+  plus wrong role/key/generation/environment/direction, generation overlap, and
+  root-signature failure;
 - socket path, `0:10001:0770` transport tmpfs and read-write private projection,
   writable-listener positive proof, inode, owner/mode, symlink, forbidden GID/
   projection exposure, ancillary descriptor, truncation, disconnect, stale-path,
@@ -2059,6 +2214,14 @@ Before any production caller exists, review must retain:
   private-namespace acceptance with every nonzero/remapped variant rejected,
   plus bounded stable pre/post supervisor FD-table correlation for listener and
   accepted socket closure;
+- fixed-publication timing vectors proving every five-second STORE/commit value
+  and the 600-second operation value are prepublication authorization cutoffs,
+  equality rejects before protocol entry, ordinal-23 final authorization follows
+  candidate readback/descriptor closure/empty-registry proof, only exact marker
+  publication follows it, a recovery-required candidate carries and a confirmed-
+  success candidate omits its final authorization sample, postpublication clock
+  reads are non-authoritative, and timeout/crash at every marker step yields only exact-candidate/marker
+  revalidation or `outcome_commit_unconfirmed` without dual outcomes;
 - evidence that raw private credentials never enter Python, repository, image,
   environment, argv, log, persistent filesystem, lifecycle records, or core
   dumps, including the direct-preopened-tmpfs descriptor-one decrypt profile,
@@ -2087,13 +2250,17 @@ Before any production caller exists, review must retain:
   file bytes, ordinary full-envelope SHA-256 selects the literal final name,
   exclusive/no-follow staging, file/directory fsync, no-replace rename, stable
   readback/re-encode/signature verification and publication receipt all agree,
-  ordinal-two evidence binds every envelope/payload/schema/key/channel/counter/
-  deadline identity, and payload-only, digest-only, orphan, pair, conflict, or
-  interrupted publication is retention-unconfirmed;
+  ordinal-two evidence binds every envelope/payload/schema/key/channel/lifecycle-
+  dispatch-prefix/counter/deadline identity, and payload-only, digest-only,
+  orphan, pair, conflict, or interrupted publication is retention-unconfirmed;
 - transcript vectors proving exact root/progress nesting, domain digest,
   content-addressed name, classified-prefix versus final recovery transcript,
-  fsync/no-replace-rename/readback publication, staging/conflict rejection, and
-  deterministic outcome/recovery use;
+  exact non-circular request-basis to ordinal-one-intent to dispatch-prefix
+  construction, dispatch-prefix domain/object derivation from stable ordinal
+  zero/one,
+  every later transcript's matching first two entries, wrong-root/intent/prefix
+  rejection, fsync/no-replace-rename/readback publication, staging/conflict
+  rejection, and deterministic outcome/recovery use;
 - an event trace proving one global lease spans channel preflight, four-way
   fresh admission, root reservation, every state transition and effect,
   transport quiescence, both reauthentications, terminal cleanup, final
@@ -2160,9 +2327,14 @@ real artifact root or external environment.
 
 It grants no stop, signal, teardown, recovery-effect, start, restart, re-arm,
 readiness, exposure, broker, paper-trading, or live-trading authority. The
-future recovery classifier is allowed only to retain a recovery-required
-classification; this ADR does not provision its key or implement its writer.
-The design is not an operator procedure.
+future recovery classifier may retain only the deterministic recovery-required
+classification for a known uncommitted prefix or revalidate/finalize the one
+already-created exact outcome candidate whose fixed commit alone is uncertain,
+including a confirmed-success candidate with an authenticated exact fixed-
+marker staging/final preimage that proves both precommit authorization cutoffs
+were passed. It may never create a new success candidate, continue an effect,
+or infer confirmed-success authorization from the candidate alone. This ADR does not provision
+its key or implement its writer. The design is not an operator procedure.
 
 `make trusted-time-stop` remains the exact no-prerequisite two-line hard-close.
 It prints
