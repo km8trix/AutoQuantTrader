@@ -230,5 +230,14 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   completion; economic evaluation, captured-tape eligibility, promotion,
   provider I/O, and every source, deployment, broker, or trading authority
   remain closed)
+- [ADR 0118: Pure E\*TRADE OAuth 1.0a signing and supervised session](0118-pure-etrade-oauth1-signing-and-supervised-session.md)
+  (implements Phase 4AL's deterministic HMAC-SHA1 signing and secret-free pure
+  session reducer over the exact ADR-0113 endpoints, typed environment-bound
+  nonsecret reference revisions, injected timestamp/nonce, bounded replay
+  guard with per-scope signing-time/generation high-water, sealed one-use exact-
+  verifier access exchange, OOB authorization, renewal, inactivity/expiry,
+  revocation, and reauthorization transitions; all secrets and signing output
+  remain ephemeral and every credential, persistence, provider, account,
+  broker, and trading authority remains closed)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
