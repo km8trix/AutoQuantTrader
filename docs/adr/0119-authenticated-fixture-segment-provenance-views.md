@@ -59,9 +59,12 @@ resource bounds.
 3. Order job pages by `requested_at DESC, job_id ASC`. The opaque
    `before_job_id` keyset cursor resolves to the authenticated row's exact
    timestamp and identity; the next page admits earlier timestamps or, for a
-   timestamp tie, lexically greater job identities. Page size is restricted to
-   1 through 100. Missing job and cursor responses share one generic not-found
-   shape, while malformed inputs are rejected by bounded transport validation.
+   timestamp tie, lexically greater job identities. The cursor row itself is
+   excluded, every returned job identity is globally unique within the page,
+   and the API boundary revalidates exact `requested_at DESC, job_id ASC`
+   ordering before conversion. Page size is restricted to 1 through 100.
+   Missing job and cursor responses share one generic not-found shape, while
+   malformed inputs are rejected by bounded transport validation.
    After authenticating each complete chain, list reads retain only a dedicated
    constant-size immutable summary; neither returned rows nor the authenticated
    lookahead retain an event collection or artifact object.
@@ -69,7 +72,11 @@ resource bounds.
    reverse-chronological pages of 1 through 100 events. The
    `before_sequence` cursor must name an event in that authenticated chain and
    returns only lower sequences. Total count and continuation metadata make
-   truncation explicit; no response can contain more than 100 events.
+   truncation explicit; `next_before_sequence` is always present and nullable,
+   and no response can contain more than 100 events. Event identities are
+   globally unique. The queued, shared running, and terminal governance role
+   identities are pairwise distinct, while every physical running event binds
+   the same single governed running identity.
 5. Cross the repository query boundary only with frozen allowlisted provenance
    records. Internal detail records retain artifact/event/predecessor links so
    the API can reject malformed exact-type repository results before
@@ -93,6 +100,8 @@ resource bounds.
    `/api/v1/research/fixture-segment-jobs/{job_id}`. Advertise the capability
    only with durable persistence. Corruption and malformed repository output
    produce one generic unavailable response without reflecting stored values.
+   A detail result whose job identity differs from the requested path is
+   malformed, even when the returned chain is internally self-consistent.
 8. Reuse the existing Phase 3F tables and authenticated constructors. Add no
    schema migration, write, repair, worker invocation, experiment mutation,
    filesystem or network I/O, credential access, provider operation, captured-

@@ -3146,8 +3146,14 @@ stored artifact payload remain outside the public claim.
 Job pages use the deterministic keyset order `requested_at DESC, job_id ASC`,
 with a maximum of 100 results. List reads authenticate all events but expose
 only the selected list rows as constant-size immutable summaries with no event
-or artifact collections. Detail reads expose at most 100 events at a time,
-latest first, through an exact sequence cursor. Missing
+or artifact collections. The API rejects a returned cursor row, duplicate job
+identities, or any page that diverges from the exact timestamp/identity order.
+Detail reads require the returned job identity to equal the requested path and
+expose at most 100 events at a time, latest first, through an exact sequence
+cursor whose response field is required but nullable. Event identities are
+globally unique; queued, running, and terminal governance roles are pairwise
+distinct, while every physical running event shares the one running identity.
+Missing
 job, list-cursor, and event-cursor cases share one generic not-found response;
 corrupt or malformed durable evidence yields one generic unavailable response.
 

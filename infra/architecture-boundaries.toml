@@ -3,7 +3,7 @@ source_roots = ["apps", "packages"]
 package_roots = ["packages"]
 production_python_source_manifest_roots = ["apps", "packages", "scripts"]
 production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]
-production_python_source_manifest_sha256 = "10f844b7e3ec24549f2dcf50fb8ce6d69846d0ebf54c410f4b8c0891b9dc5d76"
+production_python_source_manifest_sha256 = "67a8a7b2435e36aea782b1cd66c6bfdeeceb523ba3504f94bd4ef377f308c875"
 project_build_bootstrap_manifest_paths = [
   ".python-version",
   "pyproject.toml",
@@ -179,7 +179,7 @@ trusted_time_topology_launch_lock_documentation_paths = [
 trusted_time_topology_launch_lock_reader_module_ast_sha256 = "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
 trusted_time_topology_launch_lock_issuer_class_ast_sha256 = "b64f79e1679e2bdefe40f6b36c82142fa367f6e6981c1b2e8fee1366a7d39bcd"
 trusted_time_topology_launch_lock_host_module_ast_sha256 = "15c3e62437dc070d223038e21097ce85cbbb68de71ced3a6574f506236ebf56c"
-trusted_time_topology_launch_lock_production_ast_sha256 = "8d6c91b8ef7d873fb08d110e53d8b998d2d77b8551e87df598362efb81fd41c7"
+trusted_time_topology_launch_lock_production_ast_sha256 = "8202a76e661afb8cf7d961bb170d8f875e8657b47f1521ad1b12b097ba7f71d0"
 trusted_time_topology_launch_lock_lifecycle_tag = "trusted-time-issuer-lifecycle-v3"
 trusted_time_topology_launch_lock_lifecycle_tag_count = 13
 trusted_time_topology_launch_lock_launch_lock_binding_tag = "trusted-time-launch-lock-binding-v1"

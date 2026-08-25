@@ -496,7 +496,7 @@ export interface components {
       "events": Array<components["schemas"]["FixtureSegmentEventProvenanceView"]>;
       "feature_artifact": components["schemas"]["FixtureTranscriptProvenanceView"];
       "feature_certification_sha256": components["schemas"]["Sha256Text"];
-      "next_before_sequence"?: (number) | (null);
+      "next_before_sequence": (number) | (null);
       "queued_governance_event_sha256": components["schemas"]["Sha256Text"];
       "summary": components["schemas"]["FixtureSegmentJobSummaryView"];
       "target_artifact": (components["schemas"]["FixtureTranscriptProvenanceView"]) | (null);

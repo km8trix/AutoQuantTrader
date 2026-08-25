@@ -139,10 +139,13 @@ def _require_summary_projection(
         or not 1 <= summary.event_count <= _MAX_STORED_EVENTS
         or type(summary.latest_sequence) is not int
         or summary.latest_sequence != summary.event_count - 1
-        or summary.latest_occurred_at < summary.requested_at
         or (
             summary.status is FixtureSegmentJobStatus.QUEUED
             and (summary.event_count != 1 or summary.latest_occurred_at != summary.requested_at)
+        )
+        or (
+            summary.status is not FixtureSegmentJobStatus.QUEUED
+            and summary.latest_occurred_at <= summary.requested_at
         )
         or (summary.status is FixtureSegmentJobStatus.RUNNING and summary.event_count < 2)
         or (
@@ -170,12 +173,14 @@ def _require_summary_page(
     jobs: tuple[FixtureSegmentJobProvenanceSummary, ...],
     *,
     limit: int,
+    before_job_id: str | None,
     next_before_job_id: str | None,
 ) -> None:
     if (
         type(jobs) is not tuple
         or len(jobs) > limit
         or any(type(job) is not FixtureSegmentJobProvenanceSummary for job in jobs)
+        or not _is_optional_sha256(before_job_id)
         or (
             next_before_job_id is not None
             and (
@@ -189,6 +194,11 @@ def _require_summary_page(
         raise TypeError("fixture provenance query must return immutable jobs")
     for job in jobs:
         _require_summary_projection(job)
+    job_ids = tuple(job.job_id for job in jobs)
+    if len(set(job_ids)) != len(job_ids) or (
+        before_job_id is not None and before_job_id in job_ids
+    ):
+        raise TypeError("fixture provenance summary identities are inconsistent")
     for previous, current in pairwise(jobs):
         if current.requested_at > previous.requested_at or (
             current.requested_at == previous.requested_at and current.job_id <= previous.job_id
@@ -232,6 +242,11 @@ def _require_detail_projection(provenance: FixtureSegmentJobProvenance) -> None:
     )
     if provenance.feature_artifact.certification_sha256 != provenance.feature_certification_sha256:
         raise TypeError("fixture provenance feature certification changed")
+    event_sha256s = tuple(event.event_sha256 for event in provenance.events)
+    if any(not _is_sha256(event_sha256) for event_sha256 in event_sha256s) or len(
+        set(event_sha256s)
+    ) != len(event_sha256s):
+        raise TypeError("fixture provenance event identities are inconsistent")
 
     previous: FixtureSegmentEventProvenance | None = None
     running_governance_sha256: str | None = None
@@ -285,7 +300,10 @@ def _require_detail_projection(provenance: FixtureSegmentJobProvenance) -> None:
             ):
                 raise TypeError("fixture provenance running event is inconsistent")
             if previous.status is FixtureSegmentJobStatus.QUEUED:
-                if event.attempt_number != 1:
+                if (
+                    event.attempt_number != 1
+                    or event.governance_event_sha256 == provenance.queued_governance_event_sha256
+                ):
                     raise TypeError("fixture provenance first claim is inconsistent")
                 running_governance_sha256 = event.governance_event_sha256
             else:
@@ -313,7 +331,11 @@ def _require_detail_projection(provenance: FixtureSegmentJobProvenance) -> None:
                 or event.occurred_at > previous.claim_expires_at
                 or event.attempt_number != previous.attempt_number
                 or event.claim_expires_at is not None
-                or event.governance_event_sha256 == running_governance_sha256
+                or event.governance_event_sha256
+                in {
+                    provenance.queued_governance_event_sha256,
+                    running_governance_sha256,
+                }
             ):
                 raise TypeError("fixture provenance terminal event is inconsistent")
             if event.status is FixtureSegmentJobStatus.COMPLETED:
@@ -528,6 +550,7 @@ def create_fixture_segment_router(
             _require_summary_page(
                 jobs,
                 limit=limit,
+                before_job_id=before_job_id,
                 next_before_job_id=next_before_job_id,
             )
             return FixtureSegmentJobListResponse(
@@ -573,6 +596,8 @@ def create_fixture_segment_router(
         queried_at = datetime.now(UTC)
         try:
             provenance = resolved.get(job_id)
+            if provenance.job_id != job_id:
+                raise TypeError("fixture provenance query returned a different job")
             return FixtureSegmentJobResponse(
                 as_of=queried_at,
                 job=fixture_segment_provenance_view(

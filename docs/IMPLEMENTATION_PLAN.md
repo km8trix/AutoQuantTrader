@@ -945,8 +945,13 @@ Passing one layer cannot substitute for another.
   governed root, so output members and identities whose only anchor is the
   stored artifact payload are excluded from the public claim. Jobs use
   deterministic keyset pages of at most 100 and retain only constant-size
-  summary DTOs; details authenticate all events while exposing reverse-
-  chronological sequence pages of at most 100. Frozen
+  unique summary DTOs, exclude the requested cursor row, and revalidate exact
+  timestamp/identity order. Details require the returned job identity to match
+  the requested path and authenticate globally unique events with pairwise-
+  distinct queued/running/terminal governance roles while every physical
+  running event shares one governed identity. Reverse-chronological sequence
+  pages expose at most 100 events and always include a nullable continuation
+  field. Frozen
   allowlisted records expose only independently authenticated opaque job,
   governance, certification, transcript, parity, completion, and context
   digests; counts; lifecycle ordinals/status; and safe timestamps. Artifact/

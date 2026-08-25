@@ -902,7 +902,7 @@ class FixtureSegmentJobProvenanceView(ApiModel):
     target_artifact: FixtureTranscriptProvenanceView | None
     total_event_count: int = Field(ge=1, le=10_000)
     events: list[FixtureSegmentEventProvenanceView] = Field(max_length=100)
-    next_before_sequence: int | None = Field(default=None, ge=1, le=9_999)
+    next_before_sequence: int | None = Field(ge=1, le=9_999)
 
 
 class FixtureSegmentJobListResponse(ApiModel):

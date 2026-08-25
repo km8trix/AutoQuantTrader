@@ -133,6 +133,14 @@ def _query_client(query: object | None, *, ready: bool = True) -> TestClient:
     return TestClient(app)
 
 
+def _different_sha256(*excluded: str) -> str:
+    for character in "0123456789abcdef":
+        candidate = character * 64
+        if candidate not in excluded:
+            return candidate
+    raise AssertionError("test digest universe was unexpectedly exhausted")
+
+
 def _completed_provenance(
     tmp_path: Path,
 ) -> tuple[
@@ -238,6 +246,8 @@ def test_routes_are_get_only_bounded_paginated_and_redact_transcript_material(
     paths = client.app.openapi()["paths"]
     assert set(paths["/api/v1/research/fixture-segment-jobs"]) == {"get"}
     assert set(paths["/api/v1/research/fixture-segment-jobs/{job_id}"]) == {"get"}
+    detail_schema = client.app.openapi()["components"]["schemas"]["FixtureSegmentJobProvenanceView"]
+    assert "next_before_sequence" in detail_schema["required"]
 
 
 def test_same_length_output_substitutions_are_outside_the_public_claim(
@@ -424,9 +434,38 @@ def test_exact_detail_dto_chain_substitutions_return_generic_503(tmp_path: Path)
     _fixture, _engine, provenance, summary, _payload, _output = _completed_provenance(tmp_path)
     events = provenance.events
     assert len(events) == 3 and provenance.target_artifact is not None
+    duplicate_running_sha256 = events[0].event_sha256
+    renewal_event_sha256 = _different_sha256(*(event.event_sha256 for event in events))
+    renewal_governance_sha256 = _different_sha256(
+        provenance.queued_governance_event_sha256,
+        *(event.governance_event_sha256 for event in events),
+    )
+    assert events[1].claim_expires_at is not None
+    renewal = replace(
+        events[1],
+        event_sha256=renewal_event_sha256,
+        sequence=2,
+        previous_event_sha256=events[1].event_sha256,
+        occurred_at=events[1].occurred_at + timedelta(seconds=30),
+        claim_expires_at=events[1].claim_expires_at + timedelta(minutes=1),
+        governance_event_sha256=renewal_governance_sha256,
+    )
+    terminal_after_renewal = replace(
+        events[2],
+        sequence=3,
+        previous_event_sha256=renewal.event_sha256,
+    )
     variants = (
         replace(provenance, events=tuple(reversed(events))),
         replace(provenance, events=(events[0], events[0], events[2])),
+        replace(
+            provenance,
+            events=(
+                events[0],
+                replace(events[1], event_sha256=duplicate_running_sha256),
+                replace(events[2], previous_event_sha256=duplicate_running_sha256),
+            ),
+        ),
         replace(
             provenance,
             events=(events[0], replace(events[1], sequence=7), events[2]),
@@ -438,6 +477,32 @@ def test_exact_detail_dto_chain_substitutions_return_generic_503(tmp_path: Path)
                 replace(events[1], job_id="d" * 64),
                 events[2],
             ),
+        ),
+        replace(
+            provenance,
+            events=(
+                events[0],
+                replace(
+                    events[1],
+                    governance_event_sha256=provenance.queued_governance_event_sha256,
+                ),
+                events[2],
+            ),
+        ),
+        replace(
+            provenance,
+            events=(
+                events[0],
+                events[1],
+                replace(
+                    events[2],
+                    governance_event_sha256=provenance.queued_governance_event_sha256,
+                ),
+            ),
+        ),
+        replace(
+            provenance,
+            events=(events[0], events[1], renewal, terminal_after_renewal),
         ),
         replace(
             provenance,
@@ -468,6 +533,21 @@ def test_exact_detail_dto_chain_substitutions_return_generic_503(tmp_path: Path)
         assert "inconsistent" not in response.text
 
 
+def test_detail_route_rejects_a_different_internally_consistent_job(
+    tmp_path: Path,
+) -> None:
+    _fixture, _engine, provenance, summary, _payload, _output = _completed_provenance(tmp_path)
+    requested_job_id = _different_sha256(provenance.job_id)
+    response = _query_client(_ExactResultQuery(provenance, (summary,))).get(
+        f"/api/v1/research/fixture-segment-jobs/{requested_job_id}"
+    )
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "durable fixture-segment provenance is unavailable or malformed"
+    }
+    assert provenance.job_id not in response.text
+
+
 def test_exact_summary_dto_order_and_shape_substitutions_return_generic_503(
     tmp_path: Path,
 ) -> None:
@@ -477,12 +557,48 @@ def test_exact_summary_dto_order_and_shape_substitutions_return_generic_503(
         job_id="f" * 64,
         requested_at=summary.requested_at - timedelta(seconds=1),
     )
+    middle_job_id = _different_sha256(summary.job_id)
+    middle = replace(
+        summary,
+        job_id=middle_job_id,
+        requested_at=summary.requested_at - timedelta(seconds=1),
+        latest_occurred_at=summary.latest_occurred_at - timedelta(seconds=1),
+    )
+    repeated_later = replace(
+        summary,
+        requested_at=summary.requested_at - timedelta(seconds=2),
+        latest_occurred_at=summary.latest_occurred_at - timedelta(seconds=2),
+    )
+    tie_larger = replace(summary, job_id="f" * 64)
+    tie_smaller = replace(summary, job_id="0" * 64)
+    completed_equal_time = replace(summary, latest_occurred_at=summary.requested_at)
+    running_equal_time = replace(
+        summary,
+        status=FixtureSegmentJobStatus.RUNNING,
+        event_count=2,
+        latest_sequence=1,
+        latest_occurred_at=summary.requested_at,
+        target_artifact_sha256=None,
+        completion_receipt_sha256=None,
+    )
+    failed_equal_time = replace(
+        summary,
+        status=FixtureSegmentJobStatus.FAILED,
+        latest_occurred_at=summary.requested_at,
+        target_artifact_sha256=None,
+        completion_receipt_sha256=None,
+    )
     pages = (
         (older, summary),
         (summary, summary),
+        (summary, middle, repeated_later),
+        (tie_larger, tie_smaller),
         (replace(summary, latest_sequence=summary.latest_sequence + 1),),
         (replace(summary, target_artifact_sha256=None),),
         (replace(summary, latest_event_sha256="stored-detail-must-not-escape"),),
+        (completed_equal_time,),
+        (running_equal_time,),
+        (failed_equal_time,),
     )
     for summaries in pages:
         response = _query_client(_ExactResultQuery(provenance, summaries)).get(
@@ -493,6 +609,18 @@ def test_exact_summary_dto_order_and_shape_substitutions_return_generic_503(
             "detail": "durable fixture-segment provenance is unavailable or malformed"
         }
         assert "stored-detail-must-not-escape" not in response.text
+
+
+def test_exact_summary_page_excludes_the_requested_cursor_row(tmp_path: Path) -> None:
+    _fixture, _engine, provenance, summary, _payload, _output = _completed_provenance(tmp_path)
+    response = _query_client(_ExactResultQuery(provenance, (summary,))).get(
+        f"/api/v1/research/fixture-segment-jobs?before_job_id={summary.job_id}"
+    )
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "durable fixture-segment provenance is unavailable or malformed"
+    }
+    assert summary.job_id not in response.text
 
 
 def test_repository_translates_governance_audit_failure_before_api_boundary(
