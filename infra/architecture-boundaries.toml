@@ -3,7 +3,7 @@ source_roots = ["apps", "packages"]
 package_roots = ["packages"]
 production_python_source_manifest_roots = ["apps", "packages", "scripts"]
 production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]
-production_python_source_manifest_sha256 = "01a3af9e3395f84e944970e70768f6a101e5b6bd9a917c7688875a0c6a7bf746"
+production_python_source_manifest_sha256 = "4824821bdf9157007c2a18798985fabe8346f39ef984318d7834b41ae237c0a7"
 project_build_bootstrap_manifest_paths = [
   ".python-version",
   "pyproject.toml",
@@ -16,7 +16,7 @@ project_build_bootstrap_manifest_paths = [
   "native/owned_file_descriptor.c",
   "native/trusted_time_python_launcher.c",
 ]
-project_build_bootstrap_manifest_sha256 = "694db9f9aee1a7cf48ae6fd351ad4bc026083700f6ed91c33db4d580aaf3ff1d"
+project_build_bootstrap_manifest_sha256 = "ef6e4ff6a4dab767ada7eafc705add43fa0dd5ef36537ae642d47e3d912ef454"
 project_build_bootstrap_forbidden_paths = [
   "MANIFEST.in",
   "hatch.toml",
@@ -24,7 +24,7 @@ project_build_bootstrap_forbidden_paths = [
   "setup.py",
   "uv.toml",
 ]
-architecture_checker_invocation_source_sha256."Makefile" = "7bd0ec76bb4e399877f8056058e6df00b14d547ab12d42f23f115bd3146589a6"
+architecture_checker_invocation_source_sha256."Makefile" = "6802268c7998df71d5543feba63663e1d6d3e07d87b4ff679107b42594770e42"
 architecture_checker_invocation_source_sha256.".github/workflows/ci.yml" = "45eb3a33cf8564a6c0d16476083b72cbafdcc7e2f00844afb4308e1ad2861526"
 builtin_namespace_integrity_roots = ["apps", "packages", "scripts"]
 builtin_namespace_integrity_excluded_roots = ["scripts/check_architecture.py"]
@@ -179,7 +179,7 @@ trusted_time_topology_launch_lock_documentation_paths = [
 trusted_time_topology_launch_lock_reader_module_ast_sha256 = "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
 trusted_time_topology_launch_lock_issuer_class_ast_sha256 = "b64f79e1679e2bdefe40f6b36c82142fa367f6e6981c1b2e8fee1366a7d39bcd"
 trusted_time_topology_launch_lock_host_module_ast_sha256 = "15c3e62437dc070d223038e21097ce85cbbb68de71ced3a6574f506236ebf56c"
-trusted_time_topology_launch_lock_production_ast_sha256 = "ae4d3edab693ceb1b9daa8d74e49ecbefe3c977cdeb1270105693cfaec3f3452"
+trusted_time_topology_launch_lock_production_ast_sha256 = "649d66e18fe286648f55e60eee15103c0684825f303edead07d146e19d502033"
 trusted_time_topology_launch_lock_lifecycle_tag = "trusted-time-issuer-lifecycle-v3"
 trusted_time_topology_launch_lock_lifecycle_tag_count = 13
 trusted_time_topology_launch_lock_launch_lock_binding_tag = "trusted-time-launch-lock-binding-v1"
@@ -323,13 +323,13 @@ trusted_time_topology_launch_lock_operation_call_counts = [
   "scripts/trusted_time_post_enrollment_host_orchestrator.py|_run_operator_attested_post_enrollment_start_once_with_dependencies|close_issuer|1",
   "scripts/trusted_time_post_enrollment_host_orchestrator.py|_run_operator_attested_post_enrollment_start_once_with_dependencies|abort_issuer_activation|1",
 ]
-trusted_time_topology_launch_lock_frozen_source_sha256."build_support/build_native_admission_launcher.py" = "3d5f443ef7c8a2e808176ff4283e634f0dec5c1d0c28d776d0dc40b76df32423"
-trusted_time_topology_launch_lock_frozen_source_sha256."build_support/build_native_test_launcher.py" = "fb0423cd1add7df82f660e9241df5dbee1429b2f244be8927da2b5376e24f7ec"
-trusted_time_topology_launch_lock_frozen_source_sha256."build_support/install_native_admission_launcher.py" = "2709a59421ea300b3192846c8c822d29403453c83b1112e5443dd25ef2d77f39"
-trusted_time_topology_launch_lock_frozen_source_sha256."build_support/native_owned_file_descriptor_hook.py" = "f09d5d13f9196a20279073b5cb7bb55bd2c2908a7a7773a12fddaa7ed0239814"
+trusted_time_topology_launch_lock_frozen_source_sha256."build_support/build_native_admission_launcher.py" = "08572042780300ac80d77fc90fbb49dac6c0dbf05bd3ebcdfe719ff69c515754"
+trusted_time_topology_launch_lock_frozen_source_sha256."build_support/build_native_test_launcher.py" = "54ecaa0ca5572a988c222a44555ef569987e467efe0e2203d02864c825713686"
+trusted_time_topology_launch_lock_frozen_source_sha256."build_support/install_native_admission_launcher.py" = "3cf730aefc89e588ca77fec79e6c2662c9b363e121089398469a1097a760f5e5"
+trusted_time_topology_launch_lock_frozen_source_sha256."build_support/native_owned_file_descriptor_hook.py" = "75313b842c4f0ace7ca3111fc28edb6048afca724b6002b3a6131d24771819eb"
 trusted_time_topology_launch_lock_frozen_source_sha256."native/bounded_process.c" = "be08d5c95a2a5ce6aa9b06a4434c09473ee74ad941a417b8022885a7ef1f5cbd"
 trusted_time_topology_launch_lock_frozen_source_sha256."native/owned_file_descriptor.c" = "01b9834c343f4b173198ac7bfb22df37c6da6fb3093e7a93875aef56410b9fd9"
-trusted_time_topology_launch_lock_frozen_source_sha256."native/trusted_time_python_launcher.c" = "b0c684309818c6b238da1c96c174d9ad9148b017ee8dde1a51b13933b8451f0e"
+trusted_time_topology_launch_lock_frozen_source_sha256."native/trusted_time_python_launcher.c" = "8f21c008571b4ed04166ae120cea9be2da73955c891a7c026833779dca3381f8"
 trusted_time_topology_launch_lock_frozen_source_sha256."packages/adapters/trusted_time/_bounded_process.py" = "0bdf6cda1f0ab75d08df768d0d75bb40f2c8ef0cb490d09a18d843fb96a2a006"
 trusted_time_topology_launch_lock_frozen_source_sha256."packages/adapters/trusted_time/_owned_file_descriptor.py" = "a5c3a0f1ec32ae95d6a058cdf52f8530fe505c5a97f1a2cf61106d94c2baa9ab"
 native_bounded_process_wrapper_roots = [
@@ -341,7 +341,7 @@ native_bounded_process_allowed_imports."scripts/verify_trusted_time_images.py" =
   "packages.adapters.trusted_time._bounded_process:_run_bounded_process",
 ]
 native_bounded_process_consumer_function_ast_sha256."scripts/verify_trusted_time_images.py" = "94d998f0e4b39560a5c28b697776dd3b085e2853debdc0c84b03156ea0a8e396"
-native_bounded_process_consumer_module_ast_sha256."scripts/verify_trusted_time_images.py" = "d0315613cd7eb62e05f59100bfb17d7007407f4392b5e392548c4c14eb8511ba"
+native_bounded_process_consumer_module_ast_sha256."scripts/verify_trusted_time_images.py" = "8db76d40e7f3bb5c6d9b10e1eb462dd0896957ca95d078f78d24f2d184b3273f"
 native_bounded_process_reflection_module_ast_sha256."packages/domain/_trusted_time_post_enrollment_projection_bootstrap.py" = "59bfdea9c8740d0df92b00bb74fc619d69b0593196b5e53fb39709ba7cae3df6"
 native_bounded_process_reflection_module_ast_sha256."scripts/trusted_time_post_enrollment_topology_reader.py" = "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
 native_bounded_process_reflection_attestations."packages/domain/_trusted_time_post_enrollment_projection_bootstrap.py" = [

@@ -31,6 +31,7 @@ from typing import NamedTuple
 
 import pytest
 
+from build_support import build_native_test_launcher as native_test_builder
 from packages.adapters.trusted_time import _owned_file_descriptor as owned_fd_module
 from packages.adapters.trusted_time._owned_file_descriptor import (
     _acquire_trusted_time_launch_lock,
@@ -2201,6 +2202,10 @@ def test_static_launcher_profiles_and_sdist_inputs_are_exact() -> None:
         "#elif defined(AQT_NATIVE_LAUNCHER_TEST_PROFILE)",
         maxsplit=1,
     )[1].split("#endif", maxsplit=1)[0]
+    assert (
+        '{"verify-images-build", "scripts.verify_trusted_time_images", NULL, "--build", 1},'
+        in test_targets
+    )
     assert "if (argument_count != 2)" in launcher
     target_pattern = re.compile(
         r'\{\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)",\s*'
@@ -2337,3 +2342,55 @@ def test_static_launcher_profiles_and_sdist_inputs_are_exact() -> None:
             "packages/adapters/trusted_time/_bounded_process.py",
         )
     )
+
+
+@pytest.mark.parametrize(
+    "argument_values",
+    (
+        (),
+        ("test-suite", "--artifact", "/tmp/result.json"),
+        ("verify-images-build",),
+        ("verify-images-build", "--artifact"),
+        ("verify-images-build", "--artifact", "artifacts/result.json"),
+        ("verify-images-build", "--artifact", "/tmp/result.json", "extra"),
+    ),
+)
+def test_native_test_launcher_policy_exec_rejects_every_other_shape(
+    argument_values: tuple[str, ...],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build_called = False
+
+    def unexpected_build() -> Path:
+        nonlocal build_called
+        build_called = True
+        raise AssertionError("invalid policy arguments reached the native build")
+
+    monkeypatch.setattr(native_test_builder, "_build_launcher", unexpected_build)
+
+    with pytest.raises(
+        native_test_builder.NativeTestLauncherBuildError,
+        match="execution arguments are not admitted",
+    ):
+        native_test_builder._exec_policy_target(argument_values)
+
+    assert build_called is False
+
+
+def test_native_test_launcher_policy_exec_requires_disposable_isolated_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repository_root = Path(__file__).resolve().parents[2]
+    artifact = repository_root / "artifacts/trusted-time/test.json"
+    arguments = ("verify-images-build", "--artifact", str(artifact))
+
+    monkeypatch.setattr(sys, "prefix", str(repository_root))
+    with pytest.raises(
+        native_test_builder.NativeTestLauncherBuildError,
+        match="execution runtime is not isolated",
+    ):
+        native_test_builder._validated_policy_arguments(arguments)
+
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    assert native_test_builder._validated_policy_arguments(arguments) == arguments

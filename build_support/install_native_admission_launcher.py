@@ -55,7 +55,7 @@ _EXPECTED_SOURCES = {
         "be08d5c95a2a5ce6aa9b06a4434c09473ee74ad941a417b8022885a7ef1f5cbd"
     ),
     "native/trusted_time_python_launcher.c": (
-        "b0c684309818c6b238da1c96c174d9ad9148b017ee8dde1a51b13933b8451f0e"
+        "8f21c008571b4ed04166ae120cea9be2da73955c891a7c026833779dca3381f8"
     ),
     "packages/adapters/trusted_time/_owned_file_descriptor.py": (
         "a5c3a0f1ec32ae95d6a058cdf52f8530fe505c5a97f1a2cf61106d94c2baa9ab"

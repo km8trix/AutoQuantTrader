@@ -1165,6 +1165,11 @@ def test_trusted_time_python_launcher_is_isolated_and_cannot_be_overridden() -> 
         "uv run --isolated --offline --locked --no-editable --no-env-file "
         "python -I -B -X pycache_prefix=/dev/null"
     ) in completed.stdout
+    assert (
+        "build_support/build_native_test_launcher.py verify-images-build \\\n\t\t"
+        f'--artifact "{ROOT}/artifacts/trusted-time/image-admission.json"'
+    ) in completed.stdout
+    assert "scripts/verify_trusted_time_images.py --build" not in completed.stdout
     assert "--no-sync" not in completed.stdout
     assert "--frozen" not in completed.stdout
 
@@ -11336,7 +11341,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
         "apps/web/node_modules"
     ]
     assert architecture_config["production_python_source_manifest_sha256"] == (
-        "01a3af9e3395f84e944970e70768f6a101e5b6bd9a917c7688875a0c6a7bf746"
+        "4824821bdf9157007c2a18798985fabe8346f39ef984318d7834b41ae237c0a7"
     )
     assert (
         _production_python_source_manifest_sha256(
@@ -11406,7 +11411,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
         == architecture_config["project_build_bootstrap_manifest_sha256"]
     )
     expected_invocation_source_sha256 = {
-        "Makefile": "7bd0ec76bb4e399877f8056058e6df00b14d547ab12d42f23f115bd3146589a6",
+        "Makefile": "6802268c7998df71d5543feba63663e1d6d3e07d87b4ff679107b42594770e42",
         ".github/workflows/ci.yml": (
             "45eb3a33cf8564a6c0d16476083b72cbafdcc7e2f00844afb4308e1ad2861526"
         ),

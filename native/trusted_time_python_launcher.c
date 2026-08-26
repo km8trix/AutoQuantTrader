@@ -256,6 +256,7 @@ static const AqtTarget aqt_targets[] = {
         0
     },
 #elif defined(AQT_NATIVE_LAUNCHER_TEST_PROFILE)
+    {"verify-images-build", "scripts.verify_trusted_time_images", NULL, "--build", 1},
     {"test-suite", "pytest", "console_main", NULL, 0},
 #endif
 };

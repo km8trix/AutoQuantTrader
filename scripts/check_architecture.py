@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "ae4d3edab693ceb1b9daa8d74e49ecbefe3c977cdeb1270105693cfaec3f3452"
+    "649d66e18fe286648f55e60eee15103c0684825f303edead07d146e19d502033"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -6158,16 +6158,16 @@ def _trusted_time_topology_launch_lock_violations(
     )
     frozen_source_sha256 = {
         "build_support/build_native_admission_launcher.py": (
-            "3d5f443ef7c8a2e808176ff4283e634f0dec5c1d0c28d776d0dc40b76df32423"
+            "08572042780300ac80d77fc90fbb49dac6c0dbf05bd3ebcdfe719ff69c515754"
         ),
         "build_support/build_native_test_launcher.py": (
-            "fb0423cd1add7df82f660e9241df5dbee1429b2f244be8927da2b5376e24f7ec"
+            "54ecaa0ca5572a988c222a44555ef569987e467efe0e2203d02864c825713686"
         ),
         "build_support/install_native_admission_launcher.py": (
-            "2709a59421ea300b3192846c8c822d29403453c83b1112e5443dd25ef2d77f39"
+            "3cf730aefc89e588ca77fec79e6c2662c9b363e121089398469a1097a760f5e5"
         ),
         "build_support/native_owned_file_descriptor_hook.py": (
-            "f09d5d13f9196a20279073b5cb7bb55bd2c2908a7a7773a12fddaa7ed0239814"
+            "75313b842c4f0ace7ca3111fc28edb6048afca724b6002b3a6131d24771819eb"
         ),
         "native/bounded_process.c": (
             "be08d5c95a2a5ce6aa9b06a4434c09473ee74ad941a417b8022885a7ef1f5cbd"
@@ -6176,7 +6176,7 @@ def _trusted_time_topology_launch_lock_violations(
             "01b9834c343f4b173198ac7bfb22df37c6da6fb3093e7a93875aef56410b9fd9"
         ),
         "native/trusted_time_python_launcher.c": (
-            "b0c684309818c6b238da1c96c174d9ad9148b017ee8dde1a51b13933b8451f0e"
+            "8f21c008571b4ed04166ae120cea9be2da73955c891a7c026833779dca3381f8"
         ),
         "packages/adapters/trusted_time/_bounded_process.py": (
             "0bdf6cda1f0ab75d08df768d0d75bb40f2c8ef0cb490d09a18d843fb96a2a006"

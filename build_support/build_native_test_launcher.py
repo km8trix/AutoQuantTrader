@@ -27,7 +27,7 @@ _EXPECTED_SOURCES = (
     ),
     (
         "native/trusted_time_python_launcher.c",
-        "b0c684309818c6b238da1c96c174d9ad9148b017ee8dde1a51b13933b8451f0e",
+        "8f21c008571b4ed04166ae120cea9be2da73955c891a7c026833779dca3381f8",
     ),
     (
         "packages/adapters/trusted_time/_owned_file_descriptor.py",
@@ -109,7 +109,7 @@ def _quoted_definition(name: str, value: str) -> str:
     return f'-D{name}="{value}"'
 
 
-def main() -> int:
+def _build_launcher() -> Path:
     if sys.implementation.name != "cpython" or sys.version_info[:2] not in (
         (3, 12),
         (3, 13),
@@ -300,9 +300,57 @@ def main() -> int:
         staged_launcher.chmod(0o755)
         os.replace(staged_launcher, output_path)
     output_path.chmod(0o755)
-    print(str(output_path))
+    return output_path
+
+
+def main() -> int:
+    print(str(_build_launcher()))
     return 0
 
 
+def _validated_policy_arguments(argument_values: tuple[str, ...]) -> tuple[str, ...]:
+    repository_root = Path(__file__).resolve(strict=True).parents[1]
+    artifact_root = repository_root / "artifacts"
+    if (
+        len(argument_values) != 3
+        or argument_values[0] != "verify-images-build"
+        or argument_values[1] != "--artifact"
+        or not argument_values[2].startswith("/")
+        or os.path.normpath(argument_values[2]) != argument_values[2]
+    ):
+        _fail("native test launcher execution arguments are not admitted")
+    artifact = Path(argument_values[2])
+    try:
+        canonical_artifact = artifact.resolve(strict=False)
+        canonical_artifact.relative_to(artifact_root)
+        runtime_prefix = Path(sys.prefix).resolve(strict=True)
+        base_prefix = Path(sys.base_prefix).resolve(strict=True)
+    except (OSError, RuntimeError, ValueError):
+        _fail("native test launcher execution arguments are not admitted")
+    if canonical_artifact != artifact or canonical_artifact == artifact_root:
+        _fail("native test launcher execution arguments are not admitted")
+    if (
+        runtime_prefix in (base_prefix, repository_root)
+        or runtime_prefix.is_relative_to(repository_root)
+        or sys.flags.isolated != 1
+        or sys.flags.dont_write_bytecode != 1
+        or sys.pycache_prefix != "/dev/null"
+    ):
+        _fail("native test launcher execution runtime is not isolated")
+    return argument_values
+
+
+def _exec_policy_target(argument_values: tuple[str, ...]) -> Never:
+    exact_arguments = _validated_policy_arguments(argument_values)
+    launcher = _build_launcher().resolve(strict=True)
+    try:
+        os.execv(str(launcher), (str(launcher), *exact_arguments))
+    except OSError:
+        _fail("native test launcher execution failed")
+
+
 if __name__ == "__main__":
+    policy_arguments = tuple(sys.argv[1:])
+    if policy_arguments:
+        _exec_policy_target(policy_arguments)
     raise SystemExit(main())

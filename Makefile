@@ -208,7 +208,7 @@ trusted-time-compose-check: ## Verify the isolated evidence-only Compose contrac
 
 trusted-time-images: ## Build and admit the local Chrony/source supervisor images.
 	$(TRUSTED_TIME_PYTHON) \
-		scripts/verify_trusted_time_images.py --build \
+		build_support/build_native_test_launcher.py verify-images-build \
 		--artifact "$(TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT)"
 
 trusted-time-readmit-images: ## Rebuild reviewed inputs and admit only an exact matching immutable image pair.

@@ -2537,6 +2537,30 @@ def test_verify_images_threads_one_explicit_environment_through_every_helper() -
     assert all(
         "--pull=never" in call.args for call in docker.call_args_list if call.args[0] == "run"
     )
+    assert docker.call_args.args == (
+        "run",
+        "--rm",
+        "--pull=never",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        *image_verifier._SECRETLESS_SUPERVISOR_DOCKER_ENVIRONMENT_ARGUMENTS,
+        SUPERVISOR_ID,
+    )
+    assert image_verifier._SECRETLESS_SUPERVISOR_DOCKER_ENVIRONMENT_ARGUMENTS == (
+        "--env",
+        "AQT_TRUSTED_TIME_EXPECTED_DATABASE_URL_SHA256=" + "0" * 64,
+        "--env",
+        "AQT_TRUSTED_TIME_EXPECTED_HEAD_ANCHOR_AUTHORITY_SHA256=" + "0" * 64,
+        "--env",
+        "AQT_TRUSTED_TIME_EXPECTED_HEAD_ANCHOR_AUTH_SECRET_SHA256=" + "0" * 64,
+        "--env",
+        "AQT_TRUSTED_TIME_EXPECTED_HEAD_ANCHOR_SIGNING_KEY_SHA256=" + "0" * 64,
+    )
 
 
 def test_supervisor_executable_import_manifest_is_recomputed_and_exactly_bound() -> None:
