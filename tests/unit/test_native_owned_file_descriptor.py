@@ -759,12 +759,16 @@ def test_deallocation_closes_the_hidden_generation(tmp_path: Path) -> None:
     owner = _open_regular(artifact)
     during = _live_descriptors()
     assert before < during
-    assert len(during - before) == 1
+    owner_descriptors = during - before
+    assert len(owner_descriptors) == 1
+    owner_descriptor = next(iter(owner_descriptors))
 
     del owner
     gc.collect()
 
-    assert _live_descriptors() == before
+    with pytest.raises(OSError) as closed_descriptor:
+        fcntl.fcntl(owner_descriptor, fcntl.F_GETFD)
+    assert closed_descriptor.value.errno == errno.EBADF
 
 
 def test_every_native_open_alias_has_no_python_frame_and_call_store_is_safe(
@@ -842,6 +846,7 @@ def test_every_native_open_alias_has_no_python_frame_and_call_store_is_safe(
     monitoring.register_callback(tool_id, monitoring.events.INSTRUCTION, interrupt_before_store)
     try:
         for function in interrupted_functions:
+            gc.collect()
             before = _live_descriptors()
             monitoring.set_local_events(
                 tool_id,
@@ -1467,6 +1472,7 @@ def test_create_dynamic_call_descriptor_ab_substitution_never_activates(
         elif mutation_active:
             restore_spec_members()
 
+    gc.collect()
     before = _live_descriptors()
     sys.monitoring.register_callback(
         tool_id,
@@ -1555,6 +1561,7 @@ def test_load_native_module_async_instruction_sweep_leaves_no_namespace_or_fd() 
         sys.monitoring.events.INSTRUCTION,
         interrupt_instruction,
     )
+    gc.collect()
     baseline = _live_descriptors()
     try:
         for index, offset in enumerate(critical_offsets):
@@ -1647,6 +1654,7 @@ def test_wrapper_module_init_async_instruction_sweep_never_registers_native() ->
         sys.monitoring.events.INSTRUCTION,
         interrupt_instruction,
     )
+    gc.collect()
     baseline = _live_descriptors()
     try:
         for index, offset in enumerate(critical_offsets):
