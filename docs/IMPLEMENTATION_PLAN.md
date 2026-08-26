@@ -2,12 +2,13 @@
 
 ## Current implementation status
 
-Current gate view: the substantial Phase 0 foundation/walking thread is
-implemented locally, but the plan does not mark its complete exit gate passed;
-Phase 1's local ingestion and admission mechanics, including the pure fail-closed
+Current gate view: the Phase 0 foundation/walking thread and its exit gate are
+passed locally against repository-owned deterministic fixtures and the complete
+credential-free check suite; Phase 1's local ingestion and admission mechanics,
+including the pure fail-closed
 production-evidence prerequisite gate, exist while licensed vendor admission
-remains open; Phase 2 is the only phase whose exit gate is explicitly passed
-locally; Phases 3-6 have bounded local implementations but remain open; and
+remains open; Phase 2's exit gate is also explicitly passed locally; Phases 3-6
+have bounded local implementations but remain open; and
 Phases 7-8 have not started operationally. The runnable product remains a local,
 simulation-only browser application. Production Auth0/OIDC server sessions and
 an enabled server SSE stream remain Phase 6 hardening work; their contracts and
@@ -33,6 +34,24 @@ recovery path, and authority remain unimplemented, and `trusted-time-stop`
 remains hard closed. Phases 3-6 and their exit gates remain open, the trader
 remains `not_ready`; these Wave 4 changes add no production-source admission or
 provider I/O and claim no deployed trading runtime or paper/live authority.
+
+The post-Wave-4 CI-repair wave restores four-way backend sharding with the
+PostgreSQL gates, native-package determinism, and native trusted-time image
+admission. It also pins the explicit local named-volume driver so Docker 28 and
+29 produce one admitted request topology. Exact-main CI at revision
+`86a34031e79caf049ac80372762f3a1297b2961c` passed all eleven jobs, including
+the trusted-time evidence-image admission. This is build and regression
+evidence only; it closes no product, deployment, paper, or live-trading gate.
+
+Wave 5 begins only after this roadmap reconciliation. Its three repository-local
+lanes are: a bounded governed fixture economic-segment execution/isolation
+slice for Phase 3; the next secret-safe, non-authorizing E\*TRADE OAuth runtime
+prerequisite for Phase 4; and ADR 0121 rollout milestone 1 for independent
+trusted-time graceful-stop lifecycle-v2 types, codecs, repository, additive
+ADR-0112 seam, fake transport/Docker adapters, and fault tests. The lanes may be
+implemented concurrently, but integration and regression remain sequential.
+No lane may substitute for Phase 1 external admission or enable a provider,
+stop, broker, paper, or live effect.
 
 Phase 1B now provides the provider-neutral source seam, strict evidence evaluator,
 durable admission reports, and browser visibility. It is **implemented locally
@@ -523,7 +542,7 @@ Four evidence layers remain distinct:
 
 Passing one layer cannot substitute for another.
 
-## Phase 0 - decisions, skeleton, walking thread, and browser shell (week 1)
+## Phase 0 - decisions, skeleton, walking thread, and browser shell (locally complete)
 
 ### Build
 
@@ -551,6 +570,16 @@ Passing one layer cannot substitute for another.
   they cannot be undefined.
 
 ### Exit gate
+
+Status: **passed locally against repository-owned deterministic fixtures**.
+The documented `make bootstrap` plus `make check` path and exact-main CI cover
+formatting, typing, tests, migrations, generated API contracts, worker/trader
+fail-closed diagnostics, browser tests/build, architecture boundaries, and
+Compose validation. The API and browser expose the deterministic walking-thread
+trace; architecture checks enforce the dependency direction; durable execution
+requires the exact persisted risk decision; paper/live settings remain
+structurally disjoint; and the Phase 1-affecting decisions are recorded in ADRs.
+This local pass grants no production-source, broker, paper, or live authority.
 
 - A clean checkout runs formatting, typing, unit tests, migration checks, API,
   worker, trader stub, and browser application with one documented command.
@@ -4691,7 +4720,7 @@ Every change includes:
 | Active strategies | One per brokerage account | Defers netting, virtual sleeves, internal crosses, and fill allocation |
 | Broker | E\*TRADE production live target; Alpaca paper historical qualification lane | E\*TRADE sandbox is protocol-only and every live stage remains separately gated; existing Alpaca evidence stays provider-specific and non-authorizing |
 | Data | Daily-first: immutable Sharadar research capture plus Tiingo synthetic qualification, one bounded actual Tiingo capture verified and passed through the exact-retained field-contract boundary, and offline local-lineage, identity/lifecycle, and market-semantics/action-candidate contract mechanics implemented; no production identity/lifecycle or semantics/action artifact or real repeat evidence exists, and genuine raw semantics, `HistoricalBarSource`, and admission remain blocked; Massive intraday deferred | Adjustment basis, publication/vintage timing, venue/identity authorities, historical revisions/universes, licensed storage/use, and live quote scope drive validity |
-| Account model | Explicit cash or margin policy | Determines settlement, buying power, ledger, and risk semantics |
+| Account model | Long-only FIFO cash account (ADR 0026) | Settlement, buying power, ledger, and risk semantics are selected; provider qualification must preserve them |
 | Hosting | One region, managed PostgreSQL, object storage | Reliable non-HFT footprint with separable operational/research I/O |
 | UI | Desktop-browser React/Vite workspace, incremental from Phase 0 | Makes research and operations observable without adding native/mobile scope |
 

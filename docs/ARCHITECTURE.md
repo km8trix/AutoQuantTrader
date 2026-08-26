@@ -34,10 +34,11 @@ AutoQuantTrader will let a single operator:
 - Deployment: Docker Compose locally; one small cloud environment when paper
   trading begins.
 
-The repository has substantially implemented the Phase 0 foundation, explicitly
-passes only Phase 2's local exit gate against deterministic fixtures, and
-implements the Phase 1 ingestion/admission contracts without a licensed admitted
-vendor. Phase 2 includes the canonical reducers, durable
+The repository passes the Phase 0 and Phase 2 exit gates locally against
+deterministic fixtures and the credential-free check suite, and implements the
+Phase 1 ingestion/admission contracts without a licensed admitted vendor. These
+local passes grant no production-source, broker, paper, or live authority.
+Phase 2 includes the canonical reducers, durable
 fenced batch/submission/reservation lifecycle, and fixture-only research
 job/report/API/UI/worker path. Phase 3 has begun with bounded, pure-domain
 manifest-bound feature and feature-derived target parity proofs for one

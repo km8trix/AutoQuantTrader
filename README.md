@@ -150,7 +150,7 @@ environment-specific adapters and operational gates added around it.
 | Status | Scope |
 |---|---|
 | **Working locally** | Synthetic SPY ingestion/cataloging; a separate golden backtest with risk, simulated execution, settlement, corporate actions, and balanced-ledger accounting; durable jobs, reports, and browser views |
-| **Bounded foundations** | Feature/target parity, read-only experiment governance, account fencing, ambiguous-submission handling, Alpaca raw-first recovery and reconciliation-evidence contracts, operational controls, alerts, tracing, and trusted time |
+| **Bounded foundations** | Feature/target parity, read-only experiment governance, account fencing, ambiguous-submission handling, historical Alpaca raw-first recovery/reconciliation evidence, the E\*TRADE endpoint/request/signing and sanitized OAuth-session journal foundation, operational controls, alerts, tracing, and trusted time |
 | **Disabled** | Admitted production data, an enabled broker loop, paper/live order authority, and automatic re-arm |
 
 The bounded foundations are locally tested but intentionally non-authorizing.
@@ -200,11 +200,11 @@ credential-free local demo.
 2. **Complete research validation.** Add general isolated strategy workers,
    captured tapes, richer performance evaluation, and replay-versus-shadow
    parity.
-3. **Complete the Alpaca paper execution and reconciliation path.** Compose the
-   existing broker contracts into a runtime with authenticated submission,
-   stream and snapshot reconciliation, authoritative broker-fact application,
-   and submission-boundary fault tests. This work does not by itself authorize
-   paper orders.
+3. **Complete provider-qualified execution and reconciliation.** Continue the
+   selected E\*TRADE track through secret-safe OAuth, authenticated account and
+   read-only evidence, Preview/Place/Cancel qualification, and authoritative
+   reconciliation. Keep the existing Alpaca work as a provider-specific paper
+   qualification lane. Neither path by itself authorizes paper or live orders.
 4. **Harden operations, then activate supervised paper trading.** Complete
    external alerting and telemetry, account-bound controls, trusted-time
    monitoring, browser security, backup/restore, and timed failure drills before
