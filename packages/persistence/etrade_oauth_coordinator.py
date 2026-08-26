@@ -1249,8 +1249,21 @@ class SqlEtradeOAuthCoordinator:
         expected: EtradeOAuthDurableSnapshot,
         successor_state: EtradeOAuthSessionState,
         next_replay_guard: EtradeOAuthReplayGuard,
+        *,
+        allow_exact_retry: bool = True,
     ) -> EtradeOAuthDurableSnapshot:
-        """Atomically append one exact state/replay delta and advance its CAS head."""
+        """Atomically append one exact state/replay delta and advance its CAS head.
+
+        Existing callers retain ADR-0120's convergent exact-retry semantics.  A
+        reviewed pre-transport caller may set ``allow_exact_retry=False`` so it
+        can distinguish a newly burned replay fact from an already-current
+        event and never dispatch the same signed request twice.
+        """
+
+        if type(allow_exact_retry) is not bool:
+            raise EtradeOAuthCoordinatorConflict(
+                "durable E*TRADE OAuth exact-retry policy must be exact boolean"
+            )
 
         if (
             type(expected) is not EtradeOAuthDurableSnapshot
@@ -1374,7 +1387,11 @@ class SqlEtradeOAuthCoordinator:
                         and current.replay_guard == next_replay_guard
                         and current.events[:-1] == expected.events
                     ):
-                        return current
+                        if allow_exact_retry:
+                            return current
+                        raise EtradeOAuthCoordinatorConflict(
+                            "durable E*TRADE OAuth fresh advancement cannot reuse an exact retry"
+                        )
                     raise EtradeOAuthCoordinatorConflict(
                         "durable E*TRADE OAuth advancement lost the current head to a stale branch"
                     )
