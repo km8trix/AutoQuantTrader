@@ -11339,7 +11339,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
         "apps/web/node_modules"
     ]
     assert architecture_config["production_python_source_manifest_sha256"] == (
-        "13a1006a25e98285ce501e2f2dc8a75a46d52f931fae91ec95a97cdc1dcddb13"
+        "5e56cd6f41a366596f1d4e5d6c736c0629f6da9f6b1a8231ab4fdb920cb58f16"
     )
     assert (
         _production_python_source_manifest_sha256(

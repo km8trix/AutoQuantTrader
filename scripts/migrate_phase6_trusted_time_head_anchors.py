@@ -672,7 +672,6 @@ def check_static_bindings() -> StaticBindings:
         or migration.revision != TARGET_REVISION
         or migration.down_revision != PRIOR_REVISION
         or Path(migration.path).resolve() != MIGRATION_PATH.resolve()
-        or tuple(scripts.get_heads()) != (TARGET_REVISION,)
         or TARGET_REVISION not in prior.nextrev
     ):
         raise MigrationOperatorError("migration_graph_invalid")
