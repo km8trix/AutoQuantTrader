@@ -369,27 +369,191 @@ class _RawProcessObservation:
     launch_spec_sha256: str
 
 
-def _child_artifact() -> tuple[Path, str]:
-    child = Path(__file__).with_name("_fixture_segment_economic_child.py")
-    try:
-        metadata = child.lstat()
-        resolved = child.resolve(strict=True)
-        source = child.read_bytes()
-    except OSError as error:
-        raise FixtureEconomicExecutionError(FixtureEconomicProcessOutcome.SPAWN_FAILED) from error
+def _required_descriptor_flags() -> tuple[int, int]:
+    close_on_exec = getattr(os, "O_CLOEXEC", None)
+    no_follow = getattr(os, "O_NOFOLLOW", None)
     if (
-        stat.S_ISLNK(metadata.st_mode)
-        or not stat.S_ISREG(metadata.st_mode)
-        or resolved.parent != Path(__file__).resolve().parent
-        or not source
-        or len(source) > 131_072
+        type(close_on_exec) is not int
+        or close_on_exec <= 0
+        or type(no_follow) is not int
+        or no_follow <= 0
     ):
-        raise FixtureEconomicExecutionError(FixtureEconomicProcessOutcome.SPAWN_FAILED)
-    return resolved, _sha256_bytes(source)
+        raise RuntimeError("required descriptor isolation flags are unavailable")
+    return close_on_exec, no_follow
 
 
-def _launch_spec_sha256(child: Path, runtime_artifact_sha256: str) -> str:
-    executable = Path(sys.executable).resolve(strict=True)
+def _same_regular_file_projection(left: os.stat_result, right: os.stat_result) -> bool:
+    return (
+        stat.S_ISREG(left.st_mode)
+        and stat.S_ISREG(right.st_mode)
+        and left.st_ino == right.st_ino
+        and stat.S_IMODE(left.st_mode) == stat.S_IMODE(right.st_mode)
+        and left.st_uid == right.st_uid
+        and left.st_gid == right.st_gid
+        and left.st_size == right.st_size
+        and left.st_nlink == right.st_nlink
+    )
+
+
+def _same_regular_file(left: os.stat_result, right: os.stat_result) -> bool:
+    return left.st_dev == right.st_dev and _same_regular_file_projection(left, right)
+
+
+def _read_descriptor_bytes(descriptor: int, maximum: int) -> bytes:
+    value = bytearray()
+    while len(value) <= maximum:
+        chunk = os.read(descriptor, min(8_192, maximum + 1 - len(value)))
+        if not chunk:
+            break
+        value.extend(chunk)
+    if not value or len(value) > maximum:
+        raise RuntimeError("fixed child source is outside its byte bound")
+    return bytes(value)
+
+
+def _resolved_python_executable() -> str:
+    candidate = Path(sys.executable)
+    if not candidate.is_absolute():
+        raise RuntimeError("Python executable must be absolute")
+    executable = candidate.resolve(strict=True)
+    metadata = executable.stat()
+    if not stat.S_ISREG(metadata.st_mode) or not os.access(executable, os.X_OK):
+        raise RuntimeError("Python executable is unsupported")
+    return str(executable)
+
+
+def _read_fixed_child_source() -> bytes:
+    close_on_exec, no_follow = _required_descriptor_flags()
+    application = Path(__file__).resolve(strict=True)
+    child = application.with_name("_fixture_segment_economic_child.py")
+    metadata = child.lstat()
+    descriptor = -1
+    try:
+        descriptor = os.open(child, os.O_RDONLY | close_on_exec | no_follow)
+        opened = os.fstat(descriptor)
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or not _same_regular_file(metadata, opened)
+            or metadata.st_nlink != 1
+            or os.get_inheritable(descriptor)
+        ):
+            raise RuntimeError("fixed child source identity is unsupported")
+        return _read_descriptor_bytes(descriptor, 131_072)
+    finally:
+        if descriptor >= 0:
+            with suppress(OSError):
+                os.close(descriptor)
+
+
+def _verified_dev_fd_script(
+    descriptor: int,
+    expected: os.stat_result,
+) -> str:
+    close_on_exec, _no_follow = _required_descriptor_flags()
+    if sys.platform not in {"darwin", "linux"}:
+        raise RuntimeError("/dev/fd execution is unsupported on this platform")
+    descriptor_root = "/dev/fd"
+    root_metadata = os.stat(descriptor_root, follow_symlinks=True)
+    script = f"{descriptor_root}/{descriptor}"
+    script_metadata = os.stat(script, follow_symlinks=True)
+    verification_descriptor = -1
+    try:
+        verification_descriptor = os.open(script, os.O_RDONLY | close_on_exec)
+        verification_metadata = os.fstat(verification_descriptor)
+        if not _same_regular_file(expected, verification_metadata) or os.get_inheritable(
+            verification_descriptor
+        ):
+            raise RuntimeError("/dev/fd opened a different child snapshot")
+    finally:
+        if verification_descriptor >= 0:
+            with suppress(OSError):
+                os.close(verification_descriptor)
+    if (
+        not stat.S_ISDIR(root_metadata.st_mode)
+        or not _same_regular_file_projection(expected, script_metadata)
+        or not _same_regular_file(expected, os.fstat(descriptor))
+        or os.get_inheritable(descriptor)
+        or os.lseek(descriptor, 0, os.SEEK_SET) != 0
+    ):
+        raise RuntimeError("/dev/fd does not preserve the child snapshot identity")
+    return script
+
+
+def _snapshot_child_source(
+    working_directory: str,
+    source: bytes,
+) -> tuple[int, str, str]:
+    close_on_exec, no_follow = _required_descriptor_flags()
+    directory_metadata = os.lstat(working_directory)
+    if (
+        stat.S_ISLNK(directory_metadata.st_mode)
+        or not stat.S_ISDIR(directory_metadata.st_mode)
+        or stat.S_IMODE(directory_metadata.st_mode) != 0o700
+        or directory_metadata.st_uid != os.getuid()
+    ):
+        raise RuntimeError("private child snapshot directory is unsupported")
+    snapshot = Path(working_directory) / ".fixture-economic-child.py"
+    writable = -1
+    readable = -1
+    try:
+        writable = os.open(
+            snapshot,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | close_on_exec | no_follow,
+            stat.S_IRUSR,
+        )
+        offset = 0
+        while offset < len(source):
+            written = os.write(writable, source[offset:])
+            if written <= 0:
+                raise RuntimeError("fixed child snapshot write was incomplete")
+            offset += written
+        os.fsync(writable)
+        os.fchmod(writable, stat.S_IRUSR)
+        writable_metadata = os.fstat(writable)
+        readable = os.open(snapshot, os.O_RDONLY | close_on_exec | no_follow)
+        readable_metadata = os.fstat(readable)
+        os.close(writable)
+        writable = -1
+        path_metadata = snapshot.lstat()
+        if (
+            not _same_regular_file(writable_metadata, readable_metadata)
+            or not _same_regular_file(readable_metadata, path_metadata)
+            or stat.S_IMODE(readable_metadata.st_mode) != stat.S_IRUSR
+            or readable_metadata.st_nlink != 1
+            or readable_metadata.st_uid != os.getuid()
+            or os.get_inheritable(readable)
+        ):
+            raise RuntimeError("fixed child snapshot identity is unsupported")
+        readback = _read_descriptor_bytes(readable, 131_072)
+        if readback != source or len(readback) != readable_metadata.st_size:
+            raise RuntimeError("fixed child snapshot readback differs")
+        runtime_artifact_sha256 = _sha256_bytes(readback)
+        if os.lseek(readable, 0, os.SEEK_SET) != 0:
+            raise RuntimeError("fixed child snapshot offset could not be reset")
+        snapshot.unlink()
+        unlinked_metadata = os.fstat(readable)
+        if unlinked_metadata.st_nlink != 0:
+            raise RuntimeError("fixed child snapshot remained path-addressable")
+        script = _verified_dev_fd_script(readable, unlinked_metadata)
+        return readable, script, runtime_artifact_sha256
+    except BaseException:
+        if readable >= 0:
+            with suppress(OSError):
+                os.close(readable)
+        raise
+    finally:
+        if writable >= 0:
+            with suppress(OSError):
+                os.close(writable)
+        with suppress(FileNotFoundError):
+            snapshot.unlink()
+
+
+def _launch_spec_sha256(
+    executable: str,
+    child_script: str,
+    runtime_artifact_sha256: str,
+) -> str:
     return hashlib.sha256(
         canonical_json_bytes(
             (
@@ -398,8 +562,9 @@ def _launch_spec_sha256(child: Path, runtime_artifact_sha256: str) -> str:
                 FIXTURE_ECONOMIC_CHILD_RUNTIME_ID,
                 FIXTURE_ECONOMIC_CHILD_RUNTIME_VERSION,
                 runtime_artifact_sha256,
-                str(executable),
-                ("-I", "-S", "-B", str(child)),
+                executable,
+                ("-I", "-S", "-B", child_script),
+                ("pass-fds", "one-read-only-unlinked-child-snapshot"),
                 FIXTURE_ECONOMIC_ENVIRONMENT,
                 fixture_economic_isolation_profile_sha256(),
             )
@@ -440,26 +605,43 @@ def _force_reap(
 def _run_fixture_economic_child(request: bytes) -> _RawProcessObservation:
     if os.name != "posix" or type(request) is not bytes:
         raise FixtureEconomicExecutionError(FixtureEconomicProcessOutcome.SPAWN_FAILED)
-    child, runtime_sha256 = _child_artifact()
-    executable = Path(sys.executable).resolve(strict=True)
-    launch_sha256 = _launch_spec_sha256(child, runtime_sha256)
-    started = time.monotonic()
-    if not math.isfinite(started):
-        raise FixtureEconomicExecutionError(FixtureEconomicProcessOutcome.SPAWN_FAILED)
+    failed_outcome: FixtureEconomicProcessOutcome | None = None
+    observation: _RawProcessObservation | None = None
     try:
+        executable = _resolved_python_executable()
+        source = _read_fixed_child_source()
+        started = time.monotonic()
+        if not math.isfinite(started):
+            raise RuntimeError("economic supervisor clock is unsupported")
         with tempfile.TemporaryDirectory(prefix="autoquant-phase3h-") as working_directory:
-            process = subprocess.Popen(
-                (str(executable), "-I", "-S", "-B", str(child)),
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                shell=False,
-                close_fds=True,
-                start_new_session=True,
-                cwd=working_directory,
-                env=dict(FIXTURE_ECONOMIC_ENVIRONMENT),
-                bufsize=0,
-            )
+            child_descriptor = -1
+            try:
+                child_descriptor, child_script, runtime_sha256 = _snapshot_child_source(
+                    working_directory,
+                    source,
+                )
+                launch_sha256 = _launch_spec_sha256(
+                    executable,
+                    child_script,
+                    runtime_sha256,
+                )
+                process = subprocess.Popen(
+                    (executable, "-I", "-S", "-B", child_script),
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    shell=False,
+                    close_fds=True,
+                    pass_fds=(child_descriptor,),
+                    start_new_session=True,
+                    cwd=working_directory,
+                    env=dict(FIXTURE_ECONOMIC_ENVIRONMENT),
+                    bufsize=0,
+                )
+            finally:
+                if child_descriptor >= 0:
+                    with suppress(OSError):
+                        os.close(child_descriptor)
             started_threads: list[threading.Thread] = []
             try:
                 if process.stdin is None or process.stdout is None or process.stderr is None:
@@ -533,7 +715,7 @@ def _run_fixture_economic_child(request: bytes) -> _RawProcessObservation:
                         outcome = FixtureEconomicProcessOutcome.COMPLETED
                 completed = time.monotonic()
                 elapsed = max(0, int((completed - started) * 1_000_000))
-                return _RawProcessObservation(
+                observation = _RawProcessObservation(
                     outcome=outcome,
                     process_started=True,
                     exit_code=process.returncode,
@@ -546,10 +728,15 @@ def _run_fixture_economic_child(request: bytes) -> _RawProcessObservation:
             except BaseException:
                 _force_reap(process, tuple(started_threads))
                 raise
-    except FixtureEconomicExecutionError:
-        raise
-    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
-        raise FixtureEconomicExecutionError(FixtureEconomicProcessOutcome.SPAWN_FAILED) from error
+    except FixtureEconomicExecutionError as error:
+        failed_outcome = error.outcome
+    except Exception:
+        failed_outcome = FixtureEconomicProcessOutcome.SPAWN_FAILED
+    if failed_outcome is not None:
+        raise FixtureEconomicExecutionError(failed_outcome)
+    if observation is None:
+        raise FixtureEconomicExecutionError(FixtureEconomicProcessOutcome.SPAWN_FAILED)
+    return observation
 
 
 def execute_fixture_segment_economics(
@@ -570,6 +757,8 @@ def execute_fixture_segment_economics(
         or not observation.stdout
     ):
         raise FixtureEconomicExecutionError(FixtureEconomicProcessOutcome.CRASHED)
+    receipt: FixtureEconomicSegmentReceipt | None = None
+    protocol_failed = False
     try:
         result = decode_fixture_economic_response(
             observation.stdout,
@@ -587,13 +776,16 @@ def execute_fixture_segment_economics(
             stderr_sha256=_sha256_bytes(b""),
             elapsed_microseconds=observation.elapsed_microseconds,
         )
-        return FixtureEconomicSegmentReceipt._from_verified_execution(
+        receipt = FixtureEconomicSegmentReceipt._from_verified_execution(
             request,
             result,
             process,
         )
-    except FixtureEconomicSegmentError as error:
-        raise FixtureEconomicExecutionError(FixtureEconomicProcessOutcome.PROTOCOL_ERROR) from error
+    except FixtureEconomicSegmentError:
+        protocol_failed = True
+    if protocol_failed or receipt is None:
+        raise FixtureEconomicExecutionError(FixtureEconomicProcessOutcome.PROTOCOL_ERROR)
+    return receipt
 
 
 __all__ = [

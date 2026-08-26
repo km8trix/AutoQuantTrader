@@ -1,8 +1,10 @@
 """Standalone stdlib-only Phase 3H economic child.
 
-This file is launched by absolute path under ``python -I -S -B``.  It must not
-import project code, load a fixture, accept an argv path, or perform network or
-filesystem I/O.  All failures use one nonzero exit and emit no diagnostic text.
+The parent snapshots these reviewed bytes behind an unlinked read-only file
+descriptor and launches ``python -I -S -B /dev/fd/<fixed-fd>``.  This program
+must not import project code, load a fixture, accept an argv path, or perform
+network or filesystem I/O.  All failures use one nonzero exit and emit no
+diagnostic text.
 """
 
 from __future__ import annotations
@@ -108,6 +110,11 @@ def _decimal(value: object) -> Decimal:
     parsed = Decimal(value)
     if not parsed.is_finite() or _decimal_text(parsed) != value:
         raise _ProtocolError("decimal")
+    _, digits, raw_exponent = parsed.as_tuple()
+    if any(digits):
+        exponent = int(raw_exponent)
+        if exponent < -10 or len(digits) + exponent - 1 >= 18:
+            raise _ProtocolError("decimal")
     return parsed
 
 
@@ -357,7 +364,7 @@ def _evaluate(request: dict[str, object]) -> dict[str, object]:
                 continue
             notional = _multiply(delta, price)
             cash = _subtract(cash, notional)
-            gross = _add(gross, abs(notional))
+            gross = _add(gross, notional.copy_abs())
             quantities[instrument_id] = target_quantity
             trade_count += 1
     if not seen_targets or expected_ids is None:

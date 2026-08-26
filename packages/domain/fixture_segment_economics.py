@@ -18,6 +18,7 @@ from enum import StrEnum
 from typing import Self
 
 from packages.domain.canonical import (
+    canonical_decimal,
     canonical_decimal_text,
     canonical_json_bytes,
     canonical_persisted_decimal,
@@ -104,13 +105,27 @@ def _require_utc(value: datetime, field_name: str) -> None:
         raise FixtureEconomicSegmentError(f"{field_name} must be an aware UTC datetime")
 
 
-def _decimal(value: Decimal, field_name: str) -> Decimal:
+def _persisted_decimal(value: Decimal, field_name: str) -> Decimal:
     if type(value) is not Decimal or not value.is_finite():
         raise FixtureEconomicSegmentError(f"{field_name} must be an exact finite Decimal")
     try:
         return canonical_persisted_decimal(value, field_name)
     except ValueError as error:
         raise FixtureEconomicSegmentError(str(error)) from error
+
+
+def _derived_decimal(value: Decimal, field_name: str) -> Decimal:
+    """Close derived values under the exact decimal64/e63 arithmetic policy."""
+
+    if type(value) is not Decimal or not value.is_finite():
+        raise FixtureEconomicSegmentError(f"{field_name} must be an exact finite Decimal")
+    try:
+        canonical = canonical_decimal(value)
+        return exact_decimal_add(canonical, Decimal(0))
+    except (TypeError, ValueError) as error:
+        raise FixtureEconomicSegmentError(
+            f"{field_name} exceeds the exact decimal64/e63 arithmetic policy"
+        ) from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,12 +140,12 @@ class FixtureEconomicInstrumentInput:
         _require_text(self.symbol, "economic instrument symbol", maximum=32)
         if self.symbol != self.symbol.upper():
             raise FixtureEconomicSegmentError("economic instrument symbol must be uppercase")
-        price = _decimal(self.close_price, "economic close price")
+        price = _persisted_decimal(self.close_price, "economic close price")
         if price <= 0:
             raise FixtureEconomicSegmentError("economic close price must be positive")
         object.__setattr__(self, "close_price", price)
         if self.target_quantity is not None:
-            quantity = _decimal(self.target_quantity, "economic target quantity")
+            quantity = _persisted_decimal(self.target_quantity, "economic target quantity")
             if quantity < 0 or quantity != quantity.to_integral_value():
                 raise FixtureEconomicSegmentError(
                     "economic target quantity must be non-negative and whole"
@@ -238,7 +253,7 @@ class FixtureEconomicSegmentRequest:
             raise FixtureEconomicSegmentError("economic segment kind is unsupported")
         if self.model_version != FIXTURE_ECONOMIC_MODEL_VERSION:
             raise FixtureEconomicSegmentError("economic model version is unsupported")
-        cash = _decimal(self.starting_cash, "economic starting cash")
+        cash = _persisted_decimal(self.starting_cash, "economic starting cash")
         if cash != FIXTURE_ECONOMIC_STARTING_CASH:
             raise FixtureEconomicSegmentError("economic starting cash must remain exact")
         object.__setattr__(self, "starting_cash", cash)
@@ -322,9 +337,9 @@ class FixtureEconomicPosition:
         _require_text(self.symbol, "economic position symbol", maximum=32)
         if self.symbol != self.symbol.upper():
             raise FixtureEconomicSegmentError("economic position symbol must be uppercase")
-        quantity = _decimal(self.quantity, "economic position quantity")
-        price = _decimal(self.mark_price, "economic position mark price")
-        value = _decimal(self.market_value, "economic position market value")
+        quantity = _persisted_decimal(self.quantity, "economic position quantity")
+        price = _persisted_decimal(self.mark_price, "economic position mark price")
+        value = _derived_decimal(self.market_value, "economic position market value")
         if quantity < 0 or quantity != quantity.to_integral_value() or price <= 0:
             raise FixtureEconomicSegmentError("economic position is outside the long-only model")
         if value != exact_decimal_multiply(quantity, price):
@@ -369,7 +384,11 @@ class FixtureEconomicSegmentResult:
             "net_pnl",
             "gross_traded_notional",
         ):
-            object.__setattr__(self, field_name, _decimal(getattr(self, field_name), field_name))
+            object.__setattr__(
+                self,
+                field_name,
+                _derived_decimal(getattr(self, field_name), field_name),
+            )
         if self.gross_traded_notional < 0:
             raise FixtureEconomicSegmentError("economic gross notional must be non-negative")
         for value, field_name in (
@@ -621,8 +640,12 @@ def fixture_economic_isolation_profile_sha256() -> str:
             FIXTURE_ECONOMIC_SEGMENT_CONTRACT_VERSION,
             "process-isolation-profile",
             "repository-owned-stdlib-child",
-            "absolute-python-executable",
+            "resolved-python-executable-once",
             ("-I", "-S", "-B"),
+            "exact-readback-content-addressed-child-bytes",
+            "private-mode-0400-child-snapshot",
+            "unlinked-read-only-dev-fd-execution",
+            "single-explicit-pass-fd",
             "shell-false",
             "close-fds-true",
             "new-process-session",
@@ -672,7 +695,12 @@ def bind_fixture_economic_request(
         artifact.family_id != projection.job.family_id
         or artifact.attempt_id != projection.job.attempt_id
         or artifact.configuration_sha256 != projection.job.configuration_sha256
+        or artifact.segment_kind is not projection.job.segment_kind
+        or artifact.segment_sha256 != projection.job.segment_sha256
+        or artifact.source_evidence_sha256 != projection.job.source_evidence_sha256
         or artifact.certification_sha256 != certification.semantic_sha256
+        or certification.feature_certification.semantic_sha256
+        != projection.job.feature_certification_sha256
         or artifact.parity_receipt_sha256 != receipt.semantic_sha256
         or artifact.transcript_sha256 != certification.batch_result.transcript_sha256
         or artifact.step_sha256s
@@ -803,7 +831,7 @@ def evaluate_fixture_economic_request(
 def fixture_economic_decimal_text(value: Decimal) -> str:
     """Expose the contract's exact plain-protocol Decimal representation."""
 
-    return canonical_decimal_text(_decimal(value, "economic protocol decimal"))
+    return canonical_decimal_text(_derived_decimal(value, "economic protocol decimal"))
 
 
 __all__ = [

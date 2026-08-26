@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 import os
 import subprocess
+import sys
 import time
 from dataclasses import replace
 from datetime import timedelta
@@ -25,6 +27,7 @@ from packages.application.fixture_segment_economics import (
     execute_fixture_segment_economics,
 )
 from packages.domain.experiment_governance import GovernedSegmentEvaluationReceipt
+from packages.domain.experiment_registry import EvaluationSegmentKind
 from packages.domain.feature_target import CertifiedFeatureTargetReplay
 from packages.domain.fixture_segment_economics import (
     FIXTURE_ECONOMIC_STARTING_CASH,
@@ -39,6 +42,8 @@ from packages.domain.fixture_segment_economics import (
 from packages.domain.fixture_segment_worker import (
     FixtureSegmentJobProjection,
     FixtureTranscriptArtifact,
+    FixtureTranscriptKind,
+    _event,
     complete_fixture_segment_job,
 )
 from tests.unit.test_experiment_governance import (
@@ -84,6 +89,36 @@ def _completed() -> tuple[
     return fixture, completed, target_certification
 
 
+def _restore_target_artifact(
+    completed: FixtureSegmentJobProjection,
+    artifact: FixtureTranscriptArtifact,
+) -> FixtureSegmentJobProjection:
+    latest = completed.latest
+    restored_terminal = _event(
+        job_id=latest.job_id,
+        sequence=latest.sequence,
+        status=latest.status,
+        occurred_at=latest.occurred_at,
+        actor_id=latest.actor_id,
+        attempt_number=latest.attempt_number,
+        previous_event_sha256=latest.previous_event_sha256,
+        worker_id=latest.worker_id,
+        claim_expires_at=latest.claim_expires_at,
+        governance_event_sha256=latest.governance_event_sha256,
+        feature_artifact_sha256=latest.feature_artifact_sha256,
+        target_artifact_sha256=artifact.artifact_sha256,
+        completion_receipt_sha256=latest.completion_receipt_sha256,
+        terminal_reason_code=latest.terminal_reason_code,
+        terminal_reason_sha256=latest.terminal_reason_sha256,
+    )
+    return FixtureSegmentJobProjection(
+        job=completed.job,
+        feature_artifact=completed.feature_artifact,
+        events=(*completed.events[:-1], restored_terminal),
+        target_artifact=artifact,
+    )
+
+
 def _failure_observation(outcome: FixtureEconomicProcessOutcome) -> _RawProcessObservation:
     return _RawProcessObservation(
         outcome=outcome,
@@ -124,6 +159,69 @@ def test_noncompleted_or_substituted_target_evidence_fails_closed() -> None:
         bind_fixture_economic_request(completed, substituted)
 
 
+def test_coherent_train_target_restored_as_validation_fails_exact_job_bindings() -> None:
+    fixture, completed, _validation_target = _completed()
+    train_target = _target_certification(
+        fixture.train_certification,
+        fixture.configuration,
+    )
+    train_artifact = FixtureTranscriptArtifact._restore(
+        kind=FixtureTranscriptKind.TARGET,
+        family_id=completed.job.family_id,
+        attempt_id=completed.job.attempt_id,
+        segment_kind=completed.job.segment_kind,
+        segment_sha256=completed.job.segment_sha256,
+        source_evidence_sha256=completed.job.source_evidence_sha256,
+        configuration_sha256=completed.job.configuration_sha256,
+        certification_sha256=train_target.semantic_sha256,
+        parity_receipt_sha256=train_target.receipt.semantic_sha256,
+        transcript_sha256=train_target.batch_result.transcript_sha256,
+        step_sha256s=tuple(step.semantic_sha256 for step in train_target.batch_result.steps),
+        output_ids=tuple(target.target_id for target in train_target.batch_result.targets),
+    )
+    restored_projection = _restore_target_artifact(completed, train_artifact)
+
+    assert restored_projection.job.segment_kind is EvaluationSegmentKind.VALIDATION
+    assert train_artifact.segment_kind is EvaluationSegmentKind.VALIDATION
+    assert train_target.feature_certification.semantic_sha256 != (
+        restored_projection.job.feature_certification_sha256
+    )
+    with pytest.raises(FixtureEconomicSegmentError, match="completed target transcript"):
+        bind_fixture_economic_request(restored_projection, train_target)
+
+
+def test_target_artifact_segment_identity_is_bound_to_the_job() -> None:
+    _fixture, completed, target = _completed()
+    assert completed.target_artifact is not None
+    artifact = completed.target_artifact
+    substitutions: tuple[dict[str, object], ...] = (
+        {"segment_kind": EvaluationSegmentKind.TRAIN},
+        {"segment_sha256": "f" * 64},
+        {"source_evidence_sha256": "e" * 64},
+    )
+    for changed in substitutions:
+        values: dict[str, object] = {
+            "kind": artifact.kind,
+            "family_id": artifact.family_id,
+            "attempt_id": artifact.attempt_id,
+            "segment_kind": artifact.segment_kind,
+            "segment_sha256": artifact.segment_sha256,
+            "source_evidence_sha256": artifact.source_evidence_sha256,
+            "configuration_sha256": artifact.configuration_sha256,
+            "certification_sha256": artifact.certification_sha256,
+            "parity_receipt_sha256": artifact.parity_receipt_sha256,
+            "transcript_sha256": artifact.transcript_sha256,
+            "step_sha256s": artifact.step_sha256s,
+            "output_ids": artifact.output_ids,
+        }
+        values.update(changed)
+        substituted = FixtureTranscriptArtifact._restore(**values)  # type: ignore[arg-type]
+        projection = _restore_target_artifact(completed, substituted)
+
+        with pytest.raises(FixtureEconomicSegmentError, match="completed target transcript"):
+            bind_fixture_economic_request(projection, target)
+
+
 def test_closed_model_recomputes_exact_fixture_economics() -> None:
     _fixture, completed, target = _completed()
     request = bind_fixture_economic_request(completed, target)
@@ -138,6 +236,44 @@ def test_closed_model_recomputes_exact_fixture_economics() -> None:
     assert result.trade_count == 2
     assert result.filled_target_count == 2
     assert tuple(position.quantity for position in result.positions) == (Decimal("0"),)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Phase 3H fails closed off POSIX")
+def test_large_persisted_inputs_produce_exact_e63_derived_economics() -> None:
+    _fixture, completed, target = _completed()
+    request = bind_fixture_economic_request(completed, target)
+    magnitude = Decimal("1e17")
+    large_rows = tuple(
+        replace(
+            row,
+            instruments=tuple(
+                replace(
+                    item,
+                    close_price=magnitude,
+                    target_quantity=(magnitude if row.target_id is not None else None),
+                )
+                for item in row.instruments
+            ),
+        )
+        for row in request.rows
+    )
+    large_request = replace(request, rows=large_rows)
+
+    expected = evaluate_fixture_economic_request(large_request)
+    encoded, payload_sha256 = encode_fixture_economic_request(large_request)
+    observation = _run_fixture_economic_child(encoded)
+
+    assert observation.outcome is FixtureEconomicProcessOutcome.COMPLETED
+    actual = decode_fixture_economic_response(
+        observation.stdout,
+        request=large_request,
+        request_payload_sha256=payload_sha256,
+    )
+    assert actual == expected
+    assert actual.ending_market_value == Decimal("1e34")
+    assert actual.gross_traded_notional == Decimal("1e34")
+    assert actual.ending_equity == FIXTURE_ECONOMIC_STARTING_CASH
+    assert actual.net_pnl == Decimal(0)
 
 
 def test_request_rejects_universe_drift_and_noncausal_order() -> None:
@@ -201,21 +337,38 @@ def test_public_execution_surface_has_no_command_code_or_environment_input() -> 
     assert "sys.argv" not in child_source
     assert "subprocess" not in child_source
     assert "socket" not in child_source
+    application_source = Path(economic_application.__file__).read_text(encoding="utf-8")
+    assert '"-c"' not in application_source
+    assert "/proc/self/fd" not in application_source
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Phase 3H fails closed off POSIX")
 def test_launch_uses_fixed_argv_empty_cwd_and_noninherited_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: dict[str, object] = {}
+    inherited_descriptor: list[int] = []
     monkeypatch.setenv("PHASE3H_MUST_NOT_CROSS", "secret")
 
     def reject_spawn(argv: tuple[str, ...], **kwargs: object) -> object:
+        import fcntl
+
         observed["argv"] = argv
         observed.update(kwargs)
         assert Path(argv[0]).is_absolute()
         assert Path(argv[0]).name.startswith("python")
-        assert Path(argv[-1]).name == "_fixture_segment_economic_child.py"
         assert argv[1:4] == ("-I", "-S", "-B")
+        assert "-c" not in argv
+        passed = kwargs["pass_fds"]
+        assert type(passed) is tuple and len(passed) == 1
+        child_descriptor = cast(tuple[int], passed)[0]
+        inherited_descriptor.append(child_descriptor)
+        assert argv[-1] == f"/dev/fd/{child_descriptor}"
+        descriptor_flags = fcntl.fcntl(child_descriptor, fcntl.F_GETFL)
+        assert descriptor_flags & os.O_ACCMODE == os.O_RDONLY
+        descriptor_metadata = os.fstat(child_descriptor)
+        assert descriptor_metadata.st_nlink == 0
+        assert descriptor_metadata.st_mode & 0o777 == 0o400
         assert kwargs["shell"] is False
         assert kwargs["close_fds"] is True
         assert kwargs["start_new_session"] is True
@@ -225,6 +378,7 @@ def test_launch_uses_fixed_argv_empty_cwd_and_noninherited_environment(
         assert "PHASE3H_MUST_NOT_CROSS" not in environment
         working_directory = Path(str(kwargs["cwd"]))
         assert working_directory.is_dir()
+        assert working_directory.stat().st_mode & 0o777 == 0o700
         assert tuple(working_directory.iterdir()) == ()
         raise OSError("closed test spawn")
 
@@ -232,7 +386,155 @@ def test_launch_uses_fixed_argv_empty_cwd_and_noninherited_environment(
     with pytest.raises(FixtureEconomicExecutionError) as failure:
         _run_fixture_economic_child(b"{}")
     assert failure.value.outcome is FixtureEconomicProcessOutcome.SPAWN_FAILED
+    assert failure.value.__cause__ is None
+    assert failure.value.__context__ is None
     assert observed
+    assert inherited_descriptor
+    with pytest.raises(OSError):
+        os.fstat(inherited_descriptor[0])
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Phase 3H fails closed off POSIX")
+def test_source_path_swap_after_snapshot_executes_the_recorded_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _fixture, completed, target = _completed()
+    request = bind_fixture_economic_request(completed, target)
+    encoded, _payload_sha256 = encode_fixture_economic_request(request)
+    actual_application = Path(economic_application.__file__)
+    original_child_bytes = actual_application.with_name(
+        "_fixture_segment_economic_child.py"
+    ).read_bytes()
+    fake_application = tmp_path / "fixture_segment_economics.py"
+    fake_child = tmp_path / "_fixture_segment_economic_child.py"
+    replacement_child = tmp_path / "replacement-child.py"
+    fake_application.write_text("# fixed sibling anchor\n", encoding="utf-8")
+    fake_child.write_bytes(original_child_bytes)
+    replacement_child.write_text("raise SystemExit(73)\n", encoding="utf-8")
+    original_popen = subprocess.Popen
+    swapped = False
+
+    def swapping_popen(*args: Any, **kwargs: Any) -> ProcessType[bytes]:
+        nonlocal swapped
+        replacement_child.replace(fake_child)
+        swapped = True
+        return cast(ProcessType[bytes], original_popen(*args, **kwargs))
+
+    monkeypatch.setattr(economic_application, "__file__", str(fake_application))
+    monkeypatch.setattr(subprocess, "Popen", swapping_popen)
+
+    observation = _run_fixture_economic_child(encoded)
+
+    assert swapped is True
+    assert fake_child.read_text(encoding="utf-8") == "raise SystemExit(73)\n"
+    assert observation.outcome is FixtureEconomicProcessOutcome.COMPLETED
+    assert observation.runtime_artifact_sha256 == hashlib.sha256(original_child_bytes).hexdigest()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Phase 3H fails closed off POSIX")
+def test_snapshot_readback_difference_fails_before_process_launch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_read = economic_application._read_descriptor_bytes
+    read_count = 0
+    process_started = False
+
+    def changed_readback(descriptor: int, maximum: int) -> bytes:
+        nonlocal read_count
+        read_count += 1
+        value = original_read(descriptor, maximum)
+        return value if read_count == 1 else value + b"x"
+
+    def record_spawn(*_args: object, **_kwargs: object) -> object:
+        nonlocal process_started
+        process_started = True
+        raise AssertionError("snapshot fault must precede Popen")
+
+    monkeypatch.setattr(economic_application, "_read_descriptor_bytes", changed_readback)
+    monkeypatch.setattr(subprocess, "Popen", record_spawn)
+
+    with pytest.raises(FixtureEconomicExecutionError) as failure:
+        _run_fixture_economic_child(b"{}")
+
+    assert failure.value.outcome is FixtureEconomicProcessOutcome.SPAWN_FAILED
+    assert failure.value.__cause__ is None
+    assert failure.value.__context__ is None
+    assert read_count == 2
+    assert process_started is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Phase 3H fails closed off POSIX")
+def test_dev_fd_stat_difference_fails_before_process_launch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_match = economic_application._same_regular_file_projection
+    process_started = False
+
+    def reject_unlinked_projection(
+        left: os.stat_result,
+        right: os.stat_result,
+    ) -> bool:
+        if left.st_nlink == 0:
+            return False
+        return original_match(left, right)
+
+    def record_spawn(*_args: object, **_kwargs: object) -> object:
+        nonlocal process_started
+        process_started = True
+        raise AssertionError("descriptor stat fault must precede Popen")
+
+    monkeypatch.setattr(
+        economic_application,
+        "_same_regular_file_projection",
+        reject_unlinked_projection,
+    )
+    monkeypatch.setattr(subprocess, "Popen", record_spawn)
+
+    with pytest.raises(FixtureEconomicExecutionError) as failure:
+        _run_fixture_economic_child(b"{}")
+
+    assert failure.value.outcome is FixtureEconomicProcessOutcome.SPAWN_FAILED
+    assert failure.value.__cause__ is None
+    assert failure.value.__context__ is None
+    assert process_started is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Phase 3H fails closed off POSIX")
+@pytest.mark.parametrize("fault", ["platform", "missing-devfd", "descriptor-flags"])
+def test_unsupported_snapshot_platform_has_no_reduced_isolation_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
+) -> None:
+    process_started = False
+    if fault == "platform":
+        monkeypatch.setattr(sys, "platform", "unsupported-phase3h")
+    elif fault == "missing-devfd":
+        original_stat = os.stat
+
+        def missing_devfd(path: Any, *args: Any, **kwargs: Any) -> os.stat_result:
+            if os.fspath(path) == "/dev/fd":
+                raise FileNotFoundError("closed test devfd")
+            return original_stat(path, *args, **kwargs)
+
+        monkeypatch.setattr(os, "stat", missing_devfd)
+    else:
+        monkeypatch.setattr(os, "O_NOFOLLOW", 0)
+
+    def record_spawn(*_args: object, **_kwargs: object) -> object:
+        nonlocal process_started
+        process_started = True
+        raise AssertionError("unsupported isolation must precede Popen")
+
+    monkeypatch.setattr(subprocess, "Popen", record_spawn)
+
+    with pytest.raises(FixtureEconomicExecutionError) as failure:
+        _run_fixture_economic_child(b"{}")
+
+    assert failure.value.outcome is FixtureEconomicProcessOutcome.SPAWN_FAILED
+    assert failure.value.__cause__ is None
+    assert failure.value.__context__ is None
+    assert process_started is False
 
 
 def test_each_closed_process_fault_returns_only_a_bounded_classification(
@@ -302,6 +604,8 @@ def test_protocol_corruption_and_child_stderr_cannot_mint_a_receipt(
     with pytest.raises(FixtureEconomicExecutionError) as failure:
         execute_fixture_segment_economics(completed, target)
     assert failure.value.outcome is FixtureEconomicProcessOutcome.PROTOCOL_ERROR
+    assert failure.value.__cause__ is None
+    assert failure.value.__context__ is None
 
     noisy = replace(malformed, stdout=b"valid-looking", stderr=b"diagnostic")
     monkeypatch.setattr(economic_application, "_run_fixture_economic_child", lambda _: noisy)

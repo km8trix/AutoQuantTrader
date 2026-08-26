@@ -41,7 +41,10 @@ claiming that repository hashes authenticate an external tape.
    row. It returns exact ending cash, market value, equity, net P&L, gross traded
    notional, trade and target counts, and final positions. All Decimal
    arithmetic is exact under the repository's 64-digit/e63 policy; floats are
-   impossible.
+   impossible. Persisted close-price, target-quantity, position-quantity, and
+   mark-price inputs must fit `NUMERIC(28, 10)`, while exact derived values use
+   the wider 64-digit/e63 closure and are not incorrectly rejected merely for
+   exceeding persistence precision.
 3. Admit at most 2,048 complete rows and 64 canonically ordered instruments,
    with one stable nonempty universe, strictly increasing source sequence and
    causal time, unique target identities, at least one READY target, positive
@@ -53,13 +56,28 @@ claiming that repository hashes authenticate an external tape.
    child. The public function accepts only the completed projection and target
    certification. There is no public or internal parameter for executable,
    module, source code, argv, environment, working directory, fixture path,
-   model, timeout, or resource policy. The parent resolves and hashes the one
-   sibling child file and invokes the absolute current Python executable with
-   exact flags `-I -S -B` and that absolute child path. It uses `shell=False`,
-   `close_fds=True`, a new process session, three pipes, a newly created empty
-   working directory, and a fixed minimal environment. Darwin's injected
-   `__CF_USER_TEXT_ENCODING` value is reset to the same fixed child policy
-   before input is read.
+   model, timeout, or resource policy. The parent resolves the absolute current
+   Python executable exactly once, then opens and reads the one nonsymlink
+   sibling child file exactly once. In a newly created mode-0700 directory it
+   writes those bytes to an exclusive mode-0400 snapshot, opens that snapshot
+   read-only, closes the writable descriptor, reads back and hashes the exact
+   descriptor bytes, verifies path/open-file metadata, resets the read offset,
+   and unlinks the snapshot. It then invokes the resolved executable with exact
+   fixed argv `python -I -S -B /dev/fd/<fd>`, `pass_fds=(fd,)`, `shell=False`,
+   and `close_fds=True`. The `/dev/fd` path is opened once for verification and
+   its resulting descriptor must identify the same unlinked regular file; the
+   inherited source descriptor remains open through `Popen` and the parent
+   closes it immediately afterward. Unsupported platforms, missing descriptor
+   flags or `/dev/fd`, source/snapshot/readback/stat differences, path
+   retention, or inability to close every writable descriptor fail before
+   launch. There is no path, `-c`, module, or reduced-isolation fallback. A
+   source pathname replacement after snapshot construction therefore cannot
+   change the bytes executed under the recorded runtime digest.
+
+   The child uses a new process session, three pipes, the now-empty private
+   snapshot directory as its working directory, and a fixed minimal
+   environment. Darwin's injected `__CF_USER_TEXT_ENCODING` value is reset to
+   the same fixed child policy before input is read.
 5. The child must successfully apply and read back every hard resource limit
    before it reads the request: two CPU seconds, 16 file descriptors, zero core
    bytes, zero regular-file output bytes, and zero child processes. Linux uses
@@ -82,7 +100,8 @@ claiming that repository hashes authenticate an external tape.
    exact read-back limits, and distinct child PID/session identity. Any missing,
    extra, malformed, noncanonical, cross-request, reduced-isolation, same-
    process, or same-session value fails closed as `protocol_error` without
-   retaining raw stderr or exception text.
+   retaining raw stderr, exception text, exception cause, or exception context.
+   Spawn and supervisor faults receive the same exception-chain sanitization.
 8. Independently recompute the complete economic result in the parent from the
    bound request. A child result can produce a
    `FixtureEconomicSegmentReceipt` only when it equals that recomputation and
@@ -102,7 +121,8 @@ One already-governed repository fixture can now produce exact economic evidence
 through a real bounded process and a strict independently checked protocol.
 Completed Phase 3F lineage cannot be replaced by a plausible standalone JSON
 result, and child crashes, timeout, resource overflow, diagnostics, protocol
-drift, or missing limits produce no receipt.
+drift, missing limits, child-source pathname races, descriptor identity drift,
+or snapshot readback drift produce no receipt.
 
 This child is not a hostile-code sandbox. It relies on a fixed reviewed program
 with no project import, caller code, network operation, or fixture/filesystem
