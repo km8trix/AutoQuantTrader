@@ -312,6 +312,7 @@ from packages.adapters.broker.etrade_oauth import (
     record_etrade_oauth_revocation_transition,
     record_etrade_oauth_session_activity,
     require_etrade_oauth_reauthorization,
+    reserve_etrade_oauth_signing_intent,
     sign_etrade_oauth_intent,
 )
 
@@ -593,6 +594,7 @@ __all__ = [
     "record_etrade_oauth_revocation_transition",
     "record_etrade_oauth_session_activity",
     "require_etrade_oauth_reauthorization",
+    "reserve_etrade_oauth_signing_intent",
     "sign_etrade_oauth_intent",
     "start_alpaca_paper_account_activity_capture",
     "start_alpaca_paper_order_snapshot",

@@ -5,6 +5,7 @@ import copy
 import pickle
 from dataclasses import replace
 from pathlib import Path
+from threading import Barrier, Thread
 from typing import Any, NoReturn, cast
 
 import pytest
@@ -22,6 +23,7 @@ from packages.adapters.broker.etrade_oauth import (
     EtradeOAuthConsumerSecretReference,
     EtradeOAuthNonce,
     EtradeOAuthOperation,
+    EtradeOAuthReplayGuard,
     EtradeOAuthSessionPhase,
     EtradeOAuthSigningIntent,
     EtradeOAuthTokenKind,
@@ -32,6 +34,8 @@ from packages.adapters.broker.etrade_oauth import (
     create_etrade_oauth_session,
     create_etrade_oauth_signing_intent,
     record_etrade_oauth_authorization_transition,
+    record_etrade_oauth_request_token_transition,
+    reserve_etrade_oauth_signing_intent,
 )
 from packages.application.etrade_oauth_token_runtime import (
     ETRADE_OAUTH_INJECTED_RESOLVER_ID,
@@ -43,6 +47,7 @@ from packages.application.etrade_oauth_token_runtime import (
     ETRADE_OAUTH_TOKEN_RUNTIME_CONTRACT_VERSION,
     EtradeOAuthEphemeralTokenExchangeResult,
     EtradeOAuthEphemeralTransportRequest,
+    EtradeOAuthTokenExchangeReceipt,
     EtradeOAuthTokenReplayError,
     EtradeOAuthTokenResolutionError,
     EtradeOAuthTokenResolutionRequest,
@@ -56,8 +61,14 @@ from packages.application.etrade_oauth_token_runtime import (
 )
 from packages.persistence.database import create_database_engine
 from packages.persistence.etrade_oauth_coordinator import (
+    EtradeOAuthCoordinatorConflict,
     EtradeOAuthDurableSnapshot,
+    EtradeOAuthTokenRuntimeCurrentnessReservation,
     SqlEtradeOAuthCoordinator,
+    _event_from_values,
+    _event_values,
+    _ReplayDelta,
+    authenticate_etrade_oauth_durable_snapshot,
 )
 from packages.persistence.schema import (
     metadata,
@@ -262,11 +273,6 @@ class _Transport:
         return response
 
 
-class _FailingCoordinator:
-    def advance(self, *_args: object, **_kwargs: object) -> NoReturn:
-        raise RuntimeError("credential-looking-internal-coordinator-failure")
-
-
 def _request_body(
     token: str = REQUEST_TOKEN,
     token_secret: str = REQUEST_TOKEN_SECRET,
@@ -283,26 +289,33 @@ def _request_exchange(
     transport: _Transport | None = None,
     intent: Any | None = None,
     issued_reference: EtradeOAuthTokenSecretReference | None = None,
-    coordinator: Any | None = None,
 ) -> tuple[
     EtradeOAuthEphemeralTokenExchangeResult,
     SqlEtradeOAuthCoordinator,
     _Resolver,
     _Transport,
 ]:
-    repository, snapshot = _repository(tmp_path)
+    repository, _ = _repository(tmp_path)
     resolver = resolver or _Resolver()
     transport = transport or _Transport(body=_request_body())
     result = execute_etrade_oauth_injected_token_exchange(
-        durable_snapshot=snapshot,
+        currentness_reservation=_reservation(repository),
         signing_intent=intent or _request_intent(),
         issued_token_reference=issued_reference
         or _token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
         resolver=resolver,
-        replay_coordinator=coordinator or repository,
         transport=transport,
     )
     return result, repository, resolver, transport
+
+
+def _reservation(
+    repository: SqlEtradeOAuthCoordinator,
+) -> EtradeOAuthTokenRuntimeCurrentnessReservation:
+    return repository.issue_token_runtime_currentness_reservation(
+        EtradeEnvironment.SANDBOX,
+        EtradeSecretScope.SANDBOX_CONSUMER,
+    )
 
 
 def _confirmed_access_head(
@@ -314,11 +327,13 @@ def _confirmed_access_head(
     EtradeOAuthAccessExchangeCapability,
 ]:
     request_result, repository, _, _ = _request_exchange(tmp_path)
+    replay_snapshot = request_result.replay_snapshot
+    successor_state = request_result.successor_state
     assert request_result._matches_test_values_once(REQUEST_TOKEN, REQUEST_TOKEN_SECRET)
     snapshot = repository.advance(
-        request_result.replay_snapshot,
-        request_result.successor_state,
-        request_result.replay_snapshot.replay_guard,
+        replay_snapshot,
+        successor_state,
+        replay_snapshot.replay_guard,
     )
     pending = begin_etrade_oauth_out_of_band_authorization(snapshot.state)
     snapshot = repository.advance(snapshot, pending, snapshot.replay_guard)
@@ -447,11 +462,10 @@ def test_access_token_exchange_composes_confirmed_verifier_without_advancing_ses
     )
 
     result = execute_etrade_oauth_injected_token_exchange(
-        durable_snapshot=snapshot,
+        currentness_reservation=_reservation(repository),
         signing_intent=intent,
         issued_token_reference=_token_reference(EtradeOAuthTokenKind.ACCESS_TOKEN, 2),
         resolver=resolver,
-        replay_coordinator=repository,
         transport=transport,
         expires_at=_timestamp(1_700_086_400),
         verifier=verifier,
@@ -506,11 +520,10 @@ def test_access_token_time_regression_fails_before_secret_resolution(tmp_path: P
 
     with pytest.raises(EtradeOAuthTokenRuntimeError):
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=snapshot,
+            currentness_reservation=_reservation(repository),
             signing_intent=intent,
             issued_token_reference=_token_reference(EtradeOAuthTokenKind.ACCESS_TOKEN, 2),
             resolver=resolver,
-            replay_coordinator=repository,
             transport=transport,
             expires_at=_timestamp(1_700_086_400),
             verifier=verifier,
@@ -519,6 +532,73 @@ def test_access_token_time_regression_fails_before_secret_resolution(tmp_path: P
 
     assert resolver.calls == 0
     assert transport.calls == 0
+
+
+def test_access_capability_remains_reusable_after_pre_reservation_rejection(
+    tmp_path: Path,
+) -> None:
+    repository, snapshot, verifier, capability = _confirmed_access_head(tmp_path)
+    intent = create_etrade_oauth_signing_intent(
+        environment=EtradeEnvironment.SANDBOX,
+        endpoint_profile=ETRADE_SANDBOX_ENDPOINT_PROFILE,
+        operation=EtradeOAuthOperation.ACCESS_TOKEN,
+        generation=1,
+        consumer_reference=_consumer_reference(),
+        token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
+        timestamp=_timestamp(1_700_000_100),
+        nonce=EtradeOAuthNonce("fedcba9876543210"),
+        authorization_challenge_sha256=snapshot.state.authorization_challenge_sha256,
+        authorization_state_sha256=snapshot.state.semantic_sha256,
+    )
+    rejected_resolver = _Resolver(
+        token=REQUEST_TOKEN,
+        token_secret=REQUEST_TOKEN_SECRET,
+    )
+    rejected_transport = _Transport(
+        body=(f"oauth_token={ACCESS_TOKEN}&oauth_token_secret={ACCESS_TOKEN_SECRET}").encode(
+            "ascii"
+        ),
+        expected_header=ACCESS_HEADER,
+    )
+
+    with pytest.raises(EtradeOAuthTokenRuntimeError):
+        execute_etrade_oauth_injected_token_exchange(
+            currentness_reservation=_reservation(repository),
+            signing_intent=intent,
+            issued_token_reference=_token_reference(EtradeOAuthTokenKind.ACCESS_TOKEN, 3),
+            resolver=rejected_resolver,
+            transport=rejected_transport,
+            expires_at=_timestamp(1_700_086_400),
+            verifier=verifier,
+            access_exchange_capability=capability,
+        )
+
+    assert rejected_resolver.calls == 0
+    assert rejected_transport.calls == 0
+    assert (
+        repository.load(
+            EtradeEnvironment.SANDBOX,
+            EtradeSecretScope.SANDBOX_CONSUMER,
+        )
+        == snapshot
+    )
+
+    result = execute_etrade_oauth_injected_token_exchange(
+        currentness_reservation=_reservation(repository),
+        signing_intent=intent,
+        issued_token_reference=_token_reference(EtradeOAuthTokenKind.ACCESS_TOKEN, 2),
+        resolver=_Resolver(token=REQUEST_TOKEN, token_secret=REQUEST_TOKEN_SECRET),
+        transport=_Transport(
+            body=(f"oauth_token={ACCESS_TOKEN}&oauth_token_secret={ACCESS_TOKEN_SECRET}").encode(
+                "ascii"
+            ),
+            expected_header=ACCESS_HEADER,
+        ),
+        expires_at=_timestamp(1_700_086_400),
+        verifier=verifier,
+        access_exchange_capability=capability,
+    )
+    assert result._matches_test_values_once(ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
 
 
 def test_resolver_and_transport_metadata_are_exact_and_checked_before_resolution(
@@ -534,31 +614,29 @@ def test_resolver_and_transport_metadata_are_exact_and_checked_before_resolution
         def transport_version(self) -> str:
             return "2.0.0"
 
-    repository, snapshot = _repository(tmp_path / "resolver")
+    repository, _ = _repository(tmp_path / "resolver")
     resolver = _WrongResolver()
     transport = _Transport(body=_request_body())
     with pytest.raises(EtradeOAuthTokenResolutionError):
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=snapshot,
+            currentness_reservation=_reservation(repository),
             signing_intent=_request_intent(),
             issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
             resolver=resolver,
-            replay_coordinator=repository,
             transport=transport,
         )
     assert resolver.calls == 0
     assert transport.calls == 0
 
-    repository, snapshot = _repository(tmp_path / "transport")
+    repository, _ = _repository(tmp_path / "transport")
     valid_resolver = _Resolver()
     wrong_transport = _WrongTransport(body=_request_body())
     with pytest.raises(EtradeOAuthTokenTransportError):
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=snapshot,
+            currentness_reservation=_reservation(repository),
             signing_intent=_request_intent(),
             issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
             resolver=valid_resolver,
-            replay_coordinator=repository,
             transport=wrong_transport,
         )
     assert valid_resolver.calls == 0
@@ -624,15 +702,14 @@ def test_dynamic_port_metadata_and_transport_callable_are_each_frozen_once(
                 return self.backing._exchange_for_token_runtime
             return lambda _request: object()
 
-    repository, snapshot = _repository(tmp_path)
+    repository, _ = _repository(tmp_path)
     resolver = _SingleReadResolver()
     transport = _SingleReadTransport()
     result = execute_etrade_oauth_injected_token_exchange(
-        durable_snapshot=snapshot,
+        currentness_reservation=_reservation(repository),
         signing_intent=_request_intent(),
         issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
         resolver=cast(Any, resolver),
-        replay_coordinator=repository,
         transport=cast(Any, transport),
     )
 
@@ -652,21 +729,168 @@ def test_tampered_durable_snapshot_fails_before_resolution_or_transport(
     else:
         corrupted_event = replace(snapshot.events[0], replay_guard_sha256="c" * 64)
         corrupted = replace(snapshot, events=(corrupted_event,))
+    reservation = _reservation(repository)
+    object.__setattr__(
+        reservation,
+        "_EtradeOAuthTokenRuntimeCurrentnessReservation__snapshot",
+        corrupted,
+    )
     resolver = _Resolver()
     transport = _Transport(body=_request_body())
 
     with pytest.raises(EtradeOAuthTokenReplayError):
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=corrupted,
+            currentness_reservation=reservation,
             signing_intent=_request_intent(),
             issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
             resolver=resolver,
-            replay_coordinator=repository,
             transport=transport,
         )
 
     assert resolver.calls == 0
     assert transport.calls == 0
+    assert (
+        repository.load(
+            EtradeEnvironment.SANDBOX,
+            EtradeSecretScope.SANDBOX_CONSUMER,
+        ).sequence
+        == 1
+    )
+
+
+@pytest.mark.parametrize("tamper", ("root_hash", "later_event_hash", "closed_edge"))
+def test_full_snapshot_authentication_rejects_hash_and_closed_graph_forgery_before_ports(
+    tmp_path: Path,
+    tamper: str,
+) -> None:
+    repository, snapshot = _repository(tmp_path)
+    expected_sequence = 1
+    if tamper == "root_hash":
+        forged = replace(
+            snapshot,
+            events=(replace(snapshot.events[0], event_sha256="d" * 64),),
+        )
+    elif tamper == "later_event_hash":
+        competing_intent = _request_intent(nonce="event-hash-00001")
+        snapshot = repository.advance(
+            snapshot,
+            snapshot.state,
+            reserve_etrade_oauth_signing_intent(
+                competing_intent,
+                replay_guard=snapshot.replay_guard,
+            ),
+        )
+        expected_sequence = 2
+        forged = replace(
+            snapshot,
+            events=(
+                snapshot.events[0],
+                replace(snapshot.events[1], event_sha256="e" * 64),
+            ),
+        )
+    else:
+        intent = _request_intent()
+        successor = record_etrade_oauth_request_token_transition(
+            snapshot.state,
+            signing_intent=intent,
+            request_token_reference=_token_reference(
+                EtradeOAuthTokenKind.REQUEST_TOKEN,
+                1,
+            ),
+        )
+        guard = EtradeOAuthReplayGuard()
+        delta = _ReplayDelta(None, None)
+        values = _event_values(
+            scope_sha256=snapshot.scope_sha256,
+            sequence=2,
+            previous_event_sha256=snapshot.current_event_sha256,
+            prior_session_state_sha256=snapshot.state.semantic_sha256,
+            state=successor,
+            replay_guard=guard,
+            delta=delta,
+        )
+        forged_event = _event_from_values(
+            values,
+            state=successor,
+            replay_guard=guard,
+            delta=delta,
+        )
+        forged = EtradeOAuthDurableSnapshot(
+            scope_sha256=snapshot.scope_sha256,
+            state=successor,
+            replay_guard=guard,
+            events=(*snapshot.events, forged_event),
+        )
+
+    with pytest.raises(EtradeOAuthCoordinatorConflict):
+        authenticate_etrade_oauth_durable_snapshot(forged)
+    reservation = _reservation(repository)
+    object.__setattr__(
+        reservation,
+        "_EtradeOAuthTokenRuntimeCurrentnessReservation__snapshot",
+        forged,
+    )
+    resolver = _Resolver()
+    transport = _Transport(body=_request_body())
+    with pytest.raises(EtradeOAuthTokenReplayError):
+        execute_etrade_oauth_injected_token_exchange(
+            currentness_reservation=reservation,
+            signing_intent=_request_intent(nonce="forged-head-0001"),
+            issued_token_reference=_token_reference(
+                EtradeOAuthTokenKind.REQUEST_TOKEN,
+                1,
+            ),
+            resolver=resolver,
+            transport=transport,
+        )
+
+    assert resolver.calls == 0
+    assert transport.calls == 0
+    assert (
+        repository.load(
+            EtradeEnvironment.SANDBOX,
+            EtradeSecretScope.SANDBOX_CONSUMER,
+        ).sequence
+        == expected_sequence
+    )
+
+
+def test_cross_store_reservation_substitution_is_rejected_before_ports_or_writes(
+    tmp_path: Path,
+) -> None:
+    first, _ = _repository(tmp_path / "first")
+    second, _ = _repository(tmp_path / "second")
+    reservation = _reservation(first)
+    object.__setattr__(
+        reservation,
+        "_EtradeOAuthTokenRuntimeCurrentnessReservation__coordinator",
+        second,
+    )
+    resolver = _Resolver()
+    transport = _Transport(body=_request_body())
+
+    with pytest.raises(EtradeOAuthTokenReplayError):
+        execute_etrade_oauth_injected_token_exchange(
+            currentness_reservation=reservation,
+            signing_intent=_request_intent(),
+            issued_token_reference=_token_reference(
+                EtradeOAuthTokenKind.REQUEST_TOKEN,
+                1,
+            ),
+            resolver=resolver,
+            transport=transport,
+        )
+
+    assert resolver.calls == 0
+    assert transport.calls == 0
+    for repository in (first, second):
+        assert (
+            repository.load(
+                EtradeEnvironment.SANDBOX,
+                EtradeSecretScope.SANDBOX_CONSUMER,
+            ).sequence
+            == 1
+        )
 
 
 @pytest.mark.parametrize(
@@ -689,17 +913,16 @@ def test_environment_scope_kind_and_revision_mismatch_fail_before_resolution(
     intent: Any,
     issued_reference: EtradeOAuthTokenSecretReference,
 ) -> None:
-    repository, snapshot = _repository(tmp_path)
+    repository, _ = _repository(tmp_path)
     resolver = _Resolver()
     transport = _Transport(body=_request_body())
 
     with pytest.raises(EtradeOAuthTokenRuntimeError):
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=snapshot,
+            currentness_reservation=_reservation(repository),
             signing_intent=intent,
             issued_token_reference=issued_reference,
             resolver=resolver,
-            replay_coordinator=repository,
             transport=transport,
         )
 
@@ -711,14 +934,23 @@ def test_durable_replay_failure_prevents_transport_and_sanitizes_error(tmp_path:
     repository, snapshot = _repository(tmp_path)
     resolver = _Resolver()
     transport = _Transport(body=_request_body())
+    reservation = _reservation(repository)
+    competing_intent = _request_intent(nonce="stale-branch-0001")
+    repository.advance(
+        snapshot,
+        snapshot.state,
+        reserve_etrade_oauth_signing_intent(
+            competing_intent,
+            replay_guard=snapshot.replay_guard,
+        ),
+    )
 
     with pytest.raises(EtradeOAuthTokenReplayError) as caught:
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=snapshot,
+            currentness_reservation=reservation,
             signing_intent=_request_intent(),
             issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
             resolver=resolver,
-            replay_coordinator=_FailingCoordinator(),
             transport=transport,
         )
 
@@ -729,13 +961,13 @@ def test_durable_replay_failure_prevents_transport_and_sanitizes_error(tmp_path:
             EtradeEnvironment.SANDBOX,
             EtradeSecretScope.SANDBOX_CONSUMER,
         ).sequence
-        == 1
+        == 2
     )
-    assert cast(Any, resolver.last_envelope).closed is True
+    assert resolver.calls == 0
 
 
 def test_transport_timeout_burns_replay_but_never_advances_session_state(tmp_path: Path) -> None:
-    repository, snapshot = _repository(tmp_path)
+    repository, _ = _repository(tmp_path)
     transport = _Transport(
         body=_request_body(),
         failure=TimeoutError(f"timeout included {CONSUMER_SECRET}"),
@@ -743,11 +975,10 @@ def test_transport_timeout_burns_replay_but_never_advances_session_state(tmp_pat
 
     with pytest.raises(EtradeOAuthTokenTransportError) as caught:
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=snapshot,
+            currentness_reservation=_reservation(repository),
             signing_intent=_request_intent(),
             issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
             resolver=_Resolver(),
-            replay_coordinator=repository,
             transport=transport,
         )
 
@@ -758,11 +989,10 @@ def test_transport_timeout_burns_replay_but_never_advances_session_state(tmp_pat
 
     with pytest.raises(EtradeOAuthTokenReplayError):
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=snapshot,
+            currentness_reservation=_reservation(repository),
             signing_intent=_request_intent(),
             issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
             resolver=_Resolver(),
-            replay_coordinator=repository,
             transport=transport,
         )
     assert transport.calls == 1
@@ -788,16 +1018,15 @@ def test_transport_failure_after_raw_construction_closes_request_owned_custody(
             )
             raise RuntimeError(f"ambiguous transport failure {REQUEST_TOKEN_SECRET}")
 
-    repository, snapshot = _repository(tmp_path)
+    repository, _ = _repository(tmp_path)
     transport = _ResponseThenFailureTransport()
 
     with pytest.raises(EtradeOAuthTokenTransportError) as caught:
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=snapshot,
+            currentness_reservation=_reservation(repository),
             signing_intent=_request_intent(),
             issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
             resolver=_Resolver(),
-            replay_coordinator=repository,
             transport=transport,
         )
 
@@ -828,16 +1057,15 @@ def test_response_origin_status_media_charset_redirect_proxy_and_terminal_faults
     tmp_path: Path,
     overrides: dict[str, object],
 ) -> None:
-    repository, snapshot = _repository(tmp_path)
+    repository, _ = _repository(tmp_path)
     transport = _Transport(body=_request_body(), response_overrides=overrides)
 
     with pytest.raises(EtradeOAuthTokenResponseError):
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=snapshot,
+            currentness_reservation=_reservation(repository),
             signing_intent=_request_intent(),
             issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
             resolver=_Resolver(),
-            replay_coordinator=repository,
             transport=transport,
         )
 
@@ -864,16 +1092,15 @@ def test_raw_response_form_decoder_rejects_schema_and_encoding_faults(
     tmp_path: Path,
     body: bytes,
 ) -> None:
-    repository, snapshot = _repository(tmp_path)
+    repository, _ = _repository(tmp_path)
     transport = _Transport(body=body)
 
     with pytest.raises(EtradeOAuthTokenResponseError):
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=snapshot,
+            currentness_reservation=_reservation(repository),
             signing_intent=_request_intent(),
             issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
             resolver=_Resolver(),
-            replay_coordinator=repository,
             transport=transport,
         )
 
@@ -899,16 +1126,15 @@ def test_resolver_failure_wrong_custody_and_lifecycle_reuse_are_sanitized(
     tmp_path: Path,
     resolver: _Resolver,
 ) -> None:
-    repository, snapshot = _repository(tmp_path)
+    repository, _ = _repository(tmp_path)
     transport = _Transport(body=_request_body())
 
     with pytest.raises(EtradeOAuthTokenResolutionError) as caught:
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=snapshot,
+            currentness_reservation=_reservation(repository),
             signing_intent=_request_intent(),
             issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
             resolver=resolver,
-            replay_coordinator=repository,
             transport=transport,
         )
 
@@ -919,7 +1145,7 @@ def test_resolver_failure_wrong_custody_and_lifecycle_reuse_are_sanitized(
             EtradeEnvironment.SANDBOX,
             EtradeSecretScope.SANDBOX_CONSUMER,
         ).sequence
-        == 1
+        == 2
     )
 
 
@@ -931,16 +1157,15 @@ def test_wrong_transport_result_is_closed_and_session_state_stays_unchanged(tmp_
             self.closed = True
 
     wrong = _Wrong()
-    repository, snapshot = _repository(tmp_path)
+    repository, _ = _repository(tmp_path)
     transport = _Transport(body=_request_body(), wrong_result=wrong)
 
     with pytest.raises(EtradeOAuthTokenTransportError):
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=snapshot,
+            currentness_reservation=_reservation(repository),
             signing_intent=_request_intent(),
             issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
             resolver=_Resolver(),
-            replay_coordinator=repository,
             transport=transport,
         )
 
@@ -953,22 +1178,263 @@ def test_wrong_transport_result_is_closed_and_session_state_stays_unchanged(tmp_
 def test_response_bound_to_another_exact_request_is_rejected(tmp_path: Path) -> None:
     first, _, _, first_transport = _request_exchange(tmp_path / "first")
     assert first_transport.last_response is not None
-    repository, snapshot = _repository(tmp_path / "second")
+    repository, _ = _repository(tmp_path / "second")
     transport = _Transport(body=_request_body(), wrong_result=first_transport.last_response)
 
-    with pytest.raises(EtradeOAuthTokenResponseError):
+    with pytest.raises(EtradeOAuthTokenTransportError):
         execute_etrade_oauth_injected_token_exchange(
-            durable_snapshot=snapshot,
+            currentness_reservation=_reservation(repository),
             signing_intent=_request_intent(nonce="abcdef0123456789"),
             issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
             resolver=_Resolver(),
-            replay_coordinator=repository,
             transport=transport,
         )
 
     assert first.closed is False
     assert first.raw_response_retained is False
     first.close()
+
+
+@pytest.mark.parametrize(
+    ("binding_name", "mutated_value"),
+    (
+        ("__intent_sha256", "1" * 64),
+        ("__durable_event_sha256", "2" * 64),
+        ("__durable_scope_sha256", "3" * 64),
+        ("__durable_sequence", 99),
+        ("__timeout_milliseconds", 99),
+        ("__environment", EtradeEnvironment.PRODUCTION),
+        ("__http_method", "POST"),
+        ("__endpoint_url", "credential-bearing://forbidden"),
+    ),
+)
+def test_sealed_request_binding_mutation_after_transport_is_detected(
+    tmp_path: Path,
+    binding_name: str,
+    mutated_value: object,
+) -> None:
+    class _MutatingTransport(_Transport):
+        def _exchange_for_token_runtime(
+            self,
+            request: EtradeOAuthEphemeralTransportRequest,
+        ) -> object:
+            self.calls += 1
+            self.last_request = request
+            response = create_etrade_oauth_injected_token_response(
+                request,
+                body=self.body,
+            )
+            self.last_response = response
+            object.__setattr__(
+                request,
+                f"_EtradeOAuthEphemeralTransportRequest{binding_name}",
+                mutated_value,
+            )
+            return response
+
+    repository, _ = _repository(tmp_path)
+    transport = _MutatingTransport(body=_request_body())
+    with pytest.raises(EtradeOAuthTokenTransportError):
+        execute_etrade_oauth_injected_token_exchange(
+            currentness_reservation=_reservation(repository),
+            signing_intent=_request_intent(),
+            issued_token_reference=_token_reference(
+                EtradeOAuthTokenKind.REQUEST_TOKEN,
+                1,
+            ),
+            resolver=_Resolver(),
+            transport=transport,
+        )
+
+    assert transport.calls == 1
+    assert cast(Any, transport.last_request).closed is True
+    assert cast(Any, transport.last_response).closed is True
+    current = repository.load(
+        EtradeEnvironment.SANDBOX,
+        EtradeSecretScope.SANDBOX_CONSUMER,
+    )
+    assert current.sequence == 2
+    assert current.state.phase is EtradeOAuthSessionPhase.NEEDS_REQUEST_TOKEN
+
+
+def test_receipt_and_result_public_bindings_are_read_only(tmp_path: Path) -> None:
+    result, _, _, _ = _request_exchange(tmp_path)
+    receipt = result.receipt
+
+    for name, value in (
+        ("receipt", receipt),
+        ("replay_snapshot", result.replay_snapshot),
+        ("successor_state", result.successor_state),
+        ("issued_token_reference", result.issued_token_reference),
+    ):
+        with pytest.raises(AttributeError):
+            setattr(result, name, value)
+    with pytest.raises(AttributeError):
+        receipt.http_status = 201  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        EtradeOAuthTokenExchangeReceipt(  # type: ignore[call-arg]
+            environment=receipt.environment,
+            operation=receipt.operation,
+            signing_intent_sha256=receipt.signing_intent_sha256,
+            durable_scope_sha256=receipt.durable_scope_sha256,
+            replay_event_sha256=receipt.replay_event_sha256,
+            replay_sequence=receipt.replay_sequence,
+            replay_guard_sha256=receipt.replay_guard_sha256,
+            issued_token_reference=receipt.issued_token_reference,
+            secret_independent_response_binding_sha256=(
+                receipt.secret_independent_response_binding_sha256
+            ),
+        )
+    object.__setattr__(receipt, "http_status", 201)
+    with pytest.raises(EtradeOAuthTokenRuntimeError):
+        _ = receipt.semantic_sha256
+    result.close()
+
+
+def test_resolver_envelope_claim_is_atomic_under_barrier_race(tmp_path: Path) -> None:
+    _, snapshot = _repository(tmp_path)
+    request = EtradeOAuthTokenResolutionRequest(
+        intent=_request_intent(),
+        durable_scope_sha256=snapshot.scope_sha256,
+        durable_event_sha256=snapshot.current_event_sha256,
+        durable_sequence=snapshot.sequence,
+        durable_session_state_sha256=snapshot.state.semantic_sha256,
+        durable_replay_guard_sha256=snapshot.replay_guard.semantic_sha256,
+    )
+    envelope = create_etrade_oauth_token_secret_envelope(
+        request,
+        consumer_key=CONSUMER_KEY,
+        consumer_secret=CONSUMER_SECRET,
+    )
+    barrier = Barrier(3)
+    outcomes: list[str] = []
+
+    def consume() -> None:
+        barrier.wait()
+        try:
+            credentials = cast(Any, envelope)._consume(request)
+            del credentials
+            outcomes.append("claimed")
+        except EtradeOAuthTokenResolverLifecycleError:
+            outcomes.append("rejected")
+
+    workers = (Thread(target=consume), Thread(target=consume))
+    for worker in workers:
+        worker.start()
+    barrier.wait()
+    for worker in workers:
+        worker.join()
+
+    assert sorted(outcomes) == ["claimed", "rejected"]
+    assert cast(Any, envelope).closed is True
+
+
+def test_transport_response_presentation_is_atomic_under_barrier_race(
+    tmp_path: Path,
+) -> None:
+    class _RacingTransport:
+        transport_id = ETRADE_OAUTH_INJECTED_TRANSPORT_ID
+        transport_version = ETRADE_OAUTH_INJECTED_TRANSPORT_VERSION
+
+        def __init__(self) -> None:
+            self.outcomes: list[tuple[str, object]] = []
+
+        def _exchange_for_token_runtime(
+            self,
+            request: EtradeOAuthEphemeralTransportRequest,
+        ) -> object:
+            barrier = Barrier(3)
+
+            def present() -> None:
+                barrier.wait()
+                try:
+                    response = create_etrade_oauth_injected_token_response(
+                        request,
+                        body=_request_body(),
+                    )
+                    self.outcomes.append(("presented", response))
+                except EtradeOAuthTokenTransportError as error:
+                    self.outcomes.append(("rejected", error))
+
+            workers = (Thread(target=present), Thread(target=present))
+            for worker in workers:
+                worker.start()
+            barrier.wait()
+            for worker in workers:
+                worker.join()
+            return next(value for outcome, value in self.outcomes if outcome == "presented")
+
+    repository, _ = _repository(tmp_path)
+    transport = _RacingTransport()
+    result = execute_etrade_oauth_injected_token_exchange(
+        currentness_reservation=_reservation(repository),
+        signing_intent=_request_intent(),
+        issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
+        resolver=_Resolver(),
+        transport=transport,
+    )
+
+    assert sorted(outcome for outcome, _ in transport.outcomes) == [
+        "presented",
+        "rejected",
+    ]
+    assert result._matches_test_values_once(REQUEST_TOKEN, REQUEST_TOKEN_SECRET)
+
+
+def test_currentness_claim_is_atomic_and_binds_the_winning_thread(tmp_path: Path) -> None:
+    repository, _ = _repository(tmp_path)
+    reservation = _reservation(repository)
+    barrier = Barrier(3)
+    outcomes: list[str] = []
+
+    def claim() -> None:
+        barrier.wait()
+        try:
+            cast(Any, reservation)._claim_snapshot_for_injected_token_runtime()
+            outcomes.append("claimed")
+        except EtradeOAuthCoordinatorConflict:
+            outcomes.append("rejected")
+
+    workers = (Thread(target=claim), Thread(target=claim))
+    for worker in workers:
+        worker.start()
+    barrier.wait()
+    for worker in workers:
+        worker.join()
+
+    assert sorted(outcomes) == ["claimed", "rejected"]
+    with pytest.raises(EtradeOAuthCoordinatorConflict):
+        cast(Any, reservation)._reserve_signing_intent_for_injected_token_runtime(_request_intent())
+    reservation.close()
+    assert reservation.closed is True
+
+
+def test_result_claim_and_close_are_atomic_under_barrier_race(tmp_path: Path) -> None:
+    result, _, _, _ = _request_exchange(tmp_path)
+    barrier = Barrier(3)
+    outcomes: list[str] = []
+
+    def consume() -> None:
+        barrier.wait()
+        try:
+            matched = result._matches_test_values_once(
+                REQUEST_TOKEN,
+                REQUEST_TOKEN_SECRET,
+            )
+            outcomes.append("matched" if matched else "mismatch")
+        except EtradeOAuthTokenResolverLifecycleError:
+            outcomes.append("rejected")
+
+    workers = (Thread(target=consume), Thread(target=consume))
+    for worker in workers:
+        worker.start()
+    barrier.wait()
+    for worker in workers:
+        worker.join()
+
+    assert sorted(outcomes) == ["matched", "rejected"]
+    assert result.closed is True
+    assert result.raw_response_retained is False
 
 
 def test_ephemeral_objects_are_redacted_noncopyable_nonserializable_and_secret_free_in_sql(
@@ -1000,6 +1466,18 @@ def test_ephemeral_objects_are_redacted_noncopyable_nonserializable_and_secret_f
     assert not hasattr(result, "response_sha256")
     assert not hasattr(transport.last_request, "authorization_header")
     assert not hasattr(transport.last_request, "signature")
+    for private_binding in (
+        "intent",
+        "operation",
+        "environment",
+        "http_method",
+        "endpoint_url",
+        "durable_scope_sha256",
+        "durable_event_sha256",
+        "durable_sequence",
+        "timeout_milliseconds",
+    ):
+        assert not hasattr(transport.last_request, private_binding)
     assert not hasattr(transport.last_response, "body")
     for custody in (result, transport.last_request, transport.last_response):
         with pytest.raises(TypeError):
@@ -1042,12 +1520,8 @@ def test_receipt_digests_are_independent_of_secret_values(tmp_path: Path) -> Non
 
 
 def test_runtime_source_has_no_network_logging_filesystem_or_production_caller_import() -> None:
-    source_path = (
-        Path(__file__).resolve().parents[2]
-        / "packages"
-        / "application"
-        / "etrade_oauth_token_runtime.py"
-    )
+    repository_root = Path(__file__).resolve().parents[2]
+    source_path = repository_root / "packages" / "application" / "etrade_oauth_token_runtime.py"
     source = source_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
     imported_roots: set[str] = set()
@@ -1066,3 +1540,11 @@ def test_runtime_source_has_no_network_logging_filesystem_or_production_caller_i
     assert ETRADE_OAUTH_TOKEN_RUNTIME_CONTRACT_VERSION in source
     assert ETRADE_OAUTH_TOKEN_RESPONSE_MEDIA_TYPE in source
     assert ETRADE_OAUTH_TOKEN_RESPONSE_CHARSET in source
+    coordinator_path = repository_root / "packages" / "persistence" / "etrade_oauth_coordinator.py"
+    for production_root in (repository_root / "apps", repository_root / "packages"):
+        for candidate in production_root.rglob("*.py"):
+            candidate_source = candidate.read_text(encoding="utf-8")
+            if candidate != source_path:
+                assert "execute_etrade_oauth_injected_token_exchange" not in candidate_source
+            if candidate != coordinator_path:
+                assert "issue_token_runtime_currentness_reservation" not in candidate_source

@@ -1001,6 +1001,18 @@ def _consume_signing_intent(
     )
 
 
+def reserve_etrade_oauth_signing_intent(
+    intent: EtradeOAuthSigningIntent,
+    *,
+    replay_guard: EtradeOAuthReplayGuard,
+) -> EtradeOAuthReplayGuard:
+    """Purely derive the exact secret-independent replay state for one intent."""
+
+    _require_exact_type(intent, EtradeOAuthSigningIntent, "OAuth signing intent")
+    intent.__post_init__()
+    return _consume_signing_intent(replay_guard, intent)
+
+
 class EtradeOAuthEphemeralSigningResult(_EtradeOAuthSealed):
     """Redacted signature/header result plus sanitized evidence and next replay state."""
 
@@ -1175,7 +1187,7 @@ def sign_etrade_oauth_intent(
     elif verifier is not None or access_exchange_capability is not None:
         raise EtradeOAuthContractError("only access-token signing can accept a verifier capability")
 
-    next_guard = _consume_signing_intent(replay_guard, intent)
+    next_guard = reserve_etrade_oauth_signing_intent(intent, replay_guard=replay_guard)
 
     verifier_value = ""
     if intent.operation is EtradeOAuthOperation.ACCESS_TOKEN:
@@ -2314,5 +2326,6 @@ __all__ = [
     "record_etrade_oauth_revocation_transition",
     "record_etrade_oauth_session_activity",
     "require_etrade_oauth_reauthorization",
+    "reserve_etrade_oauth_signing_intent",
     "sign_etrade_oauth_intent",
 ]

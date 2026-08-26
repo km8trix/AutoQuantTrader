@@ -12,9 +12,12 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass, replace
+from os import getpid
+from threading import Lock, current_thread
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, Never, cast
 
 import sqlalchemy as sa
 from sqlalchemy import Engine
@@ -33,16 +36,19 @@ from packages.adapters.broker.etrade_oauth import (
     ETRADE_OAUTH_SESSION_CONTRACT_VERSION,
     EtradeOAuthConsumerSecretReference,
     EtradeOAuthContractError,
+    EtradeOAuthOperation,
     EtradeOAuthReauthorizationReason,
     EtradeOAuthReplayGuard,
     EtradeOAuthSessionPhase,
     EtradeOAuthSessionState,
+    EtradeOAuthSigningIntent,
     EtradeOAuthSigningTimeHighWater,
     EtradeOAuthTokenKind,
     EtradeOAuthTokenSecretReference,
     begin_etrade_oauth_out_of_band_authorization,
     begin_etrade_oauth_reauthorization,
     require_etrade_oauth_reauthorization,
+    reserve_etrade_oauth_signing_intent,
 )
 from packages.domain.canonical import canonical_json_bytes, canonical_json_text
 from packages.persistence.account_coordinator import _write_transaction
@@ -856,6 +862,185 @@ def _event_values(
     return values
 
 
+def _event_from_values(
+    values: Mapping[str, object],
+    *,
+    state: EtradeOAuthSessionState,
+    replay_guard: EtradeOAuthReplayGuard,
+    delta: _ReplayDelta,
+) -> EtradeOAuthDurableEvent:
+    """Reconstruct the exact public event projection from canonical values."""
+
+    return EtradeOAuthDurableEvent(
+        event_sha256=cast(str, values["event_sha256"]),
+        scope_sha256=cast(str, values["scope_sha256"]),
+        sequence=cast(int, values["sequence_number"]),
+        previous_event_sha256=cast(str | None, values["previous_event_sha256"]),
+        prior_session_state_sha256=cast(
+            str | None,
+            values["prior_session_state_sha256"],
+        ),
+        state=state,
+        replay_guard_sha256=replay_guard.semantic_sha256,
+        replay_fingerprint_sha256=delta.fingerprint_sha256,
+        signing_high_water=delta.signing_high_water,
+    )
+
+
+def authenticate_etrade_oauth_durable_snapshot(
+    snapshot: object,
+) -> EtradeOAuthDurableSnapshot:
+    """Purely authenticate one complete ADR-0120 event/state/replay prefix."""
+
+    try:
+        if (
+            type(snapshot) is not EtradeOAuthDurableSnapshot
+            or type(snapshot.events) is not tuple
+            or not snapshot.events
+            or any(type(event) is not EtradeOAuthDurableEvent for event in snapshot.events)
+        ):
+            raise TypeError
+        durable = snapshot
+        state = _require_exact_state(durable.state, "snapshot head state")
+        final_guard = _require_exact_guard(durable.replay_guard)
+        expected_scope_sha256 = etrade_oauth_coordinator_scope_sha256(
+            state.environment,
+            state.consumer_reference.scope,
+        )
+        if durable.scope_sha256 != expected_scope_sha256:
+            raise ValueError
+
+        replay_guard = EtradeOAuthReplayGuard()
+        rebuilt_events: list[EtradeOAuthDurableEvent] = []
+        previous: EtradeOAuthDurableEvent | None = None
+        prior_event: EtradeOAuthDurableEvent | None = None
+        for sequence, supplied_event in enumerate(durable.events, start=1):
+            event_state = _require_exact_state(
+                supplied_event.state,
+                "snapshot event state",
+            )
+            if (
+                type(supplied_event.sequence) is not int
+                or supplied_event.sequence != sequence
+                or supplied_event.scope_sha256 != expected_scope_sha256
+                or etrade_oauth_coordinator_scope_sha256(
+                    event_state.environment,
+                    event_state.consumer_reference.scope,
+                )
+                != expected_scope_sha256
+            ):
+                raise ValueError
+            if previous is None:
+                if (
+                    supplied_event.previous_event_sha256 is not None
+                    or supplied_event.prior_session_state_sha256 is not None
+                    or supplied_event.replay_fingerprint_sha256 is not None
+                    or supplied_event.signing_high_water is not None
+                    or not _is_exact_initial_state(event_state)
+                ):
+                    raise ValueError
+                delta = _ReplayDelta(None, None)
+                next_guard = replay_guard
+            else:
+                if (
+                    supplied_event.previous_event_sha256 != previous.event_sha256
+                    or supplied_event.prior_session_state_sha256 != previous.state.semantic_sha256
+                    or event_state.environment is not previous.state.environment
+                    or event_state.consumer_reference.scope
+                    is not previous.state.consumer_reference.scope
+                    or event_state.consumer_reference.version
+                    < previous.state.consumer_reference.version
+                    or event_state.endpoint_profile_sha256 != previous.state.endpoint_profile_sha256
+                    or event_state.generation < previous.state.generation
+                    or event_state.highest_token_reference_version
+                    < previous.state.highest_token_reference_version
+                    or event_state.trusted_time_high_water_seconds
+                    < previous.state.trusted_time_high_water_seconds
+                    or (
+                        event_state.semantic_sha256 != previous.state.semantic_sha256
+                        and event_state.predecessor_sha256 != previous.state.semantic_sha256
+                    )
+                ):
+                    raise ValueError
+                if (
+                    event_state.consumer_reference.version
+                    > previous.state.consumer_reference.version
+                    and not _is_canonical_consumer_reference_rotation(
+                        previous.state,
+                        event_state,
+                    )
+                ):
+                    raise ValueError
+                if supplied_event.replay_fingerprint_sha256 is not None and (
+                    type(supplied_event.replay_fingerprint_sha256) is not str
+                    or len(supplied_event.replay_fingerprint_sha256) != 64
+                    or any(
+                        character not in "0123456789abcdef"
+                        for character in supplied_event.replay_fingerprint_sha256
+                    )
+                ):
+                    raise ValueError
+                if supplied_event.signing_high_water is not None:
+                    if (
+                        type(supplied_event.signing_high_water)
+                        is not EtradeOAuthSigningTimeHighWater
+                    ):
+                        raise TypeError
+                    supplied_event.signing_high_water.__post_init__()
+                delta = _ReplayDelta(
+                    supplied_event.replay_fingerprint_sha256,
+                    supplied_event.signing_high_water,
+                )
+                next_guard = _apply_replay_delta(replay_guard, delta)
+                if not _is_canonical_state_advance(
+                    previous.state,
+                    event_state,
+                    next_guard,
+                    delta,
+                    previous,
+                    prior_event,
+                ):
+                    raise ValueError
+
+            values = _event_values(
+                scope_sha256=expected_scope_sha256,
+                sequence=sequence,
+                previous_event_sha256=(None if previous is None else previous.event_sha256),
+                prior_session_state_sha256=(
+                    None if previous is None else previous.state.semantic_sha256
+                ),
+                state=event_state,
+                replay_guard=next_guard,
+                delta=delta,
+            )
+            rebuilt = _event_from_values(
+                values,
+                state=event_state,
+                replay_guard=next_guard,
+                delta=delta,
+            )
+            if supplied_event != rebuilt:
+                raise ValueError
+            rebuilt_events.append(rebuilt)
+            prior_event = previous
+            previous = rebuilt
+            replay_guard = next_guard
+
+        if (
+            tuple(rebuilt_events) != durable.events
+            or rebuilt_events[-1].state != state
+            or replay_guard != final_guard
+            or durable.sequence != len(rebuilt_events)
+            or durable.current_event_sha256 != rebuilt_events[-1].event_sha256
+        ):
+            raise ValueError
+        return durable
+    except Exception:
+        raise EtradeOAuthCoordinatorConflict(
+            "durable E*TRADE OAuth snapshot failed complete authentication"
+        ) from None
+
+
 def _token_scope(environment: EtradeEnvironment) -> EtradeSecretScope:
     return (
         EtradeSecretScope.SANDBOX_TOKEN
@@ -1130,11 +1315,13 @@ def _load_snapshot(
         raise EtradeOAuthCoordinatorError(
             "durable E*TRADE OAuth head diverges from authenticated journal"
         ) from error
-    return EtradeOAuthDurableSnapshot(
-        scope_sha256=scope_sha256,
-        state=latest.state,
-        replay_guard=guard,
-        events=tuple(events),
+    return authenticate_etrade_oauth_durable_snapshot(
+        EtradeOAuthDurableSnapshot(
+            scope_sha256=scope_sha256,
+            state=latest.state,
+            replay_guard=guard,
+            events=tuple(events),
+        )
     )
 
 
@@ -1155,10 +1342,243 @@ def _verify_etrade_oauth_coordinator_integrity(connection: Connection) -> None:
         _load_snapshot(connection, scope_sha256, lock=False)
 
 
+_TOKEN_RUNTIME_RESERVATION_ISSUER = object()
+_TOKEN_RUNTIME_RESERVATION_OPERATION_ISSUER = object()
+
+
+class EtradeOAuthTokenRuntimeCurrentnessReservation:
+    """Store-bound one-use currentness claim for one injected token runtime."""
+
+    __slots__ = (
+        "__binding_sha256",
+        "__claimed",
+        "__closed",
+        "__coordinator",
+        "__lock",
+        "__owner_process_id",
+        "__owner_thread",
+        "__snapshot",
+        "__store_identity",
+    )
+    __binding_sha256: str
+    __claimed: bool
+    __closed: bool
+    __coordinator: SqlEtradeOAuthCoordinator | None
+    __lock: Any
+    __owner_process_id: int
+    __owner_thread: object | None
+    __snapshot: EtradeOAuthDurableSnapshot | None
+    __store_identity: object | None
+
+    def __init__(
+        self,
+        *,
+        issuer: object,
+        coordinator: SqlEtradeOAuthCoordinator,
+        store_identity: object,
+        snapshot: EtradeOAuthDurableSnapshot,
+    ) -> None:
+        if issuer is not _TOKEN_RUNTIME_RESERVATION_ISSUER:
+            raise EtradeOAuthCoordinatorConflict(
+                "OAuth token-runtime reservations require the SQL coordinator issuer"
+            )
+        authenticated = authenticate_etrade_oauth_durable_snapshot(snapshot)
+        object.__setattr__(self, "_EtradeOAuthTokenRuntimeCurrentnessReservation__lock", Lock())
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__coordinator",
+            coordinator,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__store_identity",
+            store_identity,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__snapshot",
+            authenticated,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__owner_process_id",
+            getpid(),
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__owner_thread",
+            None,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__claimed",
+            False,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__closed",
+            False,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__binding_sha256",
+            _sha256(self._binding_material_unlocked()),
+        )
+
+    def __setattr__(self, name: str, value: object) -> Never:
+        del name, value
+        raise AttributeError("OAuth token-runtime reservation bindings are sealed")
+
+    def _require_owner_unlocked(self) -> None:
+        if getpid() != self.__owner_process_id or (
+            self.__owner_thread is not None and current_thread() is not self.__owner_thread
+        ):
+            raise EtradeOAuthCoordinatorConflict(
+                "OAuth token-runtime reservation crossed its process or thread boundary"
+            )
+
+    def _binding_material_unlocked(self) -> tuple[object, ...]:
+        coordinator = self.__coordinator
+        store_identity = self.__store_identity
+        snapshot = self.__snapshot
+        if coordinator is None or store_identity is None or snapshot is None:
+            raise EtradeOAuthCoordinatorConflict(
+                "OAuth token-runtime reservation binding is closed"
+            )
+        return (
+            ETRADE_OAUTH_COORDINATOR_CONTRACT_VERSION,
+            "sealed_token_runtime_currentness_reservation",
+            id(coordinator),
+            id(store_identity),
+            self.__owner_process_id,
+            snapshot.scope_sha256,
+            snapshot.current_event_sha256,
+            snapshot.sequence,
+            snapshot.state.semantic_sha256,
+            snapshot.replay_guard.semantic_sha256,
+        )
+
+    def _validate_binding_unlocked(self) -> None:
+        snapshot = self.__snapshot
+        if snapshot is None:
+            raise EtradeOAuthCoordinatorConflict(
+                "OAuth token-runtime reservation binding is closed"
+            )
+        authenticate_etrade_oauth_durable_snapshot(snapshot)
+        if _sha256(self._binding_material_unlocked()) != self.__binding_sha256:
+            raise EtradeOAuthCoordinatorConflict(
+                "OAuth token-runtime reservation binding was mutated"
+            )
+
+    def _claim_snapshot_for_injected_token_runtime(self) -> EtradeOAuthDurableSnapshot:
+        with self.__lock:
+            self._require_owner_unlocked()
+            if self.__closed or self.__claimed or self.__snapshot is None:
+                raise EtradeOAuthCoordinatorConflict(
+                    "OAuth token-runtime reservation is closed or already claimed"
+                )
+            self._validate_binding_unlocked()
+            object.__setattr__(
+                self,
+                "_EtradeOAuthTokenRuntimeCurrentnessReservation__owner_thread",
+                current_thread(),
+            )
+            object.__setattr__(
+                self,
+                "_EtradeOAuthTokenRuntimeCurrentnessReservation__claimed",
+                True,
+            )
+            return authenticate_etrade_oauth_durable_snapshot(self.__snapshot)
+
+    def _reserve_signing_intent_for_injected_token_runtime(
+        self,
+        intent: EtradeOAuthSigningIntent,
+    ) -> EtradeOAuthDurableSnapshot:
+        with self.__lock:
+            self._require_owner_unlocked()
+            if (
+                self.__closed
+                or not self.__claimed
+                or self.__snapshot is None
+                or self.__coordinator is None
+            ):
+                raise EtradeOAuthCoordinatorConflict(
+                    "OAuth token-runtime reservation is not an active claimed currentness proof"
+                )
+            self._validate_binding_unlocked()
+            coordinator = self.__coordinator
+            snapshot = self.__snapshot
+            try:
+                return coordinator._reserve_signing_intent_for_token_runtime(
+                    issuer=_TOKEN_RUNTIME_RESERVATION_OPERATION_ISSUER,
+                    store_identity=self.__store_identity,
+                    expected=snapshot,
+                    intent=intent,
+                )
+            finally:
+                self._close_unlocked()
+
+    def _close_unlocked(self) -> None:
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__coordinator",
+            None,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__snapshot",
+            None,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__store_identity",
+            None,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__closed",
+            True,
+        )
+
+    def close(self) -> None:
+        with self.__lock:
+            self._close_unlocked()
+
+    @property
+    def closed(self) -> bool:
+        with self.__lock:
+            return self.__closed
+
+    @property
+    def authority(self) -> Mapping[str, bool]:
+        return MappingProxyType({name: False for name in _AUTHORITY_FIELDS})
+
+    def __repr__(self) -> str:
+        with self.__lock:
+            return (
+                "EtradeOAuthTokenRuntimeCurrentnessReservation("
+                f"store=<redacted>, snapshot=<redacted>, closed={self.__closed})"
+            )
+
+    def __reduce__(self) -> Never:
+        raise TypeError("OAuth token-runtime reservations are non-serializable")
+
+    def __copy__(self) -> Never:
+        raise TypeError("OAuth token-runtime reservations cannot be copied")
+
+    def __deepcopy__(self, memo: object) -> Never:
+        del memo
+        raise TypeError("OAuth token-runtime reservations cannot be copied")
+
+    def __del__(self) -> None:
+        with suppress(Exception):
+            self.close()
+
+
 class SqlEtradeOAuthCoordinator:
     """Own one atomic current sanitized session/replay head per stable scope."""
 
-    __slots__ = ("_engine",)
+    __slots__ = ("_engine", "_token_runtime_store_identity")
 
     def __init__(self, engine: Engine) -> None:
         if not isinstance(engine, Engine):
@@ -1170,6 +1590,7 @@ class SqlEtradeOAuthCoordinator:
                 f"E*TRADE OAuth coordinator does not support {engine.dialect.name!r}"
             )
         self._engine = engine
+        self._token_runtime_store_identity = object()
 
     def initialize(self, state: EtradeOAuthSessionState) -> EtradeOAuthDurableSnapshot:
         """Commit the exact empty generation-one root, or verify an exact retry."""
@@ -1244,6 +1665,138 @@ class SqlEtradeOAuthCoordinator:
         except SQLAlchemyError as error:
             raise EtradeOAuthCoordinatorError("durable E*TRADE OAuth load failed") from error
 
+    def issue_token_runtime_currentness_reservation(
+        self,
+        environment: EtradeEnvironment,
+        consumer_scope: EtradeSecretScope,
+    ) -> EtradeOAuthTokenRuntimeCurrentnessReservation:
+        """Issue one process/thread-bound claim from this store's authenticated head."""
+
+        snapshot = authenticate_etrade_oauth_durable_snapshot(
+            self.load(environment, consumer_scope)
+        )
+        return EtradeOAuthTokenRuntimeCurrentnessReservation(
+            issuer=_TOKEN_RUNTIME_RESERVATION_ISSUER,
+            coordinator=self,
+            store_identity=self._token_runtime_store_identity,
+            snapshot=snapshot,
+        )
+
+    def _reserve_signing_intent_for_token_runtime(
+        self,
+        *,
+        issuer: object,
+        store_identity: object,
+        expected: EtradeOAuthDurableSnapshot,
+        intent: EtradeOAuthSigningIntent,
+    ) -> EtradeOAuthDurableSnapshot:
+        """Freshly burn one secret-independent signing delta for the bound runtime."""
+
+        if (
+            issuer is not _TOKEN_RUNTIME_RESERVATION_OPERATION_ISSUER
+            or store_identity is not self._token_runtime_store_identity
+        ):
+            raise EtradeOAuthCoordinatorConflict(
+                "OAuth token-runtime reservation belongs to another coordinator store"
+            )
+        expected = authenticate_etrade_oauth_durable_snapshot(expected)
+        if type(intent) is not EtradeOAuthSigningIntent:
+            raise EtradeOAuthCoordinatorConflict(
+                "OAuth token-runtime reservation requires the exact signing intent"
+            )
+        try:
+            intent.__post_init__()
+        except EtradeOAuthContractError:
+            raise EtradeOAuthCoordinatorConflict(
+                "OAuth token-runtime reservation signing intent is malformed"
+            ) from None
+        state = expected.state
+        if (
+            intent.operation
+            not in {
+                EtradeOAuthOperation.REQUEST_TOKEN,
+                EtradeOAuthOperation.ACCESS_TOKEN,
+            }
+            or intent.environment is not state.environment
+            or intent.endpoint_profile.semantic_sha256 != state.endpoint_profile_sha256
+            or intent.consumer_reference != state.consumer_reference
+            or intent.generation != state.generation
+            or intent.timestamp.unix_seconds < state.trusted_time_high_water_seconds
+        ):
+            raise EtradeOAuthCoordinatorConflict(
+                "OAuth token-runtime reservation conflicts with its authenticated state"
+            )
+        if intent.operation is EtradeOAuthOperation.REQUEST_TOKEN:
+            if (
+                state.phase is not EtradeOAuthSessionPhase.NEEDS_REQUEST_TOKEN
+                or intent.token_reference is not None
+            ):
+                raise EtradeOAuthCoordinatorConflict(
+                    "request-token reservation conflicts with the authenticated phase"
+                )
+        elif (
+            state.phase is not EtradeOAuthSessionPhase.AUTHORIZATION_CONFIRMED
+            or intent.token_reference != state.request_token_reference
+            or intent.authorization_challenge_sha256 != state.authorization_challenge_sha256
+            or intent.authorization_state_sha256 != state.semantic_sha256
+        ):
+            raise EtradeOAuthCoordinatorConflict(
+                "access-token reservation conflicts with the authenticated phase"
+            )
+        try:
+            next_guard = reserve_etrade_oauth_signing_intent(
+                intent,
+                replay_guard=expected.replay_guard,
+            )
+            delta = _replay_delta(expected.replay_guard, next_guard)
+        except (EtradeOAuthContractError, EtradeOAuthCoordinatorError):
+            raise EtradeOAuthCoordinatorConflict(
+                "OAuth token-runtime signing replay reservation was rejected"
+            ) from None
+        if not _is_canonical_state_advance(
+            state,
+            state,
+            next_guard,
+            delta,
+            expected.events[-1],
+            expected.events[-2] if len(expected.events) >= 2 else None,
+        ):
+            raise EtradeOAuthCoordinatorConflict(
+                "OAuth token-runtime replay reservation violates the closed transition graph"
+            )
+        expected_values = _event_values(
+            scope_sha256=expected.scope_sha256,
+            sequence=expected.sequence + 1,
+            previous_event_sha256=expected.current_event_sha256,
+            prior_session_state_sha256=state.semantic_sha256,
+            state=state,
+            replay_guard=next_guard,
+            delta=delta,
+        )
+        expected_event = _event_from_values(
+            expected_values,
+            state=state,
+            replay_guard=next_guard,
+            delta=delta,
+        )
+        advanced = authenticate_etrade_oauth_durable_snapshot(
+            self.advance(
+                expected,
+                state,
+                next_guard,
+                allow_exact_retry=False,
+            )
+        )
+        if (
+            advanced.events != (*expected.events, expected_event)
+            or advanced.state != state
+            or advanced.replay_guard != next_guard
+        ):
+            raise EtradeOAuthCoordinatorConflict(
+                "OAuth token-runtime reservation returned a conflicting event prefix"
+            )
+        return advanced
+
     def advance(
         self,
         expected: EtradeOAuthDurableSnapshot,
@@ -1265,15 +1818,7 @@ class SqlEtradeOAuthCoordinator:
                 "durable E*TRADE OAuth exact-retry policy must be exact boolean"
             )
 
-        if (
-            type(expected) is not EtradeOAuthDurableSnapshot
-            or type(expected.events) is not tuple
-            or not expected.events
-            or any(type(event) is not EtradeOAuthDurableEvent for event in expected.events)
-        ):
-            raise EtradeOAuthCoordinatorConflict(
-                "durable E*TRADE OAuth advancement requires the exact expected snapshot"
-            )
+        expected = authenticate_etrade_oauth_durable_snapshot(expected)
         expected_state = _require_exact_state(expected.state, "expected state")
         _require_exact_guard(expected.replay_guard)
         successor_state = _require_exact_state(successor_state, "successor state")
@@ -1446,8 +1991,10 @@ __all__ = [
     "EtradeOAuthCoordinatorNotFound",
     "EtradeOAuthDurableEvent",
     "EtradeOAuthDurableSnapshot",
+    "EtradeOAuthTokenRuntimeCurrentnessReservation",
     "SqlEtradeOAuthCoordinator",
     "_verify_etrade_oauth_coordinator_integrity",
+    "authenticate_etrade_oauth_durable_snapshot",
     "etrade_oauth_coordinator_scope_sha256",
     "rotate_etrade_oauth_consumer_reference",
 ]
