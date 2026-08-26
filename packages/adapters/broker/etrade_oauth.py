@@ -24,7 +24,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
-from threading import Lock
+from threading import Lock, current_thread
 from types import MappingProxyType
 from typing import Any, Never, cast
 from urllib.parse import quote
@@ -1146,6 +1146,7 @@ def sign_etrade_oauth_intent(
     token_credentials: EtradeOAuthTokenCredentials | None = None,
     verifier: EtradeOAuthBoundVerifier | None = None,
     access_exchange_capability: EtradeOAuthAccessExchangeCapability | None = None,
+    _access_exchange_runtime_reservation: object | None = None,
 ) -> EtradeOAuthEphemeralSigningResult:
     """Sign once while consuming replay time and any exact access-exchange capability."""
 
@@ -1184,7 +1185,11 @@ def sign_etrade_oauth_intent(
             EtradeOAuthAccessExchangeCapability,
             access_exchange_capability,
         )
-    elif verifier is not None or access_exchange_capability is not None:
+    elif (
+        verifier is not None
+        or access_exchange_capability is not None
+        or _access_exchange_runtime_reservation is not None
+    ):
         raise EtradeOAuthContractError("only access-token signing can accept a verifier capability")
 
     next_guard = reserve_etrade_oauth_signing_intent(intent, replay_guard=replay_guard)
@@ -1194,6 +1199,7 @@ def sign_etrade_oauth_intent(
         verifier_value = bound_capability._consume_for(
             intent=intent,
             verifier=bound_verifier,
+            runtime_reservation=_access_exchange_runtime_reservation,
         )
 
     consumer_key, consumer_secret = consumer_credentials._ephemeral_values()
@@ -1620,6 +1626,8 @@ class EtradeOAuthAccessExchangeCapability(_EtradeOAuthSealed):
         "__generation",
         "__lock",
         "__request_token_reference_sha256",
+        "__runtime_reservation",
+        "__runtime_reservation_owner",
         "__verifier",
     )
     __authorization_challenge_sha256: str
@@ -1631,6 +1639,8 @@ class EtradeOAuthAccessExchangeCapability(_EtradeOAuthSealed):
     __generation: int
     __lock: Any
     __request_token_reference_sha256: str
+    __runtime_reservation: object | None
+    __runtime_reservation_owner: object | None
     __verifier: EtradeOAuthBoundVerifier
 
     def __init__(
@@ -1708,6 +1718,16 @@ class EtradeOAuthAccessExchangeCapability(_EtradeOAuthSealed):
             "_EtradeOAuthAccessExchangeCapability__lock",
             Lock(),
         )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthAccessExchangeCapability__runtime_reservation",
+            None,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthAccessExchangeCapability__runtime_reservation_owner",
+            None,
+        )
         self._validate()
 
     def _validate(self) -> None:
@@ -1736,13 +1756,14 @@ class EtradeOAuthAccessExchangeCapability(_EtradeOAuthSealed):
             raise EtradeOAuthContractError("capability generation is invalid")
         if type(self.__consumed) is not bool:
             raise EtradeOAuthContractError("capability consumption state is invalid")
+        if (self.__runtime_reservation is None) is not (self.__runtime_reservation_owner is None):
+            raise EtradeOAuthContractError("capability runtime reservation is malformed")
         _require_exact_type(self.__verifier, EtradeOAuthBoundVerifier, "capability verifier")
         self.__verifier._validate()
         if self.__verifier.authorization_challenge_sha256 != self.__authorization_challenge_sha256:
             raise EtradeOAuthContractError("capability verifier binding was corrupted")
 
-    def _validate_for_state(self, state: EtradeOAuthSessionState) -> None:
-        self._validate()
+    def _validate_for_state_unlocked(self, state: EtradeOAuthSessionState) -> None:
         _require_exact_type(state, EtradeOAuthSessionState, "confirmed authorization state")
         state.__post_init__()
         request_reference = cast(
@@ -1763,11 +1784,73 @@ class EtradeOAuthAccessExchangeCapability(_EtradeOAuthSealed):
                 "access-exchange capability conflicts with authorization state"
             )
 
+    def _validate_for_state(self, state: EtradeOAuthSessionState) -> None:
+        with self.__lock:
+            self._validate()
+            self._validate_for_state_unlocked(state)
+
+    def _reserve_unused_for_injected_token_runtime(
+        self,
+        *,
+        state: EtradeOAuthSessionState,
+        verifier: EtradeOAuthBoundVerifier,
+    ) -> object:
+        """Reserve, but do not consume, one exact verifier for the injected runtime."""
+
+        _require_exact_type(verifier, EtradeOAuthBoundVerifier, "bound OAuth verifier")
+        verifier._validate()
+        with self.__lock:
+            self._validate()
+            self._validate_for_state_unlocked(state)
+            if (
+                self.__consumed
+                or self.__runtime_reservation is not None
+                or verifier is not self.__verifier
+            ):
+                raise EtradeOAuthContractError(
+                    "access-exchange capability is unavailable for this exact verifier"
+                )
+            reservation = object()
+            object.__setattr__(
+                self,
+                "_EtradeOAuthAccessExchangeCapability__runtime_reservation",
+                reservation,
+            )
+            object.__setattr__(
+                self,
+                "_EtradeOAuthAccessExchangeCapability__runtime_reservation_owner",
+                current_thread(),
+            )
+            return reservation
+
+    def _release_injected_token_runtime_reservation(self, reservation: object) -> None:
+        """Release an unconsumed runtime reservation after a fail-closed path."""
+
+        with self.__lock:
+            self._validate()
+            if self.__runtime_reservation is None:
+                return
+            if self.__runtime_reservation is not reservation:
+                raise EtradeOAuthContractError(
+                    "access-exchange runtime reservation identity is invalid"
+                )
+            object.__setattr__(
+                self,
+                "_EtradeOAuthAccessExchangeCapability__runtime_reservation",
+                None,
+            )
+            object.__setattr__(
+                self,
+                "_EtradeOAuthAccessExchangeCapability__runtime_reservation_owner",
+                None,
+            )
+
     def _consume_for(
         self,
         *,
         intent: EtradeOAuthSigningIntent,
         verifier: EtradeOAuthBoundVerifier,
+        runtime_reservation: object | None = None,
     ) -> str:
         _require_exact_type(intent, EtradeOAuthSigningIntent, "access-token signing intent")
         intent.__post_init__()
@@ -1778,6 +1861,18 @@ class EtradeOAuthAccessExchangeCapability(_EtradeOAuthSealed):
             if verifier is not self.__verifier:
                 raise EtradeOAuthContractError(
                     "access-token signing requires the exact confirmed verifier identity"
+                )
+            if self.__runtime_reservation is None:
+                if runtime_reservation is not None:
+                    raise EtradeOAuthContractError(
+                        "access-exchange runtime reservation is not active"
+                    )
+            elif (
+                runtime_reservation is not self.__runtime_reservation
+                or current_thread() is not self.__runtime_reservation_owner
+            ):
+                raise EtradeOAuthContractError(
+                    "access-exchange capability is reserved by another runtime"
                 )
             token_reference = cast(
                 EtradeOAuthTokenSecretReference,
@@ -1803,16 +1898,28 @@ class EtradeOAuthAccessExchangeCapability(_EtradeOAuthSealed):
                 "_EtradeOAuthAccessExchangeCapability__consumed",
                 True,
             )
+            object.__setattr__(
+                self,
+                "_EtradeOAuthAccessExchangeCapability__runtime_reservation",
+                None,
+            )
+            object.__setattr__(
+                self,
+                "_EtradeOAuthAccessExchangeCapability__runtime_reservation_owner",
+                None,
+            )
             return self.__verifier._ephemeral_value()
 
     @property
     def authority(self) -> Mapping[str, bool]:
-        self._validate()
-        return MappingProxyType({name: False for name in _AUTHORITY_FIELDS})
+        with self.__lock:
+            self._validate()
+            return MappingProxyType({name: False for name in _AUTHORITY_FIELDS})
 
     def __repr__(self) -> str:
-        self._validate()
-        return "EtradeOAuthAccessExchangeCapability(verifier=<redacted>, one_use=True)"
+        with self.__lock:
+            self._validate()
+            return "EtradeOAuthAccessExchangeCapability(verifier=<redacted>, one_use=True)"
 
     def __reduce__(self) -> Never:
         raise TypeError("ephemeral access-exchange capability is intentionally non-serializable")

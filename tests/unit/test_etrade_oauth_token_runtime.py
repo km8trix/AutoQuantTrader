@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import hashlib
 import pickle
 from dataclasses import replace
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any, NoReturn, cast
 import pytest
 import sqlalchemy as sa
 
+import packages.application.etrade_oauth_token_runtime as oauth_token_runtime
 from packages.adapters.broker.etrade import (
     ETRADE_PRODUCTION_ENDPOINT_PROFILE,
     ETRADE_SANDBOX_ENDPOINT_PROFILE,
@@ -355,6 +357,26 @@ def _confirmed_access_head(
     return repository, snapshot, verifier, authorization.access_exchange_capability
 
 
+def _access_intent(
+    snapshot: EtradeOAuthDurableSnapshot,
+    *,
+    nonce: str = "fedcba9876543210",
+    unix_seconds: int = 1_700_000_100,
+) -> EtradeOAuthSigningIntent:
+    return create_etrade_oauth_signing_intent(
+        environment=EtradeEnvironment.SANDBOX,
+        endpoint_profile=ETRADE_SANDBOX_ENDPOINT_PROFILE,
+        operation=EtradeOAuthOperation.ACCESS_TOKEN,
+        generation=1,
+        consumer_reference=_consumer_reference(),
+        token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
+        timestamp=_timestamp(unix_seconds),
+        nonce=EtradeOAuthNonce(nonce),
+        authorization_challenge_sha256=snapshot.state.authorization_challenge_sha256,
+        authorization_state_sha256=snapshot.state.semantic_sha256,
+    )
+
+
 def test_request_token_exchange_burns_replay_and_retains_only_ephemeral_raw_custody(
     tmp_path: Path,
 ) -> None:
@@ -599,6 +621,112 @@ def test_access_capability_remains_reusable_after_pre_reservation_rejection(
         access_exchange_capability=capability,
     )
     assert result._matches_test_values_once(ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
+
+
+def test_distinct_equal_verifier_fails_before_replay_or_secret_access(
+    tmp_path: Path,
+) -> None:
+    repository, snapshot, verifier, capability = _confirmed_access_head(tmp_path)
+    assert snapshot.state.authorization_challenge_sha256 is not None
+    distinct_equal_verifier = EtradeOAuthBoundVerifier(
+        authorization_challenge_sha256=snapshot.state.authorization_challenge_sha256,
+        verifier=EtradeOAuthVerifierValue(VERIFIER),
+    )
+    resolver = _Resolver(token=REQUEST_TOKEN, token_secret=REQUEST_TOKEN_SECRET)
+    transport = _Transport(body=_request_body(), expected_header=ACCESS_HEADER)
+
+    with pytest.raises(EtradeOAuthTokenRuntimeError):
+        execute_etrade_oauth_injected_token_exchange(
+            currentness_reservation=_reservation(repository),
+            signing_intent=_access_intent(snapshot),
+            issued_token_reference=_token_reference(EtradeOAuthTokenKind.ACCESS_TOKEN, 2),
+            resolver=resolver,
+            transport=transport,
+            expires_at=_timestamp(1_700_086_400),
+            verifier=distinct_equal_verifier,
+            access_exchange_capability=capability,
+        )
+
+    assert resolver.calls == 0
+    assert transport.calls == 0
+    assert (
+        repository.load(
+            EtradeEnvironment.SANDBOX,
+            EtradeSecretScope.SANDBOX_CONSUMER,
+        )
+        == snapshot
+    )
+
+    result = execute_etrade_oauth_injected_token_exchange(
+        currentness_reservation=_reservation(repository),
+        signing_intent=_access_intent(snapshot),
+        issued_token_reference=_token_reference(EtradeOAuthTokenKind.ACCESS_TOKEN, 2),
+        resolver=_Resolver(token=REQUEST_TOKEN, token_secret=REQUEST_TOKEN_SECRET),
+        transport=_Transport(
+            body=(f"oauth_token={ACCESS_TOKEN}&oauth_token_secret={ACCESS_TOKEN_SECRET}").encode(
+                "ascii"
+            ),
+            expected_header=ACCESS_HEADER,
+        ),
+        expires_at=_timestamp(1_700_086_400),
+        verifier=verifier,
+        access_exchange_capability=capability,
+    )
+    assert result._matches_test_values_once(ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
+
+
+def test_consumed_access_capability_fails_before_fresh_replay_or_secret_access(
+    tmp_path: Path,
+) -> None:
+    repository, snapshot, verifier, capability = _confirmed_access_head(tmp_path)
+    first = execute_etrade_oauth_injected_token_exchange(
+        currentness_reservation=_reservation(repository),
+        signing_intent=_access_intent(snapshot),
+        issued_token_reference=_token_reference(EtradeOAuthTokenKind.ACCESS_TOKEN, 2),
+        resolver=_Resolver(token=REQUEST_TOKEN, token_secret=REQUEST_TOKEN_SECRET),
+        transport=_Transport(
+            body=(f"oauth_token={ACCESS_TOKEN}&oauth_token_secret={ACCESS_TOKEN_SECRET}").encode(
+                "ascii"
+            ),
+            expected_header=ACCESS_HEADER,
+        ),
+        expires_at=_timestamp(1_700_086_400),
+        verifier=verifier,
+        access_exchange_capability=capability,
+    )
+    assert first._matches_test_values_once(ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
+    replay_only_head = repository.load(
+        EtradeEnvironment.SANDBOX,
+        EtradeSecretScope.SANDBOX_CONSUMER,
+    )
+    resolver = _Resolver(token=REQUEST_TOKEN, token_secret=REQUEST_TOKEN_SECRET)
+    transport = _Transport(body=_request_body())
+
+    with pytest.raises(EtradeOAuthTokenRuntimeError):
+        execute_etrade_oauth_injected_token_exchange(
+            currentness_reservation=_reservation(repository),
+            signing_intent=_access_intent(
+                snapshot,
+                nonce="fedcba9876543211",
+                unix_seconds=1_700_000_101,
+            ),
+            issued_token_reference=_token_reference(EtradeOAuthTokenKind.ACCESS_TOKEN, 2),
+            resolver=resolver,
+            transport=transport,
+            expires_at=_timestamp(1_700_086_400),
+            verifier=verifier,
+            access_exchange_capability=capability,
+        )
+
+    assert resolver.calls == 0
+    assert transport.calls == 0
+    assert (
+        repository.load(
+            EtradeEnvironment.SANDBOX,
+            EtradeSecretScope.SANDBOX_CONSUMER,
+        )
+        == replay_only_head
+    )
 
 
 def test_resolver_and_transport_metadata_are_exact_and_checked_before_resolution(
@@ -1075,6 +1203,64 @@ def test_response_origin_status_media_charset_redirect_proxy_and_terminal_faults
     assert cast(Any, transport.last_response).closed is True
 
 
+def test_post_factory_raw_body_expansion_fails_the_recurring_custody_bound(
+    tmp_path: Path,
+) -> None:
+    oversized_body = (
+        b"oauth_token="
+        + (b"%41" * 1_024)
+        + b"&oauth_token_secret="
+        + (b"%42" * 1_024)
+        + b"&oauth_callback_confirmed=true"
+    )
+    assert len(oversized_body) > 4_096
+
+    class _ExpandingBodyTransport(_Transport):
+        def _exchange_for_token_runtime(
+            self,
+            request: EtradeOAuthEphemeralTransportRequest,
+        ) -> object:
+            self.calls += 1
+            self.last_request = request
+            response = create_etrade_oauth_injected_token_response(
+                request,
+                body=_request_body(),
+            )
+            self.last_response = response
+            raw_body = object.__getattribute__(
+                response,
+                "_EtradeOAuthRawTokenResponse__body",
+            )
+            raw_body[:] = oversized_body
+            return response
+
+    repository, _ = _repository(tmp_path)
+    transport = _ExpandingBodyTransport(body=_request_body())
+    with pytest.raises(EtradeOAuthTokenResponseError):
+        execute_etrade_oauth_injected_token_exchange(
+            currentness_reservation=_reservation(repository),
+            signing_intent=_request_intent(),
+            issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
+            resolver=_Resolver(),
+            transport=transport,
+        )
+
+    assert cast(Any, transport.last_request).closed is True
+    assert cast(Any, transport.last_response).closed is True
+    zeroized_body = object.__getattribute__(
+        transport.last_response,
+        "_EtradeOAuthRawTokenResponse__body",
+    )
+    assert len(zeroized_body) == len(oversized_body)
+    assert not any(zeroized_body)
+    current = repository.load(
+        EtradeEnvironment.SANDBOX,
+        EtradeSecretScope.SANDBOX_CONSUMER,
+    )
+    assert current.sequence == 2
+    assert current.state.phase is EtradeOAuthSessionPhase.NEEDS_REQUEST_TOKEN
+
+
 @pytest.mark.parametrize(
     "body",
     (
@@ -1257,6 +1443,136 @@ def test_sealed_request_binding_mutation_after_transport_is_detected(
     assert current.state.phase is EtradeOAuthSessionPhase.NEEDS_REQUEST_TOKEN
 
 
+def test_transport_cannot_reseal_mutated_durable_request_binding(
+    tmp_path: Path,
+) -> None:
+    class _ResealingTransport(_Transport):
+        def _exchange_for_token_runtime(
+            self,
+            request: EtradeOAuthEphemeralTransportRequest,
+        ) -> object:
+            self.calls += 1
+            self.last_request = request
+            object.__setattr__(
+                request,
+                "_EtradeOAuthEphemeralTransportRequest__durable_event_sha256",
+                "f" * 64,
+            )
+            object.__setattr__(
+                request,
+                "_EtradeOAuthEphemeralTransportRequest__durable_sequence",
+                999,
+            )
+            object.__setattr__(
+                request,
+                "_EtradeOAuthEphemeralTransportRequest__sealed_binding_sha256",
+                oauth_token_runtime._semantic_sha256(
+                    cast(Any, request)._binding_material_unlocked()
+                ),
+            )
+            response = create_etrade_oauth_injected_token_response(
+                request,
+                body=self.body,
+            )
+            self.last_response = response
+            return response
+
+    repository, _ = _repository(tmp_path)
+    resolver = _Resolver()
+    transport = _ResealingTransport(body=_request_body())
+    with pytest.raises(EtradeOAuthTokenTransportError):
+        execute_etrade_oauth_injected_token_exchange(
+            currentness_reservation=_reservation(repository),
+            signing_intent=_request_intent(),
+            issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
+            resolver=resolver,
+            transport=transport,
+        )
+
+    assert resolver.calls == 1
+    assert transport.calls == 1
+    assert cast(Any, transport.last_request).closed is True
+    assert cast(Any, transport.last_response).closed is True
+    current = repository.load(
+        EtradeEnvironment.SANDBOX,
+        EtradeSecretScope.SANDBOX_CONSUMER,
+    )
+    assert current.sequence == 2
+    assert current.state.phase is EtradeOAuthSessionPhase.NEEDS_REQUEST_TOKEN
+
+
+def test_transport_cannot_rehash_mutated_intent_and_signing_result(
+    tmp_path: Path,
+) -> None:
+    intent = _request_intent()
+
+    class _IntentRehashingTransport(_Transport):
+        def _exchange_for_token_runtime(
+            self,
+            request: EtradeOAuthEphemeralTransportRequest,
+        ) -> object:
+            self.calls += 1
+            self.last_request = request
+            object.__setattr__(intent, "nonce", EtradeOAuthNonce("1111111111111111"))
+            signing_result = object.__getattribute__(
+                request,
+                "_EtradeOAuthEphemeralTransportRequest__signing_result",
+            )
+            evidence = intent.to_evidence_bytes()
+            object.__setattr__(
+                signing_result,
+                "_EtradeOAuthEphemeralSigningResult__intent_sha256",
+                intent.semantic_sha256,
+            )
+            object.__setattr__(signing_result, "sanitized_evidence_bytes", evidence)
+            object.__setattr__(
+                signing_result,
+                "_EtradeOAuthEphemeralSigningResult__evidence_sha256",
+                hashlib.sha256(evidence).hexdigest(),
+            )
+            object.__setattr__(
+                request,
+                "_EtradeOAuthEphemeralTransportRequest__intent_sha256",
+                intent.semantic_sha256,
+            )
+            object.__setattr__(
+                request,
+                "_EtradeOAuthEphemeralTransportRequest__sealed_binding_sha256",
+                oauth_token_runtime._semantic_sha256(
+                    cast(Any, request)._binding_material_unlocked()
+                ),
+            )
+            response = create_etrade_oauth_injected_token_response(
+                request,
+                body=self.body,
+            )
+            self.last_response = response
+            return response
+
+    repository, _ = _repository(tmp_path)
+    resolver = _Resolver()
+    transport = _IntentRehashingTransport(body=_request_body())
+    with pytest.raises(EtradeOAuthTokenTransportError):
+        execute_etrade_oauth_injected_token_exchange(
+            currentness_reservation=_reservation(repository),
+            signing_intent=intent,
+            issued_token_reference=_token_reference(EtradeOAuthTokenKind.REQUEST_TOKEN, 1),
+            resolver=resolver,
+            transport=transport,
+        )
+
+    assert resolver.calls == 1
+    assert transport.calls == 1
+    assert cast(Any, transport.last_request).closed is True
+    assert cast(Any, transport.last_response).closed is True
+    current = repository.load(
+        EtradeEnvironment.SANDBOX,
+        EtradeSecretScope.SANDBOX_CONSUMER,
+    )
+    assert current.sequence == 2
+    assert current.state.phase is EtradeOAuthSessionPhase.NEEDS_REQUEST_TOKEN
+
+
 def test_receipt_and_result_public_bindings_are_read_only(tmp_path: Path) -> None:
     result, _, _, _ = _request_exchange(tmp_path)
     receipt = result.receipt
@@ -1289,6 +1605,36 @@ def test_receipt_and_result_public_bindings_are_read_only(tmp_path: Path) -> Non
     with pytest.raises(EtradeOAuthTokenRuntimeError):
         _ = receipt.semantic_sha256
     result.close()
+
+
+def test_result_recurring_validation_rejects_another_valid_receipt(
+    tmp_path: Path,
+) -> None:
+    first, _, _, _ = _request_exchange(
+        tmp_path / "first",
+        intent=_request_intent(nonce="0123456789abcdef"),
+    )
+    second, _, _, _ = _request_exchange(
+        tmp_path / "second",
+        intent=_request_intent(nonce="1123456789abcdef"),
+    )
+    assert first.receipt.semantic_sha256 != second.receipt.semantic_sha256
+    assert first.issued_token_reference == second.issued_token_reference
+
+    object.__setattr__(
+        first,
+        "_EtradeOAuthEphemeralTokenExchangeResult__receipt",
+        second.receipt,
+    )
+    with pytest.raises(EtradeOAuthTokenResponseError):
+        _ = first.receipt
+    with pytest.raises(EtradeOAuthTokenResponseError):
+        _ = first.successor_state
+
+    first.close()
+    second.close()
+    assert first.closed is True
+    assert second.closed is True
 
 
 def test_resolver_envelope_claim_is_atomic_under_barrier_race(tmp_path: Path) -> None:

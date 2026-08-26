@@ -101,7 +101,14 @@ those bytes or their digest are durable evidence.
    injected transport twice. Durable failure occurs before resolution,
    signing, verifier consumption, or transport. Resolver/signing/transport
    failure can leave this secret-independent replay fact committed, but cannot
-   advance the session state.
+   advance the session state. For access exchange, the runtime first obtains a
+   locked, non-consuming reservation from the exact authorization capability.
+   Reservation requires an unused capability and the exact supplied verifier
+   object; it is released on every pre-consumption failure and passed opaquely
+   to the signer for eventual one-use consumption. Thus an already-consumed,
+   concurrently reserved, or distinct-but-equal verifier fails before the
+   durable replay burn or secret resolution without consuming an otherwise
+   valid capability.
 7. Define one injected transport port with the exact identity
    `injected-fake-etrade-oauth-token-transport` version `1.0.0`. Freeze its
    metadata and exact bound method once before resolving secrets. It receives
@@ -119,7 +126,13 @@ those bytes or their digest are durable evidence.
    request object through `create_etrade_oauth_injected_token_response`. The
    request owns a newly constructed raw response until the runtime completes a
    successful result transfer, so a transport that raises after construction
-   cannot strand the runtime-owned mutable custody buffer.
+   cannot strand the runtime-owned mutable custody buffer. Before dispatch, the
+   runtime also retains an independent private witness outside the
+   transport-visible object graph: the exact intent identity and evidence,
+   signing-result identity, sealed request binding, pre-reservation guard, and
+   replay-only head. After return it compares that witness, re-derives the
+   replay guard from the original head, and rejects even if a transport mutates
+   intent/request fields and recomputes every attacker-visible unkeyed seal.
 8. The injected response profile requires the exact shared token origin
    `https://api.etrade.com`, terminal HTTP status `200`, media type
    `application/x-www-form-urlencoded`, charset `utf-8`, a complete body of
@@ -133,6 +146,10 @@ those bytes or their digest are durable evidence.
    response provenance.
    Raw-response construction, request presentation/ownership transfer, reads,
    and close are lock-protected so racing factories have exactly one winner.
+   Every open/read/transfer validation rechecks that body custody remains an
+   exact bytearray within the 1-4,096-byte bound; post-factory type replacement
+   or out-of-bound expansion fails without adding a body hash or length to
+   sanitized evidence.
 9. Retain the exact raw body in private, context-managed, non-copyable mutable
    custody before strict decode.
    Request-token responses contain exactly one each of `oauth_token`,
@@ -155,7 +172,11 @@ those bytes or their digest are durable evidence.
    separate reviewed capability; no ordinary getter or persistence callback is
    introduced here. Result claim/consume/close is lock-protected and one-shot;
    its receipt, replay snapshot, proposed successor, and output reference are
-   private fields exposed only through validating read-only properties.
+   private fields exposed only through validating read-only properties. Every
+   such property repeats the complete receipt-to-replay-to-successor-to-output-
+   reference-to-raw-structural-binding cross-check and compares the initial
+   receipt and raw-binding identities, so substituting another individually
+   valid receipt cannot create a mixed result product.
 11. The sanitized receipt is `init=False` and only the private runtime issuer
    can construct it. It binds provider, environment, operation, signing
    intent, durable scope/replay event/sequence/guard, output reference, exact
