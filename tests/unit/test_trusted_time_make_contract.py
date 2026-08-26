@@ -1166,9 +1166,14 @@ def test_trusted_time_python_launcher_is_isolated_and_cannot_be_overridden() -> 
         "python -I -B -X pycache_prefix=/dev/null"
     ) in completed.stdout
     assert (
-        "build_support/build_native_test_launcher.py verify-images-build \\\n\t\t"
-        f'--artifact "{ROOT}/artifacts/trusted-time/image-admission.json"'
-    ) in completed.stdout
+        re.search(
+            re.escape("build_support/build_native_test_launcher.py verify-images-build \\\n")
+            + r"\t+"
+            + re.escape(f'--artifact "{ROOT}/artifacts/trusted-time/image-admission.json"'),
+            completed.stdout,
+        )
+        is not None
+    )
     assert "scripts/verify_trusted_time_images.py --build" not in completed.stdout
     assert "--no-sync" not in completed.stdout
     assert "--frozen" not in completed.stdout
