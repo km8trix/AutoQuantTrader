@@ -34,9 +34,10 @@ AutoQuantTrader will let a single operator:
 - Deployment: Docker Compose locally; one small cloud environment when paper
   trading begins.
 
-The repository currently completes Phases 0 and 2 against deterministic local
-fixtures and implements the Phase 1 ingestion/admission contracts without a
-licensed admitted vendor. Phase 2 includes the canonical reducers, durable
+The repository has substantially implemented the Phase 0 foundation, explicitly
+passes only Phase 2's local exit gate against deterministic fixtures, and
+implements the Phase 1 ingestion/admission contracts without a licensed admitted
+vendor. Phase 2 includes the canonical reducers, durable
 fenced batch/submission/reservation lifecycle, and fixture-only research
 job/report/API/UI/worker path. Phase 3 has begun with bounded, pure-domain
 manifest-bound feature and feature-derived target parity proofs for one
@@ -149,15 +150,18 @@ source-authenticated comparisons, migration 0033 comparison history, and
 one-effect restart-safe supervision. Phases 4AJ and 4AK add the pure E\*TRADE
 provider/request foundation and caller-declared Accounts List decoder. Phase
 4AL adds deterministic OAuth 1.0a/HMAC-SHA1 signing and a secret-free pure
-supervised-session reducer over caller-injected time and nonce values. No
-deployed resolver, general security master, stream, reconciliation, order
-effect, or dispatch authority exists.
-The trader remains `not_ready`, Phase 4's exit gate
-is open, and no network-capable order transport or production market-data
-adapter is enabled. No E\*TRADE OAuth runtime/session manager, durable replay
-guard, authenticated token response, account binding, Preview/Place workflow,
-production reconciliation adapter, or live authority exists. Phase 3's
-external gates remain open as well. Phase 5A now provides a
+supervised-session reducer over caller-injected time and nonce values. Phase 4AM
+adds one immutable sanitized event chain and atomic current head per stable
+typed environment/consumer-secret scope, reconstructing and authenticating
+complete secret-free local replay/session history. This is durable local
+coordination only: it authenticates no token response or provider origin and
+performs no provider call. No deployed secret resolver, general security master,
+stream, reconciliation, order effect, or dispatch authority exists. The trader
+remains `not_ready`, Phase 4's exit gate is open, and no network-capable order
+transport or production market-data adapter is enabled. No E\*TRADE OAuth
+runtime/session manager, authenticated token response, account binding,
+Preview/Place workflow, production reconciliation adapter, or live authority
+exists. Phase 3's external gates remain open as well. Phase 5A now provides a
 local durable operational-control contract and persistence spine. It freezes
 the five-state severity order, actor-bound exact retries, fail-closed absence,
 breaker trips, explicit drain/flatten results, and proof-bound manual re-arm
@@ -231,6 +235,12 @@ durable strategy claim authorizer requires an authenticated account-bound
 `RUNNING` head; this profile supplies only the configured `PAUSED` policy plus
 an aggregate safety observation, so the durable no-exposure invocation is
 unrun and Phase 5 remains open.
+
+Phase 6 remains open. ADR 0121 resolves the previously frozen graceful-stop
+lifecycle-v2 design only; none of the selected transport, key-custody,
+lifecycle, Docker-effect, or recovery components is implemented or authorized,
+and `trusted-time-stop` remains the exact exit-2 no-effect target. Phases 7 and
+8 remain operationally ahead.
 
 ### Non-goals for v1
 

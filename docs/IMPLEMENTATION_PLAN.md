@@ -18,6 +18,22 @@ publishes deterministic content-addressed raw/normalized Parquet, PostgreSQL
 catalog metadata, causal revision selection, security lifecycle, corporate
 actions, data quality, quarantine, and functional browser views.
 
+Wave 4 adds four bounded local changes without closing an exit gate. The CI
+workflow now evaluates `${{ runner.temp }}` only in the three native-package
+steps that consume it, and the trusted-time contract pins the repaired workflow
+bytes. Phase 3G adds bounded, authenticated GET-only fixture-job and transcript-
+proof metadata views while excluding transcript members, economic results,
+criteria, and promotion decisions. Phase 4AM adds a secret-free immutable OAuth
+replay/session journal and atomic stable-scope current head, with complete local
+history reconstructed and authenticated on read; it resolves no secret,
+authenticates no provider response or origin, and performs no provider call. ADR
+0121 resolves the trusted-time graceful-stop lifecycle-v2 design only; the
+selected transport, key custody, lifecycle repository, Docker client/effects,
+recovery path, and authority remain unimplemented, and `trusted-time-stop`
+remains hard closed. Phases 3-6 and their exit gates remain open, the trader
+remains `not_ready`; these Wave 4 changes add no production-source admission or
+provider I/O and claim no deployed trading runtime or paper/live authority.
+
 Phase 1B now provides the provider-neutral source seam, strict evidence evaluator,
 durable admission reports, and browser visibility. It is **implemented locally
 against synthetic contract fixtures; licensed vendor admission remains pending**.
@@ -427,11 +443,13 @@ admitted production source, or paper/live trading authority exists; the trader
 remains `not_ready`.
 
 Phases 3A-3D provide bounded local feature, target, governance, and
-configuration-bound evaluation evidence. Phase 3E implements a separate pure
-fail-closed captured-tape validity gate, but v1 has no external provenance trust
-root or verifier, so no bundle can become eligible. Captured live-tape,
-reconnect, shadow, economic segment-execution/isolation, end-to-end traceability,
-and reporting gates remain open.
+configuration-bound evaluation evidence. Phase 3E remains a pure fail-closed
+captured-tape validity gate with no external provenance trust root or verifier;
+Phase 3F supplies only the durable bounded repository-fixture segment worker;
+and Phase 3G supplies only bounded, authenticated GET views of job/transcript-
+proof metadata. Captured live-tape, reconnect, shadow, general economic segment
+execution/isolation, end-to-end traceability, performance/criteria, promotion,
+and broader reporting remain open.
 
 Phases 4A-4AI are implemented as bounded local historical Alpaca contracts,
 persistence, authenticated read runtimes, comparisons, and restart-safe
@@ -443,14 +461,15 @@ List request-description foundation; Phase 4AK adds only bounded in-memory
 raw-first caller-declared response evidence and a strict historical decoder.
 Those bindings prove internal consistency only: provider origin is
 unauthenticated, fixture relabeling cannot be detected, and no authenticated
-provider-evidence consumer exists. Phase 4AL adds only deterministic OAuth
-1.0a/HMAC-SHA1 signing and a secret-free pure supervised-session reducer over
-typed nonsecret reference revisions and caller-injected timestamp/nonce values.
-It adds no resolver, durable replay guard, authenticated token response,
-browser/OOB runtime, provider transport or call, or authority. Authenticated
-capture/admission and account binding, Balance, Portfolio, Orders, and
-Transactions reads, Preview, Place, Cancel, recovery, qualification, and every
-authority remain pending.
+provider-evidence consumer exists. Phase 4AL adds deterministic OAuth
+1.0a/HMAC-SHA1 signing and a secret-free pure supervised-session reducer. Phase
+4AM adds one immutable sanitized event chain and atomic current head per stable
+typed environment/consumer-secret scope, reconstructing and authenticating
+complete secret-free local replay/session history. This is durable local
+coordination only: it authenticates no token response or provider origin and
+performs no provider call. No deployed secret resolver, browser/OOB OAuth
+runtime, account binding, broader broker reads, Preview/Place/Cancel workflow,
+recovery, qualification, or authority exists.
 
 Phase 5A-5I provide local operational-control, advanced-risk,
 supervised-strategy, critical-alert, authenticated-operations, dashboard,
@@ -467,15 +486,17 @@ enrollment and implements the post-enrollment start controller/orchestrator in
 code, but no start has been operationally admitted. ADR 0111/0112 now
 reauthenticate and cross-bind the exact decision-artifact receipt and historical
 start chain into the dormant operation-bound clean-stop supervisor bridge, but
-its host/core private entry points still have zero callers. ADR 0116 freezes only
-the design-only transport → same-lock admission → lifecycle-v2 composition and
-its distinct pre-effect and post-teardown reauthentication order; none of that
-chain is implemented or authorized. Current-topology and stop-authority
-admission, durability, outcomes, and all effects remain absent;
-`trusted-time-stop` remains hard closed. Phase 6E is only a dormant watchdog-
-state reducer. The Phase 6 paper-MVP gate remains unmet, and the Phase 7
-supervised paper soak and Phase 8 human-approved minimum-size live canary remain
-entirely ahead. No paper or live order authority is enabled.
+its host/core private entry points still have zero callers. ADR 0116 froze the
+non-separable transport → same-lock admission → lifecycle-v2 composition and its
+distinct pre-effect and post-teardown reauthentication order. ADR 0121 now
+resolves those lifecycle-v2 implementation choices as documentation only; the
+selected transport, key custody, lifecycle repository, Docker client/effects,
+recovery path, and authority remain unimplemented and unauthorized. Current-
+topology and stop-authority admission, durability, outcomes, and all effects
+remain absent; `trusted-time-stop` remains hard closed. Phase 6E is only a
+dormant watchdog-state reducer. The Phase 6 paper-MVP gate remains unmet, and
+the Phase 7 supervised paper soak and Phase 8 human-approved minimum-size live
+canary remain entirely ahead. No paper or live order authority is enabled.
 
 ## Delivery strategy
 
@@ -1526,8 +1547,8 @@ traceability, or reporting requirements below.
   in-memory raw-response/decoder slice, a non-I/O OAuth signing/session
   contract, and a local sanitized durable replay/session-head coordinator.
   Phase 4
-  and its exit gate remain open. These slices are local worktree changes and do
-  not authorize paper or live trading.
+  and its exit gate remain open. These slices are bounded local repository
+  implementations and do not authorize paper or live trading.
   Phase 3's captured-tape, reconnect, shadow, economic
   segment-execution,
   traceability, and reporting gates also remain open and are not bypassed by
