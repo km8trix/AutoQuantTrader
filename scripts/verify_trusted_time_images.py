@@ -5299,9 +5299,10 @@ def _validate_source_probe_projection(
     volume_name: str,
     expected_token: str,
 ) -> None:
+    label = "trusted-time source topology inspection"
     payload = _decode_exact_docker_json_object(
         completed,
-        label="trusted-time source topology inspection",
+        label=label,
     )
     expected = _immutable_json_object(
         (
@@ -5315,7 +5316,10 @@ def _validate_source_probe_projection(
             ("device_count", 0),
             ("device_request_count", 0),
             ("host_mount_count", 1),
-            ("host_mount_driver_config", None),
+            (
+                "host_mount_driver_config",
+                _immutable_json_object((("Name", "local"),)),
+            ),
             ("host_mount_no_copy", True),
             ("host_mount_read_only", False),
             ("host_mount_source", volume_name),
@@ -5350,7 +5354,26 @@ def _validate_source_probe_projection(
         )
     )
     if payload != expected:
-        raise TrustedTimeImageVerificationError("trusted-time source topology inspection drifted")
+        payload_items = _immutable_json_object_items(payload, label=label)
+        expected_items = _immutable_json_object_items(expected, label=label)
+        payload_keys = tuple(key for key, _ in payload_items)
+        expected_keys = tuple(key for key, _ in expected_items)
+        if payload_keys != expected_keys:
+            mismatch = "field_set"
+        else:
+            mismatched_fields = tuple(
+                expected_key
+                for (payload_key, payload_value), (expected_key, expected_value) in zip(
+                    payload_items,
+                    expected_items,
+                    strict=True,
+                )
+                if payload_key != expected_key or payload_value != expected_value
+            )
+            mismatch = ",".join(mismatched_fields) or "unknown"
+        raise TrustedTimeImageVerificationError(
+            f"trusted-time source topology inspection drifted ({mismatch})"
+        )
 
 
 def _require_activity(completed: _ImmutableTextSubprocessResult, *, label: str) -> None:
@@ -5496,7 +5519,10 @@ def _probe_runtime_topology(
             "--tmpfs",
             ("/var/lib/chrony:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001,mode=0700"),
             "--mount",
-            f"type=volume,source={volume_name},destination=/run/chrony,volume-nocopy",
+            (
+                f"type=volume,source={volume_name},destination=/run/chrony,"
+                "volume-nocopy,volume-driver=local"
+            ),
             source_id,
             environment=environment,
         )
@@ -5641,7 +5667,10 @@ def _probe_runtime_topology(
             "--user",
             "10001:10001",
             "--mount",
-            f"type=volume,source={volume_name},destination=/run/chrony,volume-nocopy",
+            (
+                f"type=volume,source={volume_name},destination=/run/chrony,"
+                "volume-nocopy,volume-driver=local"
+            ),
             "--entrypoint",
             "/bin/sh",
             supervisor_id,
@@ -5669,7 +5698,10 @@ def _probe_runtime_topology(
             "--user",
             "10001:10001",
             "--mount",
-            f"type=volume,source={volume_name},destination=/run/chrony,volume-nocopy",
+            (
+                f"type=volume,source={volume_name},destination=/run/chrony,"
+                "volume-nocopy,volume-driver=local"
+            ),
             "--entrypoint",
             "/usr/local/bin/chronyc",
             supervisor_id,

@@ -195,6 +195,7 @@ def _source_probe_projection_json(
     image_id: str,
     volume_name: str,
     token: str,
+    running: bool = True,
 ) -> str:
     return (
         json.dumps(
@@ -209,7 +210,7 @@ def _source_probe_projection_json(
                 "device_count": 0,
                 "device_request_count": 0,
                 "host_mount_count": 1,
-                "host_mount_driver_config": None,
+                "host_mount_driver_config": {"Name": "local"},
                 "host_mount_no_copy": True,
                 "host_mount_read_only": False,
                 "host_mount_source": volume_name,
@@ -229,7 +230,7 @@ def _source_probe_projection_json(
                 "port_binding_count": 0,
                 "privileged": False,
                 "readonly_rootfs": True,
-                "running": True,
+                "running": running,
                 "security_opt_0": "no-new-privileges",
                 "security_opt_count": 1,
                 "tmpfs_count": 2,
@@ -243,6 +244,53 @@ def _source_probe_projection_json(
         )
         + "\n"
     )
+
+
+def test_source_probe_projection_reports_safe_expected_field_name_on_drift() -> None:
+    volume_name = "aqt-trusted-time-admission-" + "c" * 32 + "-socket"
+    with pytest.raises(
+        TrustedTimeImageVerificationError,
+        match=r"topology inspection drifted \(running\)",
+    ):
+        image_verifier._validate_source_probe_projection(
+            _immutable_docker_result(
+                _source_probe_projection_json(
+                    image_id=SOURCE_ID,
+                    volume_name=volume_name,
+                    token="c" * 32,
+                    running=False,
+                )
+            ),
+            image_id=SOURCE_ID,
+            volume_name=volume_name,
+            expected_token="c" * 32,
+        )
+
+
+@pytest.mark.parametrize("driver_config", [None, {}])
+def test_source_probe_projection_rejects_implicit_driver_config(
+    driver_config: object,
+) -> None:
+    volume_name = "aqt-trusted-time-admission-" + "d" * 32 + "-socket"
+    payload = json.loads(
+        _source_probe_projection_json(
+            image_id=SOURCE_ID,
+            volume_name=volume_name,
+            token="d" * 32,
+        )
+    )
+    payload["host_mount_driver_config"] = driver_config
+    encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n"
+    with pytest.raises(
+        TrustedTimeImageVerificationError,
+        match=r"topology inspection drifted \(host_mount_driver_config\)",
+    ):
+        image_verifier._validate_source_probe_projection(
+            _immutable_docker_result(encoded),
+            image_id=SOURCE_ID,
+            volume_name=volume_name,
+            expected_token="d" * 32,
+        )
 
 
 def _replace_tuple_slot(
@@ -4643,6 +4691,12 @@ def test_real_topology_probe_uses_one_hardened_shared_socket_and_cleans_up() -> 
     assert all("--pull=never" in call for call in supervisor_runs)
     assert "none" in source_run and "--read-only" in source_run and "ALL" in source_run
     assert SOURCE_ID in source_run
+    expected_mount = (
+        f"type=volume,source={volume_name},destination=/run/chrony,"
+        "volume-nocopy,volume-driver=local"
+    )
+    assert expected_mount in source_run
+    assert all(expected_mount in call for call in supervisor_runs)
     assert all(SUPERVISOR_ID in call for call in supervisor_runs)
     assert any(volume_name in argument for argument in source_run)
     assert all(any(volume_name in argument for argument in call) for call in supervisor_runs)
