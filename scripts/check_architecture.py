@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "2d91f2682430c96f0683dad4865dc8783048de4af4ac4f2b06243d57699203c6"
+    "7ace06e988327536b38410f2e395bdc85fc198f6e708f33e961536bd312eebf5"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -5080,6 +5080,105 @@ def _exact_private_callsite_violations(
     return violations
 
 
+def _exact_private_attribute_callsite_violations(
+    tree: ast.AST,
+    *,
+    relative_path: Path,
+    boundary: str,
+    expected: dict[str, tuple[str, ...]],
+) -> list[Violation]:
+    """Pin proof-minting class attributes to exact direct production calls."""
+
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    bindings = _imported_symbol_bindings(tree)
+
+    def callsite(node: ast.Call) -> str:
+        current: ast.AST = node
+        while current in parents:
+            current = parents[current]
+            if not isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            owner = parents.get(current)
+            if isinstance(owner, ast.ClassDef):
+                return f"{owner.name}.{current.name}"
+            return current.name
+        return "<module>"
+
+    violations: list[Violation] = []
+    relative_name = relative_path.as_posix()
+    for qualified_binding, expected_callsites in expected.items():
+        owner_binding, separator, attribute_name = qualified_binding.rpartition(".")
+        owner_name = owner_binding.rpartition(".")[2]
+        if not separator or not owner_name or not attribute_name:
+            violations.append(
+                Violation(
+                    relative_path,
+                    1,
+                    f"{boundary} has an invalid private attribute binding '{qualified_binding}'",
+                )
+            )
+            continue
+        expected_here = tuple(
+            callsite_name
+            for configured in expected_callsites
+            for configured_path, found, callsite_name in (configured.rpartition(":"),)
+            if found and configured_path == relative_name
+        )
+        references = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and node.attr == attribute_name
+            and _qualified_symbol(node, bindings) == qualified_binding
+        ]
+        calls: list[ast.Call] = []
+        for node in references:
+            parent = parents.get(node)
+            direct_owner = (
+                isinstance(node.value, ast.Name)
+                and node.value.id == owner_name
+                and bindings.get(owner_name) == owner_binding
+            )
+            if isinstance(parent, ast.Call) and parent.func is node and direct_owner:
+                calls.append(parent)
+                continue
+            violations.append(
+                Violation(
+                    relative_path,
+                    node.lineno,
+                    f"{boundary} cannot alias, re-export, or indirectly call "
+                    f"private attribute '{qualified_binding}'",
+                )
+            )
+        observed_here = tuple(sorted(callsite(node) for node in calls))
+        if observed_here != tuple(sorted(expected_here)):
+            violations.append(
+                Violation(
+                    relative_path,
+                    calls[0].lineno if calls else 1,
+                    f"{boundary} must preserve exact private attribute callsites for "
+                    f"'{qualified_binding}'",
+                )
+            )
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and node.args
+                and _qualified_symbol(node.args[0], bindings) == owner_binding
+            ):
+                continue
+            violations.append(
+                Violation(
+                    relative_path,
+                    node.lineno,
+                    f"{boundary} cannot dynamically resolve private owner '{owner_binding}'",
+                )
+            )
+    return violations
+
+
 def _exact_self_owned_attribute_violations(
     tree: ast.AST,
     *,
@@ -7440,6 +7539,18 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
     primitive_roots = _resolve_roots(repository, scan["primitive_roots"])
     domain_roots = _resolve_roots(repository, scan["domain_roots"])
     side_effect_free_roots = _resolve_roots(repository, scan["side_effect_free_roots"])
+    raw_exact_private_attribute_callsites = scan.get("exact_private_attribute_callsites", {})
+    if not isinstance(raw_exact_private_attribute_callsites, dict) or any(
+        type(binding) is not str
+        or not isinstance(callsites, list)
+        or any(type(callsite) is not str for callsite in callsites)
+        for binding, callsites in raw_exact_private_attribute_callsites.items()
+    ):
+        raise SystemExit("exact_private_attribute_callsites must be a string-list table")
+    exact_private_attribute_callsites = {
+        binding: tuple(callsites)
+        for binding, callsites in raw_exact_private_attribute_callsites.items()
+    }
     primitive_namespaces = tuple(scan["primitive_namespaces"])
     composition_namespaces = tuple(scan["composition_namespaces"])
     forbidden_domain_imports = tuple(scan["forbidden_domain_imports"])
@@ -8628,6 +8739,27 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                     "private native bounded-process reflection attestations must be exact",
                 )
             )
+    expected_exact_private_attribute_callsites = {
+        (
+            "packages.domain.fixture_segment_economics."
+            "FixtureEconomicProcessEvidence._from_supervisor"
+        ): ("packages/application/fixture_segment_economics.py:execute_fixture_segment_economics",),
+        (
+            "packages.domain.fixture_segment_economics."
+            "FixtureEconomicSegmentReceipt._from_verified_execution"
+        ): ("packages/application/fixture_segment_economics.py:execute_fixture_segment_economics",),
+    }
+    if (
+        production_contract_required
+        and exact_private_attribute_callsites != expected_exact_private_attribute_callsites
+    ):
+        violations.append(
+            Violation(
+                config_path,
+                1,
+                "private proof-minting attribute callsite map must be exact",
+            )
+        )
     production_manifest_required = production_contract_required
     if production_manifest_required:
         manifest_keys = {
@@ -9039,6 +9171,15 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 )
             )
             continue
+
+        violations.extend(
+            _exact_private_attribute_callsite_violations(
+                tree,
+                relative_path=relative_path,
+                boundary="reviewed private proof-minting seam",
+                expected=exact_private_attribute_callsites,
+            )
+        )
 
         is_operation_bound_clean_stop_bridge_root = _is_below(
             resolved_path,

@@ -3,7 +3,13 @@ source_roots = ["apps", "packages"]
 package_roots = ["packages"]
 production_python_source_manifest_roots = ["apps", "packages", "scripts"]
 production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]
-production_python_source_manifest_sha256 = "c1ddef134b71f4cf721a79406ca0271af9356e8668031c8b0a006268ab5f4955"
+production_python_source_manifest_sha256 = "99b3009aea2afc41b368f87ea31285e79fce50ce54c332d49d28bef34109f325"
+exact_private_attribute_callsites."packages.domain.fixture_segment_economics.FixtureEconomicProcessEvidence._from_supervisor" = [
+  "packages/application/fixture_segment_economics.py:execute_fixture_segment_economics",
+]
+exact_private_attribute_callsites."packages.domain.fixture_segment_economics.FixtureEconomicSegmentReceipt._from_verified_execution" = [
+  "packages/application/fixture_segment_economics.py:execute_fixture_segment_economics",
+]
 project_build_bootstrap_manifest_paths = [
   ".python-version",
   "pyproject.toml",
@@ -179,7 +185,7 @@ trusted_time_topology_launch_lock_documentation_paths = [
 trusted_time_topology_launch_lock_reader_module_ast_sha256 = "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
 trusted_time_topology_launch_lock_issuer_class_ast_sha256 = "b64f79e1679e2bdefe40f6b36c82142fa367f6e6981c1b2e8fee1366a7d39bcd"
 trusted_time_topology_launch_lock_host_module_ast_sha256 = "15c3e62437dc070d223038e21097ce85cbbb68de71ced3a6574f506236ebf56c"
-trusted_time_topology_launch_lock_production_ast_sha256 = "2d91f2682430c96f0683dad4865dc8783048de4af4ac4f2b06243d57699203c6"
+trusted_time_topology_launch_lock_production_ast_sha256 = "7ace06e988327536b38410f2e395bdc85fc198f6e708f33e961536bd312eebf5"
 trusted_time_topology_launch_lock_lifecycle_tag = "trusted-time-issuer-lifecycle-v3"
 trusted_time_topology_launch_lock_lifecycle_tag_count = 13
 trusted_time_topology_launch_lock_launch_lock_binding_tag = "trusted-time-launch-lock-binding-v1"
@@ -558,6 +564,9 @@ forbidden_domain_imports = [
 # absent: they own reviewed HTTPX transports and must stay side-effectful
 # adapters.
 side_effect_free_roots = [
+  # Phase 3H's exact-decimal fixture economics are pure; the fixed child
+  # supervisor remains outside this list and is guarded as a bounded effect.
+  "packages/domain/fixture_segment_economics.py",
   "packages/adapters/broker/__init__.py",
   "packages/adapters/broker/alpaca_paper.py",
   "packages/adapters/broker/alpaca_paper_account_activities.py",
