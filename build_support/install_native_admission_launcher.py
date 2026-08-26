@@ -49,7 +49,7 @@ _MAXIMUM_FILE_BYTES = 2 * 1024 * 1024 * 1024
 _HEX = frozenset("0123456789abcdef")
 _EXPECTED_SOURCES = {
     "native/owned_file_descriptor.c": (
-        "da2bc638b92b49a4c1c747d02983558d1dbff80fa7c7c64e16bbefa669e051d5"
+        "01b9834c343f4b173198ac7bfb22df37c6da6fb3093e7a93875aef56410b9fd9"
     ),
     "native/bounded_process.c": (
         "be08d5c95a2a5ce6aa9b06a4434c09473ee74ad941a417b8022885a7ef1f5cbd"

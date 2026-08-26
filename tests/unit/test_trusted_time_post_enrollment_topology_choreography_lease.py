@@ -4244,7 +4244,7 @@ _COHERENT_NATIVE_ISSUER_CHOREOGRAPHY_FORMAL_EXPIRE_N_SHA256: frozenset[str] = fr
 # Checkpoint O remains deliberately inert until one complete formal-force-
 # revocation implementation passes independent source and runtime audit.
 _COHERENT_NATIVE_ISSUER_CHOREOGRAPHY_FORMAL_FORCE_REVOKE_O_SHA256: frozenset[str] = frozenset(
-    {"da2bc638b92b49a4c1c747d02983558d1dbff80fa7c7c64e16bbefa669e051d5"}
+    {"01b9834c343f4b173198ac7bfb22df37c6da6fb3093e7a93875aef56410b9fd9"}
 )
 _COHERENT_NATIVE_ISSUER_CHOREOGRAPHY_FORMAL_FORCE_REVOKE_OR_LATER_C_SHA256 = (
     _COHERENT_NATIVE_ISSUER_CHOREOGRAPHY_FORMAL_FORCE_REVOKE_O_SHA256
@@ -42833,7 +42833,7 @@ def test_native_issuer_checkpoint_o_contract_is_exact_and_runtime_gated() -> Non
     )
     assert type(_COHERENT_NATIVE_ISSUER_CHOREOGRAPHY_FORMAL_FORCE_REVOKE_O_SHA256) is (frozenset)
     assert (
-        frozenset({"da2bc638b92b49a4c1c747d02983558d1dbff80fa7c7c64e16bbefa669e051d5"})
+        frozenset({"01b9834c343f4b173198ac7bfb22df37c6da6fb3093e7a93875aef56410b9fd9"})
         == _COHERENT_NATIVE_ISSUER_CHOREOGRAPHY_FORMAL_FORCE_REVOKE_O_SHA256
     )
     assert _COHERENT_NATIVE_ISSUER_CHOREOGRAPHY_FORMAL_FORCE_REVOKE_OR_LATER_C_SHA256 == (

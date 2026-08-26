@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "eae2d44336ba7e7e2dd453041cfd3af534a44f4dd0cb16bffac6a71e2c410291"
+    "18f36225c7fe25a4bfb4dc354826447dc854141ba3d4ed24f163cca2f0562ac3"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -6158,22 +6158,22 @@ def _trusted_time_topology_launch_lock_violations(
     )
     frozen_source_sha256 = {
         "build_support/build_native_admission_launcher.py": (
-            "82c7228184ec7533b7ce59831215f3b35d78f99323462bc558eee26dfc529d31"
+            "3d5f443ef7c8a2e808176ff4283e634f0dec5c1d0c28d776d0dc40b76df32423"
         ),
         "build_support/build_native_test_launcher.py": (
-            "b9a68949c53d9e4d138a7c4088e4e53669319296d6aa71ff4204c5eb69729cb2"
+            "fb0423cd1add7df82f660e9241df5dbee1429b2f244be8927da2b5376e24f7ec"
         ),
         "build_support/install_native_admission_launcher.py": (
-            "94200b3d32a215956a3cfc936f414320d6953afeb3f3d7046a08a19e2f2a79b5"
+            "2709a59421ea300b3192846c8c822d29403453c83b1112e5443dd25ef2d77f39"
         ),
         "build_support/native_owned_file_descriptor_hook.py": (
-            "7fa838658249cc52c73228ec5bf0447b06bad946c7f7d653e5027656580d13b7"
+            "f09d5d13f9196a20279073b5cb7bb55bd2c2908a7a7773a12fddaa7ed0239814"
         ),
         "native/bounded_process.c": (
             "be08d5c95a2a5ce6aa9b06a4434c09473ee74ad941a417b8022885a7ef1f5cbd"
         ),
         "native/owned_file_descriptor.c": (
-            "da2bc638b92b49a4c1c747d02983558d1dbff80fa7c7c64e16bbefa669e051d5"
+            "01b9834c343f4b173198ac7bfb22df37c6da6fb3093e7a93875aef56410b9fd9"
         ),
         "native/trusted_time_python_launcher.c": (
             "b0c684309818c6b238da1c96c174d9ad9148b017ee8dde1a51b13933b8451f0e"

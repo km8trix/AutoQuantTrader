@@ -765,7 +765,7 @@ the complete TEST matrix. No held lock or opaque authority crosses `RETURN`,
 generator `yield`, or a context-manager handoff.
 
 The exact evidence cut pins native source SHA-256
-`da2bc638b92b49a4c1c747d02983558d1dbff80fa7c7c64e16bbefa669e051d5`,
+`01b9834c343f4b173198ac7bfb22df37c6da6fb3093e7a93875aef56410b9fd9`,
 final Checkpoint-O contract SHA-256
 `fbe300d11a721bff67329394a00a1be7337de96de23ed816a2ec877d2dbca388`,
 and owned-test candidate SHA-256

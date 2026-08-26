@@ -16,6 +16,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <stdio.h>
+#include <stddef.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
