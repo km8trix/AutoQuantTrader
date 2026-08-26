@@ -4,12 +4,40 @@ package_roots = ["packages"]
 production_python_source_manifest_roots = ["apps", "packages", "scripts"]
 production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]
 production_python_source_manifest_sha256 = "b3f0feb9980574ae0afd5a870eb9f5eabca6ccf926d5a90dcf2a89dcaae07259"
+phase3h_proof_module = "packages.domain.fixture_segment_economics"
+phase3h_proof_module_path = "packages/domain/fixture_segment_economics.py"
+phase3h_execution_module = "packages.application.fixture_segment_economics"
+phase3h_execution_module_path = "packages/application/fixture_segment_economics.py"
+phase3h_proof_consumer_allowed_imports = [
+  "packages.domain.fixture_segment_economics:FIXTURE_ECONOMIC_ADDRESS_SPACE_LIMITS",
+  "packages.domain.fixture_segment_economics:FIXTURE_ECONOMIC_CHILD_PROCESSES",
+  "packages.domain.fixture_segment_economics:FIXTURE_ECONOMIC_CPU_SECONDS",
+  "packages.domain.fixture_segment_economics:FIXTURE_ECONOMIC_FILE_BYTES",
+  "packages.domain.fixture_segment_economics:FIXTURE_ECONOMIC_OPEN_FILES",
+  "packages.domain.fixture_segment_economics:FIXTURE_ECONOMIC_SEGMENT_CONTRACT_VERSION",
+  "packages.domain.fixture_segment_economics:FIXTURE_ECONOMIC_WALL_TIMEOUT_MILLISECONDS",
+  "packages.domain.fixture_segment_economics:MAX_FIXTURE_ECONOMIC_REQUEST_BYTES",
+  "packages.domain.fixture_segment_economics:MAX_FIXTURE_ECONOMIC_STDERR_BYTES",
+  "packages.domain.fixture_segment_economics:MAX_FIXTURE_ECONOMIC_STDOUT_BYTES",
+  "packages.domain.fixture_segment_economics:FixtureEconomicPosition",
+  "packages.domain.fixture_segment_economics:FixtureEconomicProcessEvidence",
+  "packages.domain.fixture_segment_economics:FixtureEconomicProcessOutcome",
+  "packages.domain.fixture_segment_economics:FixtureEconomicSegmentError",
+  "packages.domain.fixture_segment_economics:FixtureEconomicSegmentReceipt",
+  "packages.domain.fixture_segment_economics:FixtureEconomicSegmentRequest",
+  "packages.domain.fixture_segment_economics:FixtureEconomicSegmentResult",
+  "packages.domain.fixture_segment_economics:bind_fixture_economic_request",
+  "packages.domain.fixture_segment_economics:fixture_economic_isolation_profile_sha256",
+]
+phase3h_isolated_module_ast_sha256."packages/domain/fixture_segment_economics.py" = "89054d8462035a86f3d219caf0ab5dd23ac394c25f0d3a5bbd2c54c94cf7009d"
+phase3h_isolated_module_ast_sha256."packages/application/fixture_segment_economics.py" = "4f758b154fa063fee92d4f4f1483a1348a5167661e1f30ec03a59eaa1c4c0fe7"
 exact_private_attribute_callsites."packages.domain.fixture_segment_economics.FixtureEconomicProcessEvidence._from_supervisor" = [
   "packages/application/fixture_segment_economics.py:execute_fixture_segment_economics",
 ]
 exact_private_attribute_callsites."packages.domain.fixture_segment_economics.FixtureEconomicSegmentReceipt._from_verified_execution" = [
   "packages/application/fixture_segment_economics.py:execute_fixture_segment_economics",
 ]
+exact_private_attribute_owner_function_ast_sha256."packages/application/fixture_segment_economics.py:execute_fixture_segment_economics" = "2949180a4df9d000fd97f4bfb254e5810ab90df7e88c033f35d413815d3457a7"
 project_build_bootstrap_manifest_paths = [
   ".python-version",
   "pyproject.toml",

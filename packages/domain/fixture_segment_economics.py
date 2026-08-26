@@ -59,7 +59,8 @@ FIXTURE_ECONOMIC_FILE_BYTES = 0
 FIXTURE_ECONOMIC_CHILD_PROCESSES = 0
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_FACTORY_PROOF = object()
+_FIXTURE_ECONOMIC_PROCESS_FACTORY_PROOF = object()
+_FIXTURE_ECONOMIC_RECEIPT_FACTORY_PROOF = object()
 
 
 class FixtureEconomicSegmentError(ValueError):
@@ -463,6 +464,7 @@ class FixtureEconomicProcessEvidence:
     elapsed_microseconds: int
     process_started: bool
     outcome: FixtureEconomicProcessOutcome
+    _process_factory_proof: object = field(init=False, repr=False, compare=False)
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("fixture economic process evidence is supervisor-constructed")
@@ -499,10 +501,20 @@ class FixtureEconomicProcessEvidence:
         }
         for field_name, value in values.items():
             object.__setattr__(instance, field_name, value)
+        object.__setattr__(
+            instance,
+            "_process_factory_proof",
+            _FIXTURE_ECONOMIC_PROCESS_FACTORY_PROOF,
+        )
         instance._validate()
         return instance
 
     def _validate(self) -> None:
+        if (
+            getattr(self, "_process_factory_proof", None)
+            is not _FIXTURE_ECONOMIC_PROCESS_FACTORY_PROOF
+        ):
+            raise FixtureEconomicSegmentError("economic process evidence was not factory-built")
         for value, field_name in (
             (self.runtime_artifact_sha256, "economic runtime artifact digest"),
             (self.launch_spec_sha256, "economic launch spec digest"),
@@ -514,13 +526,26 @@ class FixtureEconomicProcessEvidence:
             _require_sha256(value, field_name)
         if self.isolation_profile_sha256 != fixture_economic_isolation_profile_sha256():
             raise FixtureEconomicSegmentError("economic isolation profile was substituted")
-        if not 0 < self.request_bytes <= MAX_FIXTURE_ECONOMIC_REQUEST_BYTES:
+        if (
+            type(self.request_bytes) is not int
+            or not 0 < self.request_bytes <= MAX_FIXTURE_ECONOMIC_REQUEST_BYTES
+        ):
             raise FixtureEconomicSegmentError("economic request byte count is outside its bound")
-        if not 0 < self.stdout_bytes <= MAX_FIXTURE_ECONOMIC_STDOUT_BYTES:
+        if (
+            type(self.stdout_bytes) is not int
+            or not 0 < self.stdout_bytes <= MAX_FIXTURE_ECONOMIC_STDOUT_BYTES
+        ):
             raise FixtureEconomicSegmentError("economic stdout byte count is outside its bound")
-        if not 0 <= self.stderr_bytes <= MAX_FIXTURE_ECONOMIC_STDERR_BYTES:
+        if (
+            type(self.stderr_bytes) is not int
+            or not 0 <= self.stderr_bytes <= MAX_FIXTURE_ECONOMIC_STDERR_BYTES
+        ):
             raise FixtureEconomicSegmentError("economic stderr byte count is outside its bound")
-        if self.exit_code != 0 or self.outcome is not FixtureEconomicProcessOutcome.COMPLETED:
+        if (
+            type(self.exit_code) is not int
+            or self.exit_code != 0
+            or self.outcome is not FixtureEconomicProcessOutcome.COMPLETED
+        ):
             raise FixtureEconomicSegmentError("economic process evidence is not successful")
         if type(self.elapsed_microseconds) is not int or self.elapsed_microseconds < 0:
             raise FixtureEconomicSegmentError("economic elapsed time must be non-negative")
@@ -531,6 +556,7 @@ class FixtureEconomicProcessEvidence:
 
     @property
     def semantic_sha256(self) -> str:
+        self._validate()
         return _sha256(
             (
                 FIXTURE_ECONOMIC_SEGMENT_CONTRACT_VERSION,
@@ -558,6 +584,7 @@ class FixtureEconomicSegmentReceipt:
     result: FixtureEconomicSegmentResult
     process: FixtureEconomicProcessEvidence
     receipt_sha256: str = field(init=False)
+    _receipt_factory_proof: object = field(init=False, repr=False, compare=False)
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("fixture economic receipts are proof-constructed")
@@ -587,8 +614,37 @@ class FixtureEconomicSegmentReceipt:
         object.__setattr__(instance, "request", request)
         object.__setattr__(instance, "result", result)
         object.__setattr__(instance, "process", process)
+        object.__setattr__(
+            instance,
+            "_receipt_factory_proof",
+            _FIXTURE_ECONOMIC_RECEIPT_FACTORY_PROOF,
+        )
         object.__setattr__(instance, "receipt_sha256", _sha256(instance._semantic_material()))
+        instance._validate()
         return instance
+
+    def _validate(self) -> None:
+        if (
+            getattr(self, "_receipt_factory_proof", None)
+            is not _FIXTURE_ECONOMIC_RECEIPT_FACTORY_PROOF
+        ):
+            raise FixtureEconomicSegmentError("economic receipt was not factory-built")
+        if type(self.request) is not FixtureEconomicSegmentRequest:
+            raise FixtureEconomicSegmentError("economic receipt requires an exact request")
+        self.request.__post_init__()
+        if type(self.result) is not FixtureEconomicSegmentResult:
+            raise FixtureEconomicSegmentError("economic receipt requires an exact result")
+        self.result.__post_init__()
+        if type(self.process) is not FixtureEconomicProcessEvidence:
+            raise FixtureEconomicSegmentError("economic receipt requires exact process evidence")
+        self.process._validate()
+        if self.result != evaluate_fixture_economic_request(self.request):
+            raise FixtureEconomicSegmentError(
+                "economic child result conflicts with independent parent evaluation"
+            )
+        _require_sha256(self.receipt_sha256, "economic receipt digest")
+        if self.receipt_sha256 != _sha256(self._semantic_material()):
+            raise FixtureEconomicSegmentError("economic receipt digest was substituted")
 
     def _semantic_material(self) -> tuple[object, ...]:
         return (
@@ -607,6 +663,7 @@ class FixtureEconomicSegmentReceipt:
 
     @property
     def semantic_sha256(self) -> str:
+        self._validate()
         return self.receipt_sha256
 
     @property

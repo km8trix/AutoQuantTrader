@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import inspect
 import json
@@ -7,6 +8,7 @@ import os
 import subprocess
 import sys
 import time
+import tomllib
 from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
@@ -38,6 +40,7 @@ from packages.domain.fixture_segment_economics import (
     FixtureEconomicSegmentReceipt,
     bind_fixture_economic_request,
     evaluate_fixture_economic_request,
+    fixture_economic_isolation_profile_sha256,
 )
 from packages.domain.fixture_segment_worker import (
     FixtureSegmentJobProjection,
@@ -46,12 +49,15 @@ from packages.domain.fixture_segment_worker import (
     _event,
     complete_fixture_segment_job,
 )
+from scripts.check_architecture import _phase3h_proof_boundary_violations
 from tests.unit.test_experiment_governance import (
     FIRST_ATTEMPT_AT,
     GovernanceFixture,
     _target_certification,
 )
 from tests.unit.test_fixture_segment_worker import _running
+
+REPOSITORY = Path(__file__).resolve().parents[2]
 
 
 def _completed() -> tuple[
@@ -657,6 +663,37 @@ def test_independent_parent_recomputation_rejects_economic_substitution() -> Non
         )
 
 
+@pytest.mark.parametrize(
+    ("field_name", "value", "message"),
+    (
+        ("request_bytes", True, "request byte count"),
+        ("stdout_bytes", True, "stdout byte count"),
+        ("stderr_bytes", False, "stderr byte count"),
+        ("exit_code", False, "not successful"),
+    ),
+)
+def test_process_evidence_rejects_bool_as_integer_mutation(
+    field_name: str,
+    value: object,
+    message: str,
+) -> None:
+    process = FixtureEconomicProcessEvidence._from_supervisor(
+        runtime_artifact_sha256="1" * 64,
+        launch_spec_sha256="2" * 64,
+        request_bytes=1,
+        request_payload_sha256="3" * 64,
+        stdout_bytes=1,
+        stdout_sha256="4" * 64,
+        stderr_bytes=0,
+        stderr_sha256="5" * 64,
+        elapsed_microseconds=1,
+    )
+    object.__setattr__(process, field_name, value)
+
+    with pytest.raises(FixtureEconomicSegmentError, match=message):
+        process._validate()
+
+
 def test_receipt_constructors_are_sealed_and_all_authority_stays_closed() -> None:
     with pytest.raises(TypeError):
         FixtureEconomicProcessEvidence()
@@ -673,3 +710,103 @@ def test_receipt_constructors_are_sealed_and_all_authority_stays_closed() -> Non
     assert receipt.broker_effect_authorized is False
     assert receipt.trading_authorized is False
     assert receipt.public_view_authorized is False
+
+
+def test_object_new_reconstruction_cannot_mint_process_or_receipt_evidence() -> None:
+    process = object.__new__(FixtureEconomicProcessEvidence)
+    forged_process_values: dict[str, object] = {
+        "runtime_artifact_sha256": "1" * 64,
+        "launch_spec_sha256": "2" * 64,
+        "isolation_profile_sha256": fixture_economic_isolation_profile_sha256(),
+        "request_bytes": 1,
+        "request_payload_sha256": "3" * 64,
+        "stdout_bytes": 1,
+        "stdout_sha256": "4" * 64,
+        "stderr_bytes": 0,
+        "stderr_sha256": "5" * 64,
+        "exit_code": 0,
+        "elapsed_microseconds": 0,
+        "process_started": True,
+        "outcome": FixtureEconomicProcessOutcome.COMPLETED,
+        "_process_factory_proof": object(),
+    }
+    for field_name, value in forged_process_values.items():
+        object.__setattr__(process, field_name, value)
+    with pytest.raises(FixtureEconomicSegmentError, match="not factory-built"):
+        process._validate()
+    with pytest.raises(FixtureEconomicSegmentError, match="not factory-built"):
+        _ = process.semantic_sha256
+
+    receipt = object.__new__(FixtureEconomicSegmentReceipt)
+    object.__setattr__(receipt, "request", None)
+    object.__setattr__(receipt, "result", None)
+    object.__setattr__(receipt, "process", None)
+    object.__setattr__(receipt, "receipt_sha256", "f" * 64)
+    object.__setattr__(receipt, "_receipt_factory_proof", object())
+    with pytest.raises(FixtureEconomicSegmentError, match="not factory-built"):
+        receipt._validate()
+    with pytest.raises(FixtureEconomicSegmentError, match="not factory-built"):
+        _ = receipt.semantic_sha256
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "from packages.domain.fixture_segment_economics import "
+        "FixtureEconomicProcessEvidence as Evidence",
+        "from .fixture_segment_economics import FixtureEconomicSegmentReceipt",
+        "import packages.domain.fixture_segment_economics as economics",
+        "import packages.domain as domain",
+        "from packages.application.fixture_segment_economics import "
+        "execute_fixture_segment_economics as run",
+        "loader = __import__\nloader('packages.domain.fixture_segment_economics')",
+        "from importlib import import_module as load\nload('unrelated')",
+        "import importlib\nload = importlib.import_module\nload('unrelated')",
+        "private_name = '_from_' + 'supervisor'",
+        "from packages.domain.fixture_segment_economics import "
+        "FixtureEconomicProcessEvidence\n"
+        "class Forged(FixtureEconomicProcessEvidence):\n    pass",
+        "from packages.domain.fixture_segment_economics import "
+        "FixtureEconomicProcessEvidence\n"
+        "owner = globals()['Fixture' + 'EconomicProcessEvidence']",
+        "from packages.domain.fixture_segment_economics import "
+        "FixtureEconomicProcessEvidence\n"
+        "forged = object.__new__(FixtureEconomicProcessEvidence)",
+    ),
+)
+def test_architecture_guard_rejects_phase3h_proof_reachability(source: str) -> None:
+    violations = _phase3h_proof_boundary_violations(
+        ast.parse(source),
+        relative_path=Path("packages/domain/adversarial_phase3h_consumer.py"),
+        proof_module="packages.domain.fixture_segment_economics",
+        proof_path=Path("packages/domain/fixture_segment_economics.py"),
+        execution_module="packages.application.fixture_segment_economics",
+        execution_path=Path("packages/application/fixture_segment_economics.py"),
+        allowed_proof_imports=frozenset(),
+        module_ast_sha256={},
+    )
+
+    assert violations
+
+
+def test_architecture_guard_accepts_only_exact_phase3h_modules() -> None:
+    with (REPOSITORY / "infra/architecture-boundaries.toml").open("rb") as stream:
+        scan = tomllib.load(stream)["scan"]
+    module_ast_sha256 = {
+        Path(path): digest for path, digest in scan["phase3h_isolated_module_ast_sha256"].items()
+    }
+    proof_path = Path(scan["phase3h_proof_module_path"])
+    execution_path = Path(scan["phase3h_execution_module_path"])
+
+    for relative_path in (proof_path, execution_path):
+        tree = ast.parse((REPOSITORY / relative_path).read_text(encoding="utf-8"))
+        assert not _phase3h_proof_boundary_violations(
+            tree,
+            relative_path=relative_path,
+            proof_module=scan["phase3h_proof_module"],
+            proof_path=proof_path,
+            execution_module=scan["phase3h_execution_module"],
+            execution_path=execution_path,
+            allowed_proof_imports=frozenset(scan["phase3h_proof_consumer_allowed_imports"]),
+            module_ast_sha256=module_ast_sha256,
+        )

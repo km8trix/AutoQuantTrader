@@ -114,6 +114,15 @@ claiming that repository hashes authenticate an external tape.
    application entry points and workers. Every captured-tape-evidence,
    promotion, public-view, provider-I/O, broker-effect, and trading-authority
    flag remains exactly false.
+10. Treat the Python-private receipt/process factories and their in-memory
+    sentinels as tamper detection, not as a cryptographic or hostile-code
+    authority boundary. The repository architecture gate scans every production
+    Python source, permits the proof module's exact binding set only in the one
+    reviewed execution module, forbids production imports of that execution
+    module, reserves the private proof names and dynamic loader paths, and pins
+    both complete module ASTs plus the two exact factory callsites. Widening an
+    import, adding a production caller, or changing either pinned module
+    requires a new explicit review of this boundary.
 
 ## Consequences
 
@@ -127,12 +136,15 @@ or snapshot readback drift produce no receipt.
 This child is not a hostile-code sandbox. It relies on a fixed reviewed program
 with no project import, caller code, network operation, or fixture/filesystem
 loader; it does not install a syscall filter, namespace, container, or MAC
-policy. The Darwin address-space ceiling is intentionally coarse. The economic
-model is also deliberately optimistic and incomplete. It establishes neither
-captured-tape validity nor performance quality: costs, fill uncertainty,
-benchmarks, reconnect behavior, walk-forward schedules, statistical
-uncertainty, multiple-testing treatment, frozen-criteria adjudication,
-promotion, deployment, and all provider/broker/trading effects remain open.
+policy. Arbitrary Python already executing in the same interpreter could use
+reflection to defeat language-level privacy; Phase 3H admits no such production
+caller or untrusted-code surface. The Darwin address-space ceiling is
+intentionally coarse. The economic model is also deliberately optimistic and
+incomplete. It establishes neither captured-tape validity nor performance
+quality: costs, fill uncertainty, benchmarks, reconnect behavior, walk-forward
+schedules, statistical uncertainty, multiple-testing treatment, frozen-
+criteria adjudication, promotion, deployment, and all provider/broker/trading
+effects remain open.
 
 No database migration is necessary because this bounded receipt is not durable
 or public. Persisting it, joining it to a comparison/report API, or widening the

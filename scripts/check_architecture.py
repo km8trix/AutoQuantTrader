@@ -5086,29 +5086,99 @@ def _exact_private_attribute_callsite_violations(
     relative_path: Path,
     boundary: str,
     expected: dict[str, tuple[str, ...]],
+    owner_function_ast_sha256: dict[str, str],
 ) -> list[Violation]:
     """Pin proof-minting class attributes to exact direct production calls."""
 
+    if relative_path == Path("scripts/check_architecture.py"):
+        return []
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     bindings = _imported_symbol_bindings(tree)
+    nodes = tuple(ast.walk(tree))
+    relative_name = relative_path.as_posix()
+    module_name = relative_path.with_suffix("").as_posix().replace("/", ".")
+    top_level_functions: dict[str, list[ast.FunctionDef | ast.AsyncFunctionDef]] = {}
+    for node in getattr(tree, "body", ()):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            top_level_functions.setdefault(node.name, []).append(node)
 
-    def callsite(node: ast.Call) -> str:
+    def enclosing_callable(node: ast.AST) -> ast.AST | None:
         current: ast.AST = node
         while current in parents:
             current = parents[current]
-            if not isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            owner = parents.get(current)
-            if isinstance(owner, ast.ClassDef):
-                return f"{owner.name}.{current.name}"
-            return current.name
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                return current
+        return None
+
+    def callsite(node: ast.Call) -> str:
+        owner = enclosing_callable(node)
+        if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            parent = parents.get(owner)
+            return f"{parent.name}.{owner.name}" if isinstance(parent, ast.ClassDef) else owner.name
         return "<module>"
 
+    annotation_roots = {
+        annotation
+        for node in nodes
+        for annotation in (
+            (node.annotation,)
+            if isinstance(node, (ast.arg, ast.AnnAssign)) and node.annotation is not None
+            else (node.returns,)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.returns is not None
+            else ()
+        )
+    }
+
+    def is_within_annotation(node: ast.AST) -> bool:
+        current = node
+        while True:
+            if current in annotation_roots:
+                return True
+            if current not in parents:
+                return False
+            current = parents[current]
+
+    def is_exact_type_identity_check(node: ast.AST) -> bool:
+        comparison = parents.get(node)
+        return (
+            isinstance(comparison, ast.Compare)
+            and node in comparison.comparators
+            and all(isinstance(operator, (ast.Is, ast.IsNot)) for operator in comparison.ops)
+            and isinstance(comparison.left, ast.Call)
+            and isinstance(comparison.left.func, ast.Name)
+            and comparison.left.func.id == "type"
+            and len(comparison.left.args) == 1
+            and not comparison.left.keywords
+        )
+
     violations: list[Violation] = []
-    relative_name = relative_path.as_posix()
+    expected_functions_here = {
+        configured.rpartition(":")[2]
+        for callsites in expected.values()
+        for configured in callsites
+        if configured.rpartition(":")[0] == relative_name and configured.rpartition(":")[1]
+    }
+    for function_name in expected_functions_here:
+        functions = top_level_functions.get(function_name, [])
+        configured_key = f"{relative_name}:{function_name}"
+        expected_digest = owner_function_ast_sha256.get(configured_key, "")
+        if (
+            len(functions) != 1
+            or not expected_digest
+            or _canonical_ast_sha256(functions[0]) != expected_digest
+        ):
+            violations.append(
+                Violation(
+                    relative_path,
+                    functions[0].lineno if functions else 1,
+                    f"{boundary} must preserve exact owner-function AST for '{configured_key}'",
+                )
+            )
+
     for qualified_binding, expected_callsites in expected.items():
         owner_binding, separator, attribute_name = qualified_binding.rpartition(".")
-        owner_name = owner_binding.rpartition(".")[2]
+        owner_module, owner_separator, owner_name = owner_binding.rpartition(".")
         if not separator or not owner_name or not attribute_name:
             violations.append(
                 Violation(
@@ -5124,16 +5194,106 @@ def _exact_private_attribute_callsite_violations(
             for configured_path, found, callsite_name in (configured.rpartition(":"),)
             if found and configured_path == relative_name
         )
+        if expected_here:
+            direct_import_aliases = {
+                alias
+                for node in getattr(tree, "body", ())
+                if isinstance(node, ast.ImportFrom)
+                and node.level == 0
+                and node.module == owner_module
+                for alias in node.names
+                if alias.name == owner_name and alias.asname is None
+            }
+            import_bindings = [
+                alias
+                for node in nodes
+                if isinstance(node, (ast.Import, ast.ImportFrom))
+                for alias in node.names
+                if (alias.asname or alias.name.partition(".")[0]) == owner_name
+            ]
+            rebound = any(
+                (
+                    isinstance(node, ast.Name)
+                    and isinstance(node.ctx, (ast.Store, ast.Del))
+                    and node.id == owner_name
+                )
+                or (isinstance(node, ast.arg) and node.arg == owner_name)
+                or (
+                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                    and node.name == owner_name
+                )
+                or (
+                    isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar))
+                    and node.name == owner_name
+                )
+                or (isinstance(node, ast.MatchMapping) and node.rest == owner_name)
+                or (isinstance(node, (ast.Global, ast.Nonlocal)) and owner_name in node.names)
+                for node in nodes
+            )
+            if (
+                not owner_separator
+                or len(direct_import_aliases) != 1
+                or set(import_bindings) != direct_import_aliases
+                or rebound
+            ):
+                violations.append(
+                    Violation(
+                        relative_path,
+                        1,
+                        f"{boundary} must preserve the sole direct owner import '{owner_binding}'",
+                    )
+                )
+
+        if module_name != owner_module:
+            for node in nodes:
+                is_owner_reference = (
+                    isinstance(node, (ast.Name, ast.Attribute))
+                    and isinstance(node.ctx, ast.Load)
+                    and _qualified_symbol(node, bindings) == owner_binding
+                )
+                if not is_owner_reference:
+                    continue
+                parent = parents.get(node)
+                direct_private_owner = (
+                    isinstance(parent, ast.Attribute)
+                    and parent.value is node
+                    and parent.attr == attribute_name
+                )
+                if (
+                    is_within_annotation(node)
+                    or direct_private_owner
+                    or is_exact_type_identity_check(node)
+                ):
+                    continue
+                violations.append(
+                    Violation(
+                        relative_path,
+                        node.lineno,
+                        f"{boundary} cannot alias or reflect private owner '{owner_binding}'",
+                    )
+                )
+
+        violations.extend(
+            Violation(
+                relative_path,
+                node.lineno,
+                f"{boundary} cannot dynamically name private attribute '{attribute_name}'",
+            )
+            for node in nodes
+            if isinstance(node, ast.Constant)
+            and type(node.value) is str
+            and node.value == attribute_name
+        )
         references = [
             node
-            for node in ast.walk(tree)
+            for node in nodes
             if isinstance(node, ast.Attribute) and node.attr == attribute_name
         ]
         calls: list[ast.Call] = []
         for node in references:
             parent = parents.get(node)
             owner_is_local = (
-                relative_path.with_suffix("").as_posix().replace("/", ".") == owner_binding
+                module_name == owner_module
                 and isinstance(node.value, ast.Name)
                 and node.value.id == owner_name
                 and owner_name not in bindings
@@ -5145,6 +5305,20 @@ def _exact_private_attribute_callsite_violations(
             )
             if isinstance(parent, ast.Call) and parent.func is node and direct_owner:
                 calls.append(parent)
+                call_owner = enclosing_callable(parent)
+                if not any(
+                    len(top_level_functions.get(expected_name, [])) == 1
+                    and call_owner is top_level_functions[expected_name][0]
+                    for expected_name in expected_here
+                ):
+                    violations.append(
+                        Violation(
+                            relative_path,
+                            node.lineno,
+                            f"{boundary} private attribute call must belong to its exact "
+                            "top-level owner function",
+                        )
+                    )
                 continue
             violations.append(
                 Violation(
@@ -5164,28 +5338,216 @@ def _exact_private_attribute_callsite_violations(
                     f"'{qualified_binding}'",
                 )
             )
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call) or not (
-                isinstance(node.func, ast.Name) and node.func.id == "getattr"
-            ):
+    return violations
+
+
+def _resolved_import_from_module(node: ast.ImportFrom, relative_path: Path) -> str:
+    """Resolve one import-from module without importing repository code."""
+
+    if node.level == 0:
+        return node.module or ""
+    package_parts = list(relative_path.with_suffix("").parts[:-1])
+    retained = len(package_parts) - (node.level - 1)
+    if retained < 0:
+        return ""
+    suffix = (node.module or "").split(".") if node.module else []
+    return ".".join([*package_parts[:retained], *suffix])
+
+
+def _isolated_origin_module_import_bindings(
+    tree: ast.AST,
+    *,
+    relative_path: Path,
+    module: str,
+) -> list[tuple[int, str]]:
+    """Find direct, relative, descendant, and parent-namespace access to a module."""
+
+    bindings: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imported = alias.name
+                if (
+                    imported == module
+                    or imported.startswith(f"{module}.")
+                    or module.startswith(f"{imported}.")
+                ):
+                    bindings.append((node.lineno, f"{module}:*"))
+        elif isinstance(node, ast.ImportFrom):
+            imported_from = _resolved_import_from_module(node, relative_path)
+            if imported_from == module:
+                bindings.extend((node.lineno, f"{module}:{alias.name}") for alias in node.names)
                 continue
-            exact_owner = bool(
-                node.args and _qualified_symbol(node.args[0], bindings) == owner_binding
-            )
-            literal_private_name = bool(
-                len(node.args) >= 2
-                and isinstance(node.args[1], ast.Constant)
-                and node.args[1].value == attribute_name
-            )
-            if not exact_owner and not literal_private_name:
+            if imported_from.startswith(f"{module}."):
+                bindings.append((node.lineno, f"{module}:*"))
                 continue
+            for alias in node.names:
+                imported = (
+                    imported_from
+                    if alias.name == "*"
+                    else f"{imported_from}.{alias.name}"
+                    if imported_from
+                    else alias.name
+                )
+                if imported == module or module.startswith(f"{imported}."):
+                    bindings.append((node.lineno, f"{module}:*"))
+    return bindings
+
+
+def _phase3h_proof_boundary_violations(
+    tree: ast.AST,
+    *,
+    relative_path: Path,
+    proof_module: str,
+    proof_path: Path,
+    execution_module: str,
+    execution_path: Path,
+    allowed_proof_imports: frozenset[str],
+    module_ast_sha256: dict[Path, str],
+) -> list[Violation]:
+    """Keep Phase 3H proof construction inside two exact reviewed modules."""
+
+    boundary = "Phase 3H isolated economic-proof boundary"
+    checker_path = Path("scripts/check_architecture.py")
+    protected_paths = {proof_path, execution_path}
+    expected_imports = allowed_proof_imports if relative_path == execution_path else frozenset()
+    proof_imports = _isolated_origin_module_import_bindings(
+        tree,
+        relative_path=relative_path,
+        module=proof_module,
+    )
+    execution_imports = _isolated_origin_module_import_bindings(
+        tree,
+        relative_path=relative_path,
+        module=execution_module,
+    )
+    violations = [
+        Violation(
+            relative_path,
+            line,
+            f"{boundary} cannot import unreviewed binding '{binding}'",
+        )
+        for line, binding in proof_imports
+        if binding not in expected_imports
+    ]
+    observed_imports = frozenset(binding for _, binding in proof_imports)
+    violations.extend(
+        Violation(
+            relative_path,
+            1,
+            f"{boundary} must preserve reviewed binding '{binding}'",
+        )
+        for binding in sorted(expected_imports - observed_imports)
+    )
+    violations.extend(
+        Violation(
+            relative_path,
+            line,
+            f"{boundary} cannot import or reexport execution module '{execution_module}'",
+        )
+        for line, _binding in execution_imports
+    )
+
+    expected_digest = module_ast_sha256.get(relative_path)
+    if relative_path in protected_paths and (
+        expected_digest is None or _canonical_ast_sha256(tree) != expected_digest
+    ):
+        violations.append(
+            Violation(
+                relative_path,
+                1,
+                f"{boundary} must preserve its exact reviewed module AST",
+            )
+        )
+
+    if relative_path in protected_paths or relative_path == checker_path:
+        return violations
+
+    reserved_names = frozenset(
+        {
+            "FixtureEconomicProcessEvidence",
+            "FixtureEconomicSegmentReceipt",
+            "_FIXTURE_ECONOMIC_PROCESS_FACTORY_PROOF",
+            "_FIXTURE_ECONOMIC_RECEIPT_FACTORY_PROOF",
+            "_from_supervisor",
+            "_from_verified_execution",
+            "_process_factory_proof",
+            "_receipt_factory_proof",
+            "execute_fixture_segment_economics",
+        }
+    )
+    dynamic_loader_names = frozenset(
+        {
+            "__import__",
+            "exec_module",
+            "find_spec",
+            "import_module",
+            "load_module",
+            "module_from_spec",
+            "resolve_name",
+            "run_module",
+        }
+    )
+    reserved_text = reserved_names | dynamic_loader_names | {proof_module, execution_module}
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    for node in ast.walk(tree):
+        dynamic_loader: str | None = None
+        if isinstance(node, ast.Name) and node.id in dynamic_loader_names:
+            dynamic_loader = node.id
+        elif isinstance(node, ast.Attribute) and node.attr in dynamic_loader_names:
+            dynamic_loader = node.attr
+        elif isinstance(node, ast.alias):
+            origin = node.name.rpartition(".")[2]
+            local = node.asname or origin
+            if origin in dynamic_loader_names or local in dynamic_loader_names:
+                dynamic_loader = origin
+        if dynamic_loader is not None:
             violations.append(
                 Violation(
                     relative_path,
-                    node.lineno,
-                    f"{boundary} cannot dynamically resolve private owner '{owner_binding}'",
+                    getattr(node, "lineno", 1),
+                    f"{boundary} forbids dynamic production loader '{dynamic_loader}'",
                 )
             )
+            continue
+        symbol: str | None = None
+        if isinstance(node, ast.Name):
+            symbol = node.id
+        elif isinstance(node, ast.Attribute):
+            symbol = node.attr
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            symbol = node.name
+        elif isinstance(node, ast.arg):
+            symbol = node.arg
+        elif isinstance(node, ast.alias):
+            local = node.asname or node.name.rpartition(".")[2]
+            if local in reserved_names:
+                symbol = local
+        elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
+            symbol = node.name
+        elif isinstance(node, ast.MatchMapping):
+            symbol = node.rest
+        if symbol in reserved_names:
+            violations.append(
+                Violation(
+                    relative_path,
+                    getattr(node, "lineno", 1),
+                    f"{boundary} reserves proof symbol '{symbol}'",
+                )
+            )
+        folded = _constant_folded_text(node)
+        if folded not in reserved_text:
+            continue
+        parent = parents.get(node)
+        if isinstance(parent, ast.AST) and _constant_folded_text(parent) == folded:
+            continue
+        violations.append(
+            Violation(
+                relative_path,
+                getattr(node, "lineno", 1),
+                f"{boundary} reserves reflected proof name '{folded}'",
+            )
+        )
     return violations
 
 
@@ -7549,6 +7911,27 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
     primitive_roots = _resolve_roots(repository, scan["primitive_roots"])
     domain_roots = _resolve_roots(repository, scan["domain_roots"])
     side_effect_free_roots = _resolve_roots(repository, scan["side_effect_free_roots"])
+    phase3h_proof_module = str(scan.get("phase3h_proof_module", ""))
+    phase3h_proof_module_path = Path(str(scan.get("phase3h_proof_module_path", "")))
+    phase3h_execution_module = str(scan.get("phase3h_execution_module", ""))
+    phase3h_execution_module_path = Path(str(scan.get("phase3h_execution_module_path", "")))
+    raw_phase3h_proof_consumer_allowed_imports = scan.get(
+        "phase3h_proof_consumer_allowed_imports", []
+    )
+    if not isinstance(raw_phase3h_proof_consumer_allowed_imports, list) or any(
+        type(binding) is not str for binding in raw_phase3h_proof_consumer_allowed_imports
+    ):
+        raise SystemExit("phase3h_proof_consumer_allowed_imports must be a string list")
+    phase3h_proof_consumer_allowed_imports = frozenset(raw_phase3h_proof_consumer_allowed_imports)
+    raw_phase3h_isolated_module_ast_sha256 = scan.get("phase3h_isolated_module_ast_sha256", {})
+    if not isinstance(raw_phase3h_isolated_module_ast_sha256, dict) or any(
+        type(path) is not str or type(digest) is not str
+        for path, digest in raw_phase3h_isolated_module_ast_sha256.items()
+    ):
+        raise SystemExit("phase3h_isolated_module_ast_sha256 must be a string table")
+    phase3h_isolated_module_ast_sha256 = {
+        Path(path): digest for path, digest in raw_phase3h_isolated_module_ast_sha256.items()
+    }
     raw_exact_private_attribute_callsites = scan.get("exact_private_attribute_callsites", {})
     if not isinstance(raw_exact_private_attribute_callsites, dict) or any(
         type(binding) is not str
@@ -7560,6 +7943,18 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
     exact_private_attribute_callsites = {
         binding: tuple(callsites)
         for binding, callsites in raw_exact_private_attribute_callsites.items()
+    }
+    raw_exact_private_attribute_owner_function_ast_sha256 = scan.get(
+        "exact_private_attribute_owner_function_ast_sha256", {}
+    )
+    if not isinstance(raw_exact_private_attribute_owner_function_ast_sha256, dict) or any(
+        type(owner) is not str or type(digest) is not str
+        for owner, digest in raw_exact_private_attribute_owner_function_ast_sha256.items()
+    ):
+        raise SystemExit("exact_private_attribute_owner_function_ast_sha256 must be a string table")
+    exact_private_attribute_owner_function_ast_sha256 = {
+        owner: digest
+        for owner, digest in raw_exact_private_attribute_owner_function_ast_sha256.items()
     }
     primitive_namespaces = tuple(scan["primitive_namespaces"])
     composition_namespaces = tuple(scan["composition_namespaces"])
@@ -8749,6 +9144,61 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                     "private native bounded-process reflection attestations must be exact",
                 )
             )
+    expected_phase3h_proof_module = "packages.domain.fixture_segment_economics"
+    expected_phase3h_proof_module_path = Path("packages/domain/fixture_segment_economics.py")
+    expected_phase3h_execution_module = "packages.application.fixture_segment_economics"
+    expected_phase3h_execution_module_path = Path(
+        "packages/application/fixture_segment_economics.py"
+    )
+    expected_phase3h_proof_consumer_allowed_imports = frozenset(
+        {
+            f"{expected_phase3h_proof_module}:{symbol}"
+            for symbol in {
+                "FIXTURE_ECONOMIC_ADDRESS_SPACE_LIMITS",
+                "FIXTURE_ECONOMIC_CHILD_PROCESSES",
+                "FIXTURE_ECONOMIC_CPU_SECONDS",
+                "FIXTURE_ECONOMIC_FILE_BYTES",
+                "FIXTURE_ECONOMIC_OPEN_FILES",
+                "FIXTURE_ECONOMIC_SEGMENT_CONTRACT_VERSION",
+                "FIXTURE_ECONOMIC_WALL_TIMEOUT_MILLISECONDS",
+                "MAX_FIXTURE_ECONOMIC_REQUEST_BYTES",
+                "MAX_FIXTURE_ECONOMIC_STDERR_BYTES",
+                "MAX_FIXTURE_ECONOMIC_STDOUT_BYTES",
+                "FixtureEconomicPosition",
+                "FixtureEconomicProcessEvidence",
+                "FixtureEconomicProcessOutcome",
+                "FixtureEconomicSegmentError",
+                "FixtureEconomicSegmentReceipt",
+                "FixtureEconomicSegmentRequest",
+                "FixtureEconomicSegmentResult",
+                "bind_fixture_economic_request",
+                "fixture_economic_isolation_profile_sha256",
+            }
+        }
+    )
+    expected_phase3h_isolated_module_ast_sha256 = {
+        expected_phase3h_proof_module_path: (
+            "89054d8462035a86f3d219caf0ab5dd23ac394c25f0d3a5bbd2c54c94cf7009d"
+        ),
+        expected_phase3h_execution_module_path: (
+            "4f758b154fa063fee92d4f4f1483a1348a5167661e1f30ec03a59eaa1c4c0fe7"
+        ),
+    }
+    if production_contract_required and (
+        phase3h_proof_module != expected_phase3h_proof_module
+        or phase3h_proof_module_path != expected_phase3h_proof_module_path
+        or phase3h_execution_module != expected_phase3h_execution_module
+        or phase3h_execution_module_path != expected_phase3h_execution_module_path
+        or phase3h_proof_consumer_allowed_imports != expected_phase3h_proof_consumer_allowed_imports
+        or phase3h_isolated_module_ast_sha256 != expected_phase3h_isolated_module_ast_sha256
+    ):
+        violations.append(
+            Violation(
+                config_path,
+                1,
+                "Phase 3H isolated proof-module policy must be exact",
+            )
+        )
     expected_exact_private_attribute_callsites = {
         (
             "packages.domain.fixture_segment_economics."
@@ -8759,9 +9209,15 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
             "FixtureEconomicSegmentReceipt._from_verified_execution"
         ): ("packages/application/fixture_segment_economics.py:execute_fixture_segment_economics",),
     }
-    if (
-        production_contract_required
-        and exact_private_attribute_callsites != expected_exact_private_attribute_callsites
+    expected_exact_private_attribute_owner_function_ast_sha256 = {
+        "packages/application/fixture_segment_economics.py:execute_fixture_segment_economics": (
+            "2949180a4df9d000fd97f4bfb254e5810ab90df7e88c033f35d413815d3457a7"
+        ),
+    }
+    if production_contract_required and (
+        exact_private_attribute_callsites != expected_exact_private_attribute_callsites
+        or exact_private_attribute_owner_function_ast_sha256
+        != expected_exact_private_attribute_owner_function_ast_sha256
     ):
         violations.append(
             Violation(
@@ -8957,6 +9413,27 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 )
             )
             continue
+        violations.extend(
+            _exact_private_attribute_callsite_violations(
+                tree,
+                relative_path=relative_path,
+                boundary="reviewed private proof-minting seam",
+                expected=exact_private_attribute_callsites,
+                owner_function_ast_sha256=(exact_private_attribute_owner_function_ast_sha256),
+            )
+        )
+        violations.extend(
+            _phase3h_proof_boundary_violations(
+                tree,
+                relative_path=relative_path,
+                proof_module=phase3h_proof_module,
+                proof_path=phase3h_proof_module_path,
+                execution_module=phase3h_execution_module,
+                execution_path=phase3h_execution_module_path,
+                allowed_proof_imports=phase3h_proof_consumer_allowed_imports,
+                module_ast_sha256=phase3h_isolated_module_ast_sha256,
+            )
+        )
         expected_process_consumer_module_digest = (
             native_bounded_process_consumer_module_ast_sha256.get(path)
         )
@@ -9181,15 +9658,6 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 )
             )
             continue
-
-        violations.extend(
-            _exact_private_attribute_callsite_violations(
-                tree,
-                relative_path=relative_path,
-                boundary="reviewed private proof-minting seam",
-                expected=exact_private_attribute_callsites,
-            )
-        )
 
         is_operation_bound_clean_stop_bridge_root = _is_below(
             resolved_path,
