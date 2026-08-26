@@ -1162,7 +1162,7 @@ def test_trusted_time_python_launcher_is_isolated_and_cannot_be_overridden() -> 
 
     assert completed.returncode == 0
     assert (
-        "uv run --isolated --offline --locked --no-env-file "
+        "uv run --isolated --offline --locked --no-editable --no-env-file "
         "python -I -B -X pycache_prefix=/dev/null"
     ) in completed.stdout
     assert "--no-sync" not in completed.stdout
@@ -11406,7 +11406,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
         == architecture_config["project_build_bootstrap_manifest_sha256"]
     )
     expected_invocation_source_sha256 = {
-        "Makefile": "189b041060855fbb6218fdc9d8425c25f534d1885d1207725b8022a84e7de758",
+        "Makefile": "7bd0ec76bb4e399877f8056058e6df00b14d547ab12d42f23f115bd3146589a6",
         ".github/workflows/ci.yml": (
             "45eb3a33cf8564a6c0d16476083b72cbafdcc7e2f00844afb4308e1ad2861526"
         ),

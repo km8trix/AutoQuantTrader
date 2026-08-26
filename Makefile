@@ -6,7 +6,7 @@ export PYTHONDONTWRITEBYTECODE
 UV ?= uv
 PNPM ?= pnpm
 COMPOSE ?= docker compose -f infra/compose/compose.yaml
-override TRUSTED_TIME_PYTHON := $(UV) run --isolated --offline --locked --no-env-file \
+override TRUSTED_TIME_PYTHON := $(UV) run --isolated --offline --locked --no-editable --no-env-file \
 	python -I -B -X pycache_prefix=/dev/null
 TRUSTED_TIME_IMAGE_ADMISSION_ARTIFACT ?= $(CURDIR)/artifacts/trusted-time/image-admission.json
 TRUSTED_TIME_QUALIFICATION_ARTIFACT_DIR ?= $(CURDIR)/artifacts/trusted-time
