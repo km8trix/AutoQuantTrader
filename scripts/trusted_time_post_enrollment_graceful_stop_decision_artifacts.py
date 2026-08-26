@@ -5620,16 +5620,20 @@ def _consume_loaded_decision_receipt_for_v2(
 ) -> _ConsumedLoadedDecisionArtifactReceiptV2Snapshot:
     """Use ADR-0112's source loader under a separate lifecycle-v2 capability."""
 
+    if type(loaded) is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt:
+        raise TrustedTimePostEnrollmentGracefulStopDecisionArtifactError(
+            "loaded_decision_artifact_receipt_v2_invalid"
+        )
     if (
-        type(loaded) is not LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt
-        or admission_identity is None
+        admission_identity is None
         or bridge_capability is not _LIFECYCLE_V2_BRIDGE_CAPABILITY
         or not _is_uuid4(graceful_stop_operation_id)
         or not _is_sha256(admission_sha256)
         or not _is_sha256(channel_id)
     ):
-        raise TrustedTimePostEnrollmentGracefulStopDecisionArtifactError(
-            "loaded_decision_artifact_receipt_v2_invalid"
+        _reject_loaded_decision_receipt_for_v2_admission_identity(
+            loaded,
+            bridge_capability=bridge_capability,
         )
     pending_cleanup_error: BaseException | None = None
     active_cleanup_error: BaseException | None = None
@@ -5721,6 +5725,51 @@ def _consume_loaded_decision_receipt_for_v2(
         raise TrustedTimePostEnrollmentGracefulStopDecisionArtifactError(
             "decision_artifact_receipt_v2_unavailable"
         ) from None
+
+
+def _reject_loaded_decision_receipt_for_v2_admission_identity(
+    loaded: LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt,
+    *,
+    bridge_capability: object,
+) -> Never:
+    """Burn both ADR-0112 registries before rejecting a bad v2 identity."""
+
+    primary = TrustedTimePostEnrollmentGracefulStopDecisionArtifactError(
+        "loaded_decision_artifact_receipt_v2_invalid"
+    )
+    pending_cleanup_error: BaseException | None = None
+    active_cleanup_error: BaseException | None = None
+    cleanup_transition_error: BaseException | None = None
+    pending_retry_error: BaseException | None = None
+    active_retry_error: BaseException | None = None
+    try:
+        try:
+            if bridge_capability is not _LIFECYCLE_V2_BRIDGE_CAPABILITY:
+                raise ValueError
+            pending_cleanup_error = _burn_pending_loaded_receipt_targets(((loaded, None),))
+            active_cleanup_error = _burn_loaded_receipt_targets(((loaded, None),))
+        except BaseException as observed_cleanup_error:
+            cleanup_transition_error = observed_cleanup_error
+    finally:
+        try:
+            pending_retry_error = _burn_pending_loaded_receipt_targets(((loaded, None),))
+        except BaseException as observed_pending_retry_error:
+            pending_retry_error = observed_pending_retry_error
+        try:
+            active_retry_error = _burn_loaded_receipt_targets(((loaded, None),))
+        except BaseException as observed_active_retry_error:
+            active_retry_error = observed_active_retry_error
+    terminal = _preferred_registry_exceptions(
+        primary,
+        cleanup_transition_error,
+        pending_cleanup_error,
+        active_cleanup_error,
+        pending_retry_error,
+        active_retry_error,
+    )
+    if terminal is primary or terminal is None:
+        raise primary
+    raise terminal from primary
 
 
 def revalidate_loaded_post_enrollment_graceful_stop_decision_artifact_receipt(

@@ -19,6 +19,7 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION,
     LIFECYCLE_V2_ROOT_CONTRACT_VERSION,
     NORMAL_STAGE_BY_ORDINAL,
+    LifecycleV2CleanStopRequestBasis,
     LifecycleV2Outcome,
     LifecycleV2OutcomeCommit,
     LifecycleV2ProgressRecord,
@@ -30,6 +31,7 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     UnverifiedLifecycleV2TransportEnvelope,
     _FakeAuthenticatedLifecycleV2TransportEnvelope,
     _require_fake_authenticated_lifecycle_v2_transport_envelope,
+    decode_lifecycle_v2_clean_stop_request_basis,
     decode_lifecycle_v2_outcome,
     decode_lifecycle_v2_outcome_commit,
     decode_lifecycle_v2_progress_record,
@@ -223,6 +225,8 @@ class _LifecycleV2Repository:
                     or record.predecessor_sha256 != predecessor
                 ):
                     raise LifecycleV2RetentionUnconfirmed("progress lineage is mixed or gapped")
+                if record.ordinal == 1:
+                    self._require_derived_request_intent(record)
                 self._require_stage_transition(record, records=tuple(records))
                 records.append(record)
                 predecessor = record.sha256
@@ -306,6 +310,7 @@ class _LifecycleV2Repository:
             for name in names
             if name.startswith("trusted-time-post-enrollment-graceful-stop-v2-transcript-")
         )
+        retained_transcripts: dict[str, LifecycleV2Transcript] = {}
         for name in transcript_names:
             transcript = decode_lifecycle_v2_transcript(self._store.read_stable(name))
             if name != transcript.file_name:
@@ -313,14 +318,86 @@ class _LifecycleV2Repository:
             expected = self._transcript(last_ordinal=transcript.entries[-1].ordinal)
             if transcript != expected:
                 raise LifecycleV2RetentionUnconfirmed("transcript is not an exact stable prefix")
+            retained_transcripts[transcript.sha256] = transcript
+        for record in self._records:
+            if record.stage is LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED:
+                classified_transcript = self._transcript(last_ordinal=record.ordinal - 1)
+                if (
+                    record.evidence.to_dict()["classified_transcript_sha256"]
+                    != classified_transcript.sha256
+                    or retained_transcripts.get(classified_transcript.sha256)
+                    != classified_transcript
+                ):
+                    raise LifecycleV2RetentionUnconfirmed(
+                        "recovery intent does not bind its exact predecessor prefix"
+                    )
         if self._outcome is not None:
-            outcome_fields = self._outcome.to_dict()
-            if not any(
-                decode_lifecycle_v2_transcript(self._store.read_stable(name)).sha256
-                == outcome_fields["transcript_sha256"]
-                for name in transcript_names
+            self._validate_loaded_outcome(retained_transcripts)
+
+    def _validate_loaded_outcome(
+        self,
+        retained_transcripts: dict[str, LifecycleV2Transcript],
+    ) -> None:
+        if self._root is None or self._outcome is None:
+            raise LifecycleV2RetentionUnconfirmed("terminal artifacts have no lifecycle root")
+        if not self._records:
+            raise LifecycleV2RetentionUnconfirmed(
+                "terminal artifacts cannot classify a root-only namespace"
+            )
+        full_transcript = self._transcript()
+        retained_full_transcript = retained_transcripts.get(full_transcript.sha256)
+        if retained_full_transcript != full_transcript:
+            raise LifecycleV2RetentionUnconfirmed(
+                "outcome does not bind the exact complete retained prefix"
+            )
+        last_record = self._records[-1]
+        outcome_fields = self._outcome.to_dict()
+        if (
+            outcome_fields["graceful_stop_operation_id"] != self._root.graceful_stop_operation_id
+            or outcome_fields["root_sha256"] != self._root.sha256
+            or outcome_fields["ordinal"] != len(self._records) + 1
+            or outcome_fields["predecessor_sha256"] != last_record.sha256
+            or outcome_fields["final_stage"] != last_record.stage.value
+            or outcome_fields["transcript_sha256"] != full_transcript.sha256
+            or outcome_fields["admission_started_boottime_ns"]
+            != self._root.admission_started_boottime_ns
+            or outcome_fields["operation_deadline_boottime_ns"]
+            != self._root.operation_deadline_boottime_ns
+        ):
+            raise LifecycleV2RetentionUnconfirmed(
+                "outcome does not bind the loaded root and complete retained prefix"
+            )
+        if self._outcome.status == "recovery_required":
+            if (
+                last_record.stage is not LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED
+                or outcome_fields["reason_code"] != last_record.evidence.to_dict()["reason_code"]
             ):
-                raise LifecycleV2RetentionUnconfirmed("outcome does not bind a retained transcript")
+                raise LifecycleV2RetentionUnconfirmed(
+                    "recovery outcome has no exact classification intent"
+                )
+        elif (
+            len(self._records) != 22
+            or last_record.stage is not LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED
+        ):
+            raise LifecycleV2RetentionUnconfirmed(
+                "confirmed success has no complete terminal-cleanup prefix"
+            )
+        if self._commit is not None:
+            commit_fields = self._commit.to_dict()
+            if (
+                commit_fields["graceful_stop_operation_id"] != self._root.graceful_stop_operation_id
+                or commit_fields["root_sha256"] != self._root.sha256
+                or commit_fields["outcome_sha256"] != self._outcome.sha256
+                or commit_fields["outcome_status"] != self._outcome.status
+                or commit_fields["transcript_sha256"] != full_transcript.sha256
+                or commit_fields["admission_started_boottime_ns"]
+                != self._root.admission_started_boottime_ns
+                or commit_fields["operation_deadline_boottime_ns"]
+                != self._root.operation_deadline_boottime_ns
+            ):
+                raise LifecycleV2RetentionUnconfirmed(
+                    "commit marker does not bind the loaded terminal lineage"
+                )
 
     def _require_stage_transition(
         self,
@@ -331,7 +408,23 @@ class _LifecycleV2Repository:
         exact_records = self._records if records is None else records
         if record.ordinal != len(exact_records) + 1:
             raise LifecycleV2RepositoryRejected("progress ordinal is not next")
+        if records is None and (self._outcome is not None or self._commit is not None):
+            raise LifecycleV2RepositoryRejected("terminal outcome already retained")
         if record.stage is LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED:
+            if any(
+                item.stage is LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED
+                for item in exact_records
+            ):
+                raise LifecycleV2RepositoryRejected(
+                    "recovery classification intent is already retained"
+                )
+            if (
+                exact_records
+                and exact_records[-1].stage is LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED
+            ):
+                raise LifecycleV2RepositoryRejected(
+                    "recovery classification cannot follow a terminal stage"
+                )
             return
         if any(
             item.stage
@@ -351,6 +444,16 @@ class _LifecycleV2Repository:
     def _require_record_binding(self, record: LifecycleV2ProgressRecord) -> None:
         if type(record) is not LifecycleV2ProgressRecord or self._root is None:
             raise LifecycleV2RepositoryRejected("lifecycle root is not reserved")
+        try:
+            verified_record = decode_lifecycle_v2_progress_record(record.encoded)
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
+            raise LifecycleV2RepositoryRejected(
+                "progress record is not canonically valid"
+            ) from None
+        if verified_record != record:
+            raise LifecycleV2RepositoryRejected(
+                "progress record changed under canonical validation"
+            )
         predecessor = self._records[-1].sha256 if self._records else self._root.sha256
         if (
             record.root_sha256 != self._root.sha256
@@ -361,12 +464,53 @@ class _LifecycleV2Repository:
             raise LifecycleV2RepositoryRejected("progress record does not bind this lifecycle")
         self._require_stage_transition(record)
 
+    def _require_derived_request_intent(
+        self,
+        record: LifecycleV2ProgressRecord,
+        *,
+        basis: LifecycleV2CleanStopRequestBasis | None = None,
+    ) -> None:
+        if self._root is None:
+            raise LifecycleV2RepositoryRejected("request intent requires a lifecycle root")
+        try:
+            derived_basis = LifecycleV2CleanStopRequestBasis.from_root(self._root)
+            if basis is not None:
+                if type(basis) is not LifecycleV2CleanStopRequestBasis:
+                    raise TrustedTimeGracefulStopV2Rejected("request basis type is invalid")
+                decoded_basis = decode_lifecycle_v2_clean_stop_request_basis(basis.encoded)
+                if decoded_basis != basis or decoded_basis != derived_basis:
+                    raise TrustedTimeGracefulStopV2Rejected("request basis is not root-derived")
+            expected_evidence = {
+                "target_identity_sha256": self._root.supervisor_container_id,
+                "arguments_sha256": derived_basis.sha256,
+                "admission_sha256": self._root.admission_sha256,
+                "channel_id": self._root.channel_id,
+                "call_deadline_boottime_ns": (self._root.clean_stop_result_deadline_boottime_ns),
+                "admission_started_boottime_ns": self._root.admission_started_boottime_ns,
+                "operation_deadline_boottime_ns": self._root.operation_deadline_boottime_ns,
+            }
+            if (
+                record.ordinal != 1
+                or record.stage is not LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED
+                or record.effect_kind != "clean_stop_request"
+                or record.evidence.to_dict() != expected_evidence
+            ):
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "request intent is not exactly root/basis-derived"
+                )
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
+            raise LifecycleV2RepositoryRejected(
+                "request intent is not exactly root/basis-derived"
+            ) from None
+
     @property
     def status(self) -> LifecycleV2RepositoryStatus:
         if self._poisoned:
             return LifecycleV2RepositoryStatus.RETENTION_UNCONFIRMED
         if self._commit is not None:
             return LifecycleV2RepositoryStatus.OUTCOME_COMMITTED
+        if self._outcome is not None:
+            return LifecycleV2RepositoryStatus.RECOVERY_REQUIRED
         if self._root is None:
             return LifecycleV2RepositoryStatus.UNRESERVED
         if self._records and self._records[-1].stage in {
@@ -380,6 +524,13 @@ class _LifecycleV2Repository:
         self._require_owner()
         if type(root) is not LifecycleV2Root:
             raise LifecycleV2RepositoryRejected("root must be an exact lifecycle-v2 value")
+        try:
+            verified_root = decode_lifecycle_v2_root(root.encoded)
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
+            raise LifecycleV2RepositoryRejected("root is not canonically valid") from None
+        if verified_root != root:
+            raise LifecycleV2RepositoryRejected("root changed under canonical validation")
+        root = verified_root
         if self._root is not None or self._store.inventory():
             raise LifecycleV2SlotConsumed("the shared lifecycle slot is consumed")
         try:
@@ -456,9 +607,14 @@ class _LifecycleV2Repository:
         if envelope is not None:
             self._wire = envelope
 
-    def retain_request_intent(self, record: LifecycleV2ProgressRecord) -> None:
+    def retain_request_intent(
+        self,
+        record: LifecycleV2ProgressRecord,
+        basis: LifecycleV2CleanStopRequestBasis,
+    ) -> None:
         if record.stage is not LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED:
             raise LifecycleV2RepositoryRejected("request-intent method received another stage")
+        self._require_derived_request_intent(record, basis=basis)
         self._retain_progress(record)
 
     def retain_authenticated_terminal_wire(
@@ -622,6 +778,8 @@ class _LifecycleV2Repository:
 
     def publish_transcript(self) -> LifecycleV2Transcript:
         self._require_owner()
+        if self._outcome is not None or self._commit is not None:
+            raise LifecycleV2RepositoryRejected("terminal outcome already retained")
         transcript = self._transcript()
         try:
             self._store.publish_immutable(
@@ -644,10 +802,33 @@ class _LifecycleV2Repository:
         commit: LifecycleV2OutcomeCommit,
     ) -> None:
         self._require_owner()
+        if self._commit is not None:
+            raise LifecycleV2RepositoryRejected("terminal outcome already committed")
         if self._root is None or type(outcome) is not LifecycleV2Outcome:
             raise LifecycleV2RepositoryRejected("recovery outcome requires an exact root")
-        if type(commit) is not LifecycleV2OutcomeCommit or outcome.status != "recovery_required":
+        if type(commit) is not LifecycleV2OutcomeCommit:
             raise LifecycleV2RepositoryRejected("milestone-one repository writes recovery only")
+        try:
+            verified_outcome = decode_lifecycle_v2_outcome(outcome.encoded)
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
+            raise LifecycleV2RepositoryRejected("outcome proof is not canonically valid") from None
+        if verified_outcome != outcome:
+            raise LifecycleV2RepositoryRejected("outcome proof changed under canonical validation")
+        outcome = verified_outcome
+        if outcome.status != "recovery_required":
+            raise LifecycleV2RepositoryRejected("milestone-one repository writes recovery only")
+        if self._outcome is not None and self._outcome != outcome:
+            raise LifecycleV2RepositoryRejected("a different outcome candidate is retained")
+        try:
+            verified_commit = decode_lifecycle_v2_outcome_commit(
+                commit.encoded,
+                outcome=outcome,
+            )
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
+            raise LifecycleV2RepositoryRejected("commit proof is not canonically valid") from None
+        if verified_commit != commit:
+            raise LifecycleV2RepositoryRejected("commit proof changed under canonical validation")
+        commit = verified_commit
         if (
             not self._records
             or self._records[-1].stage

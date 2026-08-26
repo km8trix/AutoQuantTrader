@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from typing import Never
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
     _FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY,
@@ -243,7 +244,7 @@ class FakeLifecycleV2DockerEffects:
         if self._burned:
             raise FakeLifecycleV2Fault("effect adapter is burned")
         if operation in self._used:
-            raise FakeLifecycleV2Fault("effect replay is forbidden")
+            self._reject("effect replay is forbidden")
         self._used.add(operation)
         self.events.append(operation)
         if self._failed_operation == operation:
@@ -262,6 +263,10 @@ class FakeLifecycleV2DockerEffects:
         ).hexdigest()
         return FakeDockerEffectResult(operation, target_id, request_digest, result_digest)
 
+    def _reject(self, message: str) -> Never:
+        self._burned = True
+        raise FakeLifecycleV2Fault(message)
+
     def stop_supervisor(self, container_id: str) -> FakeDockerEffectResult:
         return self._perform(
             "stop_supervisor",
@@ -271,7 +276,7 @@ class FakeLifecycleV2DockerEffects:
 
     def stop_source(self, container_id: str) -> FakeDockerEffectResult:
         if "stop_supervisor" not in self._used:
-            raise FakeLifecycleV2Fault("source cannot stop before supervisor")
+            self._reject("source cannot stop before supervisor")
         return self._perform(
             "stop_source",
             container_id,
@@ -280,7 +285,7 @@ class FakeLifecycleV2DockerEffects:
 
     def remove_supervisor(self, container_id: str) -> FakeDockerEffectResult:
         if "stop_source" not in self._used:
-            raise FakeLifecycleV2Fault("containers must stop before removal")
+            self._reject("containers must stop before removal")
         return self._perform(
             "remove_supervisor",
             container_id,
@@ -292,7 +297,7 @@ class FakeLifecycleV2DockerEffects:
 
     def remove_source(self, container_id: str) -> FakeDockerEffectResult:
         if "remove_supervisor" not in self._used:
-            raise FakeLifecycleV2Fault("supervisor must be removed before source")
+            self._reject("supervisor must be removed before source")
         return self._perform(
             "remove_source",
             container_id,
@@ -304,7 +309,7 @@ class FakeLifecycleV2DockerEffects:
 
     def remove_network(self, network_id: str) -> FakeDockerEffectResult:
         if "remove_source" not in self._used:
-            raise FakeLifecycleV2Fault("both containers must be removed before the network")
+            self._reject("both containers must be removed before the network")
         return self._perform(
             "remove_network",
             network_id,
@@ -317,7 +322,7 @@ class FakeLifecycleV2DockerEffects:
         state_volume: str,
     ) -> FakeDockerEffectResult:
         if "remove_network" not in self._used:
-            raise FakeLifecycleV2Fault("volume proof must follow teardown")
+            self._reject("volume proof must follow teardown")
         target = f"{command_socket_volume},{state_volume}"
         return self._perform(
             "prove_volumes",

@@ -3,7 +3,10 @@ from __future__ import annotations
 import ast
 import base64
 import hashlib
+import threading
 from collections.abc import Callable
+from dataclasses import fields as dataclass_fields
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -13,9 +16,9 @@ import scripts.trusted_time_post_enrollment_topology_reader as topology_reader
 from packages.application import trusted_time_graceful_stop_v2_admission as v2_admission
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_ROOT_FILE_NAME,
-    LIFECYCLE_V2_CLEAN_STOP_REQUEST_BASIS_CONTRACT_VERSION,
     LIFECYCLE_V2_CLEAN_STOP_REQUEST_CONTRACT_VERSION,
     LIFECYCLE_V2_OUTCOME_COMMIT_CONTRACT_VERSION,
+    LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
     LIFECYCLE_V2_OUTCOME_CONTRACT_VERSION,
     LIFECYCLE_V2_SERVICE,
     LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION,
@@ -31,12 +34,14 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     TrustedTimeGracefulStopV2Rejected,
     UnverifiedLifecycleV2TransportEnvelope,
     canonical_v2_json_bytes,
+    decode_canonical_v2_json_object,
     decode_lifecycle_v2_progress_record,
     decode_lifecycle_v2_root,
     decode_lifecycle_v2_transcript,
     decode_unverified_lifecycle_v2_transport_envelope,
     lifecycle_v2_dispatch_prefix_sha256,
     lifecycle_v2_non_authority_facts,
+    lifecycle_v2_progress_file_name,
     lifecycle_v2_wire_file_name,
 )
 from packages.persistence import trusted_time_graceful_stop_v2 as persistence
@@ -105,40 +110,7 @@ def _root() -> LifecycleV2Root:
 
 
 def _request_basis(root: LifecycleV2Root) -> LifecycleV2CleanStopRequestBasis:
-    return LifecycleV2CleanStopRequestBasis.capture(
-        {
-            "contract_version": LIFECYCLE_V2_CLEAN_STOP_REQUEST_BASIS_CONTRACT_VERSION,
-            "service": "trusted-time-head-anchor-clean-stop-v2",
-            "status": "operation_bound_clean_stop_request_basis_retained",
-            "environment": root.environment,
-            "graceful_stop_operation_id": root.graceful_stop_operation_id,
-            "graceful_stop_target_sha256": root.graceful_stop_target_sha256,
-            "graceful_stop_decision_v1_sha256": root.graceful_stop_decision_v1_sha256,
-            "historical_decision_receipt_sha256": root.historical_decision_receipt_sha256,
-            "graceful_stop_operator_attestation_envelope_sha256": (
-                root.graceful_stop_operator_attestation_envelope_sha256
-            ),
-            "lifecycle_root_sha256": root.sha256,
-            "admission_sha256": root.admission_sha256,
-            "topology_sha256": root.topology_sha256,
-            "topology_lease_sha256": root.topology_lease_sha256,
-            "trusted_head_sha256": root.trusted_head_sha256,
-            "supervisor_container_id": root.supervisor_container_id,
-            "channel_id": root.channel_id,
-            "boot_epoch_sha256": root.boot_epoch_sha256,
-            "host_process_epoch_sha256": root.host_process_epoch_sha256,
-            "supervisor_process_epoch_sha256": root.supervisor_process_epoch_sha256,
-            "checkpoint_reason": "clean_stop",
-            "exact_new_record_required": True,
-            "clean_stop_result_deadline_boottime_ns": (root.clean_stop_result_deadline_boottime_ns),
-            "transport_cleanup_required": True,
-            "transport_cleanup_deadline_boottime_ns": (
-                root.clean_stop_result_deadline_boottime_ns + 5_000_000_000
-            ),
-            "admission_started_boottime_ns": root.admission_started_boottime_ns,
-            "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
-        }
-    )
+    return LifecycleV2CleanStopRequestBasis.from_root(root)
 
 
 def _request_intent(
@@ -173,11 +145,7 @@ def _final_request(
     basis: LifecycleV2CleanStopRequestBasis,
     intent: LifecycleV2ProgressRecord,
 ) -> LifecycleV2CleanStopRequest:
-    return LifecycleV2CleanStopRequest.from_prefix(
-        basis,
-        request_intent_sha256=intent.sha256,
-        lifecycle_dispatch_prefix_sha256=lifecycle_v2_dispatch_prefix_sha256(root, intent),
-    )
+    return LifecycleV2CleanStopRequest.from_prefix(root, basis, intent)
 
 
 def _envelope(
@@ -318,6 +286,97 @@ def _repository(
     )
 
 
+def _recovery_intent(
+    root: LifecycleV2Root,
+    predecessor: LifecycleV2ProgressRecord,
+    classified_transcript_sha256: str,
+) -> LifecycleV2ProgressRecord:
+    return LifecycleV2ProgressRecord(
+        graceful_stop_operation_id=root.graceful_stop_operation_id,
+        root_sha256=root.sha256,
+        ordinal=predecessor.ordinal + 1,
+        stage=LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED,
+        predecessor_sha256=predecessor.sha256,
+        effect_kind="recovery_classification",
+        deadline_boottime_ns=root.operation_deadline_boottime_ns,
+        evidence=FrozenJsonObject.capture(
+            {
+                "recovery_classification_envelope_sha256": _digest("recovery-envelope"),
+                "operator_nonce_sha256": _digest("recovery-nonce"),
+                "recovery_key_id": "recovery-key-1",
+                "transport_authority_manifest_sha256": (root.transport_authority_manifest_sha256),
+                "classified_transcript_sha256": classified_transcript_sha256,
+                "admission_started_boottime_ns": root.admission_started_boottime_ns,
+                "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
+                "reason_code": "call_or_result_ambiguous",
+            }
+        ),
+        recorded_at_utc=UTC_TEXT,
+    )
+
+
+def _recovery_outcome_pair(
+    root: LifecycleV2Root,
+    recovery_intent: LifecycleV2ProgressRecord,
+    transcript_sha256: str,
+    *,
+    overrides: dict[str, object] | None = None,
+) -> tuple[LifecycleV2Outcome, LifecycleV2OutcomeCommit]:
+    protocol_start = root.admission_started_boottime_ns + 10
+    outcome_fields: dict[str, object] = {
+        "contract_version": LIFECYCLE_V2_OUTCOME_CONTRACT_VERSION,
+        "service": LIFECYCLE_V2_SERVICE,
+        "status": "recovery_required",
+        "lifecycle_version": 2,
+        "graceful_stop_operation_id": root.graceful_stop_operation_id,
+        "root_sha256": root.sha256,
+        "ordinal": recovery_intent.ordinal + 1,
+        "predecessor_sha256": recovery_intent.sha256,
+        "final_stage": recovery_intent.stage.value,
+        "transcript_sha256": transcript_sha256,
+        "reason_code": "call_or_result_ambiguous",
+        "pre_effect_binding_sha256": None,
+        "post_teardown_binding_sha256": None,
+        "volume_proof_sha256": None,
+        "terminal_cleanup_sha256": None,
+        "stop_effects_confirmed": False,
+        "teardown_confirmed": False,
+        "terminal_cleanup_confirmed": False,
+        "admission_started_boottime_ns": root.admission_started_boottime_ns,
+        "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
+        "commit_protocol_started_boottime_ns": protocol_start,
+        "commit_publication_authorization_deadline_boottime_ns": (protocol_start + 5_000_000_000),
+        "commit_authorized_boottime_ns": protocol_start + 1,
+        "created_at_utc": UTC_TEXT,
+    }
+    outcome_fields.update(overrides or {})
+    outcome = LifecycleV2Outcome.capture(outcome_fields)
+    exact = outcome.to_dict()
+    commit = LifecycleV2OutcomeCommit.capture(
+        {
+            "contract_version": LIFECYCLE_V2_OUTCOME_COMMIT_CONTRACT_VERSION,
+            "service": LIFECYCLE_V2_SERVICE,
+            "status": "terminal_outcome_committed",
+            "lifecycle_version": 2,
+            "graceful_stop_operation_id": exact["graceful_stop_operation_id"],
+            "root_sha256": exact["root_sha256"],
+            "outcome_sha256": outcome.sha256,
+            "outcome_status": outcome.status,
+            "transcript_sha256": exact["transcript_sha256"],
+            "admission_started_boottime_ns": exact["admission_started_boottime_ns"],
+            "commit_protocol_started_boottime_ns": exact["commit_protocol_started_boottime_ns"],
+            "commit_publication_authorization_deadline_boottime_ns": exact[
+                "commit_publication_authorization_deadline_boottime_ns"
+            ],
+            "commit_authorized_boottime_ns": exact["commit_authorized_boottime_ns"],
+            "operation_deadline_boottime_ns": exact["operation_deadline_boottime_ns"],
+            "committed_at_utc": UTC_TEXT,
+        },
+        outcome=outcome,
+    )
+    return outcome, commit
+
+
 def test_root_request_record_and_transcript_codecs_are_canonical() -> None:
     root = _root()
     basis = _request_basis(root)
@@ -333,11 +392,100 @@ def test_root_request_record_and_transcript_codecs_are_canonical() -> None:
     store = FakeLifecycleV2ArtifactStore()
     repository = _repository(store)
     repository.reserve_root(root)
-    repository.retain_request_intent(intent)
+    repository.retain_request_intent(intent, basis)
     transcript = repository.publish_transcript()
     assert decode_lifecycle_v2_transcript(transcript.encoded) == transcript
     assert [entry.ordinal for entry in transcript.entries] == [0, 1]
     assert transcript.entries[1].predecessor_sha256 == root.sha256
+
+
+@pytest.mark.parametrize(
+    ("value_type", "arguments"),
+    [
+        (LifecycleV2CleanStopRequestBasis, (FrozenJsonObject.capture({}),)),
+        (LifecycleV2CleanStopRequest, (FrozenJsonObject.capture({}),)),
+        (
+            UnverifiedLifecycleV2TransportEnvelope,
+            (FrozenJsonObject.capture({}), b"payload", b"signature"),
+        ),
+        (LifecycleV2Outcome, (FrozenJsonObject.capture({}),)),
+        (LifecycleV2OutcomeCommit, (FrozenJsonObject.capture({}),)),
+    ],
+)
+def test_canonical_value_public_initializers_are_sealed(
+    value_type: type[object],
+    arguments: tuple[object, ...],
+) -> None:
+    with pytest.raises(TypeError):
+        cast(Any, value_type)(*arguments)
+
+
+def test_request_intent_and_final_request_are_derived_from_one_exact_root_basis() -> None:
+    root = _root()
+    other_root = replace(root, channel_id=_digest("other-channel"))
+    wrong_basis = _request_basis(other_root)
+    caller_selected_intent = _request_intent(root, wrong_basis)
+    store = FakeLifecycleV2ArtifactStore()
+    repository = _repository(store)
+    repository.reserve_root(root)
+
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="root/basis-derived",
+    ):
+        repository.retain_request_intent(caller_selected_intent, wrong_basis)
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="exact root/basis/intent"):
+        LifecycleV2CleanStopRequest.from_prefix(root, wrong_basis, caller_selected_intent)
+    assert store.inventory() == (LIFECYCLE_ROOT_FILE_NAME,)
+
+    store.inject(
+        lifecycle_v2_progress_file_name(caller_selected_intent),
+        caller_selected_intent.encoded,
+    )
+    with pytest.raises(
+        persistence.LifecycleV2RetentionUnconfirmed,
+        match="namespace cannot be authenticated",
+    ):
+        _repository(store)
+
+
+def test_repository_redecodes_forged_exact_type_root_and_progress_values() -> None:
+    root = _root()
+    forged_root = object.__new__(LifecycleV2Root)
+    for field_definition in dataclass_fields(root):
+        object.__setattr__(
+            forged_root,
+            field_definition.name,
+            getattr(root, field_definition.name),
+        )
+    object.__setattr__(
+        forged_root,
+        "operation_deadline_boottime_ns",
+        root.admission_started_boottime_ns + 1,
+    )
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="root is not canonically valid",
+    ):
+        _repository().reserve_root(forged_root)
+
+    basis = _request_basis(root)
+    intent = _request_intent(root, basis)
+    forged_intent = object.__new__(LifecycleV2ProgressRecord)
+    for field_definition in dataclass_fields(intent):
+        object.__setattr__(
+            forged_intent,
+            field_definition.name,
+            getattr(intent, field_definition.name),
+        )
+    object.__setattr__(forged_intent, "ordinal", True)
+    repository = _repository()
+    repository.reserve_root(root)
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="progress record is not canonically valid",
+    ):
+        repository.retain_request_intent(forged_intent, basis)
 
 
 @pytest.mark.parametrize(
@@ -354,6 +502,78 @@ def test_canonical_decoder_rejects_truncation_whitespace_bool_integer_and_duplic
 ) -> None:
     with pytest.raises(TrustedTimeGracefulStopV2Rejected):
         decode_lifecycle_v2_root(mutation(_root().encoded))
+
+
+def test_canonical_decoder_normalizes_excessive_integer_text_to_domain_error() -> None:
+    encoded = b'{"value":' + (b"9" * 5_000) + b"}\n"
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="integer"):
+        decode_canonical_v2_json_object(encoded, maximum_bytes=64 * 1_024)
+
+
+@pytest.mark.parametrize(
+    ("summary_name", "replacement"), [("last_ordinal", False), ("entry_count", True)]
+)
+def test_transcript_summary_rejects_boolean_integer_aliases(
+    summary_name: str,
+    replacement: bool,
+) -> None:
+    store = FakeLifecycleV2ArtifactStore()
+    repository = _repository(store)
+    repository.reserve_root(_root())
+    fields = repository.publish_transcript().to_dict()
+    fields[summary_name] = replacement
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match=summary_name):
+        decode_lifecycle_v2_transcript(canonical_v2_json_bytes(fields, maximum_bytes=256 * 1_024))
+
+
+def test_unhashable_discriminators_and_boolean_message_counter_are_domain_errors() -> None:
+    root = _root()
+    basis = _request_basis(root)
+    intent = _request_intent(root, basis)
+    envelope_fields = _result_envelope(root, intent).to_dict()
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="discriminator"):
+        UnverifiedLifecycleV2TransportEnvelope.capture({**envelope_fields, "frame_type": []})
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="message_counter"):
+        UnverifiedLifecycleV2TransportEnvelope.capture({**envelope_fields, "message_counter": True})
+
+    recovery = _recovery_intent(root, intent, _digest("classified-transcript"))
+    outcome, commit = _recovery_outcome_pair(root, recovery, _digest("final-transcript"))
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="discriminator"):
+        LifecycleV2Outcome.capture({**outcome.to_dict(), "status": []})
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="discriminator"):
+        LifecycleV2OutcomeCommit.capture({**commit.to_dict(), "outcome_status": []})
+
+
+def test_volume_delete_count_rejects_boolean_zero_alias() -> None:
+    root = _root()
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="volume_delete_call_count"):
+        LifecycleV2ProgressRecord(
+            graceful_stop_operation_id=root.graceful_stop_operation_id,
+            root_sha256=root.sha256,
+            ordinal=18,
+            stage=LifecycleV2Stage.NAMED_VOLUMES_PRESERVED,
+            predecessor_sha256=_digest("ordinal-17"),
+            effect_kind="volume_preservation",
+            deadline_boottime_ns=root.operation_deadline_boottime_ns,
+            evidence=FrozenJsonObject.capture(
+                {
+                    "intent_sha256": _digest("volume-intent"),
+                    "responder_identity_sha256": _digest("daemon"),
+                    "disposition": "confirmed",
+                    "result_semantic_sha256": _digest("result"),
+                    "call_started_boottime_ns": root.admission_started_boottime_ns + 1,
+                    "call_completed_boottime_ns": root.admission_started_boottime_ns + 2,
+                    "command_socket_volume_identity_sha256": _digest("command-volume"),
+                    "state_volume_identity_sha256": _digest("state-volume"),
+                    "docker_api_trace_sha256": _digest("trace"),
+                    "volume_delete_call_count": False,
+                    "docker_request_semantic_sha256_list": [_digest("request")],
+                    "result_semantic": {"confirmed": True},
+                    "docker_method_trace_entry_sha256_list": [_digest("entry")],
+                }
+            ),
+            recorded_at_utc=UTC_TEXT,
+        )
 
 
 def test_operation_deadline_equality_overflow_and_drift_fail_closed() -> None:
@@ -444,7 +664,7 @@ def test_progress_store_faults_are_retention_unconfirmed(phase: str) -> None:
     repository = _repository(store)
     repository.reserve_root(root)
     with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
-        repository.retain_request_intent(intent)
+        repository.retain_request_intent(intent, _request_basis(root))
     assert repository.status is persistence.LifecycleV2RepositoryStatus.RETENTION_UNCONFIRMED
     if phase in {"staging_created", "file_fsynced"}:
         assert ".post-enrollment-graceful-stop-v2-record-staging" in store.inventory()
@@ -484,9 +704,9 @@ def test_order_replay_and_cross_root_substitution_are_rejected_before_store() ->
     )
     with pytest.raises(persistence.LifecycleV2RepositoryRejected, match="out of order"):
         repository.retain_transport_cleanup_commitment(wrong_stage)
-    repository.retain_request_intent(intent)
-    with pytest.raises(persistence.LifecycleV2RepositoryRejected, match="does not bind|ordinal"):
-        repository.retain_request_intent(intent)
+    repository.retain_request_intent(intent, basis)
+    with pytest.raises(persistence.LifecycleV2RepositoryRejected, match=r"does not bind|ordinal"):
+        repository.retain_request_intent(intent, basis)
 
 
 def test_terminal_wire_is_full_envelope_named_by_full_envelope_digest() -> None:
@@ -499,7 +719,7 @@ def test_terminal_wire_is_full_envelope_named_by_full_envelope_digest() -> None:
     store = FakeLifecycleV2ArtifactStore()
     repository = _repository(store)
     repository.reserve_root(root)
-    repository.retain_request_intent(intent)
+    repository.retain_request_intent(intent, basis)
     repository.retain_authenticated_terminal_wire(record, authenticated)
     wire_name = lifecycle_v2_wire_file_name(envelope)
     assert store.read_stable(wire_name) == envelope.encoded
@@ -518,7 +738,7 @@ def test_structurally_valid_unverified_wire_cannot_cross_repository_boundary() -
     store = FakeLifecycleV2ArtifactStore()
     repository = _repository(store)
     repository.reserve_root(root)
-    repository.retain_request_intent(intent)
+    repository.retain_request_intent(intent, basis)
     inventory_before = store.inventory()
 
     with pytest.raises(
@@ -541,12 +761,32 @@ def test_restart_with_retained_wire_fails_closed_until_crypto_reauth_exists() ->
     store = FakeLifecycleV2ArtifactStore()
     repository = _repository(store)
     repository.reserve_root(root)
-    repository.retain_request_intent(intent)
+    repository.retain_request_intent(intent, basis)
     repository.retain_authenticated_terminal_wire(record, authenticated)
 
     with pytest.raises(
         persistence.LifecycleV2RetentionUnconfirmed,
         match="cannot reauthenticate retained wire signatures",
+    ):
+        _repository(store)
+
+
+def test_restart_recovery_intent_binds_exact_immediate_predecessor_transcript() -> None:
+    root = _root()
+    basis = _request_basis(root)
+    intent = _request_intent(root, basis)
+    store = FakeLifecycleV2ArtifactStore()
+    repository = _repository(store)
+    repository.reserve_root(root)
+    root_transcript = repository.publish_transcript()
+    repository.retain_request_intent(intent, basis)
+    repository.publish_transcript()
+    substituted = _recovery_intent(root, intent, root_transcript.sha256)
+    store.inject(lifecycle_v2_progress_file_name(substituted), substituted.encoded)
+
+    with pytest.raises(
+        persistence.LifecycleV2RetentionUnconfirmed,
+        match="exact predecessor prefix",
     ):
         _repository(store)
 
@@ -564,7 +804,7 @@ def test_wire_publication_fault_never_advances_to_ordinal_two(phase: str) -> Non
     store = FakeLifecycleV2ArtifactStore(fault=FakePublicationFault("wire_result", phase))
     repository = _repository(store)
     repository.reserve_root(root)
-    repository.retain_request_intent(intent)
+    repository.retain_request_intent(intent, basis)
     with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
         repository.retain_authenticated_terminal_wire(record, authenticated)
     assert repository.status is persistence.LifecycleV2RepositoryStatus.RETENTION_UNCONFIRMED
@@ -580,7 +820,7 @@ def test_fake_transport_is_one_shot_and_binds_channel_prefix_and_counter() -> No
     )
     response = _result_envelope(root, intent)
     transport = FakeLifecycleV2Transport(response)
-    assert transport.exchange(request, request_envelope).envelope is response
+    assert transport.exchange(request, request_envelope).envelope == response
     with pytest.raises(FakeLifecycleV2Fault, match="replay"):
         transport.exchange(request, request_envelope)
 
@@ -623,9 +863,13 @@ def test_envelope_rejects_cross_direction_counter_payload_and_packet_excess() ->
 
 def test_fake_docker_surface_enforces_exact_serial_order_and_volume_preservation() -> None:
     root = _root()
-    effects = FakeLifecycleV2DockerEffects()
+    rejected = FakeLifecycleV2DockerEffects()
     with pytest.raises(FakeLifecycleV2Fault, match="before supervisor"):
-        effects.stop_source(root.source_container_id)
+        rejected.stop_source(root.source_container_id)
+    with pytest.raises(FakeLifecycleV2Fault, match="burned"):
+        rejected.stop_supervisor(root.supervisor_container_id)
+
+    effects = FakeLifecycleV2DockerEffects()
     effects.stop_supervisor(root.supervisor_container_id)
     effects.stop_source(root.source_container_id)
     effects.remove_supervisor(root.supervisor_container_id)
@@ -699,7 +943,7 @@ def test_recovery_required_outcome_can_commit_but_confirmed_success_cannot() -> 
     store = FakeLifecycleV2ArtifactStore()
     repository = _repository(store)
     repository.reserve_root(root)
-    repository.retain_request_intent(intent)
+    repository.retain_request_intent(intent, _request_basis(root))
     classified_transcript = repository.publish_transcript()
     recovery_intent = LifecycleV2ProgressRecord(
         graceful_stop_operation_id=root.graceful_stop_operation_id,
@@ -801,8 +1045,244 @@ def test_recovery_required_outcome_can_commit_but_confirmed_success_cannot() -> 
         }
     )
     success = LifecycleV2Outcome.capture(success_fields)
-    with pytest.raises(persistence.LifecycleV2RepositoryRejected, match="recovery only"):
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="terminal outcome already committed",
+    ):
         repository.commit_recovery_outcome(success, commit)
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="terminal outcome already committed",
+    ):
+        repository.commit_recovery_outcome(outcome, commit)
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="terminal outcome already retained",
+    ):
+        repository.publish_transcript()
+
+    post_terminal = _recovery_intent(root, recovery_intent, transcript.sha256)
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="terminal outcome already retained",
+    ):
+        repository.retain_recovery_classification_intent(post_terminal)
+
+
+def test_repository_revalidates_forged_exact_type_outcome_before_commit() -> None:
+    root = _root()
+    basis = _request_basis(root)
+    intent = _request_intent(root, basis)
+    repository = _repository()
+    repository.reserve_root(root)
+    repository.retain_request_intent(intent, basis)
+    classified_transcript = repository.publish_transcript()
+    recovery_intent = _recovery_intent(root, intent, classified_transcript.sha256)
+    repository.retain_recovery_classification_intent(recovery_intent)
+    final_transcript = repository.publish_transcript()
+    valid_outcome, valid_commit = _recovery_outcome_pair(
+        root,
+        recovery_intent,
+        final_transcript.sha256,
+    )
+    forged_fields = valid_outcome.to_dict()
+    forged_fields.update(
+        {
+            "stop_effects_confirmed": True,
+            "teardown_confirmed": True,
+            "terminal_cleanup_confirmed": True,
+        }
+    )
+    forged_outcome = object.__new__(LifecycleV2Outcome)
+    object.__setattr__(
+        forged_outcome,
+        "fields",
+        FrozenJsonObject.capture(forged_fields),
+    )
+    forged_commit_fields = valid_commit.to_dict()
+    forged_commit_fields["outcome_sha256"] = forged_outcome.sha256
+    forged_commit = LifecycleV2OutcomeCommit.capture(
+        forged_commit_fields,
+        outcome=forged_outcome,
+    )
+
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="outcome proof is not canonically valid",
+    ):
+        repository.commit_recovery_outcome(forged_outcome, forged_commit)
+    assert repository.status is persistence.LifecycleV2RepositoryStatus.RECOVERY_REQUIRED
+
+
+@pytest.mark.parametrize(
+    "mutated_field",
+    [
+        "graceful_stop_operation_id",
+        "root_sha256",
+        "ordinal",
+        "predecessor_sha256",
+        "final_stage",
+        "transcript_sha256",
+    ],
+)
+def test_restart_rejects_outcome_commit_forged_away_from_complete_prefix(
+    mutated_field: str,
+) -> None:
+    root = _root()
+    intent = _request_intent(root, _request_basis(root))
+    store = FakeLifecycleV2ArtifactStore()
+    repository = _repository(store)
+    repository.reserve_root(root)
+    repository.retain_request_intent(intent, _request_basis(root))
+    classified_transcript = repository.publish_transcript()
+    recovery_intent = _recovery_intent(root, intent, classified_transcript.sha256)
+    repository.retain_recovery_classification_intent(recovery_intent)
+    final_transcript = repository.publish_transcript()
+    replacements: dict[str, object] = {
+        "graceful_stop_operation_id": "423e4567-e89b-42d3-a456-426614174002",
+        "root_sha256": _digest("substituted-root"),
+        "ordinal": recovery_intent.ordinal + 2,
+        "predecessor_sha256": _digest("substituted-predecessor"),
+        "final_stage": LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED.value,
+        "transcript_sha256": classified_transcript.sha256,
+    }
+    outcome, commit = _recovery_outcome_pair(
+        root,
+        recovery_intent,
+        final_transcript.sha256,
+        overrides={mutated_field: replacements[mutated_field]},
+    )
+    store.inject(outcome.file_name, outcome.encoded)
+    store.inject(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME, commit.encoded)
+
+    with pytest.raises(
+        persistence.LifecycleV2RetentionUnconfirmed,
+        match="loaded root and complete retained prefix",
+    ):
+        _repository(store)
+
+
+def test_restart_never_classifies_root_only_success_as_committed() -> None:
+    root = _root()
+    store = FakeLifecycleV2ArtifactStore()
+    repository = _repository(store)
+    repository.reserve_root(root)
+    transcript = repository.publish_transcript()
+    protocol_start = root.admission_started_boottime_ns + 10
+    outcome = LifecycleV2Outcome.capture(
+        {
+            "contract_version": LIFECYCLE_V2_OUTCOME_CONTRACT_VERSION,
+            "service": LIFECYCLE_V2_SERVICE,
+            "status": "confirmed_success",
+            "lifecycle_version": 2,
+            "graceful_stop_operation_id": root.graceful_stop_operation_id,
+            "root_sha256": root.sha256,
+            "ordinal": 23,
+            "predecessor_sha256": root.sha256,
+            "final_stage": LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED.value,
+            "transcript_sha256": transcript.sha256,
+            "reason_code": "completed",
+            "pre_effect_binding_sha256": _digest("pre-effect"),
+            "post_teardown_binding_sha256": _digest("post-teardown"),
+            "volume_proof_sha256": _digest("volumes"),
+            "terminal_cleanup_sha256": _digest("cleanup"),
+            "stop_effects_confirmed": True,
+            "teardown_confirmed": True,
+            "terminal_cleanup_confirmed": True,
+            "admission_started_boottime_ns": root.admission_started_boottime_ns,
+            "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
+            "commit_protocol_started_boottime_ns": protocol_start,
+            "commit_publication_authorization_deadline_boottime_ns": (
+                protocol_start + 5_000_000_000
+            ),
+            "commit_authorized_boottime_ns": None,
+            "created_at_utc": UTC_TEXT,
+        }
+    )
+    commit = LifecycleV2OutcomeCommit.capture(
+        {
+            "contract_version": LIFECYCLE_V2_OUTCOME_COMMIT_CONTRACT_VERSION,
+            "service": LIFECYCLE_V2_SERVICE,
+            "status": "terminal_outcome_committed",
+            "lifecycle_version": 2,
+            "graceful_stop_operation_id": root.graceful_stop_operation_id,
+            "root_sha256": root.sha256,
+            "outcome_sha256": outcome.sha256,
+            "outcome_status": outcome.status,
+            "transcript_sha256": transcript.sha256,
+            "admission_started_boottime_ns": root.admission_started_boottime_ns,
+            "commit_protocol_started_boottime_ns": protocol_start,
+            "commit_publication_authorization_deadline_boottime_ns": (
+                protocol_start + 5_000_000_000
+            ),
+            "commit_authorized_boottime_ns": protocol_start + 1,
+            "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
+            "committed_at_utc": UTC_TEXT,
+        },
+        outcome=outcome,
+    )
+    with pytest.raises(persistence.LifecycleV2RepositoryRejected, match="recovery only"):
+        repository.commit_recovery_outcome(outcome, commit)
+    store.inject(outcome.file_name, outcome.encoded)
+    store.inject(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME, commit.encoded)
+
+    with pytest.raises(
+        persistence.LifecycleV2RetentionUnconfirmed,
+        match="root-only namespace",
+    ):
+        _repository(store)
+
+
+def test_recovery_classification_is_single_use_and_cannot_follow_terminal_cleanup() -> None:
+    root = _root()
+    intent = _request_intent(root, _request_basis(root))
+    repository = _repository()
+    repository.reserve_root(root)
+    repository.retain_request_intent(intent, _request_basis(root))
+    classified_transcript = repository.publish_transcript()
+    first_recovery = _recovery_intent(root, intent, classified_transcript.sha256)
+    repository.retain_recovery_classification_intent(first_recovery)
+    final_transcript = repository.publish_transcript()
+    repeated_recovery = _recovery_intent(root, first_recovery, final_transcript.sha256)
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="already retained",
+    ):
+        repository.retain_recovery_classification_intent(repeated_recovery)
+
+    terminal_cleanup = LifecycleV2ProgressRecord(
+        graceful_stop_operation_id=root.graceful_stop_operation_id,
+        root_sha256=root.sha256,
+        ordinal=22,
+        stage=LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED,
+        predecessor_sha256=_digest("ordinal-21"),
+        effect_kind="terminal_cleanup",
+        deadline_boottime_ns=root.operation_deadline_boottime_ns,
+        evidence=FrozenJsonObject.capture(
+            {
+                "cleanup_intent_sha256": _digest("cleanup-intent"),
+                "transport_quiescence_record_sha256": _digest("quiescence"),
+                "supervisor_remove_result_sha256": _digest("supervisor-remove"),
+                "socket_absence_sha256": _digest("socket-absence"),
+                "credential_path_absence_sha256": _digest("credential-absence"),
+                "empty_mount_projection_sha256": _digest("empty-mounts"),
+                "unmount_receipt_sha256": _digest("unmount"),
+                "native_owner_cleanup_receipt_sha256": _digest("native-cleanup"),
+                "all_private_material_unreachable": True,
+                "cleanup_completed_boottime_ns": root.admission_started_boottime_ns + 20,
+            }
+        ),
+        recorded_at_utc=UTC_TEXT,
+    )
+    post_cleanup = _recovery_intent(root, terminal_cleanup, _digest("terminal-transcript"))
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="cannot follow a terminal stage",
+    ):
+        repository._require_stage_transition(
+            post_cleanup,
+            records=(terminal_cleanup,) * 22,
+        )
 
 
 @pytest.fixture
@@ -861,6 +1341,77 @@ def test_adr0112_v2_seam_binds_operation_admission_channel_and_is_one_shot(
             artifact_directory=inputs.artifact_directory,
             ignored_root=inputs.ignored_root,
         )
+
+
+@pytest.mark.parametrize(
+    "identity_fault",
+    [
+        "capability",
+        "owner_pid",
+        "owner_thread",
+        "operation",
+        "admission",
+        "channel",
+    ],
+)
+def test_adr0112_v2_identity_rejection_burns_pending_and_active_state(
+    identity_fault: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    _decision_receipt_registry_guard: Any,
+) -> None:
+    def valid(candidate: object, payload: object) -> bool:
+        return type(candidate) is bytes and candidate == claimed_fx._authenticated_seal(
+            cast(dict[str, object], payload)
+        )
+
+    monkeypatch.setattr(topology_reader, "_valid_observation_seal", valid)
+    monkeypatch.setattr(
+        topology_reader,
+        "_valid_cursor_seal",
+        lambda candidate, payload, _result: valid(candidate, payload),
+    )
+    monkeypatch.setattr(image_verifier, "reviewed_input_bindings", execution_fx._reviewed_bindings)
+    inputs = decision_fx._prepared_inputs(monkeypatch, tmp_path)
+    receipt = decision_fx._prepare(inputs)
+    loaded = decision_fx._load_pending_receipt(inputs, receipt)
+    admission = v2_admission._build_injected_lifecycle_v2_admission_identity(
+        graceful_stop_operation_id=decision_fx.STOP_OPERATION_ID,
+        admission_sha256=_digest("admission"),
+        channel_id=_digest("channel"),
+    )
+    if identity_fault == "capability":
+        admission = replace(admission, _capability=object())
+    elif identity_fault == "owner_pid":
+        admission = replace(admission, owner_pid=admission.owner_pid + 1)
+    elif identity_fault == "owner_thread":
+        admission = replace(admission, owner_thread=threading.Thread())
+    elif identity_fault == "operation":
+        admission = replace(
+            admission,
+            graceful_stop_operation_id="423e4567-e89b-42d3-a456-426614174002",
+        )
+    elif identity_fault == "admission":
+        admission = replace(admission, admission_sha256="invalid")
+    elif identity_fault == "channel":
+        admission = replace(admission, channel_id="invalid")
+
+    with pytest.raises(
+        (
+            v2_admission.LifecycleV2HistoricalReceiptHandoffRejected,
+            artifacts.TrustedTimePostEnrollmentGracefulStopDecisionArtifactError,
+        )
+    ):
+        v2_admission._consume_historical_receipt_for_injected_lifecycle_v2_admission(
+            loaded,
+            admission_identity=admission,
+            start_operator_attested_approval_artifact=inputs.attested_artifact,
+            expected_graceful_stop_decision_v1_sha256=(receipt.graceful_stop_decision_v1_sha256),
+            artifact_directory=inputs.artifact_directory,
+            ignored_root=inputs.ignored_root,
+        )
+    assert not artifacts._PENDING_LOADED_RECEIPT_REGISTRY
+    assert not artifacts._LOADED_RECEIPT_REGISTRY
 
 
 def test_partial_slice_is_machine_checkably_unreachable_and_stop_target_stays_closed() -> None:

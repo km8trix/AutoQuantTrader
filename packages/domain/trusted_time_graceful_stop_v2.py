@@ -129,7 +129,12 @@ def _reject_constant(_: str) -> Never:
 
 
 def _parse_integer(value: str) -> int:
-    parsed = int(value)
+    try:
+        parsed = int(value)
+    except (ValueError, OverflowError):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "JSON integer is outside signed 64-bit bounds"
+        ) from None
     if parsed < -MAXIMUM_SIGNED_INTEGER - 1 or parsed > MAXIMUM_SIGNED_INTEGER:
         raise TrustedTimeGracefulStopV2Rejected("JSON integer is outside signed 64-bit bounds")
     return parsed
@@ -793,8 +798,13 @@ def _validate_evidence(stage: LifecycleV2Stage, evidence: FrozenJsonObject) -> N
                 and value[name] is not True
             ):
                 raise TrustedTimeGracefulStopV2Rejected(f"{name} must be true")
-    if stage is LifecycleV2Stage.NAMED_VOLUMES_PRESERVED and value["volume_delete_call_count"] != 0:
-        raise TrustedTimeGracefulStopV2Rejected("volume delete reachability is forbidden")
+    if stage is LifecycleV2Stage.NAMED_VOLUMES_PRESERVED:
+        volume_delete_call_count = _require_int(
+            value["volume_delete_call_count"],
+            "volume_delete_call_count",
+        )
+        if volume_delete_call_count != 0:
+            raise TrustedTimeGracefulStopV2Rejected("volume delete reachability is forbidden")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1104,10 +1114,12 @@ def decode_lifecycle_v2_transcript(encoded: object) -> LifecycleV2Transcript:
         root_sha256=value["root_sha256"],  # type: ignore[arg-type]
         entries=tuple(entries),
     )
+    last_ordinal = _require_int(value["last_ordinal"], "last_ordinal")
+    entry_count = _require_int(value["entry_count"], "entry_count", minimum=1)
     if (
-        value["last_ordinal"] != transcript.entries[-1].ordinal
+        last_ordinal != transcript.entries[-1].ordinal
         or value["last_stage"] != transcript.entries[-1].stage.value
-        or value["entry_count"] != len(transcript.entries)
+        or entry_count != len(transcript.entries)
     ):
         raise TrustedTimeGracefulStopV2Rejected("transcript summary disagrees with entries")
     return transcript
@@ -1229,15 +1241,62 @@ def _validate_request_common(value: dict[str, object], *, final: bool) -> None:
         raise TrustedTimeGracefulStopV2Rejected("transport cleanup deadline is not exact")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class LifecycleV2CleanStopRequestBasis:
     fields: FrozenJsonObject
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("clean-stop request bases require canonical capture or root derivation")
 
     @classmethod
     def capture(cls, value: object) -> Self:
         frozen = FrozenJsonObject.capture(value)
         _validate_request_common(frozen.to_dict(), final=False)
-        return cls(frozen)
+        result = object.__new__(cls)
+        object.__setattr__(result, "fields", frozen)
+        return result
+
+    @classmethod
+    def from_root(cls, root: LifecycleV2Root) -> Self:
+        if type(root) is not LifecycleV2Root:
+            raise TrustedTimeGracefulStopV2Rejected("request basis requires an exact root")
+        return cls.capture(
+            {
+                "contract_version": LIFECYCLE_V2_CLEAN_STOP_REQUEST_BASIS_CONTRACT_VERSION,
+                "service": LIFECYCLE_V2_CLEAN_STOP_SERVICE,
+                "status": "operation_bound_clean_stop_request_basis_retained",
+                "environment": root.environment,
+                "graceful_stop_operation_id": root.graceful_stop_operation_id,
+                "graceful_stop_target_sha256": root.graceful_stop_target_sha256,
+                "graceful_stop_decision_v1_sha256": root.graceful_stop_decision_v1_sha256,
+                "historical_decision_receipt_sha256": root.historical_decision_receipt_sha256,
+                "graceful_stop_operator_attestation_envelope_sha256": (
+                    root.graceful_stop_operator_attestation_envelope_sha256
+                ),
+                "lifecycle_root_sha256": root.sha256,
+                "admission_sha256": root.admission_sha256,
+                "topology_sha256": root.topology_sha256,
+                "topology_lease_sha256": root.topology_lease_sha256,
+                "trusted_head_sha256": root.trusted_head_sha256,
+                "supervisor_container_id": root.supervisor_container_id,
+                "channel_id": root.channel_id,
+                "boot_epoch_sha256": root.boot_epoch_sha256,
+                "host_process_epoch_sha256": root.host_process_epoch_sha256,
+                "supervisor_process_epoch_sha256": root.supervisor_process_epoch_sha256,
+                "checkpoint_reason": "clean_stop",
+                "exact_new_record_required": True,
+                "clean_stop_result_deadline_boottime_ns": (
+                    root.clean_stop_result_deadline_boottime_ns
+                ),
+                "transport_cleanup_required": True,
+                "transport_cleanup_deadline_boottime_ns": min(
+                    root.clean_stop_result_deadline_boottime_ns + LIFECYCLE_V2_COMMIT_BUDGET_NS,
+                    root.operation_deadline_boottime_ns,
+                ),
+                "admission_started_boottime_ns": root.admission_started_boottime_ns,
+                "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
+            }
+        )
 
     def to_dict(self) -> dict[str, object]:
         return self.fields.to_dict()
@@ -1254,34 +1313,51 @@ class LifecycleV2CleanStopRequestBasis:
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class LifecycleV2CleanStopRequest:
     fields: FrozenJsonObject
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("clean-stop requests require canonical capture or prefix derivation")
 
     @classmethod
     def capture(cls, value: object) -> Self:
         frozen = FrozenJsonObject.capture(value)
         _validate_request_common(frozen.to_dict(), final=True)
-        return cls(frozen)
+        result = object.__new__(cls)
+        object.__setattr__(result, "fields", frozen)
+        return result
 
     @classmethod
     def from_prefix(
         cls,
+        root: LifecycleV2Root,
         basis: LifecycleV2CleanStopRequestBasis,
-        *,
-        request_intent_sha256: str,
-        lifecycle_dispatch_prefix_sha256: str,
+        request_intent: LifecycleV2ProgressRecord,
     ) -> Self:
-        if type(basis) is not LifecycleV2CleanStopRequestBasis:
-            raise TrustedTimeGracefulStopV2Rejected("request basis type is invalid")
-        _require_sha256(request_intent_sha256, "request_intent_sha256")
-        _require_sha256(lifecycle_dispatch_prefix_sha256, "lifecycle_dispatch_prefix_sha256")
+        if (
+            type(root) is not LifecycleV2Root
+            or type(basis) is not LifecycleV2CleanStopRequestBasis
+            or basis != LifecycleV2CleanStopRequestBasis.from_root(root)
+            or type(request_intent) is not LifecycleV2ProgressRecord
+            or request_intent.ordinal != 1
+            or request_intent.stage is not LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED
+            or request_intent.root_sha256 != root.sha256
+            or request_intent.graceful_stop_operation_id != root.graceful_stop_operation_id
+            or request_intent.predecessor_sha256 != root.sha256
+            or request_intent.evidence.to_dict()["arguments_sha256"] != basis.sha256
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "request must derive from one exact root/basis/intent prefix"
+            )
         value = basis.to_dict()
         value["contract_version"] = LIFECYCLE_V2_CLEAN_STOP_REQUEST_CONTRACT_VERSION
         value["status"] = "operation_bound_clean_stop_requested"
         value["request_basis_sha256"] = basis.sha256
-        value["request_intent_sha256"] = request_intent_sha256
-        value["lifecycle_dispatch_prefix_sha256"] = lifecycle_dispatch_prefix_sha256
+        value["request_intent_sha256"] = request_intent.sha256
+        value["lifecycle_dispatch_prefix_sha256"] = lifecycle_v2_dispatch_prefix_sha256(
+            root, request_intent
+        )
         return cls.capture(value)
 
     def to_dict(self) -> dict[str, object]:
@@ -1369,13 +1445,16 @@ def _canonical_base64(value: object, *, exact_length: int | None = None) -> byte
     return decoded
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class UnverifiedLifecycleV2TransportEnvelope:
     """Structurally exact signed bytes; cryptographic authentication is separate."""
 
     fields: FrozenJsonObject
     payload: bytes
     signature: bytes
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("transport envelopes require canonical capture")
 
     @classmethod
     def capture(cls, value: object) -> Self:
@@ -1386,6 +1465,7 @@ class UnverifiedLifecycleV2TransportEnvelope:
             fields["contract_version"] != LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION
             or fields["service"] != LIFECYCLE_V2_TRANSPORT_SERVICE
             or fields["protocol_version"] != 2
+            or type(fields["frame_type"]) is not str
             or fields["frame_type"] not in _FRAME_RULES
         ):
             raise TrustedTimeGracefulStopV2Rejected("transport envelope discriminator is invalid")
@@ -1399,6 +1479,7 @@ class UnverifiedLifecycleV2TransportEnvelope:
             raise TrustedTimeGracefulStopV2Rejected("transport frame role or counter is invalid")
         _require_identifier(fields["environment"], "environment")
         _require_int(fields["key_generation"], "key_generation", minimum=1)
+        _require_int(fields["message_counter"], "message_counter")
         _require_identifier(fields["signing_key_id"], "signing_key_id")
         for name in (
             "boot_epoch_sha256",
@@ -1417,7 +1498,10 @@ class UnverifiedLifecycleV2TransportEnvelope:
         payload_value = decode_canonical_v2_json_object(payload, maximum_bytes=payload_limit)
         if payload_value.get("contract_version") != payload_contract:
             raise TrustedTimeGracefulStopV2Rejected("transport payload contract disagrees")
-        result = cls(fields=frozen, payload=payload, signature=signature)
+        result = object.__new__(cls)
+        object.__setattr__(result, "fields", frozen)
+        object.__setattr__(result, "payload", payload)
+        object.__setattr__(result, "signature", signature)
         if len(result.encoded) > LIFECYCLE_V2_WIRE_MAXIMUM_BYTES:
             raise TrustedTimeGracefulStopV2Rejected("signed envelope exceeds seqpacket bound")
         return result
@@ -1462,7 +1546,10 @@ def _authenticate_lifecycle_v2_transport_envelope_for_fake(
         or capability is not _FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY
     ):
         raise TrustedTimeGracefulStopV2Rejected("fake transport authentication is invalid")
-    return _FakeAuthenticatedLifecycleV2TransportEnvelope(envelope, capability)
+    verified = decode_unverified_lifecycle_v2_transport_envelope(envelope.encoded)
+    if verified != envelope:
+        raise TrustedTimeGracefulStopV2Rejected("fake transport envelope is not canonical")
+    return _FakeAuthenticatedLifecycleV2TransportEnvelope(verified, capability)
 
 
 def _require_fake_authenticated_lifecycle_v2_transport_envelope(
@@ -1474,7 +1561,10 @@ def _require_fake_authenticated_lifecycle_v2_transport_envelope(
         or type(value.envelope) is not UnverifiedLifecycleV2TransportEnvelope
     ):
         raise TrustedTimeGracefulStopV2Rejected("terminal wire is not fake-authenticated")
-    return value.envelope
+    verified = decode_unverified_lifecycle_v2_transport_envelope(value.envelope.encoded)
+    if verified != value.envelope:
+        raise TrustedTimeGracefulStopV2Rejected("terminal wire changed under validation")
+    return verified
 
 
 def decode_unverified_lifecycle_v2_transport_envelope(
@@ -1546,9 +1636,12 @@ _COMMIT_FIELDS = frozenset(
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class LifecycleV2Outcome:
     fields: FrozenJsonObject
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("lifecycle outcomes require canonical capture")
 
     @classmethod
     def capture(cls, value: object) -> Self:
@@ -1559,6 +1652,7 @@ class LifecycleV2Outcome:
             fields["contract_version"] != LIFECYCLE_V2_OUTCOME_CONTRACT_VERSION
             or fields["service"] != LIFECYCLE_V2_SERVICE
             or fields["lifecycle_version"] != 2
+            or type(fields["status"]) is not str
             or fields["status"] not in {"confirmed_success", "recovery_required"}
         ):
             raise TrustedTimeGracefulStopV2Rejected("outcome discriminator is invalid")
@@ -1639,7 +1733,9 @@ class LifecycleV2Outcome:
         if protocol_start < start:
             raise TrustedTimeGracefulStopV2Rejected("outcome commit predates admission")
         _require_utc(fields["created_at_utc"], "created_at_utc")
-        return cls(frozen)
+        result = object.__new__(cls)
+        object.__setattr__(result, "fields", frozen)
+        return result
 
     def to_dict(self) -> dict[str, object]:
         return self.fields.to_dict()
@@ -1669,9 +1765,12 @@ def decode_lifecycle_v2_outcome(encoded: object) -> LifecycleV2Outcome:
     )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class LifecycleV2OutcomeCommit:
     fields: FrozenJsonObject
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("lifecycle outcome commits require canonical capture")
 
     @classmethod
     def capture(cls, value: object, *, outcome: LifecycleV2Outcome | None = None) -> Self:
@@ -1683,6 +1782,7 @@ class LifecycleV2OutcomeCommit:
             or fields["service"] != LIFECYCLE_V2_SERVICE
             or fields["status"] != "terminal_outcome_committed"
             or fields["lifecycle_version"] != 2
+            or type(fields["outcome_status"]) is not str
             or fields["outcome_status"] not in {"confirmed_success", "recovery_required"}
         ):
             raise TrustedTimeGracefulStopV2Rejected("commit discriminator is invalid")
@@ -1735,7 +1835,9 @@ class LifecycleV2OutcomeCommit:
                 raise TrustedTimeGracefulStopV2Rejected("recovery commit changed authorization")
             if fields["outcome_sha256"] != outcome.sha256:
                 raise TrustedTimeGracefulStopV2Rejected("commit outcome digest disagrees")
-        return cls(frozen)
+        result = object.__new__(cls)
+        object.__setattr__(result, "fields", frozen)
+        return result
 
     def to_dict(self) -> dict[str, object]:
         return self.fields.to_dict()

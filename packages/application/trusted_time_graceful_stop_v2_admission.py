@@ -16,6 +16,7 @@ from scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts impor
     LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt,
     _consume_loaded_decision_receipt_for_v2,
     _ConsumedLoadedDecisionArtifactReceiptV2Snapshot,
+    _reject_loaded_decision_receipt_for_v2_admission_identity,
     _require_consumed_loaded_decision_artifact_receipt_v2_snapshot,
 )
 
@@ -71,7 +72,17 @@ def _consume_historical_receipt_for_injected_lifecycle_v2_admission(
         or admission_identity.owner_pid != os.getpid()
         or admission_identity.owner_thread is not threading.current_thread()
     ):
-        raise LifecycleV2HistoricalReceiptHandoffRejected("v2 admission identity is invalid")
+        try:
+            _reject_loaded_decision_receipt_for_v2_admission_identity(
+                loaded,
+                bridge_capability=_LIFECYCLE_V2_BRIDGE_CAPABILITY,
+            )
+        except BaseException as error:
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2HistoricalReceiptHandoffRejected(
+                "v2 admission identity is invalid"
+            ) from None
     snapshot = _consume_loaded_decision_receipt_for_v2(
         loaded,
         start_operator_attested_approval_artifact=(start_operator_attested_approval_artifact),
