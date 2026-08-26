@@ -1474,19 +1474,27 @@ traceability, or reporting requirements below.
   Exact current retries converge; stale or later-head retries, session forks,
   fingerprint disappearance/reordering/reuse, signing-scope disappearance,
   generation/time rollback, consumer-reference rollback, and changed immutable
-  reuse fail closed. Replay-only consumption advances the durable cursor even
-  when the session digest is unchanged. Reads reconstruct the complete chain,
-  reapply every replay/high-water delta, authenticate sanitized state and event
-  payloads/digests, recompute the stable scope, and match the final cursor to
-  the head. Persisted content is limited to typed nonsecret reference
-  identities, sanitized session metadata, fingerprints, high-waters,
+  reuse fail closed. Initialization and reconstruction bind each environment to
+  its canonical endpoint profile. Writes and reads enforce ADR 0118's closed
+  lifecycle graph, exact deterministic edges, token/counter/time-horizon field
+  deltas, same-event or immediately preceding compatible replay-fingerprint
+  consumption, and the exact resulting signing scope/generation/time high-water
+  for signing-driven transitions. Replay-only consumption advances
+  the durable cursor even when the session digest is unchanged. Reads
+  reconstruct the complete chain, reapply every replay/high-water delta,
+  authenticate sanitized state and event payloads/digests, recompute the stable
+  scope, and match the final cursor to the head. Persisted content is limited
+  to typed nonsecret reference identities, sanitized session metadata,
+  fingerprints, high-waters,
   predecessors, and digests; keys, tokens, secrets, verifier values,
   signatures, Authorization/Cookie headers, request URLs/query strings, and
   credential-bearing material are neither accepted nor retained. Nonempty
-  history blocks downgrade. This authenticates local SQL history only and adds
-  no secret resolver, token-response authentication, OOB/browser runtime,
-  provider transport/call, account binding, broker action, startup, or trading
-  authority.
+  history blocks downgrade. The journal does not retain signing-intent or
+  trusted-time-evidence preimages, so compatible adjacency is not a
+  cryptographic provenance claim. This authenticates local SQL history only
+  and adds no secret resolver, token-response authentication, OOB/browser
+  runtime, provider transport/call, account binding, broker action, startup, or
+  trading authority.
 - The capability value and translated request description are immutable and
   content-authenticated, and lookup/account/asset observations retain exact
   response digests, while the raw journal authenticates exact account-local

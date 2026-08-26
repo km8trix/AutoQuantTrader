@@ -154,9 +154,11 @@ supervised-session reducer over caller-injected time and nonce values. Phase 4AM
 adds one immutable sanitized event chain and atomic current head per stable
 typed environment/consumer-secret scope, reconstructing and authenticating
 complete secret-free local replay/session history. This is durable local
-coordination only: it authenticates no token response or provider origin and
-performs no provider call. No deployed secret resolver, general security master,
-stream, reconciliation, order effect, or dispatch authority exists. The trader
+coordination only: writes and reads enforce the canonical environment/profile
+binding and ADR-0118 lifecycle graph, but authenticate no token response or
+provider origin and perform no provider call. No deployed secret resolver,
+general security master, stream, reconciliation, order effect, or dispatch
+authority exists. The trader
 remains `not_ready`, Phase 4's exit gate is open, and no network-capable order
 transport or production market-data adapter is enabled. No E\*TRADE OAuth
 runtime/session manager, authenticated token response, account binding,
@@ -1639,15 +1641,30 @@ rollback, session high-water rollback, and conflicting concurrent successors
 fail closed. Replay-only events move the durable cursor even when session state
 is unchanged, so state equality cannot hide a stale replay head.
 
+Initialization binds the exact empty generation-one state to the canonical
+endpoint profile for its typed environment. Every write admits only ADR-0118's
+closed predecessor/successor graph. Exact deterministic edges, access-token
+identity/counter/time-horizon deltas, and token-reference advances are checked
+explicitly. A signing-driven edge must consume one compatible replay
+fingerprint in that event or the immediately preceding replay-only event, and
+the resulting guard must carry the canonical signing scope, generation, and
+transition time. Authorization confirmation instead requires the exact
+deterministic verifier-consumption fingerprint. Phase skips, revoked or expired
+resurrection, token swaps, counter jumps, late activity or revocation, and all
+other edges fail closed.
+
 Every load reconstructs the complete ordered chain from its root, reapplies
 each fingerprint/signing-high-water delta, rehydrates only sanitized ADR-0118
-session evidence, recomputes every payload/event/guard/stable-scope digest, and
-matches the final cursor to the head. Persisted rows contain typed nonsecret
-reference identities, sanitized session metadata, fingerprints, high-waters,
-predecessors, and digests only. Keys, token values, secrets, verifiers,
-signatures, Authorization/Cookie headers, request URLs/query strings, and
-credential-bearing material are neither accepted nor stored. This authenticates
-local durable history, not a provider response.
+session evidence, re-enforces the canonical environment/profile binding and
+closed lifecycle graph, recomputes every payload/event/guard/stable-scope
+digest, and matches the final cursor to the head. Persisted rows contain typed
+nonsecret reference identities, sanitized session metadata, fingerprints,
+high-waters, predecessors, and digests only. Keys, token values, secrets,
+verifiers, signatures, Authorization/Cookie headers, request URLs/query
+strings, and credential-bearing material are neither accepted nor stored. The
+journal does not retain signing-intent or trusted-time-evidence preimages, so
+compatible replay adjacency is not cryptographic provenance for either input.
+This authenticates local durable history, not a provider response.
 
 A later reviewed runtime must still supply ephemeral secret resolution,
 authenticated raw-first token responses, interactive OOB handoff,

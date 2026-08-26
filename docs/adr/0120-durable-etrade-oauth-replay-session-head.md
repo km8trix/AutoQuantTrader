@@ -46,14 +46,27 @@ same environment and secret scope.
      reference rotation cannot create another durable history.
 
 3. Initialization admits only ADR-0118's exact token-empty generation-one
-   state and empty replay guard. Every advancement supplies the exact prior
+   state, the canonical endpoint-profile digest for its typed environment, and
+   an empty replay guard. Every advancement supplies the exact prior
    `EtradeOAuthDurableSnapshot`, successor state, and successor replay guard.
    Under the database write lock, the repository compares the supplied event,
    session, replay-guard, and sequence cursor with the fully reconstructed
    current snapshot. A replay-only event can therefore move the durable head
    even when the session-state digest is unchanged; a later state-only command
    from the older snapshot loses as stale.
-4. One event can append zero or one fingerprint. Existing fingerprints must be
+4. The repository admits only ADR 0118's closed predecessor/successor graph.
+   Deterministic authorization, reauthorization, and consumer-reference
+   rotation edges must equal the pure reducer result. Observation and activity
+   edges must preserve access-token identity, counters, and horizons exactly.
+   Request-token, access-token, renewal, and revocation edges require a replay
+   fingerprint in the same event or the immediately preceding replay-only
+   event, plus the exact canonical signing scope, generation, and transition
+   time in the resulting guard. Authorization confirmation requires its exact
+   deterministic verifier-consumption fingerprint and no signing high-water
+   update. State-only edges cannot consume replay evidence; phase skips,
+   revoked/expired resurrection, counter jumps, token swaps, late activity or
+   revocation, and every other edge fail closed on both write and read.
+5. One event can append zero or one fingerprint. Existing fingerprints must be
    an exact ordered prefix and can never disappear, reorder, change, or repeat.
    Existing signing high-water scopes can never disappear; at most one scope
    can be added or advanced with a fingerprint, and its generation and Unix
@@ -61,39 +74,44 @@ same environment and secret scope.
    trusted-time high-water, environment, consumer scope, and endpoint profile
    also cannot regress or change. A changed session must name the exact current
    session digest as predecessor.
-5. An exact retry recomputes the proposed event from the complete supplied
+6. An exact retry recomputes the proposed event from the complete supplied
    prior/proposed pair. It converges only when that event is the already-current
    event. A stale branch, rollback, replay, conflicting identity reuse, changed
    retry, or later-head retry fails deterministically. SQLite uses
    `BEGIN IMMEDIATE`; PostgreSQL takes the exact head row `FOR UPDATE`; the
    final compare-and-swap requires the prior event and sequence, so two
    conflicting concurrent advancements have exactly one winner.
-6. Every read selects all events for the stable scope and reconstructs the
+7. Every read selects all events for the stable scope and reconstructs the
    session and replay guard from the root. It recomputes every sanitized state,
    state payload digest, event canonical payload/digest, predecessor, replay
-   delta, replay-guard digest, sequence, stable environment/scope digest, and
-   final head cursor. Orphaned event/head scopes and any duplicated-field,
+   delta, replay-guard digest, closed lifecycle edge, canonical
+   environment-profile binding, sequence, stable environment/scope digest, and final head
+   cursor. Orphaned event/head scopes and any duplicated-field,
    cross-scope, event, guard, or head tampering fail closed before a snapshot is
    returned. Operational schema verification authenticates every durable
    scope.
-7. A consumer-reference rotation is permitted only from ADR-0118's token-empty
+8. A consumer-reference rotation is permitted only from ADR-0118's token-empty
    `NEEDS_REQUEST_TOKEN` state after explicit reauthorization has started. It
    must strictly increase the typed nonsecret reference version inside the
    same environment/scope and binds the prior state and both reference digests.
    Rotation from request-token, authorization, active, inactive, expired,
    revoked, or reauthorization-required states is rejected so a new consumer
    reference cannot be paired with tokens issued under the old consumer.
-8. Persisted content is allowlisted sanitized metadata. Consumer keys,
+9. Persisted content is allowlisted sanitized metadata. Consumer keys,
    consumer/token secrets, request/access token values, verifier values,
    signatures, Authorization or Cookie headers, request URLs/query strings,
    signature bases/keys, authorization URLs, and other credential-bearing
    material are neither accepted nor stored. Reference scope/version and
-   semantic digests are nonsecret identities, not credential resolution.
-9. Migration downgrade takes an `ACCESS EXCLUSIVE` lock on PostgreSQL and
+   semantic digests are nonsecret identities, not credential resolution. The
+   journal proves that one compatible replay consumption is adjacent to a
+   signing-driven state edge; because it does not retain the sanitized
+   signing-intent preimage or trusted-time-evidence preimage, it does not claim
+   cryptographic intent-to-fingerprint or time-evidence provenance.
+10. Migration downgrade takes an `ACCESS EXCLUSIVE` lock on PostgreSQL and
    refuses to remove either table while any durable OAuth history exists.
    SQLite enforces the same nonempty refusal. The migration is additive and
    does not reinterpret any Alpaca, ADR-0113, or ADR-0118 evidence.
-10. All authority flags remain false. This coordinator authenticates only its
+11. All authority flags remain false. This coordinator authenticates only its
     local sanitized journal and current cursor. It does not authenticate an
     E\*TRADE response or provider origin, resolve or retain credentials, open a
     browser/OOB handoff, perform transport, schedule renewal, bind an account,

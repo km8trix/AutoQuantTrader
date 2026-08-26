@@ -22,11 +22,15 @@ from sqlalchemy.engine import Connection, RowMapping
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from packages.adapters.broker.etrade import (
+    ETRADE_PRODUCTION_ENDPOINT_PROFILE,
     ETRADE_PROVIDER,
+    ETRADE_SANDBOX_ENDPOINT_PROFILE,
     EtradeEnvironment,
     EtradeSecretScope,
 )
 from packages.adapters.broker.etrade_oauth import (
+    ETRADE_OAUTH_INACTIVITY_SECONDS,
+    ETRADE_OAUTH_SESSION_CONTRACT_VERSION,
     EtradeOAuthConsumerSecretReference,
     EtradeOAuthContractError,
     EtradeOAuthReauthorizationReason,
@@ -36,6 +40,9 @@ from packages.adapters.broker.etrade_oauth import (
     EtradeOAuthSigningTimeHighWater,
     EtradeOAuthTokenKind,
     EtradeOAuthTokenSecretReference,
+    begin_etrade_oauth_out_of_band_authorization,
+    begin_etrade_oauth_reauthorization,
+    require_etrade_oauth_reauthorization,
 )
 from packages.domain.canonical import canonical_json_bytes, canonical_json_text
 from packages.persistence.account_coordinator import _write_transaction
@@ -96,6 +103,16 @@ def _sha256_bytes(value: bytes) -> str:
 
 def _sha256(value: object) -> str:
     return _sha256_bytes(canonical_json_bytes(value))
+
+
+def _canonical_endpoint_profile_sha256(environment: EtradeEnvironment) -> str:
+    """Return the only endpoint-profile identity admitted for an environment."""
+
+    return (
+        ETRADE_SANDBOX_ENDPOINT_PROFILE.semantic_sha256
+        if environment is EtradeEnvironment.SANDBOX
+        else ETRADE_PRODUCTION_ENDPOINT_PROFILE.semantic_sha256
+    )
 
 
 def _require_exact_state(value: object, field_name: str) -> EtradeOAuthSessionState:
@@ -224,6 +241,7 @@ def _is_exact_initial_state(state: EtradeOAuthSessionState) -> bool:
         and state.expires_at_seconds is None
         and state.reauthorization_reason is None
         and state.predecessor_sha256 is None
+        and state.endpoint_profile_sha256 == _canonical_endpoint_profile_sha256(state.environment)
     )
 
 
@@ -373,6 +391,394 @@ def _apply_replay_delta(
         raise EtradeOAuthCoordinatorError(
             "persisted E*TRADE OAuth replay delta is malformed"
         ) from error
+
+
+_SIGNING_REPLAY_PHASES = frozenset(
+    {
+        EtradeOAuthSessionPhase.NEEDS_REQUEST_TOKEN,
+        EtradeOAuthSessionPhase.AUTHORIZATION_CONFIRMED,
+        EtradeOAuthSessionPhase.ACCESS_TOKEN_ACTIVE,
+        EtradeOAuthSessionPhase.ACCESS_TOKEN_INACTIVE,
+    }
+)
+_ACCESS_IDENTITY_FIELDS = (
+    "provider",
+    "environment",
+    "endpoint_profile_sha256",
+    "consumer_reference",
+    "generation",
+    "highest_token_reference_version",
+    "request_token_intent_sha256",
+    "authorization_challenge_sha256",
+    "access_token_reference",
+    "access_token_intent_sha256",
+    "issued_at_seconds",
+    "expires_at_seconds",
+)
+
+
+def _canonical_signing_scope_sha256(state: EtradeOAuthSessionState) -> str:
+    return _sha256(
+        (
+            ETRADE_OAUTH_SESSION_CONTRACT_VERSION,
+            "signing_time_scope",
+            state.provider.value,
+            state.environment,
+            state.endpoint_profile_sha256,
+            state.consumer_reference.semantic_sha256,
+        )
+    )
+
+
+def _canonical_verifier_fingerprint(state: EtradeOAuthSessionState) -> str:
+    return _sha256(
+        (
+            ETRADE_OAUTH_SESSION_CONTRACT_VERSION,
+            "oob_verifier_consumption_replay_fingerprint",
+            state.environment,
+            state.consumer_reference.semantic_sha256,
+            state.generation,
+            state.authorization_challenge_sha256,
+        )
+    )
+
+
+def _has_no_replay_delta(delta: _ReplayDelta) -> bool:
+    return delta.fingerprint_sha256 is None and delta.signing_high_water is None
+
+
+def _event_is_replay_only(
+    event: EtradeOAuthDurableEvent | None,
+    prior_event: EtradeOAuthDurableEvent | None,
+) -> bool:
+    return (
+        event is not None
+        and prior_event is not None
+        and event.state == prior_event.state
+        and event.replay_fingerprint_sha256 is not None
+    )
+
+
+def _has_adjacent_replay_consumption(
+    delta: _ReplayDelta,
+    previous_event: EtradeOAuthDurableEvent | None,
+    prior_event: EtradeOAuthDurableEvent | None,
+    *,
+    expected_fingerprint_sha256: str | None = None,
+) -> bool:
+    if delta.fingerprint_sha256 is not None:
+        fingerprint = delta.fingerprint_sha256
+    elif _has_no_replay_delta(delta) and _event_is_replay_only(previous_event, prior_event):
+        assert previous_event is not None
+        fingerprint = cast(str, previous_event.replay_fingerprint_sha256)
+    else:
+        return False
+    return expected_fingerprint_sha256 is None or fingerprint == expected_fingerprint_sha256
+
+
+def _matching_signing_high_water(
+    state: EtradeOAuthSessionState,
+    replay_guard: EtradeOAuthReplayGuard,
+) -> EtradeOAuthSigningTimeHighWater | None:
+    expected_scope_sha256 = _canonical_signing_scope_sha256(state)
+    return next(
+        (
+            high_water
+            for high_water in replay_guard.signing_time_high_waters
+            if high_water.scope_sha256 == expected_scope_sha256
+        ),
+        None,
+    )
+
+
+def _has_signing_replay_coupling(
+    state: EtradeOAuthSessionState,
+    replay_guard: EtradeOAuthReplayGuard,
+    delta: _ReplayDelta,
+    previous_event: EtradeOAuthDurableEvent | None,
+    prior_event: EtradeOAuthDurableEvent | None,
+) -> bool:
+    if not _has_adjacent_replay_consumption(delta, previous_event, prior_event):
+        return False
+    high_water = _matching_signing_high_water(state, replay_guard)
+    if high_water is None or (
+        high_water.generation != state.generation
+        or high_water.unix_seconds != state.trusted_time_high_water_seconds
+    ):
+        return False
+    if delta.signing_high_water is not None and delta.signing_high_water != high_water:
+        return False
+    if _has_no_replay_delta(delta):
+        assert previous_event is not None
+        if (
+            previous_event.signing_high_water is not None
+            and previous_event.signing_high_water != high_water
+        ):
+            return False
+    return True
+
+
+def _fields_match(
+    previous: EtradeOAuthSessionState,
+    successor: EtradeOAuthSessionState,
+    field_names: tuple[str, ...],
+) -> bool:
+    return all(getattr(successor, name) == getattr(previous, name) for name in field_names)
+
+
+def _is_replay_only_advance(
+    state: EtradeOAuthSessionState,
+    replay_guard: EtradeOAuthReplayGuard,
+    delta: _ReplayDelta,
+) -> bool:
+    if delta.fingerprint_sha256 is None:
+        return False
+    if state.phase is EtradeOAuthSessionPhase.AUTHORIZATION_PENDING:
+        return (
+            delta.signing_high_water is None
+            and delta.fingerprint_sha256 == _canonical_verifier_fingerprint(state)
+        )
+    if state.phase not in _SIGNING_REPLAY_PHASES:
+        return False
+    high_water = _matching_signing_high_water(state, replay_guard)
+    return (
+        high_water is not None
+        and high_water.generation == state.generation
+        and high_water.unix_seconds >= state.trusted_time_high_water_seconds
+        and (delta.signing_high_water is None or delta.signing_high_water == high_water)
+    )
+
+
+def _is_request_token_transition(
+    previous: EtradeOAuthSessionState,
+    successor: EtradeOAuthSessionState,
+) -> bool:
+    return (
+        previous.phase is EtradeOAuthSessionPhase.NEEDS_REQUEST_TOKEN
+        and successor.phase is EtradeOAuthSessionPhase.REQUEST_TOKEN_RECEIVED
+        and _fields_match(
+            previous,
+            successor,
+            (
+                "provider",
+                "environment",
+                "endpoint_profile_sha256",
+                "consumer_reference",
+                "generation",
+                "renewal_count",
+            ),
+        )
+        and successor.highest_token_reference_version > previous.highest_token_reference_version
+        and successor.trusted_time_high_water_seconds >= previous.trusted_time_high_water_seconds
+        and successor.transition_evidence_sha256 == successor.request_token_intent_sha256
+    )
+
+
+def _is_access_token_transition(
+    previous: EtradeOAuthSessionState,
+    successor: EtradeOAuthSessionState,
+) -> bool:
+    return (
+        previous.phase is EtradeOAuthSessionPhase.AUTHORIZATION_CONFIRMED
+        and successor.phase is EtradeOAuthSessionPhase.ACCESS_TOKEN_ACTIVE
+        and _fields_match(
+            previous,
+            successor,
+            (
+                "provider",
+                "environment",
+                "endpoint_profile_sha256",
+                "consumer_reference",
+                "generation",
+                "renewal_count",
+                "request_token_intent_sha256",
+                "authorization_challenge_sha256",
+            ),
+        )
+        and successor.highest_token_reference_version > previous.highest_token_reference_version
+        and successor.transition_evidence_sha256 == successor.access_token_intent_sha256
+        and successor.issued_at_seconds == successor.trusted_time_high_water_seconds
+        and successor.last_activity_at_seconds == successor.issued_at_seconds
+        and successor.last_observed_at_seconds == successor.issued_at_seconds
+    )
+
+
+def _is_access_observation_or_activity(
+    previous: EtradeOAuthSessionState,
+    successor: EtradeOAuthSessionState,
+) -> bool:
+    previous_activity = previous.last_activity_at_seconds
+    previous_observed = previous.last_observed_at_seconds
+    successor_activity = successor.last_activity_at_seconds
+    successor_observed = successor.last_observed_at_seconds
+    if (
+        previous.phase is not EtradeOAuthSessionPhase.ACCESS_TOKEN_ACTIVE
+        or successor.phase
+        not in {
+            EtradeOAuthSessionPhase.ACCESS_TOKEN_ACTIVE,
+            EtradeOAuthSessionPhase.ACCESS_TOKEN_INACTIVE,
+            EtradeOAuthSessionPhase.ACCESS_TOKEN_EXPIRED,
+        }
+        or not _fields_match(previous, successor, _ACCESS_IDENTITY_FIELDS)
+        or successor.renewal_count != previous.renewal_count
+        or successor.trusted_time_high_water_seconds < previous.trusted_time_high_water_seconds
+        or previous_activity is None
+        or previous_observed is None
+        or successor_activity is None
+        or successor_observed is None
+        or successor_observed != successor.trusted_time_high_water_seconds
+        or successor_observed < previous_observed
+    ):
+        return False
+    if successor_activity == previous_activity:
+        return True
+    return (
+        successor.phase is EtradeOAuthSessionPhase.ACCESS_TOKEN_ACTIVE
+        and successor_activity == successor_observed
+        and successor_activity >= previous_activity
+        and successor_observed - previous_activity < ETRADE_OAUTH_INACTIVITY_SECONDS
+    )
+
+
+def _is_access_token_renewal(
+    previous: EtradeOAuthSessionState,
+    successor: EtradeOAuthSessionState,
+) -> bool:
+    return (
+        previous.phase
+        in {
+            EtradeOAuthSessionPhase.ACCESS_TOKEN_ACTIVE,
+            EtradeOAuthSessionPhase.ACCESS_TOKEN_INACTIVE,
+        }
+        and successor.phase is EtradeOAuthSessionPhase.ACCESS_TOKEN_ACTIVE
+        and _fields_match(previous, successor, _ACCESS_IDENTITY_FIELDS)
+        and successor.renewal_count == previous.renewal_count + 1
+        and successor.trusted_time_high_water_seconds >= previous.trusted_time_high_water_seconds
+        and successor.last_activity_at_seconds == successor.trusted_time_high_water_seconds
+        and successor.last_observed_at_seconds == successor.trusted_time_high_water_seconds
+    )
+
+
+def _is_access_token_revocation(
+    previous: EtradeOAuthSessionState,
+    successor: EtradeOAuthSessionState,
+) -> bool:
+    previous_activity = previous.last_activity_at_seconds
+    successor_observed = successor.last_observed_at_seconds
+    return (
+        previous.phase is EtradeOAuthSessionPhase.ACCESS_TOKEN_ACTIVE
+        and successor.phase is EtradeOAuthSessionPhase.ACCESS_TOKEN_REVOKED
+        and _fields_match(previous, successor, _ACCESS_IDENTITY_FIELDS)
+        and successor.renewal_count == previous.renewal_count
+        and successor.trusted_time_high_water_seconds >= previous.trusted_time_high_water_seconds
+        and previous_activity is not None
+        and successor_observed is not None
+        and successor.last_activity_at_seconds == previous_activity
+        and successor_observed == successor.trusted_time_high_water_seconds
+        and successor_observed - previous_activity < ETRADE_OAUTH_INACTIVITY_SECONDS
+    )
+
+
+def _is_canonical_state_advance(
+    previous: EtradeOAuthSessionState,
+    successor: EtradeOAuthSessionState,
+    replay_guard: EtradeOAuthReplayGuard,
+    delta: _ReplayDelta,
+    previous_event: EtradeOAuthDurableEvent | None,
+    prior_event: EtradeOAuthDurableEvent | None,
+) -> bool:
+    """Validate one ADR-0118 edge and its adjacent durable replay evidence."""
+
+    if successor == previous:
+        if (
+            previous.phase is EtradeOAuthSessionPhase.AUTHORIZATION_CONFIRMED
+            and _event_is_replay_only(previous_event, prior_event)
+        ):
+            return False
+        return _is_replay_only_advance(successor, replay_guard, delta)
+    if successor.predecessor_sha256 != previous.semantic_sha256:
+        return False
+
+    if (
+        previous.phase is EtradeOAuthSessionPhase.NEEDS_REQUEST_TOKEN
+        and successor.phase is EtradeOAuthSessionPhase.NEEDS_REQUEST_TOKEN
+    ):
+        return _has_no_replay_delta(delta) and _is_canonical_consumer_reference_rotation(
+            previous,
+            successor,
+        )
+
+    try:
+        if previous.phase is EtradeOAuthSessionPhase.REQUEST_TOKEN_RECEIVED:
+            return _has_no_replay_delta(
+                delta
+            ) and successor == begin_etrade_oauth_out_of_band_authorization(previous)
+        if (
+            previous.phase
+            in {
+                EtradeOAuthSessionPhase.ACCESS_TOKEN_INACTIVE,
+                EtradeOAuthSessionPhase.ACCESS_TOKEN_EXPIRED,
+                EtradeOAuthSessionPhase.ACCESS_TOKEN_REVOKED,
+            }
+            and successor.phase is EtradeOAuthSessionPhase.REAUTHORIZATION_REQUIRED
+        ):
+            return _has_no_replay_delta(
+                delta
+            ) and successor == require_etrade_oauth_reauthorization(previous)
+        if previous.phase is EtradeOAuthSessionPhase.REAUTHORIZATION_REQUIRED:
+            return _has_no_replay_delta(delta) and successor == begin_etrade_oauth_reauthorization(
+                previous
+            )
+    except EtradeOAuthContractError:
+        return False
+
+    if (
+        previous.phase is EtradeOAuthSessionPhase.AUTHORIZATION_PENDING
+        and successor.phase is EtradeOAuthSessionPhase.AUTHORIZATION_CONFIRMED
+    ):
+        fingerprint_sha256 = _canonical_verifier_fingerprint(previous)
+        expected = replace(
+            previous,
+            phase=EtradeOAuthSessionPhase.AUTHORIZATION_CONFIRMED,
+            transition_evidence_sha256=fingerprint_sha256,
+            predecessor_sha256=previous.semantic_sha256,
+        )
+        return (
+            successor == expected
+            and delta.signing_high_water is None
+            and _has_adjacent_replay_consumption(
+                delta,
+                previous_event,
+                prior_event,
+                expected_fingerprint_sha256=fingerprint_sha256,
+            )
+        )
+
+    signing_transition = (
+        _is_request_token_transition(previous, successor)
+        or _is_access_token_transition(previous, successor)
+        or _is_access_token_renewal(previous, successor)
+        or _is_access_token_revocation(previous, successor)
+    )
+    if signing_transition:
+        if (
+            previous.phase is EtradeOAuthSessionPhase.AUTHORIZATION_CONFIRMED
+            and delta.fingerprint_sha256 is not None
+            and _event_is_replay_only(previous_event, prior_event)
+        ):
+            return False
+        return _has_signing_replay_coupling(
+            successor,
+            replay_guard,
+            delta,
+            previous_event,
+            prior_event,
+        )
+
+    return _has_no_replay_delta(delta) and _is_access_observation_or_activity(
+        previous,
+        successor,
+    )
 
 
 def _state_payload(state: EtradeOAuthSessionState) -> str:
@@ -532,6 +938,7 @@ def _decode_state(row: RowMapping) -> EtradeOAuthSessionState:
         or row["session_payload_sha256"] != _sha256_bytes(payload_text.encode("ascii"))
         or row["session_state_sha256"] != state.semantic_sha256
         or row["consumer_reference_sha256"] != consumer_reference.semantic_sha256
+        or state.endpoint_profile_sha256 != _canonical_endpoint_profile_sha256(state.environment)
     ):
         raise EtradeOAuthCoordinatorError(
             "persisted E*TRADE OAuth sanitized session evidence failed authentication"
@@ -544,6 +951,7 @@ def _event_from_row(
     *,
     expected_scope_sha256: str,
     previous: EtradeOAuthDurableEvent | None,
+    prior_event: EtradeOAuthDurableEvent | None,
     current_guard: EtradeOAuthReplayGuard,
 ) -> tuple[EtradeOAuthDurableEvent, EtradeOAuthReplayGuard]:
     try:
@@ -620,6 +1028,15 @@ def _event_from_row(
                 raise TypeError("session high-water rolled back")
         delta = _ReplayDelta(fingerprint, high_water)
         next_guard = _apply_replay_delta(current_guard, delta)
+        if previous is not None and not _is_canonical_state_advance(
+            previous.state,
+            state,
+            next_guard,
+            delta,
+            previous,
+            prior_event,
+        ):
+            raise TypeError("journal event violates the closed OAuth session transition graph")
         if row["replay_guard_sha256"] != next_guard.semantic_sha256:
             raise TypeError("replay guard digest mismatch")
         values = dict(row)
@@ -685,6 +1102,7 @@ def _load_snapshot(
             row,
             expected_scope_sha256=scope_sha256,
             previous=previous,
+            prior_event=events[-2] if len(events) >= 2 else None,
             current_guard=guard,
         )
         events.append(event)
@@ -921,6 +1339,24 @@ class SqlEtradeOAuthCoordinator:
                         "E*TRADE OAuth session generation or high-water cannot roll back"
                     )
                 delta = _replay_delta(expected.replay_guard, next_replay_guard)
+                if not state_changed and _has_no_replay_delta(delta):
+                    if current != expected:
+                        raise EtradeOAuthCoordinatorConflict(
+                            "expected E*TRADE OAuth snapshot conflicts with authenticated "
+                            "current state"
+                        )
+                    return current
+                if not _is_canonical_state_advance(
+                    expected_state,
+                    successor_state,
+                    next_replay_guard,
+                    delta,
+                    expected.events[-1],
+                    expected.events[-2] if len(expected.events) >= 2 else None,
+                ):
+                    raise EtradeOAuthCoordinatorConflict(
+                        "E*TRADE OAuth advancement violates the closed session transition graph"
+                    )
                 values = _event_values(
                     scope_sha256=scope_sha256,
                     sequence=expected.sequence + 1,
@@ -946,8 +1382,6 @@ class SqlEtradeOAuthCoordinator:
                     raise EtradeOAuthCoordinatorConflict(
                         "expected E*TRADE OAuth snapshot conflicts with authenticated current state"
                     )
-                if not state_changed and delta.fingerprint_sha256 is None:
-                    return current
                 insert_or_verify_atomic(
                     connection,
                     phase4_etrade_oauth_session_events,
