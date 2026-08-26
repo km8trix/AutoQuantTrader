@@ -195,10 +195,14 @@ def _compile_commands(
     python_stdlib: Path,
     python_dynload: Path,
 ) -> tuple[list[str], list[str], list[str], dict[str, str]]:
+    source_root = core_source.parents[1]
+    if launcher_source.parents[1] != source_root:
+        raise RuntimeError("native launcher sources do not share one build root")
     common = [
         str(compiler),
         "-std=c11",
         "-O2",
+        f"-ffile-prefix-map={source_root}=.",
         "-fPIE",
         "-fvisibility=hidden",
         "-fstack-protector-strong",
@@ -349,6 +353,7 @@ def _normalized_command(
     extension_suffix: str,
     platform_attestation: dict[str, str],
 ) -> list[str]:
+    source_root = core_source.parents[1]
     library_directory = python_library.parent
     replacements = {
         str(compiler): "$COMPILER",
@@ -357,6 +362,7 @@ def _normalized_command(
         str(core_object_path): "$CORE_OBJECT",
         str(launcher_object_path): "$LAUNCHER_OBJECT",
         str(launcher_path): "$LAUNCHER_OUTPUT",
+        f"-ffile-prefix-map={source_root}=.": "-ffile-prefix-map=$SOURCE_ROOT=.",
         f"-I{include}": "-I$PYTHON_INCLUDE",
         f"-I{generated_include}": "-I$GENERATED_INCLUDE",
         f"-L{library_directory}": "-L$PYTHON_LIBDIR",

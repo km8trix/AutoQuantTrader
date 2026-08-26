@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "8996df4425fc3ddfc6d94d04a29908cb8b7bdddf36dde650c6cd03d1dafb9e2d"
+    "eae2d44336ba7e7e2dd453041cfd3af534a44f4dd0cb16bffac6a71e2c410291"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -6167,7 +6167,7 @@ def _trusted_time_topology_launch_lock_violations(
             "94200b3d32a215956a3cfc936f414320d6953afeb3f3d7046a08a19e2f2a79b5"
         ),
         "build_support/native_owned_file_descriptor_hook.py": (
-            "dfbafc96416dfc4da03544467b79ea2edbb673a5d73b641cf822e7a461f74c90"
+            "7fa838658249cc52c73228ec5bf0447b06bad946c7f7d653e5027656580d13b7"
         ),
         "native/bounded_process.c": (
             "be08d5c95a2a5ce6aa9b06a4434c09473ee74ad941a417b8022885a7ef1f5cbd"

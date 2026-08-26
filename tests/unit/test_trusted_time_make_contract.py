@@ -4554,7 +4554,7 @@ def test_container_ci_uses_supported_isolated_trusted_time_entrypoints() -> None
     )
 
     assert setup in container_job
-    assert 'python-version: "3.12"' in container_job
+    assert 'python-version: "3.12.13"' in container_job
     assert 'version: "0.11.28"' in container_job
     assert dependency_sync in container_job
     assert "run: uv sync --all-groups --locked --no-install-project --no-build" in container_job
@@ -11339,7 +11339,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
         "apps/web/node_modules"
     ]
     assert architecture_config["production_python_source_manifest_sha256"] == (
-        "0fc52a70bb916f3c7be4de9754de7c909419e9a6735c669c0d7d4f77ea4c4881"
+        "4565982d1e87c17d1921fb0ea94e31aca888dd0d2d35d849514c9613e8a08715"
     )
     assert (
         _production_python_source_manifest_sha256(
@@ -11411,7 +11411,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
     expected_invocation_source_sha256 = {
         "Makefile": "189b041060855fbb6218fdc9d8425c25f534d1885d1207725b8022a84e7de758",
         ".github/workflows/ci.yml": (
-            "31a7fc15be589bab7b2e50b8c8f902bdf79d548a4cbb63012ed6142ec0220338"
+            "26a410d181f5cbb4c89c7ae1c511745c3ce8bbb655257dfd005b7428b7a08ea7"
         ),
     }
     assert architecture_config["architecture_checker_invocation_source_sha256"] == (

@@ -27,7 +27,7 @@ jobs:
       - name: Install trusted uv and Python
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
-          python-version: "3.12"
+          python-version: "3.12.13"
           version: "0.11.28"
 
       - name: Enforce architecture boundaries before project code
@@ -82,7 +82,7 @@ jobs:
       - name: Install uv and Python
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
-          python-version: "3.12"
+          python-version: "3.12.13"
           version: "0.11.28"
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -186,12 +186,13 @@ jobs:
           - ubuntu-24.04
           - macos-14
         python-version:
-          - "3.12"
-          - "3.13"
+          - "3.12.13"
+          - "3.13.3"
     env:
       PYTHONDONTWRITEBYTECODE: "1"
       SOURCE_DATE_EPOCH: "0"
       UV_BUILD_CONSTRAINT: build_support/native_build_constraints.txt
+      UV_MANAGED_PYTHON: "1"
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -206,6 +207,39 @@ jobs:
 
       - name: Install locked binary dependencies without project code
         run: uv sync --all-groups --locked --no-install-project --no-build
+
+      - name: Require reviewed managed standalone CPython
+        run: |
+          .venv/bin/python -I -B - <<'PY'
+          import os
+          import stat
+          import sys
+          import sysconfig
+          from pathlib import Path
+
+          install_root = Path(os.environ["UV_PYTHON_INSTALL_DIR"]).resolve(strict=True)
+          runtime_root = Path(sys.base_prefix).resolve(strict=True)
+          if not runtime_root.is_relative_to(install_root):
+              raise SystemExit("native packaging requires a uv-managed CPython runtime")
+          if sysconfig.get_config_var("PYTHONFRAMEWORK") not in (None, ""):
+              raise SystemExit("native packaging requires standalone non-framework CPython")
+          library_directory = sysconfig.get_config_var("LIBDIR")
+          library_name = sysconfig.get_config_var("LDLIBRARY")
+          if (
+              type(library_directory) is not str
+              or type(library_name) is not str
+              or Path(library_name).name != library_name
+          ):
+              raise SystemExit("native packaging requires a standalone Python library")
+          library = (Path(library_directory) / library_name).resolve(strict=True)
+          metadata = library.stat()
+          if (
+              not library.is_relative_to(runtime_root)
+              or not stat.S_ISREG(metadata.st_mode)
+              or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+          ):
+              raise SystemExit("native packaging Python library is not admitted")
+          PY
 
       - name: Recheck architecture boundaries after dependency sync
         run: >-
@@ -354,7 +388,7 @@ jobs:
       - name: Install uv and Python
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
-          python-version: "3.12"
+          python-version: "3.12.13"
           version: "0.11.28"
           enable-cache: true
           cache-dependency-glob: uv.lock

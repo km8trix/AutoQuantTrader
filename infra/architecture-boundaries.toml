@@ -3,7 +3,7 @@ source_roots = ["apps", "packages"]
 package_roots = ["packages"]
 production_python_source_manifest_roots = ["apps", "packages", "scripts"]
 production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]
-production_python_source_manifest_sha256 = "0fc52a70bb916f3c7be4de9754de7c909419e9a6735c669c0d7d4f77ea4c4881"
+production_python_source_manifest_sha256 = "4565982d1e87c17d1921fb0ea94e31aca888dd0d2d35d849514c9613e8a08715"
 project_build_bootstrap_manifest_paths = [
   ".python-version",
   "pyproject.toml",
@@ -16,7 +16,7 @@ project_build_bootstrap_manifest_paths = [
   "native/owned_file_descriptor.c",
   "native/trusted_time_python_launcher.c",
 ]
-project_build_bootstrap_manifest_sha256 = "f23942224cb5a19bf17d050e45340103e518aa38c1c065a4688538edf0b7c09f"
+project_build_bootstrap_manifest_sha256 = "4b239087306362909b40b8d5d2b77775e7b3a9d0b52087c361730988b23ccac0"
 project_build_bootstrap_forbidden_paths = [
   "MANIFEST.in",
   "hatch.toml",
@@ -25,7 +25,7 @@ project_build_bootstrap_forbidden_paths = [
   "uv.toml",
 ]
 architecture_checker_invocation_source_sha256."Makefile" = "189b041060855fbb6218fdc9d8425c25f534d1885d1207725b8022a84e7de758"
-architecture_checker_invocation_source_sha256.".github/workflows/ci.yml" = "31a7fc15be589bab7b2e50b8c8f902bdf79d548a4cbb63012ed6142ec0220338"
+architecture_checker_invocation_source_sha256.".github/workflows/ci.yml" = "26a410d181f5cbb4c89c7ae1c511745c3ce8bbb655257dfd005b7428b7a08ea7"
 builtin_namespace_integrity_roots = ["apps", "packages", "scripts"]
 builtin_namespace_integrity_excluded_roots = ["scripts/check_architecture.py"]
 builtin_namespace_integrity_allowed_imports."packages/adapters/market_data/recorded.py" = [
@@ -179,7 +179,7 @@ trusted_time_topology_launch_lock_documentation_paths = [
 trusted_time_topology_launch_lock_reader_module_ast_sha256 = "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
 trusted_time_topology_launch_lock_issuer_class_ast_sha256 = "b64f79e1679e2bdefe40f6b36c82142fa367f6e6981c1b2e8fee1366a7d39bcd"
 trusted_time_topology_launch_lock_host_module_ast_sha256 = "15c3e62437dc070d223038e21097ce85cbbb68de71ced3a6574f506236ebf56c"
-trusted_time_topology_launch_lock_production_ast_sha256 = "8996df4425fc3ddfc6d94d04a29908cb8b7bdddf36dde650c6cd03d1dafb9e2d"
+trusted_time_topology_launch_lock_production_ast_sha256 = "eae2d44336ba7e7e2dd453041cfd3af534a44f4dd0cb16bffac6a71e2c410291"
 trusted_time_topology_launch_lock_lifecycle_tag = "trusted-time-issuer-lifecycle-v3"
 trusted_time_topology_launch_lock_lifecycle_tag_count = 13
 trusted_time_topology_launch_lock_launch_lock_binding_tag = "trusted-time-launch-lock-binding-v1"
@@ -326,7 +326,7 @@ trusted_time_topology_launch_lock_operation_call_counts = [
 trusted_time_topology_launch_lock_frozen_source_sha256."build_support/build_native_admission_launcher.py" = "82c7228184ec7533b7ce59831215f3b35d78f99323462bc558eee26dfc529d31"
 trusted_time_topology_launch_lock_frozen_source_sha256."build_support/build_native_test_launcher.py" = "b9a68949c53d9e4d138a7c4088e4e53669319296d6aa71ff4204c5eb69729cb2"
 trusted_time_topology_launch_lock_frozen_source_sha256."build_support/install_native_admission_launcher.py" = "94200b3d32a215956a3cfc936f414320d6953afeb3f3d7046a08a19e2f2a79b5"
-trusted_time_topology_launch_lock_frozen_source_sha256."build_support/native_owned_file_descriptor_hook.py" = "dfbafc96416dfc4da03544467b79ea2edbb673a5d73b641cf822e7a461f74c90"
+trusted_time_topology_launch_lock_frozen_source_sha256."build_support/native_owned_file_descriptor_hook.py" = "7fa838658249cc52c73228ec5bf0447b06bad946c7f7d653e5027656580d13b7"
 trusted_time_topology_launch_lock_frozen_source_sha256."native/bounded_process.c" = "be08d5c95a2a5ce6aa9b06a4434c09473ee74ad941a417b8022885a7ef1f5cbd"
 trusted_time_topology_launch_lock_frozen_source_sha256."native/owned_file_descriptor.c" = "da2bc638b92b49a4c1c747d02983558d1dbff80fa7c7c64e16bbefa669e051d5"
 trusted_time_topology_launch_lock_frozen_source_sha256."native/trusted_time_python_launcher.c" = "b0c684309818c6b238da1c96c174d9ad9148b017ee8dde1a51b13933b8451f0e"

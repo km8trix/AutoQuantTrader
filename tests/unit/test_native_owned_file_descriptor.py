@@ -1807,7 +1807,7 @@ def test_packaging_matrix_and_production_image_gate_are_explicit() -> None:
 
     assert "native-packaging:" in workflow
     assert "ubuntu-24.04" in workflow and "macos-14" in workflow
-    assert 'python-version:\n          - "3.12"\n          - "3.13"' in workflow
+    assert 'python-version:\n          - "3.12.13"\n          - "3.13.3"' in workflow
     assert 'SOURCE_DATE_EPOCH: "0"' in workflow
     assert "Require byte-for-byte reproducible wheels" in workflow
     assert "--no-install-project" in workflow and "--no-deps" in workflow
@@ -2260,6 +2260,13 @@ def test_static_launcher_profiles_and_sdist_inputs_are_exact() -> None:
     assert "_autoquant_native_bounded_process" in launcher
 
     assert '"-DAQT_NATIVE_LAUNCHER_OPERATIONAL_PROFILE=1"' in hook
+    assert 'f"-ffile-prefix-map={source_root}=."' in hook
+    assert '"-ffile-prefix-map=$SOURCE_ROOT=."' in hook
+    assert workflow.count('python-version: "3.12.13"') == 3
+    assert 'python-version:\n          - "3.12.13"\n          - "3.13.3"' in workflow
+    assert 'UV_MANAGED_PYTHON: "1"' in workflow
+    assert "Require reviewed managed standalone CPython" in workflow
+    assert 'sysconfig.get_config_var("PYTHONFRAMEWORK") not in (None, "")' in workflow
     hook_tree = ast.parse(hook)
     operational_target_ids = next(
         ast.literal_eval(node.value)
