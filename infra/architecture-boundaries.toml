@@ -3,7 +3,7 @@ source_roots = ["apps", "packages"]
 package_roots = ["packages"]
 production_python_source_manifest_roots = ["apps", "packages", "scripts"]
 production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]
-production_python_source_manifest_sha256 = "99b3009aea2afc41b368f87ea31285e79fce50ce54c332d49d28bef34109f325"
+production_python_source_manifest_sha256 = "b3f0feb9980574ae0afd5a870eb9f5eabca6ccf926d5a90dcf2a89dcaae07259"
 exact_private_attribute_callsites."packages.domain.fixture_segment_economics.FixtureEconomicProcessEvidence._from_supervisor" = [
   "packages/application/fixture_segment_economics.py:execute_fixture_segment_economics",
 ]
@@ -185,7 +185,7 @@ trusted_time_topology_launch_lock_documentation_paths = [
 trusted_time_topology_launch_lock_reader_module_ast_sha256 = "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
 trusted_time_topology_launch_lock_issuer_class_ast_sha256 = "b64f79e1679e2bdefe40f6b36c82142fa367f6e6981c1b2e8fee1366a7d39bcd"
 trusted_time_topology_launch_lock_host_module_ast_sha256 = "15c3e62437dc070d223038e21097ce85cbbb68de71ced3a6574f506236ebf56c"
-trusted_time_topology_launch_lock_production_ast_sha256 = "7ace06e988327536b38410f2e395bdc85fc198f6e708f33e961536bd312eebf5"
+trusted_time_topology_launch_lock_production_ast_sha256 = "9d251d93304f36eebe5d1f0a12880b90cfd5e027b27a136998f4587ad518ea04"
 trusted_time_topology_launch_lock_lifecycle_tag = "trusted-time-issuer-lifecycle-v3"
 trusted_time_topology_launch_lock_lifecycle_tag_count = 13
 trusted_time_topology_launch_lock_launch_lock_binding_tag = "trusted-time-launch-lock-binding-v1"

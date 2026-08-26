@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "7ace06e988327536b38410f2e395bdc85fc198f6e708f33e961536bd312eebf5"
+    "9d251d93304f36eebe5d1f0a12880b90cfd5e027b27a136998f4587ad518ea04"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -5127,17 +5127,21 @@ def _exact_private_attribute_callsite_violations(
         references = [
             node
             for node in ast.walk(tree)
-            if isinstance(node, ast.Attribute)
-            and node.attr == attribute_name
-            and _qualified_symbol(node, bindings) == qualified_binding
+            if isinstance(node, ast.Attribute) and node.attr == attribute_name
         ]
         calls: list[ast.Call] = []
         for node in references:
             parent = parents.get(node)
+            owner_is_local = (
+                relative_path.with_suffix("").as_posix().replace("/", ".") == owner_binding
+                and isinstance(node.value, ast.Name)
+                and node.value.id == owner_name
+                and owner_name not in bindings
+            )
             direct_owner = (
                 isinstance(node.value, ast.Name)
                 and node.value.id == owner_name
-                and bindings.get(owner_name) == owner_binding
+                and (bindings.get(owner_name) == owner_binding or owner_is_local)
             )
             if isinstance(parent, ast.Call) and parent.func is node and direct_owner:
                 calls.append(parent)
@@ -5161,13 +5165,19 @@ def _exact_private_attribute_callsite_violations(
                 )
             )
         for node in ast.walk(tree):
-            if not (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "getattr"
-                and node.args
-                and _qualified_symbol(node.args[0], bindings) == owner_binding
+            if not isinstance(node, ast.Call) or not (
+                isinstance(node.func, ast.Name) and node.func.id == "getattr"
             ):
+                continue
+            exact_owner = bool(
+                node.args and _qualified_symbol(node.args[0], bindings) == owner_binding
+            )
+            literal_private_name = bool(
+                len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value == attribute_name
+            )
+            if not exact_owner and not literal_private_name:
                 continue
             violations.append(
                 Violation(
