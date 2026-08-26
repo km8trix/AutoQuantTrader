@@ -9,6 +9,7 @@ module-private and have no production caller.
 
 from __future__ import annotations
 
+import base64
 import ctypes
 import errno
 import fcntl
@@ -40,6 +41,7 @@ from packages.domain.trusted_time_post_enrollment_graceful_stop_operator_attesta
 )
 from scripts.trusted_time_post_enrollment_graceful_stop import (
     POST_ENROLLMENT_GRACEFUL_STOP_AUTHORITY_FIELDS,
+    POST_ENROLLMENT_GRACEFUL_STOP_DECISION_MAXIMUM_BYTES,
     TrustedTimePostEnrollmentGracefulStopDecision,
     canonical_post_enrollment_graceful_stop_decision_bytes,
     decode_post_enrollment_graceful_stop_decision,
@@ -47,9 +49,7 @@ from scripts.trusted_time_post_enrollment_graceful_stop import (
 from scripts.trusted_time_post_enrollment_shutdown_locator import (
     POST_ENROLLMENT_GRACEFUL_STOP_SHUTDOWN_LOCATOR_MAXIMUM_BYTES,
     TrustedTimePostEnrollmentGracefulStopShutdownLocator,
-    canonical_post_enrollment_graceful_stop_shutdown_locator_bytes,
     decode_post_enrollment_graceful_stop_shutdown_locator,
-    post_enrollment_graceful_stop_shutdown_locator_sha256,
 )
 
 POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_CONTRACT_VERSION = (
@@ -326,6 +326,17 @@ def _decode_canonical_object(encoded: object, *, maximum_bytes: int) -> dict[str
     return cast(dict[str, object], payload)
 
 
+def _decode_canonical_base64(value: object, *, exact_length: int | None = None) -> bytes:
+    if type(value) is not str:
+        raise ValueError
+    decoded = base64.b64decode(value, validate=True)
+    if base64.b64encode(decoded).decode("ascii") != value or (
+        exact_length is not None and len(decoded) != exact_length
+    ):
+        raise ValueError
+    return decoded
+
+
 def _false_payload() -> dict[str, object]:
     return {field_name: False for field_name in _LIFECYCLE_FALSE_FIELDS}
 
@@ -334,6 +345,13 @@ def _cannot_copy() -> Never:
     raise TrustedTimePostEnrollmentGracefulStopLifecycleRejected(
         "trusted-time graceful-stop lifecycle evidence cannot be copied or serialized"
     )
+
+
+class _ValidatedAttemptRecordProjection(NamedTuple):
+    envelope: TrustedTimePostEnrollmentGracefulStopOperatorAttestationEnvelope
+    locator: TrustedTimePostEnrollmentGracefulStopShutdownLocator
+    envelope_payload: dict[str, object]
+    locator_payload: dict[str, object]
 
 
 @dataclass(frozen=True, slots=True, init=False, eq=False)
@@ -428,7 +446,7 @@ class TrustedTimePostEnrollmentGracefulStopAttemptRecord:
             self._locator_encoded,
         )
 
-    def __post_init__(self) -> None:
+    def _validated_projection(self) -> _ValidatedAttemptRecordProjection:
         try:
             if (
                 type(self) is not TrustedTimePostEnrollmentGracefulStopAttemptRecord
@@ -438,12 +456,37 @@ class TrustedTimePostEnrollmentGracefulStopAttemptRecord:
             envelope = decode_post_enrollment_graceful_stop_operator_attestation_envelope(
                 self._envelope_encoded
             )
-            decision = decode_post_enrollment_graceful_stop_decision(
-                envelope.graceful_stop_decision_v1
+            envelope_payload = _decode_canonical_object(
+                self._envelope_encoded,
+                maximum_bytes=(
+                    POST_ENROLLMENT_GRACEFUL_STOP_OPERATOR_ATTESTATION_MAXIMUM_ENVELOPE_BYTES
+                ),
             )
-            target = decision.target
+            decision_encoded = _decode_canonical_base64(
+                envelope_payload["graceful_stop_decision_v1_base64"]
+            )
+            decision = decode_post_enrollment_graceful_stop_decision(decision_encoded)
+            decision_payload = _decode_canonical_object(
+                decision_encoded,
+                maximum_bytes=POST_ENROLLMENT_GRACEFUL_STOP_DECISION_MAXIMUM_BYTES,
+            )
+            target_encoded = _nested_encoded(decision_payload["graceful_stop_target"])
+            target_payload = cast(dict[str, object], decision_payload["graceful_stop_target"])
+            target_locator_encoded = _nested_encoded(target_payload["durable_shutdown_locator"])
             locator = decode_post_enrollment_graceful_stop_shutdown_locator(self._locator_encoded)
-            statement = envelope.statement
+            locator_payload = _decode_canonical_object(
+                self._locator_encoded,
+                maximum_bytes=POST_ENROLLMENT_GRACEFUL_STOP_SHUTDOWN_LOCATOR_MAXIMUM_BYTES,
+            )
+            statement_payload = cast(
+                dict[str, object],
+                envelope_payload["operator_attestation_statement"],
+            )
+            statement_encoded = _nested_encoded(statement_payload)
+            signature = _decode_canonical_base64(
+                envelope_payload["signature_base64"],
+                exact_length=64,
+            )
             sha_values = (
                 self.graceful_stop_target_sha256,
                 self.graceful_stop_decision_v1_sha256,
@@ -463,28 +506,39 @@ class TrustedTimePostEnrollmentGracefulStopAttemptRecord:
                 or not _is_uuid4(self.start_operation_id)
                 or not all(_is_sha256(value) for value in sha_values)
                 or decision.operation_id != self.graceful_stop_operation_id
-                or decision.decision_sha256 != self.graceful_stop_decision_v1_sha256
-                or target.target_sha256 != self.graceful_stop_target_sha256
-                or envelope.envelope_sha256 != self.operator_attestation_envelope_sha256
-                or statement.statement_sha256 != self.operator_attestation_statement_sha256
-                or hashlib.sha256(envelope.signature_ed25519).hexdigest()
+                or hashlib.sha256(decision_encoded).hexdigest()
+                != self.graceful_stop_decision_v1_sha256
+                or hashlib.sha256(target_encoded).hexdigest() != self.graceful_stop_target_sha256
+                or hashlib.sha256(self._envelope_encoded).hexdigest()
+                != self.operator_attestation_envelope_sha256
+                or hashlib.sha256(statement_encoded).hexdigest()
+                != self.operator_attestation_statement_sha256
+                or hashlib.sha256(signature).hexdigest()
                 != self.operator_attestation_signature_sha256
-                or statement.authority_artifact_sha256 != self.operator_authority_artifact_sha256
-                or statement.public_key_sha256 != self.operator_public_key_sha256
-                or target.controller_outcome_sha256 != self.controller_outcome_sha256
-                or target.durable_shutdown_locator_sha256 != self.durable_shutdown_locator_sha256
-                or target.start_operation_id != self.start_operation_id
-                or target.start_approval_sha256 != self.start_approval_sha256
-                or target.start_execution_attempt_slot_sha256
+                or statement_payload["authority_artifact_sha256"]
+                != self.operator_authority_artifact_sha256
+                or statement_payload["public_key_sha256"] != self.operator_public_key_sha256
+                or target_payload["controller_outcome_sha256"] != self.controller_outcome_sha256
+                or target_payload["durable_shutdown_locator_sha256"]
+                != self.durable_shutdown_locator_sha256
+                or target_payload["start_operation_id"] != self.start_operation_id
+                or target_payload["start_approval_sha256"] != self.start_approval_sha256
+                or target_payload["start_execution_attempt_slot_sha256"]
                 != self.start_execution_attempt_slot_sha256
-                or target.start_operator_attestation_envelope_sha256
+                or target_payload["start_operator_attestation_envelope_sha256"]
                 != self.start_operator_attestation_envelope_sha256
-                or locator.payload() != target.durable_shutdown_locator.payload()
-                or post_enrollment_graceful_stop_shutdown_locator_sha256(locator)
+                or target_locator_encoded != self._locator_encoded
+                or hashlib.sha256(self._locator_encoded).hexdigest()
                 != self.durable_shutdown_locator_sha256
                 or self._seal_values() != self._sealed_fields
             ):
                 raise ValueError
+            return _ValidatedAttemptRecordProjection(
+                envelope=envelope,
+                locator=locator,
+                envelope_payload=envelope_payload,
+                locator_payload=locator_payload,
+            )
         except TrustedTimePostEnrollmentGracefulStopLifecycleRejected:
             raise
         except Exception:
@@ -492,22 +546,25 @@ class TrustedTimePostEnrollmentGracefulStopAttemptRecord:
                 "trusted-time graceful-stop attempt record is invalid"
             ) from None
 
+    def __post_init__(self) -> None:
+        self._validated_projection()
+
     @property
     def envelope(self) -> TrustedTimePostEnrollmentGracefulStopOperatorAttestationEnvelope:
-        self.__post_init__()
-        return decode_post_enrollment_graceful_stop_operator_attestation_envelope(
-            self._envelope_encoded
-        )
+        return self._validated_projection().envelope
 
     @property
     def durable_shutdown_locator(
         self,
     ) -> TrustedTimePostEnrollmentGracefulStopShutdownLocator:
-        self.__post_init__()
-        return decode_post_enrollment_graceful_stop_shutdown_locator(self._locator_encoded)
+        return self._validated_projection().locator
 
-    def payload(self) -> dict[str, object]:
-        self.__post_init__()
+    def _payload_from_nested(
+        self,
+        *,
+        envelope_payload: dict[str, object],
+        locator_payload: dict[str, object],
+    ) -> dict[str, object]:
         payload = _false_payload()
         payload.update(
             {
@@ -515,12 +572,12 @@ class TrustedTimePostEnrollmentGracefulStopAttemptRecord:
                 "contract_version": POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_CONTRACT_VERSION,
                 "controller_outcome_sha256": self.controller_outcome_sha256,
                 "durable_recovery_checkpoint": True,
-                "durable_shutdown_locator": self.durable_shutdown_locator.payload(),
+                "durable_shutdown_locator": locator_payload,
                 "durable_shutdown_locator_sha256": self.durable_shutdown_locator_sha256,
                 "graceful_stop_decision_v1_sha256": self.graceful_stop_decision_v1_sha256,
                 "graceful_stop_operation_id": self.graceful_stop_operation_id,
                 "graceful_stop_target_sha256": self.graceful_stop_target_sha256,
-                "operator_attestation_envelope": self.envelope.payload(),
+                "operator_attestation_envelope": envelope_payload,
                 "operator_attestation_envelope_sha256": (self.operator_attestation_envelope_sha256),
                 "operator_attestation_signature_sha256": (
                     self.operator_attestation_signature_sha256
@@ -545,6 +602,13 @@ class TrustedTimePostEnrollmentGracefulStopAttemptRecord:
             }
         )
         return payload
+
+    def payload(self) -> dict[str, object]:
+        projection = self._validated_projection()
+        return self._payload_from_nested(
+            envelope_payload=projection.envelope_payload,
+            locator_payload=projection.locator_payload,
+        )
 
     @property
     def encoded(self) -> bytes:
@@ -872,7 +936,6 @@ def canonical_post_enrollment_graceful_stop_attempt_bytes(record: object) -> byt
         raise TrustedTimePostEnrollmentGracefulStopLifecycleRejected(
             "trusted-time graceful-stop attempt record is invalid"
         )
-    record.__post_init__()
     encoded = canonical_first_enrollment_json_bytes(record.payload())
     if len(encoded) > MAXIMUM_POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_BYTES:
         raise TrustedTimePostEnrollmentGracefulStopLifecycleRejected(
@@ -915,9 +978,9 @@ def _nested_encoded(value: object) -> bytes:
     return canonical_first_enrollment_json_bytes(value)
 
 
-def decode_post_enrollment_graceful_stop_attempt_bytes(
+def _decode_post_enrollment_graceful_stop_attempt_material(
     encoded: object,
-) -> TrustedTimePostEnrollmentGracefulStopAttemptRecord:
+) -> tuple[TrustedTimePostEnrollmentGracefulStopAttemptRecord, str]:
     try:
         payload = _decode_canonical_object(
             encoded,
@@ -974,18 +1037,26 @@ def decode_post_enrollment_graceful_stop_attempt_bytes(
             locator_encoded=locator_encoded,
             _construction_capability=_CONSTRUCTION_CAPABILITY,
         )
-        if (
-            record.payload() != payload
-            or canonical_post_enrollment_graceful_stop_attempt_bytes(record) != encoded
-        ):
+        record_payload = record._payload_from_nested(
+            envelope_payload=cast(dict[str, object], payload["operator_attestation_envelope"]),
+            locator_payload=cast(dict[str, object], payload["durable_shutdown_locator"]),
+        )
+        record_encoded = canonical_first_enrollment_json_bytes(record_payload)
+        if record_payload != payload or record_encoded != encoded:
             raise ValueError
-        return record
+        return record, hashlib.sha256(record_encoded).hexdigest()
     except TrustedTimePostEnrollmentGracefulStopLifecycleRejected:
         raise
     except Exception:
         raise TrustedTimePostEnrollmentGracefulStopLifecycleRejected(
             "trusted-time graceful-stop attempt record is invalid"
         ) from None
+
+
+def decode_post_enrollment_graceful_stop_attempt_bytes(
+    encoded: object,
+) -> TrustedTimePostEnrollmentGracefulStopAttemptRecord:
+    return _decode_post_enrollment_graceful_stop_attempt_material(encoded)[0]
 
 
 def decode_post_enrollment_graceful_stop_progress_bytes(
@@ -1114,54 +1185,71 @@ def _new_attempt_record(
         raise TrustedTimePostEnrollmentGracefulStopLifecycleRejected(
             "trusted-time graceful-stop attempt binding is invalid"
         )
-    decision.__post_init__()
-    envelope.__post_init__()
-    verification.__post_init__()
+    decision_encoded = canonical_post_enrollment_graceful_stop_decision_bytes(decision)
     envelope_encoded = canonical_post_enrollment_graceful_stop_operator_attestation_envelope_bytes(
         envelope
     )
-    if envelope.graceful_stop_decision_v1 != canonical_post_enrollment_graceful_stop_decision_bytes(
-        decision
-    ):
+    verification.__post_init__()
+    decision_payload = _decode_canonical_object(
+        decision_encoded,
+        maximum_bytes=POST_ENROLLMENT_GRACEFUL_STOP_DECISION_MAXIMUM_BYTES,
+    )
+    envelope_payload = _decode_canonical_object(
+        envelope_encoded,
+        maximum_bytes=POST_ENROLLMENT_GRACEFUL_STOP_OPERATOR_ATTESTATION_MAXIMUM_ENVELOPE_BYTES,
+    )
+    embedded_decision_encoded = _decode_canonical_base64(
+        envelope_payload["graceful_stop_decision_v1_base64"]
+    )
+    if embedded_decision_encoded != decision_encoded:
         raise TrustedTimePostEnrollmentGracefulStopLifecycleRejected(
             "trusted-time graceful-stop attempt binding is invalid"
         )
-    target = decision.target
-    locator = target.durable_shutdown_locator
-    statement = envelope.statement
-    signature_sha256 = hashlib.sha256(envelope.signature_ed25519).hexdigest()
+    target_encoded = _nested_encoded(decision_payload["graceful_stop_target"])
+    target = cast(dict[str, object], decision_payload["graceful_stop_target"])
+    locator_encoded = _nested_encoded(target["durable_shutdown_locator"])
+    statement = cast(dict[str, object], envelope_payload["operator_attestation_statement"])
+    statement_encoded = _nested_encoded(statement)
+    signature = _decode_canonical_base64(envelope_payload["signature_base64"], exact_length=64)
+    decision_sha256 = hashlib.sha256(decision_encoded).hexdigest()
+    target_sha256 = hashlib.sha256(target_encoded).hexdigest()
+    envelope_sha256 = hashlib.sha256(envelope_encoded).hexdigest()
+    statement_sha256 = hashlib.sha256(statement_encoded).hexdigest()
+    signature_sha256 = hashlib.sha256(signature).hexdigest()
     if (
-        verification.graceful_stop_operation_id != decision.operation_id
-        or verification.graceful_stop_target_sha256 != target.target_sha256
-        or verification.graceful_stop_decision_v1_sha256 != decision.decision_sha256
-        or verification.operator_attestation_envelope_sha256 != envelope.envelope_sha256
-        or verification.operator_attestation_statement_sha256 != statement.statement_sha256
+        verification.graceful_stop_operation_id != decision_payload["operation_id"]
+        or verification.graceful_stop_target_sha256 != target_sha256
+        or verification.graceful_stop_decision_v1_sha256 != decision_sha256
+        or verification.operator_attestation_envelope_sha256 != envelope_sha256
+        or verification.operator_attestation_statement_sha256 != statement_sha256
         or verification.operator_attestation_signature_sha256 != signature_sha256
-        or verification.authority_artifact_sha256 != statement.authority_artifact_sha256
-        or verification.public_key_sha256 != statement.public_key_sha256
+        or verification.authority_artifact_sha256 != statement["authority_artifact_sha256"]
+        or verification.public_key_sha256 != statement["public_key_sha256"]
     ):
         raise TrustedTimePostEnrollmentGracefulStopLifecycleRejected(
             "trusted-time graceful-stop attempt binding is invalid"
         )
     return TrustedTimePostEnrollmentGracefulStopAttemptRecord(
-        graceful_stop_operation_id=decision.operation_id,
-        graceful_stop_target_sha256=target.target_sha256,
-        graceful_stop_decision_v1_sha256=decision.decision_sha256,
-        operator_attestation_envelope_sha256=envelope.envelope_sha256,
-        operator_attestation_statement_sha256=statement.statement_sha256,
+        graceful_stop_operation_id=cast(str, decision_payload["operation_id"]),
+        graceful_stop_target_sha256=target_sha256,
+        graceful_stop_decision_v1_sha256=decision_sha256,
+        operator_attestation_envelope_sha256=envelope_sha256,
+        operator_attestation_statement_sha256=statement_sha256,
         operator_attestation_signature_sha256=signature_sha256,
         operator_authority_artifact_sha256=verification.authority_artifact_sha256,
         operator_public_key_sha256=verification.public_key_sha256,
-        controller_outcome_sha256=target.controller_outcome_sha256,
-        durable_shutdown_locator_sha256=target.durable_shutdown_locator_sha256,
-        start_operation_id=target.start_operation_id,
-        start_approval_sha256=target.start_approval_sha256,
-        start_execution_attempt_slot_sha256=target.start_execution_attempt_slot_sha256,
+        controller_outcome_sha256=cast(str, target["controller_outcome_sha256"]),
+        durable_shutdown_locator_sha256=cast(str, target["durable_shutdown_locator_sha256"]),
+        start_operation_id=cast(str, target["start_operation_id"]),
+        start_approval_sha256=cast(str, target["start_approval_sha256"]),
+        start_execution_attempt_slot_sha256=cast(
+            str, target["start_execution_attempt_slot_sha256"]
+        ),
         start_operator_attestation_envelope_sha256=(
-            target.start_operator_attestation_envelope_sha256
+            cast(str, target["start_operator_attestation_envelope_sha256"])
         ),
         envelope_encoded=envelope_encoded,
-        locator_encoded=canonical_post_enrollment_graceful_stop_shutdown_locator_bytes(locator),
+        locator_encoded=locator_encoded,
         _construction_capability=_CONSTRUCTION_CAPABILITY,
     )
 
@@ -1173,14 +1261,15 @@ def _new_progress_record(
         raise TrustedTimePostEnrollmentGracefulStopLifecycleRejected(
             "trusted-time graceful-stop progress binding is invalid"
         )
-    attempt.__post_init__()
+    attempt_encoded = attempt.encoded
+    attempt_sha256 = hashlib.sha256(attempt_encoded).hexdigest()
     return TrustedTimePostEnrollmentGracefulStopProgressRecord(
         graceful_stop_operation_id=attempt.graceful_stop_operation_id,
         graceful_stop_target_sha256=attempt.graceful_stop_target_sha256,
         graceful_stop_decision_v1_sha256=attempt.graceful_stop_decision_v1_sha256,
         operator_attestation_envelope_sha256=attempt.operator_attestation_envelope_sha256,
-        attempt_slot_sha256=attempt.record_sha256,
-        predecessor_record_sha256=attempt.record_sha256,
+        attempt_slot_sha256=attempt_sha256,
+        predecessor_record_sha256=attempt_sha256,
         _construction_capability=_CONSTRUCTION_CAPABILITY,
     )
 
@@ -1196,7 +1285,8 @@ def _new_outcome_record(
         raise TrustedTimePostEnrollmentGracefulStopLifecycleRejected(
             "trusted-time graceful-stop outcome binding is invalid"
         )
-    attempt.__post_init__()
+    attempt_encoded = attempt.encoded
+    attempt_sha256 = hashlib.sha256(attempt_encoded).hexdigest()
     progress.__post_init__()
     if (
         progress.graceful_stop_operation_id != attempt.graceful_stop_operation_id
@@ -1204,7 +1294,7 @@ def _new_outcome_record(
         or progress.graceful_stop_decision_v1_sha256 != attempt.graceful_stop_decision_v1_sha256
         or progress.operator_attestation_envelope_sha256
         != attempt.operator_attestation_envelope_sha256
-        or progress.attempt_slot_sha256 != attempt.record_sha256
+        or progress.attempt_slot_sha256 != attempt_sha256
     ):
         raise TrustedTimePostEnrollmentGracefulStopLifecycleRejected(
             "trusted-time graceful-stop outcome binding is invalid"
@@ -1214,10 +1304,10 @@ def _new_outcome_record(
         graceful_stop_target_sha256=attempt.graceful_stop_target_sha256,
         graceful_stop_decision_v1_sha256=attempt.graceful_stop_decision_v1_sha256,
         operator_attestation_envelope_sha256=attempt.operator_attestation_envelope_sha256,
-        attempt_slot_sha256=attempt.record_sha256,
+        attempt_slot_sha256=attempt_sha256,
         latest_progress_record_sha256=progress.record_sha256,
         progress_transcript_sha256=_progress_transcript_sha256(
-            attempt.record_sha256,
+            attempt_sha256,
             progress.record_sha256,
         ),
         _construction_capability=_CONSTRUCTION_CAPABILITY,
@@ -1426,6 +1516,7 @@ class RetainedTrustedTimePostEnrollmentGracefulStopAttempt:
                 or type(self._sealed_fields) is not tuple
             ):
                 raise ValueError
+            record_encoded = self.record.encoded
             if (
                 not _is_sha256(self.artifact_sha256)
                 or not self.artifact_path.is_absolute()
@@ -1434,8 +1525,8 @@ class RetainedTrustedTimePostEnrollmentGracefulStopAttempt:
                 or not self.encoded
                 or len(self.encoded) > MAXIMUM_POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_BYTES
                 or hashlib.sha256(self.encoded).hexdigest() != self.artifact_sha256
-                or self.record.record_sha256 != self.artifact_sha256
-                or self.record.encoded != self.encoded
+                or hashlib.sha256(record_encoded).hexdigest() != self.artifact_sha256
+                or record_encoded != self.encoded
                 or _validate_file_identity(
                     self.file_identity,
                     encoded_size=len(self.encoded),
@@ -2416,7 +2507,7 @@ def _attempt_receipt(
 ) -> RetainedTrustedTimePostEnrollmentGracefulStopAttempt:
     return RetainedTrustedTimePostEnrollmentGracefulStopAttempt(
         record=record,
-        artifact_sha256=record.record_sha256,
+        artifact_sha256=hashlib.sha256(encoded).hexdigest(),
         artifact_path=(artifact_directory / POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_SLOT_FILE_NAME),
         encoded=encoded,
         file_identity=file_identity,
@@ -2472,14 +2563,15 @@ def _validate_progress_binding(
     attempt: TrustedTimePostEnrollmentGracefulStopAttemptRecord,
     progress: TrustedTimePostEnrollmentGracefulStopProgressRecord,
 ) -> None:
+    attempt_sha256 = hashlib.sha256(attempt.encoded).hexdigest()
     if (
         progress.graceful_stop_operation_id != attempt.graceful_stop_operation_id
         or progress.graceful_stop_target_sha256 != attempt.graceful_stop_target_sha256
         or progress.graceful_stop_decision_v1_sha256 != attempt.graceful_stop_decision_v1_sha256
         or progress.operator_attestation_envelope_sha256
         != attempt.operator_attestation_envelope_sha256
-        or progress.attempt_slot_sha256 != attempt.record_sha256
-        or progress.predecessor_record_sha256 != attempt.record_sha256
+        or progress.attempt_slot_sha256 != attempt_sha256
+        or progress.predecessor_record_sha256 != attempt_sha256
     ):
         raise TrustedTimePostEnrollmentGracefulStopLifecycleRejected(
             "trusted-time graceful-stop progress chain is invalid"
@@ -2812,6 +2904,7 @@ def _persist_attempt(
 ) -> RetainedTrustedTimePostEnrollmentGracefulStopAttempt:
     directory = _artifact_directory(artifact_directory, ignored_root=ignored_root)
     encoded = record.encoded
+    record_sha256 = hashlib.sha256(encoded).hexdigest()
     directory_owner: _OwnedFileDescriptor | None = None
     owner: _OwnedFileDescriptor | None = None
     directory_locked = False
@@ -2835,8 +2928,8 @@ def _persist_attempt(
             file_name=POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_SLOT_FILE_NAME,
             maximum_bytes=MAXIMUM_POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_BYTES,
         )
-        observed_record = decode_post_enrollment_graceful_stop_attempt_bytes(observed)
-        if observed_record.record_sha256 != hashlib.sha256(observed).hexdigest():
+        _, observed_record_sha256 = _decode_post_enrollment_graceful_stop_attempt_material(observed)
+        if observed_record_sha256 != hashlib.sha256(observed).hexdigest():
             raise TrustedTimePostEnrollmentGracefulStopRetentionUnconfirmed(
                 "trusted-time graceful-stop attempt retention is unconfirmed"
             )
@@ -2893,7 +2986,7 @@ def _persist_attempt(
         )
         if (
             retained != encoded
-            or hashlib.sha256(retained).hexdigest() != record.record_sha256
+            or hashlib.sha256(retained).hexdigest() != record_sha256
             or _lifecycle_names(directory_descriptor)
             != frozenset({POST_ENROLLMENT_GRACEFUL_STOP_ATTEMPT_SLOT_FILE_NAME})
         ):

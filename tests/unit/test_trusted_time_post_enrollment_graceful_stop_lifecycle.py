@@ -17,6 +17,7 @@ import pytest
 
 import packages.adapters.trusted_time.ed25519_graceful_stop_operator_attestation as verifier_adapter
 import scripts.trusted_time_post_enrollment_graceful_stop_lifecycle as lifecycle
+import scripts.trusted_time_post_enrollment_shutdown_locator as shutdown_locator
 from packages.adapters.trusted_time.ed25519_graceful_stop_operator_attestation import (
     TrustedTimePostEnrollmentGracefulStopOperatorAttestationVerification,
 )
@@ -147,6 +148,95 @@ def _mutated_ordinal(encoded: bytes, ordinal: bool) -> bytes:
     payload = json.loads(encoded)
     payload["progress_ordinal"] = ordinal
     return canonical_first_enrollment_json_bytes(payload)
+
+
+def test_attempt_validation_work_is_operation_scoped(
+    base_evidence: _Evidence,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs = _inputs(base_evidence, tmp_path)
+    repository = _repository(inputs)
+    counts = {"topology": 0, "envelope": 0, "decision": 0, "locator": 0}
+
+    original_topology = shutdown_locator._validate_persistent_topology_payload
+    original_envelope = lifecycle.decode_post_enrollment_graceful_stop_operator_attestation_envelope
+    original_decision = lifecycle.decode_post_enrollment_graceful_stop_decision
+    original_locator = lifecycle.decode_post_enrollment_graceful_stop_shutdown_locator
+
+    def count_topology(payload: object) -> Any:
+        counts["topology"] += 1
+        return original_topology(payload)
+
+    def count_envelope(encoded: object) -> Any:
+        counts["envelope"] += 1
+        return original_envelope(encoded)
+
+    def count_decision(encoded: object) -> Any:
+        counts["decision"] += 1
+        return original_decision(encoded)
+
+    def count_locator(encoded: object) -> Any:
+        counts["locator"] += 1
+        return original_locator(encoded)
+
+    monkeypatch.setattr(shutdown_locator, "_validate_persistent_topology_payload", count_topology)
+    monkeypatch.setattr(
+        lifecycle,
+        "decode_post_enrollment_graceful_stop_operator_attestation_envelope",
+        count_envelope,
+    )
+    monkeypatch.setattr(lifecycle, "decode_post_enrollment_graceful_stop_decision", count_decision)
+    monkeypatch.setattr(
+        lifecycle,
+        "decode_post_enrollment_graceful_stop_shutdown_locator",
+        count_locator,
+    )
+
+    attempt = _reserve(inputs, repository)
+    initial_reserve_counts = counts.copy()
+    assert 0 < initial_reserve_counts["topology"] <= 1_400
+    assert all(
+        1 <= initial_reserve_counts[name] <= 3 for name in ("envelope", "decision", "locator")
+    )
+
+    counts.update(dict.fromkeys(counts, 0))
+    attempt.record.payload()
+    assert 0 < counts["topology"] <= 400
+    assert {name: counts[name] for name in ("envelope", "decision", "locator")} == {
+        "envelope": 1,
+        "decision": 1,
+        "locator": 1,
+    }
+
+    counts.update(dict.fromkeys(counts, 0))
+    lifecycle.canonical_post_enrollment_graceful_stop_attempt_bytes(attempt.record)
+    assert 0 < counts["topology"] <= 400
+    assert {name: counts[name] for name in ("envelope", "decision", "locator")} == {
+        "envelope": 1,
+        "decision": 1,
+        "locator": 1,
+    }
+
+    replay_repository = _repository(inputs)
+    counts.update(dict.fromkeys(counts, 0))
+    with pytest.raises(lifecycle.TrustedTimePostEnrollmentGracefulStopAttemptConsumed):
+        _reserve(inputs, replay_repository)
+    assert 0 < counts["topology"] <= 1_400
+    assert all(1 <= counts[name] <= 3 for name in ("envelope", "decision", "locator"))
+
+
+def test_attempt_validation_is_fresh_after_exact_nested_tamper(
+    base_evidence: _Evidence,
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(base_evidence, tmp_path)
+    record = _reserve(inputs, _repository(inputs)).record
+    record.payload()
+    object.__setattr__(record, "_locator_encoded", b"{}\n")
+    object.__setattr__(record, "_sealed_fields", record._seal_values())
+    with pytest.raises(lifecycle.TrustedTimePostEnrollmentGracefulStopLifecycleRejected):
+        record.payload()
 
 
 def test_exact_append_only_chain_round_trips_and_never_opens_authority(
