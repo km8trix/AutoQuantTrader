@@ -430,12 +430,16 @@ def test_launch_lock_deallocation_releases_the_hidden_generation(tmp_path: Path)
     ignored_root = tmp_path / "ignored"
     before = _live_descriptors()
     lease = _acquire_trusted_time_launch_lock(str(ignored_root))
-    assert len(_live_descriptors() - before) == 1
+    lease_descriptors = _live_descriptors() - before
+    assert len(lease_descriptors) == 1
+    lease_descriptor = next(iter(lease_descriptors))
 
     del lease
     gc.collect()
 
-    assert _live_descriptors() == before
+    with pytest.raises(OSError) as closed_descriptor:
+        fcntl.fcntl(lease_descriptor, fcntl.F_GETFD)
+    assert closed_descriptor.value.errno == errno.EBADF
     replacement = _acquire_trusted_time_launch_lock(str(ignored_root))
     replacement.close()
 

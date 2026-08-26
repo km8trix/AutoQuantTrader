@@ -102,10 +102,7 @@ def _write_topology_launch_lock_architecture_fixture(
                 relative_path = source.relative_to(ROOT)
                 destination = root / relative_path
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                try:
-                    os.link(source, destination)
-                except OSError:
-                    destination.write_bytes(source.read_bytes())
+                destination.write_bytes(source.read_bytes())
     for relative_path in _TOPOLOGY_LAUNCH_LOCK_ARCHITECTURE_FIXTURE_PATHS:
         destination = root / relative_path
         if destination.exists():
@@ -12297,7 +12294,10 @@ def test_topology_launch_lock_architecture_policy_accepts_exact_frozen_surface(
         _trusted_time_topology_launch_lock_violations,
     )
 
+    source = ROOT / "apps/__init__.py"
+    source_link_count = source.stat().st_nlink
     _write_topology_launch_lock_architecture_fixture(tmp_path, full_production=True)
+    assert source.stat().st_nlink == source_link_count
     config_path = tmp_path / "infra/architecture-boundaries.toml"
     scan = _load_config(config_path)
     production_files = _python_files(

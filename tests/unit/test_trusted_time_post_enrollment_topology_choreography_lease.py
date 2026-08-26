@@ -8773,12 +8773,36 @@ def _native_issuer_socket_path_capacity() -> int:
     return 104 if sys.platform == "darwin" else 108
 
 
+def _native_issuer_short_temporary_root() -> Path:
+    assert sys.platform in {"darwin", "linux"}
+    return Path("/private/tmp") if sys.platform == "darwin" else Path("/tmp")
+
+
+@pytest.mark.parametrize(
+    ("platform_name", "expected_root"),
+    (("darwin", Path("/private/tmp")), ("linux", Path("/tmp"))),
+)
+def test_native_issuer_short_temporary_root_is_platform_exact(
+    monkeypatch: pytest.MonkeyPatch,
+    platform_name: str,
+    expected_root: Path,
+) -> None:
+    monkeypatch.setattr(sys, "platform", platform_name)
+
+    assert _native_issuer_short_temporary_root() == expected_root
+
+
 def _new_native_issuer_activation_projection(
     directory: Path,
 ) -> tuple[tuple[object, ...], socket.socket]:
     socket_path_capacity = _native_issuer_socket_path_capacity()
     if len(os.fsencode(directory / "docker.sock")) >= socket_path_capacity:
-        directory = Path(tempfile.mkdtemp(prefix="aqt-i2-", dir="/private/tmp"))
+        directory = Path(
+            tempfile.mkdtemp(
+                prefix="aqt-i2-",
+                dir=os.fspath(_native_issuer_short_temporary_root()),
+            )
+        )
     else:
         directory.mkdir(mode=0o700, parents=True)
     ignored_root_path = directory / "ignored"
@@ -53231,7 +53255,7 @@ def test_native_issuer_activation_projection_and_fault_manifests_are_exact(
         ):
             assert socket_path == (requested_directory / "docker.sock").resolve(strict=True)
         else:
-            assert socket_path.parent.parent == Path("/private/tmp")
+            assert socket_path.parent.parent == _native_issuer_short_temporary_root()
             assert socket_path.parent.name.startswith("aqt-i2-")
         assert type(tuple.__getitem__(projection, 6)) is str
         assert type(tuple.__getitem__(projection, 7)) is tuple
@@ -63554,6 +63578,7 @@ def test_confirmed_terminal_close_waits_for_atomic_stack_callback(
         retained,
         artifact_directory=artifact_directory,
     )
+    worker_ready = threading.Event()
     callback_entered = threading.Event()
     close_started = threading.Event()
     close_finished = threading.Event()
@@ -63570,14 +63595,15 @@ def test_confirmed_terminal_close_waits_for_atomic_stack_callback(
         ):
             gate_used = True
             callback_entered.set()
-            assert close_started.wait(timeout=2.0)
+            assert close_started.wait(timeout=5.0)
             assert close_finished.is_set() is False
         object.__setattr__(owner, name, value)
 
     _patch_authenticated_scope_default(monkeypatch, "_setattr", gated_setattr)
 
     def close_during_callback() -> None:
-        assert callback_entered.wait(timeout=2.0)
+        worker_ready.set()
+        assert callback_entered.wait(timeout=5.0)
         close_started.set()
         try:
             issuer.close()
@@ -63588,6 +63614,7 @@ def test_confirmed_terminal_close_waits_for_atomic_stack_callback(
 
     worker = threading.Thread(target=close_during_callback)
     worker.start()
+    assert worker_ready.wait(timeout=5.0)
 
     def complete_terminal(lease: object, recovery_capability: object) -> object:
         _complete_and_commit_controller_receipt(
@@ -63609,7 +63636,7 @@ def test_confirmed_terminal_close_waits_for_atomic_stack_callback(
     finally:
         callback_entered.set()
         close_started.set()
-        worker.join(timeout=2.0)
+        worker.join(timeout=5.0)
 
     assert returned is receipt
     assert gate_used is True

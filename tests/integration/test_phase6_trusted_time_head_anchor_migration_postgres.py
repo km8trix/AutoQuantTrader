@@ -62,15 +62,19 @@ def _alembic_config(database_url: str) -> Config:
     return config
 
 
-def _migrate(config: Config, database_url: str, *, revision: str) -> None:
+def _upgrade(config: Config, database_url: str, *, revision: str) -> None:
     # migrations/env.py intentionally gives AQT_DATABASE_URL precedence.  Pin
     # it to the designated test target so ambient runtime configuration cannot
     # redirect this isolated proof.
     with patch.dict(os.environ, {"AQT_DATABASE_URL": database_url}):
-        if revision == TARGET_REVISION:
-            command.upgrade(config, revision)
-        else:
-            command.downgrade(config, revision)
+        command.upgrade(config, revision)
+
+
+def _downgrade(config: Config, database_url: str, *, revision: str) -> None:
+    # Keep the direction explicit: the original revision may be any checked-in
+    # descendant of the exact 0035 -> 0036 edge under test.
+    with patch.dict(os.environ, {"AQT_DATABASE_URL": database_url}):
+        command.downgrade(config, revision)
 
 
 def _cleanup_local_host(engine: Engine, host_id: str) -> None:
@@ -105,22 +109,26 @@ def test_exact_phase6d_migration_preserves_nonempty_local_history_without_backfi
     host_id = f"pytest-phase6d-migration-{uuid4().hex}"
     local_history_created = False
     try:
-        if original_revision == TARGET_REVISION:
+        if original_revision is None:
+            pytest.fail("designated test database has no exact Alembic revision")
+        if original_revision != PRIOR_REVISION:
             if _anchor_history_count(engine) != 0:
                 pytest.fail("designated test database has nonempty trusted-time anchor history")
             engine.dispose()
-            _migrate(config, database_url, revision=PRIOR_REVISION)
+            _downgrade(config, database_url, revision=PRIOR_REVISION)
             engine = create_database_engine(database_url)
-        elif original_revision != PRIOR_REVISION:
-            pytest.fail("designated test database is not at exact revision 0035 or 0036")
+            assert _revision(engine) == PRIOR_REVISION
 
+        # The repository commits before it constructs the returned session.
+        # Enable host-scoped cleanup first so a post-commit return failure cannot
+        # leave this proof's random test history behind.
+        local_history_created = True
         SqlTrustedTimeRepository(engine).register_new_epoch(
             source_id="phase6d-migration-proof-source",
             source_authority_sha256="a" * 64,
             host_id=host_id,
             recorded_at=datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
         )
-        local_history_created = True
         with engine.connect() as connection:
             connection.exec_driver_sql("SET LOCAL search_path TO public")
             preflight = collect_catalog_snapshot(connection)
@@ -162,7 +170,11 @@ def test_exact_phase6d_migration_preserves_nonempty_local_history_without_backfi
         finally:
             current_revision = _revision(engine)
             engine.dispose()
-            if original_revision == PRIOR_REVISION and current_revision == TARGET_REVISION:
-                _migrate(config, database_url, revision=PRIOR_REVISION)
-            elif original_revision == TARGET_REVISION and current_revision == PRIOR_REVISION:
-                _migrate(config, database_url, revision=TARGET_REVISION)
+            if current_revision == original_revision:
+                pass
+            elif current_revision == TARGET_REVISION and original_revision == PRIOR_REVISION:
+                _downgrade(config, database_url, revision=original_revision)
+            elif current_revision in {PRIOR_REVISION, TARGET_REVISION}:
+                _upgrade(config, database_url, revision=original_revision)
+            else:
+                pytest.fail("designated test database could not restore its original revision")
