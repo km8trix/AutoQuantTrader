@@ -259,5 +259,17 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   snapshot retries converge, stale branches/replay/rollback lose, full history
   is authenticated, reference rotation is token-empty and monotonic, and no
   resolver, provider, account, broker, or trading authority is added)
+- [ADR 0121: Trusted-time graceful-stop lifecycle-v2 implementation resolution](0121-trusted-time-graceful-stop-lifecycle-v2-implementation-resolution.md)
+  (resolves ADR 0116's design choices with a mutually Ed25519-authenticated
+  Linux Unix-seqpacket channel, exact endpoint/key/epoch/counter/deadline
+  bindings, one v1/v2 permanent lifecycle root, an additive ADR-0112 v2 handoff,
+  same-lock admission, fork-safe ownership, typed STORE/CALL stages, immutable
+  complete signed-wire artifacts, exact-ID Docker Engine teardown with fixed
+  admission/connection order and closed result/exchange projections, private-
+  PID asymmetric peer binding, success-relevant cleanup and deadline checks
+  before the fixed success commit, non-authoritative postcommit lease disposal,
+  exact prefix transcripts, distinct pre/post reauthentication, and
+  classification-only recovery; it adds no implementation, key, endpoint,
+  lifecycle artifact, effect, authority, or change to the exit-2 stop target)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

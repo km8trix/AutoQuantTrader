@@ -19,6 +19,10 @@ it is not deployed and changes no procedure in this runbook.
 [ADR 0116](../adr/0116-fail-closed-replay-safe-graceful-stop-composition-ordering.md)
 freezes the future graceful-stop dependency and effect order as design only; it
 does not add an operator procedure or change the hard-closed stop target.
+[ADR 0121](../adr/0121-trusted-time-graceful-stop-lifecycle-v2-implementation-resolution.md)
+resolves the corresponding transport, key, schema, lock, fork, effect,
+reauthentication, and recovery implementation choices, also as design only.
+It creates no key, endpoint, lifecycle artifact, recovery writer, or procedure.
 ADR 0092's exact Netnod authority is preserved as the
 [archived v1 manifest](../adr/evidence/0092-source-authority-v1.json), SHA-256
 `356723c84e30478f18ad99f3cfef2ee65b3bdd3fc26936a7d5c9910fd1bcb3ab`.
@@ -2702,7 +2706,7 @@ and historical-chain authentication only; currentness, freshness, stop
 signature, effect single-use, reservation, admission, outcome/recovery, and
 every shutdown effect remain false.
 
-### ADR 0116 composition freeze; do not operate shutdown
+### ADR 0116/0121 composition resolution; do not operate shutdown
 
 ADR 0116 is not a stop procedure. It freezes five non-separable prerequisites
 for a later implementation, in order:
@@ -2760,24 +2764,165 @@ or outcome-commit ambiguity is recovery-required and never automatic retry
 evidence. Preserve the exact lifecycle prefix, named volumes, and external
 evidence. Do not delete, rewrite, migrate, recreate, resume, or manually append
 an ordinal. Even a fully authenticated result followed by process loss cannot
-continue after restart until a separate recovery/continuation ADR supplies that
-authority.
+continue after restart. ADR 0121 selects classification-only recovery for v2;
+changing that rule would require a new lifecycle version and ADR, not an
+operator exception.
 
-The transport primitive and keys, numeric deadlines, same-lock admission
-transaction, exact lifecycle-v2 schema and contract IDs, v2 worker association,
-v2 request/result/host/terminal binders, cross-version decoder/import boundary,
-fork-safe native mechanism, exact teardown and volume-proof method, both
-reauthentication bindings, and recovery operator are unresolved external
-blockers. So is the historical-receipt handoff choice: a later review must
-select either a separately versioned ADR-0112 consumed-snapshot seam bound to
-the v2 bridge identity or an independent v2 loader/consumer of the same durable
-sources, never the current ADR-0112-to-ADR-0111 v1 handoff. Direct v1↔v2
-negative vectors and an architecture/import guard that makes v1 lifecycle and
-bridge types unreachable from v2 are mandatory future evidence. Do not choose
-these items in an operator script. No stop authority or lifecycle root was
-installed or reserved by ADR 0116, and every
-transport/currentness/admission/effect/outcome/recovery-action flag remains
-false.
+ADR 0121 resolves those choices, but does not implement them. The future
+transport is Linux pathname `AF_UNIX` `SOCK_SEQPACKET` at the exact root-created
+tmpfs endpoint
+`/run/autoquant/trusted-time/graceful-stop-v2/transport/supervisor.sock`.
+The transport mount is exactly root:GID-10001 mode `0770`, projected read-write
+and private into only the supervisor; the socket is UID/GID-10001 mode `0600`.
+Mode `0750`, a read-only or extra projection, another process with GID 10001 and
+access to that mount, or any mount/path/inode/owner/mode drift is a rejection.
+The future effective topology keeps Docker's private PID namespace and forbids
+user-namespace remap. Host admission maps the supervisor's positive peer PID to
+its start ticks, namespace, cgroup, full container and image. Container-side
+admission requires the outside-namespace host peer as UID/GID `0:0`, PID zero;
+it verifies the exact signed host process epoch and never resolves `/proc/0`.
+Role-separated Ed25519 host and supervisor keys sign complete canonical
+nonsecret request/result/error frames; confidentiality is intentionally not a
+claim. One offline-root-signed non-expiring manifest and one root-signed
+selection record choose exactly one new-root generation without overlap and
+separately permit or deny recovery signing for a retained root. Raw host,
+supervisor, and recovery seeds come only from their exact TPM2-bound encrypted
+credential blobs, exist only in three named root-created tmpfs mounts, enter
+native non-dumpable signers, and are unlinked and explicitly zeroized. Once a
+root exists, host/supervisor keys cannot reload; the recovery launcher may load
+only its exact root-pinned generation and cannot sign transport or reach Docker.
+The pinned decrypt child writes descriptor one directly to the single preopened
+role-tmpfs inode; `LoadCredentialEncrypted`, a credential-directory plaintext
+copy, a pipe, terminal, or journal sink is forbidden.
+The supervisor-secret tmpfs is a private read-write directory projection, not a
+read-only single-file bind that would retain the raw seed inode after unlink.
+
+Exact process-epoch objects bind boot, role, namespace-local PID/start/inode,
+executable/import manifests, a 32-byte process nonce, and supervisor container/
+image identity. Three signed packets—host hello, supervisor hello, then host
+channel confirmation—bind their exact contract/status/field sets, both socket
+and peer views, two fresh 32-byte channel challenges, and the deterministic
+channel preimage. Host counters are zero/one/two for hello/confirmation/request;
+supervisor counters are zero/one for hello/result-or-error. Request/result/error
+signatures also bind the lifecycle dispatch prefix. The host retains an exact
+non-circular request-basis digest at ordinal one, derives that prefix from the
+stable root plus ordinal-one intent, and only then constructs the final signed
+request; the basis, intent, prefix, and request carry one admission start and
+checked operation cutoff. Request/result/error
+packets are capped at 262,144 bytes with at most 8,192 fixed envelope bytes;
+decoded payload ceilings are 65,536, 180,224, and 32,768 bytes and the padded-
+base64 formula is verified before allocation.
+Counter gap/reuse/wrap, unknown/overlapping generation, path/permission drift,
+boot/process/channel mismatch, and deadline equality fail closed. Budgets are
+five seconds for lock and handshake, two seconds per frame, 120 seconds for the
+clean-stop result and each ADR-0109 observation, 30 seconds per container stop,
+15 seconds per removal, 10 seconds for volume proof, five seconds per STORE,
+and 600 seconds from one exact `admission_started_boottime_ns` sample. That sample occurs
+immediately after stable lock/owner/boot/clock qualification and before any
+authority, key, endpoint, evidence, or root work; checked addition of
+`600_000_000_000` nanoseconds derives the cutoff, overflow fails before
+authority, and equality expires. Both the five-second publication window and
+600-second cutoff authorize publication; marker/artifact staging, fsync,
+rename, and readback may cross them. Candidate readback and every success-
+relevant cleanup precede the last check, only the fixed-marker protocol follows,
+and no later clock read or non-authoritative disposal can reclassify a stable
+commit.
+
+The exact v2 family keeps
+`.post-enrollment-graceful-stop-attempt-slot` as the single v1/v2 replay root.
+Independent canonical request/result/error/root/progress/transcript/outcome/
+commit contracts retain the typed normal path from root ordinal zero through
+transport cleanup commitment/quiescence at three/four, final cleanup intent/result
+at twenty-one/twenty-two, and confirmed success only at twenty-three. A signed
+cleanup commitment, exact EOF/socket/key-path and stable supervisor-FD-table
+absence observations, host zeroization,
+supervisor container removal, empty-mount/unmount proof, and native cleanup
+receipts must precede the final transcript and success commit. Cleanup failure
+before that commit permits only recovery-required and no effect continuation.
+Postcommit empty-registry/lease-FD disposal is not cleanup in this sense. An exact v1 root
+consumes the slot, and unknown or mixed state allows no normal or recovery
+write. Each immutable transcript snapshot has the exact root/progress entry
+schema, domain digest, content-addressed name, and exclusive fsync/no-replace-
+rename/readback publication. Before ordinal two, the host publishes the
+complete canonical signed result-or-error envelope bytes, including payload and
+signature, as the one immutable content-addressed wire artifact under
+`<ignored-root>/trusted-time`; ordinary SHA-256 of the full bytes selects the
+literal result/error filename. Exclusive no-follow staging, file/directory
+fsync, no-replace rename, stable readback/re-encode/signature/hash validation,
+and an exact receipt must agree. Ordinal-two evidence binds the artifact name,
+absolute admitted artifact path, full-envelope/payload/signature digests,
+schemas, key, channel, counter,
+root-plus-ordinal-one dispatch prefix, deadline, and receipt, and the transcript entry binds both that evidence and
+exact wire file. Payload-only, digest-only, orphan, paired result/error, or
+interrupted state is retention-unconfirmed. Result payloads contain one exact nested request,
+twenty-field terminal projection, and signed supervisor-cleanup commitment. ADR 0121 chooses an
+additive private ADR-0112 consumer bound to the v2 bridge capability and
+operation/admission/channel, never the current ADR-0111 v1 handoff. Direct
+v1↔v2 negative vectors and an import guard remain mandatory implementation
+evidence.
+
+The existing native launcher lease is the only host flock and must span channel
+preflight, four-way admission, root reservation, every STORE/CALL pair, both
+reauthentications, transport and terminal cleanup, final transcript, and fixed
+outcome commit. Every secret/socket/effect/reauthentication owner must be
+zeroized, unlinked, unmounted, invalidated, and durably proved before that
+commit; a failure permits recovery-required only. After the ordinal-23
+confirmed-success commit, only an
+already-empty non-authoritative registry invalidation and lease-FD close remain.
+They are outside lifecycle/deadline, own no secret/effect/observation/candidate,
+cannot invalidate or reclassify success, and kernel process exit releases the
+flock even if user-space close reporting fails. A native
+pre-Python fork guard closes inherited owners before child registry access, and
+live process creation is denied. Teardown therefore uses only the exact
+method-narrowed Docker Engine `/v1.45` Unix-socket client: supervisor ID first,
+source ID second, then the two container IDs and network ID. It has no generic
+request or volume-delete method and must retain both unchanged named-volume
+identity projections plus a zero volume-delete call count. The only mutation
+targets are literal `POST /v1.45/containers/{id}/stop?t=30`, literal
+`DELETE /v1.45/containers/{id}?v=false&force=false&link=false`, and literal
+`DELETE /v1.45/networks/{id}`; the first omits `signal`, and every request body
+is absent. Exact daemon/container/network/volume GET paths and the fixed request
+header profile are equally closed. Each intent, result, and method-trace entry
+must agree on the complete canonical request digest. An extra/reordered query,
+unknown header, body byte, or volume-removing container-delete flag rejects
+before Docker contact.
+Docker responses are HTTP/1.1 with bounded status/header framing, no chunking,
+exact Content-Length rules, endpoint-specific raw-body ceilings, and zero-body
+204 success. Container/network absence accepts only the exact one-field 404 JSON.
+Strict duplicate-aware bounded JSON is reduced to closed `/info`, container,
+network, and volume projections; unknown raw fields are ignored only after the
+bounded parse and remain committed by the raw-body digest. Framing, raw-body,
+and projection digests are retained in every result and method trace. Admission
+performs exactly `/info`, supervisor full-ID inspect, source full-ID inspect,
+project-network full-ID inspect, command-socket-volume inspect, then state-
+volume inspect; the ordered request-digest list and complete connection,
+exchange, and trace object lists with parallel digests are bound into
+admission/root. One fresh connection is used for each fixed
+ordinal `0..17`. Its canonical identity binds socket mount/path/device/inode,
+peer credential and daemon process, local socket device/inode/`SO_COOKIE`, and
+capture/revalidation times; a raw FD number is never authority. Closed
+container-stop, container-remove, network-remove, and volume-preservation
+semantic objects embed complete connection/exchange objects with request,
+complete trace-entry objects and parallel request/connection/exchange/trace
+digests with HTTP/framing/body/projection digests, timestamps, and outcome. Do not
+operate on an implicit/reordered read, identity drift, retry, or digest-only
+result.
+
+Recovery never continues or repeats an effect. The separate generation-pinned
+profile may authenticate a known prefix, durably consume one signed recovery
+classification, and retain only its deterministic recovery-required outcome or
+finish one already-created exact outcome candidate. A confirmed-success
+candidate alone is insufficient; finalization requires its exact authenticated
+fixed-marker staging/final preimage with matching admission start, checked
+operation cutoff, and timely final authorization sample. It cannot open the
+transport channel, load host/supervisor keys, or call Docker. Unknown,
+mixed-version, conflicting, or unstable state permits no write. Recovery binds
+a published classified-prefix transcript, then a distinct final transcript
+ending at its durable classification intent; it cannot treat one as the other.
+No stop
+authority, manifest, key, endpoint, lifecycle root, or recovery profile was
+installed by ADR 0121, and every transport/currentness/admission/effect/outcome/
+recovery-action flag remains false.
 
 The dormant APIs depend on the separately reviewed native owned-descriptor
 prerequisite. Its C operations expose neither a descriptor nor a live owner
@@ -2795,12 +2940,13 @@ persistent Chrony-state and read-only leaf mount contracts. A developer editable
 install is never operational evidence.
 
 Before any live procedure is documented, a separately reviewed implementation
-must build on the selected lifecycle-v2-compatible historical-receipt handoff
-and v2 request/result/host-binding family—not the current v1 handoff—and satisfy
-all five ADR-0116 gates together, including fresh pre-effect cross-binding and a
-distinct post-teardown terminal reauthentication. Until then, every transport,
-currentness, durability, outcome, recovery-action, and effect flag remains
-false.
+must build ADR 0121's additive v2-bound historical-receipt handoff and
+independent v2 request/result/error/lifecycle family—not the current v1
+handoff—and satisfy all five ADR-0116 gates together, including exact key and
+endpoint custody, fresh pre-effect cross-binding, distinct post-teardown
+terminal reauthentication, and classification-only recovery. Until then, every
+transport, currentness, durability, outcome, recovery-action, and effect flag
+remains false.
 
 Repository review also requires the exact ADR-0111 raw-source manifest over
 `apps`, `packages`, and `scripts`. Its only lexical prune is
@@ -2848,7 +2994,8 @@ actually executed the workflow. Those hosting controls are outside ADR 0111's
 evidence boundary.
 
 No effecting approved shutdown operator is implemented yet. ADR 0116 freezes
-design order only and does not satisfy any implementation or admission gate.
+design order and ADR 0121 resolves implementation choices only; neither
+satisfies an implementation or admission gate.
 `make trusted-time-stop` reports that closure, intentionally exits 2, and must
 not be replaced with a live-checkout Compose command. Unenrolled admission mode
 performs and verifies its own container/network teardown. The one-shot

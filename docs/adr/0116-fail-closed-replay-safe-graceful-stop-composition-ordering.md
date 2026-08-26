@@ -11,6 +11,8 @@
   [ADR 0111](0111-dormant-operation-bound-clean-stop-supervisor-bridge.md),
   and
   [ADR 0112](0112-durable-graceful-stop-decision-artifact-receipt-reauthentication.md)
+- Extended by:
+  [ADR 0121](0121-trusted-time-graceful-stop-lifecycle-v2-implementation-resolution.md)
 
 ## Context
 
@@ -103,8 +105,16 @@ The envelope must bind the stop operation, permanent attempt-root identity,
 lifecycle-v2 transcript identity, admitted topology and trusted-head
 identities, exact supervisor-container identity, request/result direction,
 endpoint role, protocol version, one-use message identity, and an explicit
-deadline context. A request identity cannot be reused for another operation,
-topology, result, process epoch, or direction.
+deadline context. ADR 0121 defines that transport-time transcript identity as
+`lifecycle_dispatch_prefix_sha256`: a domain-separated digest of the exact
+stable ordinal-zero root and ordinal-one request-intent artifacts, their stages,
+ordinals, and predecessor relation. Every later transcript must begin with those
+same two entries. This deterministic prefix avoids hashing a future mutable
+transcript while preventing a request from moving across lifecycle lineages.
+Ordinal one binds ADR 0121's exact pre-dispatch request-basis digest; only after
+its stable readback does the final request add the intent and prefix digests. A
+request identity cannot be reused for another operation, topology, result,
+process epoch, transcript prefix, or direction.
 
 Both endpoints must authenticate the peer and the exact origin of each message;
 possession of canonical bytes, a filesystem path, a process ID, stdout, a
@@ -113,14 +123,15 @@ nested value must have fixed size, count, and depth limits. Decoding and schema
 validation occur only after the bounded authenticated frame is received, and
 canonical decoding never promotes transport or origin authentication by itself.
 
-The final transport design must select exact cryptographic identities, key
-custody and rotation, endpoint type and permissions, message counters or nonce
-construction, boot/process-epoch binding, suspend-aware clock source, and
-numeric deadlines. This ADR does not invent those values. Whichever design is
-selected must treat equality with a deadline as expired, reject clock or counter
-regression, authenticate both request and result directions independently, and
-make duplicate, delayed, reordered, reflected, cross-operation, cross-topology,
-cross-boot, and cross-direction messages terminal failures for that attempt.
+This ADR historically deferred exact cryptographic identities, key custody and
+rotation, endpoint type and permissions, message counters, boot/process epochs,
+suspend-aware clock source, and numeric cutoffs. ADR 0121 now freezes those
+values and their schemas. They are no longer implementation choices: equality
+with an authorization cutoff is expired, clock or counter regression rejects,
+both directions authenticate independently, and duplicate, delayed, reordered,
+reflected, cross-operation, cross-topology, cross-boot, cross-prefix, and cross-
+direction messages are terminal failures for that attempt. Implementation,
+provisioning, qualification, and activation evidence remain absent.
 
 Every version boundary is fail-closed. The future v2 decoder, builder, and host
 binder must reject ADR-0111 v1 contract strings, canonical v1 wire bytes,
@@ -143,7 +154,19 @@ recovery-required and never automatic retry evidence.
 
 One future host controller must acquire the exact global trusted-time launcher
 lock and keep it continuously held from current-evidence admission through
-terminal-outcome publication and owner cleanup. Under that same lock, before
+all success-relevant owner cleanup and the fixed terminal-outcome commit. ADR
+0121 requires every success-relevant zeroize/unlink/unmount receipt and the
+final five-second/600-second precommit authorization check before that
+confirmed-success commit; the single fixed-marker protocol is the only work
+after the check. Neither cutoff claims durable marker completion, and a
+postpublication clock read cannot reclassify it. A precommit cleanup failure
+permits only recovery-required and cannot leave success committed.
+After the ordinal-23 confirmed-success fixed commit, only invalidation of an already-empty non-authoritative
+registry and close of the lease descriptor remain. That disposal is outside
+the lifecycle and whole-operation authorization cutoff, owns no secret, effect,
+observation, or outcome candidate, cannot invalidate or reclassify the commit,
+and is guaranteed to release the flock on kernel process exit. Under that same
+lock, before
 reservation or transport dispatch, it must freshly:
 
 - authenticate the exact installed, reviewed-Git stop authority and exact
@@ -173,19 +196,21 @@ same conditions are recovery-required.
 
 The lock is serialization, not authority. It cannot replace authenticated
 topology, trusted-head, stop-authority, operation, transport, or lifecycle
-evidence. The future design must also specify bounded lock acquisition,
-owner-death handling, and the exact relationship between the host lock and any
-supervisor-side lock without permitting a deadlock-dependent success path.
+evidence. ADR 0121 fixes a five-second native launcher-lock acquisition, one
+opaque continuously held host lease, no second repository flock, a supervisor
+that never acquires the host flock, and an exact host/native-owner/repository/
+process-local-mutex order. The implementation must prove owner-death handling
+and every lock-order/fault vector without permitting a deadlock-dependent
+success path.
 
 ADR 0112's current private consumed-snapshot handoff is bound to ADR 0111's v1
-bridge identity and is not a v2 input. A later implementation ADR must choose
-and freeze either (a) a separately versioned private ADR-0112 consumed-snapshot
-seam bound directly to the v2 bridge identity while leaving every existing v1
-meaning unchanged, or (b) an independent v2 historical decision-receipt
-loader/consumer that reconstructs and authenticates the same durable source
-facts. This ADR does not choose between them. Neither choice may pass a v1
-lifecycle receipt, bridge request/result, host composite, process seal, or
-adapted projection into the v2 object graph.
+bridge identity and is not a v2 input. This ADR historically left two possible
+handoffs. ADR 0121 chooses the additive separately versioned private ADR-0112
+consumed-snapshot seam bound directly to the v2 bridge identity while leaving
+every existing v1 meaning unchanged; an independent duplicate v2 loader is not
+the selected design. The new seam may not pass a v1 lifecycle receipt, bridge
+request/result, host composite, process seal, or adapted projection into the v2
+object graph. Its implementation and import/callgraph proof remain blocked.
 
 ### Introduce lifecycle v2 and compatible correlation without changing v1 history
 
@@ -196,8 +221,9 @@ v1 root or any ambiguous/unknown root state permanently denies a normal v2
 attempt and requires separately reviewed recovery. V2 must use a new contract
 version while preserving the single global replay domain and the same fixed
 permanent attempt-slot meaning; it must not create a second replay slot or a
-per-operation root. Exact v2 filenames, stage names, byte bounds, and
-publication protocol remain an implementation-review choice.
+per-operation root. ADR 0121 freezes the exact v2 filenames, stage names, byte
+bounds, signed-wire artifacts, transcript identity, and publication protocols;
+implementation may not select alternatives without a successor ADR.
 
 The lifecycle-v2 request, result, worker association, historical-receipt
 handoff, pre-effect host binder, and post-teardown terminal binder must form one
@@ -246,11 +272,15 @@ caller-supplied digest, cannot satisfy that binding.
 V2 has exactly two terminal classifications: one durable confirmed-success
 outcome after the entire ordered protocol, or one durable recovery-required
 outcome for every ambiguity or failure after reservation may have begun.
-Recovery-required is evidence, not recovery authority. The exact recovery
-operator and whether any fully result-confirmed prefix may be continued after a
-process restart remain intentionally unresolved; until separately decided, a
-restart after reservation is recovery-required and cannot continue or replay
-an effect automatically.
+Recovery-required is evidence, not recovery authority. This ADR historically
+left recovery disposition unresolved. ADR 0121 selects classification without
+effect continuation: a restarted recovery profile may retain the deterministic
+recovery-required outcome for one known prefix or revalidate/finalize the one
+already-created exact outcome candidate whose fixed commit alone is uncertain,
+but it may never create a new success candidate, dispatch transport, continue,
+retry, replay, compensate, or reach Docker. The fixed classifier implementation,
+credential provisioning, operator admission, and recovery drills remain
+blocked.
 
 ### Invalidate inherited state before any live registry use
 
@@ -270,10 +300,13 @@ no continuation, cleanup, outcome, or recovery authority. Process launch while
 an effect authority or lifecycle lock is live is forbidden unless the reviewed
 primitive proves the required close-before-registry ordering.
 
-The exact native/host mechanism and interpreter support matrix remain external
-blockers. PID checks added after a registry lock, best-effort `atexit` cleanup,
-or a Python-only callback that first touches inherited locked state cannot
-satisfy this gate.
+ADR 0121 selects a fixed native pre-Python owner table, `pthread_atfork` child
+invalidation, `MADV_WIPEONFORK` key pages, post-native Python registry reset,
+and a no-process-creation live state. Implementing and qualifying that mechanism
+against the admitted interpreter/platform matrix remain external blockers. PID
+checks added after a registry lock, best-effort `atexit` cleanup, or a Python-
+only callback that first touches inherited locked state cannot satisfy this
+gate.
 
 ### Freeze the later effect choreography
 
@@ -283,9 +316,13 @@ deadline context remain valid:
 
 1. durably retain the exact clean-stop-checkpoint request intent, dispatch the
    authenticated lifecycle-v2-compatible operation-bound `clean_stop` request,
-   receive the exact transport-authenticated v2 wire result, and durably retain
-   that structural post-CALL result; transport authentication does not qualify
-   its terminal meaning;
+   receive the exact transport-authenticated v2 wire result, publish the
+   complete canonical signed envelope bytes—including payload and signature—as
+   an immutable content-addressed artifact, and durably retain typed evidence
+   that binds its absolute admitted path, artifact name, full-envelope/payload/signature digests,
+   schema, key, channel, root-plus-intent lifecycle dispatch prefix, counter,
+   deadline, and publication receipt;
+   transport authentication does not qualify its terminal meaning;
 2. issue a fresh ADR-0109 host SQL/provider reauthentication, consume and
    cross-bind it through the exact v2 host-binding seam to the same v2
    operation/request/result/root, and durably bind that pre-effect composite
@@ -308,10 +345,19 @@ deadline context remain valid:
    reauthentication and durably bind it to the exact operation, v2 transcript,
    expected `CLEAN_STOP` head, pre-effect cross-binding, and provider identity;
    and
-8. publish exactly one durable terminal outcome. Confirmed success requires
-   every prior result plus both the pre-effect cross-binding and distinct
-   post-teardown terminal reauthentication to be durably revalidated. Every
-   other post-reservation disposition is recovery-required.
+8. complete and durably prove every success-relevant transport/native-owner/
+   secret-mount cleanup, publish the final transcript and exact outcome
+   candidate, close its success-relevant handles, prove the registry empty, and
+   perform the last equality-expired precommit authorization check against both
+   the five-second commit-publication and 600-second whole-operation cutoffs.
+   Only the one fixed-marker protocol follows that check; neither cutoff claims
+   durable marker completion, and no postpublication clock read may reclassify
+   a stable commit. Confirmed success requires every prior result plus
+   both the pre-effect cross-binding and distinct post-teardown terminal
+   reauthentication to be durably revalidated. Every other precommit post-
+   reservation disposition is recovery-required or commit-unconfirmed. Empty registry invalidation
+   and lease-FD close after that confirmed-success commit are non-authoritative disposal, not a
+   ninth lifecycle step or cleanup result.
 
 The clean-stop checkpoint transaction in steps one and two is a prerequisite
 to the supervisor-container stop effect in step three. The v2 wire result is
@@ -323,6 +369,22 @@ never stops first, and supervisor and source stops are not parallelized. The
 post-teardown terminal reauthentication is a distinct observation intentionally
 issued only after exact teardown and volume-preservation proof; the pre-effect
 ADR-0109 observation cannot be reused as the final outcome proof.
+
+ADR 0121 resolves Docker evidence as canonical objects, not generic status.
+Admission performs only the fixed six-read sequence `/info`, supervisor full-ID
+inspect, source full-ID inspect, project-network full-ID inspect, command-socket
+volume inspect, and state-volume inspect. Its ordered request, complete
+connection-identity, exchange, and method-trace object lists plus parallel
+digests are hashed into the admission/root. Every later call uses one fresh connection whose exact socket
+mount/path/device/inode, peer credential and daemon process, local socket
+device/inode/`SO_COOKIE`, fixed connection ordinal, and capture/revalidation
+times are domain-hashed without treating a raw FD number as identity. Closed
+container-stop, container-remove, network-remove, and volume-preservation result
+objects embed the exact primary/post-inspect exchanges and connection objects,
+complete trace-entry objects and parallel request/connection/exchange/trace
+digests, HTTP/framing/body/projection digests, timestamps, and outcome. The
+gap-free Docker connection/method order is exactly `0..17`; no implicit read,
+reorder, retry, or digest-only result can qualify.
 
 ### Freeze conceptual states without inventing a wire schema
 
@@ -346,7 +408,8 @@ pre-effect ADR-0109 cross-binding before any stop/teardown effect. Only the
 distinct post-teardown terminal reauthentication may advance to confirmed
 success. A missing later record proves nothing about whether an earlier call
 occurred. These names are semantic requirements, not reserved contract strings;
-the implementation ADR must freeze exact status values and encodings.
+ADR 0121 freezes their exact v2 status values and encodings, which the still-
+absent implementation must follow.
 
 ### Classify crash and STORE/CALL ambiguity conservatively
 
@@ -360,8 +423,8 @@ the implementation ADR must freeze exact status values and encodings.
 | Exact pre-CALL intent is durable, but control is lost before or during CALL | Recovery required because call occurrence or completion is not durably known | Never repeat the call automatically |
 | CALL returned, but authenticated result was absent, invalid, late, or its STORE is ambiguous | Recovery required | A return value, process exit, later absence, or observation cannot manufacture the missing result |
 | Structural v2 wire result is durable, but fresh pre-effect ADR-0109 reauthentication/cross-binding is absent, failed, or ambiguously stored | Recovery required; no stop or teardown effect is admitted | Never treat transport authentication as terminal qualification or use a prior observation |
-| Fresh pre-effect cross-binding is durable, but control is lost before supervisor-container-stop intent | The checkpoint result is cross-bound, but no later effect is authorized by this ADR | Preserve the prefix; require separately reviewed recovery/continuation authority |
-| Exact authenticated result is durable, but the process stops before the next intent | The previous call is confirmed, but continuation is not authorized by this ADR | Preserve the prefix; require a separately reviewed recovery/continuation decision |
+| Fresh pre-effect cross-binding is durable, but control is lost before supervisor-container-stop intent | The checkpoint result is cross-bound, but no later effect is authorized | Preserve/authenticate the prefix under ADR 0121's still-unimplemented classifier; never continue an effect |
+| Exact authenticated result is durable, but the process stops before the next intent | The previous call is confirmed, but continuation is forbidden | Preserve/authenticate the prefix under ADR 0121's still-unimplemented classifier; never continue an effect |
 | Teardown result is durable, but volume preservation or the distinct post-teardown terminal reauthentication is absent/failed | Recovery required; success is false | Preserve volumes and evidence; do not replay teardown or reuse the pre-effect observation |
 | Confirmed-success outcome publication began but commit cannot be revalidated | Outcome retention unconfirmed and recovery required | Revalidate the exact candidate/commit only; never publish a second outcome |
 | Exact confirmed-success outcome is durably committed and revalidated | Terminal success for that one operation | No retry, resume, re-arm, or further stop effect |
@@ -386,9 +449,10 @@ not erase or rewrite any possibly durable lifecycle or outcome artifact.
 - Missing artifacts, missing containers, an empty network inventory, preserved
   volumes, current SQL, provider state, or a generic stopped process never
   proves that a prior call did or did not occur.
-- Recovery may inspect and authenticate exact retained evidence, but no recovery
-  executor exists until a separate ADR defines its authority, allowed
-  transitions, ambiguity reconciliation, and terminal result.
+- ADR 0121 defines the classification-only recovery authority, exact allowed
+  transitions, ambiguity handling, and exact-candidate finalization; its
+  executor, credentials, admission, and operational approval remain absent.
+  Recovery never continues an effect.
 - Existing v1 roots/prefixes and every possibly durable v2 artifact are retained
   exactly. Recovery does not migrate, truncate, unlink, replace, or reinterpret
   them.
@@ -451,45 +515,42 @@ deployment root remains outside what repository-local evidence alone can
 eliminate. The implementation must name and bind those trusted inputs rather
 than implying that this ADR authenticates them.
 
-## External blockers and unresolved choices
+## ADR 0121 design resolution and remaining activation blockers
 
-No implementation may begin by silently selecting any of these unresolved
-items:
+This ADR originally froze sequencing while deliberately leaving the security-
+sensitive mechanisms open. ADR 0121 now resolves the transport/cryptography/
+endpoint/key/counter/epoch design, `CLOCK_BOOTTIME` authorization cutoffs,
+same-lock admission and lock order, lifecycle-v2 contracts/names/bounds/stages,
+root-plus-intent transcript binding, signed-wire retention, ADR-0112 handoff,
+fork model, exact Docker reads/effects/results, both reauthentication bindings,
+terminal cleanup, and classification-only recovery with exact-candidate
+finalization. Those are historical choices resolved by ADR 0121, not options an
+implementer may silently reopen. A deviation requires a successor ADR.
 
-- transport primitive, peer credentials, cryptographic protocol, endpoint
-  paths, key custody/rotation/revocation, message-counter or nonce construction,
-  and cross-boot/process-epoch identity;
-- exact suspend-aware clock source, numeric request/result and whole-operation
-  deadlines, and the proof that both endpoints interpret them consistently;
-- stop-authority installation, reviewed-Git loader, signed-operation admission,
-  and a dedicated secret scope distinct from start authority;
-- one atomic current-topology/trusted-head/authority/operation admission method,
-  lock acquisition/owner-death semantics, and any supervisor-side lock order;
-- lifecycle-v2 contract strings, canonical schema, filename namespace, bounds,
-  request/result/host-binding and terminal-binding schemas, worker association,
-  fixed staging/commit protocol, transition list, and v1/v2 loader and import
-  boundaries, including durable pre-effect cross-binding and distinct
-  post-teardown terminal reauthentication records;
-- the lifecycle-v2-compatible historical decision-receipt handoff: either a
-  separately versioned private ADR-0112 consumed-snapshot seam bound to the v2
-  bridge identity or an independent v2 loader/consumer of the same durable
-  sources, with neither path consuming or adapting the existing v1 handoff;
-- fork-safe native ownership and invalidation implementation, supported
-  interpreter/platform matrix, and proof against inherited-lock deadlock;
-- admitted fixed executables, immutable image and dependency closure, sanitized
-  environment, same-UID tracing/injection denial, and effective read-only/noexec
-  mount receipts;
-- exact ID-bound stop/remove result authentication and a named-volume
-  preservation proof that cannot be satisfied by caller assertions;
-- pre-effect and post-teardown SQL/provider reauthentication identities,
-  preferably a separately enforced read-only principal, their distinct
-  one-shot bindings, and bounded snapshot/currentness limits; and
-- a separately approved recovery operator and manual reconciliation protocol
-  for every ambiguous prefix, including whether any confirmed prefix can ever
-  continue after restart.
+The stop path nevertheless remains closed because these activation blockers are
+unimplemented or unprovisioned:
 
-Until each choice has its own evidence and review, the corresponding gate is
-unimplemented and the entire stop path remains closed.
+- the independent v2 codecs, repository, transcript-prefix derivation, native
+  transport/key owners, same-lock admission, fork guard, Docker client,
+  reauthentication binders, cleanup proofs, and recovery classifier, plus their
+  import/callgraph and fault-injection evidence;
+- the exact reviewed stop authority, manifest/selection chain, TPM-bound role
+  credentials, tmpfs/socket projections, fixed launchers, executables, images,
+  sanitized environment, read-only/noexec mounts, and supported Linux/CPython
+  qualification receipts;
+- the admitted topology, Docker daemon/socket, immutable IDs, provider/database
+  read-only principals, currentness bounds, and every exact authority identity
+  required by the design;
+- integrated five-gate evidence for deadline authorization, same-lock ownership,
+  fork/process loss, every STORE/CALL ambiguity, ID-bound teardown, volume
+  preservation, pre/post reauthentication, terminal cleanup, outcome commit,
+  exact-candidate recovery, and non-reachability of every fallback/effect; and
+- separately approved operator/recovery admission, deployment and rollback
+  procedure, drills, branch protection, and production activation review.
+
+Until every blocker has its own evidence and review, all five gates remain
+unimplemented as one activation boundary and the entire stop path remains
+closed.
 
 ## Acceptance evidence
 
@@ -506,8 +567,11 @@ Acceptance of this ADR requires only documentation evidence:
 A later implementation cannot claim this ADR satisfied until review retains:
 
 - canonical v2 request/result/host-binding and authenticated-envelope test
-  vectors plus tamper, origin, replay, reflection, duplicate, ordering, size,
-  deadline, cross-operation, cross-topology, and cross-boot failures;
+  vectors, including exact root-plus-intent dispatch-prefix derivation and every
+  later transcript's first-two-entry equality, plus tamper, origin, replay,
+  reflection, duplicate, ordering, size, five-second/600-second prepublication-
+  authorization equality, postpublication non-reclassification, cross-
+  operation, cross-topology, and cross-boot failures;
 - direct v1↔v2 negative vectors—v1-to-v2 and v2-to-v1—proving that each
   decoder, builder, binder, and loader rejects the other version's contract
   strings, bytes, decoded objects, receipts, digests, roots, prefixes, process
@@ -528,8 +592,10 @@ A later implementation cannot claim this ADR satisfied until review retains:
 - an exact trace proving the global lock spans fresh four-way admission,
   lifecycle-v2 reservation, clean-stop request/result, fresh pre-effect
   ADR-0109 cross-binding, every stop/teardown effect, distinct post-teardown
-  terminal reauthentication, outcome publication, and owner cleanup without a
-  state-changing gap;
+  terminal reauthentication, transport and terminal cleanup, final transcript,
+  and the fixed outcome commit without a state-changing gap, plus a separately
+  classified postcommit trace proving empty-registry invalidation and lease-FD
+  close cannot invoke lifecycle, recovery, outcome, effect, or deadline code;
 - ID-bound fake-driver and isolated integration evidence for the structural
   clean-stop result, fresh pre-effect cross-binding, supervisor-container stop,
   source-container stop, per-container/network teardown, both unchanged named
@@ -550,10 +616,11 @@ bounded prerequisite slices, but none may be wired live until the complete
 composition passes its integrated ambiguity and effect proof.
 
 The cost is deliberate: the first operational graceful stop remains blocked by
-unresolved transport, admission, lifecycle, fork, deployment, both
-reauthentication boundaries, and recovery choices. A partial implementation
-cannot be marketed as progress toward an operator command by exposing a request
-channel or reserving the permanent slot.
+unimplemented and unprovisioned transport, admission, lifecycle, fork,
+deployment, both reauthentication boundaries, and recovery components and
+evidence, even though ADR 0121 has resolved their design choices. A partial
+implementation cannot be marketed as progress toward an operator command by
+exposing a request channel or reserving the permanent slot.
 
 No current runtime behavior changes. The real lifecycle root remains absent,
 the stop authority remains absent, no external state is observed or mutated,
