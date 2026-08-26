@@ -1,9 +1,11 @@
 # syntax=docker/dockerfile:1.7
 
 ARG UV_VERSION=0.11.28
+ARG PYTHON_BUILDER_IMAGE=python:3.12.13-bookworm@sha256:3cd9086bdb30f7c9bc08a3fa621d9842e0d3f6f9291aeb4677e0547817c10b12
+ARG PYTHON_IMAGE=python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b
 FROM ghcr.io/astral-sh/uv:${UV_VERSION}@sha256:0f36cb9361a3346885ca3677e3767016687b5a170c1a6b88465ec14aefec90aa AS uv
 
-FROM python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b AS development
+FROM ${PYTHON_BUILDER_IMAGE} AS build-base
 
 COPY --from=uv /uv /uvx /bin/
 
@@ -17,13 +19,20 @@ ENV PATH="/opt/venv/bin:${PATH}" \
 WORKDIR /workspace
 
 COPY . .
+
+FROM build-base AS development
+
 RUN uv sync --all-groups --locked
 
 EXPOSE 8000
 
 CMD ["uv", "run", "uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
-FROM python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b AS production
+FROM build-base AS production-build
+
+RUN uv sync --no-dev --locked
+
+FROM ${PYTHON_IMAGE} AS production
 
 COPY --from=uv /uv /uvx /bin/
 
@@ -43,8 +52,8 @@ WORKDIR /workspace
 # intentional until a narrower wheel/image manifest is content-addressed:
 # Alembic revisions and the verified no-exposure artifact are runtime inputs.
 COPY . .
-RUN uv sync --no-dev --locked \
-    && groupadd --system --gid 10001 autoquant \
+COPY --from=production-build /opt/venv /opt/venv
+RUN groupadd --system --gid 10001 autoquant \
     && useradd --system --uid 10001 --gid autoquant --home-dir /nonexistent autoquant
 
 USER 10001:10001
