@@ -45,11 +45,23 @@ jobs:
           scripts/check_architecture.py
 
   backend:
-    name: Backend quality and tests
+    name: Backend quality and tests (shard ${{ matrix.shard_number }} of 4)
     runs-on: ubuntu-latest
     timeout-minutes: 150
     needs:
       - architecture
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard_index: 0
+            shard_number: 1
+          - shard_index: 1
+            shard_number: 2
+          - shard_index: 2
+            shard_number: 3
+          - shard_index: 3
+            shard_number: 4
     env:
       PYTHONDONTWRITEBYTECODE: "1"
       SOURCE_DATE_EPOCH: "0"
@@ -57,7 +69,6 @@ jobs:
       AQT_ENVIRONMENT: local
       AQT_LOG_LEVEL: INFO
       AQT_DATABASE_URL: postgresql+psycopg://autoquant:autoquant@localhost:5432/autoquant_test
-      AQT_TEST_POSTGRES_URL: postgresql+psycopg://autoquant:autoquant@localhost:5432/autoquant_test
       AQT_LOCAL_AUTH_ENABLED: "true"
       AQT_CORS_ORIGINS: http://localhost:5173
       AQT_SESSION_SECRET: local-ci-only-session-secret-change-me
@@ -172,6 +183,10 @@ jobs:
         run: >-
           "${GITHUB_WORKSPACE}/.venv/bin/autoquant-trusted-time-python-test"
           test-suite
+          --aqt-test-postgres-url
+          postgresql+psycopg://autoquant:autoquant@localhost:5432/autoquant_test
+          --aqt-shard-count 4
+          --aqt-shard-index ${{ matrix.shard_index }}
 
   native-packaging:
     name: Native owner (${{ matrix.os }}, Python ${{ matrix.python-version }})
