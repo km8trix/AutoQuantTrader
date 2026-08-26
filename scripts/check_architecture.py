@@ -5397,6 +5397,7 @@ def _isolated_origin_module_import_bindings(
 def _phase3h_proof_boundary_violations(
     tree: ast.AST,
     *,
+    policy_enabled: bool,
     relative_path: Path,
     proof_module: str,
     proof_path: Path,
@@ -5404,9 +5405,12 @@ def _phase3h_proof_boundary_violations(
     execution_path: Path,
     allowed_proof_imports: frozenset[str],
     module_ast_sha256: dict[Path, str],
+    dynamic_code_exception_module_ast_sha256: dict[Path, str],
 ) -> list[Violation]:
     """Keep Phase 3H proof construction inside two exact reviewed modules."""
 
+    if not policy_enabled:
+        return []
     boundary = "Phase 3H isolated economic-proof boundary"
     checker_path = Path("scripts/check_architecture.py")
     protected_paths = {proof_path, execution_path}
@@ -5460,6 +5464,19 @@ def _phase3h_proof_boundary_violations(
             )
         )
 
+    dynamic_code_exception_digest = dynamic_code_exception_module_ast_sha256.get(relative_path)
+    if dynamic_code_exception_digest is not None:
+        if _canonical_ast_sha256(tree) != dynamic_code_exception_digest:
+            violations.append(
+                Violation(
+                    relative_path,
+                    1,
+                    f"{boundary} dynamic-code exception must preserve its exact module AST",
+                )
+            )
+        else:
+            return violations
+
     if relative_path in protected_paths or relative_path == checker_path:
         return violations
 
@@ -5479,18 +5496,99 @@ def _phase3h_proof_boundary_violations(
     dynamic_loader_names = frozenset(
         {
             "__import__",
+            "compile_command",
             "exec_module",
             "find_spec",
+            "get_loader",
             "import_module",
             "load_module",
+            "locate",
             "module_from_spec",
             "resolve_name",
             "run_module",
+            "run_path",
+            "runcode",
         }
     )
+    dangerous_import_roots = frozenset(
+        {
+            "_frozen_importlib",
+            "_frozen_importlib_external",
+            "cloudpickle",
+            "code",
+            "codeop",
+            "copyreg",
+            "dill",
+            "gc",
+            "imp",
+            "importlib",
+            "inspect",
+            "joblib",
+            "marshal",
+            "mock",
+            "operator",
+            "pickle",
+            "pydoc",
+            "pkgutil",
+            "runpy",
+            "shelve",
+            "unittest",
+            "zipimport",
+        }
+    )
+    dynamic_code_names = frozenset({"compile", "eval", "exec"})
     reserved_text = reserved_names | dynamic_loader_names | {proof_module, execution_module}
+    reserved_fragments = reserved_names | {
+        proof_module,
+        execution_module,
+        proof_path.as_posix(),
+        execution_path.as_posix(),
+    }
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     for node in ast.walk(tree):
+        dangerous_import: str | None = None
+        if isinstance(node, ast.Import):
+            dangerous_import = next(
+                (
+                    alias.name.partition(".")[0]
+                    for alias in node.names
+                    if alias.name.partition(".")[0] in dangerous_import_roots
+                ),
+                None,
+            )
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            root = node.module.partition(".")[0]
+            dangerous_import = root if root in dangerous_import_roots else None
+        if dangerous_import is not None:
+            violations.append(
+                Violation(
+                    relative_path,
+                    getattr(node, "lineno", 1),
+                    f"{boundary} forbids dynamic-code import root '{dangerous_import}'",
+                )
+            )
+            continue
+
+        dynamic_code: str | None = None
+        if isinstance(node, ast.Name) and node.id in dynamic_code_names:
+            dynamic_code = node.id
+        elif isinstance(node, ast.Attribute) and node.attr in {"eval", "exec"}:
+            dynamic_code = node.attr
+        elif isinstance(node, ast.alias):
+            origin = node.name.rpartition(".")[2]
+            local = node.asname or origin
+            if origin in dynamic_code_names or local in dynamic_code_names:
+                dynamic_code = origin
+        if dynamic_code is not None:
+            violations.append(
+                Violation(
+                    relative_path,
+                    getattr(node, "lineno", 1),
+                    f"{boundary} forbids dynamic code capability '{dynamic_code}'",
+                )
+            )
+            continue
+
         dynamic_loader: str | None = None
         if isinstance(node, ast.Name) and node.id in dynamic_loader_names:
             dynamic_loader = node.id
@@ -5535,6 +5633,20 @@ def _phase3h_proof_boundary_violations(
                     f"{boundary} reserves proof symbol '{symbol}'",
                 )
             )
+        if isinstance(node, ast.Constant) and isinstance(node.value, str | bytes):
+            value = node.value.encode("utf-8") if isinstance(node.value, str) else node.value
+            reflected_fragment = next(
+                (fragment for fragment in reserved_fragments if fragment.encode("utf-8") in value),
+                None,
+            )
+            if reflected_fragment is not None:
+                violations.append(
+                    Violation(
+                        relative_path,
+                        getattr(node, "lineno", 1),
+                        f"{boundary} reserves embedded proof name '{reflected_fragment}'",
+                    )
+                )
         folded = _constant_folded_text(node)
         if folded not in reserved_text:
             continue
@@ -7932,6 +8044,30 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
     phase3h_isolated_module_ast_sha256 = {
         Path(path): digest for path, digest in raw_phase3h_isolated_module_ast_sha256.items()
     }
+    raw_phase3h_dynamic_code_exception_module_ast_sha256 = scan.get(
+        "phase3h_dynamic_code_exception_module_ast_sha256", {}
+    )
+    if not isinstance(raw_phase3h_dynamic_code_exception_module_ast_sha256, dict) or any(
+        type(path) is not str or type(digest) is not str
+        for path, digest in raw_phase3h_dynamic_code_exception_module_ast_sha256.items()
+    ):
+        raise SystemExit("phase3h_dynamic_code_exception_module_ast_sha256 must be a string table")
+    phase3h_dynamic_code_exception_module_ast_sha256 = {
+        Path(path): digest
+        for path, digest in raw_phase3h_dynamic_code_exception_module_ast_sha256.items()
+    }
+    phase3h_policy_keys = frozenset(
+        {
+            "phase3h_proof_module",
+            "phase3h_proof_module_path",
+            "phase3h_execution_module",
+            "phase3h_execution_module_path",
+            "phase3h_proof_consumer_allowed_imports",
+            "phase3h_isolated_module_ast_sha256",
+            "phase3h_dynamic_code_exception_module_ast_sha256",
+        }
+    )
+    phase3h_policy_keys_present = phase3h_policy_keys & scan.keys()
     raw_exact_private_attribute_callsites = scan.get("exact_private_attribute_callsites", {})
     if not isinstance(raw_exact_private_attribute_callsites, dict) or any(
         type(binding) is not str
@@ -8456,6 +8592,14 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
     }
 
     violations: list[Violation] = []
+    if phase3h_policy_keys_present and phase3h_policy_keys_present != phase3h_policy_keys:
+        violations.append(
+            Violation(
+                config_path,
+                1,
+                "Phase 3H isolated proof policy must be entirely present or absent",
+            )
+        )
     native_owned_file_descriptor_captured_call_counts: dict[
         Path,
         dict[str, dict[str, int]],
@@ -9184,6 +9328,20 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
             "4f758b154fa063fee92d4f4f1483a1348a5167661e1f30ec03a59eaa1c4c0fe7"
         ),
     }
+    expected_phase3h_dynamic_code_exception_module_ast_sha256 = {
+        Path("packages/domain/_trusted_time_post_enrollment_projection_bootstrap.py"): (
+            "59bfdea9c8740d0df92b00bb74fc619d69b0593196b5e53fb39709ba7cae3df6"
+        ),
+        Path("scripts/trusted_time_post_enrollment_topology_reader.py"): (
+            "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
+        ),
+        Path("scripts/migrate_phase6_trusted_time_head_anchors.py"): (
+            "ab1c04fb83c15383970b5e0a23dad1bc0d65ec24fc42c60ef02b0bca3cdedf9c"
+        ),
+        Path("scripts/migrate_phase6_trusted_time_uncertainty.py"): (
+            "a1d6f39be3585af028cc7905e14057d13626f4f92603e3365b16745f39bc2d6d"
+        ),
+    }
     if production_contract_required and (
         phase3h_proof_module != expected_phase3h_proof_module
         or phase3h_proof_module_path != expected_phase3h_proof_module_path
@@ -9191,6 +9349,8 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
         or phase3h_execution_module_path != expected_phase3h_execution_module_path
         or phase3h_proof_consumer_allowed_imports != expected_phase3h_proof_consumer_allowed_imports
         or phase3h_isolated_module_ast_sha256 != expected_phase3h_isolated_module_ast_sha256
+        or phase3h_dynamic_code_exception_module_ast_sha256
+        != expected_phase3h_dynamic_code_exception_module_ast_sha256
     ):
         violations.append(
             Violation(
@@ -9425,6 +9585,7 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
         violations.extend(
             _phase3h_proof_boundary_violations(
                 tree,
+                policy_enabled=phase3h_policy_keys_present == phase3h_policy_keys,
                 relative_path=relative_path,
                 proof_module=phase3h_proof_module,
                 proof_path=phase3h_proof_module_path,
@@ -9432,6 +9593,9 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 execution_path=phase3h_execution_module_path,
                 allowed_proof_imports=phase3h_proof_consumer_allowed_imports,
                 module_ast_sha256=phase3h_isolated_module_ast_sha256,
+                dynamic_code_exception_module_ast_sha256=(
+                    phase3h_dynamic_code_exception_module_ast_sha256
+                ),
             )
         )
         expected_process_consumer_module_digest = (

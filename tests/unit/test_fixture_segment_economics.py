@@ -772,11 +772,31 @@ def test_object_new_reconstruction_cannot_mint_process_or_receipt_evidence() -> 
         "from packages.domain.fixture_segment_economics import "
         "FixtureEconomicProcessEvidence\n"
         "forged = object.__new__(FixtureEconomicProcessEvidence)",
+        "import runpy\nnamespace = runpy.run_path('unrelated.py')",
+        "source = open('unrelated.py').read()\n"
+        "namespace = {}\n"
+        "exec(compile(source, 'unrelated.py', 'exec'), namespace)",
+        "import pickle\nowner = pickle.loads(b'x')",
+        "import pydoc\nowner = pydoc.locate('unrelated')",
+        "import _frozen_importlib_external as machinery\n"
+        "loader = machinery.SourceFileLoader('unrelated', 'unrelated.py')",
+        "import code\n"
+        "import codeop\n"
+        "compiled = codeop.compile_command('pass')\n"
+        "code.InteractiveInterpreter({}).runcode(compiled)",
+        "import pkgutil\nloader = pkgutil.get_loader('unrelated')",
+        "from unittest import mock\npatched = mock.patch('unrelated')",
+        "import marshal\n"
+        "from types import FunctionType\n"
+        "function = FunctionType(marshal.loads(b'x'), {})",
+        "payload = b'cpackages.domain.fixture_segment_economics\\n'"
+        " b'FixtureEconomicProcessEvidence\\n.'",
     ),
 )
 def test_architecture_guard_rejects_phase3h_proof_reachability(source: str) -> None:
     violations = _phase3h_proof_boundary_violations(
         ast.parse(source),
+        policy_enabled=True,
         relative_path=Path("packages/domain/adversarial_phase3h_consumer.py"),
         proof_module="packages.domain.fixture_segment_economics",
         proof_path=Path("packages/domain/fixture_segment_economics.py"),
@@ -784,9 +804,25 @@ def test_architecture_guard_rejects_phase3h_proof_reachability(source: str) -> N
         execution_path=Path("packages/application/fixture_segment_economics.py"),
         allowed_proof_imports=frozenset(),
         module_ast_sha256={},
+        dynamic_code_exception_module_ast_sha256={},
     )
 
     assert violations
+
+
+def test_architecture_guard_is_disabled_when_phase3h_policy_is_absent() -> None:
+    assert not _phase3h_proof_boundary_violations(
+        ast.parse("from importlib import import_module"),
+        policy_enabled=False,
+        relative_path=Path("packages/domain/legacy_fixture.py"),
+        proof_module="",
+        proof_path=Path(),
+        execution_module="",
+        execution_path=Path(),
+        allowed_proof_imports=frozenset(),
+        module_ast_sha256={},
+        dynamic_code_exception_module_ast_sha256={},
+    )
 
 
 def test_architecture_guard_accepts_only_exact_phase3h_modules() -> None:
@@ -802,6 +838,7 @@ def test_architecture_guard_accepts_only_exact_phase3h_modules() -> None:
         tree = ast.parse((REPOSITORY / relative_path).read_text(encoding="utf-8"))
         assert not _phase3h_proof_boundary_violations(
             tree,
+            policy_enabled=True,
             relative_path=relative_path,
             proof_module=scan["phase3h_proof_module"],
             proof_path=proof_path,
@@ -809,4 +846,44 @@ def test_architecture_guard_accepts_only_exact_phase3h_modules() -> None:
             execution_path=execution_path,
             allowed_proof_imports=frozenset(scan["phase3h_proof_consumer_allowed_imports"]),
             module_ast_sha256=module_ast_sha256,
+            dynamic_code_exception_module_ast_sha256={
+                Path(path): digest
+                for path, digest in scan["phase3h_dynamic_code_exception_module_ast_sha256"].items()
+            },
+        )
+
+
+def test_architecture_guard_pins_dynamic_code_exceptions() -> None:
+    with (REPOSITORY / "infra/architecture-boundaries.toml").open("rb") as stream:
+        scan = tomllib.load(stream)["scan"]
+    exceptions = {
+        Path(path): digest
+        for path, digest in scan["phase3h_dynamic_code_exception_module_ast_sha256"].items()
+    }
+    arguments = {
+        "policy_enabled": True,
+        "proof_module": scan["phase3h_proof_module"],
+        "proof_path": Path(scan["phase3h_proof_module_path"]),
+        "execution_module": scan["phase3h_execution_module"],
+        "execution_path": Path(scan["phase3h_execution_module_path"]),
+        "allowed_proof_imports": frozenset(scan["phase3h_proof_consumer_allowed_imports"]),
+        "module_ast_sha256": {
+            Path(path): digest
+            for path, digest in scan["phase3h_isolated_module_ast_sha256"].items()
+        },
+    }
+
+    for relative_path in exceptions:
+        tree = ast.parse((REPOSITORY / relative_path).read_text(encoding="utf-8"))
+        assert not _phase3h_proof_boundary_violations(
+            tree,
+            relative_path=relative_path,
+            dynamic_code_exception_module_ast_sha256=exceptions,
+            **arguments,
+        )
+        assert _phase3h_proof_boundary_violations(
+            tree,
+            relative_path=relative_path,
+            dynamic_code_exception_module_ast_sha256={relative_path: "0" * 64},
+            **arguments,
         )
