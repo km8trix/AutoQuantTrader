@@ -5,8 +5,8 @@ import base64
 import hashlib
 import threading
 from collections.abc import Callable
+from dataclasses import FrozenInstanceError, replace
 from dataclasses import fields as dataclass_fields
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -56,6 +56,7 @@ from tests.unit import test_trusted_time_post_enrollment_execution_admission as 
 from tests.unit import (
     test_trusted_time_post_enrollment_graceful_stop_decision_artifacts as decision_fx,
 )
+from tests.unit import trusted_time_graceful_stop_v2_fakes as v2_fakes
 from tests.unit.trusted_time_graceful_stop_v2_fakes import (
     FakeLifecycleV2ArtifactStore,
     FakeLifecycleV2DockerEffects,
@@ -402,6 +403,7 @@ def test_root_request_record_and_transcript_codecs_are_canonical() -> None:
 @pytest.mark.parametrize(
     ("value_type", "arguments"),
     [
+        (FrozenJsonObject, ((("caller_selected", True),),)),
         (LifecycleV2CleanStopRequestBasis, (FrozenJsonObject.capture({}),)),
         (LifecycleV2CleanStopRequest, (FrozenJsonObject.capture({}),)),
         (
@@ -418,6 +420,24 @@ def test_canonical_value_public_initializers_are_sealed(
 ) -> None:
     with pytest.raises(TypeError):
         cast(Any, value_type)(*arguments)
+
+
+def test_frozen_json_rejects_normal_mutation_and_forged_internal_entries() -> None:
+    evidence = FrozenJsonObject.capture({"value": "original"})
+
+    with pytest.raises(FrozenInstanceError):
+        cast(Any, evidence).entries = (("value", "mutated"),)
+
+    object.__setattr__(
+        evidence,
+        "entries",
+        (("value", "original"), ("value", "forged")),
+    )
+    with pytest.raises(
+        TrustedTimeGracefulStopV2Rejected,
+        match="not canonically represented",
+    ):
+        evidence.to_dict()
 
 
 def test_request_intent_and_final_request_are_derived_from_one_exact_root_basis() -> None:
@@ -510,6 +530,14 @@ def test_canonical_decoder_normalizes_excessive_integer_text_to_domain_error() -
         decode_canonical_v2_json_object(encoded, maximum_bytes=64 * 1_024)
 
 
+def test_canonical_decoder_normalizes_deep_json_recursion_to_domain_error() -> None:
+    encoded = b'{"value":' + (b"[" * 30_000) + b"0" + (b"]" * 30_000) + b"}\n"
+    assert len(encoded) <= 64 * 1_024
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="invalid JSON"):
+        decode_canonical_v2_json_object(encoded, maximum_bytes=64 * 1_024)
+
+
 @pytest.mark.parametrize(
     ("summary_name", "replacement"), [("last_ordinal", False), ("entry_count", True)]
 )
@@ -542,6 +570,29 @@ def test_unhashable_discriminators_and_boolean_message_counter_are_domain_errors
         LifecycleV2Outcome.capture({**outcome.to_dict(), "status": []})
     with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="discriminator"):
         LifecycleV2OutcomeCommit.capture({**commit.to_dict(), "outcome_status": []})
+
+
+@pytest.mark.parametrize(
+    ("field_name", "replacement"),
+    [
+        ("key_generation", True),
+        ("key_generation", 0),
+        ("message_counter", True),
+        ("message_counter", 2),
+    ],
+)
+def test_ordinal_two_evidence_requires_exact_integer_generation_and_counter(
+    field_name: str,
+    replacement: object,
+) -> None:
+    root = _root()
+    intent = _request_intent(root, _request_basis(root))
+    record = _result_record(root, intent, _result_envelope(root, intent))
+    evidence = cast(dict[str, object], record.to_dict()["evidence"])
+    evidence[field_name] = replacement
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match=field_name):
+        replace(record, evidence=FrozenJsonObject.capture(evidence))
 
 
 def test_volume_delete_count_rejects_boolean_zero_alias() -> None:
@@ -791,6 +842,52 @@ def test_restart_recovery_intent_binds_exact_immediate_predecessor_transcript() 
         _repository(store)
 
 
+def test_root_only_recovery_intent_rejects_identically_live_and_after_restart() -> None:
+    root = _root()
+    store = FakeLifecycleV2ArtifactStore()
+    repository = _repository(store)
+    repository.reserve_root(root)
+    root_transcript = repository.publish_transcript()
+    recovery_intent = LifecycleV2ProgressRecord(
+        graceful_stop_operation_id=root.graceful_stop_operation_id,
+        root_sha256=root.sha256,
+        ordinal=1,
+        stage=LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED,
+        predecessor_sha256=root.sha256,
+        effect_kind="recovery_classification",
+        deadline_boottime_ns=root.operation_deadline_boottime_ns,
+        evidence=FrozenJsonObject.capture(
+            {
+                "recovery_classification_envelope_sha256": _digest("recovery-envelope"),
+                "operator_nonce_sha256": _digest("recovery-nonce"),
+                "recovery_key_id": "recovery-key-1",
+                "transport_authority_manifest_sha256": (root.transport_authority_manifest_sha256),
+                "classified_transcript_sha256": root_transcript.sha256,
+                "admission_started_boottime_ns": root.admission_started_boottime_ns,
+                "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
+                "reason_code": "call_or_result_ambiguous",
+            }
+        ),
+        recorded_at_utc=UTC_TEXT,
+    )
+
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="ordinal-one request prefix",
+    ):
+        repository.retain_recovery_classification_intent(recovery_intent)
+
+    store.inject(
+        lifecycle_v2_progress_file_name(recovery_intent),
+        recovery_intent.encoded,
+    )
+    with pytest.raises(
+        persistence.LifecycleV2RetentionUnconfirmed,
+        match="namespace cannot be authenticated",
+    ):
+        _repository(store)
+
+
 @pytest.mark.parametrize(
     "phase", ["before", "staging_created", "file_fsynced", "renamed", "directory_fsynced"]
 )
@@ -935,6 +1032,38 @@ def test_every_fake_docker_effect_fault_burns_the_adapter(failed_operation: str)
         call()
     with pytest.raises(FakeLifecycleV2Fault, match="burned"):
         failed_call()
+
+
+@pytest.mark.parametrize("failing_serialization_call", [1, 2])
+def test_fake_docker_serialization_fault_burns_the_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    failing_serialization_call: int,
+) -> None:
+    root = _root()
+    effects = FakeLifecycleV2DockerEffects()
+    original_encoder = canonical_v2_json_bytes
+    calls = 0
+
+    def fail_selected_serialization(value: object, *, maximum_bytes: int) -> bytes:
+        nonlocal calls
+        calls += 1
+        if calls == failing_serialization_call:
+            raise TrustedTimeGracefulStopV2Rejected("injected serialization failure")
+        return cast(bytes, original_encoder(value, maximum_bytes=maximum_bytes))
+
+    monkeypatch.setattr(
+        cast(Any, v2_fakes),
+        "canonical_v2_json_bytes",
+        fail_selected_serialization,
+    )
+
+    with pytest.raises(
+        TrustedTimeGracefulStopV2Rejected,
+        match="injected serialization failure",
+    ):
+        effects.stop_supervisor(root.supervisor_container_id)
+    with pytest.raises(FakeLifecycleV2Fault, match="burned"):
+        effects.stop_source(root.source_container_id)
 
 
 def test_recovery_required_outcome_can_commit_but_confirmed_success_cannot() -> None:

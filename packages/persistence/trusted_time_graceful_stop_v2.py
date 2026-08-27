@@ -225,7 +225,7 @@ class _LifecycleV2Repository:
                     or record.predecessor_sha256 != predecessor
                 ):
                     raise LifecycleV2RetentionUnconfirmed("progress lineage is mixed or gapped")
-                if record.ordinal == 1:
+                if record.stage is LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED:
                     self._require_derived_request_intent(record)
                 self._require_stage_transition(record, records=tuple(records))
                 records.append(record)
@@ -411,6 +411,10 @@ class _LifecycleV2Repository:
         if records is None and (self._outcome is not None or self._commit is not None):
             raise LifecycleV2RepositoryRejected("terminal outcome already retained")
         if record.stage is LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED:
+            if not exact_records:
+                raise LifecycleV2RepositoryRejected(
+                    "recovery classification requires the ordinal-one request prefix"
+                )
             if any(
                 item.stage is LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED
                 for item in exact_records

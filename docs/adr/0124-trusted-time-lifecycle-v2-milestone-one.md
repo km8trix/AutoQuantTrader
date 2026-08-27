@@ -70,12 +70,14 @@ repository tests. No production verifier can construct that wrapper.
 Canonical JSON is UTF-8, sorted, compact, trailing-LF terminated, duplicate-key
 rejecting, float/non-finite rejecting, strict about built-in integer and boolean
 types, and bounded by ADR 0121's depth, node, and artifact-size limits. Decode
-always re-encodes and requires byte equality. The v2 root decoder rejects v1
-bytes, and the unchanged v1 decoder rejects v2 bytes. Request-basis, final
-request, transport-envelope, outcome, and fixed-commit public dataclass
-initializers are sealed; their canonical capture/derivation paths validate
-before assigning fields. Excessive integer text and unhashable discriminator
-shapes normalize to the v2 domain rejection.
+always re-encodes and requires byte equality. Deep-parser recursion, excessive
+integer text, and unhashable discriminator shapes normalize to the v2 domain
+rejection. The v2 root decoder rejects v1 bytes, and the unchanged v1 decoder
+rejects v2 bytes. Frozen JSON, request-basis, final-request,
+transport-envelope, outcome, and fixed-commit public dataclass initializers are
+sealed; their canonical capture/derivation paths validate before assigning
+fields. Frozen JSON also revalidates its immutable canonical representation
+whenever a domain value thaws it at a boundary.
 
 ### Add an injected repository with no real storage implementation
 
@@ -92,9 +94,10 @@ The repository enforces:
   retention-unconfirmed classification;
 - staging, orphan, unknown-name, duplicate outcome, gap, predecessor, order,
   cross-root, cross-operation, and deadline disagreement as fail-closed states;
-- an exact closed transition graph: a recovery-classification intent is one
-  shot, cannot follow terminal cleanup or a terminal outcome, and no progress
-  or transcript may append after an outcome candidate or commit;
+- an exact closed transition graph: a recovery-classification intent requires
+  at least the ordinal-one request prefix, is one shot, cannot follow terminal
+  cleanup or a terminal outcome, and no progress or transcript may append
+  after an outcome candidate or commit;
 - dedicated stage-family retention methods rather than a public generic append
   method;
 - full signed-envelope bytes published before ordinal-two evidence, with exact
@@ -174,8 +177,9 @@ source remove, network remove, and two-volume preservation proof. It enforces
 that exact serial order, encodes `v=false&force=false&link=false`, records a
 zero volume-delete count, and rejects replay. These facts test the lifecycle
 ordering contract; every modeled effect failure burns the fake adapter. They
-are not Docker observations or effect authority. Ordering violations and
-replay also burn the fake before rejection.
+are not Docker observations or effect authority. Ordering violations, replay,
+and request/result evidence-serialization failures also burn the fake before
+rejection.
 
 ### Keep activation machine-checkably absent
 
@@ -198,13 +202,14 @@ implemented:
 
 - canonical root, request-basis, request-intent, dispatch-prefix, final request,
   progress, transcript, envelope, recovery outcome, and commit round trips;
-- truncation, whitespace, duplicate-key, boolean-as-integer, deadline drift,
-  excessive integer text, unhashable discriminator, checked-addition overflow,
-  cross-version bytes, unknown root, mixed root, orphan name, stage gap,
-  replay, and predecessor substitution rejection;
-- sealed direct constructors plus exact root-derived request-basis,
-  ordinal-one evidence, dispatch-prefix, and final-request bindings at live and
-  restart boundaries;
+- truncation, whitespace, duplicate-key, boolean-as-integer (including
+  ordinal-two generation/counter evidence), deadline drift, excessive integer
+  text, deep-parser recursion, unhashable discriminator, checked-addition
+  overflow, cross-version bytes, unknown root, mixed root, orphan name, stage
+  gap, replay, and predecessor substitution rejection;
+- sealed direct constructors, forged frozen-JSON state rejection, plus exact
+  root-derived request-basis, ordinal-one evidence, dispatch-prefix, and
+  final-request bindings at live and restart boundaries;
 - root and record ambiguity at every modeled publication boundary burns the
   repository and never becomes normal retry evidence;
 - the exact full terminal envelope bytes select the immutable wire name and
@@ -218,9 +223,9 @@ implemented:
 - classified-prefix publication, exact next recovery-intent binding, distinct
   final transcript, recovery-required outcome commit, and stable reload for a
   prefix that contains no wire artifact, while the partial repository refuses
-  a confirmed-success write; forged root-only success, cross-root/prefix
-  terminal artifacts, repeated recovery intent, and every postcommit append
-  reject; and
+  a confirmed-success write; root-only recovery intent, forged root-only
+  success, cross-root/prefix terminal artifacts, repeated recovery intent, and
+  every postcommit append reject; and
 - one exact ADR-0112 v2 handoff bound to operation/admission/channel/PID/Thread,
   followed by rejection of reuse and pending/active cleanup for every modeled
   invalid identity path.

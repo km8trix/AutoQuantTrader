@@ -247,21 +247,24 @@ class FakeLifecycleV2DockerEffects:
             self._reject("effect replay is forbidden")
         self._used.add(operation)
         self.events.append(operation)
-        if self._failed_operation == operation:
+        try:
+            if self._failed_operation == operation:
+                raise FakeLifecycleV2Fault(operation)
+            request_encoded = canonical_v2_json_bytes(request, maximum_bytes=16 * 1_024)
+            request_digest = hashlib.sha256(request_encoded).hexdigest()
+            result = {
+                "operation": operation,
+                "outcome": "fake_confirmed",
+                "request_semantic_sha256": request_digest,
+                "target_id": target_id,
+            }
+            result_digest = hashlib.sha256(
+                canonical_v2_json_bytes(result, maximum_bytes=16 * 1_024)
+            ).hexdigest()
+            return FakeDockerEffectResult(operation, target_id, request_digest, result_digest)
+        except BaseException:
             self._burned = True
-            raise FakeLifecycleV2Fault(operation)
-        request_encoded = canonical_v2_json_bytes(request, maximum_bytes=16 * 1_024)
-        request_digest = hashlib.sha256(request_encoded).hexdigest()
-        result = {
-            "operation": operation,
-            "outcome": "fake_confirmed",
-            "request_semantic_sha256": request_digest,
-            "target_id": target_id,
-        }
-        result_digest = hashlib.sha256(
-            canonical_v2_json_bytes(result, maximum_bytes=16 * 1_024)
-        ).hexdigest()
-        return FakeDockerEffectResult(operation, target_id, request_digest, result_digest)
+            raise
 
     def _reject(self, message: str) -> Never:
         self._burned = True

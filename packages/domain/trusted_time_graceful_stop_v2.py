@@ -217,7 +217,7 @@ def decode_canonical_v2_json_object(
         )
     except TrustedTimeGracefulStopV2Rejected:
         raise
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
         raise TrustedTimeGracefulStopV2Rejected("canonical artifact is invalid JSON") from error
     if type(decoded) is not dict:
         raise TrustedTimeGracefulStopV2Rejected("canonical artifact must be one object")
@@ -274,11 +274,14 @@ def _require_exact_deadline(start: object, deadline: object) -> tuple[int, int]:
     return exact_start, exact_deadline
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class FrozenJsonObject:
     """An immutable, canonically sorted nested JSON object."""
 
     entries: tuple[tuple[str, object], ...]
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("frozen JSON objects require canonical capture")
 
     @classmethod
     def capture(cls, value: object) -> Self:
@@ -289,10 +292,32 @@ class FrozenJsonObject:
             (key, _freeze_json(item))
             for key, item in sorted(value.items(), key=lambda pair: pair[0])
         )
-        return cls(entries)
+        result = object.__new__(cls)
+        object.__setattr__(result, "entries", entries)
+        return result
 
     def to_dict(self) -> dict[str, object]:
-        return {key: _thaw_json(value) for key, value in self.entries}
+        try:
+            if type(self.entries) is not tuple:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "frozen JSON entries are not canonically represented"
+                )
+            value = {key: _thaw_json(item) for key, item in self.entries}
+            if len(value) != len(self.entries):
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "frozen JSON entries are not canonically represented"
+                )
+            if FrozenJsonObject.capture(value).entries != self.entries:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "frozen JSON entries are not canonically represented"
+                )
+            return value
+        except TrustedTimeGracefulStopV2Rejected:
+            raise
+        except (AttributeError, TypeError, ValueError, RecursionError) as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "frozen JSON entries are not canonically represented"
+            ) from error
 
 
 def _freeze_json(value: object) -> object:
@@ -737,6 +762,8 @@ def _expected_evidence_fields(stage: LifecycleV2Stage) -> frozenset[str]:
 
 def _validate_evidence(stage: LifecycleV2Stage, evidence: FrozenJsonObject) -> None:
     value = evidence.to_dict()
+    if FrozenJsonObject.capture(value) != evidence:
+        raise TrustedTimeGracefulStopV2Rejected("progress evidence is not canonically frozen")
     _require_fields(value, _expected_evidence_fields(stage))
     for name, item in value.items():
         if name.endswith("_sha256"):
@@ -757,6 +784,15 @@ def _validate_evidence(stage: LifecycleV2Stage, evidence: FrozenJsonObject) -> N
     ):
         if name in value:
             _require_int(value[name], name)
+    if stage in {
+        LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED,
+        LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED,
+    }:
+        _require_int(value["key_generation"], "key_generation", minimum=1)
+        if _require_int(value["message_counter"], "message_counter", minimum=1) != 1:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "message_counter is not the exact terminal-frame counter"
+            )
     if stage in _REAUTHENTICATION_RESULT_STAGES | _DOCKER_RESULT_STAGES | {
         LifecycleV2Stage.NAMED_VOLUMES_PRESERVED
     }:
