@@ -4,7 +4,10 @@ import base64
 import dataclasses
 import hashlib
 import os
+import subprocess
+import sys
 import threading
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -909,6 +912,88 @@ def test_authenticated_issuance_authority_is_not_exposed_as_module_state() -> No
     ):
         for name in names:
             assert not hasattr(module, name)
+
+
+def test_domain_bridge_installers_reject_preemptive_metadata_spoofing() -> None:
+    def forged_recovery_endpoint(_value: object) -> object:
+        return object()
+
+    forged_recovery_endpoint.__module__ = "packages.adapters.trusted_time.graceful_stop_v2_ed25519"
+    forged_recovery_endpoint.__name__ = "consume_value"
+    recovery_installer, *_ = recovery_domain._lifecycle_v2_recovery_intent_issuance_registry()
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="installation"):
+        recovery_installer(forged_recovery_endpoint)
+
+    def forged_terminal_endpoint(_value: object) -> object:
+        return object()
+
+    forged_terminal_endpoint.__module__ = "packages.adapters.trusted_time.graceful_stop_v2_ed25519"
+    forged_terminal_endpoint.__name__ = "unwrap"
+    terminal_installer, *_ = terminal_domain._build_authenticated_terminal_proof_endpoints()
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="installation"):
+        terminal_installer(forged_terminal_endpoint)
+
+
+@pytest.mark.parametrize(
+    ("domain_module", "installer_name", "endpoint_name", "forged_name"),
+    (
+        (
+            "trusted_time_graceful_stop_v2_recovery",
+            "_install_authenticated_lifecycle_v2_recovery_adapter_endpoint",
+            "_consume_authenticated_lifecycle_v2_recovery_envelope_value",
+            "consume_value",
+        ),
+        (
+            "trusted_time_graceful_stop_v2_terminal",
+            "_install_authenticated_terminal_envelope_adapter_endpoint",
+            "_unwrap_authenticated_lifecycle_v2_transport_envelope",
+            "unwrap",
+        ),
+    ),
+)
+def test_import_domain_first_cannot_preempt_adapter_endpoint_claim(
+    domain_module: str,
+    installer_name: str,
+    endpoint_name: str,
+    forged_name: str,
+) -> None:
+    script = f"""
+from packages.domain import {domain_module} as domain
+
+def forged(value):
+    return value
+
+forged.__module__ = "packages.adapters.trusted_time.graceful_stop_v2_ed25519"
+forged.__name__ = {forged_name!r}
+installer = getattr(domain, {installer_name!r})
+try:
+    installer(forged)
+except domain.TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("forged pre-install endpoint was accepted")
+from packages.adapters.trusted_time import graceful_stop_v2_ed25519 as adapter
+try:
+    installer(getattr(adapter, {endpoint_name!r}))
+except domain.TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("legitimate nested-import installation was not one-shot")
+"""
+    repository = Path(__file__).resolve().parents[2]
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(repository)
+    python_executable = Path(sys.executable).with_name("python")
+    completed = subprocess.run(
+        [python_executable, "-c", script],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_object_new_clones_cannot_reuse_authenticated_ed25519_issuances() -> None:

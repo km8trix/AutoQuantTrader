@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import importlib
 import os
 import re
 import threading
@@ -136,12 +137,18 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
         """Capture the exact verifier-owned endpoint once during adapter import."""
 
         nonlocal adapter_unwrap
-        if (
-            adapter_unwrap is not None
-            or not callable(endpoint)
-            or getattr(endpoint, "__module__", None) != _PRODUCTION_AUTHENTICATED_RECOVERY_TYPE[0]
-            or getattr(endpoint, "__name__", None) != "consume_value"
-        ):
+        if adapter_unwrap is not None or not callable(endpoint):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery adapter endpoint installation is invalid"
+            )
+        try:
+            adapter = importlib.import_module(_PRODUCTION_AUTHENTICATED_RECOVERY_TYPE[0])
+            exact_endpoint = adapter._consume_authenticated_lifecycle_v2_recovery_envelope_value
+        except (AttributeError, ImportError) as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery adapter endpoint installation is invalid"
+            ) from error
+        if endpoint is not exact_endpoint:
             raise TrustedTimeGracefulStopV2Rejected(
                 "recovery adapter endpoint installation is invalid"
             )

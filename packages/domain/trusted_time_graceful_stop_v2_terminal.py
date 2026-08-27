@@ -7,6 +7,7 @@ signature, publish an artifact, open a transport, or grant stop authority.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import os
 import re
 import threading
@@ -221,12 +222,18 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
         """Capture the exact verifier-owned endpoint once during adapter import."""
 
         nonlocal adapter_unwrap
-        if (
-            adapter_unwrap is not None
-            or not callable(endpoint)
-            or getattr(endpoint, "__module__", None) != _PRODUCTION_AUTHENTICATED_ENVELOPE_TYPE[0]
-            or getattr(endpoint, "__name__", None) != "unwrap"
-        ):
+        if adapter_unwrap is not None or not callable(endpoint):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal adapter endpoint installation is invalid"
+            )
+        try:
+            adapter = importlib.import_module(_PRODUCTION_AUTHENTICATED_ENVELOPE_TYPE[0])
+            exact_endpoint = adapter._unwrap_authenticated_lifecycle_v2_transport_envelope
+        except (AttributeError, ImportError) as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal adapter endpoint installation is invalid"
+            ) from error
+        if endpoint is not exact_endpoint:
             raise TrustedTimeGracefulStopV2Rejected(
                 "terminal adapter endpoint installation is invalid"
             )
