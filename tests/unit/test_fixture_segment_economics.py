@@ -777,6 +777,18 @@ def test_object_new_reconstruction_cannot_mint_process_or_receipt_evidence() -> 
         "loader = getattr(importer, '%s%s' % ('import_from_', 'string'))\n"
         "owner = loader('packages.domain.fixture_segment_economics:"
         "FixtureEconomicProcessEvidence')",
+        "scope_owner = lambda: None\n"
+        "scope_prefix = '__global'\n"
+        "scope_suffix = 's__'\n"
+        "scope = getattr(scope_owner, scope_prefix + scope_suffix)\n"
+        "builtins_prefix = '__built'\n"
+        "builtins_suffix = 'ins__'\n"
+        "namespace = scope[builtins_prefix + builtins_suffix]",
+        "owner = lambda: None\n"
+        "a, b = '__glo', 'bals__'\n"
+        "scope = getattr(owner, f'{a}{b}')\n"
+        "c, d = '__built', 'ins__'\n"
+        "namespace = scope[f'{c}{d}']",
         "from packages.domain.fixture_segment_economics import "
         "FixtureEconomicProcessEvidence\n"
         "forged = object.__new__(FixtureEconomicProcessEvidence)",

@@ -130,6 +130,30 @@ def _phase4an_violations(source: str, *, relative_path: Path) -> list[Violation]
         "import builtins as runtime_builtins\n"
         "loader_name = '%(a)s%(b)s' % {'a': '__im', 'b': 'port__'}\n"
         "loader = getattr(runtime_builtins, loader_name)",
+        "scope_owner = lambda: None\n"
+        "scope_prefix = '__global'\n"
+        "scope_suffix = 's__'\n"
+        "scope = getattr(scope_owner, f'{scope_prefix}{scope_suffix}')\n"
+        "builtins_prefix = '__built'\n"
+        "builtins_suffix = 'ins__'\n"
+        "namespace = scope[f'{builtins_prefix}{builtins_suffix}']\n"
+        "import_prefix = '__im'\n"
+        "import_suffix = 'port__'\n"
+        "loader = namespace[f'{import_prefix}{import_suffix}']",
+        "owner = lambda: None\n"
+        "a, b = '__glo', 'bals__'\n"
+        "scope = getattr(owner, f'{a}{b}')\n"
+        "c, d = '__built', 'ins__'\n"
+        "namespace = scope[f'{c}{d}']\n"
+        "e, f = '__im', 'port__'\n"
+        "loader = namespace[f'{e}{f}']",
+        "import uvicorn\n"
+        "namespace_prefix = 'import'\n"
+        "namespace_suffix = 'er'\n"
+        "importer = getattr(uvicorn, namespace_prefix + namespace_suffix)\n"
+        "loader_prefix = 'import_from_'\n"
+        "loader_suffix = 'string'\n"
+        "loader = getattr(importer, loader_prefix + loader_suffix)",
         "owner._retain_progress(record)",
     ],
 )
@@ -142,6 +166,12 @@ def test_trusted_time_v2_boundary_rejects_unreviewed_reachability(source: str) -
 
 def test_trusted_time_v2_boundary_accepts_exact_reviewed_modules_and_importers() -> None:
     module_paths, allowed_imports, module_ast_sha256, reserved_symbols = _trusted_time_policy()
+    with (REPOSITORY / "infra/architecture-boundaries.toml").open("rb") as stream:
+        scan = tomllib.load(stream)["scan"]
+    dynamic_code_exceptions = {
+        Path(path): digest
+        for path, digest in scan["phase3h_dynamic_code_exception_module_ast_sha256"].items()
+    }
     reviewed_paths = frozenset(module_paths.values()) | frozenset(allowed_imports)
     for relative_path in reviewed_paths:
         tree = ast.parse((REPOSITORY / relative_path).read_text(encoding="utf-8"))
@@ -154,6 +184,7 @@ def test_trusted_time_v2_boundary_accepts_exact_reviewed_modules_and_importers()
             allowed_imports=allowed_imports,
             module_ast_sha256=module_ast_sha256,
             reserved_symbols=reserved_symbols,
+            dynamic_code_exception_module_ast_sha256=dynamic_code_exceptions,
         )
 
 
@@ -250,6 +281,13 @@ def test_wave5_boundary_accepts_unique_protected_python_module_identities() -> N
         "loader = getattr(importer, loader_name)\n"
         "runtime = loader('packages.application.etrade_oauth_token_runtime:"
         "execute_etrade_oauth_injected_token_exchange')",
+        "scope_owner = lambda: None\n"
+        "scope_prefix = '__global'\n"
+        "scope_suffix = 's__'\n"
+        "scope = getattr(scope_owner, scope_prefix + scope_suffix)\n"
+        "builtins_prefix = '__built'\n"
+        "builtins_suffix = 'ins__'\n"
+        "namespace = scope[builtins_prefix + builtins_suffix]",
     ],
 )
 def test_phase4an_boundary_rejects_unreviewed_runtime_reachability(source: str) -> None:

@@ -5551,6 +5551,23 @@ def _phase3h_proof_boundary_violations(
             "vars",
         }
     )
+    dynamic_namespace_attribute_names = frozenset(
+        {
+            "__dict__",
+            "__getattribute__",
+            "__globals__",
+            "__subclasses__",
+            "ag_frame",
+            "cr_frame",
+            "f_back",
+            "f_builtins",
+            "f_globals",
+            "f_locals",
+            "gi_frame",
+            "modules",
+            "tb_frame",
+        }
+    )
     dynamic_loader_modules = frozenset(
         {
             "django.utils.module_loading",
@@ -5572,6 +5589,7 @@ def _phase3h_proof_boundary_violations(
     }
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     bindings = _imported_symbol_bindings(tree)
+    reflection_text_bindings = _wave5_constant_text_bindings(tree)
     builtins_names = {"__builtins__"}
     builtins_names.update(
         alias.asname or "builtins"
@@ -5592,6 +5610,11 @@ def _phase3h_proof_boundary_violations(
             qualified == module or qualified.startswith(f"{module}.")
             for module in dynamic_loader_modules
         )
+
+    def is_imported_namespace(node: ast.AST) -> bool:
+        while isinstance(node, ast.Attribute):
+            node = node.value
+        return isinstance(node, ast.Name) and node.id in bindings
 
     def dynamic_loader_import(node: ast.AST) -> str | None:
         imported: list[str] = []
@@ -5664,6 +5687,8 @@ def _phase3h_proof_boundary_violations(
         dynamic_code: str | None = None
         if isinstance(node, ast.Name) and node.id in dynamic_code_names:
             dynamic_code = node.id
+        elif isinstance(node, ast.Attribute) and node.attr in dynamic_namespace_attribute_names:
+            dynamic_code = node.attr
         elif reflected_builtin_dynamic_code(node) in dynamic_code_names:
             dynamic_code = reflected_builtin_dynamic_code(node)
         elif isinstance(node, ast.alias):
@@ -5686,23 +5711,39 @@ def _phase3h_proof_boundary_violations(
             dynamic_loader = node.id
         elif isinstance(node, ast.Attribute) and node.attr in dynamic_loader_names:
             dynamic_loader = node.attr
-        elif isinstance(node, ast.Attribute) and node.attr in {"__dict__", "__getattribute__"}:
-            if is_builtins_namespace(node.value) or is_dynamic_loader_namespace(node.value):
-                dynamic_loader = node.attr
-        elif isinstance(node, ast.Call) and len(node.args) >= 2:
-            reflected_name = _constant_wave5_reflection_text(node.args[1])
-            direct_getattr = isinstance(node.func, ast.Name) and node.func.id == "getattr"
-            attribute_getter = isinstance(node.func, ast.Attribute) and node.func.attr in {
+        elif isinstance(node, ast.Call):
+            receiver: ast.AST | None = None
+            reflected_argument: ast.AST | None = None
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and len(node.args) >= 2
+            ):
+                receiver, reflected_argument = node.args[0], node.args[1]
+            elif isinstance(node.func, ast.Attribute) and node.func.attr in {
                 "getattr",
                 "__getattribute__",
-            }
-            receiver = node.args[0]
-            if (direct_getattr or attribute_getter) and (
-                reflected_name in dynamic_loader_names
-                or is_builtins_namespace(receiver)
-                or is_dynamic_loader_namespace(receiver)
-            ):
-                dynamic_loader = reflected_name or "reflected-loader-namespace"
+            }:
+                if len(node.args) >= 2:
+                    receiver, reflected_argument = node.args[0], node.args[1]
+                elif node.args:
+                    receiver, reflected_argument = node.func.value, node.args[0]
+            if receiver is not None and reflected_argument is not None:
+                reflected_name = _constant_wave5_reflection_text(
+                    reflected_argument,
+                    reflection_text_bindings,
+                )
+                constructed_import_reflection = is_imported_namespace(receiver) and not (
+                    isinstance(reflected_argument, ast.Constant)
+                    and type(reflected_argument.value) is str
+                )
+                if (
+                    reflected_name in dynamic_loader_names | dynamic_namespace_attribute_names
+                    or is_builtins_namespace(receiver)
+                    or is_dynamic_loader_namespace(receiver)
+                    or constructed_import_reflection
+                ):
+                    dynamic_loader = reflected_name or "reflected-loader-namespace"
         elif isinstance(node, ast.alias):
             origin = node.name.rpartition(".")[2]
             local = node.asname or origin
@@ -5756,7 +5797,7 @@ def _phase3h_proof_boundary_violations(
                         f"{boundary} reserves embedded proof name '{reflected_fragment}'",
                     )
                 )
-        folded = _constant_folded_text(node)
+        folded = _constant_wave5_reflection_text(node, reflection_text_bindings)
         if folded not in reserved_text:
             continue
         parent = parents.get(node)
@@ -5772,15 +5813,41 @@ def _phase3h_proof_boundary_violations(
     return violations
 
 
-def _constant_wave5_reflection_text(node: ast.AST) -> str | None:
+def _constant_wave5_reflection_text(
+    node: ast.AST,
+    bindings: dict[str, str] | None = None,
+) -> str | None:
     """Fold inert constant formatting used to spell protected Wave 5 names."""
 
-    folded = _constant_folded_text(node)
+    text_bindings = bindings or {}
+
+    def folded_text(part: ast.AST) -> str | None:
+        if isinstance(part, ast.Name):
+            return text_bindings.get(part.id)
+        if isinstance(part, ast.BinOp) and isinstance(part.op, ast.Add):
+            left = folded_text(part.left)
+            right = folded_text(part.right)
+            return None if left is None or right is None else left + right
+        if (
+            isinstance(part, ast.Call)
+            and isinstance(part.func, ast.Attribute)
+            and part.func.attr == "join"
+            and not part.keywords
+            and len(part.args) == 1
+            and isinstance(part.args[0], (ast.List, ast.Tuple))
+        ):
+            separator = folded_text(part.func.value)
+            joined_parts = tuple(folded_text(item) for item in part.args[0].elts)
+            if separator is not None and all(item is not None for item in joined_parts):
+                return separator.join(cast(tuple[str, ...], joined_parts))
+        return _constant_folded_text(part)
+
+    folded = folded_text(node)
     if folded is not None:
         return folded
 
     def value(part: ast.AST) -> object:
-        text = _constant_folded_text(part)
+        text = folded_text(part)
         if text is not None:
             return text
         if isinstance(part, ast.Constant) and type(part.value) in {int, float, bytes}:
@@ -5822,14 +5889,14 @@ def _constant_wave5_reflection_text(node: ast.AST) -> str | None:
                     return None
                 format_spec = ""
                 if part.format_spec is not None:
-                    folded_spec = _constant_wave5_reflection_text(part.format_spec)
+                    folded_spec = _constant_wave5_reflection_text(part.format_spec, text_bindings)
                     if folded_spec is None:
                         return None
                     format_spec = folded_spec
                 parts.append(format(formatted_value, format_spec))
             return "".join(parts)
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
-            template = _constant_folded_text(node.left)
+            template = folded_text(node.left)
             if template is None:
                 return None
             result = template % value(node.right)
@@ -5839,7 +5906,7 @@ def _constant_wave5_reflection_text(node: ast.AST) -> str | None:
             and isinstance(node.func, ast.Attribute)
             and node.func.attr in {"format", "format_map"}
         ):
-            template = _constant_folded_text(node.func.value)
+            template = folded_text(node.func.value)
             if template is None:
                 return None
             if node.func.attr == "format_map":
@@ -5873,6 +5940,62 @@ def _constant_wave5_reflection_text(node: ast.AST) -> str | None:
     except (IndexError, KeyError, TypeError, ValueError):
         return None
     return None
+
+
+def _wave5_constant_text_bindings(tree: ast.AST) -> dict[str, str]:
+    """Resolve unambiguous local text fragments used by reflection expressions."""
+
+    cached = getattr(tree, "_wave5_constant_text_bindings_cache", None)
+    if isinstance(cached, dict) and all(
+        type(name) is str and type(value) is str for name, value in cached.items()
+    ):
+        return cast(dict[str, str], cached)
+
+    assignments: list[tuple[str, ast.AST]] = []
+
+    def append_assignments(target: ast.AST, value: ast.AST) -> None:
+        if isinstance(target, ast.Name):
+            assignments.append((target.id, value))
+        elif (
+            isinstance(target, (ast.List, ast.Tuple))
+            and isinstance(value, (ast.List, ast.Tuple))
+            and len(target.elts) == len(value.elts)
+        ):
+            for nested_target, nested_value in zip(target.elts, value.elts, strict=True):
+                append_assignments(nested_target, nested_value)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                append_assignments(target, node.value)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            if node.value is not None:
+                assignments.append((node.target.id, node.value))
+        elif isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
+            assignments.append((node.target.id, node.value))
+
+    bindings: dict[str, str] = {}
+    ambiguous: set[str] = set()
+    for _iteration in range(len(assignments) + 1):
+        changed = False
+        for name, value in assignments:
+            if name in ambiguous:
+                continue
+            folded = _constant_wave5_reflection_text(value, bindings)
+            if folded is None:
+                continue
+            existing = bindings.get(name)
+            if existing is None:
+                bindings[name] = folded
+                changed = True
+            elif existing != folded:
+                bindings.pop(name)
+                ambiguous.add(name)
+                changed = True
+        if not changed:
+            break
+    cast(Any, tree)._wave5_constant_text_bindings_cache = bindings
+    return bindings
 
 
 def _python_module_identity(relative_path: Path) -> str | None:
@@ -6027,6 +6150,23 @@ def _isolated_wave5_module_boundary_violations(
             "vars",
         }
     )
+    dynamic_namespace_attribute_names = frozenset(
+        {
+            "__dict__",
+            "__getattribute__",
+            "__globals__",
+            "__subclasses__",
+            "ag_frame",
+            "cr_frame",
+            "f_back",
+            "f_builtins",
+            "f_globals",
+            "f_locals",
+            "gi_frame",
+            "modules",
+            "tb_frame",
+        }
+    )
     dynamic_loader_names = frozenset(
         {
             "exec_module",
@@ -6061,6 +6201,7 @@ def _isolated_wave5_module_boundary_violations(
     reserved_fragments = protected_text | frozenset(path.as_posix() for path in protected_paths)
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     bindings = _imported_symbol_bindings(tree)
+    reflection_text_bindings = _wave5_constant_text_bindings(tree)
 
     def is_dynamic_loader_namespace(node: ast.AST) -> bool:
         qualified = _qualified_symbol(node, bindings)
@@ -6071,6 +6212,11 @@ def _isolated_wave5_module_boundary_violations(
 
     def is_builtins_namespace(node: ast.AST) -> bool:
         return _qualified_symbol(node, bindings) in {"__builtins__", "builtins"}
+
+    def is_imported_namespace(node: ast.AST) -> bool:
+        while isinstance(node, ast.Attribute):
+            node = node.value
+        return isinstance(node, ast.Name) and node.id in bindings
 
     def dynamic_loader_import(node: ast.AST) -> str | None:
         imported: list[str] = []
@@ -6101,29 +6247,43 @@ def _isolated_wave5_module_boundary_violations(
         elif isinstance(node, ast.Attribute):
             if (
                 node.attr in dynamic_loader_names
+                or node.attr in dynamic_namespace_attribute_names
                 or (node.attr in dynamic_namespace_names and is_builtins_namespace(node.value))
-                or (
-                    node.attr in {"__dict__", "__getattribute__"}
-                    and (
-                        is_builtins_namespace(node.value) or is_dynamic_loader_namespace(node.value)
-                    )
-                )
             ):
                 dynamic_reachability = node.attr
-        elif isinstance(node, ast.Call) and len(node.args) >= 2:
-            reflected_name = _constant_wave5_reflection_text(node.args[1])
-            direct_getattr = isinstance(node.func, ast.Name) and node.func.id == "getattr"
-            attribute_getter = isinstance(node.func, ast.Attribute) and node.func.attr in {
+        elif isinstance(node, ast.Call):
+            receiver: ast.AST | None = None
+            reflected_argument: ast.AST | None = None
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and len(node.args) >= 2
+            ):
+                receiver, reflected_argument = node.args[0], node.args[1]
+            elif isinstance(node.func, ast.Attribute) and node.func.attr in {
                 "getattr",
                 "__getattribute__",
-            }
-            receiver = node.args[0]
-            if (direct_getattr or attribute_getter) and (
-                reflected_name in dynamic_reachability_names
-                or is_builtins_namespace(receiver)
-                or is_dynamic_loader_namespace(receiver)
-            ):
-                dynamic_reachability = reflected_name or "reflected-loader-namespace"
+            }:
+                if len(node.args) >= 2:
+                    receiver, reflected_argument = node.args[0], node.args[1]
+                elif node.args:
+                    receiver, reflected_argument = node.func.value, node.args[0]
+            if receiver is not None and reflected_argument is not None:
+                reflected_name = _constant_wave5_reflection_text(
+                    reflected_argument,
+                    reflection_text_bindings,
+                )
+                constructed_import_reflection = is_imported_namespace(receiver) and not (
+                    isinstance(reflected_argument, ast.Constant)
+                    and type(reflected_argument.value) is str
+                )
+                if (
+                    reflected_name in dynamic_reachability_names | dynamic_namespace_attribute_names
+                    or is_builtins_namespace(receiver)
+                    or is_dynamic_loader_namespace(receiver)
+                    or constructed_import_reflection
+                ):
+                    dynamic_reachability = reflected_name or "reflected-loader-namespace"
         elif isinstance(node, ast.alias):
             origin = node.name.rpartition(".")[2]
             local = node.asname or origin
@@ -6177,7 +6337,7 @@ def _isolated_wave5_module_boundary_violations(
                         f"{boundary} reserves embedded private name '{reflected_fragment}'",
                     )
                 )
-        folded = _constant_wave5_reflection_text(node)
+        folded = _constant_wave5_reflection_text(node, reflection_text_bindings)
         if folded not in reserved_text:
             continue
         parent = parents.get(node)
@@ -9984,6 +10144,54 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
         ),
         Path("packages/adapters/trusted_time/_bounded_process.py"): (
             "738691659c41a7478a71ac7af94e7d43b60a6dafc196b276304b0e64d6794e3a"
+        ),
+        Path("packages/adapters/broker/alpaca_paper_account_runtime.py"): (
+            "51ac4ac9fb8b452c6d3e6c7039c3b008af0a1b9f2e808ff9a93825cb243835c9"
+        ),
+        Path("packages/application/trusted_time_head_anchor_clean_stop.py"): (
+            "e6a03d4855ad9025be0b1135f6f18915bf4c07451da24f13439bc924a1926a08"
+        ),
+        Path("packages/application/trusted_time_head_anchor_clean_stop_supervisor_bridge.py"): (
+            "203f68a0bb1a0e4441455c1ca4bc0ebbbf5847650b8d7ba35587f8f811b2eb38"
+        ),
+        Path("packages/application/etrade_oauth_token_runtime.py"): (
+            "6e5a18323498a5b0b7f61cacaa9462065e69713682bfadbb5ecac826e8685f1f"
+        ),
+        Path("scripts/diagnose_trusted_time_runtime.py"): (
+            "64e0c5dc3b19d08ef67c245196f347079a711f46d98a66adbf201291d55fb183"
+        ),
+        Path("scripts/enroll_trusted_time_head_anchor.py"): (
+            "c7ad53550bc9ff3b1386e541663b8c83619cf9c03bab7c9093261e12511bcb8f"
+        ),
+        Path("scripts/inspect_trusted_time_qualification.py"): (
+            "aee271c4474d3b32239aa3bdf87ce29631fa264e4bfedbae15a0f63f280cfdf1"
+        ),
+        Path("scripts/provision_trusted_time_post_enrollment_operator_authority.py"): (
+            "deedb5fa36cf34751b2bbbda4e663e381b6710879c1ffc002a977e869e5e06a5"
+        ),
+        Path("scripts/start_trusted_time_supervisor.py"): (
+            "5474ce310f5e3acf08606c03a0a0f1addc5b29b1ef0d6b66c4b4959e69b5efe9"
+        ),
+        Path("scripts/trusted_time_post_enrollment_claimed_fence.py"): (
+            "b12480510f6ccb75249a4f61a6da07531e22a57099cf1777aa44e45ada698d4b"
+        ),
+        Path("scripts/trusted_time_post_enrollment_clean_stop_terminal_reauthentication.py"): (
+            "93c7963bf709a14cc74639dc84144f748101890f0698704a67abff4dab629829"
+        ),
+        Path("scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py"): (
+            "b3c35a7086eb2de22a7ea8dec929c179f59660901de53a00fdfb5f0fddfaa14d"
+        ),
+        Path("scripts/trusted_time_post_enrollment_host_orchestrator.py"): (
+            "15c3e62437dc070d223038e21097ce85cbbb68de71ced3a6574f506236ebf56c"
+        ),
+        Path("scripts/trusted_time_post_enrollment_operator_attestation_artifacts.py"): (
+            "3916fe7b3c44cd5673bb63274fbee87166d4b17a321bbacacf9b79b0750c8488"
+        ),
+        Path("scripts/verify_trusted_time_compose.py"): (
+            "a7e775204b3fddea7035e0a0bf9cfcbfeb8930d858c9c0d79fcc09117ae0d15e"
+        ),
+        Path("scripts/verify_trusted_time_images.py"): (
+            "034d230d49384171807f61056f9cecce15564f238d329c4d2fbaa7cc3d9fd855"
         ),
     }
     if production_contract_required and (
