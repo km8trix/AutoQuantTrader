@@ -8099,7 +8099,7 @@ def _trusted_time_topology_launch_lock_violations(
             "be08d5c95a2a5ce6aa9b06a4434c09473ee74ad941a417b8022885a7ef1f5cbd"
         ),
         "native/owned_file_descriptor.c": (
-            "b41b39f0bd814315d879ea598e4cbd04758a7001faad96809df6eba2043e4427"
+            "adc6312bc4ff313e22888f4601804f43bd1ca9ea18a72b1e6a6a329c61d59865"
         ),
         "native/trusted_time_python_launcher.c": (
             "8f21c008571b4ed04166ae120cea9be2da73955c891a7c026833779dca3381f8"
@@ -8108,7 +8108,7 @@ def _trusted_time_topology_launch_lock_violations(
             "0bdf6cda1f0ab75d08df768d0d75bb40f2c8ef0cb490d09a18d843fb96a2a006"
         ),
         "packages/adapters/trusted_time/_owned_file_descriptor.py": (
-            "1c6f540c9922b1a4bfc1c218d216c8045d18e7688014046fcf424f874961d2e2"
+            "df55443464eaf448be1677cafadff601e73e0c4890b6702250e386affe420ed2"
         ),
     }
     expected_prefix_keys = {

@@ -449,6 +449,13 @@ def _transcript_and_results(
         else:
             digest = _digest(f"transcript-record-{ordinal}")
         wire = ordinal == 2
+        wire_sha256 = _digest("wire-result") if wire else None
+        wire_name = (
+            "trusted-time-post-enrollment-graceful-stop-v2-wire-result-"
+            f"{wire_sha256}.json"
+            if wire
+            else None
+        )
         entries.append(
             LifecycleV2TranscriptEntry(
                 ordinal=ordinal,
@@ -458,9 +465,9 @@ def _transcript_and_results(
                 record_artifact_sha256=digest,
                 predecessor_sha256=previous,
                 wire_artifact_kind=("signed_result_envelope" if wire else None),
-                wire_artifact_path=("/injected/result.json" if wire else None),
-                wire_artifact_file_name=("result.json" if wire else None),
-                wire_artifact_sha256=(_digest("wire-result") if wire else None),
+                wire_artifact_path=(f"/injected/{wire_name}" if wire else None),
+                wire_artifact_file_name=wire_name,
+                wire_artifact_sha256=wire_sha256,
             )
         )
         previous = digest
