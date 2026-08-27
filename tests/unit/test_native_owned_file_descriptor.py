@@ -37,6 +37,7 @@ from packages.adapters.trusted_time._owned_file_descriptor import (
     _acquire_trusted_time_launch_lock,
     _create_child_regular_exclusive,
     _fchmod_0600,
+    _finalize_read_child_noreplace,
     _flock,
     _fstat,
     _fsync,
@@ -257,6 +258,7 @@ def test_multiphase_module_is_inert_before_exec_and_active_exactly_once(
         (module._open_child_regular, ()),
         (module._create_child_regular_exclusive, ()),
         (module._rename_child_noreplace, ()),
+        (module._finalize_read_child_noreplace, ()),
         (module._fstat, (object(),)),
         (module._statat, ()),
         (module._read_snapshot, ()),
@@ -731,6 +733,75 @@ def test_owned_staging_rename_is_noreplace_and_identity_bound(tmp_path: Path) ->
             second.close()
     finally:
         first.close()
+        directory.close()
+
+
+def test_read_owned_staging_finalization_is_noreplace_and_identity_bound(
+    tmp_path: Path,
+) -> None:
+    directory = _open_directory(tmp_path)
+    writer = _create_child_regular_exclusive(directory, "restart-staging")
+    _write_all(writer, b"marker")
+    _fsync(writer)
+    with pytest.raises(ValueError, match="wrong native authority profile"):
+        _finalize_read_child_noreplace(
+            directory,
+            writer,
+            "restart-staging",
+            "committed",
+        )
+    writer.close()
+
+    different_writer = _create_child_regular_exclusive(directory, "different-staging")
+    _write_all(different_writer, b"different")
+    _fsync(different_writer)
+    different_writer.close()
+    reader = _open_child_regular(directory, "restart-staging")
+    try:
+        identity = _fstat(reader)
+        with pytest.raises(ValueError, match="wrong native authority profile"):
+            _rename_child_noreplace(
+                directory,
+                reader,
+                "restart-staging",
+                "committed",
+            )
+        with pytest.raises(OSError) as mismatch:
+            _finalize_read_child_noreplace(
+                directory,
+                reader,
+                "different-staging",
+                "committed",
+            )
+        assert mismatch.value.errno == errno.ESTALE
+        _finalize_read_child_noreplace(
+            directory,
+            reader,
+            "restart-staging",
+            "committed",
+        )
+        assert not (tmp_path / "restart-staging").exists()
+        assert _statat(directory, "committed")[:7] == identity[:7]
+    finally:
+        reader.close()
+
+    second_writer = _create_child_regular_exclusive(directory, "second-staging")
+    _write_all(second_writer, b"second")
+    _fsync(second_writer)
+    second_writer.close()
+    second_reader = _open_child_regular(directory, "second-staging")
+    try:
+        with pytest.raises(FileExistsError):
+            _finalize_read_child_noreplace(
+                directory,
+                second_reader,
+                "second-staging",
+                "committed",
+            )
+        assert (tmp_path / "second-staging").read_bytes() == b"second"
+        assert (tmp_path / "committed").read_bytes() == b"marker"
+    finally:
+        second_reader.close()
         directory.close()
 
 
@@ -2146,6 +2217,7 @@ def test_static_launcher_wrapper_has_no_dynamic_loader_or_owner_return_frame() -
         "_open_child_regular",
         "_create_child_regular_exclusive",
         "_rename_child_noreplace",
+        "_finalize_read_child_noreplace",
     ):
         operation = getattr(owned_fd_module, operation_name)
         native_operation = getattr(owned_fd_module, f"_native{operation_name}")

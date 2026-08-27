@@ -16,6 +16,7 @@ import threading
 from packages.adapters.trusted_time._owned_file_descriptor import (
     _create_child_regular_exclusive,
     _fchmod_0600,
+    _finalize_read_child_noreplace,
     _fstat,
     _fsync,
     _list_snapshot,
@@ -28,7 +29,10 @@ from packages.adapters.trusted_time._owned_file_descriptor import (
     _statat,
     _write_all,
 )
-from packages.domain.trusted_time_graceful_stop_v2 import LIFECYCLE_ROOT_FILE_NAME
+from packages.domain.trusted_time_graceful_stop_v2 import (
+    LIFECYCLE_ROOT_FILE_NAME,
+    LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+)
 from packages.persistence.trusted_time_graceful_stop_v2 import (
     LifecycleV2ArtifactAlreadyExists,
     LifecycleV2ArtifactInventorySnapshot,
@@ -47,6 +51,9 @@ _MAXIMUM_INVENTORY_NAME_BYTES = 32 * 1_024
 _ROOT_MAXIMUM_BYTES = 64 * 1_024
 _RECORD_MAXIMUM_BYTES = 256 * 1_024
 _WIRE_MAXIMUM_BYTES = 262_144
+_FIXED_MARKER_STAGING_NAME = (
+    ".post-enrollment-graceful-stop-v2-outcome-commit-staging"
+)
 _Stat9 = tuple[int, int, int, int, int, int, int, int, int]
 
 
@@ -620,9 +627,13 @@ class _LifecycleV2PhysicalArtifactStore:
         self._require_owner()
         exact_staging = _exact_component(staging_name)
         exact_final = _exact_component(final_name)
-        if exact_staging == exact_final or type(encoded) is not bytes:
+        if (
+            exact_staging != _FIXED_MARKER_STAGING_NAME
+            or exact_final != LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME
+            or type(encoded) is not bytes
+        ):
             raise LifecycleV2ArtifactPublicationUncertain(
-                "preallocated finalization arguments are not exact"
+                "preallocated finalization is not the exact fixed-marker protocol"
             )
         owner: _OwnedFileDescriptor | None = None
         try:
@@ -690,7 +701,7 @@ class _LifecycleV2PhysicalArtifactStore:
                     "preallocated staging bytes or identity changed"
                 )
             try:
-                _rename_child_noreplace(
+                _finalize_read_child_noreplace(
                     self._directory_owner,
                     owner,
                     exact_staging,

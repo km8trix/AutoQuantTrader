@@ -10,7 +10,10 @@ from typing import Any, cast
 import pytest
 
 from packages.adapters.trusted_time import _lifecycle_v2_artifact_store as physical
-from packages.domain.trusted_time_graceful_stop_v2 import LIFECYCLE_ROOT_FILE_NAME
+from packages.domain.trusted_time_graceful_stop_v2 import (
+    LIFECYCLE_ROOT_FILE_NAME,
+    LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+)
 from packages.persistence import trusted_time_graceful_stop_v2 as repository_module
 from packages.persistence.trusted_time_graceful_stop_v2 import (
     LifecycleV2ArtifactAlreadyExists,
@@ -20,6 +23,7 @@ from packages.persistence.trusted_time_graceful_stop_v2 import (
 
 _STAGING = ".post-enrollment-graceful-stop-v2-record-staging"
 _FINAL = "trusted-time-post-enrollment-graceful-stop-v2-record-01-" + "a" * 64 + ".json"
+_COMMIT_STAGING = ".post-enrollment-graceful-stop-v2-outcome-commit-staging"
 
 
 def _artifact_directory(tmp_path: Path) -> Path:
@@ -495,21 +499,46 @@ def test_physical_store_finalizes_only_exact_preallocated_staging_bytes(
 ) -> None:
     artifact_directory = _artifact_directory(tmp_path)
     encoded = b'{"marker":"exact"}\n'
-    _write_owner_only(artifact_directory / _STAGING, encoded)
+    _write_owner_only(artifact_directory / _COMMIT_STAGING, encoded)
     store = _store(artifact_directory)
     try:
         receipt = store.finalize_preallocated_immutable(
-            staging_name=_STAGING,
-            final_name=_FINAL,
+            staging_name=_COMMIT_STAGING,
+            final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
             encoded=encoded,
         )
 
-        assert not (artifact_directory / _STAGING).exists()
-        assert (artifact_directory / _FINAL).read_bytes() == encoded
+        assert not (artifact_directory / _COMMIT_STAGING).exists()
+        assert (
+            artifact_directory / LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME
+        ).read_bytes() == encoded
         assert receipt.file_fsync_completed is True
         assert receipt.no_replace_rename_completed is True
         assert receipt.directory_fsync_completed is True
         assert receipt.stable_readback_completed is True
+    finally:
+        store.close()
+
+
+def test_physical_store_read_owned_finalizer_is_fixed_marker_only(
+    tmp_path: Path,
+) -> None:
+    artifact_directory = _artifact_directory(tmp_path)
+    _write_owner_only(artifact_directory / _STAGING, b"record")
+    store = _store(artifact_directory)
+    try:
+        with pytest.raises(
+            LifecycleV2ArtifactPublicationUncertain,
+            match="fixed-marker protocol",
+        ):
+            store.finalize_preallocated_immutable(
+                staging_name=_STAGING,
+                final_name=_FINAL,
+                encoded=b"record",
+            )
+        assert store.closed is False
+        assert (artifact_directory / _STAGING).read_bytes() == b"record"
+        assert not (artifact_directory / _FINAL).exists()
     finally:
         store.close()
 
@@ -519,19 +548,24 @@ def test_physical_store_revalidates_matching_preallocated_final_without_cleanup(
 ) -> None:
     artifact_directory = _artifact_directory(tmp_path)
     encoded = b'{"marker":"exact"}\n'
-    _write_owner_only(artifact_directory / _STAGING, encoded)
-    _write_owner_only(artifact_directory / _FINAL, encoded)
+    _write_owner_only(artifact_directory / _COMMIT_STAGING, encoded)
+    _write_owner_only(
+        artifact_directory / LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+        encoded,
+    )
     store = _store(artifact_directory)
     try:
         receipt = store.finalize_preallocated_immutable(
-            staging_name=_STAGING,
-            final_name=_FINAL,
+            staging_name=_COMMIT_STAGING,
+            final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
             encoded=encoded,
         )
 
         assert receipt.existing_final_revalidated is True
-        assert (artifact_directory / _STAGING).read_bytes() == encoded
-        assert (artifact_directory / _FINAL).read_bytes() == encoded
+        assert (artifact_directory / _COMMIT_STAGING).read_bytes() == encoded
+        assert (
+            artifact_directory / LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME
+        ).read_bytes() == encoded
     finally:
         store.close()
 
@@ -540,19 +574,21 @@ def test_physical_store_rejects_conflicting_preallocated_staging(
     tmp_path: Path,
 ) -> None:
     artifact_directory = _artifact_directory(tmp_path)
-    _write_owner_only(artifact_directory / _STAGING, b"conflict")
+    _write_owner_only(artifact_directory / _COMMIT_STAGING, b"conflict")
     store = _store(artifact_directory)
 
     with pytest.raises(LifecycleV2ArtifactPublicationUncertain, match="staging"):
         store.finalize_preallocated_immutable(
-            staging_name=_STAGING,
-            final_name=_FINAL,
+            staging_name=_COMMIT_STAGING,
+            final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
             encoded=b"expected",
         )
 
     assert store.closed is True
-    assert (artifact_directory / _STAGING).read_bytes() == b"conflict"
-    assert not (artifact_directory / _FINAL).exists()
+    assert (artifact_directory / _COMMIT_STAGING).read_bytes() == b"conflict"
+    assert not (
+        artifact_directory / LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME
+    ).exists()
 
 
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="native fork invalidation is POSIX-only")

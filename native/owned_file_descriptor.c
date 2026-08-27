@@ -64232,7 +64232,12 @@ aqt_renameat_noreplace_native(
 }
 
 static PyObject *
-aqt_rename_child_noreplace(PyObject *module, PyObject *args)
+aqt_rename_child_noreplace_with_profile(
+    PyObject *module,
+    PyObject *args,
+    const char *parse_name,
+    unsigned int source_profile
+)
 {
     PyObject *directory_object;
     PyObject *source_object;
@@ -64256,7 +64261,7 @@ aqt_rename_child_noreplace(PyObject *module, PyObject *args)
     }
     if (!PyArg_ParseTuple(
             args,
-            "OOOO:_rename_child_noreplace",
+            parse_name,
             &directory_object,
             &source_object,
             &source_component,
@@ -64296,7 +64301,7 @@ aqt_rename_child_noreplace(PyObject *module, PyObject *args)
     );
     source_fd = aqt_live_owner_profile_fd_locked(
         source_object,
-        AQT_PROFILE_WRITE_REGULAR
+        source_profile
     );
     if (directory_fd < 0 || source_fd < 0) {
         saved_errno = EBADF;
@@ -64387,6 +64392,28 @@ aqt_rename_child_noreplace(PyObject *module, PyObject *args)
         return PyErr_SetFromErrno(PyExc_OSError);
     }
     Py_RETURN_NONE;
+}
+
+static PyObject *
+aqt_rename_child_noreplace(PyObject *module, PyObject *args)
+{
+    return aqt_rename_child_noreplace_with_profile(
+        module,
+        args,
+        "OOOO:_rename_child_noreplace",
+        AQT_PROFILE_WRITE_REGULAR
+    );
+}
+
+static PyObject *
+aqt_finalize_read_child_noreplace(PyObject *module, PyObject *args)
+{
+    return aqt_rename_child_noreplace_with_profile(
+        module,
+        args,
+        "OOOO:_finalize_read_child_noreplace",
+        AQT_PROFILE_READ_REGULAR
+    );
 }
 
 static PyObject *
@@ -66700,6 +66727,14 @@ static PyMethodDef aqt_module_methods[] = {
         (PyCFunction)aqt_rename_child_noreplace,
         METH_VARARGS,
         PyDoc_STR("Rename one exact owned staging inode without replacing a child.")
+    },
+    {
+        "_finalize_read_child_noreplace",
+        (PyCFunction)aqt_finalize_read_child_noreplace,
+        METH_VARARGS,
+        PyDoc_STR(
+            "Finalize one exact read-owned staging inode without replacing a child."
+        )
     },
     {
         "_fstat",

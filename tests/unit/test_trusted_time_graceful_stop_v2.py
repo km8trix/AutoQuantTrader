@@ -1796,7 +1796,7 @@ def test_recovery_classification_is_single_use_and_can_follow_terminal_cleanup()
     repository.publish_transcript()
     with pytest.raises(
         persistence.LifecycleV2RepositoryRejected,
-        match="ordinal is not next",
+        match="does not bind this lifecycle",
     ):
         repository.retain_recovery_classification_intent(authenticated)
 
