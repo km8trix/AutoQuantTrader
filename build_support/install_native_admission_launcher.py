@@ -49,7 +49,7 @@ _MAXIMUM_FILE_BYTES = 2 * 1024 * 1024 * 1024
 _HEX = frozenset("0123456789abcdef")
 _EXPECTED_SOURCES = {
     "native/owned_file_descriptor.c": (
-        "01b9834c343f4b173198ac7bfb22df37c6da6fb3093e7a93875aef56410b9fd9"
+        "b41b39f0bd814315d879ea598e4cbd04758a7001faad96809df6eba2043e4427"
     ),
     "native/bounded_process.c": (
         "be08d5c95a2a5ce6aa9b06a4434c09473ee74ad941a417b8022885a7ef1f5cbd"
@@ -58,7 +58,7 @@ _EXPECTED_SOURCES = {
         "8f21c008571b4ed04166ae120cea9be2da73955c891a7c026833779dca3381f8"
     ),
     "packages/adapters/trusted_time/_owned_file_descriptor.py": (
-        "a5c3a0f1ec32ae95d6a058cdf52f8530fe505c5a97f1a2cf61106d94c2baa9ab"
+        "1c6f540c9922b1a4bfc1c218d216c8045d18e7688014046fcf424f874961d2e2"
     ),
     "packages/adapters/trusted_time/_bounded_process.py": (
         "0bdf6cda1f0ab75d08df768d0d75bb40f2c8ef0cb490d09a18d843fb96a2a006"

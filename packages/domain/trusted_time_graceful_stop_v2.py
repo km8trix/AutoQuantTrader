@@ -1023,12 +1023,39 @@ class LifecycleV2TranscriptEntry:
                 raise TrustedTimeGracefulStopV2Rejected(
                     "terminal wire stage must bind its artifact"
                 )
-            if self.wire_artifact_kind not in {
-                "signed_result_envelope",
-                "signed_error_envelope",
-            }:
-                raise TrustedTimeGracefulStopV2Rejected("wire artifact kind is invalid")
-            _require_sha256(self.wire_artifact_sha256, "wire_artifact_sha256")
+            wire_sha256 = _require_sha256(
+                self.wire_artifact_sha256,
+                "wire_artifact_sha256",
+            )
+            result_stage = self.stage is LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED
+            wire_type = "result" if result_stage else "error"
+            expected_kind = f"signed_{wire_type}_envelope"
+            expected_name = (
+                "trusted-time-post-enrollment-graceful-stop-v2-wire-"
+                f"{wire_type}-{wire_sha256}.json"
+            )
+            if self.wire_artifact_kind != expected_kind:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "wire artifact kind does not match its terminal stage"
+                )
+            if self.wire_artifact_file_name != expected_name:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "wire artifact filename is not digest-derived"
+                )
+            path = self.wire_artifact_path
+            if (
+                type(path) is not str
+                or not path.startswith("/")
+                or not path.endswith(f"/{expected_name}")
+                or "//" in path
+                or "/./" in path
+                or "/../" in path
+                or "\0" in path
+                or len(path.encode("utf-8")) > 4_096
+            ):
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "wire artifact path is not exact"
+                )
         elif any(value is not None for value in wire_values):
             raise TrustedTimeGracefulStopV2Rejected("only terminal wire stages bind artifacts")
 

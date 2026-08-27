@@ -1093,6 +1093,38 @@ def test_restart_with_retained_wire_uses_only_the_injected_verifier_seam() -> No
 
 
 @pytest.mark.parametrize(
+    ("field_name", "replacement"),
+    [
+        ("effect_kind", "source_remove"),
+        ("deadline_boottime_ns", 1),
+    ],
+)
+def test_restart_rejects_terminal_record_top_level_substitution(
+    field_name: str,
+    replacement: object,
+) -> None:
+    root = _root()
+    basis = _request_basis(root)
+    intent = _request_intent(root, basis)
+    envelope = _result_envelope(root, intent)
+    record = replace(
+        _result_record(root, intent, envelope),
+        **{field_name: replacement},
+    )
+    store = FakeLifecycleV2ArtifactStore(
+        initial={
+            LIFECYCLE_ROOT_FILE_NAME: root.encoded,
+            lifecycle_v2_progress_file_name(intent): intent.encoded,
+            lifecycle_v2_progress_file_name(record): record.encoded,
+            lifecycle_v2_wire_file_name(envelope): envelope.encoded,
+        }
+    )
+
+    with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
+        _repository(store, FakeLifecycleV2RetainedWireVerifier())
+
+
+@pytest.mark.parametrize(
     "fault",
     [
         "reject",

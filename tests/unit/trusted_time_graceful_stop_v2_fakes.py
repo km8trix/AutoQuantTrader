@@ -301,6 +301,10 @@ class _FakeAuthenticatedLifecycleV2RetainedWireResult:
     envelope: UnverifiedLifecycleV2TransportEnvelope
     authority_manifest_sha256: str
     signer_role: str
+    root_sha256: str
+    request_intent_sha256: str
+    terminal_record_sha256: str
+    artifact_directory_path: str
     _capability: object
 
 
@@ -359,6 +363,10 @@ class FakeLifecycleV2RetainedWireVerifier:
                 else root.transport_authority_manifest_sha256
             ),
             signer_role="host" if self.wrong_signer else "supervisor",
+            root_sha256=root.sha256,
+            request_intent_sha256=request_intent.sha256,
+            terminal_record_sha256=terminal_record.sha256,
+            artifact_directory_path=artifact_directory_path,
             _capability=(
                 object()
                 if self.invalid_capability
@@ -384,6 +392,10 @@ class FakeLifecycleV2RetainedWireVerifier:
                 envelope=verified,
                 authority_manifest_sha256=result.authority_manifest_sha256,
                 signer_role=result.signer_role,
+                root_sha256=result.root_sha256,
+                request_intent_sha256=result.request_intent_sha256,
+                terminal_record_sha256=result.terminal_record_sha256,
+                artifact_directory_path=result.artifact_directory_path,
                 _capability=_FAKE_RETAINED_WIRE_AUTHENTICATION_CAPABILITY,
             )
         return result

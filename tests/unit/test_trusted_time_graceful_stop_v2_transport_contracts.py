@@ -903,6 +903,17 @@ def test_recovery_classification_rejects_boolean_integer_fields(field_name: str)
         )
 
 
+def test_recovery_classification_rejects_unhashable_reason_as_contract_error() -> None:
+    manifest = _manifest()
+    root = _root(manifest)
+    transcript = _classified_transcript(root, _intent(root))
+    fields = _recovery_envelope(root, transcript, manifest).to_dict()
+    fields["reason_code"] = []
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="allowlisted"):
+        LifecycleV2RecoveryClassificationEnvelope.capture(fields)
+
+
 def test_recovery_classification_rejects_unselected_recovery_or_cross_prefix() -> None:
     manifest = _manifest()
     selected = _selection(
@@ -955,6 +966,95 @@ def test_recovery_classification_rejects_unselected_recovery_or_cross_prefix() -
             root=root,
             classified_transcript=drifted_transcript,
         )
+
+
+def test_recovery_classification_rejects_impossible_intermediate_prefix_stage() -> None:
+    manifest = _manifest()
+    selection = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest,
+        recovery=manifest,
+        reason="initial",
+    )
+    authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (selection.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    root = _root(manifest)
+    intent = _intent(root)
+    prefix = _classified_transcript(root, intent)
+    impossible_ordinal_two_sha256 = _digest("impossible-ordinal-two")
+    transcript = LifecycleV2Transcript(
+        environment=root.environment,
+        graceful_stop_operation_id=root.graceful_stop_operation_id,
+        root_sha256=root.sha256,
+        entries=(
+            *prefix.entries,
+            LifecycleV2TranscriptEntry(
+                ordinal=2,
+                stage=LifecycleV2Stage.TRANSPORT_CLEANUP_COMMITMENT_RETAINED,
+                record_artifact_kind="progress",
+                record_contract_version=LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION,
+                record_artifact_sha256=impossible_ordinal_two_sha256,
+                predecessor_sha256=intent.sha256,
+            ),
+            LifecycleV2TranscriptEntry(
+                ordinal=3,
+                stage=LifecycleV2Stage.TRANSPORT_CLEANUP_COMMITMENT_RETAINED,
+                record_artifact_kind="progress",
+                record_contract_version=LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION,
+                record_artifact_sha256=_digest("ordinal-three"),
+                predecessor_sha256=impossible_ordinal_two_sha256,
+            ),
+        ),
+    )
+    envelope = _recovery_envelope(root, transcript, manifest)
+
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="impossible"):
+        authenticate_lifecycle_v2_recovery_classification_envelope(
+            envelope.encoded,
+            authority=authority,
+            root=root,
+            classified_transcript=transcript,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "replacement"),
+    [
+        ("wire_artifact_kind", "signed_error_envelope"),
+        ("wire_artifact_file_name", ["not-a-file-name"]),
+        ("wire_artifact_path", 1),
+    ],
+)
+def test_terminal_transcript_entry_requires_stage_bound_digest_derived_wire_path(
+    field_name: str,
+    replacement: object,
+) -> None:
+    wire_sha256 = _digest("wire")
+    file_name = (
+        "trusted-time-post-enrollment-graceful-stop-v2-wire-result-"
+        f"{wire_sha256}.json"
+    )
+    values: dict[str, object] = {
+        "ordinal": 2,
+        "stage": LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED,
+        "record_artifact_kind": "progress",
+        "record_contract_version": LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION,
+        "record_artifact_sha256": _digest("record"),
+        "predecessor_sha256": _digest("intent"),
+        "wire_artifact_kind": "signed_result_envelope",
+        "wire_artifact_path": f"/injected/adr0121/trusted-time/{file_name}",
+        "wire_artifact_file_name": file_name,
+        "wire_artifact_sha256": wire_sha256,
+    }
+    values[field_name] = replacement
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="wire artifact"):
+        LifecycleV2TranscriptEntry(**values)  # type: ignore[arg-type]
 
 
 def test_rotation_is_gap_free_and_new_roots_denied_with_optional_recovery() -> None:
@@ -1705,8 +1805,61 @@ def test_repository_verifier_returns_only_its_sealed_authenticated_terminal_valu
     assert sealed.envelope == envelope
     assert sealed.authority_manifest_sha256 == manifest.sha256
     assert sealed.signer_role == "supervisor"
+    assert sealed.root_sha256 == root.sha256
+    assert sealed.request_intent_sha256 == intent.sha256
+    assert sealed.terminal_record_sha256 == terminal_record.sha256
+    assert sealed.artifact_directory_path == "/injected/adr0121/trusted-time"
     with pytest.raises(LifecycleV2TransportAuthenticationError, match="sealed value"):
         verifier.require_exact_authenticated_retained_terminal_wire(envelope)
+
+    generic = authenticate_retained_lifecycle_v2_wire(
+        envelope.encoded,
+        authority_manifest=_authenticated_manifest(manifest),
+        root=root,
+        request_intent=intent,
+    )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="sealed value"):
+        verifier.require_exact_authenticated_retained_terminal_wire(generic)
+
+    parallel_verifier = (
+        ed25519_adapter._build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
+            _authenticated_manifest(manifest)
+        )
+    )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="sealed value"):
+        parallel_verifier.require_exact_authenticated_retained_terminal_wire(sealed)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "replacement"),
+    [
+        ("effect_kind", "source_remove"),
+        ("deadline_boottime_ns", 1),
+    ],
+)
+def test_repository_verifier_rejects_terminal_record_top_level_substitution(
+    field_name: str,
+    replacement: object,
+) -> None:
+    manifest = _manifest()
+    root = _root(manifest)
+    intent = _intent(root)
+    envelope, terminal_record = _signed_terminal_result_record(root, intent)
+    verifier = ed25519_adapter._build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
+        _authenticated_manifest(manifest)
+    )
+
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="root, intent"):
+        verifier.reauthenticate_retained_terminal_wire(
+            envelope=envelope,
+            root=root,
+            request_intent=intent,
+            terminal_record=dataclasses.replace(
+                terminal_record,
+                **{field_name: replacement},
+            ),
+            artifact_directory_path="/injected/adr0121/trusted-time",
+        )
 
 
 def test_repository_restart_accepts_the_exact_ed25519_sealed_verifier_result() -> None:

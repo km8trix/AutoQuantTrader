@@ -197,7 +197,10 @@ class LifecycleV2RecoveryClassificationEnvelope:
             maximum=min(22, LIFECYCLE_V2_MAXIMUM_ENTRIES - 1),
         )
         _require_prefix_stage(last_ordinal, fields["last_stage"])
-        if fields["reason_code"] not in RECOVERY_CLASSIFICATION_REASON_CODES:
+        if (
+            type(fields["reason_code"]) is not str
+            or fields["reason_code"] not in RECOVERY_CLASSIFICATION_REASON_CODES
+        ):
             raise TrustedTimeGracefulStopV2Rejected(
                 "recovery classification reason is not allowlisted"
             )

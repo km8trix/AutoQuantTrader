@@ -19,7 +19,7 @@ _LAUNCHER_BASENAME = "autoquant-trusted-time-python-test"
 _EXPECTED_SOURCES = (
     (
         "native/owned_file_descriptor.c",
-        "01b9834c343f4b173198ac7bfb22df37c6da6fb3093e7a93875aef56410b9fd9",
+        "b41b39f0bd814315d879ea598e4cbd04758a7001faad96809df6eba2043e4427",
     ),
     (
         "native/bounded_process.c",
@@ -31,7 +31,7 @@ _EXPECTED_SOURCES = (
     ),
     (
         "packages/adapters/trusted_time/_owned_file_descriptor.py",
-        "a5c3a0f1ec32ae95d6a058cdf52f8530fe505c5a97f1a2cf61106d94c2baa9ab",
+        "1c6f540c9922b1a4bfc1c218d216c8045d18e7688014046fcf424f874961d2e2",
     ),
     (
         "packages/adapters/trusted_time/_bounded_process.py",

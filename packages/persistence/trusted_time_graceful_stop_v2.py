@@ -260,6 +260,18 @@ class LifecycleV2AuthenticatedRetainedWireResult(Protocol):
     @property
     def signer_role(self) -> str: ...
 
+    @property
+    def root_sha256(self) -> str: ...
+
+    @property
+    def request_intent_sha256(self) -> str: ...
+
+    @property
+    def terminal_record_sha256(self) -> str: ...
+
+    @property
+    def artifact_directory_path(self) -> str: ...
+
 
 class LifecycleV2RetainedWireVerifier(Protocol):
     """Injected authenticator that owns and reopens its exact sealed result."""
@@ -631,6 +643,8 @@ class _LifecycleV2Repository:
                         or record.graceful_stop_operation_id
                         != self._root.graceful_stop_operation_id
                         or record.predecessor_sha256 != predecessor
+                        or record.deadline_boottime_ns
+                        != self._root.operation_deadline_boottime_ns
                     ):
                         raise LifecycleV2RetentionUnconfirmed("progress lineage is mixed or gapped")
                     if record.stage is LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED:
@@ -685,6 +699,7 @@ class _LifecycleV2Repository:
         )
         if (
             record.stage.value != f"{prefix}_retained"
+            or record.effect_kind != prefix
             or evidence[f"{prefix}_sha256"] != envelope.sha256
             or evidence[f"{prefix}_artifact_name"] != wire_names[0]
             or evidence["frame_type"] != envelope.frame_type
@@ -767,6 +782,10 @@ class _LifecycleV2Repository:
             or verified.envelope.encoded != envelope.encoded
             or verified.authority_manifest_sha256 != self._root.transport_authority_manifest_sha256
             or verified.signer_role != "supervisor"
+            or verified.root_sha256 != self._root.sha256
+            or verified.request_intent_sha256 != request_intent.sha256
+            or verified.terminal_record_sha256 != record.sha256
+            or verified.artifact_directory_path != self._artifact_directory_path
         ):
             raise LifecycleV2RetentionUnconfirmed(
                 "retained wire verifier returned an invalid sealed authentication result"

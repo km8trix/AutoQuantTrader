@@ -8084,22 +8084,22 @@ def _trusted_time_topology_launch_lock_violations(
     )
     frozen_source_sha256 = {
         "build_support/build_native_admission_launcher.py": (
-            "08572042780300ac80d77fc90fbb49dac6c0dbf05bd3ebcdfe719ff69c515754"
+            "6839e818a41bd3f7d3bc03c77d9d99e6eb6d96acf76bff9e1f58ddc953fa8b00"
         ),
         "build_support/build_native_test_launcher.py": (
-            "54ecaa0ca5572a988c222a44555ef569987e467efe0e2203d02864c825713686"
+            "b93fe6ce179bfdd549752bd964cd5177010d7b5a22adce5c56ef5aebb27acdd6"
         ),
         "build_support/install_native_admission_launcher.py": (
-            "3cf730aefc89e588ca77fec79e6c2662c9b363e121089398469a1097a760f5e5"
+            "66aaafeb8e1f3abeeff02a250723f3395f9eedd97a89a5118bb59647081138a9"
         ),
         "build_support/native_owned_file_descriptor_hook.py": (
-            "75313b842c4f0ace7ca3111fc28edb6048afca724b6002b3a6131d24771819eb"
+            "e975f63b3d9720cb0d66cb09e57acb71c4150d939361ca675be94503f45b81ae"
         ),
         "native/bounded_process.c": (
             "be08d5c95a2a5ce6aa9b06a4434c09473ee74ad941a417b8022885a7ef1f5cbd"
         ),
         "native/owned_file_descriptor.c": (
-            "01b9834c343f4b173198ac7bfb22df37c6da6fb3093e7a93875aef56410b9fd9"
+            "b41b39f0bd814315d879ea598e4cbd04758a7001faad96809df6eba2043e4427"
         ),
         "native/trusted_time_python_launcher.c": (
             "8f21c008571b4ed04166ae120cea9be2da73955c891a7c026833779dca3381f8"
@@ -8108,7 +8108,7 @@ def _trusted_time_topology_launch_lock_violations(
             "0bdf6cda1f0ab75d08df768d0d75bb40f2c8ef0cb490d09a18d843fb96a2a006"
         ),
         "packages/adapters/trusted_time/_owned_file_descriptor.py": (
-            "a5c3a0f1ec32ae95d6a058cdf52f8530fe505c5a97f1a2cf61106d94c2baa9ab"
+            "1c6f540c9922b1a4bfc1c218d216c8045d18e7688014046fcf424f874961d2e2"
         ),
     }
     expected_prefix_keys = {

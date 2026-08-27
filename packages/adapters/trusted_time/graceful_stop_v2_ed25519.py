@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_V2_WIRE_MAXIMUM_BYTES,
+    NORMAL_STAGE_BY_ORDINAL,
     LifecycleV2CleanStopRequest,
     LifecycleV2CleanStopRequestBasis,
     LifecycleV2ProgressRecord,
@@ -410,6 +411,18 @@ def authenticate_lifecycle_v2_recovery_classification_envelope(
         raise LifecycleV2TransportAuthenticationError(
             "recovery classification inputs changed under validation"
         )
+    for entry in exact_transcript.entries:
+        expected_stage = NORMAL_STAGE_BY_ORDINAL.get(entry.ordinal)
+        if entry.ordinal == 2 and entry.stage is LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED:
+            if entry is not exact_transcript.entries[-1]:
+                raise LifecycleV2TransportAuthenticationError(
+                    "recovery classification crossed an impossible lifecycle prefix"
+                )
+            continue
+        if expected_stage is None or entry.stage is not expected_stage:
+            raise LifecycleV2TransportAuthenticationError(
+                "recovery classification crossed an impossible lifecycle prefix"
+            )
     recovery = authenticated_lifecycle_v2_recovery_manifest_for_root(
         authority,
         root_manifest_sha256=exact_root.transport_authority_manifest_sha256,
@@ -834,12 +847,30 @@ def authenticate_retained_lifecycle_v2_wire(
 
 
 @dataclass(frozen=True, slots=True, init=False)
+class _LifecycleV2Ed25519RetainedWireResult:
+    """One exact terminal-wire proof sealed to its producing verifier."""
+
+    envelope: UnverifiedLifecycleV2TransportEnvelope
+    authority_manifest_sha256: str
+    signer_role: str
+    root_sha256: str
+    request_intent_sha256: str
+    terminal_record_sha256: str
+    artifact_directory_path: str
+    _verifier_capability: object
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("retained-wire results require verifier-owned authentication")
+
+
+@dataclass(frozen=True, slots=True, init=False)
 class _LifecycleV2Ed25519RetainedWireVerifier:
     """Process/thread-bound injected repository verifier over one public key."""
 
     _authority_manifest: AuthenticatedLifecycleV2TransportAuthorityManifest
     _origin_pid: int
     _origin_thread: threading.Thread
+    _sealed_result_capability: object
     _capability: object
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
@@ -864,7 +895,7 @@ class _LifecycleV2Ed25519RetainedWireVerifier:
         request_intent: LifecycleV2ProgressRecord,
         terminal_record: LifecycleV2ProgressRecord,
         artifact_directory_path: str,
-    ) -> AuthenticatedLifecycleV2TransportEnvelope:
+    ) -> _LifecycleV2Ed25519RetainedWireResult:
         self._require_owner()
         try:
             exact_record = decode_lifecycle_v2_progress_record(terminal_record.encoded)
@@ -914,6 +945,9 @@ class _LifecycleV2Ed25519RetainedWireVerifier:
             != exact_root.graceful_stop_operation_id
             or exact_record.root_sha256 != exact_root.sha256
             or exact_record.predecessor_sha256 != exact_intent.sha256
+            or exact_record.effect_kind != prefix
+            or exact_record.deadline_boottime_ns
+            != exact_root.operation_deadline_boottime_ns
             or evidence.get("intent_sha256") != exact_intent.sha256
             or evidence.get(f"{prefix}_sha256") != envelope.sha256
             or evidence.get(f"{prefix}_artifact_name") != file_name
@@ -952,16 +986,28 @@ class _LifecycleV2Ed25519RetainedWireVerifier:
             raise LifecycleV2TransportAuthenticationError(
                 "retained-wire evidence changed under terminal validation"
             )
-        return authenticated
+        result = object.__new__(_LifecycleV2Ed25519RetainedWireResult)
+        for name, value in {
+            "envelope": authenticated.envelope,
+            "authority_manifest_sha256": authenticated.authority_manifest_sha256,
+            "signer_role": authenticated.signer_role,
+            "root_sha256": exact_root.sha256,
+            "request_intent_sha256": exact_intent.sha256,
+            "terminal_record_sha256": exact_record.sha256,
+            "artifact_directory_path": artifact_directory_path,
+            "_verifier_capability": self._sealed_result_capability,
+        }.items():
+            object.__setattr__(result, name, value)
+        return result
 
     def require_exact_authenticated_retained_terminal_wire(
         self,
         result: object,
-    ) -> AuthenticatedLifecycleV2TransportEnvelope:
+    ) -> _LifecycleV2Ed25519RetainedWireResult:
         self._require_owner()
         if (
-            type(result) is not AuthenticatedLifecycleV2TransportEnvelope
-            or result._capability is not _AUTHENTICATED_VALUE_CAPABILITY
+            type(result) is not _LifecycleV2Ed25519RetainedWireResult
+            or result._verifier_capability is not self._sealed_result_capability
             or type(result.envelope) is not UnverifiedLifecycleV2TransportEnvelope
             or result.authority_manifest_sha256
             != self._authority_manifest.manifest.sha256
@@ -993,6 +1039,7 @@ def _build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
     object.__setattr__(result, "_authority_manifest", authenticated)
     object.__setattr__(result, "_origin_pid", os.getpid())
     object.__setattr__(result, "_origin_thread", threading.current_thread())
+    object.__setattr__(result, "_sealed_result_capability", object())
     object.__setattr__(result, "_capability", _AUTHENTICATED_VALUE_CAPABILITY)
     result._require_owner()
     return result
