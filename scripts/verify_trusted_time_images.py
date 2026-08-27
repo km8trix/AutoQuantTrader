@@ -854,7 +854,7 @@ def _current_boot_session_id() -> str:
 
     if sys.platform == "linux":
         return _linux_boot_session_id()
-    if sys.platform == "darwin":
+    if sys.platform == "darwin":  # type: ignore[unreachable, unused-ignore]
         return _darwin_boot_session_id()
     raise TrustedTimeImageVerificationError("trusted-time boot session identity is unavailable")
 
