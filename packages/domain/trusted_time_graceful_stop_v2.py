@@ -158,7 +158,10 @@ def _bounded_tree(value: object) -> None:
         if nodes > LIFECYCLE_V2_MAXIMUM_NODES or depth > LIFECYCLE_V2_MAXIMUM_DEPTH:
             raise TrustedTimeGracefulStopV2Rejected("canonical JSON tree exceeds its bounds")
         if node is None or type(node) in (bool, int, str):
-            if type(node) is str and len(node.encode("utf-8")) > 65_536:
+            # A terminal result payload may be 180,224 bytes and its canonical
+            # base64 envelope field is therefore larger than 64 KiB.  The
+            # surrounding artifact limit remains the allocation boundary.
+            if type(node) is str and len(node.encode("utf-8")) > LIFECYCLE_V2_WIRE_MAXIMUM_BYTES:
                 raise TrustedTimeGracefulStopV2Rejected("canonical JSON string is too large")
             return
         if type(node) is list:
