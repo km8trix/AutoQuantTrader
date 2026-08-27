@@ -59,6 +59,37 @@ from tests.unit.test_fixture_segment_worker import _running
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 
+_SCOPE_POISONED_PACKAGE_EXCEPTION_ESCAPE = (
+    "from packages.application.durable_trusted_time_monitor import "
+    "DurableTrustedTimeMonitorError\n"
+    "from packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge "
+    "import TrustedTimeHeadAnchorCleanStopSupervisorBridgeError\n"
+    "import packages.domain.models\n"
+    "def poison_import_provenance() -> None:\n"
+    "    import math as packages\n"
+    "root_package = packages\n"
+    "loader = root_package.application.durable_trusted_time_monitor._port_method(\n"
+    "    root_package.application.trusted_time_head_anchor_clean_stop_supervisor_bridge."
+    "_BUILTINS, import_name\n"
+    ")\n"
+    "module = loader(module_name, fromlist=('sentinel',))\n"
+    "capability = root_package.application.durable_trusted_time_monitor._port_method(\n"
+    "    module, attribute_name\n"
+    ")"
+)
+
+_SCOPE_POISONED_SCRIPT_FFI_ESCAPE = (
+    "from scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication "
+    "import TrustedTimePostEnrollmentCleanStopTerminalReauthenticationRejected\n"
+    "import scripts.check_architecture\n"
+    "def poison_import_provenance() -> None:\n"
+    "    import cmath as scripts\n"
+    "root_scripts = scripts\n"
+    "ctypes_owner = "
+    "root_scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication\n"
+    "library = ctypes_owner.ctypes.pydll.LoadLibrary(None)"
+)
+
 
 def _completed() -> tuple[
     GovernanceFixture,
@@ -862,6 +893,8 @@ def test_object_new_reconstruction_cannot_mint_process_or_receipt_evidence() -> 
         "ctypes_owner = "
         "root_scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication\n"
         "library = ctypes_owner.ctypes.pydll.LoadLibrary(None)",
+        _SCOPE_POISONED_PACKAGE_EXCEPTION_ESCAPE,
+        _SCOPE_POISONED_SCRIPT_FFI_ESCAPE,
         "import ctypes\n"
         "library = ctypes.CDLL(None)\n"
         "importer = library.PyImport_ImportModule\n"

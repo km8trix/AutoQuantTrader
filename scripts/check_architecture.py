@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "be4a17e0ff0010d77f96563ec50ab66eca8d13864b1eb11014ae988ff9b4ed99"
+    "575c1ff0e78efb0b2c561607163795ee8a6811eead44e582487cc80e2cd3416e"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -5657,8 +5657,18 @@ def _dynamic_code_exception_private_import_violations(
                 "exact reviewed module AST",
             )
         )
-    bindings: dict[str, str] = {}
+    provenance_bindings: dict[str, set[str]] = {}
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+
+    def record_provenance(local_name: str, qualified_name: str) -> None:
+        provenance_bindings.setdefault(local_name, set()).add(qualified_name)
+
+    def provenance_symbols(node: ast.AST) -> frozenset[str]:
+        if isinstance(node, ast.Name):
+            return frozenset(provenance_bindings.get(node.id, {node.id}))
+        if isinstance(node, ast.Attribute):
+            return frozenset(f"{parent}.{node.attr}" for parent in provenance_symbols(node.value))
+        return frozenset()
 
     def is_class_scope_binding(node: ast.AST) -> bool:
         current = parents.get(node)
@@ -5674,7 +5684,7 @@ def _dynamic_code_exception_private_import_violations(
         if isinstance(node, ast.Import):
             for alias in node.names:
                 local = alias.asname or alias.name.partition(".")[0]
-                bindings[local] = alias.name if alias.asname else local
+                record_provenance(local, alias.name if alias.asname else local)
                 if is_class_scope_binding(node) and any(
                     alias.name == module
                     or alias.name.startswith(f"{module}.")
@@ -5700,7 +5710,7 @@ def _dynamic_code_exception_private_import_violations(
                     else alias.name
                 )
                 if alias.name != "*":
-                    bindings[alias.asname or alias.name] = imported
+                    record_provenance(alias.asname or alias.name, imported)
                 if is_class_scope_binding(node) and any(
                     imported == module
                     or imported.startswith(f"{module}.")
@@ -5731,12 +5741,19 @@ def _dynamic_code_exception_private_import_violations(
 
     for node in ast.walk(tree):
         if isinstance(node, (ast.Name, ast.Attribute)):
-            qualified = _qualified_symbol(node, bindings)
-            if qualified is None:
+            qualified_candidates = sorted(provenance_symbols(node))
+            if not qualified_candidates:
                 continue
-            if qualified in exception_modules or any(
-                module.startswith(f"{qualified}.") for module in exception_modules
-            ):
+            exception_namespace = next(
+                (
+                    qualified
+                    for qualified in qualified_candidates
+                    if qualified in exception_modules
+                    or any(module.startswith(f"{qualified}.") for module in exception_modules)
+                ),
+                None,
+            )
+            if exception_namespace is not None:
                 parent = parents.get(node)
                 if not (isinstance(parent, ast.Attribute) and parent.value is node):
                     violations.append(
@@ -5744,30 +5761,33 @@ def _dynamic_code_exception_private_import_violations(
                             relative_path,
                             getattr(node, "lineno", 1),
                             f"{boundary} cannot alias, pass, return, or contain dynamic-code "
-                            f"exception or ancestor namespace '{qualified}'",
+                            f"exception or ancestor namespace '{exception_namespace}'",
                         )
                     )
-                continue
-            for module in exception_modules:
-                prefix = f"{module}."
-                exported_name = (
-                    qualified[len(prefix) :].split(".", 1)[0]
-                    if qualified.startswith(prefix)
-                    else ""
+            private_binding = next(
+                (
+                    qualified
+                    for qualified in qualified_candidates
+                    for module in sorted(exception_modules)
+                    if qualified.startswith(f"{module}.")
+                    and (
+                        (exported_name := qualified[len(module) + 1 :].split(".", 1)[0]).startswith(
+                            "_"
+                        )
+                        or exported_name in _DYNAMIC_CODE_EXCEPTION_NONEXPORTABLE_BINDINGS
+                    )
+                ),
+                None,
+            )
+            if private_binding is not None:
+                violations.append(
+                    Violation(
+                        relative_path,
+                        node.lineno,
+                        f"{boundary} cannot reach private dynamic-code exception "
+                        f"binding '{private_binding}'",
+                    )
                 )
-                if exported_name and (
-                    exported_name.startswith("_")
-                    or exported_name in _DYNAMIC_CODE_EXCEPTION_NONEXPORTABLE_BINDINGS
-                ):
-                    violations.append(
-                        Violation(
-                            relative_path,
-                            node.lineno,
-                            f"{boundary} cannot reach private dynamic-code exception "
-                            f"binding '{qualified}'",
-                        )
-                    )
-                    break
         elif isinstance(node, ast.Call) and len(node.args) >= 2:
             receiver: ast.AST | None = None
             reflected_name_node: ast.AST | None = None
@@ -5780,8 +5800,15 @@ def _dynamic_code_exception_private_import_violations(
                     receiver, reflected_name_node = node.func.value, node.args[0]
             if receiver is None or reflected_name_node is None:
                 continue
-            receiver_name = _qualified_symbol(receiver, bindings)
-            if receiver_name not in exception_modules:
+            receiver_name = next(
+                (
+                    qualified
+                    for qualified in sorted(provenance_symbols(receiver))
+                    if qualified in exception_modules
+                ),
+                None,
+            )
+            if receiver_name is None:
                 continue
             reflected_name = _constant_wave5_reflection_text(reflected_name_node)
             if (

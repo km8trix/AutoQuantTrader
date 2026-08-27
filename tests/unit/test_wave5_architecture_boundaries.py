@@ -16,6 +16,37 @@ from scripts.check_architecture import (
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 
+_SCOPE_POISONED_PACKAGE_EXCEPTION_ESCAPE = (
+    "from packages.application.durable_trusted_time_monitor import "
+    "DurableTrustedTimeMonitorError\n"
+    "from packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge "
+    "import TrustedTimeHeadAnchorCleanStopSupervisorBridgeError\n"
+    "import packages.domain.models\n"
+    "def poison_import_provenance() -> None:\n"
+    "    import math as packages\n"
+    "root_package = packages\n"
+    "loader = root_package.application.durable_trusted_time_monitor._port_method(\n"
+    "    root_package.application.trusted_time_head_anchor_clean_stop_supervisor_bridge."
+    "_BUILTINS, import_name\n"
+    ")\n"
+    "module = loader(module_name, fromlist=('sentinel',))\n"
+    "capability = root_package.application.durable_trusted_time_monitor._port_method(\n"
+    "    module, attribute_name\n"
+    ")"
+)
+
+_SCOPE_POISONED_SCRIPT_FFI_ESCAPE = (
+    "from scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication "
+    "import TrustedTimePostEnrollmentCleanStopTerminalReauthenticationRejected\n"
+    "import scripts.check_architecture\n"
+    "def poison_import_provenance() -> None:\n"
+    "    import cmath as scripts\n"
+    "root_scripts = scripts\n"
+    "ctypes_owner = "
+    "root_scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication\n"
+    "library = ctypes_owner.ctypes.pydll.LoadLibrary(None)"
+)
+
 
 def _dynamic_code_exceptions() -> dict[Path, str]:
     with (REPOSITORY / "infra/architecture-boundaries.toml").open("rb") as stream:
@@ -244,6 +275,8 @@ def _phase4an_violations(source: str, *, relative_path: Path) -> list[Violation]
         "ctypes_owner = "
         "root_scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication\n"
         "library = ctypes_owner.ctypes.pydll.LoadLibrary(None)",
+        _SCOPE_POISONED_PACKAGE_EXCEPTION_ESCAPE,
+        _SCOPE_POISONED_SCRIPT_FFI_ESCAPE,
         "owner._retain_progress(record)",
     ],
 )
@@ -455,6 +488,8 @@ def test_wave5_boundary_accepts_unique_protected_python_module_identities() -> N
         "ctypes_owner = "
         "root_scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication\n"
         "library = ctypes_owner.ctypes.pydll.LoadLibrary(None)",
+        _SCOPE_POISONED_PACKAGE_EXCEPTION_ESCAPE,
+        _SCOPE_POISONED_SCRIPT_FFI_ESCAPE,
     ],
 )
 def test_phase4an_boundary_rejects_unreviewed_runtime_reachability(source: str) -> None:
@@ -500,6 +535,11 @@ def test_phase4an_boundary_accepts_exact_modules_and_no_production_importers() -
         "DurableTrustedTimeMonitorError",
         "from packages.application import durable_trusted_time_monitor as owner\n"
         "error_type = owner.DurableTrustedTimeMonitorError",
+        "from packages.application.durable_trusted_time_monitor import "
+        "DurableTrustedTimeMonitorError as owner\n"
+        "def harmless_scope_collision() -> None:\n"
+        "    import math as owner\n"
+        "error_type = owner",
     ],
 )
 def test_phase4an_boundary_allows_public_exception_exports(source: str) -> None:
