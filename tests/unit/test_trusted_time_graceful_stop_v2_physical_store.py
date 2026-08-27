@@ -127,9 +127,9 @@ def test_exact_existing_final_is_revalidated_but_conflict_is_never_replaced(
             identity_after.st_ino,
         )
         assert receipt.existing_final_revalidated is True
-        assert receipt.file_fsync_completed is False
+        assert receipt.file_fsync_completed is True
         assert receipt.no_replace_rename_completed is False
-        assert receipt.directory_fsync_completed is False
+        assert receipt.directory_fsync_completed is True
         assert receipt.stable_readback_completed is True
 
         with pytest.raises(LifecycleV2ArtifactAlreadyExists):
@@ -509,9 +509,7 @@ def test_physical_store_finalizes_only_exact_preallocated_staging_bytes(
         )
 
         assert not (artifact_directory / _COMMIT_STAGING).exists()
-        assert (
-            artifact_directory / LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME
-        ).read_bytes() == encoded
+        assert (artifact_directory / LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).read_bytes() == encoded
         assert receipt.file_fsync_completed is True
         assert receipt.no_replace_rename_completed is True
         assert receipt.directory_fsync_completed is True
@@ -562,12 +560,67 @@ def test_physical_store_revalidates_matching_preallocated_final_without_cleanup(
         )
 
         assert receipt.existing_final_revalidated is True
+        assert receipt.file_fsync_completed is True
+        assert receipt.no_replace_rename_completed is False
+        assert receipt.directory_fsync_completed is True
         assert (artifact_directory / _COMMIT_STAGING).read_bytes() == encoded
-        assert (
-            artifact_directory / LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME
-        ).read_bytes() == encoded
+        assert (artifact_directory / LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).read_bytes() == encoded
     finally:
         store.close()
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    ["file_fsync", "directory_fsync", "post_fsync_readback"],
+)
+def test_existing_fixed_marker_durability_uncertainty_closes_the_physical_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    boundary: str,
+) -> None:
+    artifact_directory = _artifact_directory(tmp_path)
+    encoded = b'{"marker":"exact"}\n'
+    _write_owner_only(
+        artifact_directory / LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+        encoded,
+    )
+    store = _store(artifact_directory)
+    physical_any = cast(Any, physical)
+    real_fsync: Any = physical_any._fsync
+    real_read: Any = physical_any._read_snapshot
+    fsync_calls = 0
+    read_calls = 0
+
+    def fsync(*args: object) -> None:
+        nonlocal fsync_calls
+        fsync_calls += 1
+        if boundary == "file_fsync" and fsync_calls == 1:
+            raise OSError(errno.EIO, "injected existing-final file-fsync ambiguity")
+        if boundary == "directory_fsync" and fsync_calls == 2:
+            raise OSError(errno.EIO, "injected existing-final directory-fsync ambiguity")
+        real_fsync(*args)
+
+    def read(*args: object) -> Any:
+        nonlocal read_calls
+        read_calls += 1
+        result = real_read(*args)
+        if boundary == "post_fsync_readback" and read_calls == 3:
+            payload, before, after = result
+            return b"drift" + payload, before, after
+        return result
+
+    monkeypatch.setattr(physical, "_fsync", fsync)
+    monkeypatch.setattr(physical, "_read_snapshot", read)
+
+    with pytest.raises(LifecycleV2ArtifactPublicationUncertain):
+        store.finalize_preallocated_immutable(
+            staging_name=_COMMIT_STAGING,
+            final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+            encoded=encoded,
+        )
+
+    assert store.closed is True
+    assert (artifact_directory / LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).read_bytes() == encoded
 
 
 def test_physical_store_rejects_conflicting_preallocated_staging(
@@ -586,9 +639,7 @@ def test_physical_store_rejects_conflicting_preallocated_staging(
 
     assert store.closed is True
     assert (artifact_directory / _COMMIT_STAGING).read_bytes() == b"conflict"
-    assert not (
-        artifact_directory / LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME
-    ).exists()
+    assert not (artifact_directory / LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).exists()
 
 
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="native fork invalidation is POSIX-only")

@@ -221,15 +221,10 @@ class LifecycleV2ArtifactPublicationReceipt:
                 raise ValueError(f"{name} must be one exact boolean")
         if self.stable_readback_completed is not True:
             raise ValueError("publication receipt lacks stable readback")
-        if self.existing_final_revalidated:
-            if (
-                self.file_fsync_completed
-                or self.no_replace_rename_completed
-                or self.directory_fsync_completed
-            ):
-                raise ValueError("existing-final revalidation cannot claim new durability work")
-        elif not self.file_fsync_completed or not self.directory_fsync_completed:
-            raise ValueError("new publication receipt lacks required fsync completion")
+        if not self.file_fsync_completed or not self.directory_fsync_completed:
+            raise ValueError("publication receipt lacks required fsync completion")
+        if self.existing_final_revalidated and self.no_replace_rename_completed:
+            raise ValueError("existing-final revalidation cannot claim a new rename")
 
 
 class LifecycleV2ArtifactStore(Protocol):
@@ -678,7 +673,10 @@ class _LifecycleV2Repository:
             or value.final_device != self._store_identity.directory_device
             or value.final_mode != 0o600
             or value.final_size != len(encoded)
+            or value.file_fsync_completed is not True
+            or value.directory_fsync_completed is not True
             or value.stable_readback_completed is not True
+            or (value.existing_final_revalidated and value.no_replace_rename_completed)
             or (
                 require_no_replace_rename
                 and not value.existing_final_revalidated
@@ -734,13 +732,14 @@ class _LifecycleV2Repository:
             or live_receipt.final_inode != file_inode
             or live_receipt.final_mode != file_mode
             or live_receipt.final_size != file_size
+            or live_receipt.file_fsync_completed is not True
+            or live_receipt.directory_fsync_completed is not True
+            or (
+                live_receipt.existing_final_revalidated and live_receipt.no_replace_rename_completed
+            )
             or (
                 not live_receipt.existing_final_revalidated
-                and (
-                    live_receipt.file_fsync_completed is not True
-                    or live_receipt.no_replace_rename_completed is not True
-                    or live_receipt.directory_fsync_completed is not True
-                )
+                and live_receipt.no_replace_rename_completed is not True
             )
         ):
             raise LifecycleV2RetentionUnconfirmed(
@@ -945,11 +944,14 @@ class _LifecycleV2Repository:
             if outcome_names[0] != outcome.file_name:
                 raise LifecycleV2RetentionUnconfirmed("outcome name or digest disagrees")
             self._outcome = outcome
+        loaded_commit: LifecycleV2OutcomeCommit | None = None
+        commit_readback: LifecycleV2ArtifactReadback | None = None
         if LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME in names:
             if self._outcome is None:
                 raise LifecycleV2RetentionUnconfirmed("commit has no outcome candidate")
-            self._commit = decode_lifecycle_v2_outcome_commit(
-                self._read_artifact(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).encoded,
+            commit_readback = self._read_artifact(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME)
+            loaded_commit = decode_lifecycle_v2_outcome_commit(
+                commit_readback.encoded,
                 outcome=self._outcome,
             )
         if _COMMIT_STAGING_NAME in names:
@@ -961,10 +963,42 @@ class _LifecycleV2Repository:
                 self._read_artifact(_COMMIT_STAGING_NAME).encoded,
                 outcome=self._outcome,
             )
-            if self._commit is not None and self._commit_staging != self._commit:
+            if loaded_commit is not None and self._commit_staging != loaded_commit:
                 raise LifecycleV2RetentionUnconfirmed(
                     "fixed-marker staging conflicts with the committed marker"
                 )
+        if loaded_commit is not None:
+            if commit_readback is None:
+                raise LifecycleV2RetentionUnconfirmed("fixed-marker readback is unavailable")
+            publication = self._publication_receipt(
+                self._store.finalize_preallocated_immutable(
+                    staging_name=_COMMIT_STAGING_NAME,
+                    final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+                    encoded=loaded_commit.encoded,
+                ),
+                final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+                encoded=loaded_commit.encoded,
+            )
+            if (
+                publication.existing_final_revalidated is not True
+                or publication.no_replace_rename_completed
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "retained fixed marker was not durably revalidated"
+                )
+            revalidated = self._read_artifact(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME)
+            if (
+                revalidated != commit_readback
+                or revalidated.encoded != loaded_commit.encoded
+                or revalidated.file_device != publication.final_device
+                or revalidated.file_inode != publication.final_inode
+                or revalidated.file_mode != publication.final_mode
+                or revalidated.file_size != publication.final_size
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "durably revalidated fixed marker changed during repository load"
+                )
+            self._commit = loaded_commit
 
     def _validate_transcripts(self, names: tuple[str, ...]) -> None:
         transcript_names = tuple(

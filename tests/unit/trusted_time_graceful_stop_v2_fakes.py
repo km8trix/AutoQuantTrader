@@ -236,13 +236,16 @@ class FakeLifecycleV2ArtifactStore:
             raise LifecycleV2ArtifactAlreadyExists(staging_name)
         if final_name in self._artifacts:
             if self._artifacts[final_name] == encoded:
+                self._maybe_fault(operation, "file_fsynced")
+                self._maybe_fault(operation, "directory_fsynced")
+                self._maybe_fault(operation, "readback")
                 self.events.append(f"{operation}:revalidated")
                 return self._receipt(
                     final_name,
                     encoded,
-                    file_fsync_completed=False,
+                    file_fsync_completed=True,
                     no_replace_rename_completed=False,
-                    directory_fsync_completed=False,
+                    directory_fsync_completed=True,
                     existing_final_revalidated=True,
                 )
             raise LifecycleV2ArtifactAlreadyExists(final_name)
@@ -279,16 +282,17 @@ class FakeLifecycleV2ArtifactStore:
         staging = self._artifacts.get(staging_name)
         if final is not None:
             if final != encoded or (staging is not None and staging != encoded):
-                raise LifecycleV2ArtifactPublicationUncertain(
-                    "fake preallocated marker conflict"
-                )
+                raise LifecycleV2ArtifactPublicationUncertain("fake preallocated marker conflict")
+            self._maybe_fault(operation, "file_fsynced")
+            self._maybe_fault(operation, "directory_fsynced")
+            self._maybe_fault(operation, "readback")
             self.events.append(f"{operation}:revalidated")
             return self._receipt(
                 final_name,
                 encoded,
-                file_fsync_completed=False,
+                file_fsync_completed=True,
                 no_replace_rename_completed=False,
-                directory_fsync_completed=False,
+                directory_fsync_completed=True,
                 existing_final_revalidated=True,
             )
         if staging != encoded:

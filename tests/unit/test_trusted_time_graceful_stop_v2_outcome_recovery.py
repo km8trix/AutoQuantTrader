@@ -127,18 +127,14 @@ def _terminal_envelope(
             "environment": root.environment,
             "direction": "supervisor_to_host",
             "frame_type": "clean_stop_result",
-            "payload_contract_version": (
-                "phase6d-trusted-time-head-anchor-clean-stop-result-v2"
-            ),
+            "payload_contract_version": ("phase6d-trusted-time-head-anchor-clean-stop-result-v2"),
             "key_generation": root.transport_key_generation,
             "signing_key_id": root.supervisor_transport_key_id,
             "boot_epoch_sha256": root.boot_epoch_sha256,
             "host_process_epoch_sha256": root.host_process_epoch_sha256,
             "supervisor_process_epoch_sha256": root.supervisor_process_epoch_sha256,
             "channel_id": root.channel_id,
-            "lifecycle_dispatch_prefix_sha256": lifecycle_v2_dispatch_prefix_sha256(
-                root, intent
-            ),
+            "lifecycle_dispatch_prefix_sha256": lifecycle_v2_dispatch_prefix_sha256(root, intent),
             "message_counter": 1,
             "deadline_boottime_ns": root.clean_stop_result_deadline_boottime_ns,
             "payload_sha256": hashlib.sha256(payload).hexdigest(),
@@ -185,9 +181,7 @@ def _terminal_record(
         "key_generation": root.transport_key_generation,
         "signing_key_id": root.supervisor_transport_key_id,
         "channel_id": root.channel_id,
-        "lifecycle_dispatch_prefix_sha256": lifecycle_v2_dispatch_prefix_sha256(
-            root, intent
-        ),
+        "lifecycle_dispatch_prefix_sha256": lifecycle_v2_dispatch_prefix_sha256(root, intent),
         "message_counter": 1,
         "deadline_boottime_ns": root.clean_stop_result_deadline_boottime_ns,
         "directory_fsync_completed": True,
@@ -210,16 +204,12 @@ def _terminal_record(
                 "clean_stop_result_artifact_path": f"{ARTIFACT_DIRECTORY}/{file_name}",
                 "clean_stop_result_artifact_name": file_name,
                 "clean_stop_result_sha256": envelope.sha256,
-                "envelope_contract_version": (
-                    LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION
-                ),
+                "envelope_contract_version": (LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION),
                 "frame_type": "clean_stop_result",
                 "payload_contract_version": (
                     "phase6d-trusted-time-head-anchor-clean-stop-result-v2"
                 ),
-                "clean_stop_result_payload_sha256": hashlib.sha256(
-                    envelope.payload
-                ).hexdigest(),
+                "clean_stop_result_payload_sha256": hashlib.sha256(envelope.payload).hexdigest(),
                 "clean_stop_result_signature_sha256": envelope.signature_sha256,
                 "terminal_projection_sha256": _digest("terminal-projection"),
                 "key_generation": root.transport_key_generation,
@@ -346,9 +336,7 @@ def _stage_evidence(
         return {
             **_intent_evidence(root, ordinal),
             "docker_request_semantic_sha256": _digest(f"docker-{ordinal}"),
-            "docker_post_inspect_request_semantic_sha256": _digest(
-                f"inspect-{ordinal}"
-            ),
+            "docker_post_inspect_request_semantic_sha256": _digest(f"inspect-{ordinal}"),
         }
     if stage in {
         LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_RESULT_RETAINED,
@@ -360,9 +348,7 @@ def _stage_evidence(
         return {
             **_result_evidence(root, ordinal),
             "docker_request_semantic_sha256": _digest(f"docker-{ordinal - 1}"),
-            "docker_post_inspect_request_semantic_sha256": _digest(
-                f"inspect-{ordinal - 1}"
-            ),
+            "docker_post_inspect_request_semantic_sha256": _digest(f"inspect-{ordinal - 1}"),
             "result_semantic": {"outcome": "confirmed"},
             "docker_method_trace_entry_sha256_list": [
                 _digest(f"trace-{ordinal}-1"),
@@ -383,9 +369,7 @@ def _stage_evidence(
             "command_socket_volume_identity_sha256": (
                 root.chrony_command_socket_volume_identity_sha256
             ),
-            "state_volume_identity_sha256": (
-                root.chrony_state_volume_identity_sha256
-            ),
+            "state_volume_identity_sha256": (root.chrony_state_volume_identity_sha256),
             "docker_api_trace_sha256": _digest("docker-trace"),
             "volume_delete_call_count": 0,
             "docker_request_semantic_sha256_list": [
@@ -516,9 +500,7 @@ def _recovery_envelope(
             "last_ordinal": transcript.entries[-1].ordinal,
             "last_stage": transcript.entries[-1].stage.value,
             "reason_code": reason,
-            "transport_authority_manifest_sha256": (
-                root.transport_authority_manifest_sha256
-            ),
+            "transport_authority_manifest_sha256": (root.transport_authority_manifest_sha256),
             "key_generation": root.transport_key_generation,
             "recovery_key_id": "recovery-key-1",
             "operator_nonce_base64": base64.b64encode(nonce).decode("ascii"),
@@ -609,10 +591,7 @@ class _Disposer:
         )
 
     def require_exact_disposed_and_empty(self, result: object) -> _Disposition:
-        if (
-            type(result) is not _Disposition
-            or result.capability is not _DISPOSITION_CAPABILITY
-        ):
+        if type(result) is not _Disposition or result.capability is not _DISPOSITION_CAPABILITY:
             raise ValueError("disposition is not sealed")
         return result
 
@@ -721,12 +700,41 @@ def test_exact_recovery_marker_staging_is_restart_finalizable(phase: str) -> Non
     if phase in {"renamed", "directory_fsynced", "readback"}:
         assert reopened.status is persistence.LifecycleV2RepositoryStatus.OUTCOME_COMMITTED
     else:
-        assert (
-            reopened.status
-            is persistence.LifecycleV2RepositoryStatus.OUTCOME_COMMIT_UNCONFIRMED
-        )
+        assert reopened.status is persistence.LifecycleV2RepositoryStatus.OUTCOME_COMMIT_UNCONFIRMED
+    if phase == "renamed":
+        assert [event for event in store.events if event.startswith("commit_finalize:")] == [
+            "commit_finalize:before",
+            "commit_finalize:file_fsynced",
+            "commit_finalize:directory_fsynced",
+            "commit_finalize:readback",
+            "commit_finalize:revalidated",
+        ]
     commit = reopened.finalize_retained_outcome_commit()
     assert commit.to_dict()["outcome_status"] == "recovery_required"
+
+
+@pytest.mark.parametrize("phase", ["file_fsynced", "directory_fsynced", "readback"])
+def test_restart_fixed_marker_durability_uncertainty_burns_closed(phase: str) -> None:
+    original_store = FakeLifecycleV2ArtifactStore()
+    repository, root = _recovery_prefix(original_store)
+    repository.commit_recovery_outcome(
+        clock=_Clock([root.operation_deadline_boottime_ns + 10]),
+        created_at_utc=UTC_TEXT,
+    )
+    initial = {
+        name: original_store.read_stable(name).encoded for name in original_store.inventory().names
+    }
+    original_store.close()
+    reopening_store = FakeLifecycleV2ArtifactStore(
+        initial=initial,
+        fault=FakePublicationFault(operation="commit_finalize", phase=phase),
+    )
+
+    with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
+        _repository(reopening_store)
+
+    assert reopening_store.close_count == 1
+    assert LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME in reopening_store.inventory().names
 
 
 def test_confirmed_success_orders_readback_disposal_final_sample_then_marker() -> None:
@@ -802,9 +810,7 @@ def test_confirmed_success_final_clock_failure_seals_candidate_as_unconfirmed(
         match="final CLOCK_BOOTTIME",
     ):
         repository.commit_confirmed_success(
-            clock=_Clock(
-                [root.admission_started_boottime_ns + 100, final_sample]
-            ),
+            clock=_Clock([root.admission_started_boottime_ns + 100, final_sample]),
             precommit_disposer=_Disposer(),
             created_at_utc=UTC_TEXT,
         )

@@ -51,9 +51,7 @@ _MAXIMUM_INVENTORY_NAME_BYTES = 32 * 1_024
 _ROOT_MAXIMUM_BYTES = 64 * 1_024
 _RECORD_MAXIMUM_BYTES = 256 * 1_024
 _WIRE_MAXIMUM_BYTES = 262_144
-_FIXED_MARKER_STAGING_NAME = (
-    ".post-enrollment-graceful-stop-v2-outcome-commit-staging"
-)
+_FIXED_MARKER_STAGING_NAME = ".post-enrollment-graceful-stop-v2-outcome-commit-staging"
 _Stat9 = tuple[int, int, int, int, int, int, int, int, int]
 
 
@@ -399,6 +397,100 @@ class _LifecycleV2PhysicalArtifactStore:
                 ) from None
             return None
 
+    def _durably_revalidate_existing(
+        self,
+        *,
+        final_name: str,
+        encoded: bytes,
+        initial_readback: LifecycleV2ArtifactReadback,
+    ) -> LifecycleV2ArtifactReadback:
+        """Fsync and revalidate one byte-identical final without replacing it."""
+
+        if initial_readback.encoded != encoded:
+            raise LifecycleV2ArtifactPublicationUncertain(
+                "existing final bytes disagree before durability revalidation"
+            )
+        directory_before = self._directory_identity()
+        owner = _open_child_regular(self._directory_owner, final_name)
+        try:
+            held = self._validate_file_identity(
+                _fstat(owner),
+                expected_size=len(encoded),
+            )
+            if (
+                held[0] != initial_readback.file_device
+                or held[1] != initial_readback.file_inode
+                or stat.S_IMODE(held[2]) != initial_readback.file_mode
+                or held[6] != initial_readback.file_size
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "existing final identity changed before durability revalidation"
+                )
+            payload, read_before, read_after = _read_snapshot(owner, len(encoded))
+            named = self._validate_file_identity(
+                _statat(self._directory_owner, final_name),
+                expected_size=len(encoded),
+            )
+            if (
+                payload != encoded
+                or self._validate_file_identity(
+                    read_before,
+                    expected_size=len(encoded),
+                )
+                != held
+                or self._validate_file_identity(
+                    read_after,
+                    expected_size=len(encoded),
+                )
+                != held
+                or named != held
+                or self._directory_identity() != directory_before
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "existing final bytes or identity changed before durability fsync"
+                )
+
+            _fsync(owner)
+            _fsync(self._directory_owner)
+
+            payload, read_before, read_after = _read_snapshot(owner, len(encoded))
+            held_after = self._validate_file_identity(
+                _fstat(owner),
+                expected_size=len(encoded),
+            )
+            named_after = self._validate_file_identity(
+                _statat(self._directory_owner, final_name),
+                expected_size=len(encoded),
+            )
+            if (
+                payload != encoded
+                or self._validate_file_identity(
+                    read_before,
+                    expected_size=len(encoded),
+                )
+                != held
+                or self._validate_file_identity(
+                    read_after,
+                    expected_size=len(encoded),
+                )
+                != held
+                or held_after != held
+                or named_after != held
+                or self._directory_identity() != directory_before
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "existing final bytes or identity changed after durability fsync"
+                )
+        finally:
+            owner.close()
+
+        reopened = self._read_existing(final_name)
+        if reopened != initial_readback or reopened.encoded != encoded:
+            raise LifecycleV2ArtifactPublicationUncertain(
+                "existing final changed during durable reopened readback"
+            )
+        return reopened
+
     def read_stable(self, file_name: str) -> LifecycleV2ArtifactReadback:
         self._require_owner()
         exact_name = _exact_component(file_name)
@@ -542,17 +634,21 @@ class _LifecycleV2PhysicalArtifactStore:
                         raise LifecycleV2ArtifactPublicationUncertain(
                             "staging appeared during existing-final revalidation"
                         )
-                    revalidated = self._read_existing(exact_final)
-                    if revalidated != existing:
+                    revalidated = self._durably_revalidate_existing(
+                        final_name=exact_final,
+                        encoded=encoded,
+                        initial_readback=existing,
+                    )
+                    if self._read_existing_or_absent(exact_staging) is not None:
                         raise LifecycleV2ArtifactPublicationUncertain(
-                            "existing final changed during byte-identical revalidation"
+                            "staging appeared during durable existing-final revalidation"
                         )
                     return self._publication_receipt(
                         final_name=exact_final,
                         readback=revalidated,
-                        file_fsync_completed=False,
+                        file_fsync_completed=True,
                         no_replace_rename_completed=False,
-                        directory_fsync_completed=False,
+                        directory_fsync_completed=True,
                         existing_final_revalidated=True,
                     )
                 raise LifecycleV2ArtifactAlreadyExists(exact_final)
@@ -641,16 +737,10 @@ class _LifecycleV2PhysicalArtifactStore:
             existing_staging = self._read_existing_or_absent(exact_staging)
             if existing_final is not None:
                 if existing_final.encoded != encoded or (
-                    existing_staging is not None
-                    and existing_staging.encoded != encoded
+                    existing_staging is not None and existing_staging.encoded != encoded
                 ):
                     raise LifecycleV2ArtifactPublicationUncertain(
                         "preallocated staging/final bytes conflict"
-                    )
-                revalidated = self._read_existing(exact_final)
-                if revalidated != existing_final:
-                    raise LifecycleV2ArtifactPublicationUncertain(
-                        "preallocated final changed during revalidation"
                     )
                 if (
                     existing_staging is not None
@@ -659,12 +749,24 @@ class _LifecycleV2PhysicalArtifactStore:
                     raise LifecycleV2ArtifactPublicationUncertain(
                         "preallocated staging changed during revalidation"
                     )
+                revalidated = self._durably_revalidate_existing(
+                    final_name=exact_final,
+                    encoded=encoded,
+                    initial_readback=existing_final,
+                )
+                if (
+                    existing_staging is not None
+                    and self._read_existing(exact_staging) != existing_staging
+                ):
+                    raise LifecycleV2ArtifactPublicationUncertain(
+                        "preallocated staging changed during durable revalidation"
+                    )
                 return self._publication_receipt(
                     final_name=exact_final,
                     readback=revalidated,
-                    file_fsync_completed=False,
+                    file_fsync_completed=True,
                     no_replace_rename_completed=False,
-                    directory_fsync_completed=False,
+                    directory_fsync_completed=True,
                     existing_final_revalidated=True,
                 )
             if existing_staging is None or existing_staging.encoded != encoded:
@@ -676,10 +778,7 @@ class _LifecycleV2PhysicalArtifactStore:
                 _fstat(owner),
                 expected_size=len(encoded),
             )
-            if (
-                held[0] != existing_staging.file_device
-                or held[1] != existing_staging.file_inode
-            ):
+            if held[0] != existing_staging.file_device or held[1] != existing_staging.file_inode:
                 raise LifecycleV2ArtifactPublicationUncertain(
                     "preallocated staging identity changed"
                 )
@@ -691,10 +790,8 @@ class _LifecycleV2PhysicalArtifactStore:
             )
             if (
                 payload != encoded
-                or self._validate_file_identity(before, expected_size=len(encoded))
-                != held
-                or self._validate_file_identity(after, expected_size=len(encoded))
-                != held
+                or self._validate_file_identity(before, expected_size=len(encoded)) != held
+                or self._validate_file_identity(after, expected_size=len(encoded)) != held
                 or named != held
             ):
                 raise LifecycleV2ArtifactPublicationUncertain(
@@ -723,10 +820,8 @@ class _LifecycleV2PhysicalArtifactStore:
             )
             if (
                 payload != encoded
-                or self._validate_file_identity(before, expected_size=len(encoded))
-                != held
-                or self._validate_file_identity(after, expected_size=len(encoded))
-                != held
+                or self._validate_file_identity(before, expected_size=len(encoded)) != held
+                or self._validate_file_identity(after, expected_size=len(encoded)) != held
                 or named != held
             ):
                 raise LifecycleV2ArtifactPublicationUncertain(
