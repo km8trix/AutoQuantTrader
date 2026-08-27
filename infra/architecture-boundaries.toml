@@ -42,6 +42,78 @@ exact_private_attribute_callsites."packages.domain.fixture_segment_economics.Fix
   "packages/application/fixture_segment_economics.py:execute_fixture_segment_economics",
 ]
 exact_private_attribute_owner_function_ast_sha256."packages/application/fixture_segment_economics.py:execute_fixture_segment_economics" = "2949180a4df9d000fd97f4bfb254e5810ab90df7e88c033f35d413815d3457a7"
+trusted_time_v2_isolated_module_paths."packages.domain.trusted_time_graceful_stop_v2" = "packages/domain/trusted_time_graceful_stop_v2.py"
+trusted_time_v2_isolated_module_paths."packages.persistence.trusted_time_graceful_stop_v2" = "packages/persistence/trusted_time_graceful_stop_v2.py"
+trusted_time_v2_isolated_module_paths."packages.application.trusted_time_graceful_stop_v2_admission" = "packages/application/trusted_time_graceful_stop_v2_admission.py"
+trusted_time_v2_isolated_module_paths."scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts" = "scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py"
+trusted_time_v2_module_ast_sha256."packages/domain/trusted_time_graceful_stop_v2.py" = "9e53f33c3655803171ae965ef27393234da1989ba93ef5e25bcfbf33b2980344"
+trusted_time_v2_module_ast_sha256."packages/persistence/trusted_time_graceful_stop_v2.py" = "8ae95ad12303fb60958392aa9cf58c5d4f609473544af51334e51a685a9bac4b"
+trusted_time_v2_module_ast_sha256."packages/application/trusted_time_graceful_stop_v2_admission.py" = "50f2b6207fbb0b449e1d3cbcdc40258f74d2fc35ced0cb0a3a9918213019b4b1"
+trusted_time_v2_module_ast_sha256."scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py" = "5625b64548122370b3822cc796cc88cbcfb192dcc92fa6ae99496222c66c17ee"
+trusted_time_v2_allowed_imports."packages/persistence/trusted_time_graceful_stop_v2.py" = [
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_ROOT_FILE_NAME",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_ROOT_CONTRACT_VERSION",
+  "packages.domain.trusted_time_graceful_stop_v2:NORMAL_STAGE_BY_ORDINAL",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2CleanStopRequestBasis",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Outcome",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2OutcomeCommit",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2ProgressRecord",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Root",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Stage",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Transcript",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2TranscriptEntry",
+  "packages.domain.trusted_time_graceful_stop_v2:TrustedTimeGracefulStopV2Rejected",
+  "packages.domain.trusted_time_graceful_stop_v2:UnverifiedLifecycleV2TransportEnvelope",
+  "packages.domain.trusted_time_graceful_stop_v2:_FakeAuthenticatedLifecycleV2TransportEnvelope",
+  "packages.domain.trusted_time_graceful_stop_v2:_require_fake_authenticated_lifecycle_v2_transport_envelope",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_clean_stop_request_basis",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_outcome",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_outcome_commit",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_progress_record",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_root",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_transcript",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_unverified_lifecycle_v2_transport_envelope",
+  "packages.domain.trusted_time_graceful_stop_v2:lifecycle_v2_progress_file_name",
+  "packages.domain.trusted_time_graceful_stop_v2:lifecycle_v2_wire_file_name",
+]
+trusted_time_v2_allowed_imports."packages/application/trusted_time_graceful_stop_v2_admission.py" = [
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:_ConsumedLoadedDecisionArtifactReceiptV2Snapshot",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:_LIFECYCLE_V2_BRIDGE_CAPABILITY",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:_consume_loaded_decision_receipt_for_v2",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:_reject_loaded_decision_receipt_for_v2_admission_identity",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:_require_consumed_loaded_decision_artifact_receipt_v2_snapshot",
+]
+trusted_time_v2_allowed_imports."scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py" = [
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:ARTIFACT_RECEIPT_CONTRACT_VERSION",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:ARTIFACT_WORKFLOW_SERVICE",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:DECISION_CANDIDATE_PREPARED_STATUS",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:POST_ENROLLMENT_GRACEFUL_STOP_DECISION_ARTIFACT_RECEIPT_FIELDS",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:_ConsumedLoadedDecisionArtifactReceiptSnapshot",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:_authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge",
+  "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:_require_consumed_loaded_decision_artifact_receipt_snapshot",
+]
+trusted_time_v2_reserved_symbols = [
+  "_ADMISSION_IDENTITY_CAPABILITY",
+  "_ConsumedLoadedDecisionArtifactReceiptV2Snapshot",
+  "_CONSUMED_LOADED_RECEIPT_V2_SNAPSHOT_CAPABILITY",
+  "_consume_historical_receipt_for_injected_lifecycle_v2_admission",
+  "_consume_loaded_decision_receipt_for_v2",
+  "_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY",
+  "_FakeAuthenticatedLifecycleV2TransportEnvelope",
+  "_LifecycleV2AdmissionIdentity",
+  "_LIFECYCLE_V2_BRIDGE_CAPABILITY",
+  "_open_injected_lifecycle_v2_repository",
+  "_reject_loaded_decision_receipt_for_v2_admission_identity",
+  "_require_consumed_loaded_decision_artifact_receipt_v2_snapshot",
+  "_require_fake_authenticated_lifecycle_v2_transport_envelope",
+  "_retain_progress",
+  "_authenticate_lifecycle_v2_transport_envelope_for_fake",
+  "_build_injected_lifecycle_v2_admission_identity",
+]
 project_build_bootstrap_manifest_paths = [
   ".python-version",
   "pyproject.toml",
@@ -599,6 +671,9 @@ side_effect_free_roots = [
   # Phase 3H's exact-decimal fixture economics are pure; the fixed child
   # supervisor remains outside this list and is guarded as a bounded effect.
   "packages/domain/fixture_segment_economics.py",
+  # ADR 0124's lifecycle-v2 values/codecs remain pure; the injected repository,
+  # admission handoff, fakes, and every real effect stay outside this root.
+  "packages/domain/trusted_time_graceful_stop_v2.py",
   "packages/adapters/broker/__init__.py",
   "packages/adapters/broker/alpaca_paper.py",
   "packages/adapters/broker/alpaca_paper_account_activities.py",

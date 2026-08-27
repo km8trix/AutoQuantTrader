@@ -5695,6 +5695,129 @@ def _phase3h_proof_boundary_violations(
     return violations
 
 
+def _isolated_wave5_module_boundary_violations(
+    tree: ast.AST,
+    *,
+    boundary: str,
+    policy_enabled: bool,
+    relative_path: Path,
+    module_paths: dict[str, Path],
+    allowed_imports: dict[Path, frozenset[str]],
+    module_ast_sha256: dict[Path, str],
+    reserved_symbols: frozenset[str],
+) -> list[Violation]:
+    """Seal exact Wave 5 modules and their reviewed production import graph."""
+
+    if not policy_enabled:
+        return []
+    checker_path = Path("scripts/check_architecture.py")
+    protected_paths = frozenset(module_paths.values())
+    observed_imports = frozenset(
+        binding
+        for module in module_paths
+        for _line, binding in _isolated_origin_module_import_bindings(
+            tree,
+            relative_path=relative_path,
+            module=module,
+        )
+    )
+    expected_imports = allowed_imports.get(relative_path, frozenset())
+    violations = [
+        Violation(
+            relative_path,
+            line,
+            f"{boundary} cannot import unreviewed binding '{binding}'",
+        )
+        for module in module_paths
+        for line, binding in _isolated_origin_module_import_bindings(
+            tree,
+            relative_path=relative_path,
+            module=module,
+        )
+        if binding not in expected_imports
+    ]
+    violations.extend(
+        Violation(
+            relative_path,
+            1,
+            f"{boundary} must preserve reviewed binding '{binding}'",
+        )
+        for binding in sorted(expected_imports - observed_imports)
+    )
+
+    expected_digest = module_ast_sha256.get(relative_path)
+    if relative_path in protected_paths and (
+        expected_digest is None or _canonical_ast_sha256(tree) != expected_digest
+    ):
+        violations.append(
+            Violation(
+                relative_path,
+                1,
+                f"{boundary} must preserve its exact reviewed module AST",
+            )
+        )
+    if relative_path in protected_paths or relative_path == checker_path:
+        return violations
+
+    reserved_text = reserved_symbols | frozenset(module_paths)
+    reserved_fragments = reserved_text | frozenset(path.as_posix() for path in protected_paths)
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    for node in ast.walk(tree):
+        symbol: str | None = None
+        if isinstance(node, ast.Name):
+            symbol = node.id
+        elif isinstance(node, ast.Attribute):
+            symbol = node.attr
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            symbol = node.name
+        elif isinstance(node, ast.arg):
+            symbol = node.arg
+        elif isinstance(node, ast.alias):
+            local = node.asname or node.name.rpartition(".")[2]
+            if local in reserved_symbols:
+                symbol = local
+        elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
+            symbol = node.name
+        elif isinstance(node, ast.MatchMapping):
+            symbol = node.rest
+        if symbol in reserved_symbols:
+            violations.append(
+                Violation(
+                    relative_path,
+                    getattr(node, "lineno", 1),
+                    f"{boundary} reserves private symbol '{symbol}'",
+                )
+            )
+        if isinstance(node, ast.Constant) and isinstance(node.value, str | bytes):
+            value = node.value.encode("utf-8") if isinstance(node.value, str) else node.value
+            reflected_fragment = next(
+                (fragment for fragment in reserved_fragments if fragment.encode("utf-8") in value),
+                None,
+            )
+            if reflected_fragment is not None:
+                violations.append(
+                    Violation(
+                        relative_path,
+                        getattr(node, "lineno", 1),
+                        f"{boundary} reserves embedded private name '{reflected_fragment}'",
+                    )
+                )
+        folded = _constant_folded_text(node)
+        if folded not in reserved_text:
+            continue
+        parent = parents.get(node)
+        if isinstance(parent, ast.AST) and _constant_folded_text(parent) == folded:
+            continue
+        violations.append(
+            Violation(
+                relative_path,
+                getattr(node, "lineno", 1),
+                f"{boundary} reserves reflected private name '{folded}'",
+            )
+        )
+    return violations
+
+
 def _exact_self_owned_attribute_violations(
     tree: ast.AST,
     *,
@@ -8100,6 +8223,53 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
         }
     )
     phase3h_policy_keys_present = phase3h_policy_keys & scan.keys()
+    raw_trusted_time_v2_isolated_module_paths = scan.get(
+        "trusted_time_v2_isolated_module_paths", {}
+    )
+    if not isinstance(raw_trusted_time_v2_isolated_module_paths, dict) or any(
+        type(module) is not str or type(path) is not str
+        for module, path in raw_trusted_time_v2_isolated_module_paths.items()
+    ):
+        raise SystemExit("trusted_time_v2_isolated_module_paths must be a string table")
+    trusted_time_v2_isolated_module_paths = {
+        module: Path(path) for module, path in raw_trusted_time_v2_isolated_module_paths.items()
+    }
+    raw_trusted_time_v2_module_ast_sha256 = scan.get("trusted_time_v2_module_ast_sha256", {})
+    if not isinstance(raw_trusted_time_v2_module_ast_sha256, dict) or any(
+        type(path) is not str or type(digest) is not str
+        for path, digest in raw_trusted_time_v2_module_ast_sha256.items()
+    ):
+        raise SystemExit("trusted_time_v2_module_ast_sha256 must be a string table")
+    trusted_time_v2_module_ast_sha256 = {
+        Path(path): digest for path, digest in raw_trusted_time_v2_module_ast_sha256.items()
+    }
+    raw_trusted_time_v2_allowed_imports = scan.get("trusted_time_v2_allowed_imports", {})
+    if not isinstance(raw_trusted_time_v2_allowed_imports, dict) or any(
+        type(path) is not str
+        or not isinstance(bindings, list)
+        or any(type(binding) is not str for binding in bindings)
+        for path, bindings in raw_trusted_time_v2_allowed_imports.items()
+    ):
+        raise SystemExit("trusted_time_v2_allowed_imports must be a string-list table")
+    trusted_time_v2_allowed_imports = {
+        Path(path): frozenset(bindings)
+        for path, bindings in raw_trusted_time_v2_allowed_imports.items()
+    }
+    raw_trusted_time_v2_reserved_symbols = scan.get("trusted_time_v2_reserved_symbols", [])
+    if not isinstance(raw_trusted_time_v2_reserved_symbols, list) or any(
+        type(symbol) is not str for symbol in raw_trusted_time_v2_reserved_symbols
+    ):
+        raise SystemExit("trusted_time_v2_reserved_symbols must be a string list")
+    trusted_time_v2_reserved_symbols = frozenset(raw_trusted_time_v2_reserved_symbols)
+    trusted_time_v2_policy_keys = frozenset(
+        {
+            "trusted_time_v2_isolated_module_paths",
+            "trusted_time_v2_module_ast_sha256",
+            "trusted_time_v2_allowed_imports",
+            "trusted_time_v2_reserved_symbols",
+        }
+    )
+    trusted_time_v2_policy_keys_present = trusted_time_v2_policy_keys & scan.keys()
     raw_exact_private_attribute_callsites = scan.get("exact_private_attribute_callsites", {})
     if not isinstance(raw_exact_private_attribute_callsites, dict) or any(
         type(binding) is not str
@@ -8630,6 +8800,17 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 config_path,
                 1,
                 "Phase 3H isolated proof policy must be entirely present or absent",
+            )
+        )
+    if (
+        trusted_time_v2_policy_keys_present
+        and trusted_time_v2_policy_keys_present != trusted_time_v2_policy_keys
+    ):
+        violations.append(
+            Violation(
+                config_path,
+                1,
+                "trusted-time lifecycle-v2 milestone policy must be entirely present or absent",
             )
         )
     native_owned_file_descriptor_captured_call_counts: dict[
@@ -9391,6 +9572,130 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 "Phase 3H isolated proof-module policy must be exact",
             )
         )
+    expected_trusted_time_v2_isolated_module_paths = {
+        "packages.domain.trusted_time_graceful_stop_v2": Path(
+            "packages/domain/trusted_time_graceful_stop_v2.py"
+        ),
+        "packages.persistence.trusted_time_graceful_stop_v2": Path(
+            "packages/persistence/trusted_time_graceful_stop_v2.py"
+        ),
+        "packages.application.trusted_time_graceful_stop_v2_admission": Path(
+            "packages/application/trusted_time_graceful_stop_v2_admission.py"
+        ),
+        "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts": Path(
+            "scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py"
+        ),
+    }
+    expected_trusted_time_v2_module_ast_sha256 = {
+        Path("packages/domain/trusted_time_graceful_stop_v2.py"): (
+            "9e53f33c3655803171ae965ef27393234da1989ba93ef5e25bcfbf33b2980344"
+        ),
+        Path("packages/persistence/trusted_time_graceful_stop_v2.py"): (
+            "8ae95ad12303fb60958392aa9cf58c5d4f609473544af51334e51a685a9bac4b"
+        ),
+        Path("packages/application/trusted_time_graceful_stop_v2_admission.py"): (
+            "50f2b6207fbb0b449e1d3cbcdc40258f74d2fc35ced0cb0a3a9918213019b4b1"
+        ),
+        Path("scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py"): (
+            "5625b64548122370b3822cc796cc88cbcfb192dcc92fa6ae99496222c66c17ee"
+        ),
+    }
+    trusted_time_v2_domain_module = "packages.domain.trusted_time_graceful_stop_v2"
+    trusted_time_v2_bridge_module = (
+        "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts"
+    )
+    expected_trusted_time_v2_allowed_imports = {
+        Path("packages/persistence/trusted_time_graceful_stop_v2.py"): frozenset(
+            f"{trusted_time_v2_domain_module}:{symbol}"
+            for symbol in {
+                "LIFECYCLE_ROOT_FILE_NAME",
+                "LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME",
+                "LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION",
+                "LIFECYCLE_V2_ROOT_CONTRACT_VERSION",
+                "NORMAL_STAGE_BY_ORDINAL",
+                "LifecycleV2CleanStopRequestBasis",
+                "LifecycleV2Outcome",
+                "LifecycleV2OutcomeCommit",
+                "LifecycleV2ProgressRecord",
+                "LifecycleV2Root",
+                "LifecycleV2Stage",
+                "LifecycleV2Transcript",
+                "LifecycleV2TranscriptEntry",
+                "TrustedTimeGracefulStopV2Rejected",
+                "UnverifiedLifecycleV2TransportEnvelope",
+                "_FakeAuthenticatedLifecycleV2TransportEnvelope",
+                "_require_fake_authenticated_lifecycle_v2_transport_envelope",
+                "decode_lifecycle_v2_clean_stop_request_basis",
+                "decode_lifecycle_v2_outcome",
+                "decode_lifecycle_v2_outcome_commit",
+                "decode_lifecycle_v2_progress_record",
+                "decode_lifecycle_v2_root",
+                "decode_lifecycle_v2_transcript",
+                "decode_unverified_lifecycle_v2_transport_envelope",
+                "lifecycle_v2_progress_file_name",
+                "lifecycle_v2_wire_file_name",
+            }
+        ),
+        Path("packages/application/trusted_time_graceful_stop_v2_admission.py"): frozenset(
+            f"{trusted_time_v2_bridge_module}:{symbol}"
+            for symbol in {
+                "LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt",
+                "_ConsumedLoadedDecisionArtifactReceiptV2Snapshot",
+                "_LIFECYCLE_V2_BRIDGE_CAPABILITY",
+                "_consume_loaded_decision_receipt_for_v2",
+                "_reject_loaded_decision_receipt_for_v2_admission_identity",
+                "_require_consumed_loaded_decision_artifact_receipt_v2_snapshot",
+            }
+        ),
+        Path("scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py"): (
+            frozenset(
+                f"{trusted_time_v2_bridge_module}:{symbol}"
+                for symbol in {
+                    "ARTIFACT_RECEIPT_CONTRACT_VERSION",
+                    "ARTIFACT_WORKFLOW_SERVICE",
+                    "DECISION_CANDIDATE_PREPARED_STATUS",
+                    "LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt",
+                    "POST_ENROLLMENT_GRACEFUL_STOP_DECISION_ARTIFACT_RECEIPT_FIELDS",
+                    "_ConsumedLoadedDecisionArtifactReceiptSnapshot",
+                    "_authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge",
+                    "_require_consumed_loaded_decision_artifact_receipt_snapshot",
+                }
+            )
+        ),
+    }
+    expected_trusted_time_v2_reserved_symbols = frozenset(
+        {
+            "_ADMISSION_IDENTITY_CAPABILITY",
+            "_ConsumedLoadedDecisionArtifactReceiptV2Snapshot",
+            "_CONSUMED_LOADED_RECEIPT_V2_SNAPSHOT_CAPABILITY",
+            "_consume_historical_receipt_for_injected_lifecycle_v2_admission",
+            "_consume_loaded_decision_receipt_for_v2",
+            "_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY",
+            "_FakeAuthenticatedLifecycleV2TransportEnvelope",
+            "_LifecycleV2AdmissionIdentity",
+            "_LIFECYCLE_V2_BRIDGE_CAPABILITY",
+            "_open_injected_lifecycle_v2_repository",
+            "_reject_loaded_decision_receipt_for_v2_admission_identity",
+            "_require_consumed_loaded_decision_artifact_receipt_v2_snapshot",
+            "_require_fake_authenticated_lifecycle_v2_transport_envelope",
+            "_retain_progress",
+            "_authenticate_lifecycle_v2_transport_envelope_for_fake",
+            "_build_injected_lifecycle_v2_admission_identity",
+        }
+    )
+    if production_contract_required and (
+        trusted_time_v2_isolated_module_paths != expected_trusted_time_v2_isolated_module_paths
+        or trusted_time_v2_module_ast_sha256 != expected_trusted_time_v2_module_ast_sha256
+        or trusted_time_v2_allowed_imports != expected_trusted_time_v2_allowed_imports
+        or trusted_time_v2_reserved_symbols != expected_trusted_time_v2_reserved_symbols
+    ):
+        violations.append(
+            Violation(
+                config_path,
+                1,
+                "trusted-time lifecycle-v2 milestone isolation policy must be exact",
+            )
+        )
     expected_exact_private_attribute_callsites = {
         (
             "packages.domain.fixture_segment_economics."
@@ -9628,6 +9933,18 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 dynamic_code_exception_module_ast_sha256=(
                     phase3h_dynamic_code_exception_module_ast_sha256
                 ),
+            )
+        )
+        violations.extend(
+            _isolated_wave5_module_boundary_violations(
+                tree,
+                boundary="trusted-time lifecycle-v2 milestone-one boundary",
+                policy_enabled=(trusted_time_v2_policy_keys_present == trusted_time_v2_policy_keys),
+                relative_path=relative_path,
+                module_paths=trusted_time_v2_isolated_module_paths,
+                allowed_imports=trusted_time_v2_allowed_imports,
+                module_ast_sha256=trusted_time_v2_module_ast_sha256,
+                reserved_symbols=trusted_time_v2_reserved_symbols,
             )
         )
         expected_process_consumer_module_digest = (
