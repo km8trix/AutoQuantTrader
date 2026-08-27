@@ -216,6 +216,13 @@ def _phase4an_violations(source: str, *, relative_path: Path) -> list[Violation]
         "importer = library['Py' + 'Import_ImportModule']\n"
         "resolver = library['Py' + 'Object_GetAttrString']\n"
         "bridge = _ctypes.PyObj_FromPtr",
+        "class Owners:\n"
+        "    import packages.application.durable_trusted_time_monitor as resolver\n"
+        "    import packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge "
+        "as builtins\n"
+        "loader = Owners.resolver._port_method(Owners.builtins._BUILTINS, import_name)\n"
+        "module = loader(module_name, fromlist=('sentinel',))\n"
+        "capability = Owners.resolver._port_method(module, attribute_name)",
         "owner._retain_progress(record)",
     ],
 )
@@ -399,6 +406,13 @@ def test_wave5_boundary_accepts_unique_protected_python_module_identities() -> N
         "importer = library['Py' + 'Import_ImportModule']\n"
         "resolver = library['Py' + 'Object_GetAttrString']\n"
         "bridge = _ctypes.PyObj_FromPtr",
+        "class Owners:\n"
+        "    import packages.application.durable_trusted_time_monitor as resolver\n"
+        "    import packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge "
+        "as builtins\n"
+        "loader = Owners.resolver._port_method(Owners.builtins._BUILTINS, import_name)\n"
+        "module = loader(module_name, fromlist=('sentinel',))\n"
+        "capability = Owners.resolver._port_method(module, attribute_name)",
     ],
 )
 def test_phase4an_boundary_rejects_unreviewed_runtime_reachability(source: str) -> None:

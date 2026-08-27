@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "5dbaf6fbabaf66a8b2b7118d4e834e865f36f4ce2bde8fd7ee190bb214e8f442"
+    "3d2a134aa53ab2858147566360147f01215b86b9b974c45be434706572d6a005"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -5653,11 +5653,37 @@ def _dynamic_code_exception_private_import_violations(
             )
         )
     bindings: dict[str, str] = {}
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+
+    def is_class_scope_binding(node: ast.AST) -> bool:
+        current = parents.get(node)
+        while current is not None:
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                return False
+            if isinstance(current, ast.ClassDef):
+                return True
+            current = parents.get(current)
+        return False
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 local = alias.asname or alias.name.partition(".")[0]
                 bindings[local] = alias.name if alias.asname else local
+                if is_class_scope_binding(node) and any(
+                    alias.name == module
+                    or alias.name.startswith(f"{module}.")
+                    or module.startswith(f"{alias.name}.")
+                    for module in exception_modules
+                ):
+                    violations.append(
+                        Violation(
+                            relative_path,
+                            node.lineno,
+                            f"{boundary} cannot bind a dynamic-code exception namespace "
+                            "inside a local or class scope",
+                        )
+                    )
         elif isinstance(node, ast.ImportFrom):
             imported_from = _resolved_import_from_module(node, relative_path)
             for alias in node.names:
@@ -5670,6 +5696,20 @@ def _dynamic_code_exception_private_import_violations(
                 )
                 if alias.name != "*":
                     bindings[alias.asname or alias.name] = imported
+                if is_class_scope_binding(node) and any(
+                    imported == module
+                    or imported.startswith(f"{module}.")
+                    or module.startswith(f"{imported}.")
+                    for module in exception_modules
+                ):
+                    violations.append(
+                        Violation(
+                            relative_path,
+                            node.lineno,
+                            f"{boundary} cannot bind a dynamic-code exception namespace "
+                            "inside a local or class scope",
+                        )
+                    )
                 if imported_from in exception_modules and (
                     alias.name == "*"
                     or alias.name.startswith("_")
@@ -5684,7 +5724,6 @@ def _dynamic_code_exception_private_import_violations(
                         )
                     )
 
-    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     for node in ast.walk(tree):
         if isinstance(node, (ast.Name, ast.Attribute)):
             qualified = _qualified_symbol(node, bindings)
