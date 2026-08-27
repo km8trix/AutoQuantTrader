@@ -266,6 +266,51 @@ class FakeLifecycleV2ArtifactStore:
             existing_final_revalidated=False,
         )
 
+    def finalize_preallocated_immutable(
+        self,
+        *,
+        staging_name: str,
+        final_name: str,
+        encoded: bytes,
+    ) -> LifecycleV2ArtifactPublicationReceipt:
+        operation = "commit_finalize"
+        self._maybe_fault(operation, "before")
+        final = self._artifacts.get(final_name)
+        staging = self._artifacts.get(staging_name)
+        if final is not None:
+            if final != encoded or (staging is not None and staging != encoded):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "fake preallocated marker conflict"
+                )
+            self.events.append(f"{operation}:revalidated")
+            return self._receipt(
+                final_name,
+                encoded,
+                file_fsync_completed=False,
+                no_replace_rename_completed=False,
+                directory_fsync_completed=False,
+                existing_final_revalidated=True,
+            )
+        if staging != encoded:
+            raise LifecycleV2ArtifactPublicationUncertain(
+                "fake preallocated marker staging is absent"
+            )
+        self._maybe_fault(operation, "staging_created")
+        self._maybe_fault(operation, "file_fsynced")
+        self._artifacts[final_name] = self._artifacts.pop(staging_name)
+        self._generation += 1
+        self._maybe_fault(operation, "renamed")
+        self._maybe_fault(operation, "directory_fsynced")
+        self._maybe_fault(operation, "readback")
+        return self._receipt(
+            final_name,
+            encoded,
+            file_fsync_completed=True,
+            no_replace_rename_completed=True,
+            directory_fsync_completed=True,
+            existing_final_revalidated=False,
+        )
+
     def inject(self, file_name: str, encoded: bytes) -> None:
         """Test-only incident-state injection, never repository cleanup."""
 

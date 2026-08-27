@@ -490,6 +490,71 @@ def test_repository_burn_closes_the_physical_descriptor_registry(tmp_path: Path)
     assert store.closed is True
 
 
+def test_physical_store_finalizes_only_exact_preallocated_staging_bytes(
+    tmp_path: Path,
+) -> None:
+    artifact_directory = _artifact_directory(tmp_path)
+    encoded = b'{"marker":"exact"}\n'
+    _write_owner_only(artifact_directory / _STAGING, encoded)
+    store = _store(artifact_directory)
+    try:
+        receipt = store.finalize_preallocated_immutable(
+            staging_name=_STAGING,
+            final_name=_FINAL,
+            encoded=encoded,
+        )
+
+        assert not (artifact_directory / _STAGING).exists()
+        assert (artifact_directory / _FINAL).read_bytes() == encoded
+        assert receipt.file_fsync_completed is True
+        assert receipt.no_replace_rename_completed is True
+        assert receipt.directory_fsync_completed is True
+        assert receipt.stable_readback_completed is True
+    finally:
+        store.close()
+
+
+def test_physical_store_revalidates_matching_preallocated_final_without_cleanup(
+    tmp_path: Path,
+) -> None:
+    artifact_directory = _artifact_directory(tmp_path)
+    encoded = b'{"marker":"exact"}\n'
+    _write_owner_only(artifact_directory / _STAGING, encoded)
+    _write_owner_only(artifact_directory / _FINAL, encoded)
+    store = _store(artifact_directory)
+    try:
+        receipt = store.finalize_preallocated_immutable(
+            staging_name=_STAGING,
+            final_name=_FINAL,
+            encoded=encoded,
+        )
+
+        assert receipt.existing_final_revalidated is True
+        assert (artifact_directory / _STAGING).read_bytes() == encoded
+        assert (artifact_directory / _FINAL).read_bytes() == encoded
+    finally:
+        store.close()
+
+
+def test_physical_store_rejects_conflicting_preallocated_staging(
+    tmp_path: Path,
+) -> None:
+    artifact_directory = _artifact_directory(tmp_path)
+    _write_owner_only(artifact_directory / _STAGING, b"conflict")
+    store = _store(artifact_directory)
+
+    with pytest.raises(LifecycleV2ArtifactPublicationUncertain, match="staging"):
+        store.finalize_preallocated_immutable(
+            staging_name=_STAGING,
+            final_name=_FINAL,
+            encoded=b"expected",
+        )
+
+    assert store.closed is True
+    assert (artifact_directory / _STAGING).read_bytes() == b"conflict"
+    assert not (artifact_directory / _FINAL).exists()
+
+
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="native fork invalidation is POSIX-only")
 def test_fork_child_loses_physical_store_descriptors_before_python(tmp_path: Path) -> None:
     store = _store(_artifact_directory(tmp_path))

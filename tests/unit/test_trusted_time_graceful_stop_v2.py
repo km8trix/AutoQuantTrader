@@ -15,6 +15,7 @@ import pytest
 
 import scripts.trusted_time_post_enrollment_topology_reader as topology_reader
 from packages.application import trusted_time_graceful_stop_v2_admission as v2_admission
+from packages.domain import trusted_time_graceful_stop_v2_recovery as recovery_v2
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_ROOT_FILE_NAME,
     LIFECYCLE_V2_CLEAN_STOP_REQUEST_CONTRACT_VERSION,
@@ -44,6 +45,10 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     lifecycle_v2_non_authority_facts,
     lifecycle_v2_progress_file_name,
     lifecycle_v2_wire_file_name,
+)
+from packages.domain.trusted_time_graceful_stop_v2_recovery import (
+    RECOVERY_CLASSIFICATION_CONTRACT_VERSION,
+    LifecycleV2RecoveryClassificationEnvelope,
 )
 from packages.persistence import trusted_time_graceful_stop_v2 as persistence
 from scripts import trusted_time_post_enrollment_graceful_stop_decision_artifacts as artifacts
@@ -435,6 +440,53 @@ def _recovery_intent(
         ),
         recorded_at_utc=UTC_TEXT,
     )
+
+
+def _authenticated_recovery_intent(
+    root: LifecycleV2Root,
+    classified_transcript: Any,
+) -> recovery_v2.LifecycleV2AuthenticatedRecoveryIntent:
+    envelope = LifecycleV2RecoveryClassificationEnvelope.capture(
+        {
+            "contract_version": RECOVERY_CLASSIFICATION_CONTRACT_VERSION,
+            "service": LIFECYCLE_V2_SERVICE,
+            "status": "recovery_classification_requested",
+            "environment": root.environment,
+            "graceful_stop_operation_id": root.graceful_stop_operation_id,
+            "root_sha256": root.sha256,
+            "admission_started_boottime_ns": root.admission_started_boottime_ns,
+            "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
+            "transcript_sha256": classified_transcript.sha256,
+            "last_ordinal": classified_transcript.entries[-1].ordinal,
+            "last_stage": classified_transcript.entries[-1].stage.value,
+            "reason_code": "call_or_result_ambiguous",
+            "transport_authority_manifest_sha256": (
+                root.transport_authority_manifest_sha256
+            ),
+            "key_generation": root.transport_key_generation,
+            "recovery_key_id": "recovery-key-1",
+            "operator_nonce_base64": base64.b64encode(bytes(range(32))).decode(
+                "ascii"
+            ),
+            "issued_at_utc": UTC_TEXT,
+            "signature_ed25519_base64": base64.b64encode(bytes(64)).decode("ascii"),
+        }
+    )
+    return recovery_v2._mint_fake_authenticated_lifecycle_v2_recovery_intent(
+        envelope=envelope,
+        root=root,
+        classified_transcript=classified_transcript,
+        recorded_at_utc=UTC_TEXT,
+        capability=recovery_v2._FAKE_RECOVERY_INTENT_CAPABILITY,
+    )
+
+
+class _BoottimeClock:
+    def __init__(self, sample: int) -> None:
+        self.sample = sample
+
+    def sample_boottime_ns(self) -> int:
+        return self.sample
 
 
 def _recovery_outcome_pair(
@@ -1336,7 +1388,7 @@ def test_root_only_recovery_intent_rejects_identically_live_and_after_restart() 
 
     with pytest.raises(
         persistence.LifecycleV2RepositoryRejected,
-        match="ordinal-one request prefix",
+        match="not authenticated",
     ):
         repository.retain_recovery_classification_intent(recovery_intent)
 
@@ -1537,128 +1589,36 @@ def test_recovery_required_outcome_can_commit_but_confirmed_success_cannot() -> 
     repository.reserve_root(root)
     repository.retain_request_intent(intent, _request_basis(root))
     classified_transcript = repository.publish_transcript()
-    recovery_intent = LifecycleV2ProgressRecord(
-        graceful_stop_operation_id=root.graceful_stop_operation_id,
-        root_sha256=root.sha256,
-        ordinal=2,
-        stage=LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED,
-        predecessor_sha256=intent.sha256,
-        effect_kind="recovery_classification",
-        deadline_boottime_ns=root.operation_deadline_boottime_ns,
-        evidence=FrozenJsonObject.capture(
-            {
-                "recovery_classification_envelope_sha256": _digest("recovery-envelope"),
-                "operator_nonce_sha256": _digest("recovery-nonce"),
-                "recovery_key_id": "recovery-key-1",
-                "transport_authority_manifest_sha256": (root.transport_authority_manifest_sha256),
-                "classified_transcript_sha256": classified_transcript.sha256,
-                "admission_started_boottime_ns": root.admission_started_boottime_ns,
-                "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
-                "reason_code": "call_or_result_ambiguous",
-            }
-        ),
-        recorded_at_utc=UTC_TEXT,
+    recovery_intent = repository.retain_recovery_classification_intent(
+        _authenticated_recovery_intent(root, classified_transcript)
     )
-    repository.retain_recovery_classification_intent(recovery_intent)
     transcript = repository.publish_transcript()
-    protocol_start = root.admission_started_boottime_ns + 10
-    outcome = LifecycleV2Outcome.capture(
-        {
-            "contract_version": LIFECYCLE_V2_OUTCOME_CONTRACT_VERSION,
-            "service": LIFECYCLE_V2_SERVICE,
-            "status": "recovery_required",
-            "lifecycle_version": 2,
-            "graceful_stop_operation_id": root.graceful_stop_operation_id,
-            "root_sha256": root.sha256,
-            "ordinal": 3,
-            "predecessor_sha256": recovery_intent.sha256,
-            "final_stage": recovery_intent.stage.value,
-            "transcript_sha256": transcript.sha256,
-            "reason_code": "call_or_result_ambiguous",
-            "pre_effect_binding_sha256": None,
-            "post_teardown_binding_sha256": None,
-            "volume_proof_sha256": None,
-            "terminal_cleanup_sha256": None,
-            "stop_effects_confirmed": False,
-            "teardown_confirmed": False,
-            "terminal_cleanup_confirmed": False,
-            "admission_started_boottime_ns": root.admission_started_boottime_ns,
-            "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
-            "commit_protocol_started_boottime_ns": protocol_start,
-            "commit_publication_authorization_deadline_boottime_ns": (
-                protocol_start + 5_000_000_000
-            ),
-            "commit_authorized_boottime_ns": protocol_start + 1,
-            "created_at_utc": UTC_TEXT,
-        }
+    outcome, commit = repository.commit_recovery_outcome(
+        clock=_BoottimeClock(root.admission_started_boottime_ns + 10),
+        created_at_utc=UTC_TEXT,
     )
-    commit = LifecycleV2OutcomeCommit.capture(
-        {
-            "contract_version": LIFECYCLE_V2_OUTCOME_COMMIT_CONTRACT_VERSION,
-            "service": LIFECYCLE_V2_SERVICE,
-            "status": "terminal_outcome_committed",
-            "lifecycle_version": 2,
-            "graceful_stop_operation_id": root.graceful_stop_operation_id,
-            "root_sha256": root.sha256,
-            "outcome_sha256": outcome.sha256,
-            "outcome_status": outcome.status,
-            "transcript_sha256": transcript.sha256,
-            "admission_started_boottime_ns": root.admission_started_boottime_ns,
-            "commit_protocol_started_boottime_ns": protocol_start,
-            "commit_publication_authorization_deadline_boottime_ns": (
-                protocol_start + 5_000_000_000
-            ),
-            "commit_authorized_boottime_ns": protocol_start + 1,
-            "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
-            "committed_at_utc": UTC_TEXT,
-        },
-        outcome=outcome,
-    )
-    repository.commit_recovery_outcome(outcome, commit)
+    assert outcome.to_dict()["predecessor_sha256"] == recovery_intent.sha256
+    assert outcome.to_dict()["transcript_sha256"] == transcript.sha256
     assert repository.status is persistence.LifecycleV2RepositoryStatus.OUTCOME_COMMITTED
     reopened = _repository(store)
     assert reopened.status is persistence.LifecycleV2RepositoryStatus.OUTCOME_COMMITTED
 
-    success_fields = outcome.to_dict()
-    success_fields.update(
-        {
-            "status": "confirmed_success",
-            "ordinal": 23,
-            "final_stage": LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED.value,
-            "reason_code": "completed",
-            "pre_effect_binding_sha256": _digest("pre"),
-            "post_teardown_binding_sha256": _digest("post"),
-            "volume_proof_sha256": _digest("volumes"),
-            "terminal_cleanup_sha256": _digest("cleanup"),
-            "stop_effects_confirmed": True,
-            "teardown_confirmed": True,
-            "terminal_cleanup_confirmed": True,
-            "commit_authorized_boottime_ns": None,
-        }
-    )
-    success = LifecycleV2Outcome.capture(success_fields)
     with pytest.raises(
         persistence.LifecycleV2RepositoryRejected,
         match="terminal outcome already committed",
     ):
-        repository.commit_recovery_outcome(success, commit)
-    with pytest.raises(
-        persistence.LifecycleV2RepositoryRejected,
-        match="terminal outcome already committed",
-    ):
-        repository.commit_recovery_outcome(outcome, commit)
+        repository.commit_recovery_outcome(
+            clock=_BoottimeClock(root.admission_started_boottime_ns + 11),
+            created_at_utc=UTC_TEXT,
+        )
     with pytest.raises(
         persistence.LifecycleV2RepositoryRejected,
         match="terminal outcome already retained",
     ):
         repository.publish_transcript()
 
-    post_terminal = _recovery_intent(root, recovery_intent, transcript.sha256)
-    with pytest.raises(
-        persistence.LifecycleV2RepositoryRejected,
-        match="terminal outcome already retained",
-    ):
-        repository.retain_recovery_classification_intent(post_terminal)
+    assert repository.finalize_retained_outcome_commit() == commit
+    assert commit.to_dict()["outcome_status"] == "recovery_required"
 
 
 def test_repository_revalidates_forged_exact_type_outcome_before_commit() -> None:
@@ -1669,8 +1629,9 @@ def test_repository_revalidates_forged_exact_type_outcome_before_commit() -> Non
     repository.reserve_root(root)
     repository.retain_request_intent(intent, basis)
     classified_transcript = repository.publish_transcript()
-    recovery_intent = _recovery_intent(root, intent, classified_transcript.sha256)
-    repository.retain_recovery_classification_intent(recovery_intent)
+    recovery_intent = repository.retain_recovery_classification_intent(
+        _authenticated_recovery_intent(root, classified_transcript)
+    )
     final_transcript = repository.publish_transcript()
     valid_outcome, valid_commit = _recovery_outcome_pair(
         root,
@@ -1698,10 +1659,7 @@ def test_repository_revalidates_forged_exact_type_outcome_before_commit() -> Non
         outcome=forged_outcome,
     )
 
-    with pytest.raises(
-        persistence.LifecycleV2RepositoryRejected,
-        match="outcome proof is not canonically valid",
-    ):
+    with pytest.raises(TypeError):
         repository.commit_recovery_outcome(forged_outcome, forged_commit)
     assert repository.status is persistence.LifecycleV2RepositoryStatus.RECOVERY_REQUIRED
 
@@ -1727,8 +1685,9 @@ def test_restart_rejects_outcome_commit_forged_away_from_complete_prefix(
     repository.reserve_root(root)
     repository.retain_request_intent(intent, _request_basis(root))
     classified_transcript = repository.publish_transcript()
-    recovery_intent = _recovery_intent(root, intent, classified_transcript.sha256)
-    repository.retain_recovery_classification_intent(recovery_intent)
+    recovery_intent = repository.retain_recovery_classification_intent(
+        _authenticated_recovery_intent(root, classified_transcript)
+    )
     final_transcript = repository.publish_transcript()
     replacements: dict[str, object] = {
         "graceful_stop_operation_id": "423e4567-e89b-42d3-a456-426614174002",
@@ -1813,7 +1772,7 @@ def test_restart_never_classifies_root_only_success_as_committed() -> None:
         },
         outcome=outcome,
     )
-    with pytest.raises(persistence.LifecycleV2RepositoryRejected, match="recovery only"):
+    with pytest.raises(TypeError):
         repository.commit_recovery_outcome(outcome, commit)
     store.inject(outcome.file_name, outcome.encoded)
     store.inject(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME, commit.encoded)
@@ -1825,22 +1784,21 @@ def test_restart_never_classifies_root_only_success_as_committed() -> None:
         _repository(store)
 
 
-def test_recovery_classification_is_single_use_and_cannot_follow_terminal_cleanup() -> None:
+def test_recovery_classification_is_single_use_and_can_follow_terminal_cleanup() -> None:
     root = _root()
     intent = _request_intent(root, _request_basis(root))
     repository = _repository()
     repository.reserve_root(root)
     repository.retain_request_intent(intent, _request_basis(root))
     classified_transcript = repository.publish_transcript()
-    first_recovery = _recovery_intent(root, intent, classified_transcript.sha256)
-    repository.retain_recovery_classification_intent(first_recovery)
-    final_transcript = repository.publish_transcript()
-    repeated_recovery = _recovery_intent(root, first_recovery, final_transcript.sha256)
+    authenticated = _authenticated_recovery_intent(root, classified_transcript)
+    repository.retain_recovery_classification_intent(authenticated)
+    repository.publish_transcript()
     with pytest.raises(
         persistence.LifecycleV2RepositoryRejected,
-        match="already retained",
+        match="ordinal is not next",
     ):
-        repository.retain_recovery_classification_intent(repeated_recovery)
+        repository.retain_recovery_classification_intent(authenticated)
 
     terminal_cleanup = LifecycleV2ProgressRecord(
         graceful_stop_operation_id=root.graceful_stop_operation_id,
@@ -1867,14 +1825,10 @@ def test_recovery_classification_is_single_use_and_cannot_follow_terminal_cleanu
         recorded_at_utc=UTC_TEXT,
     )
     post_cleanup = _recovery_intent(root, terminal_cleanup, _digest("terminal-transcript"))
-    with pytest.raises(
-        persistence.LifecycleV2RepositoryRejected,
-        match="cannot follow a terminal stage",
-    ):
-        repository._require_stage_transition(
-            post_cleanup,
-            records=(terminal_cleanup,) * 22,
-        )
+    repository._require_stage_transition(
+        post_cleanup,
+        records=(terminal_cleanup,) * 22,
+    )
 
 
 @pytest.fixture

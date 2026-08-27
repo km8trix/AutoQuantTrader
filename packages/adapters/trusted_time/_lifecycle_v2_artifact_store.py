@@ -608,6 +608,147 @@ class _LifecycleV2PhysicalArtifactStore:
             if owner is not None:
                 owner.close()
 
+    def finalize_preallocated_immutable(
+        self,
+        *,
+        staging_name: str,
+        final_name: str,
+        encoded: bytes,
+    ) -> LifecycleV2ArtifactPublicationReceipt:
+        """Revalidate and finish only one exact pre-existing staging preimage."""
+
+        self._require_owner()
+        exact_staging = _exact_component(staging_name)
+        exact_final = _exact_component(final_name)
+        if exact_staging == exact_final or type(encoded) is not bytes:
+            raise LifecycleV2ArtifactPublicationUncertain(
+                "preallocated finalization arguments are not exact"
+            )
+        owner: _OwnedFileDescriptor | None = None
+        try:
+            existing_final = self._read_existing_or_absent(exact_final)
+            existing_staging = self._read_existing_or_absent(exact_staging)
+            if existing_final is not None:
+                if existing_final.encoded != encoded or (
+                    existing_staging is not None
+                    and existing_staging.encoded != encoded
+                ):
+                    raise LifecycleV2ArtifactPublicationUncertain(
+                        "preallocated staging/final bytes conflict"
+                    )
+                revalidated = self._read_existing(exact_final)
+                if revalidated != existing_final:
+                    raise LifecycleV2ArtifactPublicationUncertain(
+                        "preallocated final changed during revalidation"
+                    )
+                if (
+                    existing_staging is not None
+                    and self._read_existing(exact_staging) != existing_staging
+                ):
+                    raise LifecycleV2ArtifactPublicationUncertain(
+                        "preallocated staging changed during revalidation"
+                    )
+                return self._publication_receipt(
+                    final_name=exact_final,
+                    readback=revalidated,
+                    file_fsync_completed=False,
+                    no_replace_rename_completed=False,
+                    directory_fsync_completed=False,
+                    existing_final_revalidated=True,
+                )
+            if existing_staging is None or existing_staging.encoded != encoded:
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "exact preallocated staging bytes are absent"
+                )
+            owner = _open_child_regular(self._directory_owner, exact_staging)
+            held = self._validate_file_identity(
+                _fstat(owner),
+                expected_size=len(encoded),
+            )
+            if (
+                held[0] != existing_staging.file_device
+                or held[1] != existing_staging.file_inode
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "preallocated staging identity changed"
+                )
+            _fsync(owner)
+            payload, before, after = _read_snapshot(owner, len(encoded))
+            named = self._validate_file_identity(
+                _statat(self._directory_owner, exact_staging),
+                expected_size=len(encoded),
+            )
+            if (
+                payload != encoded
+                or self._validate_file_identity(before, expected_size=len(encoded))
+                != held
+                or self._validate_file_identity(after, expected_size=len(encoded))
+                != held
+                or named != held
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "preallocated staging bytes or identity changed"
+                )
+            try:
+                _rename_child_noreplace(
+                    self._directory_owner,
+                    owner,
+                    exact_staging,
+                    exact_final,
+                )
+            except FileExistsError as error:
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "preallocated finalization raced with an existing marker"
+                ) from error
+            _fsync(self._directory_owner)
+            payload, before, after = _read_snapshot(owner, len(encoded))
+            held = self._validate_file_identity(
+                _fstat(owner),
+                expected_size=len(encoded),
+            )
+            named = self._validate_file_identity(
+                _statat(self._directory_owner, exact_final),
+                expected_size=len(encoded),
+            )
+            if (
+                payload != encoded
+                or self._validate_file_identity(before, expected_size=len(encoded))
+                != held
+                or self._validate_file_identity(after, expected_size=len(encoded))
+                != held
+                or named != held
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "finalized preallocated artifact is unstable"
+                )
+            owner.close()
+            owner = None
+            readback = self._read_existing(exact_final)
+            if readback.encoded != encoded:
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "finalized preallocated bytes disagree"
+                )
+            return self._publication_receipt(
+                final_name=exact_final,
+                readback=readback,
+                file_fsync_completed=True,
+                no_replace_rename_completed=True,
+                directory_fsync_completed=True,
+                existing_final_revalidated=False,
+            )
+        except BaseException as error:
+            self._close_after_failure()
+            if not isinstance(error, Exception):
+                raise
+            if isinstance(error, LifecycleV2ArtifactPublicationUncertain):
+                raise
+            raise LifecycleV2ArtifactPublicationUncertain(
+                "preallocated immutable finalization is unconfirmed"
+            ) from None
+        finally:
+            if owner is not None:
+                owner.close()
+
 
 def _open_injected_lifecycle_v2_physical_artifact_store(
     *,

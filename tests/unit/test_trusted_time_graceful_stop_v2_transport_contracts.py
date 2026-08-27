@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import dataclasses
 import hashlib
+import os
+import threading
 from typing import Any, cast
 
 import pytest
@@ -21,6 +23,7 @@ from packages.adapters.trusted_time.graceful_stop_v2_ed25519 import (
     authenticate_selected_lifecycle_v2_handshake,
     authenticated_lifecycle_v2_recovery_manifest_for_root,
     bind_authenticated_lifecycle_v2_terminal_envelope_proof,
+    consume_authenticated_lifecycle_v2_recovery_classification_envelope,
     lifecycle_v2_ed25519_non_authority_facts,
 )
 from packages.domain.trusted_time_graceful_stop_v2 import (
@@ -606,6 +609,8 @@ def _recovery_envelope(
     root: LifecycleV2Root,
     transcript: LifecycleV2Transcript,
     manifest: LifecycleV2TransportAuthorityManifest,
+    *,
+    nonce: bytes = bytes(range(32, 64)),
 ) -> LifecycleV2RecoveryClassificationEnvelope:
     fields: dict[str, object] = {
         "contract_version": RECOVERY_CLASSIFICATION_CONTRACT_VERSION,
@@ -623,7 +628,7 @@ def _recovery_envelope(
         "transport_authority_manifest_sha256": manifest.sha256,
         "key_generation": manifest.generation,
         "recovery_key_id": manifest.recovery_key_id,
-        "operator_nonce_base64": _b64(bytes(range(32, 64))),
+        "operator_nonce_base64": _b64(nonce),
         "issued_at_utc": UTC_TEXT,
     }
     return cast(
@@ -798,6 +803,161 @@ def test_recovery_classification_is_root_prefix_and_selected_generation_bound() 
     assert envelope.operator_nonce_sha256 == hashlib.sha256(bytes(range(32, 64))).hexdigest()
     with pytest.raises(TypeError, match="require verification"):
         type(authenticated)()
+
+
+def _authenticated_recovery_for_consumption(
+    *,
+    nonce: bytes,
+) -> tuple[
+    object,
+    LifecycleV2Root,
+    LifecycleV2Transcript,
+    LifecycleV2RecoveryClassificationEnvelope,
+]:
+    manifest = _manifest()
+    selection = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest,
+        recovery=manifest,
+        reason="initial",
+    )
+    authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (selection.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    root = _root(manifest)
+    transcript = _classified_transcript(root, _intent(root))
+    envelope = _recovery_envelope(root, transcript, manifest, nonce=nonce)
+    authenticated = authenticate_lifecycle_v2_recovery_classification_envelope(
+        envelope.encoded,
+        authority=authority,
+        root=root,
+        classified_transcript=transcript,
+    )
+    return authenticated, root, transcript, envelope
+
+
+def test_authenticated_recovery_consumption_derives_exact_intent_and_is_one_use() -> None:
+    authenticated, root, transcript, envelope = _authenticated_recovery_for_consumption(
+        nonce=bytes(range(64, 96))
+    )
+
+    intent = consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+        authenticated,
+        root=root,
+        classified_transcript=transcript,
+        recorded_at_utc=UTC_TEXT,
+    )
+
+    record = intent.record
+    evidence = record.evidence.to_dict()
+    assert record.ordinal == 2
+    assert record.predecessor_sha256 == transcript.entries[-1].record_artifact_sha256
+    assert evidence == {
+        "recovery_classification_envelope_sha256": envelope.sha256,
+        "operator_nonce_sha256": envelope.operator_nonce_sha256,
+        "recovery_key_id": envelope.recovery_key_id,
+        "transport_authority_manifest_sha256": (
+            envelope.transport_authority_manifest_sha256
+        ),
+        "classified_transcript_sha256": transcript.sha256,
+        "admission_started_boottime_ns": root.admission_started_boottime_ns,
+        "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
+        "reason_code": envelope.reason_code,
+    }
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="cannot be consumed"):
+        consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+            authenticated,
+            root=root,
+            classified_transcript=transcript,
+            recorded_at_utc=UTC_TEXT,
+        )
+
+    # A second authenticated wrapper cannot replay the same root/nonce either.
+    second, _, _, _ = _authenticated_recovery_for_consumption(
+        nonce=bytes(range(64, 96))
+    )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="already consumed"):
+        consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+            second,
+            root=root,
+            classified_transcript=transcript,
+            recorded_at_utc=UTC_TEXT,
+        )
+
+
+def test_authenticated_recovery_consumption_is_thread_bound() -> None:
+    authenticated, root, transcript, _ = _authenticated_recovery_for_consumption(
+        nonce=bytes(range(96, 128))
+    )
+    failures: list[BaseException] = []
+
+    def consume_on_wrong_thread() -> None:
+        try:
+            consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+                authenticated,
+                root=root,
+                classified_transcript=transcript,
+                recorded_at_utc=UTC_TEXT,
+            )
+        except BaseException as error:
+            failures.append(error)
+
+    worker = threading.Thread(target=consume_on_wrong_thread)
+    worker.start()
+    worker.join()
+
+    assert len(failures) == 1
+    assert isinstance(failures[0], TrustedTimeGracefulStopV2Rejected)
+    intent = consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+        authenticated,
+        root=root,
+        classified_transcript=transcript,
+        recorded_at_utc=UTC_TEXT,
+    )
+    assert intent.record.root_sha256 == root.sha256
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires fork ownership proof")
+def test_authenticated_recovery_consumption_is_fork_bound() -> None:
+    authenticated, root, transcript, _ = _authenticated_recovery_for_consumption(
+        nonce=bytes(range(128, 160))
+    )
+    read_fd, write_fd = os.pipe()
+    child = os.fork()
+    if child == 0:
+        os.close(read_fd)
+        try:
+            consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+                authenticated,
+                root=root,
+                classified_transcript=transcript,
+                recorded_at_utc=UTC_TEXT,
+            )
+        except TrustedTimeGracefulStopV2Rejected:
+            os.write(write_fd, b"rejected")
+        else:
+            os.write(write_fd, b"accepted")
+        finally:
+            os.close(write_fd)
+        os._exit(0)
+    os.close(write_fd)
+    child_result = os.read(read_fd, 32)
+    os.close(read_fd)
+    _, status = os.waitpid(child, 0)
+    assert os.waitstatus_to_exitcode(status) == 0
+    assert child_result == b"rejected"
+
+    intent = consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+        authenticated,
+        root=root,
+        classified_transcript=transcript,
+        recorded_at_utc=UTC_TEXT,
+    )
+    assert intent.record.root_sha256 == root.sha256
 
 
 _RECOVERY_CLASSIFICATION_SIGNED_FIELDS = [

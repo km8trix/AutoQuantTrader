@@ -16,9 +16,14 @@ from typing import Protocol, cast
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_ROOT_FILE_NAME,
+    LIFECYCLE_V2_COMMIT_BUDGET_NS,
+    LIFECYCLE_V2_OUTCOME_COMMIT_CONTRACT_VERSION,
     LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+    LIFECYCLE_V2_OUTCOME_CONTRACT_VERSION,
     LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION,
     LIFECYCLE_V2_ROOT_CONTRACT_VERSION,
+    LIFECYCLE_V2_SERVICE,
+    MAXIMUM_SIGNED_INTEGER,
     NORMAL_STAGE_BY_ORDINAL,
     LifecycleV2CleanStopRequestBasis,
     LifecycleV2Outcome,
@@ -42,6 +47,10 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     lifecycle_v2_dispatch_prefix_sha256,
     lifecycle_v2_progress_file_name,
     lifecycle_v2_wire_file_name,
+)
+from packages.domain.trusted_time_graceful_stop_v2_recovery import (
+    LifecycleV2AuthenticatedRecoveryIntent,
+    require_authenticated_lifecycle_v2_recovery_intent,
 )
 
 _V1_ROOT_CONTRACT_VERSION = "phase6d-post-enrollment-graceful-stop-attempt-v1"
@@ -91,6 +100,7 @@ class LifecycleV2RepositoryStatus(StrEnum):
     UNRESERVED = "unreserved"
     ROOT_RESERVED = "root_reserved"
     RECOVERY_REQUIRED = "recovery_required"
+    OUTCOME_COMMIT_UNCONFIRMED = "outcome_commit_unconfirmed"
     OUTCOME_COMMITTED = "outcome_committed"
     RETENTION_UNCONFIRMED = "retention_unconfirmed"
 
@@ -245,6 +255,14 @@ class LifecycleV2ArtifactStore(Protocol):
         encoded: bytes,
     ) -> LifecycleV2ArtifactPublicationReceipt: ...
 
+    def finalize_preallocated_immutable(
+        self,
+        *,
+        staging_name: str,
+        final_name: str,
+        encoded: bytes,
+    ) -> LifecycleV2ArtifactPublicationReceipt: ...
+
     def close(self) -> None: ...
 
 
@@ -290,6 +308,136 @@ class LifecycleV2RetainedWireVerifier(Protocol):
         self,
         result: object,
     ) -> LifecycleV2AuthenticatedRetainedWireResult: ...
+
+
+class LifecycleV2BoottimeClock(Protocol):
+    """Injected exact CLOCK_BOOTTIME source; no wall-clock fallback exists."""
+
+    def sample_boottime_ns(self) -> int: ...
+
+
+class LifecycleV2SuccessPrecommitDisposition(Protocol):
+    """Read-only view of one verifier-owned, sealed empty-owner result."""
+
+    @property
+    def root_sha256(self) -> str: ...
+
+    @property
+    def transcript_sha256(self) -> str: ...
+
+    @property
+    def outcome_sha256(self) -> str: ...
+
+    @property
+    def candidate_handle_disposed(self) -> bool: ...
+
+    @property
+    def transcript_handle_disposed(self) -> bool: ...
+
+    @property
+    def transient_descriptor_count(self) -> int: ...
+
+    @property
+    def registry_entry_count(self) -> int: ...
+
+
+class LifecycleV2SuccessPrecommitDisposer(Protocol):
+    """Injected owner that disposes candidate/transcript handles and proves emptiness."""
+
+    def dispose_and_prove_empty(
+        self,
+        *,
+        root: LifecycleV2Root,
+        transcript: LifecycleV2Transcript,
+        outcome: LifecycleV2Outcome,
+        artifact_store_identity: LifecycleV2ArtifactStoreIdentity,
+    ) -> object: ...
+
+    def require_exact_disposed_and_empty(
+        self,
+        result: object,
+    ) -> LifecycleV2SuccessPrecommitDisposition: ...
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class _LifecycleV2OutcomeCommitMarkerBasis:
+    """Prevalidated marker bytes with only the boottime integer left absent."""
+
+    outcome: LifecycleV2Outcome
+    prefix: bytes
+    suffix: bytes
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("fixed-marker bases require exact preallocation")
+
+    @classmethod
+    def prepare(cls, outcome: LifecycleV2Outcome) -> _LifecycleV2OutcomeCommitMarkerBasis:
+        try:
+            exact_outcome = decode_lifecycle_v2_outcome(outcome.encoded)
+        except (AttributeError, TrustedTimeGracefulStopV2Rejected):
+            raise LifecycleV2RepositoryRejected(
+                "outcome candidate is not canonical for marker preallocation"
+            ) from None
+        if exact_outcome != outcome:
+            raise LifecycleV2RepositoryRejected(
+                "outcome candidate changed during marker preallocation"
+            )
+        fields = exact_outcome.to_dict()
+        protocol_start = cast(int, fields["commit_protocol_started_boottime_ns"])
+        authorized = fields["commit_authorized_boottime_ns"]
+        placeholder = protocol_start if authorized is None else cast(int, authorized)
+        marker_fields: dict[str, object] = {
+            "contract_version": LIFECYCLE_V2_OUTCOME_COMMIT_CONTRACT_VERSION,
+            "service": LIFECYCLE_V2_SERVICE,
+            "status": "terminal_outcome_committed",
+            "lifecycle_version": 2,
+            "graceful_stop_operation_id": fields["graceful_stop_operation_id"],
+            "root_sha256": fields["root_sha256"],
+            "outcome_sha256": exact_outcome.sha256,
+            "outcome_status": fields["status"],
+            "transcript_sha256": fields["transcript_sha256"],
+            "admission_started_boottime_ns": fields[
+                "admission_started_boottime_ns"
+            ],
+            "commit_protocol_started_boottime_ns": protocol_start,
+            "commit_publication_authorization_deadline_boottime_ns": fields[
+                "commit_publication_authorization_deadline_boottime_ns"
+            ],
+            "commit_authorized_boottime_ns": placeholder,
+            "operation_deadline_boottime_ns": fields[
+                "operation_deadline_boottime_ns"
+            ],
+            # Audit-only and deterministic across restart: the candidate fixes it.
+            "committed_at_utc": fields["created_at_utc"],
+        }
+        marker = LifecycleV2OutcomeCommit.capture(marker_fields, outcome=exact_outcome)
+        needle = (
+            b'"commit_authorized_boottime_ns":'
+            + str(placeholder).encode("ascii")
+        )
+        if marker.encoded.count(needle) != 1:
+            raise LifecycleV2RepositoryRejected(
+                "fixed-marker authorization slot is not unique"
+            )
+        prefix, suffix = marker.encoded.split(needle, 1)
+        result = object.__new__(cls)
+        object.__setattr__(result, "outcome", exact_outcome)
+        object.__setattr__(
+            result,
+            "prefix",
+            prefix + b'"commit_authorized_boottime_ns":',
+        )
+        object.__setattr__(result, "suffix", suffix)
+        return result
+
+    def materialize(self, commit_authorized_boottime_ns: int) -> bytes:
+        """Mechanically fill the sole absent integer; perform no lookup or I/O."""
+
+        return (
+            self.prefix
+            + str(commit_authorized_boottime_ns).encode("ascii")
+            + self.suffix
+        )
 
 
 def _safe_artifact_directory_path(value: object) -> str:
@@ -356,6 +504,8 @@ class _LifecycleV2Repository:
         "_artifact_directory_path",
         "_closed",
         "_commit",
+        "_commit_staging",
+        "_opened_with_existing_root",
         "_origin_pid",
         "_origin_thread",
         "_outcome",
@@ -383,11 +533,13 @@ class _LifecycleV2Repository:
         self._poisoned = False
         self._closed = False
         self._store_disposed = False
+        self._opened_with_existing_root = False
         self._root: LifecycleV2Root | None = None
         self._records: tuple[LifecycleV2ProgressRecord, ...] = ()
         self._wire: UnverifiedLifecycleV2TransportEnvelope | None = None
         self._outcome: LifecycleV2Outcome | None = None
         self._commit: LifecycleV2OutcomeCommit | None = None
+        self._commit_staging: LifecycleV2OutcomeCommit | None = None
         try:
             identity = _safe_artifact_store_identity(store.identity)
             if (
@@ -611,7 +763,10 @@ class _LifecycleV2Repository:
         try:
             initial_inventory = self._inventory()
             names = initial_inventory.names
-            if any(name in _STAGING_NAMES for name in names):
+            if any(
+                name in _STAGING_NAMES - {_COMMIT_STAGING_NAME}
+                for name in names
+            ):
                 raise LifecycleV2RetentionUnconfirmed("staging artifact is retention ambiguity")
             unknown = tuple(name for name in names if _known_v2_name(name) is False)
             if unknown:
@@ -627,6 +782,7 @@ class _LifecycleV2Repository:
                 if contract != LIFECYCLE_V2_ROOT_CONTRACT_VERSION:
                     raise LifecycleV2RetentionUnconfirmed("shared root version is unknown or mixed")
                 self._root = decode_lifecycle_v2_root(root_encoded)
+                self._opened_with_existing_root = True
                 record_names = tuple(
                     name
                     for name in names
@@ -812,6 +968,19 @@ class _LifecycleV2Repository:
                 self._read_artifact(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).encoded,
                 outcome=self._outcome,
             )
+        if _COMMIT_STAGING_NAME in names:
+            if self._outcome is None:
+                raise LifecycleV2RetentionUnconfirmed(
+                    "fixed-marker staging has no outcome candidate"
+                )
+            self._commit_staging = decode_lifecycle_v2_outcome_commit(
+                self._read_artifact(_COMMIT_STAGING_NAME).encoded,
+                outcome=self._outcome,
+            )
+            if self._commit is not None and self._commit_staging != self._commit:
+                raise LifecycleV2RetentionUnconfirmed(
+                    "fixed-marker staging conflicts with the committed marker"
+                )
 
     def _validate_transcripts(self, names: tuple[str, ...]) -> None:
         transcript_names = tuple(
@@ -907,6 +1076,23 @@ class _LifecycleV2Repository:
                 raise LifecycleV2RetentionUnconfirmed(
                     "commit marker does not bind the loaded terminal lineage"
                 )
+        if self._commit_staging is not None:
+            staging_fields = self._commit_staging.to_dict()
+            if (
+                staging_fields["graceful_stop_operation_id"]
+                != self._root.graceful_stop_operation_id
+                or staging_fields["root_sha256"] != self._root.sha256
+                or staging_fields["outcome_sha256"] != self._outcome.sha256
+                or staging_fields["outcome_status"] != self._outcome.status
+                or staging_fields["transcript_sha256"] != full_transcript.sha256
+                or staging_fields["admission_started_boottime_ns"]
+                != self._root.admission_started_boottime_ns
+                or staging_fields["operation_deadline_boottime_ns"]
+                != self._root.operation_deadline_boottime_ns
+            ):
+                raise LifecycleV2RetentionUnconfirmed(
+                    "fixed-marker staging does not bind the loaded terminal lineage"
+                )
 
     def _require_stage_transition(
         self,
@@ -930,13 +1116,6 @@ class _LifecycleV2Repository:
             ):
                 raise LifecycleV2RepositoryRejected(
                     "recovery classification intent is already retained"
-                )
-            if (
-                exact_records
-                and exact_records[-1].stage is LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED
-            ):
-                raise LifecycleV2RepositoryRejected(
-                    "recovery classification cannot follow a terminal stage"
                 )
             return
         if any(
@@ -1027,7 +1206,7 @@ class _LifecycleV2Repository:
         if self._commit is not None:
             return LifecycleV2RepositoryStatus.OUTCOME_COMMITTED
         if self._outcome is not None:
-            return LifecycleV2RepositoryStatus.RECOVERY_REQUIRED
+            return LifecycleV2RepositoryStatus.OUTCOME_COMMIT_UNCONFIRMED
         if self._root is None:
             return LifecycleV2RepositoryStatus.UNRESERVED
         if self._records and self._records[-1].stage in {
@@ -1261,13 +1440,30 @@ class _LifecycleV2Repository:
             raise LifecycleV2RepositoryRejected("terminal-cleanup result stage is wrong")
         self._retain_progress(record)
 
-    def retain_recovery_classification_intent(self, record: LifecycleV2ProgressRecord) -> None:
+    def retain_recovery_classification_intent(
+        self,
+        authenticated_intent: LifecycleV2AuthenticatedRecoveryIntent,
+    ) -> LifecycleV2ProgressRecord:
         self._require_owner()
+        try:
+            exact_intent = require_authenticated_lifecycle_v2_recovery_intent(
+                authenticated_intent
+            )
+        except TrustedTimeGracefulStopV2Rejected as error:
+            raise LifecycleV2RepositoryRejected(
+                "recovery classification intent is not authenticated"
+            ) from error
+        record = exact_intent.record
         if record.stage is not LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED:
             raise LifecycleV2RepositoryRejected("recovery-classification stage is wrong")
         self._require_record_binding(record)
         classified_transcript = self._transcript()
         if (
+            self._root is None
+            or exact_intent.root_sha256 != self._root.sha256
+            or exact_intent.classified_transcript_sha256
+            != classified_transcript.sha256
+            or
             record.evidence.to_dict()["classified_transcript_sha256"]
             != classified_transcript.sha256
         ):
@@ -1288,6 +1484,7 @@ class _LifecycleV2Repository:
                 "classified transcript retention is unconfirmed"
             ) from None
         self._retain_progress(record)
+        return record
 
     def _transcript(self, *, last_ordinal: int | None = None) -> LifecycleV2Transcript:
         if self._root is None:
@@ -1373,73 +1570,45 @@ class _LifecycleV2Repository:
             raise LifecycleV2RetentionUnconfirmed("transcript publication may have begun") from None
         return transcript
 
-    def commit_recovery_outcome(
-        self,
-        outcome: LifecycleV2Outcome,
-        commit: LifecycleV2OutcomeCommit,
-    ) -> None:
-        self._require_owner()
-        if self._commit is not None:
-            raise LifecycleV2RepositoryRejected("terminal outcome already committed")
-        if self._root is None or type(outcome) is not LifecycleV2Outcome:
-            raise LifecycleV2RepositoryRejected("recovery outcome requires an exact root")
-        if type(commit) is not LifecycleV2OutcomeCommit:
-            raise LifecycleV2RepositoryRejected("milestone-one repository writes recovery only")
+    @staticmethod
+    def _sample_boottime(clock: LifecycleV2BoottimeClock) -> int:
         try:
-            verified_outcome = decode_lifecycle_v2_outcome(outcome.encoded)
-        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
-            raise LifecycleV2RepositoryRejected("outcome proof is not canonically valid") from None
-        if verified_outcome != outcome:
-            raise LifecycleV2RepositoryRejected("outcome proof changed under canonical validation")
-        outcome = verified_outcome
-        if outcome.status != "recovery_required":
-            raise LifecycleV2RepositoryRejected("milestone-one repository writes recovery only")
-        if self._outcome is not None and self._outcome != outcome:
-            raise LifecycleV2RepositoryRejected("a different outcome candidate is retained")
-        try:
-            verified_commit = decode_lifecycle_v2_outcome_commit(
-                commit.encoded,
-                outcome=outcome,
-            )
-        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
-            raise LifecycleV2RepositoryRejected("commit proof is not canonically valid") from None
-        if verified_commit != commit:
-            raise LifecycleV2RepositoryRejected("commit proof changed under canonical validation")
-        commit = verified_commit
-        if (
-            not self._records
-            or self._records[-1].stage
-            is not LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED
-        ):
+            sample = clock.sample_boottime_ns()
+        except BaseException as error:
+            if not isinstance(error, Exception):
+                raise
             raise LifecycleV2RepositoryRejected(
-                "recovery outcome requires a retained classification intent"
+                "CLOCK_BOOTTIME sample is unavailable"
+            ) from None
+        if type(sample) is not int or not 0 <= sample <= MAXIMUM_SIGNED_INTEGER:
+            raise LifecycleV2RepositoryRejected(
+                "CLOCK_BOOTTIME sample is outside its exact bounds"
             )
+        return sample
+
+    def _require_published_final_transcript(self) -> LifecycleV2Transcript:
         transcript = self._transcript()
-        outcome_fields = outcome.to_dict()
-        recovery_fields = self._records[-1].evidence.to_dict()
-        if (
-            outcome_fields["root_sha256"] != self._root.sha256
-            or outcome_fields["graceful_stop_operation_id"] != self._root.graceful_stop_operation_id
-            or outcome_fields["ordinal"] != len(self._records) + 1
-            or outcome_fields["predecessor_sha256"]
-            != (self._records[-1].sha256 if self._records else self._root.sha256)
-            or outcome_fields["transcript_sha256"] != transcript.sha256
-            or outcome_fields["final_stage"] != self._records[-1].stage.value
-            or outcome_fields["reason_code"] != recovery_fields["reason_code"]
-        ):
-            raise LifecycleV2RepositoryRejected("recovery outcome is not the exact next terminal")
-        LifecycleV2OutcomeCommit.capture(commit.to_dict(), outcome=outcome)
         try:
-            self._publication_receipt(
-                self._store.publish_immutable(
-                    staging_name=_TRANSCRIPT_STAGING_NAME,
-                    final_name=transcript.file_name,
-                    encoded=transcript.encoded,
-                ),
-                final_name=transcript.file_name,
-                encoded=transcript.encoded,
-            )
-            self._publication_receipt(
+            readback = self._read_artifact(transcript.file_name)
+            if readback.encoded != transcript.encoded:
+                raise LifecycleV2ArtifactPublicationUncertain
+        except BaseException as error:
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2RepositoryRejected(
+                "exact final transcript is not stably published"
+            ) from None
+        return transcript
+
+    def _publish_outcome_candidate(self, outcome: LifecycleV2Outcome) -> None:
+        if self._outcome is not None:
+            if self._outcome != outcome:
+                raise LifecycleV2RepositoryRejected(
+                    "a different outcome candidate is already retained"
+                )
+            return
+        try:
+            receipt = self._publication_receipt(
                 self._store.publish_immutable(
                     staging_name=_OUTCOME_STAGING_NAME,
                     final_name=outcome.file_name,
@@ -1448,24 +1617,339 @@ class _LifecycleV2Repository:
                 final_name=outcome.file_name,
                 encoded=outcome.encoded,
             )
-            self._publication_receipt(
-                self._store.publish_immutable(
-                    staging_name=_COMMIT_STAGING_NAME,
-                    final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
-                    encoded=commit.encoded,
-                ),
-                final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
-                encoded=commit.encoded,
-            )
-            if self._read_artifact(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).encoded != commit.encoded:
-                raise LifecycleV2ArtifactPublicationUncertain
+            readback = self._read_artifact(outcome.file_name)
+            if (
+                readback.encoded != outcome.encoded
+                or readback.file_device != receipt.final_device
+                or readback.file_inode != receipt.final_inode
+                or readback.file_mode != receipt.final_mode
+                or readback.file_size != receipt.final_size
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "outcome candidate stable readback disagrees"
+                )
         except BaseException as error:
             self._burn()
             if not isinstance(error, Exception):
                 raise
-            raise LifecycleV2RetentionUnconfirmed("outcome commit may have begun") from None
+            raise LifecycleV2RetentionUnconfirmed(
+                "outcome candidate publication may have begun"
+            ) from None
         self._outcome = outcome
+
+    def _publish_fixed_marker(
+        self,
+        *,
+        outcome: LifecycleV2Outcome,
+        encoded: bytes,
+        finalize_staging: bool,
+    ) -> LifecycleV2OutcomeCommit:
+        try:
+            if finalize_staging:
+                publication = self._store.finalize_preallocated_immutable(
+                    staging_name=_COMMIT_STAGING_NAME,
+                    final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+                    encoded=encoded,
+                )
+            else:
+                publication = self._store.publish_immutable(
+                    staging_name=_COMMIT_STAGING_NAME,
+                    final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+                    encoded=encoded,
+                )
+            self._publication_receipt(
+                publication,
+                final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+                encoded=encoded,
+            )
+            if (
+                self._read_artifact(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).encoded
+                != encoded
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "fixed marker stable readback disagrees"
+                )
+            commit = decode_lifecycle_v2_outcome_commit(encoded, outcome=outcome)
+        except BaseException as error:
+            self._burn()
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2RetentionUnconfirmed(
+                "fixed-marker publication may have begun"
+            ) from None
         self._commit = commit
+        return commit
+
+    def commit_recovery_outcome(
+        self,
+        *,
+        clock: LifecycleV2BoottimeClock,
+        created_at_utc: str,
+    ) -> tuple[LifecycleV2Outcome, LifecycleV2OutcomeCommit]:
+        """Derive and commit only the deterministic classified recovery outcome."""
+
+        self._require_owner()
+        if self._commit is not None:
+            raise LifecycleV2RepositoryRejected("terminal outcome already committed")
+        if self._outcome is not None:
+            raise LifecycleV2RepositoryRejected(
+                "an outcome candidate already exists; use exact-candidate finalization"
+            )
+        if (
+            self._root is None
+            or not self._records
+            or self._records[-1].stage
+            is not LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED
+        ):
+            raise LifecycleV2RepositoryRejected(
+                "recovery outcome requires a retained classification intent"
+            )
+        transcript = self._require_published_final_transcript()
+        authorized = self._sample_boottime(clock)
+        if authorized > MAXIMUM_SIGNED_INTEGER - LIFECYCLE_V2_COMMIT_BUDGET_NS:
+            raise LifecycleV2RepositoryRejected("recovery commit deadline overflows")
+        recovery_record = self._records[-1]
+        recovery_evidence = recovery_record.evidence.to_dict()
+        outcome = LifecycleV2Outcome.capture(
+            {
+                "contract_version": LIFECYCLE_V2_OUTCOME_CONTRACT_VERSION,
+                "service": LIFECYCLE_V2_SERVICE,
+                "status": "recovery_required",
+                "lifecycle_version": 2,
+                "graceful_stop_operation_id": self._root.graceful_stop_operation_id,
+                "root_sha256": self._root.sha256,
+                "ordinal": recovery_record.ordinal + 1,
+                "predecessor_sha256": recovery_record.sha256,
+                "final_stage": recovery_record.stage.value,
+                "transcript_sha256": transcript.sha256,
+                "reason_code": recovery_evidence["reason_code"],
+                "pre_effect_binding_sha256": None,
+                "post_teardown_binding_sha256": None,
+                "volume_proof_sha256": None,
+                "terminal_cleanup_sha256": None,
+                "stop_effects_confirmed": False,
+                "teardown_confirmed": False,
+                "terminal_cleanup_confirmed": False,
+                "admission_started_boottime_ns": (
+                    self._root.admission_started_boottime_ns
+                ),
+                "operation_deadline_boottime_ns": (
+                    self._root.operation_deadline_boottime_ns
+                ),
+                "commit_protocol_started_boottime_ns": authorized,
+                "commit_publication_authorization_deadline_boottime_ns": (
+                    authorized + LIFECYCLE_V2_COMMIT_BUDGET_NS
+                ),
+                "commit_authorized_boottime_ns": authorized,
+                "created_at_utc": created_at_utc,
+            }
+        )
+        marker_basis = _LifecycleV2OutcomeCommitMarkerBasis.prepare(outcome)
+        marker_encoded = marker_basis.materialize(authorized)
+        self._publish_outcome_candidate(outcome)
+        commit = self._publish_fixed_marker(
+            outcome=outcome,
+            encoded=marker_encoded,
+            finalize_staging=False,
+        )
+        return outcome, commit
+
+    def commit_confirmed_success(
+        self,
+        *,
+        clock: LifecycleV2BoottimeClock,
+        precommit_disposer: LifecycleV2SuccessPrecommitDisposer,
+        created_at_utc: str,
+    ) -> tuple[LifecycleV2Outcome, LifecycleV2OutcomeCommit]:
+        """Publish success only after exact ordinal 22 and the final authorization."""
+
+        self._require_owner()
+        if self._commit is not None:
+            raise LifecycleV2RepositoryRejected("terminal outcome already committed")
+        if self._outcome is not None:
+            raise LifecycleV2RepositoryRejected(
+                "an outcome candidate already exists; alternate success is forbidden"
+            )
+        if (
+            self._root is None
+            or self._opened_with_existing_root
+            or len(self._records) != 22
+            or self._records[-1].stage
+            is not LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED
+        ):
+            raise LifecycleV2RepositoryRejected(
+                "confirmed success requires the exact ordinal-22 prefix"
+            )
+        transcript = self._require_published_final_transcript()
+        protocol_start = self._sample_boottime(clock)
+        if (
+            protocol_start > MAXIMUM_SIGNED_INTEGER - LIFECYCLE_V2_COMMIT_BUDGET_NS
+            or protocol_start >= self._root.operation_deadline_boottime_ns
+        ):
+            raise LifecycleV2RepositoryRejected(
+                "confirmed-success protocol entry reached its authorization cutoff"
+            )
+        pre_effect = self._records[5]
+        post_teardown = self._records[19]
+        volume_proof = self._records[17]
+        terminal_cleanup = self._records[21]
+        outcome = LifecycleV2Outcome.capture(
+            {
+                "contract_version": LIFECYCLE_V2_OUTCOME_CONTRACT_VERSION,
+                "service": LIFECYCLE_V2_SERVICE,
+                "status": "confirmed_success",
+                "lifecycle_version": 2,
+                "graceful_stop_operation_id": self._root.graceful_stop_operation_id,
+                "root_sha256": self._root.sha256,
+                "ordinal": 23,
+                "predecessor_sha256": terminal_cleanup.sha256,
+                "final_stage": terminal_cleanup.stage.value,
+                "transcript_sha256": transcript.sha256,
+                "reason_code": "completed",
+                "pre_effect_binding_sha256": pre_effect.evidence.to_dict()[
+                    "binding_semantic_sha256"
+                ],
+                "post_teardown_binding_sha256": post_teardown.evidence.to_dict()[
+                    "binding_semantic_sha256"
+                ],
+                "volume_proof_sha256": volume_proof.sha256,
+                "terminal_cleanup_sha256": terminal_cleanup.sha256,
+                "stop_effects_confirmed": True,
+                "teardown_confirmed": True,
+                "terminal_cleanup_confirmed": True,
+                "admission_started_boottime_ns": (
+                    self._root.admission_started_boottime_ns
+                ),
+                "operation_deadline_boottime_ns": (
+                    self._root.operation_deadline_boottime_ns
+                ),
+                "commit_protocol_started_boottime_ns": protocol_start,
+                "commit_publication_authorization_deadline_boottime_ns": min(
+                    protocol_start + LIFECYCLE_V2_COMMIT_BUDGET_NS,
+                    self._root.operation_deadline_boottime_ns,
+                ),
+                "commit_authorized_boottime_ns": None,
+                "created_at_utc": created_at_utc,
+            }
+        )
+        self._publish_outcome_candidate(outcome)
+        try:
+            marker_basis = _LifecycleV2OutcomeCommitMarkerBasis.prepare(outcome)
+            sealed_disposition = precommit_disposer.dispose_and_prove_empty(
+                root=self._root,
+                transcript=transcript,
+                outcome=outcome,
+                artifact_store_identity=self._store_identity,
+            )
+            disposition = precommit_disposer.require_exact_disposed_and_empty(
+                sealed_disposition
+            )
+            if (
+                disposition is not sealed_disposition
+                or disposition.root_sha256 != self._root.sha256
+                or disposition.transcript_sha256 != transcript.sha256
+                or disposition.outcome_sha256 != outcome.sha256
+                or disposition.candidate_handle_disposed is not True
+                or disposition.transcript_handle_disposed is not True
+                or type(disposition.transient_descriptor_count) is not int
+                or disposition.transient_descriptor_count != 0
+                or type(disposition.registry_entry_count) is not int
+                or disposition.registry_entry_count != 0
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "success precommit descriptor or registry projection is not empty"
+                )
+        except BaseException as error:
+            self._burn()
+            if not isinstance(error, Exception):
+                raise
+            if isinstance(error, LifecycleV2ArtifactPublicationUncertain):
+                message = str(error)
+            else:
+                message = "success precommit owner disposal is unconfirmed"
+            raise LifecycleV2RetentionUnconfirmed(
+                message
+            ) from None
+
+        authorization_deadline = cast(
+            int,
+            outcome.to_dict()[
+                "commit_publication_authorization_deadline_boottime_ns"
+            ],
+        )
+        # This is the final classifying read and check.  The next operation is
+        # mechanical marker materialization followed directly by publication.
+        try:
+            authorized = self._sample_boottime(clock)
+        except LifecycleV2RepositoryRejected:
+            self._burn()
+            raise LifecycleV2RetentionUnconfirmed(
+                "confirmed-success final CLOCK_BOOTTIME sample is unconfirmed"
+            ) from None
+        if not (
+            protocol_start <= authorized < authorization_deadline
+            and authorized < self._root.operation_deadline_boottime_ns
+        ):
+            self._burn()
+            raise LifecycleV2RetentionUnconfirmed(
+                "confirmed-success final authorization is equality-expired"
+            )
+        marker_encoded = marker_basis.materialize(authorized)
+        commit = self._publish_fixed_marker(
+            outcome=outcome,
+            encoded=marker_encoded,
+            finalize_staging=False,
+        )
+        return outcome, commit
+
+    def finalize_retained_outcome_commit(self) -> LifecycleV2OutcomeCommit:
+        """Finalize only the exact retained candidate/marker preimage after restart."""
+
+        self._require_owner()
+        if self._commit is not None:
+            return self._commit
+        if self._outcome is None:
+            raise LifecycleV2RepositoryRejected(
+                "outcome finalization requires one exact retained candidate"
+            )
+        basis = _LifecycleV2OutcomeCommitMarkerBasis.prepare(self._outcome)
+        if self._outcome.status == "confirmed_success":
+            if self._commit_staging is None:
+                raise LifecycleV2RepositoryRejected(
+                    "confirmed-success candidate lacks an authenticated marker preimage"
+                )
+            authorized = cast(
+                int,
+                self._commit_staging.to_dict()["commit_authorized_boottime_ns"],
+            )
+            encoded = basis.materialize(authorized)
+            if encoded != self._commit_staging.encoded:
+                raise LifecycleV2RetentionUnconfirmed(
+                    "confirmed-success marker preimage changed"
+                )
+            return self._publish_fixed_marker(
+                outcome=self._outcome,
+                encoded=encoded,
+                finalize_staging=True,
+            )
+        authorized = cast(
+            int,
+            self._outcome.to_dict()["commit_authorized_boottime_ns"],
+        )
+        encoded = basis.materialize(authorized)
+        if self._commit_staging is not None:
+            if encoded != self._commit_staging.encoded:
+                raise LifecycleV2RetentionUnconfirmed(
+                    "recovery marker preimage changed"
+                )
+            finalize_staging = True
+        else:
+            finalize_staging = False
+        return self._publish_fixed_marker(
+            outcome=self._outcome,
+            encoded=encoded,
+            finalize_staging=finalize_staging,
+        )
 
 
 def _open_injected_lifecycle_v2_repository(

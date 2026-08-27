@@ -36,7 +36,10 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     lifecycle_v2_wire_file_name,
 )
 from packages.domain.trusted_time_graceful_stop_v2_recovery import (
+    _PRODUCTION_RECOVERY_INTENT_CAPABILITY,
+    LifecycleV2AuthenticatedRecoveryIntent,
     LifecycleV2RecoveryClassificationEnvelope,
+    _consume_authenticated_lifecycle_v2_recovery_classification_envelope,
     decode_lifecycle_v2_recovery_classification_envelope,
 )
 from packages.domain.trusted_time_graceful_stop_v2_terminal import (
@@ -352,6 +355,9 @@ class AuthenticatedLifecycleV2RecoveryClassificationEnvelope:
     root_sha256: str
     classified_transcript_sha256: str
     authority_manifest_sha256: str
+    _origin_pid: int
+    _origin_thread: threading.Thread
+    _consumed: bool
     _capability: object
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
@@ -465,8 +471,53 @@ def authenticate_lifecycle_v2_recovery_classification_envelope(
     object.__setattr__(result, "root_sha256", exact_root.sha256)
     object.__setattr__(result, "classified_transcript_sha256", exact_transcript.sha256)
     object.__setattr__(result, "authority_manifest_sha256", manifest.sha256)
+    object.__setattr__(result, "_origin_pid", os.getpid())
+    object.__setattr__(result, "_origin_thread", threading.current_thread())
+    object.__setattr__(result, "_consumed", False)
     object.__setattr__(result, "_capability", _AUTHENTICATED_VALUE_CAPABILITY)
     return _require_authenticated_lifecycle_v2_recovery_classification_envelope(result)
+
+
+def _consume_authenticated_lifecycle_v2_recovery_envelope_value(
+    value: object,
+) -> tuple[LifecycleV2RecoveryClassificationEnvelope, str, str, str]:
+    authenticated = _require_authenticated_lifecycle_v2_recovery_classification_envelope(
+        value
+    )
+    if (
+        os.getpid() != authenticated._origin_pid
+        or threading.current_thread() is not authenticated._origin_thread
+        or authenticated._consumed
+    ):
+        raise LifecycleV2TransportAuthenticationError(
+            "authenticated recovery classification owner is invalid or consumed"
+        )
+    object.__setattr__(authenticated, "_consumed", True)
+    return (
+        authenticated.envelope,
+        authenticated.root_sha256,
+        authenticated.classified_transcript_sha256,
+        authenticated.authority_manifest_sha256,
+    )
+
+
+def consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+    authenticated_envelope: object,
+    *,
+    root: LifecycleV2Root,
+    classified_transcript: LifecycleV2Transcript,
+    recorded_at_utc: str,
+) -> LifecycleV2AuthenticatedRecoveryIntent:
+    """Consume one authenticated classifier into its exact durable intent."""
+
+    return _consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+        authenticated_envelope,
+        root=root,
+        classified_transcript=classified_transcript,
+        recorded_at_utc=recorded_at_utc,
+        unwrap=_consume_authenticated_lifecycle_v2_recovery_envelope_value,
+        capability=_PRODUCTION_RECOVERY_INTENT_CAPABILITY,
+    )
 
 
 def _require_authority_correlators(
@@ -1074,5 +1125,6 @@ __all__ = [
     "authenticate_selected_lifecycle_v2_handshake",
     "authenticated_lifecycle_v2_recovery_manifest_for_root",
     "bind_authenticated_lifecycle_v2_terminal_envelope_proof",
+    "consume_authenticated_lifecycle_v2_recovery_classification_envelope",
     "lifecycle_v2_ed25519_non_authority_facts",
 ]
