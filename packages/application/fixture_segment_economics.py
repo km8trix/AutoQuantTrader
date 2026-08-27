@@ -412,11 +412,18 @@ def _read_descriptor_bytes(descriptor: int, maximum: int) -> bytes:
 
 
 def _resolved_python_executable() -> str:
-    candidate = Path(sys.executable)
+    if sys.implementation.name != "cpython" or type(sys.base_prefix) is not str:
+        raise RuntimeError("Python runtime identity is unsupported")
+    candidate = (
+        Path(sys.base_prefix) / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    )
     if not candidate.is_absolute():
         raise RuntimeError("Python executable must be absolute")
-    executable = candidate.resolve(strict=True)
-    metadata = executable.stat()
+    try:
+        executable = candidate.resolve(strict=True)
+        metadata = executable.stat()
+    except OSError:
+        raise RuntimeError("Python executable is unsupported") from None
     if not stat.S_ISREG(metadata.st_mode) or not os.access(executable, os.X_OK):
         raise RuntimeError("Python executable is unsupported")
     return str(executable)

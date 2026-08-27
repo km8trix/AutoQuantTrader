@@ -415,6 +415,32 @@ def test_public_execution_surface_has_no_command_code_or_environment_input() -> 
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Phase 3H fails closed off POSIX")
+def test_child_executable_resolves_the_base_cpython_not_the_policy_launcher(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launcher = "/opt/autoquant/trusted-time/bin/autoquant-trusted-time-python"
+    monkeypatch.setattr(sys, "executable", launcher)
+    expected = (
+        Path(sys.base_prefix) / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    ).resolve(strict=True)
+
+    assert economic_application._resolved_python_executable() == str(expected)
+    assert str(expected) != launcher
+    assert expected.name == f"python{sys.version_info.major}.{sys.version_info.minor}"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Phase 3H fails closed off POSIX")
+def test_child_executable_fails_closed_without_the_versioned_base_cpython(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(sys, "base_prefix", str(tmp_path))
+
+    with pytest.raises(RuntimeError, match="Python executable is unsupported"):
+        economic_application._resolved_python_executable()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Phase 3H fails closed off POSIX")
 def test_launch_uses_fixed_argv_empty_cwd_and_noninherited_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

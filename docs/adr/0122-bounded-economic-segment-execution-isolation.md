@@ -56,9 +56,11 @@ claiming that repository hashes authenticate an external tape.
    child. The public function accepts only the completed projection and target
    certification. There is no public or internal parameter for executable,
    module, source code, argv, environment, working directory, fixture path,
-   model, timeout, or resource policy. The parent resolves the absolute current
-   Python executable exactly once, then opens and reads the one nonsymlink
-   sibling child file exactly once. In a newly created mode-0700 directory it
+   model, timeout, or resource policy. The parent resolves the exact versioned
+   CPython interpreter from the admitted base runtime exactly once, including
+   when the parent is hosted by a native policy launcher, then opens and reads
+   the one nonsymlink sibling child file exactly once. In a newly created
+   mode-0700 directory it
    writes those bytes to an exclusive mode-0400 snapshot, opens that snapshot
    read-only, closes the writable descriptor, reads back and hashes the exact
    descriptor bytes, verifies path/open-file metadata, resets the read offset,

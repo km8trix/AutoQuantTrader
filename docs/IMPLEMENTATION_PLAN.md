@@ -59,6 +59,10 @@ ADR-0112 v2 seam, and test-only transport and Docker/effect fakes. Real resource
 owners, persistence, authenticated transport, effects, deployment/bootstrap,
 promotion, and authority remain open. No Wave 5 lane substitutes for Phase 1
 external admission or enables a provider, stop, broker, paper, or live effect.
+The Phase 3H supervisor now resolves the exact versioned CPython executable
+from the native launcher's admitted base runtime, so the fixed child remains
+executable when regression tests are hosted by that policy launcher; a missing
+or unusable base interpreter fails closed.
 The repository admission boundary now also preserves exact import forms and
 reserved origins across `apps`, `packages`, `scripts`, and executable Alembic
 `migrations`, while the bootstrap seal pins `alembic.ini`; these are static

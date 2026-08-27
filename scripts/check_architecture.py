@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "580256f89c7aca075afcba3969a5b9a88de41f2d14a334d9e5ced58b3b5c9e65"
+    "a21cda2e3824875e285eda92f732a22183db627322c10cdac021fdab8facafb7"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -10779,7 +10779,7 @@ def check(
             "89054d8462035a86f3d219caf0ab5dd23ac394c25f0d3a5bbd2c54c94cf7009d"
         ),
         expected_phase3h_execution_module_path: (
-            "4f758b154fa063fee92d4f4f1483a1348a5167661e1f30ec03a59eaa1c4c0fe7"
+            "9a029a2c0c3a82ba322cbc6ec5ef37782c53a7352f04c4c2ad9f1406621ec383"
         ),
     }
     expected_phase3h_dynamic_code_exception_module_ast_sha256 = {

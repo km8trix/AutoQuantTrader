@@ -205,7 +205,10 @@ def test_sqlite_exact_retry_reconstructs_full_state_and_replay_chain(tmp_path: P
     assert reloaded.replay_guard == guard
     assert tuple(event.sequence for event in reloaded.events) == (1, 2, 3)
     assert all(value is False for value in reloaded.authority.values())
-    with pytest.raises(EtradeOAuthCoordinatorConflict, match="stale branch"):
+    with pytest.raises(
+        EtradeOAuthCoordinatorConflict,
+        match="snapshot failed complete authentication",
+    ):
         repository.advance(truncated_expected, pending, guard)
     with engine.connect() as connection:
         _verify_etrade_oauth_coordinator_integrity(connection)
