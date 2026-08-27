@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Self
 
@@ -19,11 +20,15 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     MAXIMUM_SIGNED_INTEGER,
     FrozenJsonObject,
     LifecycleV2CleanStopRequest,
+    LifecycleV2Root,
     TrustedTimeGracefulStopV2Rejected,
     UnverifiedLifecycleV2TransportEnvelope,
+    _require_fake_authenticated_lifecycle_v2_transport_envelope,
     canonical_v2_json_bytes,
     decode_canonical_v2_json_object,
     decode_lifecycle_v2_clean_stop_request,
+    decode_lifecycle_v2_root,
+    decode_unverified_lifecycle_v2_transport_envelope,
     lifecycle_v2_wire_file_name,
 )
 
@@ -127,6 +132,165 @@ class _CanonicalValue:
     @property
     def maximum_bytes(self) -> int:
         raise NotImplementedError
+
+
+_PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY = object()
+_FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY = object()
+_PRODUCTION_AUTHENTICATED_ENVELOPE_TYPE = (
+    "packages.adapters.trusted_time.graceful_stop_v2_ed25519",
+    "AuthenticatedLifecycleV2TransportEnvelope",
+)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class LifecycleV2AuthenticatedTerminalEnvelopeProof:
+    """Sealed proof that a terminal envelope crossed an authentication boundary."""
+
+    envelope: UnverifiedLifecycleV2TransportEnvelope
+    authority_manifest_sha256: str
+    signer_role: str
+    _capability: object
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("terminal envelope proofs require an authentication boundary")
+
+
+_TerminalEnvelopeUnwrapper = Callable[
+    [object], tuple[UnverifiedLifecycleV2TransportEnvelope, str, str]
+]
+
+
+def _seal_terminal_envelope_proof(
+    envelope: object,
+    *,
+    authority_manifest_sha256: object,
+    signer_role: object,
+    capability: object,
+) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
+    if type(envelope) is not UnverifiedLifecycleV2TransportEnvelope:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "authenticated terminal proof did not unwrap an exact envelope"
+        )
+    canonical = decode_unverified_lifecycle_v2_transport_envelope(envelope.encoded)
+    if canonical != envelope or canonical.frame_type not in {
+        "clean_stop_result",
+        "clean_stop_error",
+    }:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "authenticated terminal proof did not unwrap canonical terminal wire"
+        )
+    manifest_sha256 = _require_sha256(
+        authority_manifest_sha256,
+        "authority_manifest_sha256",
+    )
+    role = _require_text(signer_role, "signer_role")
+    if role != "supervisor":
+        raise TrustedTimeGracefulStopV2Rejected(
+            "terminal wire was not authenticated as supervisor-signed"
+        )
+    result = object.__new__(LifecycleV2AuthenticatedTerminalEnvelopeProof)
+    object.__setattr__(result, "envelope", canonical)
+    object.__setattr__(result, "authority_manifest_sha256", manifest_sha256)
+    object.__setattr__(result, "signer_role", role)
+    object.__setattr__(result, "_capability", capability)
+    return result
+
+
+def _mint_authenticated_lifecycle_v2_terminal_envelope_proof(
+    authenticated_envelope: object,
+    *,
+    unwrap: _TerminalEnvelopeUnwrapper,
+    capability: object,
+) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
+    """Private adapter seam for a production authenticated-envelope value.
+
+    The Ed25519 adapter owns the exact-type/capability check for its
+    ``AuthenticatedLifecycleV2TransportEnvelope``.  Its private unwrapper may
+    cross this seam only while holding this module's production mint
+    capability; the domain therefore never imports the adapter.
+    """
+
+    if capability is not _PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "production terminal proof mint capability is invalid"
+        )
+    authenticated_type = type(authenticated_envelope)
+    if (
+        authenticated_type.__module__,
+        authenticated_type.__qualname__,
+    ) != _PRODUCTION_AUTHENTICATED_ENVELOPE_TYPE:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "production terminal proof requires the exact adapter-authenticated type"
+        )
+    if not callable(unwrap):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "production terminal proof unwrapper is invalid"
+        )
+    try:
+        unwrapped = unwrap(authenticated_envelope)
+    except Exception as error:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "production terminal envelope authentication is not valid"
+        ) from error
+    if type(unwrapped) is not tuple or len(unwrapped) != 3:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "production terminal proof unwrapper returned an invalid value"
+        )
+    envelope, manifest_sha256, signer_role = unwrapped
+    return _seal_terminal_envelope_proof(
+        envelope,
+        authority_manifest_sha256=manifest_sha256,
+        signer_role=signer_role,
+        capability=capability,
+    )
+
+
+def _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof(
+    authenticated_envelope: object,
+    *,
+    root: LifecycleV2Root,
+    capability: object,
+) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
+    """Private test seam for the existing fake-authenticated envelope value."""
+
+    if capability is not _FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "fake terminal proof mint capability is invalid"
+        )
+    exact_root = _require_exact_root(root)
+    envelope = _require_fake_authenticated_lifecycle_v2_transport_envelope(
+        authenticated_envelope
+    )
+    return _seal_terminal_envelope_proof(
+        envelope,
+        authority_manifest_sha256=exact_root.transport_authority_manifest_sha256,
+        signer_role="supervisor",
+        capability=capability,
+    )
+
+
+def _require_authenticated_terminal_envelope_proof(
+    value: object,
+) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
+    if (
+        type(value) is not LifecycleV2AuthenticatedTerminalEnvelopeProof
+        or (
+            value._capability is not _PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY
+            and value._capability is not _FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY
+        )
+        or type(value.envelope) is not UnverifiedLifecycleV2TransportEnvelope
+        or value.signer_role != "supervisor"
+    ):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "terminal wire lacks an authenticated-envelope proof"
+        )
+    canonical = decode_unverified_lifecycle_v2_transport_envelope(value.envelope.encoded)
+    if canonical != value.envelope:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "authenticated terminal wire changed under validation"
+        )
+    _require_sha256(value.authority_manifest_sha256, "authority_manifest_sha256")
+    return value
 
 
 _TERMINAL_PROJECTION_FIELDS = frozenset(
@@ -398,6 +562,76 @@ _RESULT_FIELDS = frozenset(
 )
 
 
+def _require_exact_root(root: object) -> LifecycleV2Root:
+    if type(root) is not LifecycleV2Root:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "terminal evidence requires an exact lifecycle root"
+        )
+    canonical = decode_lifecycle_v2_root(root.encoded)
+    if canonical != root:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "terminal lifecycle root changed under canonical validation"
+        )
+    return canonical
+
+
+def _require_exact_request(request: object) -> LifecycleV2CleanStopRequest:
+    if type(request) is not LifecycleV2CleanStopRequest:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "terminal evidence requires an exact clean-stop request"
+        )
+    canonical = decode_lifecycle_v2_clean_stop_request(request.encoded)
+    if canonical != request:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "terminal clean-stop request changed under canonical validation"
+        )
+    return canonical
+
+
+def _require_root_request_correlators(
+    root: LifecycleV2Root,
+    request: LifecycleV2CleanStopRequest,
+) -> tuple[LifecycleV2Root, LifecycleV2CleanStopRequest, dict[str, object]]:
+    exact_root = _require_exact_root(root)
+    exact_request = _require_exact_request(request)
+    request_fields = exact_request.to_dict()
+    pairs = {
+        "environment": "environment",
+        "graceful_stop_operation_id": "graceful_stop_operation_id",
+        "graceful_stop_target_sha256": "graceful_stop_target_sha256",
+        "graceful_stop_decision_v1_sha256": "graceful_stop_decision_v1_sha256",
+        "graceful_stop_operator_attestation_envelope_sha256": (
+            "graceful_stop_operator_attestation_envelope_sha256"
+        ),
+        "historical_decision_receipt_sha256": "historical_decision_receipt_sha256",
+        "admission_sha256": "admission_sha256",
+        "topology_sha256": "topology_sha256",
+        "topology_lease_sha256": "topology_lease_sha256",
+        "trusted_head_sha256": "trusted_head_sha256",
+        "supervisor_container_id": "supervisor_container_id",
+        "channel_id": "channel_id",
+        "boot_epoch_sha256": "boot_epoch_sha256",
+        "host_process_epoch_sha256": "host_process_epoch_sha256",
+        "supervisor_process_epoch_sha256": "supervisor_process_epoch_sha256",
+        "admission_started_boottime_ns": "admission_started_boottime_ns",
+        "clean_stop_result_deadline_boottime_ns": (
+            "clean_stop_result_deadline_boottime_ns"
+        ),
+        "operation_deadline_boottime_ns": "operation_deadline_boottime_ns",
+    }
+    if (
+        request_fields["lifecycle_root_sha256"] != exact_root.sha256
+        or any(
+            request_fields[request_name] != getattr(exact_root, root_name)
+            for request_name, root_name in pairs.items()
+        )
+    ):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "clean-stop request crossed its exact lifecycle root"
+        )
+    return exact_root, exact_request, request_fields
+
+
 def _require_request_correlators(
     fields: dict[str, object],
     request: LifecycleV2CleanStopRequest,
@@ -608,7 +842,7 @@ class LifecycleV2CleanStopError(_CanonicalValue):
         operation_deadline = _require_int(
             fields["operation_deadline_boottime_ns"], "operation_deadline_boottime_ns"
         )
-        if observed >= operation_deadline:
+        if observed >= cleanup_deadline or observed >= operation_deadline:
             raise TrustedTimeGracefulStopV2Rejected("clean-stop error observation is late")
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
@@ -621,6 +855,135 @@ class LifecycleV2CleanStopError(_CanonicalValue):
     @property
     def maximum_bytes(self) -> int:
         return _ERROR_MAXIMUM_BYTES
+
+
+def _require_authenticated_terminal_context(
+    proof: object,
+    *,
+    root: LifecycleV2Root,
+    request: LifecycleV2CleanStopRequest,
+) -> tuple[
+    LifecycleV2AuthenticatedTerminalEnvelopeProof,
+    UnverifiedLifecycleV2TransportEnvelope,
+    LifecycleV2CleanStopResult | LifecycleV2CleanStopError,
+    dict[str, object],
+]:
+    authenticated = _require_authenticated_terminal_envelope_proof(proof)
+    exact_root, exact_request, request_fields = _require_root_request_correlators(
+        root,
+        request,
+    )
+    envelope = authenticated.envelope
+    envelope_fields = envelope.to_dict()
+    key_generation = _require_int(
+        envelope_fields["key_generation"],
+        "key_generation",
+        minimum=1,
+    )
+    message_counter = _require_int(
+        envelope_fields["message_counter"],
+        "message_counter",
+        minimum=1,
+    )
+    deadline = _require_int(
+        envelope_fields["deadline_boottime_ns"],
+        "deadline_boottime_ns",
+    )
+    expected_envelope_fields: dict[str, object] = {
+        "environment": exact_root.environment,
+        "key_generation": exact_root.transport_key_generation,
+        "signing_key_id": exact_root.supervisor_transport_key_id,
+        "boot_epoch_sha256": exact_root.boot_epoch_sha256,
+        "host_process_epoch_sha256": exact_root.host_process_epoch_sha256,
+        "supervisor_process_epoch_sha256": exact_root.supervisor_process_epoch_sha256,
+        "channel_id": exact_root.channel_id,
+        "lifecycle_dispatch_prefix_sha256": request_fields[
+            "lifecycle_dispatch_prefix_sha256"
+        ],
+        "message_counter": 1,
+        "deadline_boottime_ns": exact_root.clean_stop_result_deadline_boottime_ns,
+    }
+    if (
+        authenticated.authority_manifest_sha256
+        != exact_root.transport_authority_manifest_sha256
+        or authenticated.signer_role != "supervisor"
+        or key_generation != exact_root.transport_key_generation
+        or message_counter != 1
+        or deadline != exact_root.clean_stop_result_deadline_boottime_ns
+        or any(
+            envelope_fields[name] != expected
+            for name, expected in expected_envelope_fields.items()
+        )
+    ):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "authenticated terminal envelope crossed its root or request"
+        )
+    terminal = validate_terminal_envelope_payload(envelope, request=exact_request)
+    if terminal.request != exact_request or terminal.request.encoded != exact_request.encoded:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "terminal payload embedded a different clean-stop request"
+        )
+    terminal_fields = terminal.to_dict()
+    cleanup_fields = terminal.cleanup_commitment.to_dict()
+    expected_terminal_fields: dict[str, object] = {
+        "environment": exact_root.environment,
+        "graceful_stop_operation_id": exact_root.graceful_stop_operation_id,
+        "lifecycle_root_sha256": exact_root.sha256,
+        "admission_sha256": exact_root.admission_sha256,
+        "lifecycle_dispatch_prefix_sha256": request_fields[
+            "lifecycle_dispatch_prefix_sha256"
+        ],
+        "channel_id": exact_root.channel_id,
+        "boot_epoch_sha256": exact_root.boot_epoch_sha256,
+        "host_process_epoch_sha256": exact_root.host_process_epoch_sha256,
+        "supervisor_process_epoch_sha256": exact_root.supervisor_process_epoch_sha256,
+        "supervisor_container_id": exact_root.supervisor_container_id,
+        "transport_cleanup_deadline_boottime_ns": request_fields[
+            "transport_cleanup_deadline_boottime_ns"
+        ],
+        "operation_deadline_boottime_ns": exact_root.operation_deadline_boottime_ns,
+    }
+    expected_cleanup_fields: dict[str, object] = {
+        "environment": exact_root.environment,
+        "graceful_stop_operation_id": exact_root.graceful_stop_operation_id,
+        "lifecycle_root_sha256": exact_root.sha256,
+        "admission_sha256": exact_root.admission_sha256,
+        "channel_id": exact_root.channel_id,
+        "boot_epoch_sha256": exact_root.boot_epoch_sha256,
+        "supervisor_process_epoch_sha256": exact_root.supervisor_process_epoch_sha256,
+        "supervisor_container_id": exact_root.supervisor_container_id,
+        "transport_authority_manifest_sha256": (
+            exact_root.transport_authority_manifest_sha256
+        ),
+        "key_generation": exact_root.transport_key_generation,
+        "supervisor_key_id": exact_root.supervisor_transport_key_id,
+        "cleanup_deadline_boottime_ns": request_fields[
+            "transport_cleanup_deadline_boottime_ns"
+        ],
+    }
+    cleanup_key_generation = _require_int(
+        cleanup_fields["key_generation"],
+        "cleanup key_generation",
+        minimum=1,
+    )
+    if (
+        cleanup_key_generation != key_generation
+        or cleanup_fields["transport_authority_manifest_sha256"]
+        != authenticated.authority_manifest_sha256
+        or cleanup_fields["supervisor_key_id"] != envelope_fields["signing_key_id"]
+        or any(
+            terminal_fields[name] != expected
+            for name, expected in expected_terminal_fields.items()
+        )
+        or any(
+            cleanup_fields[name] != expected
+            for name, expected in expected_cleanup_fields.items()
+        )
+    ):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "terminal payload or cleanup crossed authenticated correlators"
+        )
+    return authenticated, envelope, terminal, request_fields
 
 
 _PUBLICATION_RECEIPT_FIELDS = frozenset(
@@ -672,18 +1035,35 @@ class LifecycleV2WirePublicationReceipt(_CanonicalValue):
         cls,
         value: object,
         *,
-        envelope: UnverifiedLifecycleV2TransportEnvelope,
+        proof: LifecycleV2AuthenticatedTerminalEnvelopeProof,
         request: LifecycleV2CleanStopRequest,
-        root_sha256: str,
+        root: LifecycleV2Root,
     ) -> Self:
-        if type(envelope) is not UnverifiedLifecycleV2TransportEnvelope:
-            raise TrustedTimeGracefulStopV2Rejected("publication requires an exact envelope")
-        terminal = validate_terminal_envelope_payload(envelope, request=request)
-        request_fields = request.to_dict()
-        _require_sha256(root_sha256, "root_sha256")
+        _, envelope, terminal, request_fields = _require_authenticated_terminal_context(
+            proof,
+            root=root,
+            request=request,
+        )
+        exact_root = _require_exact_root(root)
         frozen = FrozenJsonObject.capture(value)
         fields = frozen.to_dict()
         _require_fields(fields, _PUBLICATION_RECEIPT_FIELDS)
+        for name in (
+            "artifact_directory_device",
+            "artifact_directory_inode",
+            "file_device",
+            "file_inode",
+            "file_size",
+            "key_generation",
+            "message_counter",
+        ):
+            _require_int(fields[name], name, minimum=1)
+        _require_int(fields["file_mode"], "file_mode")
+        authorized = _require_int(
+            fields["publication_authorized_boottime_ns"],
+            "publication_authorized_boottime_ns",
+        )
+        deadline = _require_int(fields["deadline_boottime_ns"], "deadline_boottime_ns")
         envelope_fields = envelope.to_dict()
         frame_type = envelope.frame_type
         expected_kind = {
@@ -700,7 +1080,7 @@ class LifecycleV2WirePublicationReceipt(_CanonicalValue):
             or fields["status"] != "wire_envelope_published"
             or fields["environment"] != request_fields["environment"]
             or fields["graceful_stop_operation_id"] != request_fields["graceful_stop_operation_id"]
-            or fields["root_sha256"] != root_sha256
+            or fields["root_sha256"] != exact_root.sha256
             or fields["artifact_kind"] != expected_kind
             or fields["artifact_path"] != f"{directory}/{file_name}"
             or fields["file_name"] != file_name
@@ -725,16 +1105,6 @@ class LifecycleV2WirePublicationReceipt(_CanonicalValue):
         ):
             raise TrustedTimeGracefulStopV2Rejected("publication receipt disagrees with wire")
         for name in (
-            "artifact_directory_device",
-            "artifact_directory_inode",
-            "file_device",
-            "file_inode",
-            "file_size",
-            "key_generation",
-            "message_counter",
-        ):
-            _require_int(fields[name], name, minimum=1)
-        for name in (
             "root_sha256",
             "signed_envelope_sha256",
             "payload_sha256",
@@ -743,16 +1113,11 @@ class LifecycleV2WirePublicationReceipt(_CanonicalValue):
             "lifecycle_dispatch_prefix_sha256",
         ):
             _require_sha256(fields[name], name)
-        authorized = _require_int(
-            fields["publication_authorized_boottime_ns"],
-            "publication_authorized_boottime_ns",
-        )
-        deadline = _require_int(fields["deadline_boottime_ns"], "deadline_boottime_ns")
         if authorized >= deadline:
             raise TrustedTimeGracefulStopV2Rejected("wire publication authorization expired")
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
-        if terminal.to_dict()["lifecycle_root_sha256"] != root_sha256:
+        if terminal.to_dict()["lifecycle_root_sha256"] != exact_root.sha256:
             raise TrustedTimeGracefulStopV2Rejected(
                 "published terminal payload does not bind the lifecycle root"
             )
@@ -866,19 +1231,16 @@ class LifecycleV2TerminalWireEvidence(_CanonicalValue):
         cls,
         value: object,
         *,
-        envelope: UnverifiedLifecycleV2TransportEnvelope,
+        proof: LifecycleV2AuthenticatedTerminalEnvelopeProof,
         request: LifecycleV2CleanStopRequest,
-        root_sha256: str,
+        root: LifecycleV2Root,
         responder_identity_sha256: str,
     ) -> Self:
-        if (
-            type(envelope) is not UnverifiedLifecycleV2TransportEnvelope
-            or type(request) is not LifecycleV2CleanStopRequest
-        ):
-            raise TrustedTimeGracefulStopV2Rejected(
-                "terminal wire evidence inputs are not exact types"
-            )
-        terminal = validate_terminal_envelope_payload(envelope, request=request)
+        _, envelope, terminal, _ = _require_authenticated_terminal_context(
+            proof,
+            root=root,
+            request=request,
+        )
         frozen = FrozenJsonObject.capture(value)
         fields = frozen.to_dict()
         is_result = envelope.frame_type == "clean_stop_result"
@@ -892,11 +1254,18 @@ class LifecycleV2TerminalWireEvidence(_CanonicalValue):
         artifact_name = lifecycle_v2_wire_file_name(envelope)
         receipt = LifecycleV2WirePublicationReceipt.capture(
             fields["wire_publication_receipt"],
-            envelope=envelope,
+            proof=proof,
             request=request,
-            root_sha256=root_sha256,
+            root=root,
         )
         receipt_fields = receipt.to_dict()
+        _require_int(fields["key_generation"], "key_generation", minimum=1)
+        message_counter = _require_int(
+            fields["message_counter"],
+            "message_counter",
+            minimum=1,
+        )
+        _require_int(fields["deadline_boottime_ns"], "deadline_boottime_ns")
         if (
             fields["intent_sha256"] != request.to_dict()["request_intent_sha256"]
             or fields["responder_identity_sha256"] != responder_identity_sha256
@@ -915,7 +1284,7 @@ class LifecycleV2TerminalWireEvidence(_CanonicalValue):
             or fields["channel_id"] != envelope_fields["channel_id"]
             or fields["lifecycle_dispatch_prefix_sha256"]
             != envelope_fields["lifecycle_dispatch_prefix_sha256"]
-            or fields["message_counter"] != 1
+            or message_counter != 1
             or fields["deadline_boottime_ns"] != envelope_fields["deadline_boottime_ns"]
             or fields["wire_publication_receipt_sha256"] != receipt.sha256
         ):
@@ -973,10 +1342,19 @@ def validate_terminal_envelope_payload(
 
     if type(envelope) is not UnverifiedLifecycleV2TransportEnvelope:
         raise TrustedTimeGracefulStopV2Rejected("terminal envelope type is not exact")
+    exact_request = _require_exact_request(request)
     if envelope.frame_type == "clean_stop_result":
-        return decode_lifecycle_v2_clean_stop_result(envelope.payload)
+        result = decode_lifecycle_v2_clean_stop_result(envelope.payload)
+        if result.request != exact_request or result.request.encoded != exact_request.encoded:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "clean-stop result embedded a different exact request"
+            )
+        return result
     if envelope.frame_type == "clean_stop_error":
-        return decode_lifecycle_v2_clean_stop_error(envelope.payload, request=request)
+        return decode_lifecycle_v2_clean_stop_error(
+            envelope.payload,
+            request=exact_request,
+        )
     raise TrustedTimeGracefulStopV2Rejected("request envelope is not terminal evidence")
 
 
@@ -995,6 +1373,7 @@ __all__ = [
     "CLEAN_STOP_RESULT_CONTRACT_VERSION",
     "SUPERVISOR_CLEANUP_COMMITMENT_CONTRACT_VERSION",
     "WIRE_PUBLICATION_RECEIPT_CONTRACT_VERSION",
+    "LifecycleV2AuthenticatedTerminalEnvelopeProof",
     "LifecycleV2CleanStopError",
     "LifecycleV2CleanStopResult",
     "LifecycleV2SupervisorCleanupCommitment",

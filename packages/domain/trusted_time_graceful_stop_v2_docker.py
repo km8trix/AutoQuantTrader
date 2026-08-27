@@ -80,7 +80,11 @@ def _require_text(
 ) -> str:
     if type(value) is not str or (not value and not allow_empty):
         _reject(f"{name} must be text")
-    if len(value.encode("utf-8")) > maximum_bytes or "\0" in value:
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError:
+        _reject(f"{name} contains an invalid Unicode scalar")
+    if len(encoded) > maximum_bytes or "\0" in value:
         _reject(f"{name} exceeds its text bound")
     return value
 
@@ -252,6 +256,8 @@ class DockerCallSpec:
 
     def _validate(self) -> None:
         _require_int(self.ordinal, "ordinal", maximum=17)
+        _require_int(self.expected_status, "expected_status", minimum=100, maximum=599)
+        _require_int(self.body_ceiling, "body_ceiling")
         if self.exchange_kind not in {"admission_read", "mutation", "post_inspect", "volume_proof"}:
             _reject("exchange kind is outside the closed set")
         if self.target_kind not in {"daemon", "container", "network", "volume"}:
@@ -260,8 +266,8 @@ class DockerCallSpec:
             _reject("Docker method is outside the closed set")
         if self.request_headers != (_GET_HEADERS if self.method == "GET" else _MUTATION_HEADERS):
             _reject("Docker header profile is not exact")
-        if self.body_ceiling < 0:
-            _reject("Docker body ceiling is invalid")
+        if self.expected_status not in {200, 204, 404}:
+            _reject("Docker expected status is outside the closed set")
 
     @property
     def request_target(self) -> str:
@@ -646,8 +652,12 @@ def _bound_json_tree(value: object) -> None:
         if node is None or type(node) in (bool, int):
             return
         if type(node) is str:
-            if len(node.encode("utf-8")) > _JSON_STRING_LIMIT:
-                _reject("Docker JSON string exceeds its bound")
+            _require_text(
+                node,
+                "Docker JSON string",
+                maximum_bytes=_JSON_STRING_LIMIT,
+                allow_empty=True,
+            )
             return
         if type(node) is list:
             for item in node:
@@ -1254,6 +1264,77 @@ _CONNECTION_FIELDS = frozenset(
     }
 )
 
+_POSIX_FILE_TYPE_MASK = 0o170000
+_POSIX_REGULAR_FILE = 0o100000
+_POSIX_SOCKET = 0o140000
+_POSIX_GROUP_OR_WORLD_WRITE = 0o022
+_MAXIMUM_DAEMON_EXECUTABLE_BYTES = 268_435_456
+_MOUNT_MAJOR_MINOR = re.compile(r"(?:0|[1-9][0-9]{0,9}):(?:0|[1-9][0-9]{0,9})\Z")
+
+_IMMUTABLE_DAEMON_SOCKET_CORE_FIELDS = (
+    "docker_socket_path",
+    "socket_mount_id",
+    "socket_mount_parent_id",
+    "socket_mount_major_minor",
+    "socket_mount_root",
+    "socket_mount_point",
+    "socket_mount_filesystem_type",
+    "socket_mount_source",
+    "socket_mount_options",
+    "socket_mount_super_options",
+    "socket_path_device",
+    "socket_path_inode",
+    "socket_path_uid",
+    "socket_path_gid",
+    "socket_path_mode",
+    "peer_uid",
+    "peer_gid",
+    "peer_pid",
+    "daemon_start_time_ticks",
+    "daemon_proc_device",
+    "daemon_proc_inode",
+    "daemon_pid_namespace_inode",
+    "daemon_executable_device",
+    "daemon_executable_inode",
+    "daemon_executable_size",
+    "daemon_executable_uid",
+    "daemon_executable_gid",
+    "daemon_executable_mode",
+    "daemon_executable_nlink",
+    "daemon_executable_sha256",
+    "daemon_cgroup_sha256",
+)
+
+_LOCAL_SOCKET_IDENTITY_FIELDS = (
+    "local_socket_device",
+    "local_socket_inode",
+    "local_socket_cookie",
+)
+
+
+def _daemon_socket_core(fields: dict[str, object]) -> tuple[object, ...]:
+    return tuple(fields[name] for name in _IMMUTABLE_DAEMON_SOCKET_CORE_FIELDS)
+
+
+def _local_socket_identity(fields: dict[str, object]) -> tuple[int, int, int]:
+    return cast(
+        tuple[int, int, int], tuple(fields[name] for name in _LOCAL_SOCKET_IDENTITY_FIELDS)
+    )
+
+
+def _connection_started(fields: dict[str, object]) -> int:
+    return _require_int(
+        fields["path_preconnect_validated_boottime_ns"],
+        "path_preconnect_validated_boottime_ns",
+    )
+
+
+def _connection_completed(fields: dict[str, object]) -> int:
+    return _require_int(
+        fields["response_complete_revalidated_boottime_ns"],
+        "response_complete_revalidated_boottime_ns",
+    )
+
 
 @dataclass(frozen=True, slots=True, init=False)
 class DockerConnectionIdentity:
@@ -1267,6 +1348,24 @@ class DockerConnectionIdentity:
         frozen = FrozenJsonObject.capture(value)
         fields = frozen.to_dict()
         _require_fields(fields, _CONNECTION_FIELDS, "Docker connection identity")
+        peer_uid = _require_int(fields["peer_uid"], "peer_uid", maximum=2**32 - 2)
+        peer_gid = _require_int(fields["peer_gid"], "peer_gid", maximum=2**32 - 2)
+        socket_uid = _require_int(
+            fields["socket_path_uid"], "socket_path_uid", maximum=2**32 - 2
+        )
+        socket_gid = _require_int(
+            fields["socket_path_gid"], "socket_path_gid", maximum=2**32 - 2
+        )
+        executable_uid = _require_int(
+            fields["daemon_executable_uid"],
+            "daemon_executable_uid",
+            maximum=2**32 - 2,
+        )
+        executable_gid = _require_int(
+            fields["daemon_executable_gid"],
+            "daemon_executable_gid",
+            maximum=2**32 - 2,
+        )
         if (
             fields["contract_version"]
             != "phase6d-trusted-time-graceful-stop-docker-connection-identity-v2"
@@ -1274,10 +1373,14 @@ class DockerConnectionIdentity:
             or fields["status"] != "docker_connection_bound"
             or fields["api_version"] != DOCKER_API_VERSION
             or fields["docker_socket_path"] != DOCKER_SOCKET_PATH
-            or fields["peer_uid"] != 0
-            or fields["peer_gid"] != 0
+            or peer_uid != 0
+            or peer_gid != 0
+            or socket_uid != 0
+            or socket_gid != 0
+            or executable_uid != 0
+            or executable_gid != 0
         ):
-            _reject("Docker connection discriminator or peer identity is invalid")
+            _reject("Docker connection discriminator or root-owned identity is invalid")
         ordinal = _require_int(fields["connection_ordinal"], "connection_ordinal", maximum=17)
         for name in ("environment", "graceful_stop_operation_id"):
             _require_ascii(fields[name], name)
@@ -1291,15 +1394,31 @@ class DockerConnectionIdentity:
         else:
             _require_sha256(admitted, "admitted_daemon_info_projection_sha256")
         for name in ("socket_mount_options", "socket_mount_super_options"):
-            _require_sorted_unique_strings(fields[name], name)
-        for name in (
+            options = _require_sorted_unique_strings(fields[name], name)
+            if options is None or len(options) > 128:
+                _reject(f"{name} exceeds its item bound")
+            for option in options:
+                _require_ascii(option, name, maximum_bytes=255, allow_empty=True)
+        major_minor = _require_ascii(
+            fields["socket_mount_major_minor"],
             "socket_mount_major_minor",
-            "socket_mount_root",
-            "socket_mount_point",
-            "socket_mount_filesystem_type",
-            "socket_mount_source",
-        ):
-            _require_text(fields[name], name, allow_empty=True)
+            maximum_bytes=21,
+        )
+        if _MOUNT_MAJOR_MINOR.fullmatch(major_minor) is None:
+            _reject("socket_mount_major_minor is not canonical")
+        for name in ("socket_mount_root", "socket_mount_point"):
+            path = _require_ascii(fields[name], name, maximum_bytes=4_096)
+            if (
+                not path.startswith("/")
+                or "//" in path
+                or "/./" in path
+                or "/../" in path
+                or path.endswith("/.")
+                or path.endswith("/..")
+            ):
+                _reject(f"{name} is not a stable absolute path")
+        for name in ("socket_mount_filesystem_type", "socket_mount_source"):
+            _require_ascii(fields[name], name, maximum_bytes=255)
         positive_names = (
             "socket_mount_id",
             "socket_mount_parent_id",
@@ -1313,7 +1432,6 @@ class DockerConnectionIdentity:
             "daemon_executable_device",
             "daemon_executable_inode",
             "daemon_executable_size",
-            "daemon_executable_mode",
             "daemon_executable_nlink",
             "local_socket_device",
             "local_socket_inode",
@@ -1321,14 +1439,29 @@ class DockerConnectionIdentity:
         )
         for name in positive_names:
             _require_int(fields[name], name, minimum=1)
-        for name in (
-            "socket_path_uid",
-            "socket_path_gid",
-            "daemon_executable_uid",
-            "daemon_executable_gid",
+        socket_mode = _require_int(
+            fields["socket_path_mode"], "socket_path_mode", maximum=0o177777
+        )
+        executable_mode = _require_int(
+            fields["daemon_executable_mode"],
+            "daemon_executable_mode",
+            minimum=1,
+            maximum=0o177777,
+        )
+        executable_size = _require_int(
+            fields["daemon_executable_size"],
+            "daemon_executable_size",
+            minimum=1,
+            maximum=_MAXIMUM_DAEMON_EXECUTABLE_BYTES,
+        )
+        if socket_mode & _POSIX_FILE_TYPE_MASK != _POSIX_SOCKET:
+            _reject("Docker socket path is not a socket")
+        if (
+            executable_mode & _POSIX_FILE_TYPE_MASK != _POSIX_REGULAR_FILE
+            or executable_mode & _POSIX_GROUP_OR_WORLD_WRITE
+            or executable_size > _MAXIMUM_DAEMON_EXECUTABLE_BYTES
         ):
-            _require_int(fields[name], name, maximum=2**32 - 2)
-        _require_int(fields["socket_path_mode"], "socket_path_mode")
+            _reject("Docker daemon executable identity is unsafe")
         times = [
             _require_int(fields[name], name)
             for name in (
@@ -1359,6 +1492,57 @@ class DockerConnectionIdentity:
     @property
     def ordinal(self) -> int:
         return _require_int(self.to_dict()["connection_ordinal"], "connection_ordinal", maximum=17)
+
+
+def _require_connection_sequence(
+    connections: tuple[DockerConnectionIdentity, ...] | list[DockerConnectionIdentity],
+    *,
+    environment: str,
+    graceful_stop_operation_id: str,
+    channel_id: str,
+    expected_core: tuple[object, ...] | None = None,
+    previous_completed_boottime_ns: int | None = None,
+    prior_connection_sha256s: frozenset[str] = frozenset(),
+    prior_local_socket_identities: frozenset[tuple[int, int, int]] = frozenset(),
+) -> tuple[tuple[object, ...], int]:
+    if not connections:
+        _reject("Docker connection sequence cannot be empty")
+    exact_environment = _require_ascii(environment, "environment")
+    exact_operation = _require_ascii(
+        graceful_stop_operation_id, "graceful_stop_operation_id"
+    )
+    exact_channel = _require_sha256(channel_id, "channel_id")
+    core = expected_core
+    previous_completed = previous_completed_boottime_ns
+    seen_sha256s = set(prior_connection_sha256s)
+    seen_local = set(prior_local_socket_identities)
+    for connection in connections:
+        if type(connection) is not DockerConnectionIdentity:
+            _reject("Docker connection sequence contains an inexact value")
+        fields = connection.to_dict()
+        candidate_core = _daemon_socket_core(fields)
+        if core is None:
+            core = candidate_core
+        if (
+            candidate_core != core
+            or fields["environment"] != exact_environment
+            or fields["graceful_stop_operation_id"] != exact_operation
+            or fields["channel_id"] != exact_channel
+        ):
+            _reject("Docker connection crossed daemon, socket, or lifecycle context")
+        local_identity = _local_socket_identity(fields)
+        if connection.sha256 in seen_sha256s or local_identity in seen_local:
+            _reject("Docker connection identity was reused")
+        started = _connection_started(fields)
+        completed = _connection_completed(fields)
+        if previous_completed is not None and started < previous_completed:
+            _reject("Docker connections overlap or move backward in time")
+        seen_sha256s.add(connection.sha256)
+        seen_local.add(local_identity)
+        previous_completed = completed
+    if core is None or previous_completed is None:
+        _reject("Docker connection sequence was not established")
+    return core, previous_completed
 
 
 _TRACE_FIELDS = frozenset(
@@ -1462,7 +1646,7 @@ class DockerHttpExchange:
             "volume_proof",
         } or fields["target_kind"] not in {"daemon", "container", "network", "volume"}:
             _reject("Docker exchange discriminator is invalid")
-        _require_text(fields["target_identity"], "target_identity")
+        _require_ascii(fields["target_identity"], "target_identity", maximum_bytes=255)
         for name in (
             "request_semantic_sha256",
             "connection_identity_sha256",
@@ -1579,6 +1763,7 @@ class DockerOrdinalEvidence:
         return result
 
     def _validate(self) -> None:
+        self.request._validate(self.spec)
         if self.trace.ordinal != self.spec.ordinal or self.connection.ordinal != self.spec.ordinal:
             _reject("Docker ordinal evidence objects disagree")
         trace = self.trace.to_dict()
@@ -1593,7 +1778,13 @@ class DockerOrdinalEvidence:
         }
         if any(trace[name] != value or exchange[name] != value for name, value in expected.items()):
             _reject("Docker trace/exchange correlators disagree")
-        if exchange["trace_entry_sha256"] != self.trace.sha256:
+        if (
+            exchange["trace_entry_sha256"] != self.trace.sha256
+            or exchange["exchange_kind"] != self.spec.exchange_kind
+            or exchange["target_kind"] != self.spec.target_kind
+            or exchange["target_identity"] != self.spec.target_identity
+            or self.response.http_status != self.spec.expected_status
+        ):
             _reject("Docker exchange does not bind its trace entry")
 
 
@@ -1603,13 +1794,35 @@ def validate_complete_docker_trace(entries: object) -> tuple[DockerOrdinalEviden
     sequence = cast(list[object] | tuple[object, ...], entries)
     if len(sequence) != 18:
         _reject("Docker evidence must contain every ordinal 0..17")
+    typed = tuple(cast(DockerOrdinalEvidence, candidate) for candidate in sequence)
+    if any(type(candidate) is not DockerOrdinalEvidence for candidate in typed):
+        _reject("Docker evidence contains an inexact ordinal value")
+    plan_identity = DockerPlanIdentity(
+        typed[1].spec.target_identity,
+        typed[2].spec.target_identity,
+        typed[3].spec.target_identity,
+    )
+    first_connection_fields = typed[0].connection.to_dict()
+    environment = _require_ascii(first_connection_fields["environment"], "environment")
+    operation = _require_ascii(
+        first_connection_fields["graceful_stop_operation_id"],
+        "graceful_stop_operation_id",
+    )
+    channel = _require_sha256(first_connection_fields["channel_id"], "channel_id")
+    _require_connection_sequence(
+        [entry.connection for entry in typed],
+        environment=environment,
+        graceful_stop_operation_id=operation,
+        channel_id=channel,
+    )
     result: list[DockerOrdinalEvidence] = []
     previous: str | None = None
     daemon_projection: str | None = None
-    for ordinal, candidate in enumerate(sequence):
-        entry = cast(DockerOrdinalEvidence, candidate)
-        if type(entry) is not DockerOrdinalEvidence or entry.spec.ordinal != ordinal:
+    for ordinal, entry in enumerate(typed):
+        expected_spec = docker_call_spec(ordinal, plan_identity)
+        if entry.spec != expected_spec:
             _reject("Docker evidence is reordered or has an ordinal gap")
+        entry._validate()
         trace_fields = entry.trace.to_dict()
         if trace_fields["previous_trace_entry_sha256"] != previous:
             _reject("Docker trace predecessor chain is broken")
@@ -1728,18 +1941,26 @@ class DockerAdmissionCapture:
         frozen = FrozenJsonObject.capture(value)
         fields = frozen.to_dict()
         _require_fields(fields, _ADMISSION_FIELDS, "Docker admission capture")
+        first_ordinal = _require_int(
+            fields["first_connection_ordinal"], "first_connection_ordinal", maximum=17
+        )
+        last_ordinal = _require_int(
+            fields["last_connection_ordinal"], "last_connection_ordinal", maximum=17
+        )
         if (
             fields["contract_version"]
             != "phase6d-trusted-time-graceful-stop-docker-admission-capture-v2"
             or fields["service"] != DOCKER_SERVICE
             or fields["status"] != "docker_admission_captured"
-            or fields["first_connection_ordinal"] != 0
-            or fields["last_connection_ordinal"] != 5
+            or first_ordinal != 0
+            or last_ordinal != 5
         ):
             _reject("Docker admission capture discriminator is invalid")
-        _require_ascii(fields["environment"], "environment")
-        _require_ascii(fields["graceful_stop_operation_id"], "graceful_stop_operation_id")
-        _require_sha256(fields["channel_id"], "channel_id")
+        environment = _require_ascii(fields["environment"], "environment")
+        operation = _require_ascii(
+            fields["graceful_stop_operation_id"], "graceful_stop_operation_id"
+        )
+        channel = _require_sha256(fields["channel_id"], "channel_id")
         requests = _digest_list(fields["ordered_request_semantic_sha256_list"], 6)
         connections = _object_list(fields["ordered_connection_identity_list"], 6)
         connection_digests = _digest_list(fields["ordered_connection_identity_sha256_list"], 6)
@@ -1747,7 +1968,14 @@ class DockerAdmissionCapture:
         exchange_digests = _digest_list(fields["ordered_http_exchange_sha256_list"], 6)
         traces = _object_list(fields["ordered_trace_entry_list"], 6)
         trace_digests = _digest_list(fields["ordered_trace_entry_sha256_list"], 6)
+        parsed_connections = [DockerConnectionIdentity.capture(item) for item in connections]
         parsed_exchanges = [DockerHttpExchange.capture(item) for item in exchanges]
+        _require_connection_sequence(
+            parsed_connections,
+            environment=environment,
+            graceful_stop_operation_id=operation,
+            channel_id=channel,
+        )
         plan_identity = DockerPlanIdentity(
             _require_full_id(
                 parsed_exchanges[1].to_dict()["target_identity"],
@@ -1764,7 +1992,7 @@ class DockerAdmissionCapture:
         )
         previous: str | None = None
         for index in range(6):
-            connection = DockerConnectionIdentity.capture(connections[index])
+            connection = parsed_connections[index]
             exchange = parsed_exchanges[index]
             trace = DockerTraceEntry.capture(traces[index])
             connection_fields = connection.to_dict()
@@ -1866,6 +2094,110 @@ class DockerAdmissionCapture:
         )
 
 
+def _admission_connections(admission: DockerAdmissionCapture) -> list[DockerConnectionIdentity]:
+    return [
+        DockerConnectionIdentity.capture(item)
+        for item in _object_list(
+            admission.to_dict()["ordered_connection_identity_list"], 6
+        )
+    ]
+
+
+def _admission_exchanges(admission: DockerAdmissionCapture) -> list[DockerHttpExchange]:
+    return [
+        DockerHttpExchange.capture(item)
+        for item in _object_list(admission.to_dict()["ordered_http_exchange_list"], 6)
+    ]
+
+
+def _admission_traces(admission: DockerAdmissionCapture) -> list[DockerTraceEntry]:
+    return [
+        DockerTraceEntry.capture(item)
+        for item in _object_list(admission.to_dict()["ordered_trace_entry_list"], 6)
+    ]
+
+
+def _admission_plan_identity(admission: DockerAdmissionCapture) -> DockerPlanIdentity:
+    exchanges = _admission_exchanges(admission)
+    return DockerPlanIdentity(
+        exchanges[1].to_dict()["target_identity"],  # type: ignore[arg-type]
+        exchanges[2].to_dict()["target_identity"],  # type: ignore[arg-type]
+        exchanges[3].to_dict()["target_identity"],  # type: ignore[arg-type]
+    )
+
+
+def _require_exact_admitted_target(
+    admission: DockerAdmissionCapture,
+    admitted_target: DockerOrdinalEvidence,
+    *,
+    expected_ordinal: int,
+) -> None:
+    if type(admitted_target) is not DockerOrdinalEvidence:
+        _reject("Docker result requires exact admitted target evidence")
+    admission_fields = admission.to_dict()
+    request_digests = _digest_list(
+        admission_fields["ordered_request_semantic_sha256_list"], 6
+    )
+    connection_digests = _digest_list(
+        admission_fields["ordered_connection_identity_sha256_list"], 6
+    )
+    exchange_digests = _digest_list(
+        admission_fields["ordered_http_exchange_sha256_list"], 6
+    )
+    trace_digests = _digest_list(
+        admission_fields["ordered_trace_entry_sha256_list"], 6
+    )
+    projection_name = {
+        1: "supervisor_container_projection_sha256",
+        2: "source_container_projection_sha256",
+        3: "project_network_projection_sha256",
+    }.get(expected_ordinal)
+    if (
+        projection_name is None
+        or admitted_target.spec.ordinal != expected_ordinal
+        or admitted_target.request.sha256 != request_digests[expected_ordinal]
+        or admitted_target.connection.sha256 != connection_digests[expected_ordinal]
+        or admitted_target.exchange.sha256 != exchange_digests[expected_ordinal]
+        or admitted_target.trace.sha256 != trace_digests[expected_ordinal]
+        or admitted_target.response.response_projection_sha256
+        != admission_fields[projection_name]
+    ):
+        _reject("Docker result target is not the exact admitted projection")
+
+
+def _require_result_connection_sequence(
+    *,
+    admission: DockerAdmissionCapture,
+    previous: DockerOrdinalEvidence,
+    current: tuple[DockerOrdinalEvidence, DockerOrdinalEvidence],
+) -> None:
+    admission_fields = admission.to_dict()
+    admission_connections = _admission_connections(admission)
+    expected_core = _daemon_socket_core(admission_connections[0].to_dict())
+    previous_is_admission = previous.spec.ordinal < 6
+    prior_sha256s = {
+        connection.sha256
+        for connection in admission_connections
+        if not (previous_is_admission and connection.sha256 == previous.connection.sha256)
+    }
+    prior_local = {
+        _local_socket_identity(connection.to_dict())
+        for connection in admission_connections
+        if not (previous_is_admission and connection.sha256 == previous.connection.sha256)
+    }
+    _require_connection_sequence(
+        [previous.connection, current[0].connection, current[1].connection],
+        environment=cast(str, admission_fields["environment"]),
+        graceful_stop_operation_id=cast(
+            str, admission_fields["graceful_stop_operation_id"]
+        ),
+        channel_id=cast(str, admission_fields["channel_id"]),
+        expected_core=expected_core,
+        prior_connection_sha256s=frozenset(prior_sha256s),
+        prior_local_socket_identities=frozenset(prior_local),
+    )
+
+
 def _digest_list(value: object, exact_length: int) -> list[str]:
     items = _require_list(value, "digest list")
     if len(items) != exact_length:
@@ -1940,34 +2272,6 @@ _MUTATION_RESULT_RULES = {
 }
 
 
-def _dummy_ids(excluding: str, count: int) -> tuple[str, ...]:
-    candidates = ("0" * 64, "a" * 64, "b" * 64, "c" * 64)
-    selected = tuple(candidate for candidate in candidates if candidate != excluding)[:count]
-    if len(selected) != count:
-        _reject("unable to construct a closed Docker result plan")
-    return selected
-
-
-def _result_pair_specs(
-    result_kind: str,
-    target_id: str,
-    primary_ordinal: int,
-) -> tuple[DockerCallSpec, DockerCallSpec]:
-    first, second = _dummy_ids(target_id, 2)
-    if result_kind in {"container_stop", "container_remove"}:
-        identity = (
-            DockerPlanIdentity(target_id, first, second)
-            if primary_ordinal in {6, 10}
-            else DockerPlanIdentity(first, target_id, second)
-        )
-    else:
-        identity = DockerPlanIdentity(first, second, target_id)
-    return (
-        docker_call_spec(primary_ordinal, identity),
-        docker_call_spec(primary_ordinal + 1, identity),
-    )
-
-
 def _trace_matches_exchange(
     trace: DockerTraceEntry,
     exchange_fields: dict[str, object],
@@ -1988,6 +2292,26 @@ def _trace_matches_exchange(
     )
 
 
+def _admitted_target_ordinal(primary_ordinal: int) -> int:
+    try:
+        return {6: 1, 8: 2, 10: 1, 12: 2, 14: 3}[primary_ordinal]
+    except KeyError:
+        _reject("Docker mutation ordinal has no admitted target")
+
+
+def _require_unchanged_stopped_container(
+    admitted_target: DockerOrdinalEvidence,
+    post_inspect: DockerOrdinalEvidence,
+) -> None:
+    admitted = admitted_target.response.projection.to_dict()
+    stopped = post_inspect.response.projection.to_dict()
+    for name in ("container_id", "image_id", "name", "config"):
+        if admitted.get(name) != stopped.get(name):
+            _reject(
+                "post-stop container identity, image, or configured stop signal changed"
+            )
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class DockerMutationResultSemantic:
     fields: FrozenJsonObject
@@ -2005,6 +2329,8 @@ class DockerMutationResultSemantic:
         graceful_stop_operation_id: str,
         root_sha256: str,
         admission: DockerAdmissionCapture,
+        admitted_target: DockerOrdinalEvidence,
+        previous: DockerOrdinalEvidence,
         primary: DockerOrdinalEvidence,
         post_inspect: DockerOrdinalEvidence,
     ) -> Self:
@@ -2015,8 +2341,11 @@ class DockerMutationResultSemantic:
         ]
         if (
             type(admission) is not DockerAdmissionCapture
+            or type(admitted_target) is not DockerOrdinalEvidence
+            or type(previous) is not DockerOrdinalEvidence
             or type(primary) is not DockerOrdinalEvidence
             or type(post_inspect) is not DockerOrdinalEvidence
+            or previous.spec.ordinal != primary.spec.ordinal - 1
             or primary.spec.ordinal not in primary_ordinals
             or post_inspect.spec.ordinal != primary.spec.ordinal + 1
             or primary.spec.exchange_kind != "mutation"
@@ -2030,7 +2359,11 @@ class DockerMutationResultSemantic:
         expected_post_status = 200 if result_kind == "container_stop" else 404
         if post_inspect.response.http_status != expected_post_status:
             _reject("Docker post-inspect status does not prove the required outcome")
-        if post_inspect.trace.to_dict()["previous_trace_entry_sha256"] != primary.trace.sha256:
+        if (
+            primary.trace.to_dict()["previous_trace_entry_sha256"] != previous.trace.sha256
+            or post_inspect.trace.to_dict()["previous_trace_entry_sha256"]
+            != primary.trace.sha256
+        ):
             _reject("Docker mutation pair is not adjacent in the trace")
         admission_fields = admission.to_dict()
         value = {
@@ -2075,10 +2408,34 @@ class DockerMutationResultSemantic:
             ],
             "outcome": outcome,
         }
-        return cls.capture(value)
+        return cls.capture(
+            value,
+            admission=admission,
+            admitted_target=admitted_target,
+            previous=previous,
+            primary=primary,
+            post_inspect=post_inspect,
+        )
 
     @classmethod
-    def capture(cls, value: object) -> Self:
+    def capture(
+        cls,
+        value: object,
+        *,
+        admission: DockerAdmissionCapture,
+        admitted_target: DockerOrdinalEvidence,
+        previous: DockerOrdinalEvidence,
+        primary: DockerOrdinalEvidence,
+        post_inspect: DockerOrdinalEvidence,
+    ) -> Self:
+        if (
+            type(admission) is not DockerAdmissionCapture
+            or type(admitted_target) is not DockerOrdinalEvidence
+            or type(previous) is not DockerOrdinalEvidence
+            or type(primary) is not DockerOrdinalEvidence
+            or type(post_inspect) is not DockerOrdinalEvidence
+        ):
+            _reject("Docker mutation result requires exact contextual evidence")
         frozen = FrozenJsonObject.capture(value)
         fields = frozen.to_dict()
         _require_fields(fields, _MUTATION_RESULT_FIELDS, "Docker mutation result")
@@ -2096,6 +2453,61 @@ class DockerMutationResultSemantic:
             or fields["outcome"] != outcome
         ):
             _reject("Docker mutation result discriminator is invalid")
+        expected_admitted_ordinal = _admitted_target_ordinal(primary.spec.ordinal)
+        _require_exact_admitted_target(
+            admission,
+            admitted_target,
+            expected_ordinal=expected_admitted_ordinal,
+        )
+        plan_identity = _admission_plan_identity(admission)
+        expected_primary_spec = docker_call_spec(primary.spec.ordinal, plan_identity)
+        expected_post_spec = docker_call_spec(primary.spec.ordinal + 1, plan_identity)
+        if (
+            primary.spec.ordinal not in ordinals
+            or primary.spec != expected_primary_spec
+            or post_inspect.spec != expected_post_spec
+            or previous.spec.ordinal != primary.spec.ordinal - 1
+            or previous.spec != docker_call_spec(previous.spec.ordinal, plan_identity)
+            or primary.trace.to_dict()["previous_trace_entry_sha256"]
+            != previous.trace.sha256
+            or post_inspect.trace.to_dict()["previous_trace_entry_sha256"]
+            != primary.trace.sha256
+        ):
+            _reject("Docker mutation context is not the exact global plan prefix")
+        if previous.spec.ordinal < 6:
+            admission_fields_for_previous = admission.to_dict()
+            previous_ordinal = previous.spec.ordinal
+            if (
+                previous.request.sha256
+                != _digest_list(
+                    admission_fields_for_previous["ordered_request_semantic_sha256_list"],
+                    6,
+                )[previous_ordinal]
+                or previous.connection.sha256
+                != _digest_list(
+                    admission_fields_for_previous[
+                        "ordered_connection_identity_sha256_list"
+                    ],
+                    6,
+                )[previous_ordinal]
+                or previous.exchange.sha256
+                != _digest_list(
+                    admission_fields_for_previous["ordered_http_exchange_sha256_list"],
+                    6,
+                )[previous_ordinal]
+                or previous.trace.sha256
+                != _digest_list(
+                    admission_fields_for_previous["ordered_trace_entry_sha256_list"], 6
+                )[previous_ordinal]
+            ):
+                _reject("Docker mutation prior trace head crossed admission")
+        _require_result_connection_sequence(
+            admission=admission,
+            previous=previous,
+            current=(primary, post_inspect),
+        )
+        if result_kind == "container_stop":
+            _require_unchanged_stopped_container(admitted_target, post_inspect)
         for name in ("environment", "graceful_stop_operation_id"):
             _require_ascii(fields[name], name)
         target_id = _require_full_id(fields["target_id"], "target_id")
@@ -2122,15 +2534,33 @@ class DockerMutationResultSemantic:
         trace_values = [DockerTraceEntry.capture(item) for item in traces]
         connection_digests = _digest_list(fields["ordered_connection_identity_sha256_list"], 2)
         expected_post_status = 200 if result_kind == "container_stop" else 404
-        primary_spec, post_spec = _result_pair_specs(
-            result_kind, target_id, primary_connection.ordinal
-        )
+        primary_spec = docker_call_spec(primary_connection.ordinal, plan_identity)
+        post_spec = docker_call_spec(primary_connection.ordinal + 1, plan_identity)
         primary_connection_fields = primary_connection.to_dict()
         post_connection_fields = post_connection.to_dict()
         primary_exchange_fields = primary_exchange.to_dict()
         post_exchange_fields = post_exchange.to_dict()
+        admission_fields = admission.to_dict()
         if (
             primary_connection.ordinal not in ordinals
+            or fields["docker_admission_capture_sha256"] != admission.sha256
+            or fields["admitted_daemon_info_projection_sha256"]
+            != admission_fields["daemon_info_projection_sha256"]
+            or fields["environment"] != admission_fields["environment"]
+            or fields["graceful_stop_operation_id"]
+            != admission_fields["graceful_stop_operation_id"]
+            or fields["target_id"] != primary.spec.target_identity
+            or fields["primary_request_semantic_sha256"] != primary.request.sha256
+            or fields["post_inspect_request_semantic_sha256"]
+            != post_inspect.request.sha256
+            or primary_connection.sha256 != primary.connection.sha256
+            or post_connection.sha256 != post_inspect.connection.sha256
+            or primary_exchange.sha256 != primary.exchange.sha256
+            or post_exchange.sha256 != post_inspect.exchange.sha256
+            or trace_values[0].sha256 != primary.trace.sha256
+            or trace_values[1].sha256 != post_inspect.trace.sha256
+            or trace_values[0].to_dict()["previous_trace_entry_sha256"]
+            != previous.trace.sha256
             or post_connection.ordinal != primary_connection.ordinal + 1
             or primary_connection.sha256 != fields["primary_connection_identity_sha256"]
             or post_connection.sha256 != fields["post_inspect_connection_identity_sha256"]
@@ -2248,20 +2678,25 @@ class DockerVolumePreservationResult:
         graceful_stop_operation_id: str,
         root_sha256: str,
         admission: DockerAdmissionCapture,
+        previous: DockerOrdinalEvidence,
         command_socket: DockerOrdinalEvidence,
         state: DockerOrdinalEvidence,
         volume_delete_call_count: int,
     ) -> Self:
         if (
             type(admission) is not DockerAdmissionCapture
+            or type(previous) is not DockerOrdinalEvidence
             or type(command_socket) is not DockerOrdinalEvidence
             or type(state) is not DockerOrdinalEvidence
+            or previous.spec.ordinal != 15
             or command_socket.spec.ordinal != 16
             or state.spec.ordinal != 17
             or command_socket.spec.target_identity != COMMAND_SOCKET_VOLUME
             or state.spec.target_identity != STATE_VOLUME
             or command_socket.spec.exchange_kind != "volume_proof"
             or state.spec.exchange_kind != "volume_proof"
+            or command_socket.trace.to_dict()["previous_trace_entry_sha256"]
+            != previous.trace.sha256
             or state.trace.to_dict()["previous_trace_entry_sha256"] != command_socket.trace.sha256
         ):
             _reject("Docker volume proof is not the exact ordinal pair")
@@ -2327,13 +2762,37 @@ class DockerVolumePreservationResult:
             "proof_completed_boottime_ns": state.exchange.to_dict()["call_completed_boottime_ns"],
             "outcome": "volumes_preserved",
         }
-        return cls.capture(value)
+        return cls.capture(
+            value,
+            admission=admission,
+            previous=previous,
+            command_socket=command_socket,
+            state=state,
+        )
 
     @classmethod
-    def capture(cls, value: object) -> Self:
+    def capture(
+        cls,
+        value: object,
+        *,
+        admission: DockerAdmissionCapture,
+        previous: DockerOrdinalEvidence,
+        command_socket: DockerOrdinalEvidence,
+        state: DockerOrdinalEvidence,
+    ) -> Self:
+        if (
+            type(admission) is not DockerAdmissionCapture
+            or type(previous) is not DockerOrdinalEvidence
+            or type(command_socket) is not DockerOrdinalEvidence
+            or type(state) is not DockerOrdinalEvidence
+        ):
+            _reject("Docker volume result requires exact contextual evidence")
         frozen = FrozenJsonObject.capture(value)
         fields = frozen.to_dict()
         _require_fields(fields, _VOLUME_RESULT_FIELDS, "Docker volume preservation")
+        volume_delete_call_count = _require_int(
+            fields["volume_delete_call_count"], "volume_delete_call_count"
+        )
         if (
             fields["contract_version"]
             != "phase6d-trusted-time-graceful-stop-docker-volume-preservation-result-v2"
@@ -2343,9 +2802,25 @@ class DockerVolumePreservationResult:
             or fields["target_kind"] != "named_volume_set"
             or fields["target_names"] != list(VOLUME_NAMES)
             or fields["outcome"] != "volumes_preserved"
-            or fields["volume_delete_call_count"] != 0
+            or volume_delete_call_count != 0
         ):
             _reject("Docker volume preservation discriminator is invalid")
+        plan_identity = _admission_plan_identity(admission)
+        if (
+            previous.spec != docker_call_spec(15, plan_identity)
+            or command_socket.spec != docker_call_spec(16, plan_identity)
+            or state.spec != docker_call_spec(17, plan_identity)
+            or command_socket.trace.to_dict()["previous_trace_entry_sha256"]
+            != previous.trace.sha256
+            or state.trace.to_dict()["previous_trace_entry_sha256"]
+            != command_socket.trace.sha256
+        ):
+            _reject("Docker volume proof is not the exact global plan suffix")
+        _require_result_connection_sequence(
+            admission=admission,
+            previous=previous,
+            current=(command_socket, state),
+        )
         for name in ("environment", "graceful_stop_operation_id"):
             _require_ascii(fields[name], name)
         for name in (
@@ -2376,16 +2851,40 @@ class DockerVolumePreservationResult:
         trace_digests = _digest_list(fields["ordered_trace_entry_sha256_list"], 2)
         if [connection.ordinal for connection in connections] != [16, 17]:
             _reject("Docker volume proof connection ordinals are not 16 and 17")
-        proof_identity = DockerPlanIdentity("0" * 64, "a" * 64, "b" * 64)
+        admission_fields = admission.to_dict()
+        if (
+            fields["docker_admission_capture_sha256"] != admission.sha256
+            or fields["admitted_daemon_info_projection_sha256"]
+            != admission_fields["daemon_info_projection_sha256"]
+            or fields["environment"] != admission_fields["environment"]
+            or fields["graceful_stop_operation_id"]
+            != admission_fields["graceful_stop_operation_id"]
+            or admission_volumes
+            != [
+                admission_fields["command_socket_volume_projection_sha256"],
+                admission_fields["state_volume_projection_sha256"],
+            ]
+            or post_volumes
+            != [
+                command_socket.response.response_projection_sha256,
+                state.response.response_projection_sha256,
+            ]
+        ):
+            _reject("Docker volume proof crossed its admitted context")
         for index in range(2):
             exchange_fields = exchanges[index].to_dict()
             connection_fields = connections[index].to_dict()
-            spec = docker_call_spec(16 + index, proof_identity)
+            spec = docker_call_spec(16 + index, plan_identity)
             if (
                 connections[index].sha256 != connection_digests[index]
+                or connections[index].sha256
+                != (command_socket, state)[index].connection.sha256
                 or exchanges[index].sha256 != exchange_digests[index]
+                or exchanges[index].sha256 != (command_socket, state)[index].exchange.sha256
                 or traces[index].sha256 != trace_digests[index]
+                or traces[index].sha256 != (command_socket, state)[index].trace.sha256
                 or traces[index].ordinal != 16 + index
+                or request_digests[index] != (command_socket, state)[index].request.sha256
                 or exchange_fields["request_semantic_sha256"] != request_digests[index]
                 or exchange_fields["connection_identity_sha256"] != connections[index].sha256
                 or exchange_fields["trace_entry_sha256"] != traces[index].sha256
@@ -2409,6 +2908,8 @@ class DockerVolumePreservationResult:
                 _reject("Docker volume proof nested evidence disagrees")
         if traces[1].to_dict()["previous_trace_entry_sha256"] != traces[0].sha256:
             _reject("Docker volume proof trace pair is not adjacent")
+        if traces[0].to_dict()["previous_trace_entry_sha256"] != previous.trace.sha256:
+            _reject("Docker volume proof prior trace head disagrees")
         started = _require_int(fields["proof_started_boottime_ns"], "proof_started_boottime_ns")
         completed = _require_int(
             fields["proof_completed_boottime_ns"], "proof_completed_boottime_ns"

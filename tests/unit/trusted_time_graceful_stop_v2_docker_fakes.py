@@ -43,6 +43,10 @@ class FakeDockerFault:
             "wrong_status",
             "oversized_header",
             "volume_identity_drift",
+            "post_image_id_drift",
+            "post_config_image_drift",
+            "post_stop_signal_drift",
+            "post_container_name_drift",
         }:
             raise ValueError("fake Docker fault kind is unknown")
 
@@ -235,10 +239,14 @@ class FakeDockerDaemon:
     def exchange(self, ordinal: int, encoded_request: bytes) -> bytes:
         if self._burned:
             raise FakeDockerDaemonFault("fake Docker daemon is burned")
+        if type(ordinal) is not int:
+            self._fail("Docker call ordinal is not an exact integer")
+        if self._expected_ordinal >= 18:
+            self._fail("Docker call occurs after the closed plan")
         if ordinal != self._expected_ordinal:
             self._fail("Docker call is replayed, skipped, or reordered")
-        spec = docker_call_spec(ordinal, self._identity)
         try:
+            spec = docker_call_spec(ordinal, self._identity)
             validate_docker_request_bytes(encoded_request, spec=spec)
             self.events.append(f"{ordinal}:{spec.method}:{spec.request_target}")
             self.request_bytes.append(encoded_request)
@@ -311,6 +319,25 @@ class FakeDockerDaemon:
     def _tamper(self, response: bytes, kind: str) -> bytes:
         if kind == "volume_identity_drift":
             return response
+        if kind in {
+            "post_image_id_drift",
+            "post_config_image_drift",
+            "post_stop_signal_drift",
+            "post_container_name_drift",
+        }:
+            _headers, body = response.split(b"\r\n\r\n", 1)
+            value = json.loads(body)
+            if type(value) is not dict:
+                self._fail("fake Docker container response is not an object")
+            if kind == "post_image_id_drift":
+                value["Image"] = "sha256:" + "f" * 64
+            elif kind == "post_config_image_drift":
+                value["Config"]["Image"] = "drifted:latest"
+            elif kind == "post_stop_signal_drift":
+                value["Config"]["StopSignal"] = "SIGKILL"
+            else:
+                value["Name"] = "/drifted-container"
+            return _json_response(200, "OK", value)
         if kind == "truncated_body":
             return response[:-1]
         if kind == "surplus_body":
@@ -382,11 +409,15 @@ class FakeDockerHttpAdapter:
     def execute_ordinal(self, ordinal: int) -> DockerOrdinalEvidence:
         if self._burned:
             raise FakeDockerDaemonFault("fake Docker adapter is burned")
+        if type(ordinal) is not int:
+            self._burn("fake Docker adapter ordinal is not an exact integer")
+        if len(self._evidence) >= 18:
+            self._burn("fake Docker adapter call occurs after the closed plan")
         if ordinal != len(self._evidence):
             self._burn("fake Docker adapter call is replayed, skipped, or reordered")
-        spec = docker_call_spec(ordinal, self._identity)
-        request = DockerRequestSemantic.from_spec(spec)
         try:
+            spec = docker_call_spec(ordinal, self._identity)
+            request = DockerRequestSemantic.from_spec(spec)
             encoded_response = self._daemon.exchange(ordinal, request.request_bytes(spec))
             response = parse_docker_response(
                 encoded_response,
@@ -420,12 +451,17 @@ class FakeDockerHttpAdapter:
             raise
 
     def run_complete_plan(self) -> tuple[DockerOrdinalEvidence, ...]:
+        if self._burned:
+            raise FakeDockerDaemonFault("fake Docker adapter is burned")
+        if len(self._evidence) >= 18:
+            self._burn("fake Docker complete plan is one shot")
         while len(self._evidence) < 18:
             self.execute_ordinal(len(self._evidence))
         return tuple(self._evidence)
 
     def _burn(self, message: str) -> Never:
         self._burned = True
+        self._daemon.invalidate_after_ambiguous_response()
         raise FakeDockerDaemonFault(message)
 
 

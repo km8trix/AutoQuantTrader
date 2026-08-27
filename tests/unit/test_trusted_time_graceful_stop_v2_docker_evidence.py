@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
+    _FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY,
     LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION,
     LIFECYCLE_V2_TRANSPORT_SERVICE,
     FrozenJsonObject,
@@ -19,13 +20,16 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     LifecycleV2Stage,
     TrustedTimeGracefulStopV2Rejected,
     UnverifiedLifecycleV2TransportEnvelope,
+    _authenticate_lifecycle_v2_transport_envelope_for_fake,
     canonical_v2_json_bytes,
 )
 from packages.domain.trusted_time_graceful_stop_v2_docker import (
     COMMAND_SOCKET_VOLUME,
     STATE_VOLUME,
     DockerAdmissionCapture,
+    DockerConnectionIdentity,
     DockerMutationResultSemantic,
+    DockerOrdinalEvidence,
     DockerPlanIdentity,
     DockerRequestSemantic,
     DockerVolumePreservationResult,
@@ -37,18 +41,21 @@ from packages.domain.trusted_time_graceful_stop_v2_docker import (
     validate_docker_request_bytes,
 )
 from packages.domain.trusted_time_graceful_stop_v2_terminal import (
+    _FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
     CLEAN_STOP_ERROR_CONTRACT_VERSION,
     CLEAN_STOP_RESULT_CONTRACT_VERSION,
     LISTENER_PATH,
     SUPERVISOR_CLEANUP_COMMITMENT_CONTRACT_VERSION,
     SUPERVISOR_RAW_KEY_PATH,
     WIRE_PUBLICATION_RECEIPT_CONTRACT_VERSION,
+    LifecycleV2AuthenticatedTerminalEnvelopeProof,
     LifecycleV2CleanStopError,
     LifecycleV2CleanStopResult,
     LifecycleV2SupervisorCleanupCommitment,
     LifecycleV2TerminalProjection,
     LifecycleV2TerminalWireEvidence,
     LifecycleV2WirePublicationReceipt,
+    _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof,
     decode_lifecycle_v2_clean_stop_error,
     decode_lifecycle_v2_clean_stop_result,
     terminal_non_authority_facts,
@@ -95,6 +102,22 @@ def _adapter(
 def _complete_evidence() -> tuple[FakeDockerDaemon, FakeDockerHttpAdapter, tuple[Any, ...]]:
     daemon, adapter = _adapter()
     return daemon, adapter, adapter.run_complete_plan()
+
+
+def _entry_with_connection(
+    entry: Any,
+    *,
+    updates: dict[str, object],
+) -> DockerOrdinalEvidence:
+    fields = entry.connection.to_dict()
+    fields.update(updates)
+    return DockerOrdinalEvidence.construct(
+        spec=entry.spec,
+        request=entry.request,
+        connection=DockerConnectionIdentity.capture(fields),
+        response=entry.response,
+        previous_trace_entry_sha256=entry.trace.to_dict()["previous_trace_entry_sha256"],
+    )
 
 
 def test_literal_request_plan_closes_every_method_query_header_and_body() -> None:
@@ -204,6 +227,8 @@ def test_admission_mutation_and_volume_result_semantics_bind_complete_nested_evi
             graceful_stop_operation_id=OPERATION_ID,
             root_sha256=ROOT_SHA256,
             admission=admission,
+            admitted_target=entries[{6: 1, 8: 2, 10: 1, 12: 2, 14: 3}[ordinal]],
+            previous=entries[ordinal - 1],
             primary=entries[ordinal],
             post_inspect=entries[ordinal + 1],
         )
@@ -221,6 +246,7 @@ def test_admission_mutation_and_volume_result_semantics_bind_complete_nested_evi
         graceful_stop_operation_id=OPERATION_ID,
         root_sha256=ROOT_SHA256,
         admission=admission,
+        previous=entries[15],
         command_socket=entries[16],
         state=entries[17],
         volume_delete_call_count=daemon.volume_delete_call_count,
@@ -251,13 +277,22 @@ def test_nested_admission_result_and_trace_tamper_is_rejected() -> None:
         graceful_stop_operation_id=OPERATION_ID,
         root_sha256=ROOT_SHA256,
         admission=admission,
+        admitted_target=entries[1],
+        previous=entries[5],
         primary=entries[6],
         post_inspect=entries[7],
     )
     result_value = result.to_dict()
     result_value["primary_request_semantic_sha256"] = "0" * 64
     with pytest.raises(TrustedTimeDockerEvidenceRejected):
-        DockerMutationResultSemantic.capture(result_value)
+        DockerMutationResultSemantic.capture(
+            result_value,
+            admission=admission,
+            admitted_target=entries[1],
+            previous=entries[5],
+            primary=entries[6],
+            post_inspect=entries[7],
+        )
 
     reordered = list(entries)
     reordered[6], reordered[7] = reordered[7], reordered[6]
@@ -317,6 +352,188 @@ def test_order_violation_and_replay_burn_the_byte_fake() -> None:
     assert len(daemon.events) == 1
 
 
+def test_post_plan_and_repeated_complete_calls_burn_both_fakes() -> None:
+    daemon, adapter = _adapter()
+    adapter.run_complete_plan()
+    with pytest.raises(FakeDockerDaemonFault):
+        adapter.execute_ordinal(18)
+    assert adapter.burned is True
+    assert daemon.burned is True
+
+    daemon, adapter = _adapter()
+    adapter.run_complete_plan()
+    with pytest.raises(FakeDockerDaemonFault):
+        daemon.exchange(18, b"")
+    assert daemon.burned is True
+
+    daemon, adapter = _adapter()
+    adapter.run_complete_plan()
+    with pytest.raises(FakeDockerDaemonFault):
+        adapter.run_complete_plan()
+    assert adapter.burned is True
+    assert daemon.burned is True
+
+
+@pytest.mark.parametrize("ordinal", [False, True])
+def test_boolean_fake_ordinal_burns_both_fakes(ordinal: bool) -> None:
+    daemon, adapter = _adapter()
+    with pytest.raises(FakeDockerDaemonFault):
+        adapter.execute_ordinal(ordinal)
+    assert adapter.burned is True
+    assert daemon.burned is True
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "post_image_id_drift",
+        "post_config_image_drift",
+        "post_stop_signal_drift",
+        "post_container_name_drift",
+    ],
+)
+def test_post_stop_projection_must_preserve_admitted_identity_and_config(kind: str) -> None:
+    _, adapter = _adapter(fault=FakeDockerFault(7, kind))
+    entries = adapter.run_complete_plan()
+    admission = DockerAdmissionCapture.from_prefix(
+        environment=ENVIRONMENT,
+        graceful_stop_operation_id=OPERATION_ID,
+        channel_id=CHANNEL_ID,
+        entries=entries[:6],
+    )
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        DockerMutationResultSemantic.from_pair(
+            result_kind="container_stop",
+            environment=ENVIRONMENT,
+            graceful_stop_operation_id=OPERATION_ID,
+            root_sha256=ROOT_SHA256,
+            admission=admission,
+            admitted_target=entries[1],
+            previous=entries[5],
+            primary=entries[6],
+            post_inspect=entries[7],
+        )
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"environment": "other"},
+        {"graceful_stop_operation_id": "other-operation"},
+        {"channel_id": "9" * 64},
+        {"peer_pid": 1_000},
+        {"socket_path_inode": 201},
+        {"local_socket_inode": 300},
+        {"local_socket_cookie": 400},
+        {"path_preconnect_validated_boottime_ns": 1_000_003},
+    ],
+)
+def test_complete_trace_rejects_context_core_reuse_and_time_overlap(
+    updates: dict[str, object],
+) -> None:
+    _, _, entries = _complete_evidence()
+    changed = list(entries)
+    changed[1] = _entry_with_connection(entries[1], updates=updates)
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        validate_complete_docker_trace(changed)
+
+
+def test_complete_trace_rejects_mixed_plan_and_exact_prior_head_substitution() -> None:
+    _, _, entries = _complete_evidence()
+    alternate_identity = DockerPlanIdentity("a" * 64, "b" * 64, "c" * 64)
+    daemon = FakeDockerDaemon(alternate_identity)
+    alternate = FakeDockerHttpAdapter(
+        daemon,
+        alternate_identity,
+        environment=ENVIRONMENT,
+        graceful_stop_operation_id=OPERATION_ID,
+        channel_id=CHANNEL_ID,
+    ).run_complete_plan()
+    mixed = list(entries)
+    mixed[2] = alternate[2]
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        validate_complete_docker_trace(mixed)
+
+    admission = DockerAdmissionCapture.from_prefix(
+        environment=ENVIRONMENT,
+        graceful_stop_operation_id=OPERATION_ID,
+        channel_id=CHANNEL_ID,
+        entries=entries[:6],
+    )
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        DockerMutationResultSemantic.from_pair(
+            result_kind="container_stop",
+            environment=ENVIRONMENT,
+            graceful_stop_operation_id=OPERATION_ID,
+            root_sha256=ROOT_SHA256,
+            admission=admission,
+            admitted_target=entries[1],
+            previous=entries[4],
+            primary=entries[6],
+            post_inspect=entries[7],
+        )
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        DockerVolumePreservationResult.from_pair(
+            environment=ENVIRONMENT,
+            graceful_stop_operation_id=OPERATION_ID,
+            root_sha256=ROOT_SHA256,
+            admission=admission,
+            previous=entries[14],
+            command_socket=entries[16],
+            state=entries[17],
+            volume_delete_call_count=0,
+        )
+
+
+@pytest.mark.parametrize(
+    "size,accepted",
+    [
+        (268_435_455, True),
+        (268_435_456, True),
+        (268_435_457, False),
+    ],
+)
+def test_daemon_executable_size_boundary(size: int, accepted: bool) -> None:
+    _, _, entries = _complete_evidence()
+    value = entries[0].connection.to_dict()
+    value["daemon_executable_size"] = size
+    if accepted:
+        assert DockerConnectionIdentity.capture(value).to_dict()[
+            "daemon_executable_size"
+        ] == size
+    else:
+        with pytest.raises(TrustedTimeDockerEvidenceRejected):
+            DockerConnectionIdentity.capture(value)
+
+
+@pytest.mark.parametrize(
+    "field,replacement",
+    [
+        ("peer_uid", False),
+        ("peer_gid", False),
+        ("socket_path_uid", 1),
+        ("socket_path_gid", 1),
+        ("daemon_executable_uid", 1),
+        ("daemon_executable_gid", 1),
+        ("socket_path_mode", 0o100600),
+        ("daemon_executable_mode", 0o140755),
+        ("daemon_executable_mode", 0o100775),
+        ("socket_mount_major_minor", "00:42"),
+        ("socket_mount_root", "relative"),
+        ("socket_mount_source", "x" * 256),
+    ],
+)
+def test_connection_identity_rejects_unsafe_or_unbounded_facts(
+    field: str,
+    replacement: object,
+) -> None:
+    _, _, entries = _complete_evidence()
+    value = entries[0].connection.to_dict()
+    value[field] = replacement
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        DockerConnectionIdentity.capture(value)
+
+
 def test_volume_identity_drift_is_structural_evidence_but_never_preservation() -> None:
     daemon, adapter = _adapter(fault=FakeDockerFault(16, "volume_identity_drift"))
     entries = adapter.run_complete_plan()
@@ -332,9 +549,45 @@ def test_volume_identity_drift_is_structural_evidence_but_never_preservation() -
             graceful_stop_operation_id=OPERATION_ID,
             root_sha256=ROOT_SHA256,
             admission=admission,
+            previous=entries[15],
             command_socket=entries[16],
             state=entries[17],
             volume_delete_call_count=daemon.volume_delete_call_count,
+        )
+
+
+def test_boolean_admission_ordinals_and_volume_delete_count_are_rejected() -> None:
+    _, _, entries = _complete_evidence()
+    admission = DockerAdmissionCapture.from_prefix(
+        environment=ENVIRONMENT,
+        graceful_stop_operation_id=OPERATION_ID,
+        channel_id=CHANNEL_ID,
+        entries=entries[:6],
+    )
+    admission_value = admission.to_dict()
+    admission_value["first_connection_ordinal"] = False
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        DockerAdmissionCapture.capture(admission_value)
+
+    volume = DockerVolumePreservationResult.from_pair(
+        environment=ENVIRONMENT,
+        graceful_stop_operation_id=OPERATION_ID,
+        root_sha256=ROOT_SHA256,
+        admission=admission,
+        previous=entries[15],
+        command_socket=entries[16],
+        state=entries[17],
+        volume_delete_call_count=0,
+    )
+    value = volume.to_dict()
+    value["volume_delete_call_count"] = False
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        DockerVolumePreservationResult.capture(
+            value,
+            admission=admission,
+            previous=entries[15],
+            command_socket=entries[16],
+            state=entries[17],
         )
 
 
@@ -371,6 +624,43 @@ def test_response_parser_rejects_declared_limit_duplicate_json_and_depth() -> No
         deep = {"nested": deep}
     with pytest.raises(TrustedTimeDockerEvidenceRejected):
         parse_docker_response(_json_http_response(200, _compact_json(deep)), spec=info)
+
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        parse_docker_response(
+            _json_http_response(200, b'{"ID":"\\ud800"}'),
+            spec=info,
+        )
+
+
+@pytest.mark.parametrize("offset,accepted", [(-1, True), (0, True), (1, False)])
+def test_info_response_body_ceiling_minus_exact_plus(offset: int, accepted: bool) -> None:
+    spec = docker_call_spec(0, PLAN_IDENTITY)
+    target = spec.body_ceiling + offset
+    value: dict[str, object] = {
+        "ID": "fake-daemon",
+        "DockerRootDir": "/var/lib/docker",
+        "Name": "fake-host",
+        "ServerVersion": "27.5.1",
+        "OperatingSystem": "Fake Linux",
+        "OSType": "linux",
+        "Architecture": "x86_64",
+        "Driver": "overlay2",
+        "SecurityOptions": ["name=seccomp,profile=default"],
+        "Padding": [""] * 16,
+    }
+    baseline = _compact_json(value)
+    remaining = target - len(baseline)
+    assert 0 <= remaining <= 16 * 65_536
+    chunks = [min(65_536, max(0, remaining - index * 65_536)) for index in range(16)]
+    value["Padding"] = ["x" * size for size in chunks]
+    body = _compact_json(value)
+    assert len(body) == target
+    response = _json_http_response(200, body)
+    if accepted:
+        assert parse_docker_response(response, spec=spec).http_status == 200
+    else:
+        with pytest.raises(TrustedTimeDockerEvidenceRejected):
+            parse_docker_response(response, spec=spec)
 
 
 @pytest.mark.parametrize(
@@ -713,6 +1003,21 @@ def _envelope(
     )
 
 
+def _terminal_proof(
+    root: LifecycleV2Root,
+    envelope: UnverifiedLifecycleV2TransportEnvelope,
+) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
+    authenticated = _authenticate_lifecycle_v2_transport_envelope_for_fake(
+        envelope,
+        capability=_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY,
+    )
+    return _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof(
+        authenticated,
+        root=root,
+        capability=_FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
+    )
+
+
 def _publication_receipt_value(
     root: LifecycleV2Root,
     request: LifecycleV2CleanStopRequest,
@@ -821,6 +1126,7 @@ def test_clean_stop_error_is_nonretryable_request_bound_and_deadline_bounded() -
 def test_wire_publication_receipt_binds_full_envelope_name_path_signature_and_cutoff() -> None:
     root, request, result = _result()
     envelope = _envelope(root, request, frame_type="clean_stop_result", payload=result.encoded)
+    proof = _terminal_proof(root, envelope)
     file_name = f"trusted-time-post-enrollment-graceful-stop-v2-wire-result-{envelope.sha256}.json"
     receipt = LifecycleV2WirePublicationReceipt.capture(
         {
@@ -858,9 +1164,9 @@ def test_wire_publication_receipt_binds_full_envelope_name_path_signature_and_cu
             "stable_readback_completed": True,
             "publication_authorized_boottime_ns": (root.clean_stop_result_deadline_boottime_ns - 1),
         },
-        envelope=envelope,
+        proof=proof,
         request=request,
-        root_sha256=root.sha256,
+        root=root,
     )
     assert receipt.to_dict()["signed_envelope_sha256"] == envelope.sha256
     for name, replacement in (
@@ -875,15 +1181,16 @@ def test_wire_publication_receipt_binds_full_envelope_name_path_signature_and_cu
         with pytest.raises(TrustedTimeGracefulStopV2Rejected):
             LifecycleV2WirePublicationReceipt.capture(
                 value,
-                envelope=envelope,
+                proof=proof,
                 request=request,
-                root_sha256=root.sha256,
+                root=root,
             )
 
 
 def test_typed_ordinal_two_evidence_binds_payload_receipt_and_all_wire_digests() -> None:
     root, request, result = _result()
     envelope = _envelope(root, request, frame_type="clean_stop_result", payload=result.encoded)
+    proof = _terminal_proof(root, envelope)
     file_name = f"trusted-time-post-enrollment-graceful-stop-v2-wire-result-{envelope.sha256}.json"
     receipt = LifecycleV2WirePublicationReceipt.capture(
         {
@@ -921,9 +1228,9 @@ def test_typed_ordinal_two_evidence_binds_payload_receipt_and_all_wire_digests()
             "stable_readback_completed": True,
             "publication_authorized_boottime_ns": root.admission_started_boottime_ns + 3,
         },
-        envelope=envelope,
+        proof=proof,
         request=request,
-        root_sha256=root.sha256,
+        root=root,
     )
     value = {
         "intent_sha256": request.to_dict()["request_intent_sha256"],
@@ -951,9 +1258,9 @@ def test_typed_ordinal_two_evidence_binds_payload_receipt_and_all_wire_digests()
     }
     evidence = LifecycleV2TerminalWireEvidence.capture(
         value,
-        envelope=envelope,
+        proof=proof,
         request=request,
-        root_sha256=root.sha256,
+        root=root,
         responder_identity_sha256=root.supervisor_process_epoch_sha256,
     )
     assert evidence.receipt == receipt
@@ -968,9 +1275,9 @@ def test_typed_ordinal_two_evidence_binds_payload_receipt_and_all_wire_digests()
         with pytest.raises(TrustedTimeGracefulStopV2Rejected):
             LifecycleV2TerminalWireEvidence.capture(
                 tampered,
-                envelope=envelope,
+                proof=proof,
                 request=request,
-                root_sha256=root.sha256,
+                root=root,
                 responder_identity_sha256=root.supervisor_process_epoch_sha256,
             )
 
@@ -978,6 +1285,7 @@ def test_typed_ordinal_two_evidence_binds_payload_receipt_and_all_wire_digests()
 def test_typed_ordinal_two_error_evidence_binds_signed_diagnostic() -> None:
     root, request, error = _error()
     envelope = _envelope(root, request, frame_type="clean_stop_error", payload=error.encoded)
+    proof = _terminal_proof(root, envelope)
     receipt = LifecycleV2WirePublicationReceipt.capture(
         _publication_receipt_value(
             root,
@@ -985,9 +1293,9 @@ def test_typed_ordinal_two_error_evidence_binds_signed_diagnostic() -> None:
             envelope,
             publication_authorized_boottime_ns=root.admission_started_boottime_ns + 3,
         ),
-        envelope=envelope,
+        proof=proof,
         request=request,
-        root_sha256=root.sha256,
+        root=root,
     )
     value = {
         "intent_sha256": request.to_dict()["request_intent_sha256"],
@@ -1016,9 +1324,9 @@ def test_typed_ordinal_two_error_evidence_binds_signed_diagnostic() -> None:
     }
     evidence = LifecycleV2TerminalWireEvidence.capture(
         value,
-        envelope=envelope,
+        proof=proof,
         request=request,
-        root_sha256=root.sha256,
+        root=root,
         responder_identity_sha256=root.supervisor_process_epoch_sha256,
     )
     assert evidence.to_dict()["disposition"] == "authenticated_error"
@@ -1027,9 +1335,9 @@ def test_typed_ordinal_two_error_evidence_binds_signed_diagnostic() -> None:
     with pytest.raises(TrustedTimeGracefulStopV2Rejected):
         LifecycleV2TerminalWireEvidence.capture(
             tampered,
-            envelope=envelope,
+            proof=proof,
             request=request,
-            root_sha256=root.sha256,
+            root=root,
             responder_identity_sha256=root.supervisor_process_epoch_sha256,
         )
 
