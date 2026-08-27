@@ -24,11 +24,13 @@ from packages.adapters.trusted_time.graceful_stop_v2_ed25519 import (
     lifecycle_v2_ed25519_non_authority_facts,
 )
 from packages.domain.trusted_time_graceful_stop_v2 import (
+    LIFECYCLE_ROOT_FILE_NAME,
     LIFECYCLE_V2_CLEAN_STOP_REQUEST_CONTRACT_VERSION,
     LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION,
     LIFECYCLE_V2_ROOT_CONTRACT_VERSION,
     LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION,
     FrozenJsonObject,
+    LifecycleV2CleanStopRequest,
     LifecycleV2CleanStopRequestBasis,
     LifecycleV2ProgressRecord,
     LifecycleV2Root,
@@ -39,11 +41,18 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     UnverifiedLifecycleV2TransportEnvelope,
     canonical_v2_json_bytes,
     lifecycle_v2_dispatch_prefix_sha256,
+    lifecycle_v2_progress_file_name,
+    lifecycle_v2_wire_file_name,
 )
 from packages.domain.trusted_time_graceful_stop_v2_recovery import (
     RECOVERY_CLASSIFICATION_CONTRACT_VERSION,
     LifecycleV2RecoveryClassificationEnvelope,
     decode_lifecycle_v2_recovery_classification_envelope,
+)
+from packages.domain.trusted_time_graceful_stop_v2_terminal import (
+    CLEAN_STOP_RESULT_CONTRACT_VERSION,
+    LifecycleV2CleanStopResult,
+    LifecycleV2WirePublicationReceipt,
 )
 from packages.domain.trusted_time_graceful_stop_v2_transport import (
     CHANNEL_BINDING_CONTRACT_VERSION,
@@ -75,6 +84,9 @@ from packages.domain.trusted_time_graceful_stop_v2_transport import (
     lifecycle_v2_boot_epoch_sha256,
     lifecycle_v2_transport_contract_non_authority_facts,
 )
+from packages.persistence import trusted_time_graceful_stop_v2 as lifecycle_persistence
+from tests.unit import test_trusted_time_graceful_stop_v2_terminal_hardening as terminal_fx
+from tests.unit.trusted_time_graceful_stop_v2_fakes import FakeLifecycleV2ArtifactStore
 
 ROOT_KEY_ID = "trusted-time-transport-root-ed25519-v1"
 ENVIRONMENT = "test"
@@ -621,6 +633,106 @@ def _recovery_envelope(
             LifecycleV2RecoveryClassificationEnvelope,
             RECOVERY_PRIVATE_KEY,
         ),
+    )
+
+
+def _signed_terminal_result_record(
+    root: LifecycleV2Root,
+    intent: LifecycleV2ProgressRecord,
+    *,
+    artifact_directory_path: str = "/injected/adr0121/trusted-time",
+    artifact_directory_device: int = 1,
+    artifact_directory_inode: int = 2,
+    file_device: int = 1,
+    file_inode: int = 3,
+) -> tuple[UnverifiedLifecycleV2TransportEnvelope, LifecycleV2ProgressRecord]:
+    basis = LifecycleV2CleanStopRequestBasis.from_root(root)
+    request = LifecycleV2CleanStopRequest.from_prefix(root, basis, intent)
+    projection = terminal_fx._terminal_projection()
+    cleanup = terminal_fx._cleanup(root, request)
+    request_fields = request.to_dict()
+    result = LifecycleV2CleanStopResult.capture(
+        {
+            "contract_version": CLEAN_STOP_RESULT_CONTRACT_VERSION,
+            "service": "trusted-time-head-anchor-clean-stop-v2",
+            "status": "exact_operation_bound_new_record_clean_stop_correlated_unqualified",
+            "environment": root.environment,
+            "graceful_stop_operation_id": root.graceful_stop_operation_id,
+            "lifecycle_root_sha256": root.sha256,
+            "admission_sha256": root.admission_sha256,
+            "lifecycle_dispatch_prefix_sha256": request_fields[
+                "lifecycle_dispatch_prefix_sha256"
+            ],
+            "channel_id": root.channel_id,
+            "boot_epoch_sha256": root.boot_epoch_sha256,
+            "host_process_epoch_sha256": root.host_process_epoch_sha256,
+            "supervisor_process_epoch_sha256": root.supervisor_process_epoch_sha256,
+            "supervisor_container_id": root.supervisor_container_id,
+            "operation_bound_request": request_fields,
+            "request_sha256": request.sha256,
+            "terminal_projection": projection.to_dict(),
+            "terminal_projection_sha256": projection.sha256,
+            "supervisor_transport_cleanup_commitment": cleanup.to_dict(),
+            "supervisor_transport_cleanup_commitment_sha256": cleanup.sha256,
+            "result_completed_boottime_ns": root.admission_started_boottime_ns + 1,
+            "transport_cleanup_deadline_boottime_ns": request_fields[
+                "transport_cleanup_deadline_boottime_ns"
+            ],
+            "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
+        }
+    )
+    envelope = _envelope(
+        root,
+        intent,
+        frame_type="clean_stop_result",
+        payload=result.encoded,
+    )
+    authenticated = authenticate_root_bound_lifecycle_v2_transport_frame(
+        envelope.encoded,
+        authority_manifest=_authenticated_manifest(_manifest()),
+        root=root,
+        request_intent=intent,
+    )
+    proof = bind_authenticated_lifecycle_v2_terminal_envelope_proof(authenticated)
+    receipt_value = terminal_fx._publication_receipt_value(
+        root,
+        request,
+        envelope,
+        publication_authorized_boottime_ns=root.admission_started_boottime_ns + 3,
+    )
+    receipt_value.update(
+        {
+            "artifact_directory_path": artifact_directory_path,
+            "artifact_directory_device": artifact_directory_device,
+            "artifact_directory_inode": artifact_directory_inode,
+            "artifact_path": f"{artifact_directory_path}/{receipt_value['file_name']}",
+            "file_device": file_device,
+            "file_inode": file_inode,
+        }
+    )
+    receipt = LifecycleV2WirePublicationReceipt.capture(
+        receipt_value,
+        proof=proof,
+        request=request,
+        root=root,
+    )
+    evidence = terminal_fx._result_evidence_value(
+        root,
+        request,
+        result,
+        envelope,
+        receipt,
+    )
+    return envelope, LifecycleV2ProgressRecord(
+        graceful_stop_operation_id=root.graceful_stop_operation_id,
+        root_sha256=root.sha256,
+        ordinal=2,
+        stage=LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED,
+        predecessor_sha256=intent.sha256,
+        effect_kind="clean_stop_result",
+        deadline_boottime_ns=root.operation_deadline_boottime_ns,
+        evidence=FrozenJsonObject.capture(evidence),
+        recorded_at_utc=UTC_TEXT,
     )
 
 
@@ -1570,6 +1682,163 @@ def test_retained_wire_reauthentication_derives_all_correlators_from_root(
 
     assert authenticated.envelope.encoded == envelope.encoded
     assert authenticated.authority_manifest_sha256 == root.transport_authority_manifest_sha256
+
+
+def test_repository_verifier_returns_only_its_sealed_authenticated_terminal_value() -> None:
+    manifest = _manifest()
+    root = _root(manifest)
+    intent = _intent(root)
+    envelope, terminal_record = _signed_terminal_result_record(root, intent)
+    verifier = ed25519_adapter._build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
+        _authenticated_manifest(manifest)
+    )
+
+    sealed = verifier.reauthenticate_retained_terminal_wire(
+        envelope=envelope,
+        root=root,
+        request_intent=intent,
+        terminal_record=terminal_record,
+        artifact_directory_path="/injected/adr0121/trusted-time",
+    )
+
+    assert verifier.require_exact_authenticated_retained_terminal_wire(sealed) is sealed
+    assert sealed.envelope == envelope
+    assert sealed.authority_manifest_sha256 == manifest.sha256
+    assert sealed.signer_role == "supervisor"
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="sealed value"):
+        verifier.require_exact_authenticated_retained_terminal_wire(envelope)
+
+
+def test_repository_restart_accepts_the_exact_ed25519_sealed_verifier_result() -> None:
+    manifest = _manifest()
+    root = _root(manifest)
+    intent = _intent(root)
+    preliminary_envelope, _ = _signed_terminal_result_record(root, intent)
+    wire_name = lifecycle_v2_wire_file_name(preliminary_envelope)
+    probe_store = FakeLifecycleV2ArtifactStore()
+    store_identity = probe_store.identity
+    envelope, terminal_record = _signed_terminal_result_record(
+        root,
+        intent,
+        artifact_directory_path=store_identity.artifact_directory_path,
+        artifact_directory_device=store_identity.directory_device,
+        artifact_directory_inode=store_identity.directory_inode,
+        file_device=store_identity.directory_device,
+        file_inode=FakeLifecycleV2ArtifactStore.file_inode(wire_name),
+    )
+    assert envelope == preliminary_envelope
+    store = FakeLifecycleV2ArtifactStore(
+        initial={
+            LIFECYCLE_ROOT_FILE_NAME: root.encoded,
+            lifecycle_v2_progress_file_name(intent): intent.encoded,
+            lifecycle_v2_progress_file_name(terminal_record): terminal_record.encoded,
+            wire_name: envelope.encoded,
+        }
+    )
+    verifier = ed25519_adapter._build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
+        _authenticated_manifest(manifest)
+    )
+
+    repository = lifecycle_persistence._open_injected_lifecycle_v2_repository(
+        store,
+        artifact_directory_path=store_identity.artifact_directory_path,
+        retained_wire_verifier=verifier,
+    )
+
+    assert repository.status is lifecycle_persistence.LifecycleV2RepositoryStatus.ROOT_RESERVED
+    repository.close()
+
+
+def test_repository_verifier_rejects_cross_record_path_and_nested_payload() -> None:
+    manifest = _manifest()
+    root = _root(manifest)
+    intent = _intent(root)
+    envelope, terminal_record = _signed_terminal_result_record(root, intent)
+    verifier = ed25519_adapter._build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
+        _authenticated_manifest(manifest)
+    )
+    drifted_record = dataclasses.replace(
+        terminal_record,
+        predecessor_sha256=_digest("another-intent"),
+    )
+    structurally_signed_but_untyped = _envelope(
+        root,
+        intent,
+        frame_type="clean_stop_result",
+    )
+
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="root, intent"):
+        verifier.reauthenticate_retained_terminal_wire(
+            envelope=envelope,
+            root=root,
+            request_intent=intent,
+            terminal_record=drifted_record,
+            artifact_directory_path="/injected/adr0121/trusted-time",
+        )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="repository inputs"):
+        verifier.reauthenticate_retained_terminal_wire(
+            envelope=envelope,
+            root=root,
+            request_intent=intent,
+            terminal_record=terminal_record,
+            artifact_directory_path="/injected/adr0121/../trusted-time",
+        )
+    untyped_fields = terminal_record.to_dict()
+    untyped_evidence = dict(cast(dict[str, object], untyped_fields["evidence"]))
+    untyped_receipt = dict(
+        cast(dict[str, object], untyped_evidence["wire_publication_receipt"])
+    )
+    untyped_name = (
+        "trusted-time-post-enrollment-graceful-stop-v2-wire-result-"
+        f"{structurally_signed_but_untyped.sha256}.json"
+    )
+    untyped_receipt.update(
+        {
+            "artifact_path": f"/injected/adr0121/trusted-time/{untyped_name}",
+            "file_name": untyped_name,
+            "file_size": len(structurally_signed_but_untyped.encoded),
+            "signed_envelope_sha256": structurally_signed_but_untyped.sha256,
+            "payload_sha256": structurally_signed_but_untyped.to_dict()["payload_sha256"],
+            "signature_sha256": structurally_signed_but_untyped.signature_sha256,
+        }
+    )
+    untyped_evidence["clean_stop_result_sha256"] = structurally_signed_but_untyped.sha256
+    untyped_evidence["clean_stop_result_payload_sha256"] = (
+        structurally_signed_but_untyped.to_dict()["payload_sha256"]
+    )
+    untyped_evidence["clean_stop_result_signature_sha256"] = (
+        structurally_signed_but_untyped.signature_sha256
+    )
+    untyped_evidence["clean_stop_result_artifact_name"] = untyped_name
+    untyped_evidence["clean_stop_result_artifact_path"] = untyped_receipt[
+        "artifact_path"
+    ]
+    untyped_evidence["wire_publication_receipt"] = untyped_receipt
+    untyped_evidence["wire_publication_receipt_sha256"] = hashlib.sha256(
+        b"AutoQuantTrader/trusted-time/graceful-stop/"
+        b"wire-envelope-publication-receipt/v2\0"
+        + canonical_v2_json_bytes(untyped_receipt, maximum_bytes=262_144)
+    ).hexdigest()
+    untyped_record = LifecycleV2ProgressRecord(
+        graceful_stop_operation_id=root.graceful_stop_operation_id,
+        root_sha256=root.sha256,
+        ordinal=2,
+        stage=LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED,
+        predecessor_sha256=intent.sha256,
+        effect_kind="clean_stop_result",
+        deadline_boottime_ns=root.operation_deadline_boottime_ns,
+        evidence=FrozenJsonObject.capture(untyped_evidence),
+        recorded_at_utc=UTC_TEXT,
+    )
+
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="payload or evidence"):
+        verifier.reauthenticate_retained_terminal_wire(
+            envelope=structurally_signed_but_untyped,
+            root=root,
+            request_intent=intent,
+            terminal_record=untyped_record,
+            artifact_directory_path="/injected/adr0121/trusted-time",
+        )
 
 
 @pytest.mark.parametrize(

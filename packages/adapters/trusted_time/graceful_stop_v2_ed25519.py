@@ -9,6 +9,8 @@ durable ordinal-one intent, so a caller cannot substitute a digest-only view.
 from __future__ import annotations
 
 import hashlib
+import os
+import threading
 from dataclasses import dataclass
 
 from cryptography.exceptions import InvalidSignature
@@ -16,6 +18,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_V2_WIRE_MAXIMUM_BYTES,
+    LifecycleV2CleanStopRequest,
+    LifecycleV2CleanStopRequestBasis,
     LifecycleV2ProgressRecord,
     LifecycleV2Root,
     LifecycleV2Stage,
@@ -28,6 +32,7 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     decode_lifecycle_v2_transcript,
     decode_unverified_lifecycle_v2_transport_envelope,
     lifecycle_v2_dispatch_prefix_sha256,
+    lifecycle_v2_wire_file_name,
 )
 from packages.domain.trusted_time_graceful_stop_v2_recovery import (
     LifecycleV2RecoveryClassificationEnvelope,
@@ -36,6 +41,7 @@ from packages.domain.trusted_time_graceful_stop_v2_recovery import (
 from packages.domain.trusted_time_graceful_stop_v2_terminal import (
     _PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
     LifecycleV2AuthenticatedTerminalEnvelopeProof,
+    LifecycleV2TerminalWireEvidence,
     _mint_authenticated_lifecycle_v2_terminal_envelope_proof,
 )
 from packages.domain.trusted_time_graceful_stop_v2_transport import (
@@ -825,6 +831,171 @@ def authenticate_retained_lifecycle_v2_wire(
         authority_manifest=authenticated,
         expectation=expectation,
     )
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class _LifecycleV2Ed25519RetainedWireVerifier:
+    """Process/thread-bound injected repository verifier over one public key."""
+
+    _authority_manifest: AuthenticatedLifecycleV2TransportAuthorityManifest
+    _origin_pid: int
+    _origin_thread: threading.Thread
+    _capability: object
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("retained-wire verifiers require authenticated construction")
+
+    def _require_owner(self) -> None:
+        if (
+            self._capability is not _AUTHENTICATED_VALUE_CAPABILITY
+            or os.getpid() != self._origin_pid
+            or threading.current_thread() is not self._origin_thread
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire verifier owner is invalid"
+            )
+        _require_authenticated_manifest(self._authority_manifest)
+
+    def reauthenticate_retained_terminal_wire(
+        self,
+        *,
+        envelope: UnverifiedLifecycleV2TransportEnvelope,
+        root: LifecycleV2Root,
+        request_intent: LifecycleV2ProgressRecord,
+        terminal_record: LifecycleV2ProgressRecord,
+        artifact_directory_path: str,
+    ) -> AuthenticatedLifecycleV2TransportEnvelope:
+        self._require_owner()
+        try:
+            exact_record = decode_lifecycle_v2_progress_record(terminal_record.encoded)
+            exact_root = decode_lifecycle_v2_root(root.encoded)
+            exact_intent = decode_lifecycle_v2_progress_record(request_intent.encoded)
+        except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire repository values are not canonical"
+            ) from error
+        if (
+            exact_record != terminal_record
+            or exact_root != root
+            or exact_intent != request_intent
+            or type(envelope) is not UnverifiedLifecycleV2TransportEnvelope
+            or type(artifact_directory_path) is not str
+            or not artifact_directory_path.startswith("/")
+            or not artifact_directory_path.endswith("/trusted-time")
+            or artifact_directory_path == "/trusted-time"
+            or "//" in artifact_directory_path
+            or "/./" in artifact_directory_path
+            or "/../" in artifact_directory_path
+            or "\0" in artifact_directory_path
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire repository inputs are not exact"
+            )
+        if envelope.frame_type not in {"clean_stop_result", "clean_stop_error"}:
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire verifier accepts only terminal frames"
+            )
+        prefix = (
+            "clean_stop_result"
+            if envelope.frame_type == "clean_stop_result"
+            else "clean_stop_error"
+        )
+        expected_stage = (
+            LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED
+            if envelope.frame_type == "clean_stop_result"
+            else LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED
+        )
+        evidence = exact_record.evidence.to_dict()
+        file_name = lifecycle_v2_wire_file_name(envelope)
+        if (
+            exact_record.ordinal != 2
+            or exact_record.stage is not expected_stage
+            or exact_record.graceful_stop_operation_id
+            != exact_root.graceful_stop_operation_id
+            or exact_record.root_sha256 != exact_root.sha256
+            or exact_record.predecessor_sha256 != exact_intent.sha256
+            or evidence.get("intent_sha256") != exact_intent.sha256
+            or evidence.get(f"{prefix}_sha256") != envelope.sha256
+            or evidence.get(f"{prefix}_artifact_name") != file_name
+            or evidence.get(f"{prefix}_artifact_path")
+            != f"{artifact_directory_path}/{file_name}"
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire terminal record crossed its root, intent, or artifact"
+            )
+        authenticated = authenticate_retained_lifecycle_v2_wire(
+            envelope.encoded,
+            authority_manifest=self._authority_manifest,
+            root=exact_root,
+            request_intent=exact_intent,
+        )
+        try:
+            basis = LifecycleV2CleanStopRequestBasis.from_root(exact_root)
+            request = LifecycleV2CleanStopRequest.from_prefix(
+                exact_root,
+                basis,
+                exact_intent,
+            )
+            proof = bind_authenticated_lifecycle_v2_terminal_envelope_proof(authenticated)
+            wire_evidence = LifecycleV2TerminalWireEvidence.capture(
+                evidence,
+                proof=proof,
+                request=request,
+                root=exact_root,
+                responder_identity_sha256=exact_root.supervisor_process_epoch_sha256,
+            )
+        except TrustedTimeGracefulStopV2Rejected as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "retained terminal payload or evidence is not exact"
+            ) from error
+        if wire_evidence.to_dict() != evidence:
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire evidence changed under terminal validation"
+            )
+        return authenticated
+
+    def require_exact_authenticated_retained_terminal_wire(
+        self,
+        result: object,
+    ) -> AuthenticatedLifecycleV2TransportEnvelope:
+        self._require_owner()
+        if (
+            type(result) is not AuthenticatedLifecycleV2TransportEnvelope
+            or result._capability is not _AUTHENTICATED_VALUE_CAPABILITY
+            or type(result.envelope) is not UnverifiedLifecycleV2TransportEnvelope
+            or result.authority_manifest_sha256
+            != self._authority_manifest.manifest.sha256
+            or result.signer_role != "supervisor"
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire verifier result is not its exact sealed value"
+            )
+        try:
+            canonical = decode_unverified_lifecycle_v2_transport_envelope(
+                result.envelope.encoded
+            )
+        except TrustedTimeGracefulStopV2Rejected as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire verifier result changed under validation"
+            ) from error
+        if canonical != result.envelope:
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire verifier result changed under validation"
+            )
+        return result
+
+
+def _build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
+    authority_manifest: AuthenticatedLifecycleV2TransportAuthorityManifest,
+) -> _LifecycleV2Ed25519RetainedWireVerifier:
+    authenticated = _require_authenticated_manifest(authority_manifest)
+    result = object.__new__(_LifecycleV2Ed25519RetainedWireVerifier)
+    object.__setattr__(result, "_authority_manifest", authenticated)
+    object.__setattr__(result, "_origin_pid", os.getpid())
+    object.__setattr__(result, "_origin_thread", threading.current_thread())
+    object.__setattr__(result, "_capability", _AUTHENTICATED_VALUE_CAPABILITY)
+    result._require_owner()
+    return result
 
 
 def lifecycle_v2_ed25519_non_authority_facts() -> dict[str, bool]:
