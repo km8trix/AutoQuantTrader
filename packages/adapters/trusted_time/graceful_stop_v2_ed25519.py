@@ -428,8 +428,8 @@ def authenticate_selected_lifecycle_v2_handshake(
     )
 
 
-@dataclass(frozen=True, slots=True)
-class LifecycleV2TransportFrameExpectation:
+@dataclass(frozen=True, slots=True, init=False)
+class _LifecycleV2TransportFrameExpectation:
     environment: str
     transport_authority_manifest_sha256: str
     frame_type: str
@@ -442,6 +442,10 @@ class LifecycleV2TransportFrameExpectation:
     lifecycle_dispatch_prefix_sha256: str
     message_counter: int
     deadline_boottime_ns: int
+    _capability: object
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("transport frame expectations require root-bound derivation")
 
     @classmethod
     def from_root_and_intent(
@@ -450,7 +454,7 @@ class LifecycleV2TransportFrameExpectation:
         request_intent: LifecycleV2ProgressRecord,
         *,
         frame_type: str,
-    ) -> LifecycleV2TransportFrameExpectation:
+    ) -> _LifecycleV2TransportFrameExpectation:
         try:
             exact_root = decode_lifecycle_v2_root(root.encoded)
             exact_intent = decode_lifecycle_v2_progress_record(request_intent.encoded)
@@ -469,26 +473,31 @@ class LifecycleV2TransportFrameExpectation:
                 "retained-wire expectation does not bind the ordinal-one prefix"
             )
         host_frame = frame_type == "clean_stop_request"
-        return cls(
-            environment=exact_root.environment,
-            transport_authority_manifest_sha256=(exact_root.transport_authority_manifest_sha256),
-            frame_type=frame_type,
-            key_generation=exact_root.transport_key_generation,
-            signing_key_id=(
+        result = object.__new__(cls)
+        values: dict[str, object] = {
+            "environment": exact_root.environment,
+            "transport_authority_manifest_sha256": (exact_root.transport_authority_manifest_sha256),
+            "frame_type": frame_type,
+            "key_generation": exact_root.transport_key_generation,
+            "signing_key_id": (
                 exact_root.host_transport_key_id
                 if host_frame
                 else exact_root.supervisor_transport_key_id
             ),
-            boot_epoch_sha256=exact_root.boot_epoch_sha256,
-            host_process_epoch_sha256=exact_root.host_process_epoch_sha256,
-            supervisor_process_epoch_sha256=exact_root.supervisor_process_epoch_sha256,
-            channel_id=exact_root.channel_id,
-            lifecycle_dispatch_prefix_sha256=lifecycle_v2_dispatch_prefix_sha256(
+            "boot_epoch_sha256": exact_root.boot_epoch_sha256,
+            "host_process_epoch_sha256": exact_root.host_process_epoch_sha256,
+            "supervisor_process_epoch_sha256": exact_root.supervisor_process_epoch_sha256,
+            "channel_id": exact_root.channel_id,
+            "lifecycle_dispatch_prefix_sha256": lifecycle_v2_dispatch_prefix_sha256(
                 exact_root, exact_intent
             ),
-            message_counter=2 if host_frame else 1,
-            deadline_boottime_ns=exact_root.clean_stop_result_deadline_boottime_ns,
-        )
+            "message_counter": 2 if host_frame else 1,
+            "deadline_boottime_ns": exact_root.clean_stop_result_deadline_boottime_ns,
+            "_capability": _AUTHENTICATED_VALUE_CAPABILITY,
+        }
+        for name, value in values.items():
+            object.__setattr__(result, name, value)
+        return result
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -531,16 +540,19 @@ def _validate_transport_envelope_formula(
         )
 
 
-def authenticate_lifecycle_v2_transport_frame(
+def _authenticate_lifecycle_v2_transport_frame(
     encoded: object,
     *,
     authority_manifest: AuthenticatedLifecycleV2TransportAuthorityManifest,
-    expectation: LifecycleV2TransportFrameExpectation,
+    expectation: _LifecycleV2TransportFrameExpectation,
 ) -> AuthenticatedLifecycleV2TransportEnvelope:
     """Authenticate one request, result, or error against exact correlators."""
 
     authenticated = _require_authenticated_manifest(authority_manifest)
-    if type(expectation) is not LifecycleV2TransportFrameExpectation:
+    if (
+        type(expectation) is not _LifecycleV2TransportFrameExpectation
+        or expectation._capability is not _AUTHENTICATED_VALUE_CAPABILITY
+    ):
         raise LifecycleV2TransportAuthenticationError("transport frame expectation is invalid")
     try:
         envelope = decode_unverified_lifecycle_v2_transport_envelope(encoded)
@@ -597,6 +609,34 @@ def authenticate_lifecycle_v2_transport_frame(
     return result
 
 
+def authenticate_root_bound_lifecycle_v2_transport_frame(
+    encoded: object,
+    *,
+    authority_manifest: AuthenticatedLifecycleV2TransportAuthorityManifest,
+    root: LifecycleV2Root,
+    request_intent: LifecycleV2ProgressRecord,
+) -> AuthenticatedLifecycleV2TransportEnvelope:
+    """Authenticate one frame against correlators derived from its exact durable prefix."""
+
+    try:
+        envelope = decode_unverified_lifecycle_v2_transport_envelope(encoded)
+        exact_root = decode_lifecycle_v2_root(root.encoded)
+    except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
+        raise LifecycleV2TransportAuthenticationError(
+            "root-bound lifecycle-v2 frame inputs are not canonical"
+        ) from error
+    expectation = _LifecycleV2TransportFrameExpectation.from_root_and_intent(
+        exact_root,
+        request_intent,
+        frame_type=envelope.frame_type,
+    )
+    return _authenticate_lifecycle_v2_transport_frame(
+        encoded,
+        authority_manifest=authority_manifest,
+        expectation=expectation,
+    )
+
+
 def authenticate_retained_lifecycle_v2_wire(
     encoded: object,
     *,
@@ -629,10 +669,10 @@ def authenticate_retained_lifecycle_v2_wire(
         raise LifecycleV2TransportAuthenticationError(
             "retained root crossed its root-pinned transport authority"
         )
-    expectation = LifecycleV2TransportFrameExpectation.from_root_and_intent(
+    expectation = _LifecycleV2TransportFrameExpectation.from_root_and_intent(
         exact_root, request_intent, frame_type=envelope.frame_type
     )
-    return authenticate_lifecycle_v2_transport_frame(
+    return _authenticate_lifecycle_v2_transport_frame(
         encoded,
         authority_manifest=authenticated,
         expectation=expectation,
@@ -658,12 +698,11 @@ __all__ = [
     "AuthenticatedLifecycleV2TransportAuthoritySelection",
     "AuthenticatedLifecycleV2TransportEnvelope",
     "LifecycleV2TransportAuthenticationError",
-    "LifecycleV2TransportFrameExpectation",
     "authenticate_lifecycle_v2_transport_authority",
     "authenticate_lifecycle_v2_transport_authority_manifest",
     "authenticate_lifecycle_v2_transport_authority_selection",
-    "authenticate_lifecycle_v2_transport_frame",
     "authenticate_retained_lifecycle_v2_wire",
+    "authenticate_root_bound_lifecycle_v2_transport_frame",
     "authenticate_selected_lifecycle_v2_handshake",
     "authenticated_lifecycle_v2_recovery_manifest_for_root",
     "lifecycle_v2_ed25519_non_authority_facts",

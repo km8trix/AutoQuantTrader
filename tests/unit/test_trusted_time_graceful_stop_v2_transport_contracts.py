@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import dataclasses
 import hashlib
 from typing import Any, cast
 
@@ -11,12 +12,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from packages.adapters.trusted_time import graceful_stop_v2_ed25519 as ed25519_adapter
 from packages.adapters.trusted_time.graceful_stop_v2_ed25519 import (
     LifecycleV2TransportAuthenticationError,
-    LifecycleV2TransportFrameExpectation,
     authenticate_lifecycle_v2_transport_authority,
     authenticate_lifecycle_v2_transport_authority_manifest,
     authenticate_lifecycle_v2_transport_authority_selection,
-    authenticate_lifecycle_v2_transport_frame,
     authenticate_retained_lifecycle_v2_wire,
+    authenticate_root_bound_lifecycle_v2_transport_frame,
     authenticate_selected_lifecycle_v2_handshake,
     authenticated_lifecycle_v2_recovery_manifest_for_root,
     lifecycle_v2_ed25519_non_authority_facts,
@@ -1188,14 +1188,11 @@ def test_ed25519_authenticator_verifies_every_transport_frame_role(frame_type: s
     root = _root(manifest)
     intent = _intent(root)
     envelope = _envelope(root, intent, frame_type=frame_type)
-    expectation = LifecycleV2TransportFrameExpectation.from_root_and_intent(
-        root, intent, frame_type=frame_type
-    )
-
-    authenticated = authenticate_lifecycle_v2_transport_frame(
+    authenticated = authenticate_root_bound_lifecycle_v2_transport_frame(
         envelope.encoded,
         authority_manifest=_authenticated_manifest(manifest),
-        expectation=expectation,
+        root=root,
+        request_intent=intent,
     )
 
     assert authenticated.envelope == envelope
@@ -1215,15 +1212,35 @@ def test_generic_frame_verifier_rejects_parallel_manifest_with_same_endpoint_key
     root = _root(pinned_manifest)
     intent = _intent(root)
     envelope = _envelope(root, intent, frame_type="clean_stop_result")
-    expectation = LifecycleV2TransportFrameExpectation.from_root_and_intent(
-        root, intent, frame_type="clean_stop_result"
-    )
-
     with pytest.raises(LifecycleV2TransportAuthenticationError, match="authority generation"):
-        authenticate_lifecycle_v2_transport_frame(
+        authenticate_root_bound_lifecycle_v2_transport_frame(
             envelope.encoded,
             authority_manifest=_authenticated_manifest(parallel_manifest),
-            expectation=expectation,
+            root=root,
+            request_intent=intent,
+        )
+
+
+def test_frame_expectation_cannot_be_constructed_or_replaced_across_root_pin() -> None:
+    manifest = _manifest()
+    parallel_manifest = _manifest(
+        recovery_private_key=Ed25519PrivateKey.from_private_bytes(bytes(range(19, 51)))
+    )
+    root = _root(manifest)
+    intent = _intent(root)
+    expectation_type = ed25519_adapter._LifecycleV2TransportFrameExpectation
+    expectation = expectation_type.from_root_and_intent(
+        root,
+        intent,
+        frame_type="clean_stop_result",
+    )
+
+    with pytest.raises(TypeError, match="root-bound derivation"):
+        expectation_type()
+    with pytest.raises(TypeError, match="root-bound derivation"):
+        dataclasses.replace(
+            expectation,
+            transport_authority_manifest_sha256=parallel_manifest.sha256,
         )
 
 
@@ -1348,13 +1365,11 @@ def test_transport_payload_exact_ceiling_authenticates_and_plus_one_rejects(
         payload=maximum_payload,
     )
 
-    expectation = LifecycleV2TransportFrameExpectation.from_root_and_intent(
-        root, intent, frame_type=frame_type
-    )
-    authenticated = authenticate_lifecycle_v2_transport_frame(
+    authenticated = authenticate_root_bound_lifecycle_v2_transport_frame(
         envelope.encoded,
         authority_manifest=_authenticated_manifest(manifest),
-        expectation=expectation,
+        root=root,
+        request_intent=intent,
     )
     assert len(authenticated.envelope.payload) == payload_limit
     assert len(envelope.encoded) < 262_144
@@ -1386,3 +1401,5 @@ def test_packet_boundary_garbage_never_becomes_an_authenticated_frame(packet_siz
 def test_contract_and_verifier_surfaces_remain_non_authorizing() -> None:
     assert set(lifecycle_v2_transport_contract_non_authority_facts().values()) == {False}
     assert set(lifecycle_v2_ed25519_non_authority_facts().values()) == {False}
+    assert not hasattr(ed25519_adapter, "LifecycleV2TransportFrameExpectation")
+    assert not hasattr(ed25519_adapter, "authenticate_lifecycle_v2_transport_frame")
