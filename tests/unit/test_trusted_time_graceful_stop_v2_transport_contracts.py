@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from packages.adapters.trusted_time import graceful_stop_v2_ed25519 as ed25519_adapter
 from packages.adapters.trusted_time.graceful_stop_v2_ed25519 import (
     LifecycleV2TransportAuthenticationError,
+    authenticate_lifecycle_v2_recovery_classification_envelope,
     authenticate_lifecycle_v2_transport_authority,
     authenticate_lifecycle_v2_transport_authority_manifest,
     authenticate_lifecycle_v2_transport_authority_selection,
@@ -24,16 +25,25 @@ from packages.adapters.trusted_time.graceful_stop_v2_ed25519 import (
 )
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_V2_CLEAN_STOP_REQUEST_CONTRACT_VERSION,
+    LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION,
+    LIFECYCLE_V2_ROOT_CONTRACT_VERSION,
     LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION,
     FrozenJsonObject,
     LifecycleV2CleanStopRequestBasis,
     LifecycleV2ProgressRecord,
     LifecycleV2Root,
     LifecycleV2Stage,
+    LifecycleV2Transcript,
+    LifecycleV2TranscriptEntry,
     TrustedTimeGracefulStopV2Rejected,
     UnverifiedLifecycleV2TransportEnvelope,
     canonical_v2_json_bytes,
     lifecycle_v2_dispatch_prefix_sha256,
+)
+from packages.domain.trusted_time_graceful_stop_v2_recovery import (
+    RECOVERY_CLASSIFICATION_CONTRACT_VERSION,
+    LifecycleV2RecoveryClassificationEnvelope,
+    decode_lifecycle_v2_recovery_classification_envelope,
 )
 from packages.domain.trusted_time_graceful_stop_v2_transport import (
     CHANNEL_BINDING_CONTRACT_VERSION,
@@ -551,6 +561,69 @@ def _envelope(
     )
 
 
+def _classified_transcript(
+    root: LifecycleV2Root,
+    intent: LifecycleV2ProgressRecord,
+) -> LifecycleV2Transcript:
+    return LifecycleV2Transcript(
+        environment=root.environment,
+        graceful_stop_operation_id=root.graceful_stop_operation_id,
+        root_sha256=root.sha256,
+        entries=(
+            LifecycleV2TranscriptEntry(
+                ordinal=0,
+                stage=LifecycleV2Stage.ROOT_RESERVED,
+                record_artifact_kind="root",
+                record_contract_version=LIFECYCLE_V2_ROOT_CONTRACT_VERSION,
+                record_artifact_sha256=root.sha256,
+                predecessor_sha256=None,
+            ),
+            LifecycleV2TranscriptEntry(
+                ordinal=1,
+                stage=LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED,
+                record_artifact_kind="progress",
+                record_contract_version=LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION,
+                record_artifact_sha256=intent.sha256,
+                predecessor_sha256=root.sha256,
+            ),
+        ),
+    )
+
+
+def _recovery_envelope(
+    root: LifecycleV2Root,
+    transcript: LifecycleV2Transcript,
+    manifest: LifecycleV2TransportAuthorityManifest,
+) -> LifecycleV2RecoveryClassificationEnvelope:
+    fields: dict[str, object] = {
+        "contract_version": RECOVERY_CLASSIFICATION_CONTRACT_VERSION,
+        "service": "trusted-time-post-enrollment-graceful-stop-lifecycle-v2",
+        "status": "recovery_classification_requested",
+        "environment": root.environment,
+        "graceful_stop_operation_id": root.graceful_stop_operation_id,
+        "root_sha256": root.sha256,
+        "admission_started_boottime_ns": root.admission_started_boottime_ns,
+        "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
+        "transcript_sha256": transcript.sha256,
+        "last_ordinal": transcript.entries[-1].ordinal,
+        "last_stage": transcript.entries[-1].stage.value,
+        "reason_code": "call_or_result_ambiguous",
+        "transport_authority_manifest_sha256": manifest.sha256,
+        "key_generation": manifest.generation,
+        "recovery_key_id": manifest.recovery_key_id,
+        "operator_nonce_base64": _b64(bytes(range(32, 64))),
+        "issued_at_utc": UTC_TEXT,
+    }
+    return cast(
+        LifecycleV2RecoveryClassificationEnvelope,
+        _sign_canonical(
+            fields,
+            LifecycleV2RecoveryClassificationEnvelope,
+            RECOVERY_PRIVATE_KEY,
+        ),
+    )
+
+
 def test_authority_manifest_and_selection_chains_authenticate_deterministically() -> None:
     manifest = _manifest()
     selection = _selection(
@@ -577,6 +650,199 @@ def test_authority_manifest_and_selection_chains_authenticate_deterministically(
     assert manifest.signature_input.startswith(
         b"AutoQuantTrader/trusted-time/graceful-stop/transport-authority/v1\0"
     )
+
+
+def test_recovery_classification_is_root_prefix_and_selected_generation_bound() -> None:
+    manifest = _manifest()
+    selection = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest,
+        recovery=manifest,
+        reason="initial",
+    )
+    authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (selection.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    root = _root(manifest)
+    transcript = _classified_transcript(root, _intent(root))
+    envelope = _recovery_envelope(root, transcript, manifest)
+
+    authenticated = authenticate_lifecycle_v2_recovery_classification_envelope(
+        envelope.encoded,
+        authority=authority,
+        root=root,
+        classified_transcript=transcript,
+    )
+
+    assert decode_lifecycle_v2_recovery_classification_envelope(envelope.encoded) == envelope
+    assert authenticated.envelope == envelope
+    assert authenticated.root_sha256 == root.sha256
+    assert authenticated.classified_transcript_sha256 == transcript.sha256
+    assert authenticated.authority_manifest_sha256 == manifest.sha256
+    assert envelope.operator_nonce_sha256 == hashlib.sha256(bytes(range(32, 64))).hexdigest()
+    with pytest.raises(TypeError, match="require verification"):
+        type(authenticated)()
+
+
+_RECOVERY_CLASSIFICATION_SIGNED_FIELDS = [
+    "contract_version",
+    "service",
+    "status",
+    "environment",
+    "graceful_stop_operation_id",
+    "root_sha256",
+    "admission_started_boottime_ns",
+    "operation_deadline_boottime_ns",
+    "transcript_sha256",
+    "last_ordinal",
+    "last_stage",
+    "reason_code",
+    "transport_authority_manifest_sha256",
+    "key_generation",
+    "recovery_key_id",
+    "operator_nonce_base64",
+    "issued_at_utc",
+    "signature_ed25519_base64",
+]
+
+
+@pytest.mark.parametrize("field_name", _RECOVERY_CLASSIFICATION_SIGNED_FIELDS)
+def test_every_recovery_classification_signed_field_tamper_is_rejected(
+    field_name: str,
+) -> None:
+    manifest = _manifest()
+    selection = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest,
+        recovery=manifest,
+        reason="initial",
+    )
+    authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (selection.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    root = _root(manifest)
+    transcript = _classified_transcript(root, _intent(root))
+    envelope = _recovery_envelope(root, transcript, manifest)
+    tampered = canonical_v2_json_bytes(
+        _tamper_field(envelope.to_dict(), field_name),
+        maximum_bytes=64 * 1_024,
+    )
+
+    with pytest.raises(LifecycleV2TransportAuthenticationError):
+        authenticate_lifecycle_v2_recovery_classification_envelope(
+            tampered,
+            authority=authority,
+            root=root,
+            classified_transcript=transcript,
+        )
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "admission_started_boottime_ns",
+        "operation_deadline_boottime_ns",
+        "last_ordinal",
+        "key_generation",
+    ],
+)
+def test_recovery_classification_rejects_boolean_integer_fields(field_name: str) -> None:
+    manifest = _manifest()
+    selection = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest,
+        recovery=manifest,
+        reason="initial",
+    )
+    authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (selection.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    root = _root(manifest)
+    transcript = _classified_transcript(root, _intent(root))
+    fields = _recovery_envelope(root, transcript, manifest).to_dict()
+    fields[field_name] = True
+    encoded = _sign_raw_fields(
+        fields,
+        signature_domain=(
+            "AutoQuantTrader/trusted-time/graceful-stop/recovery-classification/v1"
+        ),
+        private_key=RECOVERY_PRIVATE_KEY,
+        maximum_bytes=64 * 1_024,
+    )
+
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="not canonical"):
+        authenticate_lifecycle_v2_recovery_classification_envelope(
+            encoded,
+            authority=authority,
+            root=root,
+            classified_transcript=transcript,
+        )
+
+
+def test_recovery_classification_rejects_unselected_recovery_or_cross_prefix() -> None:
+    manifest = _manifest()
+    selected = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest,
+        recovery=manifest,
+        reason="initial",
+    )
+    denied = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest,
+        recovery=None,
+        reason="initial",
+    )
+    selected_authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (selected.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    denied_authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (denied.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    root = _root(manifest)
+    intent = _intent(root)
+    transcript = _classified_transcript(root, intent)
+    envelope = _recovery_envelope(root, transcript, manifest)
+    drifted_intent = dataclasses.replace(
+        intent,
+        recorded_at_utc="2026-08-27T12:00:00.000001Z",
+    )
+    drifted_transcript = _classified_transcript(root, drifted_intent)
+
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="not selected"):
+        authenticate_lifecycle_v2_recovery_classification_envelope(
+            envelope.encoded,
+            authority=denied_authority,
+            root=root,
+            classified_transcript=transcript,
+        )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="root, prefix"):
+        authenticate_lifecycle_v2_recovery_classification_envelope(
+            envelope.encoded,
+            authority=selected_authority,
+            root=root,
+            classified_transcript=drifted_transcript,
+        )
 
 
 def test_rotation_is_gap_free_and_new_roots_denied_with_optional_recovery() -> None:

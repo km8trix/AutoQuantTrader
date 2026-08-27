@@ -19,13 +19,19 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     LifecycleV2ProgressRecord,
     LifecycleV2Root,
     LifecycleV2Stage,
+    LifecycleV2Transcript,
     TrustedTimeGracefulStopV2Rejected,
     UnverifiedLifecycleV2TransportEnvelope,
     canonical_v2_json_bytes,
     decode_lifecycle_v2_progress_record,
     decode_lifecycle_v2_root,
+    decode_lifecycle_v2_transcript,
     decode_unverified_lifecycle_v2_transport_envelope,
     lifecycle_v2_dispatch_prefix_sha256,
+)
+from packages.domain.trusted_time_graceful_stop_v2_recovery import (
+    LifecycleV2RecoveryClassificationEnvelope,
+    decode_lifecycle_v2_recovery_classification_envelope,
 )
 from packages.domain.trusted_time_graceful_stop_v2_terminal import (
     _PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
@@ -331,6 +337,117 @@ def authenticated_lifecycle_v2_recovery_manifest_for_root(
         for item in authority.authenticated_manifests
         if item.manifest.sha256 == recovery.sha256
     )
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class AuthenticatedLifecycleV2RecoveryClassificationEnvelope:
+    envelope: LifecycleV2RecoveryClassificationEnvelope
+    root_sha256: str
+    classified_transcript_sha256: str
+    authority_manifest_sha256: str
+    _capability: object
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("authenticated recovery classifications require verification")
+
+
+def _require_authenticated_lifecycle_v2_recovery_classification_envelope(
+    value: object,
+) -> AuthenticatedLifecycleV2RecoveryClassificationEnvelope:
+    if (
+        type(value) is not AuthenticatedLifecycleV2RecoveryClassificationEnvelope
+        or value._capability is not _AUTHENTICATED_VALUE_CAPABILITY
+        or type(value.envelope) is not LifecycleV2RecoveryClassificationEnvelope
+    ):
+        raise LifecycleV2TransportAuthenticationError(
+            "recovery classification is not authenticated"
+        )
+    try:
+        canonical = decode_lifecycle_v2_recovery_classification_envelope(
+            value.envelope.encoded
+        )
+    except TrustedTimeGracefulStopV2Rejected as error:
+        raise LifecycleV2TransportAuthenticationError(
+            "authenticated recovery classification changed under validation"
+        ) from error
+    if (
+        canonical != value.envelope
+        or canonical.root_sha256 != value.root_sha256
+        or canonical.transcript_sha256 != value.classified_transcript_sha256
+        or canonical.transport_authority_manifest_sha256
+        != value.authority_manifest_sha256
+    ):
+        raise LifecycleV2TransportAuthenticationError(
+            "authenticated recovery classification changed under validation"
+        )
+    return value
+
+
+def authenticate_lifecycle_v2_recovery_classification_envelope(
+    encoded: object,
+    *,
+    authority: AuthenticatedLifecycleV2TransportAuthority,
+    root: LifecycleV2Root,
+    classified_transcript: LifecycleV2Transcript,
+) -> AuthenticatedLifecycleV2RecoveryClassificationEnvelope:
+    """Authenticate one recovery-only classification against its exact prefix."""
+
+    try:
+        envelope = decode_lifecycle_v2_recovery_classification_envelope(encoded)
+        exact_root = decode_lifecycle_v2_root(root.encoded)
+        exact_transcript = decode_lifecycle_v2_transcript(classified_transcript.encoded)
+    except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
+        raise LifecycleV2TransportAuthenticationError(
+            "recovery classification inputs are not canonical"
+        ) from error
+    if exact_root != root or exact_transcript != classified_transcript:
+        raise LifecycleV2TransportAuthenticationError(
+            "recovery classification inputs changed under validation"
+        )
+    recovery = authenticated_lifecycle_v2_recovery_manifest_for_root(
+        authority,
+        root_manifest_sha256=exact_root.transport_authority_manifest_sha256,
+        root_generation=exact_root.transport_key_generation,
+    )
+    if recovery is None:
+        raise LifecycleV2TransportAuthenticationError(
+            "root-pinned recovery classification is not selected"
+        )
+    manifest = recovery.manifest
+    if (
+        manifest.sha256 != exact_root.transport_authority_manifest_sha256
+        or manifest.generation != exact_root.transport_key_generation
+        or manifest.environment != exact_root.environment
+        or envelope.environment != exact_root.environment
+        or envelope.graceful_stop_operation_id
+        != exact_root.graceful_stop_operation_id
+        or envelope.root_sha256 != exact_root.sha256
+        or envelope.admission_started_boottime_ns
+        != exact_root.admission_started_boottime_ns
+        or envelope.operation_deadline_boottime_ns
+        != exact_root.operation_deadline_boottime_ns
+        or envelope.transcript_sha256 != exact_transcript.sha256
+        or envelope.last_ordinal != exact_transcript.entries[-1].ordinal
+        or envelope.last_stage is not exact_transcript.entries[-1].stage
+        or exact_transcript.environment != exact_root.environment
+        or exact_transcript.graceful_stop_operation_id
+        != exact_root.graceful_stop_operation_id
+        or exact_transcript.root_sha256 != exact_root.sha256
+        or envelope.transport_authority_manifest_sha256 != manifest.sha256
+        or envelope.key_generation != manifest.generation
+        or envelope.recovery_key_id != manifest.recovery_key_id
+    ):
+        raise LifecycleV2TransportAuthenticationError(
+            "recovery classification crossed its root, prefix, or recovery generation"
+        )
+    _verify(manifest.recovery_public_key, envelope.signature_input, envelope.signature)
+    result = object.__new__(AuthenticatedLifecycleV2RecoveryClassificationEnvelope)
+    object.__setattr__(result, "envelope", envelope)
+    object.__setattr__(result, "root_sha256", exact_root.sha256)
+    object.__setattr__(result, "classified_transcript_sha256", exact_transcript.sha256)
+    object.__setattr__(result, "authority_manifest_sha256", manifest.sha256)
+    object.__setattr__(result, "_capability", _AUTHENTICATED_VALUE_CAPABILITY)
+    return _require_authenticated_lifecycle_v2_recovery_classification_envelope(result)
 
 
 def _require_authority_correlators(
@@ -724,11 +841,13 @@ def lifecycle_v2_ed25519_non_authority_facts() -> dict[str, bool]:
 __all__ = [
     "TRANSPORT_ENVELOPE_MAXIMUM_OVERHEAD_BYTES",
     "AuthenticatedLifecycleV2Handshake",
+    "AuthenticatedLifecycleV2RecoveryClassificationEnvelope",
     "AuthenticatedLifecycleV2TransportAuthority",
     "AuthenticatedLifecycleV2TransportAuthorityManifest",
     "AuthenticatedLifecycleV2TransportAuthoritySelection",
     "AuthenticatedLifecycleV2TransportEnvelope",
     "LifecycleV2TransportAuthenticationError",
+    "authenticate_lifecycle_v2_recovery_classification_envelope",
     "authenticate_lifecycle_v2_transport_authority",
     "authenticate_lifecycle_v2_transport_authority_manifest",
     "authenticate_lifecycle_v2_transport_authority_selection",
