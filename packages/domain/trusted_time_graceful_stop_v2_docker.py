@@ -47,6 +47,7 @@ _GET_HEADERS = (
 _MUTATION_HEADERS = (*_GET_HEADERS, ("Content-Length", "0"))
 _CALL_SPEC_CAPABILITY = object()
 _RESPONSE_CAPTURE_CAPABILITY = object()
+_ADMISSION_ROOTED_TRACE_PREFIX_CAPABILITY = object()
 
 
 class TrustedTimeDockerEvidenceRejected(TrustedTimeGracefulStopV2Rejected):
@@ -2126,6 +2127,159 @@ def _admission_plan_identity(admission: DockerAdmissionCapture) -> DockerPlanIde
     )
 
 
+def _same_ordinal_evidence(
+    left: DockerOrdinalEvidence,
+    right: DockerOrdinalEvidence,
+) -> bool:
+    return (
+        left.spec == right.spec
+        and left.request.sha256 == right.request.sha256
+        and left.connection.sha256 == right.connection.sha256
+        and left.exchange.sha256 == right.exchange.sha256
+        and left.trace.sha256 == right.trace.sha256
+    )
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class DockerAdmissionRootedTracePrefix:
+    """A sealed, gap-free Docker trace prefix rooted in exact admission evidence."""
+
+    _admission: DockerAdmissionCapture
+    _entries: tuple[DockerOrdinalEvidence, ...]
+    _capability: object
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("Docker trace prefixes require validated admission-rooted construction")
+
+    @classmethod
+    def from_admission(
+        cls,
+        *,
+        admission: DockerAdmissionCapture,
+        entries: object,
+    ) -> Self:
+        if type(admission) is not DockerAdmissionCapture:
+            _reject("Docker trace prefix requires one exact admission capture")
+        if type(entries) not in {list, tuple}:
+            _reject("Docker trace prefix must be a concrete evidence sequence")
+        sequence = cast(list[object] | tuple[object, ...], entries)
+        if len(sequence) < 6 or len(sequence) > 18:
+            _reject("Docker trace prefix must contain admission and at most ordinal 17")
+        typed = tuple(cast(DockerOrdinalEvidence, candidate) for candidate in sequence)
+        if any(type(candidate) is not DockerOrdinalEvidence for candidate in typed):
+            _reject("Docker trace prefix contains an inexact ordinal value")
+
+        admission_fields = admission.to_dict()
+        plan_identity = _admission_plan_identity(admission)
+        environment = cast(str, admission_fields["environment"])
+        operation = cast(str, admission_fields["graceful_stop_operation_id"])
+        channel = cast(str, admission_fields["channel_id"])
+        admission_request_sha256s = _digest_list(
+            admission_fields["ordered_request_semantic_sha256_list"], 6
+        )
+        admission_connection_sha256s = _digest_list(
+            admission_fields["ordered_connection_identity_sha256_list"], 6
+        )
+        admission_exchange_sha256s = _digest_list(
+            admission_fields["ordered_http_exchange_sha256_list"], 6
+        )
+        admission_trace_sha256s = _digest_list(
+            admission_fields["ordered_trace_entry_sha256_list"], 6
+        )
+
+        _require_connection_sequence(
+            [entry.connection for entry in typed],
+            environment=environment,
+            graceful_stop_operation_id=operation,
+            channel_id=channel,
+        )
+        daemon_projection = cast(str, admission_fields["daemon_info_projection_sha256"])
+        previous_trace_sha256: str | None = None
+        for ordinal, entry in enumerate(typed):
+            if entry.spec != docker_call_spec(ordinal, plan_identity):
+                _reject("Docker trace prefix is reordered or has an ordinal gap")
+            entry._validate()
+            trace_fields = entry.trace.to_dict()
+            connection_fields = entry.connection.to_dict()
+            if trace_fields["previous_trace_entry_sha256"] != previous_trace_sha256:
+                _reject("Docker trace prefix predecessor chain is broken")
+            admitted = connection_fields["admitted_daemon_info_projection_sha256"]
+            if (ordinal == 0 and admitted is not None) or (
+                ordinal > 0 and admitted != daemon_projection
+            ):
+                _reject("Docker trace prefix changes its admitted daemon projection")
+            if ordinal < 6 and (
+                entry.request.sha256 != admission_request_sha256s[ordinal]
+                or entry.connection.sha256 != admission_connection_sha256s[ordinal]
+                or entry.exchange.sha256 != admission_exchange_sha256s[ordinal]
+                or entry.trace.sha256 != admission_trace_sha256s[ordinal]
+            ):
+                _reject("Docker trace prefix is not rooted in the exact admission capture")
+            previous_trace_sha256 = entry.trace.sha256
+
+        result = object.__new__(cls)
+        object.__setattr__(result, "_admission", admission)
+        object.__setattr__(result, "_entries", typed)
+        object.__setattr__(
+            result,
+            "_capability",
+            _ADMISSION_ROOTED_TRACE_PREFIX_CAPABILITY,
+        )
+        return result
+
+    def append(self, entry: DockerOrdinalEvidence) -> Self:
+        self._require_sealed()
+        if type(entry) is not DockerOrdinalEvidence:
+            _reject("Docker trace prefix append requires exact ordinal evidence")
+        return type(self).from_admission(
+            admission=self._admission,
+            entries=(*self._entries, entry),
+        )
+
+    @property
+    def last_ordinal(self) -> int:
+        self._require_sealed()
+        return len(self._entries) - 1
+
+    @property
+    def trace_head_sha256(self) -> str:
+        self._require_sealed()
+        return self._entries[-1].trace.sha256
+
+    def _require_sealed(self) -> None:
+        if (
+            getattr(self, "_capability", None)
+            is not _ADMISSION_ROOTED_TRACE_PREFIX_CAPABILITY
+        ):
+            _reject("Docker trace prefix is not sealed")
+
+    def _require_result_suffix(
+        self,
+        *,
+        admission: DockerAdmissionCapture,
+        expected: tuple[DockerOrdinalEvidence, ...],
+    ) -> None:
+        self._require_sealed()
+        if (
+            type(admission) is not DockerAdmissionCapture
+            or admission.sha256 != self._admission.sha256
+            or not expected
+            or any(type(entry) is not DockerOrdinalEvidence for entry in expected)
+        ):
+            _reject("Docker result trace prefix crossed its admission context")
+        final_ordinal = expected[-1].spec.ordinal
+        first_ordinal = final_ordinal - len(expected) + 1
+        if (
+            first_ordinal < 0
+            or len(self._entries) != final_ordinal + 1
+            or any(
+                not _same_ordinal_evidence(self._entries[first_ordinal + index], entry)
+                for index, entry in enumerate(expected)
+            )
+        ):
+            _reject("Docker result is not the exact suffix of its admission-rooted trace")
+
+
 def _require_exact_admitted_target(
     admission: DockerAdmissionCapture,
     admitted_target: DockerOrdinalEvidence,
@@ -2329,6 +2483,7 @@ class DockerMutationResultSemantic:
         graceful_stop_operation_id: str,
         root_sha256: str,
         admission: DockerAdmissionCapture,
+        trace_prefix: DockerAdmissionRootedTracePrefix,
         admitted_target: DockerOrdinalEvidence,
         previous: DockerOrdinalEvidence,
         primary: DockerOrdinalEvidence,
@@ -2341,6 +2496,7 @@ class DockerMutationResultSemantic:
         ]
         if (
             type(admission) is not DockerAdmissionCapture
+            or type(trace_prefix) is not DockerAdmissionRootedTracePrefix
             or type(admitted_target) is not DockerOrdinalEvidence
             or type(previous) is not DockerOrdinalEvidence
             or type(primary) is not DockerOrdinalEvidence
@@ -2356,6 +2512,10 @@ class DockerMutationResultSemantic:
             or primary.response.http_status != 204
         ):
             _reject("Docker mutation result evidence is not the exact ordinal pair")
+        trace_prefix._require_result_suffix(
+            admission=admission,
+            expected=(previous, primary, post_inspect),
+        )
         expected_post_status = 200 if result_kind == "container_stop" else 404
         if post_inspect.response.http_status != expected_post_status:
             _reject("Docker post-inspect status does not prove the required outcome")
@@ -2411,6 +2571,7 @@ class DockerMutationResultSemantic:
         return cls.capture(
             value,
             admission=admission,
+            trace_prefix=trace_prefix,
             admitted_target=admitted_target,
             previous=previous,
             primary=primary,
@@ -2423,6 +2584,7 @@ class DockerMutationResultSemantic:
         value: object,
         *,
         admission: DockerAdmissionCapture,
+        trace_prefix: DockerAdmissionRootedTracePrefix,
         admitted_target: DockerOrdinalEvidence,
         previous: DockerOrdinalEvidence,
         primary: DockerOrdinalEvidence,
@@ -2430,12 +2592,17 @@ class DockerMutationResultSemantic:
     ) -> Self:
         if (
             type(admission) is not DockerAdmissionCapture
+            or type(trace_prefix) is not DockerAdmissionRootedTracePrefix
             or type(admitted_target) is not DockerOrdinalEvidence
             or type(previous) is not DockerOrdinalEvidence
             or type(primary) is not DockerOrdinalEvidence
             or type(post_inspect) is not DockerOrdinalEvidence
         ):
             _reject("Docker mutation result requires exact contextual evidence")
+        trace_prefix._require_result_suffix(
+            admission=admission,
+            expected=(previous, primary, post_inspect),
+        )
         frozen = FrozenJsonObject.capture(value)
         fields = frozen.to_dict()
         _require_fields(fields, _MUTATION_RESULT_FIELDS, "Docker mutation result")
@@ -2678,6 +2845,7 @@ class DockerVolumePreservationResult:
         graceful_stop_operation_id: str,
         root_sha256: str,
         admission: DockerAdmissionCapture,
+        trace_prefix: DockerAdmissionRootedTracePrefix,
         previous: DockerOrdinalEvidence,
         command_socket: DockerOrdinalEvidence,
         state: DockerOrdinalEvidence,
@@ -2685,6 +2853,7 @@ class DockerVolumePreservationResult:
     ) -> Self:
         if (
             type(admission) is not DockerAdmissionCapture
+            or type(trace_prefix) is not DockerAdmissionRootedTracePrefix
             or type(previous) is not DockerOrdinalEvidence
             or type(command_socket) is not DockerOrdinalEvidence
             or type(state) is not DockerOrdinalEvidence
@@ -2700,6 +2869,10 @@ class DockerVolumePreservationResult:
             or state.trace.to_dict()["previous_trace_entry_sha256"] != command_socket.trace.sha256
         ):
             _reject("Docker volume proof is not the exact ordinal pair")
+        trace_prefix._require_result_suffix(
+            admission=admission,
+            expected=(previous, command_socket, state),
+        )
         admission_fields = admission.to_dict()
         admission_volumes = [
             admission_fields["command_socket_volume_projection_sha256"],
@@ -2765,6 +2938,7 @@ class DockerVolumePreservationResult:
         return cls.capture(
             value,
             admission=admission,
+            trace_prefix=trace_prefix,
             previous=previous,
             command_socket=command_socket,
             state=state,
@@ -2776,17 +2950,23 @@ class DockerVolumePreservationResult:
         value: object,
         *,
         admission: DockerAdmissionCapture,
+        trace_prefix: DockerAdmissionRootedTracePrefix,
         previous: DockerOrdinalEvidence,
         command_socket: DockerOrdinalEvidence,
         state: DockerOrdinalEvidence,
     ) -> Self:
         if (
             type(admission) is not DockerAdmissionCapture
+            or type(trace_prefix) is not DockerAdmissionRootedTracePrefix
             or type(previous) is not DockerOrdinalEvidence
             or type(command_socket) is not DockerOrdinalEvidence
             or type(state) is not DockerOrdinalEvidence
         ):
             _reject("Docker volume result requires exact contextual evidence")
+        trace_prefix._require_result_suffix(
+            admission=admission,
+            expected=(previous, command_socket, state),
+        )
         frozen = FrozenJsonObject.capture(value)
         fields = frozen.to_dict()
         _require_fields(fields, _VOLUME_RESULT_FIELDS, "Docker volume preservation")
@@ -2955,6 +3135,7 @@ __all__ = [
     "STATE_VOLUME",
     "VOLUME_NAMES",
     "DockerAdmissionCapture",
+    "DockerAdmissionRootedTracePrefix",
     "DockerCallSpec",
     "DockerConnectionIdentity",
     "DockerHttpExchange",

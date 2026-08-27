@@ -27,6 +27,7 @@ from packages.domain.trusted_time_graceful_stop_v2_docker import (
     COMMAND_SOCKET_VOLUME,
     STATE_VOLUME,
     DockerAdmissionCapture,
+    DockerAdmissionRootedTracePrefix,
     DockerConnectionIdentity,
     DockerMutationResultSemantic,
     DockerOrdinalEvidence,
@@ -118,6 +119,39 @@ def _entry_with_connection(
         response=entry.response,
         previous_trace_entry_sha256=entry.trace.to_dict()["previous_trace_entry_sha256"],
     )
+
+
+def _rebuild_entry(
+    entry: Any,
+    *,
+    previous_trace_entry_sha256: str | None,
+    connection_updates: dict[str, object] | None = None,
+) -> DockerOrdinalEvidence:
+    fields = entry.connection.to_dict()
+    fields.update(connection_updates or {})
+    return DockerOrdinalEvidence.construct(
+        spec=entry.spec,
+        request=entry.request,
+        connection=DockerConnectionIdentity.capture(fields),
+        response=entry.response,
+        previous_trace_entry_sha256=previous_trace_entry_sha256,
+    )
+
+
+def _trace_prefix(
+    admission: DockerAdmissionCapture,
+    entries: tuple[Any, ...] | list[Any],
+    last_ordinal: int,
+) -> DockerAdmissionRootedTracePrefix:
+    prefix = DockerAdmissionRootedTracePrefix.from_admission(
+        admission=admission,
+        entries=entries[:6],
+    )
+    for entry in entries[6 : last_ordinal + 1]:
+        prefix = prefix.append(entry)
+    assert prefix.last_ordinal == last_ordinal
+    assert prefix.trace_head_sha256 == entries[last_ordinal].trace.sha256
+    return prefix
 
 
 def test_literal_request_plan_closes_every_method_query_header_and_body() -> None:
@@ -227,6 +261,7 @@ def test_admission_mutation_and_volume_result_semantics_bind_complete_nested_evi
             graceful_stop_operation_id=OPERATION_ID,
             root_sha256=ROOT_SHA256,
             admission=admission,
+            trace_prefix=_trace_prefix(admission, entries, ordinal + 1),
             admitted_target=entries[{6: 1, 8: 2, 10: 1, 12: 2, 14: 3}[ordinal]],
             previous=entries[ordinal - 1],
             primary=entries[ordinal],
@@ -246,6 +281,7 @@ def test_admission_mutation_and_volume_result_semantics_bind_complete_nested_evi
         graceful_stop_operation_id=OPERATION_ID,
         root_sha256=ROOT_SHA256,
         admission=admission,
+        trace_prefix=_trace_prefix(admission, entries, 17),
         previous=entries[15],
         command_socket=entries[16],
         state=entries[17],
@@ -277,6 +313,7 @@ def test_nested_admission_result_and_trace_tamper_is_rejected() -> None:
         graceful_stop_operation_id=OPERATION_ID,
         root_sha256=ROOT_SHA256,
         admission=admission,
+        trace_prefix=_trace_prefix(admission, entries, 7),
         admitted_target=entries[1],
         previous=entries[5],
         primary=entries[6],
@@ -288,6 +325,7 @@ def test_nested_admission_result_and_trace_tamper_is_rejected() -> None:
         DockerMutationResultSemantic.capture(
             result_value,
             admission=admission,
+            trace_prefix=_trace_prefix(admission, entries, 7),
             admitted_target=entries[1],
             previous=entries[5],
             primary=entries[6],
@@ -408,6 +446,7 @@ def test_post_stop_projection_must_preserve_admitted_identity_and_config(kind: s
             graceful_stop_operation_id=OPERATION_ID,
             root_sha256=ROOT_SHA256,
             admission=admission,
+            trace_prefix=_trace_prefix(admission, entries, 7),
             admitted_target=entries[1],
             previous=entries[5],
             primary=entries[6],
@@ -436,6 +475,224 @@ def test_complete_trace_rejects_context_core_reuse_and_time_overlap(
     changed[1] = _entry_with_connection(entries[1], updates=updates)
     with pytest.raises(TrustedTimeDockerEvidenceRejected):
         validate_complete_docker_trace(changed)
+
+
+def test_admission_rooted_trace_prefix_is_sealed_and_advances_through_volume_proof() -> None:
+    _, _, entries = _complete_evidence()
+    admission = DockerAdmissionCapture.from_prefix(
+        environment=ENVIRONMENT,
+        graceful_stop_operation_id=OPERATION_ID,
+        channel_id=CHANNEL_ID,
+        entries=entries[:6],
+    )
+    with pytest.raises(TypeError):
+        DockerAdmissionRootedTracePrefix()
+    forged = object.__new__(DockerAdmissionRootedTracePrefix)
+    with pytest.raises(TrustedTimeDockerEvidenceRejected, match="not sealed"):
+        _ = forged.last_ordinal
+
+    prefix = DockerAdmissionRootedTracePrefix.from_admission(
+        admission=admission,
+        entries=entries[:6],
+    )
+    assert prefix.last_ordinal == 5
+    for ordinal, entry in enumerate(entries[6:], start=6):
+        prefix = prefix.append(entry)
+        assert prefix.last_ordinal == ordinal
+        assert prefix.trace_head_sha256 == entry.trace.sha256
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        prefix.append(entries[17])
+
+
+@pytest.mark.parametrize(
+    "previous_ordinal,result_kind,admitted_ordinal",
+    [
+        (7, "container_stop", 2),
+        (9, "container_remove", 1),
+        (11, "container_remove", 2),
+        (13, "network_remove", 3),
+        (15, "volume_preservation", None),
+    ],
+)
+def test_every_later_orphan_predecessor_is_rejected_by_the_admission_rooted_prefix(
+    previous_ordinal: int,
+    result_kind: str,
+    admitted_ordinal: int | None,
+) -> None:
+    daemon, _, entries = _complete_evidence()
+    admission = DockerAdmissionCapture.from_prefix(
+        environment=ENVIRONMENT,
+        graceful_stop_operation_id=OPERATION_ID,
+        channel_id=CHANNEL_ID,
+        entries=entries[:6],
+    )
+    previous = _rebuild_entry(
+        entries[previous_ordinal],
+        previous_trace_entry_sha256=_digest(f"orphan-{previous_ordinal}"),
+    )
+    primary = _rebuild_entry(
+        entries[previous_ordinal + 1],
+        previous_trace_entry_sha256=previous.trace.sha256,
+    )
+    post = _rebuild_entry(
+        entries[previous_ordinal + 2],
+        previous_trace_entry_sha256=primary.trace.sha256,
+    )
+    orphaned = [*entries[:previous_ordinal], previous, primary, post]
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        DockerAdmissionRootedTracePrefix.from_admission(
+            admission=admission,
+            entries=orphaned,
+        )
+
+    admitted_prefix = _trace_prefix(admission, entries, previous_ordinal + 2)
+    if result_kind == "volume_preservation":
+        with pytest.raises(TrustedTimeDockerEvidenceRejected):
+            DockerVolumePreservationResult.from_pair(
+                environment=ENVIRONMENT,
+                graceful_stop_operation_id=OPERATION_ID,
+                root_sha256=ROOT_SHA256,
+                admission=admission,
+                trace_prefix=admitted_prefix,
+                previous=previous,
+                command_socket=primary,
+                state=post,
+                volume_delete_call_count=daemon.volume_delete_call_count,
+            )
+    else:
+        assert admitted_ordinal is not None
+        with pytest.raises(TrustedTimeDockerEvidenceRejected):
+            DockerMutationResultSemantic.from_pair(
+                result_kind=result_kind,
+                environment=ENVIRONMENT,
+                graceful_stop_operation_id=OPERATION_ID,
+                root_sha256=ROOT_SHA256,
+                admission=admission,
+                trace_prefix=admitted_prefix,
+                admitted_target=entries[admitted_ordinal],
+                previous=previous,
+                primary=primary,
+                post_inspect=post,
+            )
+
+
+def test_cross_run_prior_head_cannot_be_substituted_into_a_valid_result_cursor() -> None:
+    _, _, entries = _complete_evidence()
+    admission = DockerAdmissionCapture.from_prefix(
+        environment=ENVIRONMENT,
+        graceful_stop_operation_id=OPERATION_ID,
+        channel_id=CHANNEL_ID,
+        entries=entries[:6],
+    )
+    cross_run_previous = _rebuild_entry(
+        entries[9],
+        previous_trace_entry_sha256=_digest("cross-run-prior-head"),
+        connection_updates={
+            "local_socket_inode": 30_009,
+            "local_socket_cookie": 40_009,
+        },
+    )
+    primary = _rebuild_entry(
+        entries[10],
+        previous_trace_entry_sha256=cross_run_previous.trace.sha256,
+        connection_updates={
+            "local_socket_inode": 30_010,
+            "local_socket_cookie": 40_010,
+        },
+    )
+    post = _rebuild_entry(
+        entries[11],
+        previous_trace_entry_sha256=primary.trace.sha256,
+        connection_updates={
+            "local_socket_inode": 30_011,
+            "local_socket_cookie": 40_011,
+        },
+    )
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        DockerMutationResultSemantic.from_pair(
+            result_kind="container_remove",
+            environment=ENVIRONMENT,
+            graceful_stop_operation_id=OPERATION_ID,
+            root_sha256=ROOT_SHA256,
+            admission=admission,
+            trace_prefix=_trace_prefix(admission, entries, 11),
+            admitted_target=entries[1],
+            previous=cross_run_previous,
+            primary=primary,
+            post_inspect=post,
+        )
+
+
+def test_post_admission_local_socket_identity_cannot_be_reused() -> None:
+    _, _, entries = _complete_evidence()
+    admission = DockerAdmissionCapture.from_prefix(
+        environment=ENVIRONMENT,
+        graceful_stop_operation_id=OPERATION_ID,
+        channel_id=CHANNEL_ID,
+        entries=entries[:6],
+    )
+    prior_connection = entries[6].connection.to_dict()
+    reused = _rebuild_entry(
+        entries[8],
+        previous_trace_entry_sha256=entries[7].trace.sha256,
+        connection_updates={
+            "local_socket_device": prior_connection["local_socket_device"],
+            "local_socket_inode": prior_connection["local_socket_inode"],
+            "local_socket_cookie": prior_connection["local_socket_cookie"],
+        },
+    )
+    post = _rebuild_entry(
+        entries[9],
+        previous_trace_entry_sha256=reused.trace.sha256,
+    )
+    with pytest.raises(TrustedTimeDockerEvidenceRejected, match="identity was reused"):
+        DockerAdmissionRootedTracePrefix.from_admission(
+            admission=admission,
+            entries=[*entries[:8], reused, post],
+        )
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        DockerMutationResultSemantic.from_pair(
+            result_kind="container_stop",
+            environment=ENVIRONMENT,
+            graceful_stop_operation_id=OPERATION_ID,
+            root_sha256=ROOT_SHA256,
+            admission=admission,
+            trace_prefix=_trace_prefix(admission, entries, 9),
+            admitted_target=entries[2],
+            previous=entries[7],
+            primary=reused,
+            post_inspect=post,
+        )
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"channel_id": "9" * 64},
+        {"peer_pid": 1_001},
+        {"path_preconnect_validated_boottime_ns": 1_000_703},
+    ],
+)
+def test_post_admission_prefix_rejects_channel_daemon_and_time_discontinuity(
+    updates: dict[str, object],
+) -> None:
+    _, _, entries = _complete_evidence()
+    admission = DockerAdmissionCapture.from_prefix(
+        environment=ENVIRONMENT,
+        graceful_stop_operation_id=OPERATION_ID,
+        channel_id=CHANNEL_ID,
+        entries=entries[:6],
+    )
+    changed = _rebuild_entry(
+        entries[8],
+        previous_trace_entry_sha256=entries[7].trace.sha256,
+        connection_updates=updates,
+    )
+    with pytest.raises(TrustedTimeDockerEvidenceRejected):
+        DockerAdmissionRootedTracePrefix.from_admission(
+            admission=admission,
+            entries=[*entries[:8], changed],
+        )
 
 
 def test_complete_trace_rejects_mixed_plan_and_exact_prior_head_substitution() -> None:
@@ -467,6 +724,7 @@ def test_complete_trace_rejects_mixed_plan_and_exact_prior_head_substitution() -
             graceful_stop_operation_id=OPERATION_ID,
             root_sha256=ROOT_SHA256,
             admission=admission,
+            trace_prefix=_trace_prefix(admission, entries, 7),
             admitted_target=entries[1],
             previous=entries[4],
             primary=entries[6],
@@ -478,6 +736,7 @@ def test_complete_trace_rejects_mixed_plan_and_exact_prior_head_substitution() -
             graceful_stop_operation_id=OPERATION_ID,
             root_sha256=ROOT_SHA256,
             admission=admission,
+            trace_prefix=_trace_prefix(admission, entries, 17),
             previous=entries[14],
             command_socket=entries[16],
             state=entries[17],
@@ -549,6 +808,7 @@ def test_volume_identity_drift_is_structural_evidence_but_never_preservation() -
             graceful_stop_operation_id=OPERATION_ID,
             root_sha256=ROOT_SHA256,
             admission=admission,
+            trace_prefix=_trace_prefix(admission, entries, 17),
             previous=entries[15],
             command_socket=entries[16],
             state=entries[17],
@@ -574,6 +834,7 @@ def test_boolean_admission_ordinals_and_volume_delete_count_are_rejected() -> No
         graceful_stop_operation_id=OPERATION_ID,
         root_sha256=ROOT_SHA256,
         admission=admission,
+        trace_prefix=_trace_prefix(admission, entries, 17),
         previous=entries[15],
         command_socket=entries[16],
         state=entries[17],
@@ -585,6 +846,7 @@ def test_boolean_admission_ordinals_and_volume_delete_count_are_rejected() -> No
         DockerVolumePreservationResult.capture(
             value,
             admission=admission,
+            trace_prefix=_trace_prefix(admission, entries, 17),
             previous=entries[15],
             command_socket=entries[16],
             state=entries[17],
@@ -1102,7 +1364,7 @@ def test_clean_stop_result_rejects_correlation_semantic_deadline_and_nested_tamp
     value = result.to_dict()
     target = value
     for name in path[:-1]:
-        target = target[name]  # type: ignore[assignment,index]
+        target = target[name]  # type: ignore[assignment]
     target[path[-1]] = replacement
     with pytest.raises(TrustedTimeGracefulStopV2Rejected):
         LifecycleV2CleanStopResult.capture(value)
