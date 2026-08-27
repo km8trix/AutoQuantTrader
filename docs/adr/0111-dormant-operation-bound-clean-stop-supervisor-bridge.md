@@ -279,9 +279,9 @@ Canonical wire bytes and process-local one-shot seals do not close any of
 those deferrals.
 
 The architecture boundary also pins one exact raw-source-byte manifest over
-every regular Python file below `apps`, `packages`, and `scripts`, including
-the checker itself. `apps/web/node_modules` is the sole lexical prune; it is a
-third-party vendor tree and contains no reviewed first-party Python source.
+every regular Python file below `apps`, `packages`, `scripts`, and `migrations`,
+including the checker itself. `apps/web/node_modules` is the sole lexical prune;
+it is a third-party vendor tree and contains no reviewed first-party Python source.
 Every symlink outside that exact prune is rejected, as are source additions,
 removals, renames, parse failures, and byte changes. Native extension artifacts
 (`.so`, `.pyd`, `.dylib`, and `.dll` families), legacy sourceless bytecode, and
@@ -289,7 +289,7 @@ source or native artifacts hidden inside `__pycache__` are rejected throughout
 the reviewed roots. All `.pyc` and `.pyo` files are rejected, including direct
 `__pycache__` entries; ignored or transient bytecode is not a trust exception.
 A separate path-framed raw bootstrap manifest pins `.python-version`,
-`pyproject.toml`, `uv.lock`, the exact hashed native build-constraint closure,
+`alembic.ini`, `pyproject.toml`, `uv.lock`, the exact hashed native build-constraint closure,
 the executable-image manifest helper, the exact Hatch native hook, and its C
 source and rejects alternate local build configuration before PEP-517 may execute. The
 authoritative Make and CI flows set a non-overridable

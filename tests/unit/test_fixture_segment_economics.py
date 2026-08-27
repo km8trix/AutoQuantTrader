@@ -984,6 +984,68 @@ def test_architecture_guard_rejects_phase3h_proof_reachability(source: str) -> N
     assert violations
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from benign import FixtureEconomicProcessEvidence as harmless\nCAPABILITY = harmless\n",
+        "import benign.FixtureEconomicProcessEvidence as harmless\nCAPABILITY = harmless\n",
+    ],
+)
+def test_architecture_guard_rejects_phase3h_reserved_origin_hidden_by_alias(
+    source: str,
+) -> None:
+    tree = ast.parse(source)
+    violations = _phase3h_proof_boundary_violations(
+        tree,
+        policy_enabled=True,
+        relative_path=Path("packages/domain/aliased_phase3h_consumer.py"),
+        proof_module="packages.domain.fixture_segment_economics",
+        proof_path=Path("packages/domain/fixture_segment_economics.py"),
+        execution_module="packages.application.fixture_segment_economics",
+        execution_path=Path("packages/application/fixture_segment_economics.py"),
+        allowed_proof_imports=frozenset(),
+        module_ast_sha256={},
+        dynamic_code_exception_module_ast_sha256={},
+        reviewed_import_capabilities=_import_capabilities(tree),
+    )
+
+    assert any(
+        "reserves proof symbol 'FixtureEconomicProcessEvidence'" in item.message
+        for item in violations
+    )
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [Path("migrations/env.py"), Path("migrations/versions/9999_aliased_escape.py")],
+)
+def test_architecture_guard_rejects_resealed_migration_phase3h_alias(
+    relative_path: Path,
+) -> None:
+    source = (
+        "from benign import FixtureEconomicProcessEvidence as harmless\nCAPABILITY = harmless\n"
+    )
+    tree = ast.parse(source)
+    violations = _phase3h_proof_boundary_violations(
+        tree,
+        policy_enabled=True,
+        relative_path=relative_path,
+        proof_module="packages.domain.fixture_segment_economics",
+        proof_path=Path("packages/domain/fixture_segment_economics.py"),
+        execution_module="packages.application.fixture_segment_economics",
+        execution_path=Path("packages/application/fixture_segment_economics.py"),
+        allowed_proof_imports=frozenset(),
+        module_ast_sha256={},
+        dynamic_code_exception_module_ast_sha256={},
+        reviewed_import_capabilities=_import_capabilities(tree),
+    )
+
+    assert any(
+        "reserves proof symbol 'FixtureEconomicProcessEvidence'" in item.message
+        for item in violations
+    )
+
+
 def test_architecture_guard_is_disabled_when_phase3h_policy_is_absent() -> None:
     assert not _phase3h_proof_boundary_violations(
         ast.parse("from importlib import import_module"),

@@ -1576,9 +1576,13 @@ def test_partial_slice_is_machine_checkably_unreachable_and_stop_target_stays_cl
         )
 
     importers: list[Path] = []
-    for root_name in ("apps", "packages", "scripts"):
+    architecture_policy_path = ROOT / "scripts/check_architecture.py"
+    for root_name in ("apps", "packages", "scripts", "migrations"):
         for path in (ROOT / root_name).rglob("*.py"):
-            if path == ROOT / "packages/persistence/trusted_time_graceful_stop_v2.py":
+            if path in {
+                ROOT / "packages/persistence/trusted_time_graceful_stop_v2.py",
+                architecture_policy_path,
+            }:
                 continue
             if "_open_injected_lifecycle_v2_repository" in path.read_text(encoding="utf-8"):
                 importers.append(path.relative_to(ROOT))
@@ -1590,9 +1594,9 @@ def test_partial_slice_is_machine_checkably_unreachable_and_stop_target_stays_cl
         "_authenticate_lifecycle_v2_transport_envelope_for_fake",
     )
     domain_path = ROOT / "packages/domain/trusted_time_graceful_stop_v2.py"
-    for root_name in ("apps", "packages", "scripts"):
+    for root_name in ("apps", "packages", "scripts", "migrations"):
         for path in (ROOT / root_name).rglob("*.py"):
-            if path == domain_path:
+            if path in {domain_path, architecture_policy_path}:
                 continue
             source = path.read_text(encoding="utf-8")
             if any(symbol in source for symbol in fake_authentication_symbols):

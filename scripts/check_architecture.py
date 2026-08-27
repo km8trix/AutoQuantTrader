@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "ba39f30df779a00091251bcd08097dfcef901528d38fa84f5c328a8830d05747"
+    "580256f89c7aca075afcba3969a5b9a88de41f2d14a334d9e5ced58b3b5c9e65"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -139,10 +139,10 @@ def _import_capability_bindings(tree: ast.AST) -> list[tuple[int, str]]:
     bindings: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            bindings.extend((node.lineno, f"{alias.name}:*") for alias in node.names)
+            bindings.extend((node.lineno, f"import:{alias.name}") for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             module = "." * node.level + (node.module or "")
-            bindings.extend((node.lineno, f"{module}:{alias.name}") for alias in node.names)
+            bindings.extend((node.lineno, f"from:{module}:{alias.name}") for alias in node.names)
     return bindings
 
 
@@ -2458,6 +2458,7 @@ def _native_executable_loading_violations(
     wrapper_module: str,
     image_import_root: bool,
     reviewed_import_capabilities: frozenset[str],
+    exact_native_ffi_module_ast_sha256: dict[Path, str] | None = None,
 ) -> list[Violation]:
     """Reject alternate native loaders from every production Python root."""
 
@@ -2505,7 +2506,11 @@ def _native_executable_loading_violations(
             node = node.value
         return isinstance(node, ast.Name) and node.id in import_bindings
 
-    expected_ffi_digest = _EXACT_NATIVE_FFI_MODULE_AST_SHA256.get(relative_path)
+    expected_ffi_digest = (
+        _EXACT_NATIVE_FFI_MODULE_AST_SHA256
+        if exact_native_ffi_module_ast_sha256 is None
+        else exact_native_ffi_module_ast_sha256
+    ).get(relative_path)
     exact_ffi_exception = (
         expected_ffi_digest is not None and _canonical_ast_sha256(tree) == expected_ffi_digest
     )
@@ -6362,8 +6367,11 @@ def _phase3h_proof_boundary_violations(
         elif isinstance(node, ast.arg):
             symbol = node.arg
         elif isinstance(node, ast.alias):
-            local = node.asname or node.name.rpartition(".")[2]
-            if local in reserved_names:
+            origin = node.name.rpartition(".")[2]
+            local = node.asname or origin
+            if origin in reserved_names:
+                symbol = origin
+            elif local in reserved_names:
                 symbol = local
         elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
             symbol = node.name
@@ -6950,8 +6958,11 @@ def _isolated_wave5_module_boundary_violations(
         elif isinstance(node, ast.arg):
             symbol = node.arg
         elif isinstance(node, ast.alias):
-            local = node.asname or node.name.rpartition(".")[2]
-            if local in reserved_symbols:
+            origin = node.name.rpartition(".")[2]
+            local = node.asname or origin
+            if origin in reserved_symbols:
+                symbol = origin
+            elif local in reserved_symbols:
                 symbol = local
         elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
             symbol = node.name
@@ -9102,7 +9113,12 @@ def _python_files(
     return paths
 
 
-def check(repository: Path, config_path: Path) -> list[Violation]:
+def check(
+    repository: Path,
+    config_path: Path,
+    *,
+    enforce_exact_repository_contract: bool = True,
+) -> list[Violation]:
     scan = _load_config(config_path)
     source_roots = _resolve_roots(repository, scan["source_roots"])
     package_roots = _resolve_roots(repository, scan["package_roots"])
@@ -10043,6 +10059,9 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
         dict[str, dict[str, tuple[str, int]]],
     ] = {}
     production_contract_required = (repository / "infra/architecture-boundaries.toml").is_file()
+    exact_repository_contract_required = (
+        production_contract_required and enforce_exact_repository_contract
+    )
     if production_contract_required:
         violations.extend(
             _architecture_checker_invocation_source_sha256_violations(
@@ -10054,6 +10073,7 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
         violations.extend(_architecture_checker_invocation_violations(repository))
         expected_bootstrap_paths = (
             ".python-version",
+            "alembic.ini",
             "pyproject.toml",
             "uv.lock",
             "build_support/build_native_test_launcher.py",
@@ -11013,7 +11033,7 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
             "f2c90fc7bbbecea302b8491f8e27fb90395ba806d309fc3e658c390f665cdef2"
         ),
     }
-    if production_contract_required and (
+    if exact_repository_contract_required and (
         phase3h_proof_module != expected_phase3h_proof_module
         or phase3h_proof_module_path != expected_phase3h_proof_module_path
         or phase3h_execution_module != expected_phase3h_execution_module
@@ -11142,7 +11162,7 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
             "_build_injected_lifecycle_v2_admission_identity",
         }
     )
-    if production_contract_required and (
+    if exact_repository_contract_required and (
         trusted_time_v2_isolated_module_paths != expected_trusted_time_v2_isolated_module_paths
         or trusted_time_v2_module_ast_sha256 != expected_trusted_time_v2_module_ast_sha256
         or trusted_time_v2_allowed_imports != expected_trusted_time_v2_allowed_imports
@@ -11258,7 +11278,7 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
             "issue_token_runtime_currentness_reservation",
         }
     )
-    if production_contract_required and (
+    if exact_repository_contract_required and (
         phase4an_isolated_module_paths != expected_phase4an_isolated_module_paths
         or phase4an_module_ast_sha256 != expected_phase4an_module_ast_sha256
         or phase4an_allowed_imports
@@ -11286,7 +11306,7 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
             "2949180a4df9d000fd97f4bfb254e5810ab90df7e88c033f35d413815d3457a7"
         ),
     }
-    if production_contract_required and (
+    if exact_repository_contract_required and (
         exact_private_attribute_callsites != expected_exact_private_attribute_callsites
         or exact_private_attribute_owner_function_ast_sha256
         != expected_exact_private_attribute_owner_function_ast_sha256
@@ -11305,7 +11325,8 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
             key for key in scan if key.startswith("production_python_source_manifest_")
         }
         manifest_config_valid = (
-            production_python_source_manifest_root_values == ("apps", "packages", "scripts")
+            production_python_source_manifest_root_values
+            == ("apps", "packages", "scripts", "migrations")
             and production_python_source_manifest_pruned_values == ("apps/web/node_modules",)
             and manifest_keys
             == {
@@ -11731,6 +11752,9 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                     bool(relative_path.parts) and relative_path.parts[0] in {"apps", "packages"}
                 ),
                 reviewed_import_capabilities=reviewed_import_capabilities,
+                exact_native_ffi_module_ast_sha256=(
+                    _EXACT_NATIVE_FFI_MODULE_AST_SHA256 if enforce_exact_repository_contract else {}
+                ),
             )
         )
         if (

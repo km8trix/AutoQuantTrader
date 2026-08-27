@@ -5450,8 +5450,9 @@ every promotion or stop-authority gate remain wholly deferred.
 [ADR 0124](adr/0124-trusted-time-lifecycle-v2-milestone-one.md).
 
 The dormant boundary is frozen by a mandatory raw-source-byte manifest over
-all regular Python files in the exact `apps`, `packages`, and `scripts` roots,
-including `scripts/check_architecture.py`. Its only lexical prune is the
+all regular Python files in the exact `apps`, `packages`, `scripts`, and
+`migrations` roots, including `scripts/check_architecture.py`. Its only lexical
+prune is the
 third-party `apps/web/node_modules` tree; every symlink outside that tree and
 every first-party Python path or byte-set change fails the boundary. This is a
 repository-integrity control, not dependency or interpreter authentication.
@@ -5460,7 +5461,7 @@ families, legacy sourceless bytecode, and source/native artifacts inside
 `__pycache__` are rejected. Every `.pyc` and `.pyo` is rejected, including an
 otherwise ordinary direct-cache file; ignored bytecode is not trusted. A
 separate path-framed raw bootstrap manifest pins `.python-version`,
-`pyproject.toml`, `uv.lock`, the exact hashed native build-constraint closure,
+`alembic.ini`, `pyproject.toml`, `uv.lock`, the exact hashed native build-constraint closure,
 the test-launcher builder, executable-image manifest helper, exact Hatch native
 build hook, and the bounded-process, owned-descriptor, and launcher C sources
 before PEP-517 may run; alternate local uv/Hatch/setup configuration is

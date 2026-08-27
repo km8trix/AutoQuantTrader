@@ -59,6 +59,10 @@ ADR-0112 v2 seam, and test-only transport and Docker/effect fakes. Real resource
 owners, persistence, authenticated transport, effects, deployment/bootstrap,
 promotion, and authority remain open. No Wave 5 lane substitutes for Phase 1
 external admission or enables a provider, stop, broker, paper, or live effect.
+The repository admission boundary now also preserves exact import forms and
+reserved origins across `apps`, `packages`, `scripts`, and executable Alembic
+`migrations`, while the bootstrap seal pins `alembic.ini`; these are static
+integrity controls and add no runtime authority.
 
 Phase 1B now provides the provider-neutral source seam, strict evidence evaluator,
 durable admission reports, and browser visibility. It is **implemented locally
@@ -4007,18 +4011,21 @@ deployment, integration, promotion, and all stop effects/authority are wholly
 deferred; `trusted-time-stop` remains hard closed.
 
 The ADR-0111 static freeze includes a mandatory raw-byte manifest for every
-regular Python source below the exact `apps`, `packages`, and `scripts` roots.
+regular Python source below the exact `apps`, `packages`, `scripts`, and
+`migrations` roots. The separate bootstrap manifest also pins `alembic.ini`,
+whose logging configuration and script location participate in migration-time
+code selection and execution.
 The only lexical prune is third-party `apps/web/node_modules`; all symlinks
 outside it and all first-party Python path or byte changes fail review. The
 walker also rejects native extension families, legacy sourceless bytecode, and
 source/native anomalies inside `__pycache__`. Standard interpreter-generated
 or crafted `.pyc` and `.pyo` files are rejected everywhere; Git/Docker ignore
 rules are not a bytecode trust exception. A distinct path-framed bootstrap
-manifest covers `.python-version`, `pyproject.toml`, `uv.lock`, the exact hashed
-native build-constraint closure, the test-launcher builder, executable-image
-manifest helper, exact Hatch native hook, and the bounded-process,
-owned-descriptor, and launcher C sources and rejects alternate local build
-configuration.
+manifest covers `.python-version`, `alembic.ini`, `pyproject.toml`, `uv.lock`,
+the exact hashed native build-constraint closure, the test-launcher builder,
+executable-image manifest helper, exact Hatch native hook, and the bounded-
+process, owned-descriptor, and launcher C sources and rejects alternate local
+build configuration.
 Make and CI set non-overridable `PYTHONDONTWRITEBYTECODE=1`, run the project-
 independent architecture gate before project sync/build/import work, rerun it
 after installation/native packaging, and keep later gates cache-free.

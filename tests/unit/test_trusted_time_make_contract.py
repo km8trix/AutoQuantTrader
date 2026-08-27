@@ -12,7 +12,7 @@ import re
 import subprocess
 import tomllib
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -97,7 +97,7 @@ def _write_topology_launch_lock_architecture_fixture(
     full_production: bool = False,
 ) -> None:
     if full_production:
-        for production_root in ("apps", "packages", "scripts"):
+        for production_root in ("apps", "packages", "scripts", "migrations"):
             for source in sorted((ROOT / production_root).rglob("*.py")):
                 relative_path = source.relative_to(ROOT)
                 destination = root / relative_path
@@ -205,6 +205,8 @@ def _write_adr0111_production_manifest_fixture(
     low_path.parent.mkdir(parents=True)
     host_path.parent.mkdir(parents=True)
     (root / "apps/web/node_modules").mkdir(parents=True)
+    (root / "migrations").mkdir()
+    (root / "migrations/env.py").write_text("SAFE = True\n", encoding="utf-8")
     low_path.write_text(low_source, encoding="utf-8")
     host_path.write_text(host_source, encoding="utf-8")
     dependency = root / "packages/application/trusted_time_head_anchor.py"
@@ -679,11 +681,12 @@ def _read_boot_id_snapshot(*, _open_root=_open_root_directory,
         '"scripts/trusted_time_post_enrollment_execution_admission.py" = '
         f'"{_canonical_ast_sha256(ast.parse(reader_consumer_source))}"\n'
     )
-    roots = tuple(root / value for value in ("apps", "packages", "scripts"))
+    roots = tuple(root / value for value in ("apps", "packages", "scripts", "migrations"))
     pruned = (root / "apps/web/node_modules",)
     manifest_sha256 = _production_python_source_manifest_sha256(root, roots, pruned)
     bootstrap_paths = (
         ".python-version",
+        "alembic.ini",
         "pyproject.toml",
         "uv.lock",
         "build_support/build_native_test_launcher.py",
@@ -695,6 +698,10 @@ def _read_boot_id_snapshot(*, _open_root=_open_root_directory,
         "native/trusted_time_python_launcher.c",
     )
     (root / ".python-version").write_text("3.12\n", encoding="utf-8")
+    (root / "alembic.ini").write_text(
+        "[alembic]\nscript_location = migrations\n",
+        encoding="utf-8",
+    )
     (root / "pyproject.toml").write_text(
         """\
 [build-system]
@@ -876,11 +883,12 @@ exclude = ["/.uv-cache", "build_support/build_native_test_launcher.py"]
         f'''[scan]
 source_roots = []
 {_MINIMAL_ARCHITECTURE_SCAN_PRELUDE}
-production_python_source_manifest_roots = ["apps", "packages", "scripts"]
+production_python_source_manifest_roots = ["apps", "packages", "scripts", "migrations"]
 production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]
 production_python_source_manifest_sha256 = "{manifest_sha256}"
 project_build_bootstrap_manifest_paths = [
   ".python-version",
+  "alembic.ini",
   "pyproject.toml",
   "uv.lock",
   "build_support/build_native_test_launcher.py",
@@ -932,12 +940,26 @@ graceful_stop_supervisor_bridge_closed_fields = ["closed"]
     return config, low_path, host_path, manifest_sha256
 
 
+def _check_adr0111_fixture(root: Path, config: Path) -> list[Any]:
+    from scripts.check_architecture import check
+
+    return check(root, config, enforce_exact_repository_contract=False)
+
+
+def _configured_production_source_directories(root: Path = ROOT) -> tuple[str, ...]:
+    config_path = root / "infra/architecture-boundaries.toml"
+    if not config_path.is_file():
+        config_path = ROOT / "infra/architecture-boundaries.toml"
+    scan = tomllib.loads(config_path.read_text(encoding="utf-8"))["scan"]
+    return tuple(scan["production_python_source_manifest_roots"])
+
+
 def _production_importers(module: str) -> set[Path]:
     importers: set[Path] = set()
-    python_paths = (
-        *(ROOT / "apps").rglob("*.py"),
-        *(ROOT / "packages").rglob("*.py"),
-        *(ROOT / "scripts").rglob("*.py"),
+    python_paths = tuple(
+        path
+        for directory in _configured_production_source_directories()
+        for path in (ROOT / directory).rglob("*.py")
     )
     for path in python_paths:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path.relative_to(ROOT)))
@@ -981,10 +1003,12 @@ def _production_private_symbol_importers(
     symbol: str,
     *,
     root: Path = ROOT,
-    source_directories: tuple[str, ...] = ("apps", "packages", "scripts"),
+    source_directories: tuple[str, ...] | None = None,
 ) -> set[Path]:
     """Find direct, aliased, and module-attribute uses of one private binding."""
 
+    if source_directories is None:
+        source_directories = _configured_production_source_directories(root)
     importers: set[Path] = set()
     parent_module, _, module_leaf = module.rpartition(".")
     python_paths = tuple(
@@ -3648,6 +3672,7 @@ def test_operator_authority_has_one_git_object_consumer_and_is_excluded_from_ima
         ROOT / "scripts/provision_trusted_time_post_enrollment_graceful_stop_operator_authority.py",
         ROOT / "scripts/trusted_time_post_enrollment_operator_attestation_artifacts.py",
         ROOT / "scripts/trusted_time_post_enrollment_execution_admission.py",
+        ROOT / "scripts/check_architecture.py",
     }
     production_python = (
         tuple((ROOT / "apps").rglob("*.py"))
@@ -6025,15 +6050,18 @@ def test_graceful_stop_decision_binder_is_historical_exact_and_non_authorizing()
         assert forbidden_private_or_signer_token not in source
 
     assert _production_importers(binder_module) == {
-        Path("scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py")
+        Path("packages/application/trusted_time_graceful_stop_v2_admission.py"),
+        Path("scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py"),
     }
     for path in (
-        *(ROOT / "apps").rglob("*.py"),
-        *(ROOT / "packages").rglob("*.py"),
-        *(ROOT / "scripts").glob("*.py"),
+        path
+        for root_name in _configured_production_source_directories()
+        for path in (ROOT / root_name).rglob("*.py")
     ):
         if path in {
             source_path,
+            ROOT / "packages/application/trusted_time_graceful_stop_v2_admission.py",
+            ROOT / "scripts/check_architecture.py",
             ROOT / "scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py",
         }:
             continue
@@ -6182,6 +6210,7 @@ def test_graceful_stop_evidence_is_reviewed_but_has_no_effecting_surface() -> No
         "phase6d-post-enrollment-graceful-stop-decision-v1",
     )
     dormant_contract_exceptions = {
+        Path("packages/application/trusted_time_graceful_stop_v2_admission.py"),
         Path("packages/domain/trusted_time_post_enrollment_graceful_stop_operator_authority.py"),
         Path("packages/domain/trusted_time_post_enrollment_graceful_stop_operator_attestation.py"),
         Path("packages/adapters/trusted_time/ed25519_graceful_stop_operator_attestation.py"),
@@ -6194,11 +6223,12 @@ def test_graceful_stop_evidence_is_reviewed_but_has_no_effecting_surface() -> No
         lifecycle_path,
         Path("scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py"),
         Path("scripts/verify_trusted_time_images.py"),
+        Path("scripts/check_architecture.py"),
     }
     for path in (
-        *(ROOT / "apps").rglob("*.py"),
-        *(ROOT / "packages").rglob("*.py"),
-        *(ROOT / "scripts").rglob("*.py"),
+        path
+        for root_name in _configured_production_source_directories()
+        for path in (ROOT / root_name).rglob("*.py")
     ):
         if path.relative_to(ROOT) in dormant_contract_exceptions:
             continue
@@ -7683,7 +7713,6 @@ def test_adr0111_architecture_checker_rejects_private_callsite_mutation(
     binding: str,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import check
 
     relative_paths = {
         "worker": Path("packages/application/trusted_time_head_anchor_worker.py"),
@@ -7736,7 +7765,7 @@ def test_adr0111_architecture_checker_rejects_private_callsite_mutation(
     config = tmp_path / "architecture-boundaries.toml"
     config.write_text("\n".join(config_lines) + "\n", encoding="utf-8")
     module_path.write_text(scaffold + approved, encoding="utf-8")
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
 
     if mutation == "add_main":
         mutated = scaffold + approved + f"def main():\n    {binding}()\n"
@@ -7750,7 +7779,7 @@ def test_adr0111_architecture_checker_rejects_private_callsite_mutation(
         mutated = scaffold + approved + f'def hidden():\n    eval("{binding}")()\n'
     module_path.write_text(mutated, encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any(
         "exact private callsites" in item.message
@@ -7788,7 +7817,6 @@ def test_adr0111_architecture_checker_rejects_host_effect_mutation(
     tmp_path: Path,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import check
 
     relative_path = Path("scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py")
     module_path = tmp_path / relative_path
@@ -7823,10 +7851,10 @@ graceful_stop_supervisor_bridge_forbidden_path_methods = [
 ''',
         encoding="utf-8",
     )
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     module_path.write_text(f"{baseline}\n{mutation}\n", encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert violations
     assert any(
@@ -7854,7 +7882,6 @@ def test_adr0111_architecture_checker_rejects_low_bridge_clock_or_thread_mutatio
     tmp_path: Path,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import check
 
     relative_path = Path(
         "packages/application/trusted_time_head_anchor_clean_stop_supervisor_bridge.py"
@@ -7882,10 +7909,10 @@ operation_bound_clean_stop_bridge_forbidden_qualified_calls = ["threading.Thread
 ''',
         encoding="utf-8",
     )
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     module_path.write_text(f"{baseline}\n{mutation}\n", encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any(
         "effect API" in item.message or "effect callable" in item.message for item in violations
@@ -7928,7 +7955,6 @@ def test_adr0111_architecture_checker_rejects_closed_fact_mutation(
     mutation: str,
     expected_fragment: str,
 ) -> None:
-    from scripts.check_architecture import check
 
     relative_path = Path(
         "packages/application/trusted_time_head_anchor_clean_stop_supervisor_bridge.py"
@@ -7979,7 +8005,7 @@ operation_bound_clean_stop_bridge_positive_callable_names = ["payload"]
         encoding="utf-8",
     )
     module_path.write_text(baseline, encoding="utf-8")
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     if mutation == "remove_closed":
         mutated = baseline.replace(', "transport_authenticated"', "")
     elif mutation == "constant_closed_key":
@@ -8117,7 +8143,7 @@ operation_bound_clean_stop_bridge_positive_callable_names = ["payload"]
         )
     module_path.write_text(mutated, encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any(expected_fragment in item.message for item in violations)
 
@@ -8139,7 +8165,6 @@ def test_adr0111_architecture_checker_rejects_host_evidence_binding_mutation(
     tmp_path: Path,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import check
 
     relative_path = Path("scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py")
     module_path = tmp_path / relative_path
@@ -8192,7 +8217,7 @@ graceful_stop_supervisor_bridge_positive_callable_names = ["payload"]
         encoding="utf-8",
     )
     module_path.write_text(baseline, encoding="utf-8")
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
 
     insertion = {
         "nested_class": "    class transport_authenticated:\n        pass\n",
@@ -8217,7 +8242,7 @@ graceful_stop_supervisor_bridge_positive_callable_names = ["payload"]
         mutated = f"{baseline}\n{positive_class}.payload = lambda self: {{}}\n"
     module_path.write_text(mutated, encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any("closed-false and positive-true properties" in item.message for item in violations)
 
@@ -8242,7 +8267,6 @@ def test_adr0111_architecture_checker_rejects_evidence_class_rebinding(
     owner: str,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import check
 
     if owner == "low":
         relative_path = Path(
@@ -8327,10 +8351,10 @@ source_roots = []
 ''',
         encoding="utf-8",
     )
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     module_path.write_text(f"{baseline}\n{mutations[mutation]}\n", encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any("closed-false and positive-true properties" in item.message for item in violations)
 
@@ -8368,7 +8392,7 @@ def test_adr0111_architecture_checker_rejects_bridge_module_reflection_mutation(
     owner: str,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import _canonical_ast_sha256, check
+    from scripts.check_architecture import _canonical_ast_sha256
 
     relative_path = (
         Path("packages/application/trusted_time_head_anchor_clean_stop_supervisor_bridge.py")
@@ -8439,7 +8463,7 @@ source_roots = []
 ''',
         encoding="utf-8",
     )
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
 
     injections = {
         "direct_class_swap": (
@@ -8494,7 +8518,7 @@ source_roots = []
         encoding="utf-8",
     )
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any("exact semantic module AST" in item.message for item in violations)
 
@@ -8516,7 +8540,7 @@ def test_adr0111_architecture_checker_rejects_bridge_module_digest_config_mutati
     owner: str,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import _canonical_ast_sha256, check
+    from scripts.check_architecture import _canonical_ast_sha256
 
     relative_path = (
         Path("packages/application/trusted_time_head_anchor_clean_stop_supervisor_bridge.py")
@@ -8581,7 +8605,7 @@ def test_adr0111_architecture_checker_rejects_bridge_module_digest_config_mutati
     )
     config = tmp_path / "architecture-boundaries.toml"
     config.write_text(config_source, encoding="utf-8")
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
 
     if mutation == "omitted":
         mutated = config_source.replace(digest_assignment, "")
@@ -8600,7 +8624,7 @@ def test_adr0111_architecture_checker_rejects_bridge_module_digest_config_mutati
         )
     config.write_text(mutated, encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any(
         "configure one exact root, dotted module, and semantic AST digest" in item.message
@@ -8634,7 +8658,6 @@ def test_architecture_checker_rejects_private_native_sys_modules_admission_mutat
     wrapper_filename: str,
     native_module_name: str,
 ) -> None:
-    from scripts.check_architecture import check
 
     relative_path = Path("packages/adapters/trusted_time") / wrapper_filename
     module_path = tmp_path / relative_path
@@ -8659,7 +8682,7 @@ def test_architecture_checker_rejects_private_native_sys_modules_admission_mutat
     module_path.write_text(baseline, encoding="utf-8")
     config = tmp_path / "architecture-boundaries.toml"
     config.write_text(config_source, encoding="utf-8")
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
 
     if mutation == "wrong_name":
         module_path.write_text(
@@ -8702,7 +8725,7 @@ def test_architecture_checker_rejects_private_native_sys_modules_admission_mutat
             encoding="utf-8",
         )
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any("sys.modules" in item.message for item in violations)
 
@@ -8741,7 +8764,7 @@ builtin_namespace_integrity_roots = ["packages"]
 """,
         encoding="utf-8",
     )
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
 
     mutations = {
         "direct": "import builtins\nbuiltins.property = lambda function: function\n",
@@ -8904,10 +8927,9 @@ def test_adr0111_architecture_checker_rejects_invocation_mutation(
     tmp_path: Path,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import check
 
     config, _, _, _ = _write_adr0111_production_manifest_fixture(tmp_path)
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     if mutation == "unsafe_make":
         path = tmp_path / "Makefile"
         path.write_text(
@@ -9066,7 +9088,7 @@ def test_adr0111_architecture_checker_rejects_invocation_mutation(
         )
     config.write_text(config_source, encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any("architecture checker" in item.message for item in violations)
 
@@ -9079,10 +9101,9 @@ def test_adr0111_architecture_checker_rejects_invocation_source_digest_mutation(
     tmp_path: Path,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import check
 
     config, _, _, _ = _write_adr0111_production_manifest_fixture(tmp_path)
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     source = config.read_text(encoding="utf-8")
     make_digest = hashlib.sha256((tmp_path / "Makefile").read_bytes()).hexdigest()
     assignment = f'architecture_checker_invocation_source_sha256."Makefile" = "{make_digest}"'
@@ -9120,7 +9141,7 @@ def test_adr0111_architecture_checker_rejects_invocation_source_digest_mutation(
         path.unlink()
         path.mkdir()
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any(
         "invocation source" in item.message or "invocation contract" in item.message
@@ -9141,6 +9162,7 @@ def test_adr0111_architecture_checker_rejects_invocation_source_digest_mutation(
         "wrong_digest",
         "extra_key",
         "mutate_python_version",
+        "mutate_alembic_config",
         "mutate_pyproject",
         "mutate_lock",
         "mutate_test_builder",
@@ -9169,14 +9191,14 @@ def test_adr0111_architecture_checker_rejects_project_build_bootstrap_mutation(
     tmp_path: Path,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import check
 
     config, _, _, _ = _write_adr0111_production_manifest_fixture(tmp_path)
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     config_source = config.read_text(encoding="utf-8")
     manifest_paths = (
         "project_build_bootstrap_manifest_paths = [\n"
         '  ".python-version",\n'
+        '  "alembic.ini",\n'
         '  "pyproject.toml",\n'
         '  "uv.lock",\n'
         '  "build_support/build_native_test_launcher.py",\n'
@@ -9252,6 +9274,7 @@ def test_adr0111_architecture_checker_rejects_project_build_bootstrap_mutation(
     elif mutation.startswith("mutate_"):
         path = {
             "mutate_python_version": tmp_path / ".python-version",
+            "mutate_alembic_config": tmp_path / "alembic.ini",
             "mutate_pyproject": tmp_path / "pyproject.toml",
             "mutate_lock": tmp_path / "uv.lock",
             "mutate_test_builder": tmp_path / "build_support/build_native_test_launcher.py",
@@ -9371,7 +9394,7 @@ def test_adr0111_architecture_checker_rejects_project_build_bootstrap_mutation(
         assert mutation == "bad_python_pin"
         (tmp_path / ".python-version").write_text("3.13\n", encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any(
         "project build bootstrap" in item.message
@@ -9390,13 +9413,12 @@ def test_adr0111_architecture_checker_rejects_alternate_project_build_configurat
     tmp_path: Path,
     forbidden_path: str,
 ) -> None:
-    from scripts.check_architecture import check
 
     config, _, _, _ = _write_adr0111_production_manifest_fixture(tmp_path)
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     (tmp_path / forbidden_path).write_text("[unreviewed]\n", encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any("alternate local project build" in item.message for item in violations)
 
@@ -9432,10 +9454,10 @@ def test_architecture_checker_rejects_native_capability_reachability_mutation(
     tmp_path: Path,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import _production_python_source_manifest_sha256, check
+    from scripts.check_architecture import _production_python_source_manifest_sha256
 
     config, _, _, _ = _write_adr0111_production_manifest_fixture(tmp_path)
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     module = "packages.adapters.trusted_time._owned_file_descriptor"
     binding = f"{module}:_fstat"
     consumer_relative = Path("scripts/trusted_time_post_enrollment_controller_outcome.py")
@@ -9569,7 +9591,7 @@ def test_architecture_checker_rejects_native_capability_reachability_mutation(
         raise AssertionError(f"unhandled mutation: {mutation}")
 
     config_source = config.read_text(encoding="utf-8")
-    roots = tuple(tmp_path / value for value in ("apps", "packages", "scripts"))
+    roots = tuple(tmp_path / value for value in ("apps", "packages", "scripts", "migrations"))
     digest = _production_python_source_manifest_sha256(
         tmp_path,
         roots,
@@ -9582,7 +9604,7 @@ def test_architecture_checker_rejects_native_capability_reachability_mutation(
     )
     config.write_text(config_source, encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any(
         "native owned-file-descriptor" in item.message
@@ -9662,10 +9684,10 @@ def test_architecture_checker_rejects_native_captured_default_mutation(
     tmp_path: Path,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import _production_python_source_manifest_sha256, check
+    from scripts.check_architecture import _production_python_source_manifest_sha256
 
     config, _, _, _ = _write_adr0111_production_manifest_fixture(tmp_path)
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     module = "packages.adapters.trusted_time._owned_file_descriptor"
     probe_relative = Path("apps/trusted_time_supervisor/post_enrollment_read_probes.py")
     probe = tmp_path / probe_relative
@@ -9976,7 +9998,7 @@ def test_architecture_checker_rejects_native_captured_default_mutation(
     probe.write_text(source, encoding="utf-8")
     runtime.write_text(runtime_source, encoding="utf-8")
     config.write_text(config_source, encoding="utf-8")
-    roots = tuple(tmp_path / value for value in ("apps", "packages", "scripts"))
+    roots = tuple(tmp_path / value for value in ("apps", "packages", "scripts", "migrations"))
     digest = _production_python_source_manifest_sha256(
         tmp_path,
         roots,
@@ -9989,7 +10011,7 @@ def test_architecture_checker_rejects_native_captured_default_mutation(
     )
     config.write_text(config_source, encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any(
         "native owned-file-descriptor" in item.message
@@ -10053,10 +10075,10 @@ def test_architecture_checker_rejects_native_bounded_process_consumer_mutation(
     tmp_path: Path,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import _production_python_source_manifest_sha256, check
+    from scripts.check_architecture import _production_python_source_manifest_sha256
 
     config, _, _, _ = _write_adr0111_production_manifest_fixture(tmp_path)
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     module = "packages.adapters.trusted_time._bounded_process"
     binding = f"{module}:_run_bounded_process"
     consumer_relative = Path("scripts/verify_trusted_time_images.py")
@@ -10394,7 +10416,7 @@ def test_architecture_checker_rejects_native_bounded_process_consumer_mutation(
             )
 
     config_source = config.read_text(encoding="utf-8")
-    roots = tuple(tmp_path / value for value in ("apps", "packages", "scripts"))
+    roots = tuple(tmp_path / value for value in ("apps", "packages", "scripts", "migrations"))
     digest = _production_python_source_manifest_sha256(
         tmp_path,
         roots,
@@ -10407,7 +10429,7 @@ def test_architecture_checker_rejects_native_bounded_process_consumer_mutation(
     )
     config.write_text(config_source, encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any("native bounded-process" in item.message for item in violations)
 
@@ -10421,8 +10443,16 @@ def test_adr0111_isolated_checker_bootstrap_rejects_stdlib_shadow(
 
     config, _, _, initial_digest = _write_adr0111_production_manifest_fixture(tmp_path)
     checker = tmp_path / "scripts/check_architecture.py"
-    checker.write_bytes((ROOT / "scripts/check_architecture.py").read_bytes())
-    roots = tuple(tmp_path / value for value in ("apps", "packages", "scripts"))
+    checker.write_text(
+        (ROOT / "scripts/check_architecture.py")
+        .read_text(encoding="utf-8")
+        .replace(
+            "violations = check(repository, config_path)",
+            "violations = check(repository, config_path, enforce_exact_repository_contract=False)",
+        ),
+        encoding="utf-8",
+    )
+    roots = tuple(tmp_path / value for value in ("apps", "packages", "scripts", "migrations"))
     pruned = (tmp_path / "apps/web/node_modules",)
     checker_digest = _production_python_source_manifest_sha256(tmp_path, roots, pruned)
     config.write_text(
@@ -10460,7 +10490,11 @@ def test_adr0111_isolated_checker_bootstrap_rejects_stdlib_shadow(
     assert unsafe.returncode == 0
     assert unsafe.stdout == ""
     assert isolated.returncode == 1
-    assert "production Python source manifest cannot be constructed" in isolated.stdout
+    assert "production Python source manifest" in isolated.stdout
+    assert (
+        "cannot be constructed" in isolated.stdout
+        or "must match every reviewed source" in isolated.stdout
+    )
 
 
 @pytest.mark.parametrize(
@@ -10484,23 +10518,26 @@ def test_adr0111_architecture_checker_requires_exact_production_manifest_config(
     tmp_path: Path,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import check
 
     config, _, _, digest = _write_adr0111_production_manifest_fixture(tmp_path)
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     source = config.read_text(encoding="utf-8")
     replacements = {
         "omit_roots": (
-            'production_python_source_manifest_roots = ["apps", "packages", "scripts"]\n',
+            "production_python_source_manifest_roots = "
+            '["apps", "packages", "scripts", "migrations"]\n',
             "",
         ),
         "empty_roots": (
-            'production_python_source_manifest_roots = ["apps", "packages", "scripts"]',
+            "production_python_source_manifest_roots = "
+            '["apps", "packages", "scripts", "migrations"]',
             "production_python_source_manifest_roots = []",
         ),
         "extra_root": (
-            'production_python_source_manifest_roots = ["apps", "packages", "scripts"]',
-            'production_python_source_manifest_roots = ["apps", "packages", "scripts", "tests"]',
+            "production_python_source_manifest_roots = "
+            '["apps", "packages", "scripts", "migrations"]',
+            "production_python_source_manifest_roots = "
+            '["apps", "packages", "scripts", "migrations", "tests"]',
         ),
         "omit_prune": (
             'production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]\n',
@@ -10546,7 +10583,7 @@ def test_adr0111_architecture_checker_requires_exact_production_manifest_config(
     old, new = replacements[mutation]
     config.write_text(source.replace(old, new), encoding="utf-8")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     expected = (
         "configure one exact root, dotted module, and semantic AST digest"
@@ -10560,6 +10597,8 @@ def test_adr0111_architecture_checker_requires_exact_production_manifest_config(
     "mutation",
     [
         "content",
+        "migration_content",
+        "migration_add",
         "syntax",
         "add",
         "remove",
@@ -10594,10 +10633,9 @@ def test_adr0111_architecture_checker_rejects_production_manifest_mutation(
     tmp_path: Path,
     mutation: str,
 ) -> None:
-    from scripts.check_architecture import check
 
     config, low_path, host_path, _ = _write_adr0111_production_manifest_fixture(tmp_path)
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     dependency = tmp_path / "packages/application/trusted_time_head_anchor.py"
     outside = tmp_path / "manifest-outside"
     outside.mkdir()
@@ -10605,6 +10643,16 @@ def test_adr0111_architecture_checker_rejects_production_manifest_mutation(
         low_path.write_text(
             low_path.read_text(encoding="utf-8") + "SAFE = True\n", encoding="utf-8"
         )
+    elif mutation == "migration_content":
+        migration_env = tmp_path / "migrations/env.py"
+        migration_env.write_text(
+            migration_env.read_text(encoding="utf-8") + "DRIFT = True\n",
+            encoding="utf-8",
+        )
+    elif mutation == "migration_add":
+        revision = tmp_path / "migrations/versions/unreviewed.py"
+        revision.parent.mkdir()
+        revision.write_text("DRIFT = True\n", encoding="utf-8")
     elif mutation == "syntax":
         low_path.write_text(
             low_path.read_text(encoding="utf-8") + "def broken(\n", encoding="utf-8"
@@ -10713,13 +10761,12 @@ def test_adr0111_architecture_checker_rejects_production_manifest_mutation(
             encoding="utf-8",
         )
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any("production Python source manifest" in item.message for item in violations)
 
 
 def test_adr0111_production_manifest_prunes_only_exact_vendor_subtree(tmp_path: Path) -> None:
-    from scripts.check_architecture import check
 
     config, _, _, _ = _write_adr0111_production_manifest_fixture(tmp_path)
     vendor = tmp_path / "apps/web/node_modules"
@@ -10728,30 +10775,28 @@ def test_adr0111_production_manifest_prunes_only_exact_vendor_subtree(tmp_path: 
     (target / "third_party.py").write_text("BROKEN = (\n", encoding="utf-8")
     (vendor / "package").symlink_to(target, target_is_directory=True)
 
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
 
 
 def test_adr0111_production_manifest_allows_absent_vendor_subtree(tmp_path: Path) -> None:
-    from scripts.check_architecture import check
 
     config, _, _, _ = _write_adr0111_production_manifest_fixture(tmp_path)
     (tmp_path / "apps/web/node_modules").rmdir()
 
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
 
 
 def test_adr0111_production_manifest_rejects_transient_cache_bytecode(
     tmp_path: Path,
 ) -> None:
-    from scripts.check_architecture import check
 
     config, _, _, _ = _write_adr0111_production_manifest_fixture(tmp_path)
-    assert check(tmp_path, config) == []
+    assert _check_adr0111_fixture(tmp_path, config) == []
     cache = tmp_path / "packages/__pycache__"
     cache.mkdir()
     (cache / "module.cpython-312.pyc").write_bytes(b"transient-bytecode")
 
-    violations = check(tmp_path, config)
+    violations = _check_adr0111_fixture(tmp_path, config)
 
     assert any("production Python source manifest" in item.message for item in violations)
 
@@ -10763,7 +10808,8 @@ def test_adr0111_production_manifest_digest_is_python_312_313_stable() -> None:
         "['_production_python_source_manifest_sha256']; "
         "root=Path('.').resolve(); "
         "print(helper("
-        "root, tuple(root / value for value in ('apps','packages','scripts')), "
+        "root, tuple(root / value for value in "
+        "('apps','packages','scripts','migrations')), "
         "(root / 'apps/web/node_modules',)))"
     )
     interpreters = (ROOT / ".venv/bin/python", Path("/usr/bin/env"))
@@ -11341,17 +11387,18 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
         "apps",
         "packages",
         "scripts",
+        "migrations",
     ]
     assert architecture_config["production_python_source_manifest_pruned_subtrees"] == [
         "apps/web/node_modules"
     ]
     assert architecture_config["production_python_source_manifest_sha256"] == (
-        "c1ddef134b71f4cf721a79406ca0271af9356e8668031c8b0a006268ab5f4955"
+        "6c39339d3c4fd04153cb93fc15f3f9327579222cfc2511d44dd37dbecb76138a"
     )
     assert (
         _production_python_source_manifest_sha256(
             ROOT,
-            tuple(ROOT / value for value in ("apps", "packages", "scripts")),
+            tuple(ROOT / value for value in ("apps", "packages", "scripts", "migrations")),
             (ROOT / "apps/web/node_modules",),
         )
         == architecture_config["production_python_source_manifest_sha256"]
@@ -11370,7 +11417,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
     ).stdout.splitlines()
     assert tracked_vendor_python == []
     tracked_production_paths = subprocess.run(
-        ["git", "ls-files", "--", "apps", "packages", "scripts"],
+        ["git", "ls-files", "--", "apps", "packages", "scripts", "migrations"],
         cwd=ROOT,
         check=True,
         capture_output=True,
@@ -11388,6 +11435,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
     assert "**/*.pyc" in dockerignore_lines
     expected_bootstrap_paths = [
         ".python-version",
+        "alembic.ini",
         "pyproject.toml",
         "uv.lock",
         "build_support/build_native_test_launcher.py",
@@ -12311,7 +12359,7 @@ def test_topology_launch_lock_architecture_policy_accepts_exact_frozen_surface(
     config_path = tmp_path / "infra/architecture-boundaries.toml"
     scan = _load_config(config_path)
     production_files = _python_files(
-        tuple(tmp_path / root for root in ("apps", "packages", "scripts")),
+        tuple(tmp_path / root for root in ("apps", "packages", "scripts", "migrations")),
         pruned_subtrees=(tmp_path / "apps/web/node_modules",),
     )
 
@@ -12507,7 +12555,7 @@ def test_topology_launch_lock_architecture_policy_rejects_mutation(
         native_path.write_bytes(native_path.read_bytes() + b"\n/* unreviewed */\n")
 
     production_files = _python_files(
-        tuple(tmp_path / root for root in ("apps", "packages", "scripts")),
+        tuple(tmp_path / root for root in ("apps", "packages", "scripts", "migrations")),
         pruned_subtrees=(tmp_path / "apps/web/node_modules",),
     )
     violations = _trusted_time_topology_launch_lock_violations(
@@ -12544,7 +12592,7 @@ def test_topology_launch_lock_production_ast_aggregate_rejects_mutation(
     _write_topology_launch_lock_architecture_fixture(tmp_path, full_production=True)
     config_path = tmp_path / "infra/architecture-boundaries.toml"
     expected = _load_config(config_path)["trusted_time_topology_launch_lock_production_ast_sha256"]
-    roots = tuple(tmp_path / root for root in ("apps", "packages", "scripts"))
+    roots = tuple(tmp_path / root for root in ("apps", "packages", "scripts", "migrations"))
     assert (
         _trusted_time_topology_production_ast_sha256(
             tmp_path,

@@ -13,6 +13,7 @@ from scripts.check_architecture import (
     _isolated_wave5_module_boundary_violations,
     _native_executable_loading_violations,
     _python_module_identity_collision_violations,
+    _reviewed_import_capability_violations,
 )
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -79,6 +80,43 @@ _ORDINARY_MODULE_NAMESPACE_ESCAPES = (
 
 def _import_capabilities(tree: ast.AST) -> frozenset[str]:
     return frozenset(binding for _line, binding in _import_capability_bindings(tree))
+
+
+def test_reviewed_import_capabilities_preserve_import_form_and_origin() -> None:
+    tree = ast.parse(
+        "import example.module as direct\n"
+        "from example import module as member\n"
+        "from example.module import *\n"
+    )
+
+    assert _import_capabilities(tree) == {
+        "import:example.module",
+        "from:example:module",
+        "from:example.module:*",
+    }
+
+
+@pytest.mark.parametrize(
+    ("reviewed_source", "observed_source"),
+    [
+        ("import logging\n", "from logging import *\n"),
+        ("from logging import *\n", "import logging\n"),
+    ],
+)
+def test_reviewed_import_capabilities_reject_import_form_substitution(
+    reviewed_source: str,
+    observed_source: str,
+) -> None:
+    reviewed = _import_capabilities(ast.parse(reviewed_source))
+    violations = _reviewed_import_capability_violations(
+        ast.parse(observed_source),
+        relative_path=Path("packages/application/import_form_substitution.py"),
+        boundary="reviewed import test boundary",
+        reviewed=reviewed,
+    )
+
+    assert any("cannot add unreviewed import capability" in item.message for item in violations)
+    assert any("must preserve reviewed import capability" in item.message for item in violations)
 
 
 def _reviewed_import_capabilities(relative_path: Path) -> frozenset[str]:
@@ -350,6 +388,23 @@ def test_trusted_time_v2_boundary_rejects_unreviewed_reachability(source: str) -
     )
 
 
+def test_trusted_time_v2_boundary_rejects_reserved_import_origin_hidden_by_alias() -> None:
+    source = (
+        "from packages.persistence.trusted_time_graceful_stop_v2 import "
+        "_LifecycleV2Repository as harmless\n"
+        "CAPABILITY = harmless\n"
+    )
+    violations = _trusted_time_violations(
+        source,
+        relative_path=Path("packages/application/aliased_trusted_time_v2.py"),
+        reviewed_import_capabilities=_import_capabilities(ast.parse(source)),
+    )
+
+    assert any(
+        "reserves private symbol '_LifecycleV2Repository'" in item.message for item in violations
+    )
+
+
 def test_trusted_time_v2_boundary_accepts_exact_reviewed_modules_and_importers() -> None:
     module_paths, allowed_imports, module_ast_sha256, reserved_symbols = _trusted_time_policy()
     with (REPOSITORY / "infra/architecture-boundaries.toml").open("rb") as stream:
@@ -565,6 +620,60 @@ def test_phase4an_boundary_rejects_unreviewed_runtime_reachability(source: str) 
     )
 
 
+@pytest.mark.parametrize(
+    "import_statement",
+    [
+        "from packages.persistence.etrade_oauth_coordinator import "
+        "EtradeOAuthTokenRuntimeCurrentnessReservation as harmless",
+        "import benign.EtradeOAuthTokenRuntimeCurrentnessReservation as harmless",
+    ],
+)
+@pytest.mark.parametrize("inside_function", [False, True])
+def test_phase4an_boundary_rejects_reserved_import_origin_hidden_by_alias(
+    import_statement: str,
+    inside_function: bool,
+) -> None:
+    source = (
+        f"def escape():\n    {import_statement}\n    return harmless\n"
+        if inside_function
+        else f"{import_statement}\nCAPABILITY = harmless\n"
+    )
+    violations = _phase4an_violations(
+        source,
+        relative_path=Path("packages/application/aliased_etrade_runtime.py"),
+        reviewed_import_capabilities=_import_capabilities(ast.parse(source)),
+    )
+
+    assert any(
+        "reserves private symbol 'EtradeOAuthTokenRuntimeCurrentnessReservation'" in item.message
+        for item in violations
+    )
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [Path("migrations/env.py"), Path("migrations/versions/9999_aliased_escape.py")],
+)
+def test_phase4an_boundary_rejects_resealed_migration_authority_alias(
+    relative_path: Path,
+) -> None:
+    source = (
+        "from packages.persistence.etrade_oauth_coordinator import "
+        "EtradeOAuthTokenRuntimeCurrentnessReservation as harmless\n"
+        "CAPABILITY = harmless\n"
+    )
+    violations = _phase4an_violations(
+        source,
+        relative_path=relative_path,
+        reviewed_import_capabilities=_import_capabilities(ast.parse(source)),
+    )
+
+    assert any(
+        "reserves private symbol 'EtradeOAuthTokenRuntimeCurrentnessReservation'" in item.message
+        for item in violations
+    )
+
+
 def test_phase4an_boundary_accepts_exact_modules_and_no_production_importers() -> None:
     module_paths, allowed_imports, module_ast_sha256, reserved_symbols = _phase4an_policy()
     with (REPOSITORY / "infra/architecture-boundaries.toml").open("rb") as stream:
@@ -575,7 +684,7 @@ def test_phase4an_boundary_accepts_exact_modules_and_no_production_importers() -
     }
     production_paths = {
         path.relative_to(REPOSITORY)
-        for root in ("apps", "packages", "scripts")
+        for root in scan["production_python_source_manifest_roots"]
         for path in (REPOSITORY / root).rglob("*.py")
         if "node_modules" not in path.parts
     }

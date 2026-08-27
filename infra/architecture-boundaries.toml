@@ -1,9 +1,9 @@
 [scan]
 source_roots = ["apps", "packages"]
 package_roots = ["packages"]
-production_python_source_manifest_roots = ["apps", "packages", "scripts"]
+production_python_source_manifest_roots = ["apps", "packages", "scripts", "migrations"]
 production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]
-production_python_source_manifest_sha256 = "58994949b540a01b6fec460f5e4e4b7cc5971465164db53674f3e7b12fa6052e"
+production_python_source_manifest_sha256 = "6c39339d3c4fd04153cb93fc15f3f9327579222cfc2511d44dd37dbecb76138a"
 phase3h_proof_module = "packages.domain.fixture_segment_economics"
 phase3h_proof_module_path = "packages/domain/fixture_segment_economics.py"
 phase3h_execution_module = "packages.application.fixture_segment_economics"
@@ -286,6 +286,7 @@ phase4an_reserved_symbols = [
 ]
 project_build_bootstrap_manifest_paths = [
   ".python-version",
+  "alembic.ini",
   "pyproject.toml",
   "uv.lock",
   "build_support/build_native_test_launcher.py",
@@ -296,7 +297,7 @@ project_build_bootstrap_manifest_paths = [
   "native/owned_file_descriptor.c",
   "native/trusted_time_python_launcher.c",
 ]
-project_build_bootstrap_manifest_sha256 = "ef6e4ff6a4dab767ada7eafc705add43fa0dd5ef36537ae642d47e3d912ef454"
+project_build_bootstrap_manifest_sha256 = "3dc9f98918fb3594223f6116b53d47865aecbce59f8434c761d1db02ff2a7aa0"
 project_build_bootstrap_forbidden_paths = [
   "MANIFEST.in",
   "hatch.toml",
@@ -459,7 +460,7 @@ trusted_time_topology_launch_lock_documentation_paths = [
 trusted_time_topology_launch_lock_reader_module_ast_sha256 = "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
 trusted_time_topology_launch_lock_issuer_class_ast_sha256 = "b64f79e1679e2bdefe40f6b36c82142fa367f6e6981c1b2e8fee1366a7d39bcd"
 trusted_time_topology_launch_lock_host_module_ast_sha256 = "15c3e62437dc070d223038e21097ce85cbbb68de71ced3a6574f506236ebf56c"
-trusted_time_topology_launch_lock_production_ast_sha256 = "ba39f30df779a00091251bcd08097dfcef901528d38fa84f5c328a8830d05747"
+trusted_time_topology_launch_lock_production_ast_sha256 = "580256f89c7aca075afcba3969a5b9a88de41f2d14a334d9e5ced58b3b5c9e65"
 trusted_time_topology_launch_lock_lifecycle_tag = "trusted-time-issuer-lifecycle-v3"
 trusted_time_topology_launch_lock_lifecycle_tag_count = 13
 trusted_time_topology_launch_lock_launch_lock_binding_tag = "trusted-time-launch-lock-binding-v1"

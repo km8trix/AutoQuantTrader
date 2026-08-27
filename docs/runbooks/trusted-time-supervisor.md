@@ -2949,7 +2949,7 @@ transport, currentness, durability, outcome, recovery-action, and effect flag
 remains false.
 
 Repository review also requires the exact ADR-0111 raw-source manifest over
-`apps`, `packages`, and `scripts`. Its only lexical prune is
+`apps`, `packages`, `scripts`, and `migrations`. Its only lexical prune is
 `apps/web/node_modules`; do not broaden that prune, add another excluded path,
 or place first-party Python under it. Symlinks anywhere else in those roots and
 any Python source path or byte change invalidate the manifest. This does not
@@ -2957,8 +2957,8 @@ permit import shadows: `.so`, `.pyd`, `.dylib`, `.dll`, legacy sourceless
 bytecode, and source/native files under `__pycache__` are rejected. Ordinary
 or crafted `.pyc` and `.pyo` files are rejected everywhere, even when ignored
 by Git or Docker. Remove or quarantine generated caches before the gate. A
-separate raw bootstrap manifest pins `.python-version`, `pyproject.toml`,
-`uv.lock`, the test-launcher builder, exact hashed native build-constraint
+separate raw bootstrap manifest pins `.python-version`, `alembic.ini`,
+`pyproject.toml`, `uv.lock`, the test-launcher builder, exact hashed native build-constraint
 closure, executable-image manifest helper, exact Hatch native hook, and the
 bounded-process, owned-descriptor, and launcher C sources before project build
 code can run and rejects alternate local build configuration.
