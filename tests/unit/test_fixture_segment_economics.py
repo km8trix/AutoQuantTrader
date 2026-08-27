@@ -776,6 +776,8 @@ def test_object_new_reconstruction_cannot_mint_process_or_receipt_evidence() -> 
         "source = open('unrelated.py').read()\n"
         "namespace = {}\n"
         "exec(compile(source, 'unrelated.py', 'exec'), namespace)",
+        "import builtins\ngetattr(builtins, 'e' + 'xec')('pass')",
+        "import builtins\ncode = builtins.compile('pass', 'x', 'exec')",
         "import pickle\nowner = pickle.loads(b'x')",
         "import pydoc\nowner = pydoc.locate('unrelated')",
         "import _frozen_importlib_external as machinery\n"

@@ -5537,7 +5537,12 @@ def _phase3h_proof_boundary_violations(
         }
     )
     dynamic_code_names = frozenset({"compile", "eval", "exec"})
-    reserved_text = reserved_names | dynamic_loader_names | {proof_module, execution_module}
+    reserved_text = (
+        reserved_names
+        | dynamic_code_names
+        | dynamic_loader_names
+        | {proof_module, execution_module}
+    )
     reserved_fragments = reserved_names | {
         proof_module,
         execution_module,
@@ -5572,7 +5577,7 @@ def _phase3h_proof_boundary_violations(
         dynamic_code: str | None = None
         if isinstance(node, ast.Name) and node.id in dynamic_code_names:
             dynamic_code = node.id
-        elif isinstance(node, ast.Attribute) and node.attr in {"eval", "exec"}:
+        elif isinstance(node, ast.Attribute) and node.attr in dynamic_code_names:
             dynamic_code = node.attr
         elif isinstance(node, ast.alias):
             origin = node.name.rpartition(".")[2]
