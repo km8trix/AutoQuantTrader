@@ -49,7 +49,10 @@ from packages.domain.fixture_segment_worker import (
     _event,
     complete_fixture_segment_job,
 )
-from scripts.check_architecture import _phase3h_proof_boundary_violations
+from scripts.check_architecture import (
+    _import_capability_bindings,
+    _phase3h_proof_boundary_violations,
+)
 from tests.unit.test_experiment_governance import (
     FIRST_ATTEMPT_AT,
     GovernanceFixture,
@@ -107,7 +110,20 @@ _ORDINARY_MODULE_NAMESPACE_ESCAPES = (
     "carrier_name = '__built' + 'ins__'\n"
     "namespace = getattr(carrier, carrier_name)",
     "import dataclasses\ndef resolve(carrier_name):\n    return getattr(dataclasses, carrier_name)",
+    "import dataclasses\n"
+    "def build(function_name, argument_names, body_lines):\n"
+    "    return dataclasses._create_fn(function_name, argument_names, body_lines)",
+    "from logging.config import _resolve\n"
+    "def resolve(target_name):\n"
+    "    return _resolve(target_name)",
+    "from logging.config import BaseConfigurator\n"
+    "def resolve(target_name):\n"
+    "    return BaseConfigurator({}).resolve(target_name)",
 )
+
+
+def _import_capabilities(tree: ast.AST) -> frozenset[str]:
+    return frozenset(binding for _line, binding in _import_capability_bindings(tree))
 
 
 def _completed() -> tuple[
@@ -962,6 +978,7 @@ def test_architecture_guard_rejects_phase3h_proof_reachability(source: str) -> N
             Path(path): digest
             for path, digest in scan["phase3h_dynamic_code_exception_module_ast_sha256"].items()
         },
+        reviewed_import_capabilities=frozenset(),
     )
 
     assert violations
@@ -979,12 +996,14 @@ def test_architecture_guard_is_disabled_when_phase3h_policy_is_absent() -> None:
         allowed_proof_imports=frozenset(),
         module_ast_sha256={},
         dynamic_code_exception_module_ast_sha256={},
+        reviewed_import_capabilities=frozenset(),
     )
 
 
 def test_architecture_guard_allows_benign_compile_attribute_and_exec_text() -> None:
+    tree = ast.parse("import re\npattern = re.compile('x')\nlabel = 'exec'")
     assert not _phase3h_proof_boundary_violations(
-        ast.parse("import re\npattern = re.compile('x')\nlabel = 'exec'"),
+        tree,
         policy_enabled=True,
         relative_path=Path("packages/domain/benign_fixture.py"),
         proof_module="packages.domain.fixture_segment_economics",
@@ -994,6 +1013,7 @@ def test_architecture_guard_allows_benign_compile_attribute_and_exec_text() -> N
         allowed_proof_imports=frozenset(),
         module_ast_sha256={},
         dynamic_code_exception_module_ast_sha256={},
+        reviewed_import_capabilities=_import_capabilities(tree),
     )
 
 
@@ -1022,6 +1042,7 @@ def test_architecture_guard_accepts_only_exact_phase3h_modules() -> None:
                 Path(path): digest
                 for path, digest in scan["phase3h_dynamic_code_exception_module_ast_sha256"].items()
             },
+            reviewed_import_capabilities=_import_capabilities(tree),
         )
 
 
@@ -1051,11 +1072,13 @@ def test_architecture_guard_pins_dynamic_code_exceptions() -> None:
             tree,
             relative_path=relative_path,
             dynamic_code_exception_module_ast_sha256=exceptions,
+            reviewed_import_capabilities=_import_capabilities(tree),
             **arguments,
         )
         assert _phase3h_proof_boundary_violations(
             tree,
             relative_path=relative_path,
             dynamic_code_exception_module_ast_sha256={relative_path: "0" * 64},
+            reviewed_import_capabilities=_import_capabilities(tree),
             **arguments,
         )

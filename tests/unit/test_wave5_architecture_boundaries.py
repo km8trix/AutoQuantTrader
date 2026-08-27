@@ -9,6 +9,7 @@ import pytest
 from scripts.check_architecture import (
     _EXACT_NATIVE_FFI_MODULE_AST_SHA256,
     Violation,
+    _import_capability_bindings,
     _isolated_wave5_module_boundary_violations,
     _native_executable_loading_violations,
     _python_module_identity_collision_violations,
@@ -64,7 +65,27 @@ _ORDINARY_MODULE_NAMESPACE_ESCAPES = (
     "carrier_name = '__built' + 'ins__'\n"
     "namespace = getattr(carrier, carrier_name)",
     "import dataclasses\ndef resolve(carrier_name):\n    return getattr(dataclasses, carrier_name)",
+    "import dataclasses\n"
+    "def build(function_name, argument_names, body_lines):\n"
+    "    return dataclasses._create_fn(function_name, argument_names, body_lines)",
+    "from logging.config import _resolve\n"
+    "def resolve(target_name):\n"
+    "    return _resolve(target_name)",
+    "from logging.config import BaseConfigurator\n"
+    "def resolve(target_name):\n"
+    "    return BaseConfigurator({}).resolve(target_name)",
 )
+
+
+def _import_capabilities(tree: ast.AST) -> frozenset[str]:
+    return frozenset(binding for _line, binding in _import_capability_bindings(tree))
+
+
+def _reviewed_import_capabilities(relative_path: Path) -> frozenset[str]:
+    source_path = REPOSITORY / relative_path
+    if not source_path.is_file():
+        return frozenset()
+    return _import_capabilities(ast.parse(source_path.read_text(encoding="utf-8")))
 
 
 def _dynamic_code_exceptions() -> dict[Path, str]:
@@ -98,10 +119,16 @@ def _trusted_time_policy() -> tuple[
     )
 
 
-def _trusted_time_violations(source: str, *, relative_path: Path) -> list[Violation]:
+def _trusted_time_violations(
+    source: str,
+    *,
+    relative_path: Path,
+    reviewed_import_capabilities: frozenset[str] | None = None,
+) -> list[Violation]:
     module_paths, allowed_imports, module_ast_sha256, reserved_symbols = _trusted_time_policy()
+    tree = ast.parse(source)
     return _isolated_wave5_module_boundary_violations(
-        ast.parse(source),
+        tree,
         boundary="trusted-time lifecycle-v2 milestone-one boundary",
         policy_enabled=True,
         relative_path=relative_path,
@@ -109,6 +136,11 @@ def _trusted_time_violations(source: str, *, relative_path: Path) -> list[Violat
         allowed_imports=allowed_imports,
         module_ast_sha256=module_ast_sha256,
         reserved_symbols=reserved_symbols,
+        reviewed_import_capabilities=(
+            _reviewed_import_capabilities(relative_path)
+            if reviewed_import_capabilities is None
+            else reviewed_import_capabilities
+        ),
         dynamic_code_exception_module_ast_sha256=_dynamic_code_exceptions(),
     )
 
@@ -132,10 +164,16 @@ def _phase4an_policy() -> tuple[
     )
 
 
-def _phase4an_violations(source: str, *, relative_path: Path) -> list[Violation]:
+def _phase4an_violations(
+    source: str,
+    *,
+    relative_path: Path,
+    reviewed_import_capabilities: frozenset[str] | None = None,
+) -> list[Violation]:
     module_paths, allowed_imports, module_ast_sha256, reserved_symbols = _phase4an_policy()
+    tree = ast.parse(source)
     return _isolated_wave5_module_boundary_violations(
-        ast.parse(source),
+        tree,
         boundary="Phase 4AN injected OAuth runtime boundary",
         policy_enabled=True,
         relative_path=relative_path,
@@ -143,6 +181,11 @@ def _phase4an_violations(source: str, *, relative_path: Path) -> list[Violation]
         allowed_imports=allowed_imports,
         module_ast_sha256=module_ast_sha256,
         reserved_symbols=reserved_symbols,
+        reviewed_import_capabilities=(
+            _reviewed_import_capabilities(relative_path)
+            if reviewed_import_capabilities is None
+            else reviewed_import_capabilities
+        ),
         dynamic_code_exception_module_ast_sha256=_dynamic_code_exceptions(),
     )
 
@@ -327,6 +370,7 @@ def test_trusted_time_v2_boundary_accepts_exact_reviewed_modules_and_importers()
             allowed_imports=allowed_imports,
             module_ast_sha256=module_ast_sha256,
             reserved_symbols=reserved_symbols,
+            reviewed_import_capabilities=_import_capabilities(tree),
             dynamic_code_exception_module_ast_sha256=dynamic_code_exceptions,
         )
 
@@ -344,6 +388,7 @@ def test_trusted_time_v2_boundary_rejects_protected_module_ast_drift() -> None:
         allowed_imports=allowed_imports,
         module_ast_sha256=module_ast_sha256,
         reserved_symbols=reserved_symbols,
+        reviewed_import_capabilities=_reviewed_import_capabilities(relative_path),
     )
 
 
@@ -545,6 +590,7 @@ def test_phase4an_boundary_accepts_exact_modules_and_no_production_importers() -
             allowed_imports=allowed_imports,
             module_ast_sha256=module_ast_sha256,
             reserved_symbols=reserved_symbols,
+            reviewed_import_capabilities=_import_capabilities(tree),
             dynamic_code_exception_module_ast_sha256=dynamic_code_exceptions,
         )
 
@@ -564,9 +610,11 @@ def test_phase4an_boundary_accepts_exact_modules_and_no_production_importers() -
     ],
 )
 def test_phase4an_boundary_allows_public_exception_exports(source: str) -> None:
+    reviewed_import_capabilities = _import_capabilities(ast.parse(source))
     assert not _phase4an_violations(
         source,
         relative_path=Path("packages/application/benign_exception_consumer.py"),
+        reviewed_import_capabilities=reviewed_import_capabilities,
     )
 
 
@@ -578,15 +626,25 @@ def test_wave5_boundaries_allow_benign_ordinary_module_metadata() -> None:
         "module_name = dataclasses.__name__"
     )
     relative_path = Path("packages/application/benign_dataclasses_consumer.py")
+    reviewed_import_capabilities = _import_capabilities(ast.parse(source))
 
-    assert not _trusted_time_violations(source, relative_path=relative_path)
-    assert not _phase4an_violations(source, relative_path=relative_path)
+    assert not _trusted_time_violations(
+        source,
+        relative_path=relative_path,
+        reviewed_import_capabilities=reviewed_import_capabilities,
+    )
+    assert not _phase4an_violations(
+        source,
+        relative_path=relative_path,
+        reviewed_import_capabilities=reviewed_import_capabilities,
+    )
     assert not _native_executable_loading_violations(
         ast.parse(source),
         relative_path=relative_path,
         wrapper_path=Path("packages/adapters/trusted_time/native_wrapper.py"),
         wrapper_module="packages.adapters.trusted_time.native_wrapper",
         image_import_root=False,
+        reviewed_import_capabilities=reviewed_import_capabilities,
     )
 
 
@@ -604,6 +662,7 @@ def test_phase4an_boundary_rejects_protected_module_ast_drift() -> None:
         allowed_imports=allowed_imports,
         module_ast_sha256=module_ast_sha256,
         reserved_symbols=reserved_symbols,
+        reviewed_import_capabilities=_reviewed_import_capabilities(relative_path),
     )
 
 
@@ -644,6 +703,7 @@ def test_wave5_isolated_module_boundary_noops_when_policy_is_absent() -> None:
         allowed_imports={},
         module_ast_sha256={},
         reserved_symbols=frozenset(),
+        reviewed_import_capabilities=frozenset(),
     )
 
 
@@ -675,6 +735,7 @@ def test_native_loader_boundary_rejects_all_production_roots(source: str) -> Non
         wrapper_path=Path("packages/adapters/trusted_time/native_wrapper.py"),
         wrapper_module="packages.adapters.trusted_time.native_wrapper",
         image_import_root=False,
+        reviewed_import_capabilities=frozenset(),
     )
 
 
@@ -687,6 +748,7 @@ def test_native_loader_boundary_accepts_only_exact_reviewed_ffi_modules() -> Non
             wrapper_path=Path("packages/adapters/trusted_time/native_wrapper.py"),
             wrapper_module="packages.adapters.trusted_time.native_wrapper",
             image_import_root=False,
+            reviewed_import_capabilities=_import_capabilities(tree),
         )
 
 
@@ -699,4 +761,5 @@ def test_native_loader_boundary_rejects_reviewed_ffi_module_ast_drift() -> None:
         wrapper_path=Path("packages/adapters/trusted_time/native_wrapper.py"),
         wrapper_module="packages.adapters.trusted_time.native_wrapper",
         image_import_root=False,
+        reviewed_import_capabilities=_reviewed_import_capabilities(relative_path),
     )

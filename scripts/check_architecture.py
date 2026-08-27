@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "75f808317ebb9f5ea5b0155cf3d334bfb2ecf4daeda0150f8b450d6570ad2210"
+    "ba39f30df779a00091251bcd08097dfcef901528d38fa84f5c328a8830d05747"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -131,6 +131,50 @@ def _nonproject_import_bindings(tree: ast.AST) -> list[tuple[int, str]]:
             if module.partition(".")[0] not in project_namespaces:
                 bindings.extend((node.lineno, f"{module}:{alias.name}") for alias in node.names)
     return bindings
+
+
+def _import_capability_bindings(tree: ast.AST) -> list[tuple[int, str]]:
+    """Return every exact import capability without classifying its origin."""
+
+    bindings: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            bindings.extend((node.lineno, f"{alias.name}:*") for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            module = "." * node.level + (node.module or "")
+            bindings.extend((node.lineno, f"{module}:{alias.name}") for alias in node.names)
+    return bindings
+
+
+def _reviewed_import_capability_violations(
+    tree: ast.AST,
+    *,
+    relative_path: Path,
+    boundary: str,
+    reviewed: frozenset[str],
+) -> list[Violation]:
+    """Require an exact import surface supplied by the sealed source manifest."""
+
+    observed_bindings = _import_capability_bindings(tree)
+    observed = frozenset(binding for _line, binding in observed_bindings)
+    violations = [
+        Violation(
+            relative_path,
+            line,
+            f"{boundary} cannot add unreviewed import capability '{binding}'",
+        )
+        for line, binding in observed_bindings
+        if binding not in reviewed
+    ]
+    violations.extend(
+        Violation(
+            relative_path,
+            1,
+            f"{boundary} must preserve reviewed import capability '{binding}'",
+        )
+        for binding in sorted(reviewed - observed)
+    )
+    return violations
 
 
 def _project_import_modules(tree: ast.AST) -> list[tuple[int, str]]:
@@ -2413,6 +2457,7 @@ def _native_executable_loading_violations(
     wrapper_path: Path,
     wrapper_module: str,
     image_import_root: bool,
+    reviewed_import_capabilities: frozenset[str],
 ) -> list[Violation]:
     """Reject alternate native loaders from every production Python root."""
 
@@ -2444,6 +2489,14 @@ def _native_executable_loading_violations(
     }
     private_native_module = "packages.adapters.trusted_time._native_owned_file_descriptor"
     violations: list[Violation] = []
+    violations.extend(
+        _reviewed_import_capability_violations(
+            tree,
+            relative_path=relative_path,
+            boundary="native executable-loading boundary",
+            reviewed=reviewed_import_capabilities,
+        )
+    )
     import_bindings = _imported_symbol_bindings(tree)
     reflection_text_bindings = _wave5_constant_text_bindings(tree)
 
@@ -5892,6 +5945,7 @@ def _phase3h_proof_boundary_violations(
     allowed_proof_imports: frozenset[str],
     module_ast_sha256: dict[Path, str],
     dynamic_code_exception_module_ast_sha256: dict[Path, str],
+    reviewed_import_capabilities: frozenset[str],
 ) -> list[Violation]:
     """Keep Phase 3H proof construction inside two exact reviewed modules."""
 
@@ -5920,6 +5974,14 @@ def _phase3h_proof_boundary_violations(
         for line, binding in proof_imports
         if binding not in expected_imports
     ]
+    violations.extend(
+        _reviewed_import_capability_violations(
+            tree,
+            relative_path=relative_path,
+            boundary=boundary,
+            reviewed=reviewed_import_capabilities,
+        )
+    )
     violations.extend(
         _dynamic_code_exception_private_import_violations(
             tree,
@@ -6599,6 +6661,7 @@ def _isolated_wave5_module_boundary_violations(
     allowed_imports: dict[Path, frozenset[str]],
     module_ast_sha256: dict[Path, str],
     reserved_symbols: frozenset[str],
+    reviewed_import_capabilities: frozenset[str],
     dynamic_code_exception_module_ast_sha256: dict[Path, str] | None = None,
 ) -> list[Violation]:
     """Seal exact Wave 5 modules and their reviewed production import graph."""
@@ -6631,6 +6694,14 @@ def _isolated_wave5_module_boundary_violations(
         )
         if binding not in expected_imports
     ]
+    violations.extend(
+        _reviewed_import_capability_violations(
+            tree,
+            relative_path=relative_path,
+            boundary=boundary,
+            reviewed=reviewed_import_capabilities,
+        )
+    )
     violations.extend(
         _dynamic_code_exception_private_import_violations(
             tree,
@@ -11228,6 +11299,7 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
             )
         )
     production_manifest_required = production_contract_required
+    production_manifest_matches = False
     if production_manifest_required:
         manifest_keys = {
             key for key in scan if key.startswith("production_python_source_manifest_")
@@ -11275,6 +11347,8 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                             "production Python source manifest must match every reviewed source",
                         )
                     )
+                else:
+                    production_manifest_matches = True
     builtin_integrity_files = reviewed_python_files(
         builtin_namespace_integrity_roots
     ) - reviewed_python_files(builtin_namespace_integrity_excluded_roots)
@@ -11430,6 +11504,11 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 )
             )
             continue
+        reviewed_import_capabilities = (
+            frozenset(binding for _line, binding in _import_capability_bindings(tree))
+            if production_manifest_matches
+            else frozenset()
+        )
         violations.extend(
             _exact_private_attribute_callsite_violations(
                 tree,
@@ -11453,6 +11532,7 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 dynamic_code_exception_module_ast_sha256=(
                     phase3h_dynamic_code_exception_module_ast_sha256
                 ),
+                reviewed_import_capabilities=reviewed_import_capabilities,
             )
         )
         violations.extend(
@@ -11468,6 +11548,7 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 dynamic_code_exception_module_ast_sha256=(
                     phase3h_dynamic_code_exception_module_ast_sha256
                 ),
+                reviewed_import_capabilities=reviewed_import_capabilities,
             )
         )
         violations.extend(
@@ -11483,6 +11564,7 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 dynamic_code_exception_module_ast_sha256=(
                     phase3h_dynamic_code_exception_module_ast_sha256
                 ),
+                reviewed_import_capabilities=reviewed_import_capabilities,
             )
         )
         expected_process_consumer_module_digest = (
@@ -11648,6 +11730,7 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 image_import_root=(
                     bool(relative_path.parts) and relative_path.parts[0] in {"apps", "packages"}
                 ),
+                reviewed_import_capabilities=reviewed_import_capabilities,
             )
         )
         if (
