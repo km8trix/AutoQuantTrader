@@ -128,11 +128,19 @@ those bytes or their digest are durable evidence.
    successful result transfer, so a transport that raises after construction
    cannot strand the runtime-owned mutable custody buffer. Before dispatch, the
    runtime also retains an independent private witness outside the
-   transport-visible object graph: the exact intent identity and evidence,
-   signing-result identity, sealed request binding, pre-reservation guard, and
-   replay-only head. After return it compares that witness, re-derives the
-   replay guard from the original head, and rejects even if a transport mutates
+   transport-visible object graph: the private canonical intent value and
+   evidence, exposed signing-result identity, sealed request binding,
+   pre-reservation guard, and replay-only head. After return it compares that
+   witness, re-derives the replay guard from the original head, and rejects even
+   if a transport mutates
    intent/request fields and recomputes every attacker-visible unkeyed seal.
+   The private witness owns a recursively value-cloned canonical intent that is
+   never passed to the resolver, signer result, request, response, or transport;
+   a second equal but disjoint clone is the only intent exposed to those ports.
+   Every post-return guard check, decode-operation choice, successor reduction,
+   and receipt field uses only the private canonical clone. Witness validation
+   repeats after response validation and raw-body acquisition, so mutation of
+   the presented clone cannot redirect later semantics even between checks.
 8. The injected response profile requires the exact shared token origin
    `https://api.etrade.com`, terminal HTTP status `200`, media type
    `application/x-www-form-urlencoded`, charset `utf-8`, a complete body of
@@ -149,7 +157,25 @@ those bytes or their digest are durable evidence.
    Every open/read/transfer validation rechecks that body custody remains an
    exact bytearray within the 1-4,096-byte bound; post-factory type replacement
    or out-of-bound expansion fails without adding a body hash or length to
-   sanitized evidence.
+   sanitized evidence. Request and raw-response methods also freeze and require
+   both the exact originally issued lock identity and the exact built-in lock
+   type before entering it. The pre-dispatch witness independently retains the
+   request-lock identity. A process-local, lock-protected, one-use registration
+   records the raw-response identity and constructor-time lock inside the
+   injected factory, outside the response/request graph, and the runtime claims
+   that exact pair after return. Registration is exact-request-bound, supports
+   racing fake-factory calls, is removed in the transport-call `finally` path,
+   and makes the factory reject use outside an active runtime dispatch.
+   Every subsequent validation, body read, sanitized-binding read, and result
+   validation requires the witnessed lock. Final response-custody release and
+   failure close likewise require the pre-dispatch request-lock witness, so a
+   two-field request-lock replacement after the last semantic witness cannot
+   transfer the result. Replacing either private lock with an
+   attacker-controlled context manager or a fresh built-in lock is rejected,
+   including replacement of both raw-response lock fields before return; a
+   foreign context manager is never invoked. Failure and result close use the
+   separately witnessed constructor-time locks, restore them as the custody
+   locks, and overwrite the owned raw body without entering a replacement lock.
 9. Retain the exact raw body in private, context-managed, non-copyable mutable
    custody before strict decode.
    Request-token responses contain exactly one each of `oauth_token`,

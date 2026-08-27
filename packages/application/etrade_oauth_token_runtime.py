@@ -19,7 +19,7 @@ import hashlib
 import hmac
 from collections.abc import Callable, Mapping
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from threading import Lock
 from types import MappingProxyType
 from typing import Any, Never, Protocol, cast
@@ -77,6 +77,7 @@ ETRADE_OAUTH_TOKEN_RUNTIME_TIMEOUT_MILLISECONDS = 2_000
 
 _MAX_SECRET_BYTES = 1_024
 _HEX = frozenset(b"0123456789abcdefABCDEF")
+_LOCK_TYPE = type(Lock())
 _AUTHORITY_FIELDS = (
     "deployed_credential_resolution_authorized",
     "provider_network_authorized",
@@ -503,6 +504,7 @@ class EtradeOAuthEphemeralTransportRequest:
         "__intent_sha256",
         "__lock",
         "__operation",
+        "__original_lock",
         "__presented",
         "__replay_guard_sha256",
         "__response_custody",
@@ -520,6 +522,7 @@ class EtradeOAuthEphemeralTransportRequest:
     __http_method: str
     __intent_sha256: str
     __lock: Any
+    __original_lock: Any
     __operation: EtradeOAuthOperation
     __presented: bool
     __replay_guard_sha256: str
@@ -562,7 +565,13 @@ class EtradeOAuthEphemeralTransportRequest:
             raise EtradeOAuthTokenTransportError(
                 "signed request replay guard was not durably committed"
             )
-        object.__setattr__(self, "_EtradeOAuthEphemeralTransportRequest__lock", Lock())
+        lock = Lock()
+        object.__setattr__(self, "_EtradeOAuthEphemeralTransportRequest__lock", lock)
+        object.__setattr__(
+            self,
+            "_EtradeOAuthEphemeralTransportRequest__original_lock",
+            lock,
+        )
         object.__setattr__(self, "_EtradeOAuthEphemeralTransportRequest__closed", False)
         object.__setattr__(self, "_EtradeOAuthEphemeralTransportRequest__presented", False)
         object.__setattr__(
@@ -638,6 +647,28 @@ class EtradeOAuthEphemeralTransportRequest:
         )
         self._validate_before_injected_transport()
 
+    def _exact_lock(self, expected_identity: object | None = None) -> Any:
+        lock = object.__getattribute__(
+            self,
+            "_EtradeOAuthEphemeralTransportRequest__lock",
+        )
+        original_lock = object.__getattribute__(
+            self,
+            "_EtradeOAuthEphemeralTransportRequest__original_lock",
+        )
+        if (
+            type(lock) is not _LOCK_TYPE
+            or lock is not original_lock
+            or (expected_identity is not None and lock is not expected_identity)
+        ):
+            raise EtradeOAuthTokenTransportError(
+                "ephemeral OAuth transport request lock was replaced"
+            )
+        return lock
+
+    def _lock_identity_for_dispatch_witness(self) -> object:
+        return self._exact_lock()
+
     def _binding_material_unlocked(self) -> tuple[object, ...]:
         return (
             ETRADE_OAUTH_TOKEN_RUNTIME_CONTRACT_VERSION,
@@ -700,7 +731,7 @@ class EtradeOAuthEphemeralTransportRequest:
             _require_sha256(value, field_name)
 
     def _validate_before_injected_transport(self) -> None:
-        with self.__lock:
+        with self._exact_lock():
             self._validate_unlocked()
             if self.__presented or self.__response_custody is not None:
                 raise EtradeOAuthTokenTransportError(
@@ -711,7 +742,7 @@ class EtradeOAuthEphemeralTransportRequest:
         self,
         response: _EtradeOAuthRawTokenResponse,
     ) -> None:
-        with self.__lock:
+        with self._exact_lock():
             self._validate_unlocked()
             if (
                 self.__presented is not True
@@ -725,7 +756,7 @@ class EtradeOAuthEphemeralTransportRequest:
     def _authorization_header_matches_for_test(self, expected: str) -> bool:
         """Constant-time fake-transport assertion without exposing the header."""
 
-        with self.__lock:
+        with self._exact_lock():
             self._validate_unlocked()
             signing_result = cast(
                 EtradeOAuthEphemeralSigningResult,
@@ -734,7 +765,7 @@ class EtradeOAuthEphemeralTransportRequest:
             return signing_result.authorization_header_matches(expected)
 
     def _present_for_injected_exchange(self) -> None:
-        with self.__lock:
+        with self._exact_lock():
             self._validate_unlocked()
             if self.__presented or self.__response_custody is not None:
                 raise EtradeOAuthTokenTransportError(
@@ -747,7 +778,7 @@ class EtradeOAuthEphemeralTransportRequest:
             )
 
     def _require_presented(self) -> None:
-        with self.__lock:
+        with self._exact_lock():
             self._validate_unlocked()
             if not self.__presented:
                 raise EtradeOAuthTokenTransportError(
@@ -755,11 +786,11 @@ class EtradeOAuthEphemeralTransportRequest:
                 )
 
     def _require_open(self) -> None:
-        with self.__lock:
+        with self._exact_lock():
             self._validate_unlocked()
 
     def _sealed_response_binding_material(self) -> tuple[object, ...]:
-        with self.__lock:
+        with self._exact_lock():
             self._validate_unlocked()
             return self._binding_material_unlocked()
 
@@ -768,18 +799,21 @@ class EtradeOAuthEphemeralTransportRequest:
         *,
         signing_result: EtradeOAuthEphemeralSigningResult,
         binding_material: tuple[object, ...],
+        lock_identity: object,
     ) -> bool:
         """Compare against runtime-held values never shared with the transport."""
 
-        with self.__lock:
+        with self._exact_lock(lock_identity):
             self._validate_unlocked()
             return (
-                self.__signing_result is signing_result
+                self.__lock is lock_identity
+                and self.__original_lock is lock_identity
+                and self.__signing_result is signing_result
                 and self._binding_material_unlocked() == binding_material
             )
 
     def _bind_response_custody(self, response: _EtradeOAuthRawTokenResponse) -> None:
-        with self.__lock:
+        with self._exact_lock():
             self._validate_unlocked()
             _require_exact(response, _EtradeOAuthRawTokenResponse, "request-bound raw response")
             if not self.__presented or self.__response_custody is not None:
@@ -792,8 +826,13 @@ class EtradeOAuthEphemeralTransportRequest:
                 response,
             )
 
-    def _release_response_custody(self, response: _EtradeOAuthRawTokenResponse) -> None:
-        with self.__lock:
+    def _release_response_custody(
+        self,
+        response: _EtradeOAuthRawTokenResponse,
+        *,
+        lock_identity: object,
+    ) -> None:
+        with self._exact_lock(lock_identity):
             self._validate_unlocked()
             _require_exact(response, _EtradeOAuthRawTokenResponse, "released raw response")
             if self.__response_custody is not response:
@@ -806,36 +845,83 @@ class EtradeOAuthEphemeralTransportRequest:
                 None,
             )
 
+    def _close_unlocked(self) -> _EtradeOAuthRawTokenResponse | None:
+        if self.__closed:
+            return None
+        response = self.__response_custody
+        object.__setattr__(
+            self,
+            "_EtradeOAuthEphemeralTransportRequest__response_custody",
+            None,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthEphemeralTransportRequest__signing_result",
+            None,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthEphemeralTransportRequest__closed",
+            True,
+        )
+        return response if type(response) is _EtradeOAuthRawTokenResponse else None
+
+    def _close_with_dispatch_witness(self, lock_identity: object) -> None:
+        """Close without entering request lock fields exposed to the transport."""
+
+        if type(lock_identity) is not _LOCK_TYPE:
+            raise EtradeOAuthTokenTransportError(
+                "ephemeral OAuth transport request cleanup lock is malformed"
+            )
+        with lock_identity:
+            object.__setattr__(
+                self,
+                "_EtradeOAuthEphemeralTransportRequest__lock",
+                lock_identity,
+            )
+            object.__setattr__(
+                self,
+                "_EtradeOAuthEphemeralTransportRequest__original_lock",
+                lock_identity,
+            )
+            self._close_unlocked()
+
     def close(self) -> None:
-        with self.__lock:
-            if self.__closed:
-                return
-            response = self.__response_custody
+        original_lock = object.__getattribute__(
+            self,
+            "_EtradeOAuthEphemeralTransportRequest__original_lock",
+        )
+        if type(original_lock) is _LOCK_TYPE:
+            lock_context = original_lock
             object.__setattr__(
                 self,
-                "_EtradeOAuthEphemeralTransportRequest__response_custody",
-                None,
+                "_EtradeOAuthEphemeralTransportRequest__lock",
+                original_lock,
+            )
+        else:
+            lock_context = Lock()
+            object.__setattr__(
+                self,
+                "_EtradeOAuthEphemeralTransportRequest__lock",
+                lock_context,
             )
             object.__setattr__(
                 self,
-                "_EtradeOAuthEphemeralTransportRequest__signing_result",
-                None,
+                "_EtradeOAuthEphemeralTransportRequest__original_lock",
+                lock_context,
             )
-            object.__setattr__(
-                self,
-                "_EtradeOAuthEphemeralTransportRequest__closed",
-                True,
-            )
-        if response is not None:
+        with lock_context:
+            response = self._close_unlocked()
+        if type(response) is _EtradeOAuthRawTokenResponse:
             response.close()
 
     @property
     def closed(self) -> bool:
-        with self.__lock:
+        with self._exact_lock():
             return self.__closed
 
     def __repr__(self) -> str:
-        with self.__lock:
+        with self._exact_lock():
             return (
                 "EtradeOAuthEphemeralTransportRequest("
                 f"intent_sha256={self.__intent_sha256!r}, authorization=<redacted>, "
@@ -868,50 +954,114 @@ class _EtradeOAuthTransportDispatchWitness:
     """Independent pre-call binding retained outside the transport-owned graph."""
 
     __slots__ = (
-        "__intent",
+        "__canonical_intent",
         "__intent_evidence_bytes",
         "__intent_sha256",
+        "__presented_intent",
+        "__raw_response",
+        "__raw_response_binding_lock",
+        "__raw_response_claimed",
+        "__raw_response_lock_identity",
         "__replay_binding_material",
+        "__request",
         "__request_binding_material",
+        "__request_lock_identity",
         "__signing_result",
         "__source_replay_guard",
     )
-    __intent: EtradeOAuthSigningIntent
+    __canonical_intent: EtradeOAuthSigningIntent
     __intent_evidence_bytes: bytes
     __intent_sha256: str
+    __presented_intent: EtradeOAuthSigningIntent
+    __raw_response: _EtradeOAuthRawTokenResponse | None
+    __raw_response_binding_lock: Any
+    __raw_response_claimed: bool
+    __raw_response_lock_identity: object | None
     __replay_binding_material: tuple[object, ...]
+    __request: EtradeOAuthEphemeralTransportRequest
     __request_binding_material: tuple[object, ...]
+    __request_lock_identity: object
     __signing_result: EtradeOAuthEphemeralSigningResult
     __source_replay_guard: EtradeOAuthReplayGuard
 
     def __init__(
         self,
         *,
-        intent: EtradeOAuthSigningIntent,
+        canonical_intent: EtradeOAuthSigningIntent,
+        presented_intent: EtradeOAuthSigningIntent,
         signing_result: EtradeOAuthEphemeralSigningResult,
         request: EtradeOAuthEphemeralTransportRequest,
         source_replay_guard: EtradeOAuthReplayGuard,
         replay_snapshot: EtradeOAuthDurableSnapshot,
     ) -> None:
-        intent.__post_init__()
+        canonical_intent.__post_init__()
+        presented_intent.__post_init__()
         signing_result._validate()
         source_replay_guard.__post_init__()
         replay_snapshot = _validate_snapshot(replay_snapshot)
-        object.__setattr__(self, "_EtradeOAuthTransportDispatchWitness__intent", intent)
+        if (
+            canonical_intent is presented_intent
+            or canonical_intent.semantic_sha256 != presented_intent.semantic_sha256
+            or canonical_intent.to_evidence_bytes() != presented_intent.to_evidence_bytes()
+            or signing_result.intent is not presented_intent
+        ):
+            raise EtradeOAuthTokenTransportError(
+                "OAuth transport intent does not match its private canonical value"
+            )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTransportDispatchWitness__canonical_intent",
+            canonical_intent,
+        )
         object.__setattr__(
             self,
             "_EtradeOAuthTransportDispatchWitness__intent_evidence_bytes",
-            bytes(intent.to_evidence_bytes()),
+            bytes(canonical_intent.to_evidence_bytes()),
         )
         object.__setattr__(
             self,
             "_EtradeOAuthTransportDispatchWitness__intent_sha256",
-            intent.semantic_sha256,
+            canonical_intent.semantic_sha256,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTransportDispatchWitness__presented_intent",
+            presented_intent,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTransportDispatchWitness__raw_response",
+            None,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTransportDispatchWitness__raw_response_binding_lock",
+            Lock(),
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTransportDispatchWitness__raw_response_claimed",
+            False,
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTransportDispatchWitness__raw_response_lock_identity",
+            None,
         )
         object.__setattr__(
             self,
             "_EtradeOAuthTransportDispatchWitness__request_binding_material",
             request._sealed_response_binding_material(),
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTransportDispatchWitness__request_lock_identity",
+            request._lock_identity_for_dispatch_witness(),
+        )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthTransportDispatchWitness__request",
+            request,
         )
         object.__setattr__(
             self,
@@ -929,6 +1079,105 @@ class _EtradeOAuthTransportDispatchWitness:
             source_replay_guard,
         )
 
+    def _bind_constructor_raw_response(
+        self,
+        *,
+        request: EtradeOAuthEphemeralTransportRequest,
+        response: _EtradeOAuthRawTokenResponse,
+    ) -> None:
+        """Record factory-time response custody outside the transport graph."""
+
+        _require_exact(request, EtradeOAuthEphemeralTransportRequest, "witnessed request")
+        _require_exact(response, _EtradeOAuthRawTokenResponse, "witnessed raw response")
+        lock_identity = response._lock_identity_for_runtime_validation()
+        with self.__raw_response_binding_lock:
+            if (
+                request is not self.__request
+                or self.__raw_response is not None
+                or self.__raw_response_lock_identity is not None
+                or self.__raw_response_claimed
+            ):
+                raise EtradeOAuthTokenResponseError(
+                    "raw OAuth response constructor witness cannot be rebound"
+                )
+            object.__setattr__(
+                self,
+                "_EtradeOAuthTransportDispatchWitness__raw_response",
+                response,
+            )
+            object.__setattr__(
+                self,
+                "_EtradeOAuthTransportDispatchWitness__raw_response_lock_identity",
+                lock_identity,
+            )
+
+    def _claim_constructor_raw_response_lock_identity(
+        self,
+        *,
+        request: EtradeOAuthEphemeralTransportRequest,
+        response: _EtradeOAuthRawTokenResponse,
+    ) -> object:
+        """Claim the exact factory-time response and lock once after dispatch."""
+
+        with self.__raw_response_binding_lock:
+            lock_identity = self.__raw_response_lock_identity
+            invalid = (
+                request is not self.__request
+                or response is not self.__raw_response
+                or type(lock_identity) is not _LOCK_TYPE
+                or self.__raw_response_claimed
+            )
+            if not invalid:
+                try:
+                    invalid = response._lock_identity_for_runtime_validation() is not lock_identity
+                except Exception:
+                    invalid = True
+            if invalid:
+                self._close_constructor_raw_response_unlocked()
+                raise EtradeOAuthTokenResponseError(
+                    "raw OAuth response conflicts with its constructor witness"
+                )
+            object.__setattr__(
+                self,
+                "_EtradeOAuthTransportDispatchWitness__raw_response_claimed",
+                True,
+            )
+            return lock_identity
+
+    def _close_constructor_raw_response_unlocked(self) -> None:
+        response = self.__raw_response
+        lock_identity = self.__raw_response_lock_identity
+        if type(response) is _EtradeOAuthRawTokenResponse and type(lock_identity) is _LOCK_TYPE:
+            response._close_with_runtime_lock_identity(lock_identity)
+
+    def _close_constructor_raw_response_for_failure(self) -> None:
+        """Close bound response custody using only the factory-time lock."""
+
+        with self.__raw_response_binding_lock:
+            self._close_constructor_raw_response_unlocked()
+
+    def _release_response_custody_for_result(
+        self,
+        *,
+        request: EtradeOAuthEphemeralTransportRequest,
+        response: _EtradeOAuthRawTokenResponse,
+    ) -> None:
+        """Release result custody only under the witnessed request lock."""
+
+        if request is not self.__request:
+            raise EtradeOAuthTokenTransportError(
+                "OAuth result custody conflicts with its witnessed request"
+            )
+        request._release_response_custody(
+            response,
+            lock_identity=self.__request_lock_identity,
+        )
+
+    def _close_request_after_dispatch(self) -> None:
+        """Close request custody using only the pre-dispatch lock witness."""
+
+        self.__request._close_with_dispatch_witness(self.__request_lock_identity)
+
     @staticmethod
     def _replay_binding(snapshot: EtradeOAuthDurableSnapshot) -> tuple[object, ...]:
         return (
@@ -942,40 +1191,58 @@ class _EtradeOAuthTransportDispatchWitness:
     def _validate_after_injected_transport(
         self,
         *,
-        intent: EtradeOAuthSigningIntent,
+        presented_intent: EtradeOAuthSigningIntent,
         signing_result: EtradeOAuthEphemeralSigningResult,
         request: EtradeOAuthEphemeralTransportRequest,
         replay_snapshot: EtradeOAuthDurableSnapshot,
     ) -> None:
         try:
-            intent.__post_init__()
+            self.__canonical_intent.__post_init__()
+            presented_intent.__post_init__()
             signing_result._validate()
             replay_snapshot = _validate_snapshot(replay_snapshot)
-            rederived_guard = reserve_etrade_oauth_signing_intent(
-                intent,
+            canonical_guard = reserve_etrade_oauth_signing_intent(
+                self.__canonical_intent,
+                replay_guard=self.__source_replay_guard,
+            )
+            presented_guard = reserve_etrade_oauth_signing_intent(
+                presented_intent,
                 replay_guard=self.__source_replay_guard,
             )
             request_matches = request._matches_independent_dispatch_witness(
                 signing_result=self.__signing_result,
                 binding_material=self.__request_binding_material,
+                lock_identity=self.__request_lock_identity,
             )
         except Exception:
             raise EtradeOAuthTokenTransportError(
                 "injected OAuth transport mutated its independent dispatch binding"
             ) from None
         if (
-            intent is not self.__intent
+            presented_intent is not self.__presented_intent
             or signing_result is not self.__signing_result
-            or signing_result.intent is not intent
-            or not hmac.compare_digest(intent.semantic_sha256, self.__intent_sha256)
+            or signing_result.intent is not presented_intent
             or not hmac.compare_digest(
-                intent.to_evidence_bytes(),
+                self.__canonical_intent.semantic_sha256,
+                self.__intent_sha256,
+            )
+            or not hmac.compare_digest(
+                presented_intent.semantic_sha256,
+                self.__intent_sha256,
+            )
+            or not hmac.compare_digest(
+                self.__canonical_intent.to_evidence_bytes(),
+                self.__intent_evidence_bytes,
+            )
+            or not hmac.compare_digest(
+                presented_intent.to_evidence_bytes(),
                 self.__intent_evidence_bytes,
             )
             or not request_matches
             or self._replay_binding(replay_snapshot) != self.__replay_binding_material
-            or rederived_guard != replay_snapshot.replay_guard
-            or signing_result.next_replay_guard != rederived_guard
+            or canonical_guard != replay_snapshot.replay_guard
+            or presented_guard != canonical_guard
+            or signing_result.next_replay_guard != canonical_guard
         ):
             raise EtradeOAuthTokenTransportError(
                 "injected OAuth transport mutated its independent dispatch binding"
@@ -986,6 +1253,53 @@ class _EtradeOAuthTransportDispatchWitness:
 
     def __reduce__(self) -> Never:
         raise TypeError("OAuth transport dispatch witnesses are non-serializable")
+
+
+_RAW_RESPONSE_DISPATCH_REGISTRY_LOCK = Lock()
+_RAW_RESPONSE_DISPATCH_REGISTRY: dict[
+    int,
+    tuple[EtradeOAuthEphemeralTransportRequest, _EtradeOAuthTransportDispatchWitness],
+] = {}
+
+
+def _register_raw_response_dispatch_witness(
+    request: EtradeOAuthEphemeralTransportRequest,
+    witness: _EtradeOAuthTransportDispatchWitness,
+) -> None:
+    _require_exact(request, EtradeOAuthEphemeralTransportRequest, "registered request")
+    _require_exact(witness, _EtradeOAuthTransportDispatchWitness, "dispatch witness")
+    key = id(request)
+    with _RAW_RESPONSE_DISPATCH_REGISTRY_LOCK:
+        if key in _RAW_RESPONSE_DISPATCH_REGISTRY:
+            raise EtradeOAuthTokenTransportError(
+                "raw OAuth response dispatch witness is already registered"
+            )
+        _RAW_RESPONSE_DISPATCH_REGISTRY[key] = (request, witness)
+
+
+def _unregister_raw_response_dispatch_witness(
+    request: EtradeOAuthEphemeralTransportRequest,
+    witness: _EtradeOAuthTransportDispatchWitness,
+) -> None:
+    key = id(request)
+    with _RAW_RESPONSE_DISPATCH_REGISTRY_LOCK:
+        binding = _RAW_RESPONSE_DISPATCH_REGISTRY.pop(key, None)
+    if binding is None or binding[0] is not request or binding[1] is not witness:
+        raise EtradeOAuthTokenTransportError(
+            "raw OAuth response dispatch witness registration was mutated"
+        )
+
+
+def _registered_raw_response_dispatch_witness(
+    request: EtradeOAuthEphemeralTransportRequest,
+) -> _EtradeOAuthTransportDispatchWitness:
+    with _RAW_RESPONSE_DISPATCH_REGISTRY_LOCK:
+        binding = _RAW_RESPONSE_DISPATCH_REGISTRY.get(id(request))
+    if binding is None or binding[0] is not request:
+        raise EtradeOAuthTokenResponseError(
+            "raw OAuth response factory requires an active runtime witness"
+        )
+    return binding[1]
 
 
 _RAW_TOKEN_RESPONSE_ISSUER = object()
@@ -1003,6 +1317,7 @@ class _EtradeOAuthRawTokenResponse:
         "__lock",
         "__media_type_exact",
         "__origin_exact",
+        "__original_lock",
         "__proxy_used",
         "__redirect_location_present",
         "__redirects_followed",
@@ -1019,6 +1334,7 @@ class _EtradeOAuthRawTokenResponse:
     __complete: bool
     __http_status_exact: bool
     __lock: Any
+    __original_lock: Any
     __media_type_exact: bool
     __origin_exact: bool
     __proxy_used: bool
@@ -1085,7 +1401,9 @@ class _EtradeOAuthRawTokenResponse:
                 raise EtradeOAuthTokenResponseError(
                     f"injected response {field_name} must be exact boolean"
                 )
-        object.__setattr__(self, "_EtradeOAuthRawTokenResponse__lock", Lock())
+        lock = Lock()
+        object.__setattr__(self, "_EtradeOAuthRawTokenResponse__lock", lock)
+        object.__setattr__(self, "_EtradeOAuthRawTokenResponse__original_lock", lock)
         object.__setattr__(self, "_EtradeOAuthRawTokenResponse__request", request)
         object.__setattr__(
             self,
@@ -1157,13 +1475,48 @@ class _EtradeOAuthRawTokenResponse:
             ),
         )
 
+    def _exact_lock(self, expected_identity: object | None = None) -> Any:
+        lock = object.__getattribute__(
+            self,
+            "_EtradeOAuthRawTokenResponse__lock",
+        )
+        original_lock = object.__getattribute__(
+            self,
+            "_EtradeOAuthRawTokenResponse__original_lock",
+        )
+        if (
+            type(lock) is not _LOCK_TYPE
+            or lock is not original_lock
+            or (expected_identity is not None and lock is not expected_identity)
+        ):
+            raise EtradeOAuthTokenResponseError("ephemeral raw token response lock was replaced")
+        return lock
+
+    def _lock_identity_for_runtime_validation(self) -> object:
+        """Capture the exact post-dispatch lock without entering a foreign context."""
+
+        return self._exact_lock()
+
+    def _require_lock_identity_unlocked(self, expected_identity: object) -> None:
+        if (
+            type(expected_identity) is not _LOCK_TYPE
+            or self.__lock is not expected_identity
+            or self.__original_lock is not expected_identity
+        ):
+            raise EtradeOAuthTokenResponseError(
+                "ephemeral raw token response lock identity changed"
+            )
+
     def _validate_for(
         self,
         request: EtradeOAuthEphemeralTransportRequest,
+        *,
+        lock_identity: object,
     ) -> None:
         _require_exact(request, EtradeOAuthEphemeralTransportRequest, "response request")
         request_binding_material = request._sealed_response_binding_material()
-        with self.__lock:
+        with self._exact_lock(lock_identity):
+            self._require_lock_identity_unlocked(lock_identity)
             self._require_open_unlocked()
             if (
                 self.__request is not request
@@ -1195,11 +1548,13 @@ class _EtradeOAuthRawTokenResponse:
             _require_exact_false(self.__timed_out, "timeout")
             _require_exact_false(self.__transport_error, "transport error")
 
-    def _body_copy(self) -> bytearray:
-        with self.__lock:
+    def _body_copy(self, *, lock_identity: object) -> bytearray:
+        with self._exact_lock(lock_identity):
+            self._require_lock_identity_unlocked(lock_identity)
             self._require_open_unlocked()
             expected_length = len(self.__body)
             body = bytearray(self.__body)
+            self._require_lock_identity_unlocked(lock_identity)
             self._require_open_unlocked()
             if len(body) != expected_length:
                 for index in range(len(body)):
@@ -1209,8 +1564,9 @@ class _EtradeOAuthRawTokenResponse:
                 )
             return body
 
-    def _sanitized_binding_material(self) -> tuple[object, ...]:
-        with self.__lock:
+    def _sanitized_binding_material(self, *, lock_identity: object) -> tuple[object, ...]:
+        with self._exact_lock(lock_identity):
+            self._require_lock_identity_unlocked(lock_identity)
             self._require_open_unlocked()
             return self._sanitized_binding_material_unlocked()
 
@@ -1244,29 +1600,77 @@ class _EtradeOAuthRawTokenResponse:
                 "ephemeral raw token response custody is structurally malformed"
             )
 
-    def _require_open(self) -> None:
-        with self.__lock:
+    def _require_open(self, *, lock_identity: object) -> None:
+        with self._exact_lock(lock_identity):
+            self._require_lock_identity_unlocked(lock_identity)
             self._require_open_unlocked()
 
+    def _is_retained_for_runtime(self, *, lock_identity: object) -> bool:
+        with self._exact_lock(lock_identity):
+            self._require_lock_identity_unlocked(lock_identity)
+            return not self.__closed
+
+    def _close_unlocked(self) -> None:
+        if self.__closed:
+            return
+        body = self.__body
+        if type(body) is bytearray:
+            for index in range(len(body)):
+                body[index] = 0
+        else:
+            object.__setattr__(self, "_EtradeOAuthRawTokenResponse__body", bytearray())
+        object.__setattr__(self, "_EtradeOAuthRawTokenResponse__closed", True)
+
+    def _close_with_runtime_lock_identity(self, lock_identity: object) -> None:
+        """Close with a runtime-held factory lock, ignoring replaced lock fields."""
+
+        if type(lock_identity) is not _LOCK_TYPE:
+            raise EtradeOAuthTokenResponseError(
+                "ephemeral raw token response cleanup lock is malformed"
+            )
+        with lock_identity:
+            object.__setattr__(self, "_EtradeOAuthRawTokenResponse__lock", lock_identity)
+            object.__setattr__(
+                self,
+                "_EtradeOAuthRawTokenResponse__original_lock",
+                lock_identity,
+            )
+            self._close_unlocked()
+
     def close(self) -> None:
-        with self.__lock:
-            if self.__closed:
-                return
-            body = self.__body
-            if type(body) is bytearray:
-                for index in range(len(body)):
-                    body[index] = 0
-            else:
-                object.__setattr__(self, "_EtradeOAuthRawTokenResponse__body", bytearray())
-            object.__setattr__(self, "_EtradeOAuthRawTokenResponse__closed", True)
+        original_lock = object.__getattribute__(
+            self,
+            "_EtradeOAuthRawTokenResponse__original_lock",
+        )
+        if type(original_lock) is _LOCK_TYPE:
+            lock_context = original_lock
+            object.__setattr__(
+                self,
+                "_EtradeOAuthRawTokenResponse__lock",
+                original_lock,
+            )
+        else:
+            lock_context = Lock()
+            object.__setattr__(
+                self,
+                "_EtradeOAuthRawTokenResponse__lock",
+                lock_context,
+            )
+            object.__setattr__(
+                self,
+                "_EtradeOAuthRawTokenResponse__original_lock",
+                lock_context,
+            )
+        with lock_context:
+            self._close_unlocked()
 
     @property
     def closed(self) -> bool:
-        with self.__lock:
+        with self._exact_lock():
             return self.__closed
 
     def __enter__(self) -> _EtradeOAuthRawTokenResponse:
-        with self.__lock:
+        with self._exact_lock():
             self._require_open_unlocked()
             return self
 
@@ -1275,7 +1679,7 @@ class _EtradeOAuthRawTokenResponse:
         self.close()
 
     def __repr__(self) -> str:
-        with self.__lock:
+        with self._exact_lock():
             return f"_EtradeOAuthRawTokenResponse(<redacted>, closed={self.__closed})"
 
     def __str__(self) -> str:
@@ -1337,6 +1741,11 @@ def create_etrade_oauth_injected_token_response(
         transport_error=transport_error,
     )
     try:
+        dispatch_witness = _registered_raw_response_dispatch_witness(request)
+        dispatch_witness._bind_constructor_raw_response(
+            request=request,
+            response=response,
+        )
         request._bind_response_custody(response)
     except Exception:
         response.close()
@@ -1597,6 +2006,7 @@ class EtradeOAuthEphemeralTokenExchangeResult:
         "__lock",
         "__raw_response",
         "__raw_response_binding_sha256",
+        "__raw_response_lock_identity",
         "__receipt",
         "__receipt_sha256",
         "__replay_snapshot",
@@ -1612,6 +2022,7 @@ class EtradeOAuthEphemeralTokenExchangeResult:
     __lock: Any
     __raw_response: _EtradeOAuthRawTokenResponse
     __raw_response_binding_sha256: str
+    __raw_response_lock_identity: object
     __receipt: EtradeOAuthTokenExchangeReceipt
     __receipt_sha256: str
     __replay_snapshot: EtradeOAuthDurableSnapshot
@@ -1629,6 +2040,7 @@ class EtradeOAuthEphemeralTokenExchangeResult:
         replay_snapshot: EtradeOAuthDurableSnapshot,
         successor_state: EtradeOAuthSessionState,
         raw_response: _EtradeOAuthRawTokenResponse,
+        raw_response_lock_identity: object,
         token: bytearray,
         token_secret: bytearray,
     ) -> None:
@@ -1642,8 +2054,12 @@ class EtradeOAuthEphemeralTokenExchangeResult:
         _require_exact(successor_state, EtradeOAuthSessionState, "token successor state")
         successor_state.__post_init__()
         _require_exact(raw_response, _EtradeOAuthRawTokenResponse, "raw token response")
-        raw_response._require_open()
-        raw_response_binding_sha256 = _semantic_sha256(raw_response._sanitized_binding_material())
+        raw_response._require_open(lock_identity=raw_response_lock_identity)
+        raw_response_binding_sha256 = _semantic_sha256(
+            raw_response._sanitized_binding_material(
+                lock_identity=raw_response_lock_identity,
+            )
+        )
         receipt_sha256 = receipt.semantic_sha256
         if type(token) is not bytearray or type(token_secret) is not bytearray:
             raise EtradeOAuthTokenResponseError("decoded token custody is malformed")
@@ -1721,6 +2137,11 @@ class EtradeOAuthEphemeralTokenExchangeResult:
             "_EtradeOAuthEphemeralTokenExchangeResult__raw_response_binding_sha256",
             raw_response_binding_sha256,
         )
+        object.__setattr__(
+            self,
+            "_EtradeOAuthEphemeralTokenExchangeResult__raw_response_lock_identity",
+            raw_response_lock_identity,
+        )
         object.__setattr__(self, "_EtradeOAuthEphemeralTokenExchangeResult__token", token)
         object.__setattr__(
             self,
@@ -1742,6 +2163,7 @@ class EtradeOAuthEphemeralTokenExchangeResult:
                 or type(self.__successor_state) is not EtradeOAuthSessionState
                 or type(self.__issued_token_reference) is not EtradeOAuthTokenSecretReference
                 or type(self.__raw_response) is not _EtradeOAuthRawTokenResponse
+                or type(self.__raw_response_lock_identity) is not _LOCK_TYPE
                 or type(self.__token) is not bytearray
                 or type(self.__token_secret) is not bytearray
             ):
@@ -1750,14 +2172,18 @@ class EtradeOAuthEphemeralTokenExchangeResult:
             replay_snapshot = _validate_snapshot(self.__replay_snapshot)
             self.__successor_state.__post_init__()
             self.__issued_token_reference.__post_init__()
-            self.__raw_response._require_open()
+            self.__raw_response._require_open(
+                lock_identity=self.__raw_response_lock_identity,
+            )
             expected_reference = (
                 self.__successor_state.request_token_reference
                 if self.__receipt.operation is EtradeOAuthOperation.REQUEST_TOKEN
                 else self.__successor_state.access_token_reference
             )
             raw_response_binding_sha256 = _semantic_sha256(
-                self.__raw_response._sanitized_binding_material()
+                self.__raw_response._sanitized_binding_material(
+                    lock_identity=self.__raw_response_lock_identity,
+                )
             )
             invalid = (
                 self.__receipt.semantic_sha256 != self.__receipt_sha256
@@ -1804,7 +2230,9 @@ class EtradeOAuthEphemeralTokenExchangeResult:
             return
         raw_response = self.__raw_response
         if type(raw_response) is _EtradeOAuthRawTokenResponse:
-            raw_response.close()
+            raw_response._close_with_runtime_lock_identity(
+                self.__raw_response_lock_identity,
+            )
         for field_name in ("__token", "__token_secret"):
             secret = object.__getattribute__(
                 self,
@@ -1888,7 +2316,11 @@ class EtradeOAuthEphemeralTokenExchangeResult:
     @property
     def raw_response_retained(self) -> bool:
         with self.__lock:
-            return not self.__closed and not self.__raw_response.closed
+            if self.__closed:
+                return False
+            return self.__raw_response._is_retained_for_runtime(
+                lock_identity=self.__raw_response_lock_identity,
+            )
 
     @property
     def session_head_transition_authorized(self) -> bool:
@@ -1972,6 +2404,90 @@ def _validate_snapshot(snapshot: object) -> EtradeOAuthDurableSnapshot:
     except Exception:
         raise EtradeOAuthTokenReplayError(
             "sanitized durable OAuth snapshot is inconsistent"
+        ) from None
+
+
+def _clone_signing_intent(intent: object) -> EtradeOAuthSigningIntent:
+    """Create an exact value clone that is never shared with an injected port."""
+
+    try:
+        _require_exact(intent, EtradeOAuthSigningIntent, "OAuth token signing intent")
+        source = cast(EtradeOAuthSigningIntent, intent)
+        source.__post_init__()
+        callback_policy = replace(source.callback_policy)
+        endpoint_profile = replace(
+            source.endpoint_profile,
+            callback_policy=callback_policy,
+        )
+        clone = replace(
+            source,
+            endpoint_profile=endpoint_profile,
+            consumer_reference=replace(source.consumer_reference),
+            token_reference=(
+                None if source.token_reference is None else replace(source.token_reference)
+            ),
+            timestamp=replace(source.timestamp),
+            nonce=replace(source.nonce),
+            callback_policy=callback_policy,
+        )
+        clone.__post_init__()
+        if (
+            clone is source
+            or clone.endpoint_profile is source.endpoint_profile
+            or clone.consumer_reference is source.consumer_reference
+            or clone.timestamp is source.timestamp
+            or clone.nonce is source.nonce
+            or clone.callback_policy is source.callback_policy
+            or (
+                source.token_reference is not None
+                and clone.token_reference is source.token_reference
+            )
+            or clone.semantic_sha256 != source.semantic_sha256
+            or clone.to_evidence_bytes() != source.to_evidence_bytes()
+        ):
+            raise ValueError
+        return clone
+    except Exception:
+        raise EtradeOAuthTokenRuntimeError(
+            "OAuth token signing intent could not be independently value-cloned"
+        ) from None
+
+
+def _clone_token_reference(reference: object) -> EtradeOAuthTokenSecretReference:
+    try:
+        _require_exact(
+            reference,
+            EtradeOAuthTokenSecretReference,
+            "issued OAuth token reference",
+        )
+        source = cast(EtradeOAuthTokenSecretReference, reference)
+        source.__post_init__()
+        clone = replace(source)
+        clone.__post_init__()
+        if clone is source or clone != source:
+            raise ValueError
+        return clone
+    except Exception:
+        raise EtradeOAuthTokenRuntimeError(
+            "issued OAuth token reference could not be independently value-cloned"
+        ) from None
+
+
+def _clone_optional_timestamp(
+    timestamp: EtradeOAuthTrustedTimestamp | None,
+) -> EtradeOAuthTrustedTimestamp | None:
+    if timestamp is None:
+        return None
+    try:
+        _require_exact(timestamp, EtradeOAuthTrustedTimestamp, "access-token expiry")
+        clone = replace(timestamp)
+        clone.__post_init__()
+        if clone is timestamp or clone != timestamp:
+            raise ValueError
+        return clone
+    except Exception:
+        raise EtradeOAuthTokenRuntimeError(
+            "access-token expiry could not be independently value-cloned"
         ) from None
 
 
@@ -2220,8 +2736,10 @@ def _percent_decode(value: bytes) -> bytearray:
 def _parse_token_response(
     operation: EtradeOAuthOperation,
     raw_response: _EtradeOAuthRawTokenResponse,
+    *,
+    raw_response_lock_identity: object,
 ) -> tuple[bytearray, bytearray]:
-    body = raw_response._body_copy()
+    body = raw_response._body_copy(lock_identity=raw_response_lock_identity)
     decoded_values: dict[bytes, bytearray] = {}
     try:
         parts = bytes(body).split(b"&")
@@ -2309,10 +2827,12 @@ def execute_etrade_oauth_injected_token_exchange(
     envelope: _EtradeOAuthResolvedSecretEnvelope | None = None
     request: EtradeOAuthEphemeralTransportRequest | None = None
     raw_response: _EtradeOAuthRawTokenResponse | None = None
+    dispatch_witness: _EtradeOAuthTransportDispatchWitness | None = None
     token: bytearray | None = None
     token_secret: bytearray | None = None
     bound_access_capability: EtradeOAuthAccessExchangeCapability | None = None
     access_runtime_reservation: object | None = None
+    result_transferred = False
     try:
         try:
             snapshot = _validate_snapshot(claim_current())
@@ -2322,20 +2842,23 @@ def execute_etrade_oauth_injected_token_exchange(
             raise EtradeOAuthTokenReplayError(
                 "OAuth token-runtime currentness claim failed"
             ) from None
+        canonical_signing_intent = _clone_signing_intent(signing_intent)
+        canonical_issued_token_reference = _clone_token_reference(issued_token_reference)
+        canonical_expires_at = _clone_optional_timestamp(expires_at)
         bound_access_capability, access_runtime_reservation = _validate_preflight(
             snapshot,
-            signing_intent,
-            issued_token_reference,
-            expires_at,
+            canonical_signing_intent,
+            canonical_issued_token_reference,
+            canonical_expires_at,
             verifier,
             access_exchange_capability,
         )
         try:
             expected_next_guard = reserve_etrade_oauth_signing_intent(
-                signing_intent,
+                canonical_signing_intent,
                 replay_guard=snapshot.replay_guard,
             )
-            replay_snapshot = _validate_snapshot(reserve_signing_intent(signing_intent))
+            replay_snapshot = _validate_snapshot(reserve_signing_intent(canonical_signing_intent))
         except EtradeOAuthTokenReplayError:
             raise
         except Exception:
@@ -2356,12 +2879,16 @@ def execute_etrade_oauth_injected_token_exchange(
                 "durable OAuth signing reservation returned a conflicting exact prefix"
             )
         transport_exchange = _transport_metadata(transport)
-        resolution_request = _resolution_request(replay_snapshot, signing_intent)
+        presented_signing_intent = _clone_signing_intent(canonical_signing_intent)
+        resolution_request = _resolution_request(
+            replay_snapshot,
+            presented_signing_intent,
+        )
         envelope = _resolve(resolver, resolution_request)
         try:
             consumer_credentials, token_credentials = envelope._consume(resolution_request)
             signing_result = sign_etrade_oauth_intent(
-                signing_intent,
+                presented_signing_intent,
                 replay_guard=snapshot.replay_guard,
                 consumer_credentials=consumer_credentials,
                 token_credentials=token_credentials,
@@ -2388,7 +2915,8 @@ def execute_etrade_oauth_injected_token_exchange(
             replay_snapshot=replay_snapshot,
         )
         dispatch_witness = _EtradeOAuthTransportDispatchWitness(
-            intent=signing_intent,
+            canonical_intent=canonical_signing_intent,
+            presented_intent=presented_signing_intent,
             signing_result=signing_result,
             request=request,
             source_replay_guard=snapshot.replay_guard,
@@ -2396,7 +2924,11 @@ def execute_etrade_oauth_injected_token_exchange(
         )
         request._validate_before_injected_transport()
         try:
-            response = transport_exchange(request)
+            _register_raw_response_dispatch_witness(request, dispatch_witness)
+            try:
+                response = transport_exchange(request)
+            finally:
+                _unregister_raw_response_dispatch_witness(request, dispatch_witness)
         except Exception:
             raise EtradeOAuthTokenTransportError("injected OAuth transport failed") from None
         if type(response) is not _EtradeOAuthRawTokenResponse:
@@ -2408,40 +2940,74 @@ def execute_etrade_oauth_injected_token_exchange(
                 "injected OAuth transport returned unsupported response custody"
             )
         raw_response = response
+        try:
+            raw_response_lock_identity = (
+                dispatch_witness._claim_constructor_raw_response_lock_identity(
+                    request=request,
+                    response=raw_response,
+                )
+            )
+        except Exception:
+            raise EtradeOAuthTokenTransportError(
+                "injected raw response conflicts with its constructor witness"
+            ) from None
         dispatch_witness._validate_after_injected_transport(
-            intent=signing_intent,
+            presented_intent=presented_signing_intent,
             signing_result=signing_result,
             request=request,
             replay_snapshot=replay_snapshot,
         )
         request._validate_after_injected_transport(raw_response)
-        raw_response._validate_for(request)
-        token, token_secret = _parse_token_response(signing_intent.operation, raw_response)
+        raw_response._validate_for(
+            request,
+            lock_identity=raw_response_lock_identity,
+        )
+        dispatch_witness._validate_after_injected_transport(
+            presented_intent=presented_signing_intent,
+            signing_result=signing_result,
+            request=request,
+            replay_snapshot=replay_snapshot,
+        )
+        token, token_secret = _parse_token_response(
+            canonical_signing_intent.operation,
+            raw_response,
+            raw_response_lock_identity=raw_response_lock_identity,
+        )
+        dispatch_witness._validate_after_injected_transport(
+            presented_intent=presented_signing_intent,
+            signing_result=signing_result,
+            request=request,
+            replay_snapshot=replay_snapshot,
+        )
 
-        if signing_intent.operation is EtradeOAuthOperation.REQUEST_TOKEN:
+        if canonical_signing_intent.operation is EtradeOAuthOperation.REQUEST_TOKEN:
             successor = record_etrade_oauth_request_token_transition(
                 snapshot.state,
-                signing_intent=signing_intent,
-                request_token_reference=issued_token_reference,
+                signing_intent=canonical_signing_intent,
+                request_token_reference=canonical_issued_token_reference,
             )
         else:
             successor = record_etrade_oauth_access_token_transition(
                 snapshot.state,
-                signing_intent=signing_intent,
-                access_token_reference=issued_token_reference,
-                expires_at=cast(EtradeOAuthTrustedTimestamp, expires_at),
+                signing_intent=canonical_signing_intent,
+                access_token_reference=canonical_issued_token_reference,
+                expires_at=cast(EtradeOAuthTrustedTimestamp, canonical_expires_at),
             )
-        response_binding_sha256 = _semantic_sha256(raw_response._sanitized_binding_material())
+        response_binding_sha256 = _semantic_sha256(
+            raw_response._sanitized_binding_material(
+                lock_identity=raw_response_lock_identity,
+            )
+        )
         receipt = EtradeOAuthTokenExchangeReceipt(
             issuer=_TOKEN_EXCHANGE_RECEIPT_ISSUER,
-            environment=signing_intent.environment,
-            operation=signing_intent.operation,
-            signing_intent_sha256=signing_intent.semantic_sha256,
+            environment=canonical_signing_intent.environment,
+            operation=canonical_signing_intent.operation,
+            signing_intent_sha256=canonical_signing_intent.semantic_sha256,
             durable_scope_sha256=replay_snapshot.scope_sha256,
             replay_event_sha256=replay_snapshot.current_event_sha256,
             replay_sequence=replay_snapshot.sequence,
             replay_guard_sha256=replay_snapshot.replay_guard.semantic_sha256,
-            issued_token_reference=issued_token_reference,
+            issued_token_reference=canonical_issued_token_reference,
             secret_independent_response_binding_sha256=response_binding_sha256,
         )
         result = EtradeOAuthEphemeralTokenExchangeResult(
@@ -2450,13 +3016,18 @@ def execute_etrade_oauth_injected_token_exchange(
             replay_snapshot=replay_snapshot,
             successor_state=successor,
             raw_response=raw_response,
+            raw_response_lock_identity=raw_response_lock_identity,
             token=token,
             token_secret=token_secret,
         )
-        request._release_response_custody(raw_response)
+        dispatch_witness._release_response_custody_for_result(
+            request=request,
+            response=raw_response,
+        )
         raw_response = None
         token = None
         token_secret = None
+        result_transferred = True
         return result
     finally:
         currentness_reservation.close()
@@ -2467,7 +3038,11 @@ def execute_etrade_oauth_injected_token_exchange(
                 )
         if envelope is not None:
             envelope.close()
-        if request is not None:
+        if dispatch_witness is not None:
+            if not result_transferred:
+                dispatch_witness._close_constructor_raw_response_for_failure()
+            dispatch_witness._close_request_after_dispatch()
+        elif request is not None:
             request.close()
         if raw_response is not None:
             raw_response.close()
