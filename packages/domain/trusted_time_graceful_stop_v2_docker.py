@@ -11,14 +11,19 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Never, Self, cast
+from typing import Any, Never, Self, cast
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
     MAXIMUM_SIGNED_INTEGER,
     FrozenJsonObject,
     TrustedTimeGracefulStopV2Rejected,
     canonical_v2_json_bytes,
+)
+from packages.domain.trusted_time_graceful_stop_v2_runtime_seal import (
+    LifecycleV2RuntimeSealRegistry,
+    RuntimeSealMetadata,
 )
 
 DOCKER_API_VERSION = "v1.45"
@@ -48,8 +53,6 @@ _MUTATION_HEADERS = (*_GET_HEADERS, ("Content-Length", "0"))
 _CALL_SPEC_CAPABILITY = object()
 _RESPONSE_CAPTURE_CAPABILITY = object()
 _ADMISSION_ROOTED_TRACE_PREFIX_CAPABILITY = object()
-_MUTATION_RESULT_CAPABILITY = object()
-_VOLUME_RESULT_CAPABILITY = object()
 
 
 class TrustedTimeDockerEvidenceRejected(TrustedTimeGracefulStopV2Rejected):
@@ -67,6 +70,13 @@ def _sha256(value: bytes) -> str:
 def _domain_sha256(domain: str, value: object, *, maximum_bytes: int = 256 * 1_024) -> str:
     encoded = canonical_v2_json_bytes(value, maximum_bytes=maximum_bytes)
     return _sha256(domain.encode("ascii") + b"\0" + encoded)
+
+
+def _docker_result_snapshot(fields: FrozenJsonObject, domain: str) -> str:
+    return _domain_sha256(
+        "AutoQuantTrader/trusted-time/graceful-stop/runtime-docker-result-seal/v2",
+        {"digest_domain": domain, "fields": fields.to_dict()},
+    )
 
 
 def _require_fields(value: dict[str, object], fields: frozenset[str], label: str) -> None:
@@ -1320,9 +1330,7 @@ def _daemon_socket_core(fields: dict[str, object]) -> tuple[object, ...]:
 
 
 def _local_socket_identity(fields: dict[str, object]) -> tuple[int, int, int]:
-    return cast(
-        tuple[int, int, int], tuple(fields[name] for name in _LOCAL_SOCKET_IDENTITY_FIELDS)
-    )
+    return cast(tuple[int, int, int], tuple(fields[name] for name in _LOCAL_SOCKET_IDENTITY_FIELDS))
 
 
 def _connection_started(fields: dict[str, object]) -> int:
@@ -1353,12 +1361,8 @@ class DockerConnectionIdentity:
         _require_fields(fields, _CONNECTION_FIELDS, "Docker connection identity")
         peer_uid = _require_int(fields["peer_uid"], "peer_uid", maximum=2**32 - 2)
         peer_gid = _require_int(fields["peer_gid"], "peer_gid", maximum=2**32 - 2)
-        socket_uid = _require_int(
-            fields["socket_path_uid"], "socket_path_uid", maximum=2**32 - 2
-        )
-        socket_gid = _require_int(
-            fields["socket_path_gid"], "socket_path_gid", maximum=2**32 - 2
-        )
+        socket_uid = _require_int(fields["socket_path_uid"], "socket_path_uid", maximum=2**32 - 2)
+        socket_gid = _require_int(fields["socket_path_gid"], "socket_path_gid", maximum=2**32 - 2)
         executable_uid = _require_int(
             fields["daemon_executable_uid"],
             "daemon_executable_uid",
@@ -1442,9 +1446,7 @@ class DockerConnectionIdentity:
         )
         for name in positive_names:
             _require_int(fields[name], name, minimum=1)
-        socket_mode = _require_int(
-            fields["socket_path_mode"], "socket_path_mode", maximum=0o177777
-        )
+        socket_mode = _require_int(fields["socket_path_mode"], "socket_path_mode", maximum=0o177777)
         executable_mode = _require_int(
             fields["daemon_executable_mode"],
             "daemon_executable_mode",
@@ -1511,9 +1513,7 @@ def _require_connection_sequence(
     if not connections:
         _reject("Docker connection sequence cannot be empty")
     exact_environment = _require_ascii(environment, "environment")
-    exact_operation = _require_ascii(
-        graceful_stop_operation_id, "graceful_stop_operation_id"
-    )
+    exact_operation = _require_ascii(graceful_stop_operation_id, "graceful_stop_operation_id")
     exact_channel = _require_sha256(channel_id, "channel_id")
     core = expected_core
     previous_completed = previous_completed_boottime_ns
@@ -2100,9 +2100,7 @@ class DockerAdmissionCapture:
 def _admission_connections(admission: DockerAdmissionCapture) -> list[DockerConnectionIdentity]:
     return [
         DockerConnectionIdentity.capture(item)
-        for item in _object_list(
-            admission.to_dict()["ordered_connection_identity_list"], 6
-        )
+        for item in _object_list(admission.to_dict()["ordered_connection_identity_list"], 6)
     ]
 
 
@@ -2256,10 +2254,7 @@ class DockerAdmissionRootedTracePrefix:
         return self._admission.sha256
 
     def _require_sealed(self) -> None:
-        if (
-            getattr(self, "_capability", None)
-            is not _ADMISSION_ROOTED_TRACE_PREFIX_CAPABILITY
-        ):
+        if getattr(self, "_capability", None) is not _ADMISSION_ROOTED_TRACE_PREFIX_CAPABILITY:
             _reject("Docker trace prefix is not sealed")
 
     def _require_result_suffix(
@@ -2298,18 +2293,12 @@ def _require_exact_admitted_target(
     if type(admitted_target) is not DockerOrdinalEvidence:
         _reject("Docker result requires exact admitted target evidence")
     admission_fields = admission.to_dict()
-    request_digests = _digest_list(
-        admission_fields["ordered_request_semantic_sha256_list"], 6
-    )
+    request_digests = _digest_list(admission_fields["ordered_request_semantic_sha256_list"], 6)
     connection_digests = _digest_list(
         admission_fields["ordered_connection_identity_sha256_list"], 6
     )
-    exchange_digests = _digest_list(
-        admission_fields["ordered_http_exchange_sha256_list"], 6
-    )
-    trace_digests = _digest_list(
-        admission_fields["ordered_trace_entry_sha256_list"], 6
-    )
+    exchange_digests = _digest_list(admission_fields["ordered_http_exchange_sha256_list"], 6)
+    trace_digests = _digest_list(admission_fields["ordered_trace_entry_sha256_list"], 6)
     projection_name = {
         1: "supervisor_container_projection_sha256",
         2: "source_container_projection_sha256",
@@ -2322,8 +2311,7 @@ def _require_exact_admitted_target(
         or admitted_target.connection.sha256 != connection_digests[expected_ordinal]
         or admitted_target.exchange.sha256 != exchange_digests[expected_ordinal]
         or admitted_target.trace.sha256 != trace_digests[expected_ordinal]
-        or admitted_target.response.response_projection_sha256
-        != admission_fields[projection_name]
+        or admitted_target.response.response_projection_sha256 != admission_fields[projection_name]
     ):
         _reject("Docker result target is not the exact admitted projection")
 
@@ -2351,9 +2339,7 @@ def _require_result_connection_sequence(
     _require_connection_sequence(
         [previous.connection, current[0].connection, current[1].connection],
         environment=cast(str, admission_fields["environment"]),
-        graceful_stop_operation_id=cast(
-            str, admission_fields["graceful_stop_operation_id"]
-        ),
+        graceful_stop_operation_id=cast(str, admission_fields["graceful_stop_operation_id"]),
         channel_id=cast(str, admission_fields["channel_id"]),
         expected_core=expected_core,
         prior_connection_sha256s=frozenset(prior_sha256s),
@@ -2470,16 +2456,13 @@ def _require_unchanged_stopped_container(
     stopped = post_inspect.response.projection.to_dict()
     for name in ("container_id", "image_id", "name", "config"):
         if admitted.get(name) != stopped.get(name):
-            _reject(
-                "post-stop container identity, image, or configured stop signal changed"
-            )
+            _reject("post-stop container identity, image, or configured stop signal changed")
 
 
 @dataclass(frozen=True, slots=True, init=False)
 class DockerMutationResultSemantic:
     fields: FrozenJsonObject
     digest_domain: str
-    _capability: object
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("Docker mutation results require exact paired ordinal evidence")
@@ -2531,8 +2514,7 @@ class DockerMutationResultSemantic:
             _reject("Docker post-inspect status does not prove the required outcome")
         if (
             primary.trace.to_dict()["previous_trace_entry_sha256"] != previous.trace.sha256
-            or post_inspect.trace.to_dict()["previous_trace_entry_sha256"]
-            != primary.trace.sha256
+            or post_inspect.trace.to_dict()["previous_trace_entry_sha256"] != primary.trace.sha256
         ):
             _reject("Docker mutation pair is not adjacent in the trace")
         admission_fields = admission.to_dict()
@@ -2645,10 +2627,8 @@ class DockerMutationResultSemantic:
             or post_inspect.spec != expected_post_spec
             or previous.spec.ordinal != primary.spec.ordinal - 1
             or previous.spec != docker_call_spec(previous.spec.ordinal, plan_identity)
-            or primary.trace.to_dict()["previous_trace_entry_sha256"]
-            != previous.trace.sha256
-            or post_inspect.trace.to_dict()["previous_trace_entry_sha256"]
-            != primary.trace.sha256
+            or primary.trace.to_dict()["previous_trace_entry_sha256"] != previous.trace.sha256
+            or post_inspect.trace.to_dict()["previous_trace_entry_sha256"] != primary.trace.sha256
         ):
             _reject("Docker mutation context is not the exact global plan prefix")
         if previous.spec.ordinal < 6:
@@ -2662,9 +2642,7 @@ class DockerMutationResultSemantic:
                 )[previous_ordinal]
                 or previous.connection.sha256
                 != _digest_list(
-                    admission_fields_for_previous[
-                        "ordered_connection_identity_sha256_list"
-                    ],
+                    admission_fields_for_previous["ordered_connection_identity_sha256_list"],
                     6,
                 )[previous_ordinal]
                 or previous.exchange.sha256
@@ -2728,16 +2706,14 @@ class DockerMutationResultSemantic:
             != admission_fields["graceful_stop_operation_id"]
             or fields["target_id"] != primary.spec.target_identity
             or fields["primary_request_semantic_sha256"] != primary.request.sha256
-            or fields["post_inspect_request_semantic_sha256"]
-            != post_inspect.request.sha256
+            or fields["post_inspect_request_semantic_sha256"] != post_inspect.request.sha256
             or primary_connection.sha256 != primary.connection.sha256
             or post_connection.sha256 != post_inspect.connection.sha256
             or primary_exchange.sha256 != primary.exchange.sha256
             or post_exchange.sha256 != post_inspect.exchange.sha256
             or trace_values[0].sha256 != primary.trace.sha256
             or trace_values[1].sha256 != post_inspect.trace.sha256
-            or trace_values[0].to_dict()["previous_trace_entry_sha256"]
-            != previous.trace.sha256
+            or trace_values[0].to_dict()["previous_trace_entry_sha256"] != previous.trace.sha256
             or post_connection.ordinal != primary_connection.ordinal + 1
             or primary_connection.sha256 != fields["primary_connection_identity_sha256"]
             or post_connection.sha256 != fields["post_inspect_connection_identity_sha256"]
@@ -2800,11 +2776,14 @@ class DockerMutationResultSemantic:
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
         object.__setattr__(result, "digest_domain", domain)
-        object.__setattr__(result, "_capability", _MUTATION_RESULT_CAPABILITY)
         return result
 
     def to_dict(self) -> dict[str, object]:
-        if getattr(self, "_capability", None) is not _MUTATION_RESULT_CAPABILITY:
+        try:
+            snapshot = _docker_result_snapshot(self.fields, self.digest_domain)
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
+            _reject("Docker mutation result is not sealed")
+        if _require_exact_docker_mutation_result(self, snapshot) is None:
             _reject("Docker mutation result is not sealed")
         return self.fields.to_dict()
 
@@ -2846,7 +2825,6 @@ _VOLUME_RESULT_FIELDS = frozenset(
 @dataclass(frozen=True, slots=True, init=False)
 class DockerVolumePreservationResult:
     fields: FrozenJsonObject
-    _capability: object
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("Docker volume preservation requires exact ordinal evidence")
@@ -3006,8 +2984,7 @@ class DockerVolumePreservationResult:
             or state.spec != docker_call_spec(17, plan_identity)
             or command_socket.trace.to_dict()["previous_trace_entry_sha256"]
             != previous.trace.sha256
-            or state.trace.to_dict()["previous_trace_entry_sha256"]
-            != command_socket.trace.sha256
+            or state.trace.to_dict()["previous_trace_entry_sha256"] != command_socket.trace.sha256
         ):
             _reject("Docker volume proof is not the exact global plan suffix")
         _require_result_connection_sequence(
@@ -3071,8 +3048,7 @@ class DockerVolumePreservationResult:
             spec = docker_call_spec(16 + index, plan_identity)
             if (
                 connections[index].sha256 != connection_digests[index]
-                or connections[index].sha256
-                != (command_socket, state)[index].connection.sha256
+                or connections[index].sha256 != (command_socket, state)[index].connection.sha256
                 or exchanges[index].sha256 != exchange_digests[index]
                 or exchanges[index].sha256 != (command_socket, state)[index].exchange.sha256
                 or traces[index].sha256 != trace_digests[index]
@@ -3116,11 +3092,17 @@ class DockerVolumePreservationResult:
             _reject("Docker volume proof timestamps disagree")
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
-        object.__setattr__(result, "_capability", _VOLUME_RESULT_CAPABILITY)
         return result
 
     def to_dict(self) -> dict[str, object]:
-        if getattr(self, "_capability", None) is not _VOLUME_RESULT_CAPABILITY:
+        try:
+            snapshot = _docker_result_snapshot(
+                self.fields,
+                "AutoQuantTrader/trusted-time/graceful-stop/docker-volume-preservation-result/v2",
+            )
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
+            _reject("Docker volume preservation result is not sealed")
+        if _require_exact_docker_volume_result(self, snapshot) is None:
             _reject("Docker volume preservation result is not sealed")
         return self.fields.to_dict()
 
@@ -3141,6 +3123,93 @@ def docker_evidence_non_authority_facts() -> dict[str, bool]:
         "volume_delete_method_present": False,
         "production_caller_present": False,
     }
+
+
+def _install_docker_result_runtime_seals() -> tuple[
+    Callable[[object, str], RuntimeSealMetadata | None],
+    Callable[[object, str], RuntimeSealMetadata | None],
+]:
+    """Install exact capture closures without exporting a registration capability."""
+
+    registry = LifecycleV2RuntimeSealRegistry()
+    mutation_capture = cast(
+        Callable[..., DockerMutationResultSemantic],
+        DockerMutationResultSemantic.capture,
+    )
+    volume_capture = cast(
+        Callable[..., DockerVolumePreservationResult],
+        DockerVolumePreservationResult.capture,
+    )
+
+    def capture_mutation(
+        cls: type[DockerMutationResultSemantic], /, *args: object, **kwargs: object
+    ) -> DockerMutationResultSemantic:
+        if cls is not DockerMutationResultSemantic:
+            _reject("Docker mutation result capture class is not exact")
+        result = mutation_capture(*args, **kwargs)
+        if type(result) is not DockerMutationResultSemantic:
+            _reject("Docker mutation result capture returned an inexact type")
+        fields = result.fields.to_dict()
+        if not registry.seal(
+            result,
+            snapshot_sha256=_docker_result_snapshot(result.fields, result.digest_domain),
+            kind="docker_mutation_result",
+            provenance="injected_docker_evidence",
+            scope_sha256=cast(str, fields["root_sha256"]),
+        ):
+            _reject("Docker mutation result runtime seal could not be created")
+        return result
+
+    def capture_volume(
+        cls: type[DockerVolumePreservationResult], /, *args: object, **kwargs: object
+    ) -> DockerVolumePreservationResult:
+        if cls is not DockerVolumePreservationResult:
+            _reject("Docker volume preservation capture class is not exact")
+        result = volume_capture(*args, **kwargs)
+        if type(result) is not DockerVolumePreservationResult:
+            _reject("Docker volume preservation capture returned an inexact type")
+        fields = result.fields.to_dict()
+        if not registry.seal(
+            result,
+            snapshot_sha256=_docker_result_snapshot(
+                result.fields,
+                "AutoQuantTrader/trusted-time/graceful-stop/docker-volume-preservation-result/v2",
+            ),
+            kind="docker_volume_result",
+            provenance="injected_docker_evidence",
+            scope_sha256=cast(str, fields["root_sha256"]),
+        ):
+            _reject("Docker volume preservation runtime seal could not be created")
+        return result
+
+    def require_mutation(value: object, snapshot_sha256: str) -> RuntimeSealMetadata | None:
+        if type(value) is not DockerMutationResultSemantic:
+            return None
+        return registry.require(
+            value,
+            snapshot_sha256=snapshot_sha256,
+            kind="docker_mutation_result",
+        )
+
+    def require_volume(value: object, snapshot_sha256: str) -> RuntimeSealMetadata | None:
+        if type(value) is not DockerVolumePreservationResult:
+            return None
+        return registry.require(
+            value,
+            snapshot_sha256=snapshot_sha256,
+            kind="docker_volume_result",
+        )
+
+    cast(Any, DockerMutationResultSemantic).capture = classmethod(capture_mutation)
+    cast(Any, DockerVolumePreservationResult).capture = classmethod(capture_volume)
+    return require_mutation, require_volume
+
+
+(
+    _require_exact_docker_mutation_result,
+    _require_exact_docker_volume_result,
+) = _install_docker_result_runtime_seals()
+del _install_docker_result_runtime_seals
 
 
 __all__ = [

@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
+import os
+import pickle
+import threading
 from dataclasses import dataclass, replace
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 
+import packages.domain.trusted_time_graceful_stop_v2_docker as docker_semantics_module
+import packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics as lifecycle_module
+import packages.domain.trusted_time_graceful_stop_v2_terminal as terminal_semantics_module
 from packages.domain.trusted_time_graceful_stop_v2 import (
     _FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY,
     LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION,
@@ -36,7 +44,6 @@ from packages.domain.trusted_time_graceful_stop_v2_docker import (
     TrustedTimeDockerEvidenceRejected,
 )
 from packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics import (
-    _FAKE_REAUTHENTICATION_BINDING_CAPABILITY,
     HOST_RAW_KEY_PATH,
     HOST_SECRET_MOUNT_PATH,
     LIFECYCLE_V2_CLEANUP_SERVICE,
@@ -47,6 +54,7 @@ from packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics import (
     LifecycleV2EmptySecretMountProjection,
     LifecycleV2HostTransportCleanupIdentity,
     LifecycleV2HostTransportCleanupReceipt,
+    LifecycleV2InjectedCleanupObserver,
     LifecycleV2NativeOwnerCleanupReceipt,
     LifecycleV2NativeOwnerSet,
     LifecycleV2NormalProgressLineage,
@@ -57,8 +65,13 @@ from packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics import (
     LifecycleV2TransportCleanupPlan,
     LifecycleV2TransportQuiescence,
     TrustedTimeLifecycleV2SemanticsRejected,
+    _build_injected_fake_lifecycle_v2_cleanup_observer,
     _mint_fake_lifecycle_v2_reauthentication_binding,
+    consume_exact_lifecycle_v2_confirmed_success_lineage,
+    consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository,
     lifecycle_v2_semantics_non_authority_facts,
+    require_exact_lifecycle_v2_normal_lineage_through_ordinal_5,
+    require_exact_lifecycle_v2_normal_lineage_through_ordinal_19,
 )
 from packages.domain.trusted_time_graceful_stop_v2_terminal import (
     _FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
@@ -449,6 +462,7 @@ class _Scenario:
     entries: tuple[DockerOrdinalEvidence, ...]
     admission: DockerAdmissionCapture
     root: LifecycleV2Root
+    cleanup_observer: LifecycleV2InjectedCleanupObserver
     request_intent: LifecycleV2ProgressRecord
     clean_stop_result: LifecycleV2CleanStopResult
     terminal_wire: LifecycleV2TerminalWireEvidence
@@ -459,6 +473,10 @@ class _Scenario:
 def _scenario() -> _Scenario:
     daemon, entries, admission = _docker_evidence()
     root = _root(admission)
+    cleanup_observer = _build_injected_fake_lifecycle_v2_cleanup_observer(
+        root=root,
+        observer_nonce_sha256=_digest("cleanup-observer"),
+    )
     request_intent, request = _request(root)
     result = _clean_stop_result(root, request)
     wire = _terminal_wire(root, request, result)
@@ -484,6 +502,7 @@ def _scenario() -> _Scenario:
         entries,
         admission,
         root,
+        cleanup_observer,
         request_intent,
         result,
         wire,
@@ -495,6 +514,7 @@ def _scenario() -> _Scenario:
 def _transport_plan(scenario: _Scenario) -> LifecycleV2TransportCleanupPlan:
     host_identity = LifecycleV2HostTransportCleanupIdentity.capture(
         root=scenario.root,
+        observer=scenario.cleanup_observer,
         host_socket_identity_sha256=_digest("host-socket"),
         host_peer_credential_sha256=_digest("host-peer"),
         host_raw_key_device=7,
@@ -546,6 +566,7 @@ def _transport_quiescence(
         },
         root=scenario.root,
         plan=plan,
+        observer=scenario.cleanup_observer,
     )
     receipt = LifecycleV2HostTransportCleanupReceipt.capture(
         {
@@ -574,6 +595,7 @@ def _transport_quiescence(
         },
         root=scenario.root,
         plan=plan,
+        observer=scenario.cleanup_observer,
     )
     return LifecycleV2TransportQuiescence.confirm(
         root=scenario.root,
@@ -619,7 +641,6 @@ def _binding(
         },
         root=root,
         intent=intent,
-        capability=_FAKE_REAUTHENTICATION_BINDING_CAPABILITY,
     )
 
 
@@ -678,7 +699,13 @@ def _prefix_transcript(
     )
 
 
-def _mount(path: str, mount_id: int) -> LifecycleV2EmptySecretMountIdentity:
+def _mount(
+    scenario: _Scenario,
+    path: str,
+    mount_id: int,
+    *,
+    observed_boottime_ns: int = 1_100_210,
+) -> LifecycleV2EmptySecretMountIdentity:
     uid, gid, mode = {
         HOST_SECRET_MOUNT_PATH: (0, 0, 0o700),
         SUPERVISOR_SECRET_MOUNT_PATH: (0, 10_001, 0o730),
@@ -698,21 +725,27 @@ def _mount(path: str, mount_id: int) -> LifecycleV2EmptySecretMountIdentity:
             "directory_gid": gid,
             "directory_mode": mode,
             "entry_count": 0,
-        }
+        },
+        observer=scenario.cleanup_observer,
+        observed_boottime_ns=observed_boottime_ns,
     )
 
 
-def _mounts() -> tuple[LifecycleV2EmptySecretMountIdentity, ...]:
+def _mounts(scenario: _Scenario) -> tuple[LifecycleV2EmptySecretMountIdentity, ...]:
     return (
-        _mount(HOST_SECRET_MOUNT_PATH, 10),
-        _mount(SUPERVISOR_SECRET_MOUNT_PATH, 11),
-        _mount(TRANSPORT_MOUNT_PATH, 12),
+        _mount(scenario, HOST_SECRET_MOUNT_PATH, 10),
+        _mount(scenario, SUPERVISOR_SECRET_MOUNT_PATH, 11),
+        _mount(scenario, TRANSPORT_MOUNT_PATH, 12),
     )
 
 
-def _owners(root: LifecycleV2Root) -> LifecycleV2NativeOwnerSet:
+def _owners(
+    root: LifecycleV2Root,
+    observer: LifecycleV2InjectedCleanupObserver,
+) -> LifecycleV2NativeOwnerSet:
     return LifecycleV2NativeOwnerSet.capture(
         root=root,
+        observer=observer,
         owners=[
             {
                 "owner_kind": kind,
@@ -731,6 +764,7 @@ def _owners(root: LifecycleV2Root) -> LifecycleV2NativeOwnerSet:
                 "transport_channel",
             )
         ],
+        observed_boottime_ns=1_100_220,
     )
 
 
@@ -803,7 +837,11 @@ def _through_eighteen(scenario: _Scenario) -> LifecycleV2NormalProgressLineage:
         ),
     )
     for intent_name, result_name, kind, ordinal, admitted_ordinal in mutations:
-        prior = _trace_prefix(scenario.admission, scenario.entries, ordinal - 1)
+        prior = (
+            _trace_prefix(scenario.admission, scenario.entries, ordinal - 1)
+            if lineage.docker_trace is None
+            else lineage.docker_trace
+        )
         lineage = getattr(lineage, intent_name)(
             admission=scenario.admission,
             trace_prefix=prior,
@@ -851,7 +889,13 @@ def _through_eighteen(scenario: _Scenario) -> LifecycleV2NormalProgressLineage:
     )
 
 
-def _complete_lineage(scenario: _Scenario) -> LifecycleV2NormalProgressLineage:
+def _through_twenty_one(
+    scenario: _Scenario,
+) -> tuple[
+    LifecycleV2NormalProgressLineage,
+    tuple[LifecycleV2EmptySecretMountIdentity, ...],
+    LifecycleV2NativeOwnerSet,
+]:
     lineage = _through_eighteen(scenario)
     transcript = _prefix_transcript(scenario, lineage)
     lineage = lineage.retain_post_teardown_reauthentication_intent(
@@ -874,46 +918,78 @@ def _complete_lineage(scenario: _Scenario) -> LifecycleV2NormalProgressLineage:
         binding=binding,
         recorded_at_utc=UTC_TEXT,
     )
-    mounts = _mounts()
+    mounts = _mounts(scenario)
     recovery = LifecycleV2PathAbsence.recovery_secret_mount(
-        root=scenario.root, observed_boottime_ns=1_100_200
+        root=scenario.root,
+        observer=scenario.cleanup_observer,
+        observed_boottime_ns=1_100_200,
     )
     socket = LifecycleV2PathAbsence.transport_socket(
-        root=scenario.root, observed_boottime_ns=1_100_201
+        root=scenario.root,
+        observer=scenario.cleanup_observer,
+        observed_boottime_ns=1_100_201,
     )
     credentials = LifecycleV2PathAbsence.credential_paths(
-        root=scenario.root, observed_boottime_ns=1_100_202
+        root=scenario.root,
+        observer=scenario.cleanup_observer,
+        observed_boottime_ns=1_100_202,
     )
-    owners = _owners(scenario.root)
+    owners = _owners(scenario.root, scenario.cleanup_observer)
     lineage = lineage.retain_terminal_cleanup_intent(
+        observer=scenario.cleanup_observer,
         mounts=mounts,
         recovery_secret_mount_absence=recovery,
         socket_path_absence=socket,
         credential_path_absence=credentials,
         native_owner_set=owners,
+        cleanup_authorized_boottime_ns=1_100_250,
         recorded_at_utc=UTC_TEXT,
     )
+    authorization = lineage.terminal_cleanup_authorization
+    assert authorization is not None
+    return lineage, mounts, owners
+
+
+def _complete_lineage(scenario: _Scenario) -> LifecycleV2NormalProgressLineage:
+    lineage, mounts, owners = _through_twenty_one(scenario)
+    authorization = lineage.terminal_cleanup_authorization
+    assert authorization is not None
     empty = LifecycleV2EmptySecretMountProjection.from_mounts(root=scenario.root, mounts=mounts)
     unmount = LifecycleV2SecretMountUnmountReceipt.completed(
         root=scenario.root,
         projection=empty,
+        authorization=authorization,
         completed_boottime_ns=(1_100_300, 1_100_400, 1_100_500),
     )
     owner_receipt = LifecycleV2NativeOwnerCleanupReceipt.completed(
         root=scenario.root,
         owners=owners,
+        authorization=authorization,
         completed_boottime_ns=1_100_600,
     )
+    final_recovery = LifecycleV2PathAbsence.recovery_secret_mount(
+        root=scenario.root,
+        observer=scenario.cleanup_observer,
+        authorization=authorization,
+        observed_boottime_ns=1_100_700,
+    )
     final_socket = LifecycleV2PathAbsence.transport_socket(
-        root=scenario.root, observed_boottime_ns=1_100_700
+        root=scenario.root,
+        observer=scenario.cleanup_observer,
+        authorization=authorization,
+        observed_boottime_ns=1_100_701,
     )
     final_credentials = LifecycleV2PathAbsence.credential_paths(
-        root=scenario.root, observed_boottime_ns=1_100_701
+        root=scenario.root,
+        observer=scenario.cleanup_observer,
+        authorization=authorization,
+        observed_boottime_ns=1_100_702,
     )
     return lineage.retain_terminal_cleanup_confirmed(
         empty_mount_projection=empty,
         unmount_receipt=unmount,
         native_owner_cleanup_receipt=owner_receipt,
+        recovery_secret_mount_absence=final_recovery,
         socket_absence=final_socket,
         credential_path_absence=final_credentials,
         recorded_at_utc=UTC_TEXT,
@@ -1019,7 +1095,12 @@ def test_supervisor_quiescence_rejects_every_false_cleanup_fact(field: str) -> N
     }
     value[field] = False
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
-        LifecycleV2SupervisorQuiescenceObservation.capture(value, root=scenario.root, plan=plan)
+        LifecycleV2SupervisorQuiescenceObservation.capture(
+            value,
+            root=scenario.root,
+            plan=plan,
+            observer=scenario.cleanup_observer,
+        )
 
 
 def test_transport_cleanup_rejects_equality_deadline_path_and_owner_drift() -> None:
@@ -1050,7 +1131,12 @@ def test_transport_cleanup_rejects_equality_deadline_path_and_owner_drift() -> N
         "cleanup_completed_boottime_ns": plan.evidence.to_dict()["cleanup_deadline_boottime_ns"],
     }
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
-        LifecycleV2HostTransportCleanupReceipt.capture(value, root=scenario.root, plan=plan)
+        LifecycleV2HostTransportCleanupReceipt.capture(
+            value,
+            root=scenario.root,
+            plan=plan,
+            observer=scenario.cleanup_observer,
+        )
     for field, replacement in (
         ("host_raw_key_path", "/tmp/key"),
         ("host_raw_key_inode", 9),
@@ -1060,7 +1146,12 @@ def test_transport_cleanup_rejects_equality_deadline_path_and_owner_drift() -> N
         changed["cleanup_completed_boottime_ns"] = 30
         changed[field] = replacement
         with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
-            LifecycleV2HostTransportCleanupReceipt.capture(changed, root=scenario.root, plan=plan)
+            LifecycleV2HostTransportCleanupReceipt.capture(
+                changed,
+                root=scenario.root,
+                plan=plan,
+                observer=scenario.cleanup_observer,
+            )
 
 
 def test_docker_order_target_trace_and_result_deadline_are_closed() -> None:
@@ -1143,10 +1234,15 @@ def test_docker_result_rejects_cross_root_semantic_and_digest_only_substitute() 
 def test_empty_mount_identity_rejects_false_bool_and_nonempty_projection(
     entry_count: object,
 ) -> None:
-    value = _mount(HOST_SECRET_MOUNT_PATH, 10).to_dict()
+    scenario = _scenario()
+    value = _mount(scenario, HOST_SECRET_MOUNT_PATH, 10).to_dict()
     value["entry_count"] = entry_count
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
-        LifecycleV2EmptySecretMountIdentity.capture(value)
+        LifecycleV2EmptySecretMountIdentity.capture(
+            value,
+            observer=scenario.cleanup_observer,
+            observed_boottime_ns=1_100_210,
+        )
 
 
 @pytest.mark.parametrize(
@@ -1161,15 +1257,20 @@ def test_empty_mount_identity_rejects_boolean_integer_substitution(
     field: str,
     replacement: object,
 ) -> None:
-    value = _mount(HOST_SECRET_MOUNT_PATH, 10).to_dict()
+    scenario = _scenario()
+    value = _mount(scenario, HOST_SECRET_MOUNT_PATH, 10).to_dict()
     value[field] = replacement
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
-        LifecycleV2EmptySecretMountIdentity.capture(value)
+        LifecycleV2EmptySecretMountIdentity.capture(
+            value,
+            observer=scenario.cleanup_observer,
+            observed_boottime_ns=1_100_210,
+        )
 
 
 def test_empty_projection_and_unmount_receipt_reject_mount_reorder_and_equality() -> None:
     scenario = _scenario()
-    mounts = _mounts()
+    mounts = _mounts(scenario)
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
         LifecycleV2EmptySecretMountProjection.from_mounts(
             root=scenario.root,
@@ -1178,7 +1279,7 @@ def test_empty_projection_and_unmount_receipt_reject_mount_reorder_and_equality(
     projection = LifecycleV2EmptySecretMountProjection.from_mounts(
         root=scenario.root, mounts=mounts
     )
-    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+    with pytest.raises(TypeError):
         LifecycleV2SecretMountUnmountReceipt.completed(
             root=scenario.root,
             projection=projection,
@@ -1211,7 +1312,12 @@ def test_native_owner_set_rejects_unknown_duplicate_reordered_and_wrong_process(
         [dict(valid[0], owner_process_epoch_sha256=scenario.root.supervisor_process_epoch_sha256)],
     ):
         with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
-            LifecycleV2NativeOwnerSet.capture(root=scenario.root, owners=changed)
+            LifecycleV2NativeOwnerSet.capture(
+                root=scenario.root,
+                observer=scenario.cleanup_observer,
+                owners=changed,
+                observed_boottime_ns=1_100_220,
+            )
 
 
 def test_reauthentication_binding_is_sealed_distinct_and_strictly_post_teardown() -> None:
@@ -1228,9 +1334,7 @@ def test_reauthentication_binding_is_sealed_distinct_and_strictly_post_teardown(
     with pytest.raises(TypeError):
         LifecycleV2AuthenticatedReauthenticationBinding(issuer_identity_sha256=_digest("forged"))
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
-        _mint_fake_lifecycle_v2_reauthentication_binding(
-            {}, root=scenario.root, intent=intent, capability=object()
-        )
+        _mint_fake_lifecycle_v2_reauthentication_binding({}, root=scenario.root, intent=intent)
     pre = cast(
         LifecycleV2AuthenticatedReauthenticationBinding,
         lineage.pre_effect_binding,
@@ -1260,7 +1364,6 @@ def test_reauthentication_binding_is_sealed_distinct_and_strictly_post_teardown(
         value,
         root=scenario.root,
         intent=intent,
-        capability=_FAKE_REAUTHENTICATION_BINDING_CAPABILITY,
     )
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
         lineage.retain_post_teardown_reauthentication_binding(
@@ -1318,57 +1421,98 @@ def test_terminal_cleanup_rejects_cross_root_absence_and_stale_final_observation
         scenario.root,
         graceful_stop_operation_id="523e4567-e89b-42d3-a456-426614174099",
     )
+    other_observer = _build_injected_fake_lifecycle_v2_cleanup_observer(
+        root=other_root,
+        observer_nonce_sha256=_digest("other-cleanup-observer"),
+    )
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
         lineage.retain_terminal_cleanup_intent(
-            mounts=_mounts(),
+            observer=scenario.cleanup_observer,
+            mounts=_mounts(scenario),
             recovery_secret_mount_absence=LifecycleV2PathAbsence.recovery_secret_mount(
-                root=other_root, observed_boottime_ns=1_100_200
+                root=other_root,
+                observer=other_observer,
+                observed_boottime_ns=1_100_200,
             ),
             socket_path_absence=LifecycleV2PathAbsence.transport_socket(
-                root=scenario.root, observed_boottime_ns=1_100_201
+                root=scenario.root,
+                observer=scenario.cleanup_observer,
+                observed_boottime_ns=1_100_201,
             ),
             credential_path_absence=LifecycleV2PathAbsence.credential_paths(
-                root=scenario.root, observed_boottime_ns=1_100_202
+                root=scenario.root,
+                observer=scenario.cleanup_observer,
+                observed_boottime_ns=1_100_202,
             ),
-            native_owner_set=_owners(scenario.root),
+            native_owner_set=_owners(scenario.root, scenario.cleanup_observer),
+            cleanup_authorized_boottime_ns=1_100_250,
             recorded_at_utc=UTC_TEXT,
         )
-    mounts = _mounts()
-    owners = _owners(scenario.root)
+    mounts = _mounts(scenario)
+    owners = _owners(scenario.root, scenario.cleanup_observer)
     lineage = lineage.retain_terminal_cleanup_intent(
+        observer=scenario.cleanup_observer,
         mounts=mounts,
         recovery_secret_mount_absence=LifecycleV2PathAbsence.recovery_secret_mount(
-            root=scenario.root, observed_boottime_ns=1_100_200
+            root=scenario.root,
+            observer=scenario.cleanup_observer,
+            observed_boottime_ns=1_100_200,
         ),
         socket_path_absence=LifecycleV2PathAbsence.transport_socket(
-            root=scenario.root, observed_boottime_ns=1_100_201
+            root=scenario.root,
+            observer=scenario.cleanup_observer,
+            observed_boottime_ns=1_100_201,
         ),
         credential_path_absence=LifecycleV2PathAbsence.credential_paths(
-            root=scenario.root, observed_boottime_ns=1_100_202
+            root=scenario.root,
+            observer=scenario.cleanup_observer,
+            observed_boottime_ns=1_100_202,
         ),
         native_owner_set=owners,
+        cleanup_authorized_boottime_ns=1_100_250,
         recorded_at_utc=UTC_TEXT,
     )
+    authorization = lineage.terminal_cleanup_authorization
+    assert authorization is not None
     empty = LifecycleV2EmptySecretMountProjection.from_mounts(root=scenario.root, mounts=mounts)
+    unmount = LifecycleV2SecretMountUnmountReceipt.completed(
+        root=scenario.root,
+        projection=empty,
+        authorization=authorization,
+        completed_boottime_ns=(1_100_300, 1_100_400, 1_100_500),
+    )
+    owner_receipt = LifecycleV2NativeOwnerCleanupReceipt.completed(
+        root=scenario.root,
+        owners=owners,
+        authorization=authorization,
+        completed_boottime_ns=1_100_600,
+    )
+    final_recovery = LifecycleV2PathAbsence.recovery_secret_mount(
+        root=scenario.root,
+        observer=scenario.cleanup_observer,
+        authorization=authorization,
+        observed_boottime_ns=1_100_700,
+    )
+    stale_socket = LifecycleV2PathAbsence.transport_socket(
+        root=scenario.root,
+        observer=scenario.cleanup_observer,
+        authorization=authorization,
+        observed_boottime_ns=1_100_550,
+    )
+    final_credentials = LifecycleV2PathAbsence.credential_paths(
+        root=scenario.root,
+        observer=scenario.cleanup_observer,
+        authorization=authorization,
+        observed_boottime_ns=1_100_701,
+    )
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
         lineage.retain_terminal_cleanup_confirmed(
             empty_mount_projection=empty,
-            unmount_receipt=LifecycleV2SecretMountUnmountReceipt.completed(
-                root=scenario.root,
-                projection=empty,
-                completed_boottime_ns=(1_100_300, 1_100_400, 1_100_500),
-            ),
-            native_owner_cleanup_receipt=LifecycleV2NativeOwnerCleanupReceipt.completed(
-                root=scenario.root,
-                owners=owners,
-                completed_boottime_ns=1_100_600,
-            ),
-            socket_absence=LifecycleV2PathAbsence.transport_socket(
-                root=scenario.root, observed_boottime_ns=1_100_200
-            ),
-            credential_path_absence=LifecycleV2PathAbsence.credential_paths(
-                root=scenario.root, observed_boottime_ns=1_100_701
-            ),
+            unmount_receipt=unmount,
+            native_owner_cleanup_receipt=owner_receipt,
+            recovery_secret_mount_absence=final_recovery,
+            socket_absence=stale_socket,
+            credential_path_absence=final_credentials,
             recorded_at_utc=UTC_TEXT,
         )
 
@@ -1422,5 +1566,414 @@ def test_non_authority_facts_remain_closed() -> None:
         "reauthentication_issuer_consumed": False,
         "artifact_published": False,
         "stop_authority_granted": False,
+        "production_cleanup_observer_present": False,
+        "raw_cleanup_assertion_authority_present": False,
         "production_caller_present": False,
     }
+
+
+def test_runtime_registries_and_generic_materializer_are_not_module_reachable() -> None:
+    assert not hasattr(lifecycle_module, "_LIFECYCLE_VALUE_SEALS")
+    assert not hasattr(docker_semantics_module, "_DOCKER_RESULT_SEALS")
+    assert not hasattr(terminal_semantics_module, "_TERMINAL_WIRE_EVIDENCE_SEALS")
+    assert not hasattr(LifecycleV2NormalProgressLineage, "_materialize_validated_stage")
+    assert not hasattr(lifecycle_module, "_TYPED_STAGE_CAPABILITY")
+    assert not hasattr(lifecycle_module, "_LINEAGE_CAPABILITY")
+    assert not hasattr(lifecycle_module, "_mint_terminal_cleanup_authorization")
+    assert all(
+        type(value).__name__ != "LifecycleV2RuntimeSealRegistry"
+        for module in (
+            lifecycle_module,
+            docker_semantics_module,
+            terminal_semantics_module,
+        )
+        for value in vars(module).values()
+    )
+
+
+@pytest.mark.parametrize("import_attack", ["module_object", "function"])
+def test_reauthentication_realm_install_rejects_mutable_importer_spoof(
+    monkeypatch: pytest.MonkeyPatch,
+    import_attack: str,
+) -> None:
+    def forged_consumer(*_args: object, **_kwargs: object) -> object:
+        return object()
+
+    forged_consumer.__module__ = "packages.domain.trusted_time_graceful_stop_v2_reauthentication"
+    forged_consumer.__name__ = (
+        "_consume_exact_lifecycle_v2_reauthentication_semantic_binding_issuance_once"
+    )
+    installer = (
+        lifecycle_module._install_lifecycle_v2_reauthentication_semantic_binding_issuance_consumer
+    )
+    fake_realm = SimpleNamespace(
+        _consume_exact_lifecycle_v2_reauthentication_semantic_binding_issuance_once=(
+            forged_consumer
+        ),
+        _LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot=type(
+            "_LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot",
+            (),
+            {},
+        ),
+    )
+
+    def fake_import(_name: str) -> SimpleNamespace:
+        return fake_realm
+
+    if import_attack == "module_object":
+        monkeypatch.setattr(
+            lifecycle_module,
+            "importlib",
+            SimpleNamespace(import_module=fake_import),
+        )
+    else:
+        monkeypatch.setattr(lifecycle_module.importlib, "import_module", fake_import)
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected, match="installation"):
+        installer(forged_consumer)
+
+
+def test_unregistered_reauthentication_primitive_builder_is_inert() -> None:
+    lineage = _through_six(_scenario())
+    intent = cast(LifecycleV2ReauthenticationIntent, lineage.semantic_at(5))
+    sealed = cast(LifecycleV2AuthenticatedReauthenticationBinding, lineage.semantic_at(6))
+    raw_builder = lifecycle_module._build_unregistered_authenticated_reauthentication_binding
+    raw = raw_builder(sealed.to_dict(), root=lineage.root, intent=intent)
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected, match="sealed"):
+        raw.to_dict()
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        {"effect_kind": "forged_clean_stop_result"},
+        {"deadline_boottime_ns": 599_999_999_999},
+    ],
+)
+def test_ordinal_two_requires_exact_effect_and_top_level_deadline(
+    replacement: dict[str, object],
+) -> None:
+    scenario = _scenario()
+    forged = replace(scenario.result_record, **replacement)
+    plan = _transport_plan(scenario)
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        LifecycleV2NormalProgressLineage.from_retained_result(
+            root=scenario.root,
+            result_record=forged,
+            terminal_wire_evidence=scenario.terminal_wire,
+            clean_stop_result=scenario.clean_stop_result,
+        )
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        LifecycleV2TransportCleanupPlan.from_retained_result(
+            root=scenario.root,
+            result_record=forged,
+            terminal_wire_evidence=scenario.terminal_wire,
+            clean_stop_result=scenario.clean_stop_result,
+            host_identity=plan.host_identity,
+        )
+
+
+def test_post_teardown_transcript_rejects_digest_stage_predecessor_and_wire_substitution() -> None:
+    for substitution in ("record_digest", "stage", "predecessor", "wire"):
+        scenario = _scenario()
+        lineage = _through_eighteen(scenario)
+        transcript = _prefix_transcript(scenario, lineage)
+        entries = list(transcript.entries)
+        if substitution == "record_digest":
+            entries[-1] = replace(
+                entries[-1],
+                record_artifact_sha256=_digest("forged-ordinal-eighteen"),
+            )
+        elif substitution == "stage":
+            entries[-1] = replace(
+                entries[-1],
+                stage=LifecycleV2Stage.NAMED_VOLUME_PRESERVATION_INTENT_RETAINED,
+            )
+        elif substitution == "predecessor":
+            forged_predecessor = _digest("forged-ordinal-one")
+            entries[1] = replace(
+                entries[1],
+                record_artifact_sha256=forged_predecessor,
+            )
+            entries[2] = replace(entries[2], predecessor_sha256=forged_predecessor)
+        else:
+            entries[2] = replace(
+                entries[2],
+                wire_artifact_sha256=_digest("forged-terminal-wire"),
+            )
+        forged = replace(transcript, entries=tuple(entries))
+        with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+            lineage.retain_post_teardown_reauthentication_intent(
+                prefix_transcript=forged,
+                provider_identity_sha256=_digest("provider"),
+                call_deadline_boottime_ns=POST_TEARDOWN_REAUTHENTICATION_DEADLINE_NS,
+                recorded_at_utc=UTC_TEXT,
+            )
+
+
+def test_lineage_and_success_evidence_reject_copy_pickle_mutation_and_reuse() -> None:
+    scenario = _scenario()
+    lineage = _complete_lineage(scenario)
+    copied = copy.copy(lineage)
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        _ = copied.last_record
+    try:
+        restored = pickle.loads(pickle.dumps(lineage))
+    except (pickle.PickleError, TypeError, AttributeError):
+        restored = None
+    if restored is not None:
+        with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+            _ = restored.last_record
+
+    snapshot = consume_exact_lifecycle_v2_confirmed_success_lineage(lineage)
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        consume_exact_lifecycle_v2_confirmed_success_lineage(lineage)
+    assert (
+        consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository(snapshot) is snapshot
+    )
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository(snapshot)
+
+
+def test_terminal_wire_and_docker_result_runtime_seals_reject_copy_and_mutation() -> None:
+    scenario = _scenario()
+    copied_wire = copy.copy(scenario.terminal_wire)
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="not sealed"):
+        copied_wire.to_dict()
+    changed_wire = scenario.terminal_wire.fields.to_dict()
+    changed_wire["call_completed_boottime_ns"] = 13
+    object.__setattr__(
+        scenario.terminal_wire,
+        "fields",
+        FrozenJsonObject.capture(changed_wire),
+    )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="not sealed"):
+        scenario.terminal_wire.to_dict()
+
+    lineage = _through_eighteen(_scenario())
+    volume = cast(DockerVolumePreservationResult, lineage.semantic_at(18))
+    copied_volume = copy.copy(volume)
+    with pytest.raises(TrustedTimeDockerEvidenceRejected, match="not sealed"):
+        copied_volume.to_dict()
+    changed_volume = volume.fields.to_dict()
+    changed_volume["proof_completed_boottime_ns"] = (
+        cast(int, changed_volume["proof_completed_boottime_ns"]) + 1
+    )
+    object.__setattr__(volume, "fields", FrozenJsonObject.capture(changed_volume))
+    with pytest.raises(TrustedTimeDockerEvidenceRejected, match="not sealed"):
+        volume.to_dict()
+
+
+def test_success_snapshot_rejects_post_issuance_cleanup_result_mutation() -> None:
+    scenario = _scenario()
+    snapshot = consume_exact_lifecycle_v2_confirmed_success_lineage(_complete_lineage(scenario))
+    cleanup = snapshot.terminal_cleanup_result
+    changed = cleanup.evidence.to_dict()
+    changed["cleanup_completed_boottime_ns"] = (
+        cast(int, changed["cleanup_completed_boottime_ns"]) + 1
+    )
+    object.__setattr__(cleanup, "evidence", FrozenJsonObject.capture(changed))
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository(snapshot)
+
+
+def test_retained_semantic_mutation_invalidates_the_whole_lineage() -> None:
+    scenario = _scenario()
+    lineage = _through_six(scenario)
+    binding = cast(LifecycleV2AuthenticatedReauthenticationBinding, lineage.semantic_at(6))
+    changed = binding.fields.to_dict()
+    changed["challenge_sha256"] = _digest("mutated-retained-challenge")
+    object.__setattr__(binding, "fields", FrozenJsonObject.capture(changed))
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        _ = lineage.last_record
+
+    scenario = _scenario()
+    lineage = _through_eighteen(scenario)
+    docker_result = cast(DockerMutationResultSemantic, lineage.semantic_at(8))
+    changed_result = docker_result.fields.to_dict()
+    changed_result["call_completed_boottime_ns"] = (
+        cast(int, changed_result["call_completed_boottime_ns"]) + 1
+    )
+    object.__setattr__(docker_result, "fields", FrozenJsonObject.capture(changed_result))
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        _ = lineage.last_record
+
+
+def test_lineage_and_success_snapshot_are_thread_bound() -> None:
+    scenario = _scenario()
+    lineage = _through_six(scenario)
+    failures: list[BaseException] = []
+
+    def read_lineage() -> None:
+        try:
+            _ = lineage.last_record
+        except BaseException as error:
+            failures.append(error)
+
+    worker = threading.Thread(target=read_lineage)
+    worker.start()
+    worker.join()
+    assert len(failures) == 1
+    assert type(failures[0]) is TrustedTimeLifecycleV2SemanticsRejected
+
+    snapshot = consume_exact_lifecycle_v2_confirmed_success_lineage(_complete_lineage(_scenario()))
+    failures.clear()
+
+    def consume_snapshot() -> None:
+        try:
+            consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository(snapshot)
+        except BaseException as error:
+            failures.append(error)
+
+    worker = threading.Thread(target=consume_snapshot)
+    worker.start()
+    worker.join()
+    assert len(failures) == 1
+    assert type(failures[0]) is TrustedTimeLifecycleV2SemanticsRejected
+    assert (
+        consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository(snapshot) is snapshot
+    )
+
+
+def test_lineage_and_success_snapshot_are_fork_bound() -> None:
+    if not hasattr(os, "fork"):
+        pytest.skip("fork is unavailable")
+    lineage = _through_six(_scenario())
+    snapshot = consume_exact_lifecycle_v2_confirmed_success_lineage(_complete_lineage(_scenario()))
+    read_fd, write_fd = os.pipe()
+    child_pid = os.fork()
+    if child_pid == 0:
+        os.close(read_fd)
+        accepted: list[str] = []
+        for operation in (
+            lambda: lineage.last_record,
+            lambda: consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository(snapshot),
+        ):
+            try:
+                operation()
+            except TrustedTimeLifecycleV2SemanticsRejected:
+                accepted.append("rejected")
+            else:
+                accepted.append("accepted")
+        os.write(write_fd, ",".join(accepted).encode("ascii"))
+        os.close(write_fd)
+        os._exit(0)
+    os.close(write_fd)
+    outcome = os.read(read_fd, 64)
+    os.close(read_fd)
+    _, status = os.waitpid(child_pid, 0)
+    assert status == 0
+    assert outcome == b"rejected,rejected"
+    assert (
+        consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository(snapshot) is snapshot
+    )
+
+
+def test_literal_prefix_validators_reject_consumed_or_wrong_ordinal_lineages() -> None:
+    scenario = _scenario()
+    plan = _transport_plan(scenario)
+    lineage = scenario.lineage.retain_transport_cleanup_commitment(
+        plan=plan,
+        recorded_at_utc=UTC_TEXT,
+    )
+    lineage = lineage.confirm_transport_channel_quiesced(
+        quiescence=_transport_quiescence(scenario, plan, lineage.last_record),
+        recorded_at_utc=UTC_TEXT,
+    )
+    lineage_five = lineage.retain_pre_effect_reauthentication_intent(
+        provider_identity_sha256=_digest("provider"),
+        call_deadline_boottime_ns=PRE_EFFECT_REAUTHENTICATION_DEADLINE_NS,
+        recorded_at_utc=UTC_TEXT,
+    )
+    assert require_exact_lifecycle_v2_normal_lineage_through_ordinal_5(lineage_five) is lineage_five
+    binding = _binding(
+        scenario.root,
+        cast(LifecycleV2ReauthenticationIntent, lineage_five.semantic_at(5)),
+        issuer="pre-issuer",
+        challenge="pre-challenge",
+        observation="pre-observation",
+        started=40,
+        completed=50,
+    )
+    lineage_six = lineage_five.retain_pre_effect_reauthentication_binding(
+        binding=binding,
+        recorded_at_utc=UTC_TEXT,
+    )
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        require_exact_lifecycle_v2_normal_lineage_through_ordinal_5(lineage_five)
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        require_exact_lifecycle_v2_normal_lineage_through_ordinal_19(lineage_six)
+
+
+def test_fake_cleanup_observer_is_test_only_and_raw_assertions_are_unsealed() -> None:
+    scenario = _scenario()
+    production_root = replace(scenario.root, environment="production")
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        _build_injected_fake_lifecycle_v2_cleanup_observer(
+            root=production_root,
+            observer_nonce_sha256=_digest("production-fake"),
+        )
+    exact = LifecycleV2PathAbsence.transport_socket(
+        root=scenario.root,
+        observer=scenario.cleanup_observer,
+        observed_boottime_ns=1_100_201,
+    )
+    forged = object.__new__(LifecycleV2PathAbsence)
+    object.__setattr__(forged, "fields", exact.fields)
+    object.__setattr__(forged, "absence_kind", exact.absence_kind)
+    object.__setattr__(forged, "authorization_intent_sha256", None)
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        forged.to_dict()
+
+
+def test_cleanup_authorization_actions_are_one_shot_and_receipts_cannot_predate_intent() -> None:
+    scenario = _scenario()
+    lineage, mounts, owners = _through_twenty_one(scenario)
+    authorization = lineage.terminal_cleanup_authorization
+    assert authorization is not None
+    projection = LifecycleV2EmptySecretMountProjection.from_mounts(
+        root=scenario.root,
+        mounts=mounts,
+    )
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        LifecycleV2SecretMountUnmountReceipt.completed(
+            root=scenario.root,
+            projection=projection,
+            authorization=authorization,
+            completed_boottime_ns=(
+                authorization.authorized_boottime_ns,
+                1_100_301,
+                1_100_302,
+            ),
+        )
+    LifecycleV2SecretMountUnmountReceipt.completed(
+        root=scenario.root,
+        projection=projection,
+        authorization=authorization,
+        completed_boottime_ns=(1_100_300, 1_100_301, 1_100_302),
+    )
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        LifecycleV2SecretMountUnmountReceipt.completed(
+            root=scenario.root,
+            projection=projection,
+            authorization=authorization,
+            completed_boottime_ns=(1_100_303, 1_100_304, 1_100_305),
+        )
+    LifecycleV2NativeOwnerCleanupReceipt.completed(
+        root=scenario.root,
+        owners=owners,
+        authorization=authorization,
+        completed_boottime_ns=1_100_400,
+    )
+    LifecycleV2PathAbsence.transport_socket(
+        root=scenario.root,
+        observer=scenario.cleanup_observer,
+        authorization=authorization,
+        observed_boottime_ns=1_100_500,
+    )
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        LifecycleV2PathAbsence.transport_socket(
+            root=scenario.root,
+            observer=scenario.cleanup_observer,
+            authorization=authorization,
+            observed_boottime_ns=1_100_501,
+        )

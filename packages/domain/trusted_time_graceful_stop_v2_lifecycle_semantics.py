@@ -9,14 +9,19 @@ ordinal so no caller can select a stage, ordinal, predecessor, or effect kind.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Never, Self, cast
+from typing import Any, Never, Self, cast
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_V2_OPERATION_BUDGET_NS,
+    LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION,
+    LIFECYCLE_V2_ROOT_CONTRACT_VERSION,
     MAXIMUM_SIGNED_INTEGER,
+    NORMAL_STAGE_BY_ORDINAL,
     FrozenJsonObject,
     LifecycleV2ProgressRecord,
     LifecycleV2Root,
@@ -24,6 +29,7 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     LifecycleV2Transcript,
     TrustedTimeGracefulStopV2Rejected,
     canonical_v2_json_bytes,
+    decode_canonical_v2_json_object,
     decode_lifecycle_v2_progress_record,
     decode_lifecycle_v2_root,
     decode_lifecycle_v2_transcript,
@@ -34,10 +40,15 @@ from packages.domain.trusted_time_graceful_stop_v2_docker import (
     DockerAdmissionCapture,
     DockerAdmissionRootedTracePrefix,
     DockerMutationResultSemantic,
+    DockerOrdinalEvidence,
     DockerPlanIdentity,
     DockerRequestSemantic,
     DockerVolumePreservationResult,
     docker_call_spec,
+)
+from packages.domain.trusted_time_graceful_stop_v2_runtime_seal import (
+    LifecycleV2RuntimeSealRegistry,
+    RuntimeSealMetadata,
 )
 from packages.domain.trusted_time_graceful_stop_v2_terminal import (
     LISTENER_PATH,
@@ -58,13 +69,7 @@ TRANSPORT_MOUNT_PATH = "/run/autoquant/trusted-time/graceful-stop-v2/transport"
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\Z")
 _MAJOR_MINOR = re.compile(r"(?:0|[1-9][0-9]*):(?:0|[1-9][0-9]*)\Z")
-_LINEAGE_CAPABILITY = object()
-_CANONICAL_EVIDENCE_CAPABILITY = object()
-_TRANSPORT_PLAN_CAPABILITY = object()
-_TRANSPORT_QUIESCENCE_CAPABILITY = object()
-_FAKE_REAUTHENTICATION_BINDING_CAPABILITY = object()
-_PRODUCTION_REAUTHENTICATION_BINDING_CAPABILITY = object()
-_TYPED_STAGE_CAPABILITY = object()
+_REAUTHENTICATION_REALM_MODULE = "packages.domain.trusted_time_graceful_stop_v2_reauthentication"
 
 
 class TrustedTimeLifecycleV2SemanticsRejected(TrustedTimeGracefulStopV2Rejected):
@@ -137,6 +142,87 @@ def _domain_sha256(domain: str, value: object) -> str:
     return _sha256(domain.encode("ascii") + b"\0" + encoded)
 
 
+def _runtime_scope(fields: FrozenJsonObject) -> str:
+    value = fields.to_dict()
+    for name in ("lifecycle_root_sha256", "root_sha256"):
+        item = value.get(name)
+        if type(item) is str and _SHA256.fullmatch(item) is not None:
+            return item
+    return "0" * 64
+
+
+def _canonical_evidence_snapshot(value: Any) -> str:
+    fields = value.fields
+    if type(fields) is not FrozenJsonObject:
+        _reject("typed lifecycle semantic fields are not frozen")
+    sidecars: dict[str, object] = {}
+    for name in (
+        "boundary",
+        "absence_kind",
+        "root_sha256",
+        "observed_boottime_ns",
+        "authorization_intent_sha256",
+        "_domain",
+    ):
+        if hasattr(value, name):
+            sidecars[name] = getattr(value, name)
+    if hasattr(value, "mounts"):
+        mounts = value.mounts
+        if type(mounts) is not tuple:
+            _reject("typed lifecycle mount sidecar is not immutable")
+        sidecars["mount_object_id_list"] = [id(item) for item in mounts]
+    return _domain_sha256(
+        "AutoQuantTrader/trusted-time/graceful-stop/runtime-canonical-evidence-seal/v2",
+        {
+            "type": f"{type(value).__module__}.{type(value).__qualname__}",
+            "fields": fields.to_dict(),
+            "sidecars": sidecars,
+        },
+    )
+
+
+def _compound_value_snapshot(value: Any) -> str:
+    body: dict[str, object] = {
+        "type": f"{type(value).__module__}.{type(value).__qualname__}",
+    }
+    for name in (
+        "evidence",
+        "cleanup_intent_sha256",
+        "authorized_boottime_ns",
+        "observer_nonce_sha256",
+        "root_sha256",
+    ):
+        if hasattr(value, name):
+            item = getattr(value, name)
+            body[name] = item.to_dict() if type(item) is FrozenJsonObject else item
+    for name in (
+        "clean_stop_result",
+        "supervisor_commitment",
+        "host_identity",
+        "observation",
+        "host_receipt",
+        "empty_mounts",
+        "unmount_receipt",
+        "native_owner_receipt",
+        "recovery_absence",
+        "socket_absence",
+        "credential_absence",
+        "owners",
+        "authorization",
+    ):
+        if hasattr(value, name):
+            body[f"{name}_object_id"] = id(getattr(value, name))
+    if hasattr(value, "mounts"):
+        mounts = value.mounts
+        if type(mounts) is not tuple:
+            _reject("compound lifecycle mount sidecar is not immutable")
+        body["mount_object_id_list"] = [id(item) for item in mounts]
+    return _domain_sha256(
+        "AutoQuantTrader/trusted-time/graceful-stop/runtime-compound-value-seal/v2",
+        body,
+    )
+
+
 def _exact_root(value: object) -> LifecycleV2Root:
     if type(value) is not LifecycleV2Root:
         _reject("normal lifecycle semantics require one exact v2 root")
@@ -161,11 +247,9 @@ def _exact_record(value: object) -> LifecycleV2ProgressRecord:
 
 class _CanonicalEvidence:
     fields: FrozenJsonObject
-    _evidence_capability: object
 
     def _require_canonical_seal(self) -> None:
-        if getattr(self, "_evidence_capability", None) is not _CANONICAL_EVIDENCE_CAPABILITY:
-            _reject("typed lifecycle semantic is not canonically sealed")
+        _require_canonical_evidence(self)
 
     def to_dict(self) -> dict[str, object]:
         self._require_canonical_seal()
@@ -185,6 +269,79 @@ class _CanonicalEvidence:
 
 
 @dataclass(frozen=True, slots=True, init=False)
+class LifecycleV2InjectedCleanupObserver:
+    """Injected observer identity; Wave 6 exposes only a test-root fake."""
+
+    root: LifecycleV2Root
+    observer_nonce_sha256: str
+    provenance: str
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("cleanup observers require an injected provenance seam")
+
+    def _snapshot(self) -> str:
+        return _domain_sha256(
+            "AutoQuantTrader/trusted-time/graceful-stop/runtime-cleanup-observer-seal/v2",
+            {
+                "root_sha256": self.root.sha256,
+                "observer_nonce_sha256": self.observer_nonce_sha256,
+                "provenance": self.provenance,
+            },
+        )
+
+    def _require_sealed(self, *, root: LifecycleV2Root) -> RuntimeSealMetadata:
+        exact_root = _exact_root(root)
+        try:
+            snapshot = self._snapshot()
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
+            _reject("cleanup observer is not sealed")
+        metadata = _require_exact_cleanup_observer_runtime(
+            self,
+            snapshot,
+            exact_root.sha256,
+        )
+        if (
+            metadata is None
+            or self.root != exact_root
+            or self.provenance != metadata.provenance
+            or (
+                self.provenance == "fake_injected_cleanup_observer"
+                and exact_root.environment != "test"
+            )
+        ):
+            _reject("cleanup observer crossed its injected root or provenance")
+        return cast(RuntimeSealMetadata, metadata)
+
+
+def _build_injected_fake_lifecycle_v2_cleanup_observer(
+    *,
+    root: LifecycleV2Root,
+    observer_nonce_sha256: str,
+) -> LifecycleV2InjectedCleanupObserver:
+    """Build the explicit no-effect fake accepted only for injected test roots."""
+
+    exact_root = _exact_root(root)
+    nonce = _require_sha256(observer_nonce_sha256, "observer_nonce_sha256")
+    if exact_root.environment != "test":
+        _reject("fake cleanup observers are confined to injected test roots")
+    result = object.__new__(LifecycleV2InjectedCleanupObserver)
+    object.__setattr__(result, "root", exact_root)
+    object.__setattr__(result, "observer_nonce_sha256", nonce)
+    object.__setattr__(result, "provenance", "fake_injected_cleanup_observer")
+    return result
+
+
+def _require_cleanup_observer(
+    observer: object,
+    *,
+    root: LifecycleV2Root,
+) -> RuntimeSealMetadata:
+    if type(observer) is not LifecycleV2InjectedCleanupObserver:
+        _reject("cleanup evidence requires one exact injected observer")
+    return observer._require_sealed(root=root)
+
+
+@dataclass(frozen=True, slots=True, init=False)
 class LifecycleV2HostTransportCleanupIdentity(_CanonicalEvidence):
     """Stable-loaded host custody and handshake identity used by ordinal three."""
 
@@ -198,6 +355,7 @@ class LifecycleV2HostTransportCleanupIdentity(_CanonicalEvidence):
         cls,
         *,
         root: LifecycleV2Root,
+        observer: LifecycleV2InjectedCleanupObserver,
         host_socket_identity_sha256: str,
         host_peer_credential_sha256: str,
         host_raw_key_device: int,
@@ -206,6 +364,7 @@ class LifecycleV2HostTransportCleanupIdentity(_CanonicalEvidence):
         host_process_nonce_sha256: str,
     ) -> Self:
         exact_root = _exact_root(root)
+        _require_cleanup_observer(observer, root=exact_root)
         for name, item in (
             ("host_socket_identity_sha256", host_socket_identity_sha256),
             ("host_peer_credential_sha256", host_peer_credential_sha256),
@@ -233,7 +392,6 @@ class LifecycleV2HostTransportCleanupIdentity(_CanonicalEvidence):
         )
         result = object.__new__(cls)
         object.__setattr__(result, "fields", fields)
-        object.__setattr__(result, "_evidence_capability", _CANONICAL_EVIDENCE_CAPABILITY)
         return result
 
     @property
@@ -249,7 +407,6 @@ class LifecycleV2TransportCleanupPlan:
     clean_stop_result: LifecycleV2CleanStopResult
     supervisor_commitment: LifecycleV2SupervisorCleanupCommitment
     host_identity: LifecycleV2HostTransportCleanupIdentity
-    _capability: object
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("transport cleanup plans require result-bound construction")
@@ -273,9 +430,17 @@ class LifecycleV2TransportCleanupPlan:
         exact_result = decode_lifecycle_v2_clean_stop_result(clean_stop_result.encoded)
         if type(host_identity) is not LifecycleV2HostTransportCleanupIdentity:
             _reject("ordinal three requires one exact host cleanup identity")
+        host_metadata = _require_canonical_evidence(host_identity)
+        if (
+            host_metadata.provenance == "fake_injected_cleanup_observer"
+            and exact_root.environment != "test"
+        ):
+            _reject("fake cleanup identity cannot enter a non-test lifecycle")
         if (
             exact_record.ordinal != 2
             or exact_record.stage is not LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED
+            or exact_record.effect_kind != "clean_stop_result"
+            or exact_record.deadline_boottime_ns != exact_root.operation_deadline_boottime_ns
             or exact_record.root_sha256 != exact_root.sha256
             or exact_record.graceful_stop_operation_id != exact_root.graceful_stop_operation_id
             or exact_record.evidence != FrozenJsonObject.capture(terminal_wire_evidence.to_dict())
@@ -356,12 +521,10 @@ class LifecycleV2TransportCleanupPlan:
         object.__setattr__(result, "clean_stop_result", exact_result)
         object.__setattr__(result, "supervisor_commitment", commitment)
         object.__setattr__(result, "host_identity", host_identity)
-        object.__setattr__(result, "_capability", _TRANSPORT_PLAN_CAPABILITY)
         return result
 
-    def _require_sealed(self) -> None:
-        if getattr(self, "_capability", None) is not _TRANSPORT_PLAN_CAPABILITY:
-            _reject("transport cleanup plan is not sealed")
+    def _require_sealed(self) -> RuntimeSealMetadata:
+        return cast(RuntimeSealMetadata, _require_exact_compound_value(self))
 
 
 _SUPERVISOR_QUIESCENCE_FIELDS = frozenset(
@@ -406,11 +569,18 @@ class LifecycleV2SupervisorQuiescenceObservation(_CanonicalEvidence):
         *,
         root: LifecycleV2Root,
         plan: LifecycleV2TransportCleanupPlan,
+        observer: LifecycleV2InjectedCleanupObserver,
     ) -> Self:
         exact_root = _exact_root(root)
         if type(plan) is not LifecycleV2TransportCleanupPlan:
             _reject("supervisor quiescence requires one exact cleanup plan")
-        plan._require_sealed()
+        plan_metadata = plan._require_sealed()
+        observer_metadata = _require_cleanup_observer(observer, root=exact_root)
+        if (
+            plan_metadata.provenance != observer_metadata.provenance
+            or plan_metadata.scope_sha256 != observer.observer_nonce_sha256
+        ):
+            _reject("supervisor quiescence observer crossed its cleanup plan")
         frozen = FrozenJsonObject.capture(value)
         fields = frozen.to_dict()
         _require_fields(fields, _SUPERVISOR_QUIESCENCE_FIELDS, "supervisor quiescence")
@@ -452,7 +622,6 @@ class LifecycleV2SupervisorQuiescenceObservation(_CanonicalEvidence):
             _reject("supervisor quiescence observation is equality-expired or late")
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
-        object.__setattr__(result, "_evidence_capability", _CANONICAL_EVIDENCE_CAPABILITY)
         return result
 
     @property
@@ -503,11 +672,18 @@ class LifecycleV2HostTransportCleanupReceipt(_CanonicalEvidence):
         *,
         root: LifecycleV2Root,
         plan: LifecycleV2TransportCleanupPlan,
+        observer: LifecycleV2InjectedCleanupObserver,
     ) -> Self:
         exact_root = _exact_root(root)
         if type(plan) is not LifecycleV2TransportCleanupPlan:
             _reject("host cleanup requires one exact cleanup plan")
-        plan._require_sealed()
+        plan_metadata = plan._require_sealed()
+        observer_metadata = _require_cleanup_observer(observer, root=exact_root)
+        if (
+            plan_metadata.provenance != observer_metadata.provenance
+            or plan_metadata.scope_sha256 != observer.observer_nonce_sha256
+        ):
+            _reject("host cleanup observer crossed its cleanup plan")
         frozen = FrozenJsonObject.capture(value)
         fields = frozen.to_dict()
         _require_fields(fields, _HOST_CLEANUP_FIELDS, "host cleanup receipt")
@@ -550,7 +726,6 @@ class LifecycleV2HostTransportCleanupReceipt(_CanonicalEvidence):
             _reject("host cleanup timestamps are reversed or equality-expired")
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
-        object.__setattr__(result, "_evidence_capability", _CANONICAL_EVIDENCE_CAPABILITY)
         return result
 
     @property
@@ -563,7 +738,6 @@ class LifecycleV2TransportQuiescence:
     evidence: FrozenJsonObject
     observation: LifecycleV2SupervisorQuiescenceObservation
     host_receipt: LifecycleV2HostTransportCleanupReceipt
-    _capability: object
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("transport quiescence requires both exact cleanup receipts")
@@ -590,7 +764,16 @@ class LifecycleV2TransportQuiescence:
             or exact_record.evidence != plan.evidence
         ):
             _reject("transport quiescence crossed its exact ordinal-three plan")
-        plan._require_sealed()
+        plan_metadata = plan._require_sealed()
+        observation_metadata = _require_canonical_evidence(observation)
+        receipt_metadata = _require_canonical_evidence(host_receipt)
+        if (
+            observation_metadata.provenance != plan_metadata.provenance
+            or receipt_metadata.provenance != plan_metadata.provenance
+            or observation_metadata.scope_sha256 != plan_metadata.scope_sha256
+            or receipt_metadata.scope_sha256 != plan_metadata.scope_sha256
+        ):
+            _reject("transport cleanup evidence crossed its injected observer")
         observation_fields = observation.to_dict()
         receipt_fields = host_receipt.to_dict()
         terminal_completed = cast(
@@ -623,12 +806,10 @@ class LifecycleV2TransportQuiescence:
         object.__setattr__(result, "evidence", evidence)
         object.__setattr__(result, "observation", observation)
         object.__setattr__(result, "host_receipt", host_receipt)
-        object.__setattr__(result, "_capability", _TRANSPORT_QUIESCENCE_CAPABILITY)
         return result
 
-    def _require_sealed(self) -> None:
-        if getattr(self, "_capability", None) is not _TRANSPORT_QUIESCENCE_CAPABILITY:
-            _reject("transport quiescence is not sealed")
+    def _require_sealed(self) -> RuntimeSealMetadata:
+        return cast(RuntimeSealMetadata, _require_exact_compound_value(self))
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -645,7 +826,6 @@ class LifecycleV2ReauthenticationIntent(_CanonicalEvidence):
             _reject("reauthentication intent boundary is outside the closed set")
         result = object.__new__(cls)
         object.__setattr__(result, "fields", FrozenJsonObject.capture(value))
-        object.__setattr__(result, "_evidence_capability", _CANONICAL_EVIDENCE_CAPABILITY)
         object.__setattr__(result, "boundary", boundary)
         return result
 
@@ -685,85 +865,35 @@ class LifecycleV2AuthenticatedReauthenticationBinding(_CanonicalEvidence):
 
     fields: FrozenJsonObject
     boundary: str
-    _capability: object
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("reauthentication bindings require an authentication seam")
 
     @classmethod
-    def _capture(
+    def _capture_fake_for_tests(
         cls,
         value: object,
         *,
         root: LifecycleV2Root,
         intent: LifecycleV2ReauthenticationIntent,
-        capability: object,
     ) -> Self:
-        if capability not in {
-            _FAKE_REAUTHENTICATION_BINDING_CAPABILITY,
-            _PRODUCTION_REAUTHENTICATION_BINDING_CAPABILITY,
-        }:
-            _reject("reauthentication binding capability is invalid")
         exact_root = _exact_root(root)
-        if type(intent) is not LifecycleV2ReauthenticationIntent:
-            _reject("reauthentication binding requires one exact typed intent")
-        frozen = FrozenJsonObject.capture(value)
-        fields = frozen.to_dict()
-        _require_fields(fields, _REAUTHENTICATION_BINDING_FIELDS, "reauthentication binding")
-        boundary = intent.boundary
-        expected_contract = (
-            "phase6d-trusted-time-graceful-stop-"
-            f"{boundary.replace('_', '-')}-reauthentication-binding-v2"
+        if exact_root.environment != "test":
+            _reject("fake reauthentication binding is confined to injected test roots")
+        return cast(
+            Self,
+            _build_unregistered_authenticated_reauthentication_binding(
+                value,
+                root=exact_root,
+                intent=intent,
+            ),
         )
-        if (
-            fields["contract_version"] != expected_contract
-            or fields["service"] != LIFECYCLE_V2_CLEANUP_SERVICE
-            or fields["status"] != f"{boundary}_reauthentication_bound"
-            or fields["boundary"] != boundary
-            or fields["environment"] != exact_root.environment
-            or fields["graceful_stop_operation_id"] != exact_root.graceful_stop_operation_id
-            or fields["lifecycle_root_sha256"] != exact_root.sha256
-            or fields["channel_id"] != exact_root.channel_id
-            or fields["intent_semantic_sha256"] != intent.sha256
-            or fields["observed_head_sha256"] != intent.to_dict()["expected_head_sha256"]
-            or fields["provider_identity_sha256"] != intent.to_dict()["provider_identity_sha256"]
-        ):
-            _reject("reauthentication binding crossed its exact intent")
-        for name in (
-            "issuer_identity_sha256",
-            "challenge_sha256",
-            "observation_semantic_sha256",
-            "observed_head_sha256",
-            "provider_identity_sha256",
-        ):
-            _require_sha256(fields[name], name)
-        started = _require_int(
-            fields["observation_started_boottime_ns"],
-            "observation_started_boottime_ns",
-        )
-        completed = _require_int(
-            fields["observation_completed_boottime_ns"],
-            "observation_completed_boottime_ns",
-        )
-        intent_fields = intent.to_dict()
-        if not (
-            cast(int, intent_fields["observation_not_before_boottime_ns"])
-            <= started
-            <= completed
-            < cast(int, intent_fields["call_deadline_boottime_ns"])
-        ):
-            _reject("reauthentication observation is reversed or equality-expired")
-        result = object.__new__(cls)
-        object.__setattr__(result, "fields", frozen)
-        object.__setattr__(result, "_evidence_capability", _CANONICAL_EVIDENCE_CAPABILITY)
-        object.__setattr__(result, "boundary", boundary)
-        object.__setattr__(result, "_capability", capability)
-        return result
 
     def _require_sealed(self) -> None:
-        if getattr(self, "_capability", None) not in {
-            _FAKE_REAUTHENTICATION_BINDING_CAPABILITY,
-            _PRODUCTION_REAUTHENTICATION_BINDING_CAPABILITY,
+        metadata = _require_canonical_evidence(self)
+        if metadata.provenance not in {
+            "fake_reauthentication_binding",
+            "production_reauthentication_binding",
         }:
             _reject("reauthentication binding is not sealed")
 
@@ -776,22 +906,81 @@ class LifecycleV2AuthenticatedReauthenticationBinding(_CanonicalEvidence):
         )
 
 
+def _build_unregistered_authenticated_reauthentication_binding(
+    value: object,
+    *,
+    root: LifecycleV2Root,
+    intent: LifecycleV2ReauthenticationIntent,
+) -> LifecycleV2AuthenticatedReauthenticationBinding:
+    """Build inert primitive evidence; only registry closures can seal the result."""
+
+    exact_root = _exact_root(root)
+    if type(intent) is not LifecycleV2ReauthenticationIntent:
+        _reject("reauthentication binding requires one exact typed intent")
+    frozen = FrozenJsonObject.capture(value)
+    fields = frozen.to_dict()
+    _require_fields(fields, _REAUTHENTICATION_BINDING_FIELDS, "reauthentication binding")
+    boundary = intent.boundary
+    expected_contract = (
+        "phase6d-trusted-time-graceful-stop-"
+        f"{boundary.replace('_', '-')}-reauthentication-binding-v2"
+    )
+    if (
+        fields["contract_version"] != expected_contract
+        or fields["service"] != LIFECYCLE_V2_CLEANUP_SERVICE
+        or fields["status"] != f"{boundary}_reauthentication_bound"
+        or fields["boundary"] != boundary
+        or fields["environment"] != exact_root.environment
+        or fields["graceful_stop_operation_id"] != exact_root.graceful_stop_operation_id
+        or fields["lifecycle_root_sha256"] != exact_root.sha256
+        or fields["channel_id"] != exact_root.channel_id
+        or fields["intent_semantic_sha256"] != intent.sha256
+        or fields["observed_head_sha256"] != intent.to_dict()["expected_head_sha256"]
+        or fields["provider_identity_sha256"] != intent.to_dict()["provider_identity_sha256"]
+    ):
+        _reject("reauthentication binding crossed its exact intent")
+    for name in (
+        "issuer_identity_sha256",
+        "challenge_sha256",
+        "observation_semantic_sha256",
+        "observed_head_sha256",
+        "provider_identity_sha256",
+    ):
+        _require_sha256(fields[name], name)
+    started = _require_int(
+        fields["observation_started_boottime_ns"],
+        "observation_started_boottime_ns",
+    )
+    completed = _require_int(
+        fields["observation_completed_boottime_ns"],
+        "observation_completed_boottime_ns",
+    )
+    intent_fields = intent.to_dict()
+    if not (
+        cast(int, intent_fields["observation_not_before_boottime_ns"])
+        <= started
+        <= completed
+        < cast(int, intent_fields["call_deadline_boottime_ns"])
+    ):
+        _reject("reauthentication observation is reversed or equality-expired")
+    result = object.__new__(LifecycleV2AuthenticatedReauthenticationBinding)
+    object.__setattr__(result, "fields", frozen)
+    object.__setattr__(result, "boundary", boundary)
+    return result
+
+
 def _mint_fake_lifecycle_v2_reauthentication_binding(
     value: object,
     *,
     root: LifecycleV2Root,
     intent: LifecycleV2ReauthenticationIntent,
-    capability: object,
 ) -> LifecycleV2AuthenticatedReauthenticationBinding:
     """Test-only seam; the distinct production seams use a separate capability."""
 
-    if capability is not _FAKE_REAUTHENTICATION_BINDING_CAPABILITY:
-        _reject("fake reauthentication binding capability is invalid")
-    return LifecycleV2AuthenticatedReauthenticationBinding._capture(
+    return LifecycleV2AuthenticatedReauthenticationBinding._capture_fake_for_tests(
         value,
         root=root,
         intent=intent,
-        capability=capability,
     )
 
 
@@ -823,12 +1012,27 @@ _MOUNT_FIELDS = frozenset(
 @dataclass(frozen=True, slots=True, init=False)
 class LifecycleV2EmptySecretMountIdentity(_CanonicalEvidence):
     fields: FrozenJsonObject
+    observed_boottime_ns: int
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("secret mount identities require canonical capture")
 
     @classmethod
-    def capture(cls, value: object) -> Self:
+    def capture(
+        cls,
+        value: object,
+        *,
+        observer: LifecycleV2InjectedCleanupObserver,
+        observed_boottime_ns: int,
+    ) -> Self:
+        _require_cleanup_observer(observer, root=observer.root)
+        observed = _require_int(observed_boottime_ns, "observed_boottime_ns")
+        if not (
+            observer.root.admission_started_boottime_ns
+            <= observed
+            < observer.root.operation_deadline_boottime_ns
+        ):
+            _reject("secret mount observation is outside the operation interval")
         frozen = FrozenJsonObject.capture(value)
         fields = frozen.to_dict()
         _require_fields(fields, _MOUNT_FIELDS, "secret mount identity")
@@ -865,7 +1069,7 @@ class LifecycleV2EmptySecretMountIdentity(_CanonicalEvidence):
             _reject("secret mount ownership, mode, or emptiness drifted")
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
-        object.__setattr__(result, "_evidence_capability", _CANONICAL_EVIDENCE_CAPABILITY)
+        object.__setattr__(result, "observed_boottime_ns", observed)
         return result
 
     @property
@@ -895,6 +1099,17 @@ class LifecycleV2EmptySecretMountProjection(_CanonicalEvidence):
         if any(type(item) is not LifecycleV2EmptySecretMountIdentity for item in sequence):
             _reject("empty mount projection contains an inexact mount identity")
         typed = cast(tuple[LifecycleV2EmptySecretMountIdentity, ...], sequence)
+        metadata = tuple(_require_canonical_evidence(item) for item in typed)
+        if (
+            not metadata
+            or len({item.provenance for item in metadata}) != 1
+            or len({item.scope_sha256 for item in metadata}) != 1
+            or (
+                metadata[0].provenance == "fake_injected_cleanup_observer"
+                and exact_root.environment != "test"
+            )
+        ):
+            _reject("empty mount projection crossed its injected observer")
         expected_paths = tuple(sorted(_MOUNT_RULES))
         if tuple(item.to_dict()["path"] for item in typed) != expected_paths:
             _reject("empty mount projection is not the path-sorted three-mount set")
@@ -911,7 +1126,6 @@ class LifecycleV2EmptySecretMountProjection(_CanonicalEvidence):
         )
         result = object.__new__(cls)
         object.__setattr__(result, "fields", fields)
-        object.__setattr__(result, "_evidence_capability", _CANONICAL_EVIDENCE_CAPABILITY)
         object.__setattr__(result, "mounts", typed)
         return result
 
@@ -933,6 +1147,7 @@ _ABSENCE_PATHS = MappingProxyType(
 class LifecycleV2PathAbsence(_CanonicalEvidence):
     fields: FrozenJsonObject
     absence_kind: str
+    authorization_intent_sha256: str | None
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("path absence requires a fixed closed absence kind")
@@ -942,14 +1157,56 @@ class LifecycleV2PathAbsence(_CanonicalEvidence):
         cls,
         *,
         root: LifecycleV2Root,
+        observer: LifecycleV2InjectedCleanupObserver,
         kind: str,
         observed_boottime_ns: int,
+        authorization: LifecycleV2TerminalCleanupAuthorization | None = None,
     ) -> Self:
         exact_root = _exact_root(root)
+        observer_metadata = _require_cleanup_observer(observer, root=exact_root)
         paths = _ABSENCE_PATHS[kind]
         observed = _require_int(observed_boottime_ns, "observed_boottime_ns")
-        if observed >= exact_root.operation_deadline_boottime_ns:
+        if not (
+            exact_root.admission_started_boottime_ns
+            <= observed
+            < exact_root.operation_deadline_boottime_ns
+        ):
             _reject("path-absence observation is equality-expired or late")
+        authorization_intent_sha256: str | None = None
+        if authorization is not None:
+            authorization_snapshot = authorization._snapshot()
+            if kind == "recovery_secret_mount":
+                authorization_metadata = (
+                    _consume_terminal_cleanup_final_recovery_absence_authorization(
+                        authorization,
+                        authorization_snapshot,
+                    )
+                )
+            elif kind == "transport_socket":
+                authorization_metadata = (
+                    _consume_terminal_cleanup_final_socket_absence_authorization(
+                        authorization,
+                        authorization_snapshot,
+                    )
+                )
+            elif kind == "credential_paths":
+                authorization_metadata = (
+                    _consume_terminal_cleanup_final_credential_absence_authorization(
+                        authorization,
+                        authorization_snapshot,
+                    )
+                )
+            else:
+                _reject("terminal cleanup absence action is outside the closed set")
+            if authorization_metadata is None:
+                _reject("terminal cleanup authorization action is reused or out of order")
+            if (
+                authorization_metadata.provenance != observer_metadata.provenance
+                or authorization_metadata.scope_sha256 != observer.observer_nonce_sha256
+                or observed <= authorization.authorized_boottime_ns
+            ):
+                _reject("final path absence crossed or preceded cleanup authorization")
+            authorization_intent_sha256 = authorization.cleanup_intent_sha256
         fields = FrozenJsonObject.capture(
             {
                 "environment": exact_root.environment,
@@ -963,32 +1220,59 @@ class LifecycleV2PathAbsence(_CanonicalEvidence):
         )
         result = object.__new__(cls)
         object.__setattr__(result, "fields", fields)
-        object.__setattr__(result, "_evidence_capability", _CANONICAL_EVIDENCE_CAPABILITY)
         object.__setattr__(result, "absence_kind", kind)
+        object.__setattr__(result, "authorization_intent_sha256", authorization_intent_sha256)
         return result
 
     @classmethod
-    def recovery_secret_mount(cls, *, root: LifecycleV2Root, observed_boottime_ns: int) -> Self:
+    def recovery_secret_mount(
+        cls,
+        *,
+        root: LifecycleV2Root,
+        observer: LifecycleV2InjectedCleanupObserver,
+        observed_boottime_ns: int,
+        authorization: LifecycleV2TerminalCleanupAuthorization | None = None,
+    ) -> Self:
         return cls._fixed(
             root=root,
+            observer=observer,
             kind="recovery_secret_mount",
             observed_boottime_ns=observed_boottime_ns,
+            authorization=authorization,
         )
 
     @classmethod
-    def transport_socket(cls, *, root: LifecycleV2Root, observed_boottime_ns: int) -> Self:
+    def transport_socket(
+        cls,
+        *,
+        root: LifecycleV2Root,
+        observer: LifecycleV2InjectedCleanupObserver,
+        observed_boottime_ns: int,
+        authorization: LifecycleV2TerminalCleanupAuthorization | None = None,
+    ) -> Self:
         return cls._fixed(
             root=root,
+            observer=observer,
             kind="transport_socket",
             observed_boottime_ns=observed_boottime_ns,
+            authorization=authorization,
         )
 
     @classmethod
-    def credential_paths(cls, *, root: LifecycleV2Root, observed_boottime_ns: int) -> Self:
+    def credential_paths(
+        cls,
+        *,
+        root: LifecycleV2Root,
+        observer: LifecycleV2InjectedCleanupObserver,
+        observed_boottime_ns: int,
+        authorization: LifecycleV2TerminalCleanupAuthorization | None = None,
+    ) -> Self:
         return cls._fixed(
             root=root,
+            observer=observer,
             kind="credential_paths",
             observed_boottime_ns=observed_boottime_ns,
+            authorization=authorization,
         )
 
     @property
@@ -1013,13 +1297,29 @@ _OWNER_ENTRY_FIELDS = frozenset({"owner_kind", "owner_process_epoch_sha256", "ow
 class LifecycleV2NativeOwnerSet(_CanonicalEvidence):
     fields: FrozenJsonObject
     root_sha256: str
+    observed_boottime_ns: int
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("native owner sets require closed kind-sorted capture")
 
     @classmethod
-    def capture(cls, *, root: LifecycleV2Root, owners: object) -> Self:
+    def capture(
+        cls,
+        *,
+        root: LifecycleV2Root,
+        observer: LifecycleV2InjectedCleanupObserver,
+        owners: object,
+        observed_boottime_ns: int,
+    ) -> Self:
         exact_root = _exact_root(root)
+        _require_cleanup_observer(observer, root=exact_root)
+        observed = _require_int(observed_boottime_ns, "observed_boottime_ns")
+        if not (
+            exact_root.admission_started_boottime_ns
+            <= observed
+            < exact_root.operation_deadline_boottime_ns
+        ):
+            _reject("native owner observation is outside the operation interval")
         if type(owners) not in {list, tuple}:
             _reject("native owner set requires a concrete owner sequence")
         raw = tuple(cast(list[object] | tuple[object, ...], owners))
@@ -1052,8 +1352,8 @@ class LifecycleV2NativeOwnerSet(_CanonicalEvidence):
         fields = FrozenJsonObject.capture({"owners": normalized})
         result = object.__new__(cls)
         object.__setattr__(result, "fields", fields)
-        object.__setattr__(result, "_evidence_capability", _CANONICAL_EVIDENCE_CAPABILITY)
         object.__setattr__(result, "root_sha256", exact_root.sha256)
+        object.__setattr__(result, "observed_boottime_ns", observed)
         return result
 
     @property
@@ -1071,9 +1371,58 @@ class LifecycleV2NativeOwnerSet(_CanonicalEvidence):
         return _domain_sha256(self.digest_domain, self.to_dict()["owners"])
 
 
+_TERMINAL_CLEANUP_AUTHORIZATION_ACTIONS = frozenset(
+    {
+        "unmount",
+        "native_owner_cleanup",
+        "final_recovery_secret_mount_absence",
+        "final_transport_socket_absence",
+        "final_credential_paths_absence",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class LifecycleV2TerminalCleanupAuthorization:
+    """One-shot action set issued only after ordinal twenty-one exists."""
+
+    root_sha256: str
+    cleanup_intent_sha256: str
+    observer_nonce_sha256: str
+    authorized_boottime_ns: int
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("terminal cleanup authorization requires retained ordinal twenty-one")
+
+    def _snapshot(self) -> str:
+        return _compound_value_snapshot(self)
+
+
+def _require_terminal_cleanup_authorization(
+    authorization: object,
+) -> RuntimeSealMetadata:
+    if type(authorization) is not LifecycleV2TerminalCleanupAuthorization:
+        _reject("terminal cleanup authorization is not exact")
+    return cast(RuntimeSealMetadata, _require_exact_compound_value(authorization))
+
+
+def _finalize_terminal_cleanup_authorization(
+    authorization: LifecycleV2TerminalCleanupAuthorization,
+) -> RuntimeSealMetadata:
+    _require_terminal_cleanup_authorization(authorization)
+    metadata = _finalize_exact_terminal_cleanup_authorization_runtime(
+        authorization,
+        authorization._snapshot(),
+    )
+    if metadata is None:
+        _reject("terminal cleanup authorization is incomplete or already consumed")
+    return cast(RuntimeSealMetadata, metadata)
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class LifecycleV2SecretMountUnmountReceipt(_CanonicalEvidence):
     fields: FrozenJsonObject
+    authorization_intent_sha256: str
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("unmount receipts require the exact three-mount order")
@@ -1084,11 +1433,20 @@ class LifecycleV2SecretMountUnmountReceipt(_CanonicalEvidence):
         *,
         root: LifecycleV2Root,
         projection: LifecycleV2EmptySecretMountProjection,
+        authorization: LifecycleV2TerminalCleanupAuthorization,
         completed_boottime_ns: object,
     ) -> Self:
         exact_root = _exact_root(root)
         if type(projection) is not LifecycleV2EmptySecretMountProjection:
             _reject("unmount receipt requires the complete empty-mount projection")
+        projection_metadata = _require_canonical_evidence(projection)
+        authorization_metadata = _require_terminal_cleanup_authorization(authorization)
+        if (
+            authorization.root_sha256 != exact_root.sha256
+            or projection_metadata.provenance != authorization_metadata.provenance
+            or projection_metadata.scope_sha256 != authorization_metadata.scope_sha256
+        ):
+            _reject("unmount receipt crossed its cleanup authorization")
         projection_fields = projection.to_dict()
         if (
             projection_fields["environment"] != exact_root.environment
@@ -1103,7 +1461,13 @@ class LifecycleV2SecretMountUnmountReceipt(_CanonicalEvidence):
         if len(times) != 3:
             _reject("unmount receipt requires exactly three completion samples")
         parsed = tuple(_require_int(value, "completed_boottime_ns") for value in times)
-        if not parsed[0] <= parsed[1] <= parsed[2] < exact_root.operation_deadline_boottime_ns:
+        if not (
+            authorization.authorized_boottime_ns
+            < parsed[0]
+            <= parsed[1]
+            <= parsed[2]
+            < exact_root.operation_deadline_boottime_ns
+        ):
             _reject("unmount completion order is reversed or equality-expired")
         by_path = {mount.to_dict()["path"]: mount for mount in projection.mounts}
         ordered_paths = (
@@ -1130,7 +1494,17 @@ class LifecycleV2SecretMountUnmountReceipt(_CanonicalEvidence):
         )
         result = object.__new__(cls)
         object.__setattr__(result, "fields", fields)
-        object.__setattr__(result, "_evidence_capability", _CANONICAL_EVIDENCE_CAPABILITY)
+        object.__setattr__(
+            result,
+            "authorization_intent_sha256",
+            authorization.cleanup_intent_sha256,
+        )
+        consumed_metadata = _consume_terminal_cleanup_unmount_authorization(
+            authorization,
+            authorization._snapshot(),
+        )
+        if consumed_metadata != authorization_metadata:
+            _reject("unmount receipt changed cleanup authorization")
         return result
 
     @property
@@ -1146,6 +1520,7 @@ class LifecycleV2SecretMountUnmountReceipt(_CanonicalEvidence):
 @dataclass(frozen=True, slots=True, init=False)
 class LifecycleV2NativeOwnerCleanupReceipt(_CanonicalEvidence):
     fields: FrozenJsonObject
+    authorization_intent_sha256: str
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("native owner cleanup receipts require an exact owner set")
@@ -1156,6 +1531,7 @@ class LifecycleV2NativeOwnerCleanupReceipt(_CanonicalEvidence):
         *,
         root: LifecycleV2Root,
         owners: LifecycleV2NativeOwnerSet,
+        authorization: LifecycleV2TerminalCleanupAuthorization,
         completed_boottime_ns: int,
     ) -> Self:
         exact_root = _exact_root(root)
@@ -1163,8 +1539,20 @@ class LifecycleV2NativeOwnerCleanupReceipt(_CanonicalEvidence):
             _reject("native cleanup receipt requires one exact native owner set")
         if owners.root_sha256 != exact_root.sha256:
             _reject("native cleanup receipt crossed its owner-set root")
+        owner_metadata = _require_canonical_evidence(owners)
+        authorization_metadata = _require_terminal_cleanup_authorization(authorization)
+        if (
+            authorization.root_sha256 != exact_root.sha256
+            or owner_metadata.provenance != authorization_metadata.provenance
+            or owner_metadata.scope_sha256 != authorization_metadata.scope_sha256
+        ):
+            _reject("native cleanup receipt crossed its cleanup authorization")
         completed = _require_int(completed_boottime_ns, "completed_boottime_ns")
-        if completed >= exact_root.operation_deadline_boottime_ns:
+        if not (
+            authorization.authorized_boottime_ns
+            < completed
+            < exact_root.operation_deadline_boottime_ns
+        ):
             _reject("native owner cleanup is equality-expired or late")
         fields = FrozenJsonObject.capture(
             {
@@ -1184,7 +1572,17 @@ class LifecycleV2NativeOwnerCleanupReceipt(_CanonicalEvidence):
         )
         result = object.__new__(cls)
         object.__setattr__(result, "fields", fields)
-        object.__setattr__(result, "_evidence_capability", _CANONICAL_EVIDENCE_CAPABILITY)
+        object.__setattr__(
+            result,
+            "authorization_intent_sha256",
+            authorization.cleanup_intent_sha256,
+        )
+        consumed_metadata = _consume_terminal_cleanup_native_owner_authorization(
+            authorization,
+            authorization._snapshot(),
+        )
+        if consumed_metadata != authorization_metadata:
+            _reject("native cleanup receipt changed cleanup authorization")
         return result
 
     @property
@@ -1204,9 +1602,13 @@ class LifecycleV2TerminalCleanupPlan:
     socket_absence: LifecycleV2PathAbsence
     credential_absence: LifecycleV2PathAbsence
     owners: LifecycleV2NativeOwnerSet
+    authorization: LifecycleV2TerminalCleanupAuthorization
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("terminal cleanup plans require exact prior lifecycle evidence")
+
+    def _require_sealed(self) -> RuntimeSealMetadata:
+        return cast(RuntimeSealMetadata, _require_exact_compound_value(self))
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -1215,9 +1617,69 @@ class LifecycleV2TerminalCleanupResult:
     empty_mounts: LifecycleV2EmptySecretMountProjection
     unmount_receipt: LifecycleV2SecretMountUnmountReceipt
     native_owner_receipt: LifecycleV2NativeOwnerCleanupReceipt
+    recovery_absence: LifecycleV2PathAbsence
+    socket_absence: LifecycleV2PathAbsence
+    credential_absence: LifecycleV2PathAbsence
+    authorization: LifecycleV2TerminalCleanupAuthorization
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("terminal cleanup results require exact typed cleanup evidence")
+
+    def _require_sealed(self) -> RuntimeSealMetadata:
+        return cast(RuntimeSealMetadata, _require_exact_compound_value(self))
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class LifecycleV2ConfirmedSuccessLineageSnapshot:
+    """Repository-facing, one-shot snapshot of the exact sealed ordinal-22 lineage."""
+
+    root: LifecycleV2Root
+    records: tuple[LifecycleV2ProgressRecord, ...]
+    root_encoded: bytes
+    record_encoded: tuple[bytes, ...]
+    lineage_provenance: str
+    lineage_snapshot_sha256: str
+    terminal_cleanup_result: LifecycleV2TerminalCleanupResult
+    terminal_cleanup_result_snapshot_sha256: str
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("confirmed-success snapshots require one-shot lineage consumption")
+
+
+def _confirmed_success_snapshot(value: Any) -> str:
+    root = value.root
+    records = value.records
+    root_encoded = value.root_encoded
+    record_encoded = value.record_encoded
+    lineage_provenance = value.lineage_provenance
+    lineage_digest = value.lineage_snapshot_sha256
+    cleanup_result = value.terminal_cleanup_result
+    cleanup_result_digest = value.terminal_cleanup_result_snapshot_sha256
+    if (
+        type(root) is not LifecycleV2Root
+        or type(records) is not tuple
+        or type(root_encoded) is not bytes
+        or type(record_encoded) is not tuple
+        or any(type(item) is not bytes for item in record_encoded)
+        or type(lineage_provenance) is not str
+        or type(lineage_digest) is not str
+        or type(cleanup_result) is not LifecycleV2TerminalCleanupResult
+        or type(cleanup_result_digest) is not str
+        or root_encoded != root.encoded
+        or record_encoded != tuple(record.encoded for record in records)
+        or cleanup_result_digest != _semantic_runtime_snapshot(cleanup_result)
+    ):
+        _reject("confirmed-success lineage snapshot is malformed")
+    return _domain_sha256(
+        "AutoQuantTrader/trusted-time/graceful-stop/confirmed-success-lineage-snapshot/v2",
+        {
+            "root_encoded_sha256": _sha256(root_encoded),
+            "record_encoded_sha256_list": [_sha256(item) for item in record_encoded],
+            "lineage_provenance": lineage_provenance,
+            "lineage_snapshot_sha256": lineage_digest,
+            "terminal_cleanup_result_snapshot_sha256": cleanup_result_digest,
+        },
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1332,6 +1794,207 @@ _DOCKER_RULES = MappingProxyType(
 )
 
 
+def _docker_trace_runtime_snapshot(value: object) -> str:
+    if type(value) is not DockerAdmissionRootedTracePrefix:
+        _reject("normal lifecycle Docker trace type is not exact")
+    value._require_sealed()
+    admission = object.__getattribute__(value, "_admission")
+    entries = object.__getattribute__(value, "_entries")
+    if type(admission) is not DockerAdmissionCapture or type(entries) is not tuple:
+        _reject("normal lifecycle Docker trace sidecars are malformed")
+    for entry in entries:
+        if type(entry) is not DockerOrdinalEvidence:
+            _reject("normal lifecycle Docker trace entry type is not exact")
+        entry._validate()
+    return _domain_sha256(
+        "AutoQuantTrader/trusted-time/graceful-stop/runtime-docker-trace-seal/v2",
+        {
+            "admission": admission.to_dict(),
+            "entry_list": [
+                {
+                    "request": entry.request.to_dict(),
+                    "connection": entry.connection.to_dict(),
+                    "exchange": entry.exchange.to_dict(),
+                    "trace": entry.trace.to_dict(),
+                }
+                for entry in entries
+            ],
+        },
+    )
+
+
+def _semantic_runtime_snapshot(value: Any) -> str:
+    if type(value) is LifecycleV2CleanStopResult:
+        exact = decode_lifecycle_v2_clean_stop_result(value.encoded)
+        if exact != value:
+            _reject("retained clean-stop result changed under revalidation")
+        body: object = exact.to_dict()
+    elif type(value) in {DockerMutationResultSemantic, DockerVolumePreservationResult}:
+        body = value.to_dict()
+    elif isinstance(value, _CanonicalEvidence):
+        _require_canonical_evidence(value)
+        body = value.to_dict()
+    elif type(value) is LifecycleV2TransportCleanupPlan:
+        _require_exact_compound_value(value)
+        value.host_identity.to_dict()
+        decode_lifecycle_v2_clean_stop_result(value.clean_stop_result.encoded)
+        body = {
+            "compound": _compound_value_snapshot(value),
+            "host_identity": value.host_identity.to_dict(),
+            "supervisor_commitment": value.supervisor_commitment.to_dict(),
+        }
+    elif type(value) is LifecycleV2TransportQuiescence:
+        _require_exact_compound_value(value)
+        body = {
+            "compound": _compound_value_snapshot(value),
+            "observation": value.observation.to_dict(),
+            "host_receipt": value.host_receipt.to_dict(),
+        }
+    elif type(value) is LifecycleV2TerminalCleanupPlan:
+        _require_exact_compound_value(value)
+        _require_terminal_cleanup_authorization(value.authorization)
+        body = {
+            "compound": _compound_value_snapshot(value),
+            "mount_list": [item.to_dict() for item in value.mounts],
+            "recovery_absence": value.recovery_absence.to_dict(),
+            "socket_absence": value.socket_absence.to_dict(),
+            "credential_absence": value.credential_absence.to_dict(),
+            "owners": value.owners.to_dict(),
+            "authorization": value.authorization._snapshot(),
+        }
+    elif type(value) is LifecycleV2TerminalCleanupResult:
+        _require_exact_compound_value(value)
+        _require_terminal_cleanup_authorization(value.authorization)
+        body = {
+            "compound": _compound_value_snapshot(value),
+            "empty_mounts": value.empty_mounts.to_dict(),
+            "unmount_receipt": value.unmount_receipt.to_dict(),
+            "native_owner_receipt": value.native_owner_receipt.to_dict(),
+            "recovery_absence": value.recovery_absence.to_dict(),
+            "socket_absence": value.socket_absence.to_dict(),
+            "credential_absence": value.credential_absence.to_dict(),
+            "authorization": value.authorization._snapshot(),
+        }
+    else:
+        _reject("normal lifecycle retained an unsupported semantic type")
+    return _domain_sha256(
+        "AutoQuantTrader/trusted-time/graceful-stop/runtime-retained-semantic-seal/v2",
+        {
+            "type": f"{type(value).__module__}.{type(value).__qualname__}",
+            "body": body,
+        },
+    )
+
+
+def _lineage_snapshot(value: Any) -> str:
+    root = value.root
+    records = value.records
+    semantics = value.semantics
+    if (
+        type(root) is not LifecycleV2Root
+        or type(records) is not tuple
+        or type(semantics) is not tuple
+        or len(records) != len(semantics)
+    ):
+        _reject("normal lifecycle lineage snapshot is malformed")
+    return _domain_sha256(
+        "AutoQuantTrader/trusted-time/graceful-stop/runtime-normal-lineage-seal/v2",
+        {
+            "root": root.to_dict(),
+            "record_list": [record.to_dict() for record in records],
+            "semantic_snapshot_sha256_list": [
+                _semantic_runtime_snapshot(item) for item in semantics
+            ],
+            "terminal_wire": value.terminal_wire.to_dict(),
+            "clean_stop_result": value.clean_stop_result.to_dict(),
+            "docker_admission": (
+                None if value.docker_admission is None else value.docker_admission.to_dict()
+            ),
+            "docker_trace_snapshot_sha256": (
+                None
+                if value.docker_trace is None
+                else _docker_trace_runtime_snapshot(value.docker_trace)
+            ),
+            "pre_effect_binding_snapshot_sha256": (
+                None
+                if value.pre_effect_binding is None
+                else _semantic_runtime_snapshot(value.pre_effect_binding)
+            ),
+            "prefix_through_eighteen": (
+                None
+                if value.prefix_through_eighteen is None
+                else decode_lifecycle_v2_transcript(value.prefix_through_eighteen.encoded).to_dict()
+            ),
+            "terminal_cleanup_plan_snapshot_sha256": (
+                None
+                if value.terminal_cleanup_plan is None
+                else _semantic_runtime_snapshot(value.terminal_cleanup_plan)
+            ),
+            "terminal_cleanup_authorization_snapshot_sha256": (
+                None
+                if value.terminal_cleanup_authorization is None
+                else value.terminal_cleanup_authorization._snapshot()
+            ),
+        },
+    )
+
+
+def _populate_lineage_result(
+    result: LifecycleV2NormalProgressLineage,
+    source: LifecycleV2NormalProgressLineage,
+    *,
+    record: LifecycleV2ProgressRecord,
+    semantic: object,
+    docker_admission: DockerAdmissionCapture | None = None,
+    docker_trace: DockerAdmissionRootedTracePrefix | None = None,
+    pre_effect_binding: LifecycleV2AuthenticatedReauthenticationBinding | None = None,
+    prefix_through_eighteen: LifecycleV2Transcript | None = None,
+    terminal_cleanup_plan: LifecycleV2TerminalCleanupPlan | None = None,
+    terminal_cleanup_authorization: LifecycleV2TerminalCleanupAuthorization | None = None,
+) -> None:
+    """Populate state only; this helper never registers or authorizes a lineage."""
+
+    object.__setattr__(result, "root", source.root)
+    object.__setattr__(result, "records", (*source.records, record))
+    object.__setattr__(result, "semantics", (*source.semantics, semantic))
+    object.__setattr__(result, "terminal_wire", source.terminal_wire)
+    object.__setattr__(result, "clean_stop_result", source.clean_stop_result)
+    object.__setattr__(
+        result,
+        "docker_admission",
+        source.docker_admission if docker_admission is None else docker_admission,
+    )
+    object.__setattr__(
+        result,
+        "docker_trace",
+        source.docker_trace if docker_trace is None else docker_trace,
+    )
+    object.__setattr__(
+        result,
+        "pre_effect_binding",
+        source.pre_effect_binding if pre_effect_binding is None else pre_effect_binding,
+    )
+    object.__setattr__(
+        result,
+        "prefix_through_eighteen",
+        source.prefix_through_eighteen
+        if prefix_through_eighteen is None
+        else prefix_through_eighteen,
+    )
+    object.__setattr__(
+        result,
+        "terminal_cleanup_plan",
+        source.terminal_cleanup_plan if terminal_cleanup_plan is None else terminal_cleanup_plan,
+    )
+    object.__setattr__(
+        result,
+        "terminal_cleanup_authorization",
+        source.terminal_cleanup_authorization
+        if terminal_cleanup_authorization is None
+        else terminal_cleanup_authorization,
+    )
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class LifecycleV2NormalProgressLineage:
     """Sealed, immutable normal lineage beginning at authenticated ordinal two."""
@@ -1346,7 +2009,7 @@ class LifecycleV2NormalProgressLineage:
     pre_effect_binding: LifecycleV2AuthenticatedReauthenticationBinding | None
     prefix_through_eighteen: LifecycleV2Transcript | None
     terminal_cleanup_plan: LifecycleV2TerminalCleanupPlan | None
-    _capability: object
+    terminal_cleanup_authorization: LifecycleV2TerminalCleanupAuthorization | None
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("normal progress lineages require authenticated ordinal-two evidence")
@@ -1369,6 +2032,8 @@ class LifecycleV2NormalProgressLineage:
             type(terminal_wire_evidence) is not LifecycleV2TerminalWireEvidence
             or exact_record.ordinal != 2
             or exact_record.stage is not LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED
+            or exact_record.effect_kind != "clean_stop_result"
+            or exact_record.deadline_boottime_ns != exact_root.operation_deadline_boottime_ns
             or exact_record.root_sha256 != exact_root.sha256
             or exact_record.graceful_stop_operation_id != exact_root.graceful_stop_operation_id
             or exact_record.evidence != FrozenJsonObject.capture(terminal_wire_evidence.to_dict())
@@ -1389,12 +2054,23 @@ class LifecycleV2NormalProgressLineage:
         object.__setattr__(result, "pre_effect_binding", None)
         object.__setattr__(result, "prefix_through_eighteen", None)
         object.__setattr__(result, "terminal_cleanup_plan", None)
-        object.__setattr__(result, "_capability", _LINEAGE_CAPABILITY)
+        object.__setattr__(result, "terminal_cleanup_authorization", None)
         return result
 
-    def _require_sealed(self) -> None:
-        if getattr(self, "_capability", None) is not _LINEAGE_CAPABILITY:
+    def _require_sealed(self, *, allow_consumed: bool = True) -> RuntimeSealMetadata:
+        try:
+            snapshot = _lineage_snapshot(self)
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
             _reject("normal lifecycle lineage is not sealed")
+        metadata = _require_exact_normal_progress_lineage_runtime(
+            self,
+            snapshot,
+            self.root.sha256,
+            allow_consumed,
+        )
+        if metadata is None:
+            _reject("normal lifecycle lineage is not sealed or was already advanced")
+        return cast(RuntimeSealMetadata, metadata)
 
     @property
     def last_record(self) -> LifecycleV2ProgressRecord:
@@ -1417,10 +2093,9 @@ class LifecycleV2NormalProgressLineage:
                 return semantic
         _reject("requested ordinal semantic is not retained in this lineage")
 
-    def _materialize_validated_stage(
+    def _build_unregistered_stage_state(
         self,
         *,
-        _capability: object,
         evidence: FrozenJsonObject,
         semantic: object,
         recorded_at_utc: str,
@@ -1429,10 +2104,11 @@ class LifecycleV2NormalProgressLineage:
         pre_effect_binding: LifecycleV2AuthenticatedReauthenticationBinding | None = None,
         prefix_through_eighteen: LifecycleV2Transcript | None = None,
         terminal_cleanup_plan: LifecycleV2TerminalCleanupPlan | None = None,
+        terminal_cleanup_authorization: LifecycleV2TerminalCleanupAuthorization | None = None,
     ) -> Self:
+        """Build inert state; only named transition wrappers can register it."""
+
         self._require_sealed()
-        if _capability is not _TYPED_STAGE_CAPABILITY:
-            _reject("lifecycle stage was not produced by its named typed builder")
         previous = self.last_record
         spec = _SPECS.get(previous.ordinal + 1)
         if spec is None:
@@ -1450,39 +2126,18 @@ class LifecycleV2NormalProgressLineage:
             recorded_at_utc=recorded_at_utc,
         )
         result = object.__new__(type(self))
-        object.__setattr__(result, "root", self.root)
-        object.__setattr__(result, "records", (*self.records, record))
-        object.__setattr__(result, "semantics", (*self.semantics, semantic))
-        object.__setattr__(result, "terminal_wire", self.terminal_wire)
-        object.__setattr__(result, "clean_stop_result", self.clean_stop_result)
-        object.__setattr__(
+        _populate_lineage_result(
             result,
-            "docker_admission",
-            self.docker_admission if docker_admission is None else docker_admission,
+            self,
+            record=record,
+            semantic=semantic,
+            docker_admission=docker_admission,
+            docker_trace=docker_trace,
+            pre_effect_binding=pre_effect_binding,
+            prefix_through_eighteen=prefix_through_eighteen,
+            terminal_cleanup_plan=terminal_cleanup_plan,
+            terminal_cleanup_authorization=terminal_cleanup_authorization,
         )
-        object.__setattr__(
-            result,
-            "docker_trace",
-            self.docker_trace if docker_trace is None else docker_trace,
-        )
-        object.__setattr__(
-            result,
-            "pre_effect_binding",
-            self.pre_effect_binding if pre_effect_binding is None else pre_effect_binding,
-        )
-        object.__setattr__(
-            result,
-            "prefix_through_eighteen",
-            self.prefix_through_eighteen
-            if prefix_through_eighteen is None
-            else prefix_through_eighteen,
-        )
-        object.__setattr__(
-            result,
-            "terminal_cleanup_plan",
-            self.terminal_cleanup_plan if terminal_cleanup_plan is None else terminal_cleanup_plan,
-        )
-        object.__setattr__(result, "_capability", _LINEAGE_CAPABILITY)
         return result
 
     def retain_transport_cleanup_commitment(
@@ -1498,8 +2153,7 @@ class LifecycleV2NormalProgressLineage:
         ):
             _reject("transport cleanup commitment is not the fixed ordinal-three input")
         plan._require_sealed()
-        return self._materialize_validated_stage(
-            _capability=_TYPED_STAGE_CAPABILITY,
+        return self._build_unregistered_stage_state(
             evidence=plan.evidence,
             semantic=plan,
             recorded_at_utc=recorded_at_utc,
@@ -1526,8 +2180,7 @@ class LifecycleV2NormalProgressLineage:
         )
         if expected.evidence != quiescence.evidence:
             _reject("transport quiescence evidence changed after typed confirmation")
-        return self._materialize_validated_stage(
-            _capability=_TYPED_STAGE_CAPABILITY,
+        return self._build_unregistered_stage_state(
             evidence=quiescence.evidence,
             semantic=quiescence,
             recorded_at_utc=recorded_at_utc,
@@ -1595,8 +2248,7 @@ class LifecycleV2NormalProgressLineage:
                 "call_deadline_boottime_ns": deadline,
             }
         )
-        return self._materialize_validated_stage(
-            _capability=_TYPED_STAGE_CAPABILITY,
+        return self._build_unregistered_stage_state(
             evidence=evidence,
             semantic=intent,
             recorded_at_utc=recorded_at_utc,
@@ -1636,8 +2288,7 @@ class LifecycleV2NormalProgressLineage:
                 "provider_identity_sha256": fields["provider_identity_sha256"],
             }
         )
-        return self._materialize_validated_stage(
-            _capability=_TYPED_STAGE_CAPABILITY,
+        return self._build_unregistered_stage_state(
             evidence=evidence,
             semantic=binding,
             recorded_at_utc=recorded_at_utc,
@@ -1679,7 +2330,6 @@ class LifecycleV2NormalProgressLineage:
     def _retain_docker_intent(
         self,
         *,
-        _capability: object,
         rule: _DockerRule,
         admission: DockerAdmissionCapture,
         trace_prefix: DockerAdmissionRootedTracePrefix,
@@ -1687,8 +2337,7 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         if (
-            _capability is not _TYPED_STAGE_CAPABILITY
-            or not any(rule is fixed_rule for fixed_rule in _DOCKER_RULES.values())
+            not any(rule is fixed_rule for fixed_rule in _DOCKER_RULES.values())
             or self.last_record.ordinal + 1 != rule.intent_ordinal
         ):
             _reject("Docker intent is not the one fixed next lifecycle stage")
@@ -1696,11 +2345,10 @@ class LifecycleV2NormalProgressLineage:
         self._require_docker_admission(
             admission, trace_prefix, expected_last_ordinal=expected_prior_trace
         )
-        if (
-            self.docker_trace is not None
-            and trace_prefix.trace_head_sha256 != self.docker_trace.trace_head_sha256
-        ):
-            _reject("Docker intent did not consume the exact prior trace head")
+        if self.docker_trace is not None and trace_prefix is not self.docker_trace:
+            _reject("Docker intent substituted the exact prior trace object")
+        if self.docker_admission is not None and admission is not self.docker_admission:
+            _reject("Docker intent substituted the exact admitted capture object")
         deadline = _require_int(call_deadline_boottime_ns, "call_deadline_boottime_ns")
         prior_completed = cast(
             int,
@@ -1757,8 +2405,7 @@ class LifecycleV2NormalProgressLineage:
                 "docker_post_inspect_request_semantic_sha256": post.sha256,
             }
         )
-        return self._materialize_validated_stage(
-            _capability=_TYPED_STAGE_CAPABILITY,
+        return self._build_unregistered_stage_state(
             evidence=evidence,
             semantic=intent,
             recorded_at_utc=recorded_at_utc,
@@ -1769,15 +2416,13 @@ class LifecycleV2NormalProgressLineage:
     def _retain_docker_result(
         self,
         *,
-        _capability: object,
         rule: _DockerRule,
         result_semantic: DockerMutationResultSemantic,
         trace_prefix: DockerAdmissionRootedTracePrefix,
         recorded_at_utc: str,
     ) -> Self:
         if (
-            _capability is not _TYPED_STAGE_CAPABILITY
-            or not any(rule is fixed_rule for fixed_rule in _DOCKER_RULES.values())
+            not any(rule is fixed_rule for fixed_rule in _DOCKER_RULES.values())
             or self.last_record.ordinal != rule.intent_ordinal
             or type(result_semantic) is not DockerMutationResultSemantic
             or self.docker_admission is None
@@ -1848,8 +2493,7 @@ class LifecycleV2NormalProgressLineage:
                 "docker_method_trace_entry_sha256_list": traces,
             }
         )
-        return self._materialize_validated_stage(
-            _capability=_TYPED_STAGE_CAPABILITY,
+        return self._build_unregistered_stage_state(
             evidence=evidence,
             semantic=result_semantic,
             recorded_at_utc=recorded_at_utc,
@@ -1865,7 +2509,6 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_intent(
-            _capability=_TYPED_STAGE_CAPABILITY,
             rule=_DOCKER_RULES["supervisor_stop"],
             admission=admission,
             trace_prefix=trace_prefix,
@@ -1881,7 +2524,6 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_result(
-            _capability=_TYPED_STAGE_CAPABILITY,
             rule=_DOCKER_RULES["supervisor_stop"],
             result_semantic=result_semantic,
             trace_prefix=trace_prefix,
@@ -1897,7 +2539,6 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_intent(
-            _capability=_TYPED_STAGE_CAPABILITY,
             rule=_DOCKER_RULES["source_stop"],
             admission=admission,
             trace_prefix=trace_prefix,
@@ -1913,7 +2554,6 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_result(
-            _capability=_TYPED_STAGE_CAPABILITY,
             rule=_DOCKER_RULES["source_stop"],
             result_semantic=result_semantic,
             trace_prefix=trace_prefix,
@@ -1929,7 +2569,6 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_intent(
-            _capability=_TYPED_STAGE_CAPABILITY,
             rule=_DOCKER_RULES["supervisor_remove"],
             admission=admission,
             trace_prefix=trace_prefix,
@@ -1945,7 +2584,6 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_result(
-            _capability=_TYPED_STAGE_CAPABILITY,
             rule=_DOCKER_RULES["supervisor_remove"],
             result_semantic=result_semantic,
             trace_prefix=trace_prefix,
@@ -1961,7 +2599,6 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_intent(
-            _capability=_TYPED_STAGE_CAPABILITY,
             rule=_DOCKER_RULES["source_remove"],
             admission=admission,
             trace_prefix=trace_prefix,
@@ -1977,7 +2614,6 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_result(
-            _capability=_TYPED_STAGE_CAPABILITY,
             rule=_DOCKER_RULES["source_remove"],
             result_semantic=result_semantic,
             trace_prefix=trace_prefix,
@@ -1993,7 +2629,6 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_intent(
-            _capability=_TYPED_STAGE_CAPABILITY,
             rule=_DOCKER_RULES["network_remove"],
             admission=admission,
             trace_prefix=trace_prefix,
@@ -2009,7 +2644,6 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_result(
-            _capability=_TYPED_STAGE_CAPABILITY,
             rule=_DOCKER_RULES["network_remove"],
             result_semantic=result_semantic,
             trace_prefix=trace_prefix,
@@ -2087,8 +2721,7 @@ class LifecycleV2NormalProgressLineage:
                 "docker_request_semantic_sha256_list": requests,
             }
         )
-        return self._materialize_validated_stage(
-            _capability=_TYPED_STAGE_CAPABILITY,
+        return self._build_unregistered_stage_state(
             evidence=evidence,
             semantic=intent,
             recorded_at_utc=recorded_at_utc,
@@ -2171,8 +2804,7 @@ class LifecycleV2NormalProgressLineage:
                 "docker_method_trace_entry_sha256_list": traces,
             }
         )
-        return self._materialize_validated_stage(
-            _capability=_TYPED_STAGE_CAPABILITY,
+        return self._build_unregistered_stage_state(
             evidence=evidence,
             semantic=result_semantic,
             recorded_at_utc=recorded_at_utc,
@@ -2197,18 +2829,75 @@ class LifecycleV2NormalProgressLineage:
             or prefix_transcript.environment != self.root.environment
             or prefix_transcript.graceful_stop_operation_id != self.root.graceful_stop_operation_id
             or prefix_transcript.root_sha256 != self.root.sha256
+            or len(prefix_transcript.entries) != 19
             or prefix_transcript.entries[-1].ordinal != 18
         ):
             _reject("post-teardown transcript is not the exact ordinal-eighteen prefix")
         by_ordinal = {record.ordinal: record for record in self.records}
+        if frozenset(by_ordinal) != frozenset(range(2, 19)):
+            _reject("post-teardown lineage is not the exact ordinal-two-through-eighteen set")
+        root_entry = prefix_transcript.entries[0]
+        intent_entry = prefix_transcript.entries[1]
+        if (
+            root_entry.stage is not LifecycleV2Stage.ROOT_RESERVED
+            or root_entry.record_artifact_kind != "root"
+            or root_entry.record_contract_version != LIFECYCLE_V2_ROOT_CONTRACT_VERSION
+            or root_entry.record_artifact_sha256 != self.root.sha256
+            or root_entry.predecessor_sha256 is not None
+            or any(
+                item is not None
+                for item in (
+                    root_entry.wire_artifact_kind,
+                    root_entry.wire_artifact_path,
+                    root_entry.wire_artifact_file_name,
+                    root_entry.wire_artifact_sha256,
+                )
+            )
+            or intent_entry.stage is not LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED
+            or intent_entry.record_artifact_kind != "progress"
+            or intent_entry.record_contract_version != LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION
+            or intent_entry.record_artifact_sha256 != self.record_at(2).predecessor_sha256
+            or intent_entry.predecessor_sha256 != self.root.sha256
+            or any(
+                item is not None
+                for item in (
+                    intent_entry.wire_artifact_kind,
+                    intent_entry.wire_artifact_path,
+                    intent_entry.wire_artifact_file_name,
+                    intent_entry.wire_artifact_sha256,
+                )
+            )
+        ):
+            _reject("post-teardown transcript substituted its root or request intent")
         for entry in prefix_transcript.entries[2:]:
             expected = by_ordinal.get(entry.ordinal)
-            if expected is None or entry.record_artifact_sha256 != expected.sha256:
+            if (
+                expected is None
+                or entry.stage is not NORMAL_STAGE_BY_ORDINAL[entry.ordinal]
+                or entry.stage is not expected.stage
+                or entry.record_artifact_kind != "progress"
+                or entry.record_contract_version != LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION
+                or entry.record_artifact_sha256 != expected.sha256
+                or entry.predecessor_sha256 != expected.predecessor_sha256
+                or (
+                    entry.ordinal != 2
+                    and any(
+                        item is not None
+                        for item in (
+                            entry.wire_artifact_kind,
+                            entry.wire_artifact_path,
+                            entry.wire_artifact_file_name,
+                            entry.wire_artifact_sha256,
+                        )
+                    )
+                )
+            ):
                 _reject("post-teardown transcript substituted a lifecycle record")
         terminal_wire = self.terminal_wire.to_dict()
         wire_entry = prefix_transcript.entries[2]
         if (
-            wire_entry.wire_artifact_kind != "signed_result_envelope"
+            wire_entry.stage is not LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED
+            or wire_entry.wire_artifact_kind != "signed_result_envelope"
             or wire_entry.wire_artifact_path != terminal_wire["clean_stop_result_artifact_path"]
             or wire_entry.wire_artifact_file_name
             != terminal_wire["clean_stop_result_artifact_name"]
@@ -2265,8 +2954,7 @@ class LifecycleV2NormalProgressLineage:
                 "call_deadline_boottime_ns": deadline,
             }
         )
-        return self._materialize_validated_stage(
-            _capability=_TYPED_STAGE_CAPABILITY,
+        return self._build_unregistered_stage_state(
             evidence=evidence,
             semantic=intent,
             recorded_at_utc=recorded_at_utc,
@@ -2316,8 +3004,7 @@ class LifecycleV2NormalProgressLineage:
                 "provider_identity_sha256": fields["provider_identity_sha256"],
             }
         )
-        return self._materialize_validated_stage(
-            _capability=_TYPED_STAGE_CAPABILITY,
+        return self._build_unregistered_stage_state(
             evidence=evidence,
             semantic=binding,
             recorded_at_utc=recorded_at_utc,
@@ -2326,15 +3013,18 @@ class LifecycleV2NormalProgressLineage:
     def retain_terminal_cleanup_intent(
         self,
         *,
+        observer: LifecycleV2InjectedCleanupObserver,
         mounts: object,
         recovery_secret_mount_absence: LifecycleV2PathAbsence,
         socket_path_absence: LifecycleV2PathAbsence,
         credential_path_absence: LifecycleV2PathAbsence,
         native_owner_set: LifecycleV2NativeOwnerSet,
+        cleanup_authorized_boottime_ns: int,
         recorded_at_utc: str,
     ) -> Self:
         if self.last_record.ordinal != 20:
             _reject("terminal cleanup intent is not the fixed ordinal-twenty-one input")
+        observer_metadata = _require_cleanup_observer(observer, root=self.root)
         projection = LifecycleV2EmptySecretMountProjection.from_mounts(
             root=self.root, mounts=mounts
         )
@@ -2348,6 +3038,20 @@ class LifecycleV2NormalProgressLineage:
             or type(native_owner_set) is not LifecycleV2NativeOwnerSet
         ):
             _reject("terminal cleanup plan contains an inexact mount, path, or owner value")
+        evidence_values: tuple[_CanonicalEvidence, ...] = (
+            projection,
+            recovery_secret_mount_absence,
+            socket_path_absence,
+            credential_path_absence,
+            native_owner_set,
+        )
+        evidence_metadata = tuple(_require_canonical_evidence(value) for value in evidence_values)
+        if any(
+            metadata.provenance != observer_metadata.provenance
+            or metadata.scope_sha256 != observer.observer_nonce_sha256
+            for metadata in evidence_metadata
+        ):
+            _reject("terminal cleanup plan crossed its injected observer")
         for absence in (
             recovery_secret_mount_absence,
             socket_path_absence,
@@ -2371,8 +3075,17 @@ class LifecycleV2NormalProgressLineage:
             socket_path_absence,
             credential_path_absence,
         ):
-            if cast(int, absence.to_dict()["observed_boottime_ns"]) < last_completed:
+            if cast(int, absence.to_dict()["observed_boottime_ns"]) <= last_completed:
                 _reject("terminal cleanup plan reused a pre-binding absence observation")
+        observation_times = [
+            *(mount.observed_boottime_ns for mount in projection.mounts),
+            recovery_secret_mount_absence.to_dict()["observed_boottime_ns"],
+            socket_path_absence.to_dict()["observed_boottime_ns"],
+            credential_path_absence.to_dict()["observed_boottime_ns"],
+            native_owner_set.observed_boottime_ns,
+        ]
+        if any(type(value) is not int or value <= last_completed for value in observation_times):
+            _reject("terminal cleanup plan reused evidence from before post-teardown binding")
         by_path = {mount.to_dict()["path"]: mount for mount in projection.mounts}
         plan = object.__new__(LifecycleV2TerminalCleanupPlan)
         evidence = FrozenJsonObject.capture(
@@ -2397,13 +3110,13 @@ class LifecycleV2NormalProgressLineage:
         object.__setattr__(plan, "socket_absence", socket_path_absence)
         object.__setattr__(plan, "credential_absence", credential_path_absence)
         object.__setattr__(plan, "owners", native_owner_set)
-        return self._materialize_validated_stage(
-            _capability=_TYPED_STAGE_CAPABILITY,
+        result = self._build_unregistered_stage_state(
             evidence=evidence,
             semantic=plan,
             recorded_at_utc=recorded_at_utc,
             terminal_cleanup_plan=plan,
         )
+        return result
 
     def retain_terminal_cleanup_confirmed(
         self,
@@ -2411,6 +3124,7 @@ class LifecycleV2NormalProgressLineage:
         empty_mount_projection: LifecycleV2EmptySecretMountProjection,
         unmount_receipt: LifecycleV2SecretMountUnmountReceipt,
         native_owner_cleanup_receipt: LifecycleV2NativeOwnerCleanupReceipt,
+        recovery_secret_mount_absence: LifecycleV2PathAbsence,
         socket_absence: LifecycleV2PathAbsence,
         credential_path_absence: LifecycleV2PathAbsence,
         recorded_at_utc: str,
@@ -2422,12 +3136,24 @@ class LifecycleV2NormalProgressLineage:
             or type(empty_mount_projection) is not LifecycleV2EmptySecretMountProjection
             or type(unmount_receipt) is not LifecycleV2SecretMountUnmountReceipt
             or type(native_owner_cleanup_receipt) is not LifecycleV2NativeOwnerCleanupReceipt
+            or type(recovery_secret_mount_absence) is not LifecycleV2PathAbsence
+            or recovery_secret_mount_absence.absence_kind != "recovery_secret_mount"
             or type(socket_absence) is not LifecycleV2PathAbsence
             or socket_absence.absence_kind != "transport_socket"
             or type(credential_path_absence) is not LifecycleV2PathAbsence
             or credential_path_absence.absence_kind != "credential_paths"
         ):
             _reject("terminal cleanup result is not the fixed ordinal-twenty-two input")
+        plan_metadata = plan._require_sealed()
+        authorization = plan.authorization
+        authorization_metadata = _require_terminal_cleanup_authorization(authorization)
+        if (
+            self.terminal_cleanup_authorization is not authorization
+            or authorization.cleanup_intent_sha256 != self.last_record.sha256
+            or authorization_metadata.provenance != plan_metadata.provenance
+            or authorization_metadata.scope_sha256 != plan_metadata.scope_sha256
+        ):
+            _reject("terminal cleanup result crossed its retained authorization")
         if tuple(mount.sha256 for mount in empty_mount_projection.mounts) != tuple(
             mount.sha256 for mount in plan.mounts
         ):
@@ -2437,6 +3163,7 @@ class LifecycleV2NormalProgressLineage:
             projection_fields,
             unmount_receipt.to_dict(),
             native_owner_cleanup_receipt.to_dict(),
+            recovery_secret_mount_absence.to_dict(),
             socket_absence.to_dict(),
             credential_path_absence.to_dict(),
         ):
@@ -2446,6 +3173,21 @@ class LifecycleV2NormalProgressLineage:
                 or value["lifecycle_root_sha256"] != self.root.sha256
             ):
                 _reject("terminal cleanup evidence crossed its lifecycle root")
+        result_values: tuple[_CanonicalEvidence, ...] = (
+            empty_mount_projection,
+            unmount_receipt,
+            native_owner_cleanup_receipt,
+            recovery_secret_mount_absence,
+            socket_absence,
+            credential_path_absence,
+        )
+        result_metadata = tuple(_require_canonical_evidence(value) for value in result_values)
+        if any(
+            metadata.provenance != authorization_metadata.provenance
+            or metadata.scope_sha256 != authorization_metadata.scope_sha256
+            for metadata in result_metadata
+        ):
+            _reject("terminal cleanup result crossed its injected observer")
         by_path = {
             mount.to_dict()["path"]: mount.to_dict()["mount_id"]
             for mount in empty_mount_projection.mounts
@@ -2459,24 +3201,41 @@ class LifecycleV2NormalProgressLineage:
             _reject("terminal cleanup unmount receipt changed mount identity or order")
         if native_owner_cleanup_receipt.to_dict()["native_owner_set_sha256"] != plan.owners.sha256:
             _reject("terminal cleanup receipt crossed its native-owner plan")
+        planned_recovery_time = cast(int, plan.recovery_absence.to_dict()["observed_boottime_ns"])
         planned_socket_time = cast(int, plan.socket_absence.to_dict()["observed_boottime_ns"])
         planned_credential_time = cast(
             int, plan.credential_absence.to_dict()["observed_boottime_ns"]
         )
+        recovery_time = cast(int, recovery_secret_mount_absence.to_dict()["observed_boottime_ns"])
         socket_time = cast(int, socket_absence.to_dict()["observed_boottime_ns"])
         credential_time = cast(int, credential_path_absence.to_dict()["observed_boottime_ns"])
-        completed = max(
+        destructive_completed = max(
             unmount_receipt.completed_boottime_ns,
             native_owner_cleanup_receipt.completed_boottime_ns,
+        )
+        completed = max(
+            destructive_completed,
+            recovery_time,
             socket_time,
             credential_time,
         )
         if not (
-            socket_time >= planned_socket_time
+            recovery_time >= planned_recovery_time
+            and socket_time >= planned_socket_time
             and credential_time >= planned_credential_time
+            and destructive_completed < min(recovery_time, socket_time, credential_time)
+            and unmount_receipt.authorization_intent_sha256 == authorization.cleanup_intent_sha256
+            and native_owner_cleanup_receipt.authorization_intent_sha256
+            == authorization.cleanup_intent_sha256
+            and recovery_secret_mount_absence.authorization_intent_sha256
+            == authorization.cleanup_intent_sha256
+            and socket_absence.authorization_intent_sha256 == authorization.cleanup_intent_sha256
+            and credential_path_absence.authorization_intent_sha256
+            == authorization.cleanup_intent_sha256
             and completed < self.root.operation_deadline_boottime_ns
         ):
             _reject("terminal cleanup absence or completion evidence is stale or late")
+        _finalize_terminal_cleanup_authorization(authorization)
         result = object.__new__(LifecycleV2TerminalCleanupResult)
         evidence = FrozenJsonObject.capture(
             {
@@ -2496,8 +3255,11 @@ class LifecycleV2NormalProgressLineage:
         object.__setattr__(result, "empty_mounts", empty_mount_projection)
         object.__setattr__(result, "unmount_receipt", unmount_receipt)
         object.__setattr__(result, "native_owner_receipt", native_owner_cleanup_receipt)
-        return self._materialize_validated_stage(
-            _capability=_TYPED_STAGE_CAPABILITY,
+        object.__setattr__(result, "recovery_absence", recovery_secret_mount_absence)
+        object.__setattr__(result, "socket_absence", socket_absence)
+        object.__setattr__(result, "credential_absence", credential_path_absence)
+        object.__setattr__(result, "authorization", authorization)
+        return self._build_unregistered_stage_state(
             evidence=evidence,
             semantic=result,
             recorded_at_utc=recorded_at_utc,
@@ -2516,13 +3278,1189 @@ class _FixedSemantic(_CanonicalEvidence):
     def capture(cls, value: object, domain: str) -> Self:
         result = object.__new__(cls)
         object.__setattr__(result, "fields", FrozenJsonObject.capture(value))
-        object.__setattr__(result, "_evidence_capability", _CANONICAL_EVIDENCE_CAPABILITY)
         object.__setattr__(result, "_domain", domain)
         return result
 
     @property
     def digest_domain(self) -> str:
         return self._domain
+
+
+def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
+    """Install exact construction/transition closures around a closure-owned registry."""
+
+    registry = LifecycleV2RuntimeSealRegistry()
+    finalized_authorizations: set[int] = set()
+    reauthentication_issuance_consumer: Callable[..., object] | None = None
+    reauthentication_issuance_snapshot_type: type[object] | None = None
+    import_reauthentication_module = importlib.import_module
+    decode_reauthentication_snapshot = decode_canonical_v2_json_object
+
+    canonical_types = (
+        LifecycleV2HostTransportCleanupIdentity,
+        LifecycleV2SupervisorQuiescenceObservation,
+        LifecycleV2HostTransportCleanupReceipt,
+        LifecycleV2ReauthenticationIntent,
+        LifecycleV2AuthenticatedReauthenticationBinding,
+        LifecycleV2EmptySecretMountIdentity,
+        LifecycleV2EmptySecretMountProjection,
+        LifecycleV2PathAbsence,
+        LifecycleV2NativeOwnerSet,
+        LifecycleV2SecretMountUnmountReceipt,
+        LifecycleV2NativeOwnerCleanupReceipt,
+        _FixedSemantic,
+    )
+    compound_kind_by_type = {
+        LifecycleV2TransportCleanupPlan: "transport_cleanup_plan",
+        LifecycleV2TransportQuiescence: "transport_quiescence",
+        LifecycleV2TerminalCleanupAuthorization: "terminal_cleanup_authorization",
+        LifecycleV2TerminalCleanupPlan: "terminal_cleanup_plan",
+        LifecycleV2TerminalCleanupResult: "terminal_cleanup_result",
+    }
+
+    def register_canonical(value: object, *, provenance: str, scope_sha256: str) -> None:
+        if type(value) not in canonical_types or not registry.seal(
+            value,
+            snapshot_sha256=_canonical_evidence_snapshot(value),
+            kind="canonical_evidence",
+            provenance=provenance,
+            scope_sha256=scope_sha256,
+        ):
+            _reject("typed lifecycle semantic runtime seal could not be created")
+
+    def require_canonical(value: object) -> RuntimeSealMetadata:
+        if type(value) not in canonical_types:
+            _reject("typed lifecycle semantic is not canonically sealed")
+        try:
+            snapshot = _canonical_evidence_snapshot(value)
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
+            _reject("typed lifecycle semantic is not canonically sealed")
+        metadata = registry.require(
+            value,
+            snapshot_sha256=snapshot,
+            kind="canonical_evidence",
+        )
+        if metadata is None:
+            _reject("typed lifecycle semantic is not canonically sealed")
+        return metadata
+
+    def register_compound(value: object, *, provenance: str, scope_sha256: str) -> None:
+        kind = compound_kind_by_type.get(type(value))
+        if kind is None or not registry.seal(
+            value,
+            snapshot_sha256=_compound_value_snapshot(value),
+            kind=kind,
+            provenance=provenance,
+            scope_sha256=scope_sha256,
+        ):
+            _reject("typed lifecycle compound runtime seal could not be created")
+
+    def require_compound(value: object) -> RuntimeSealMetadata:
+        kind = compound_kind_by_type.get(type(value))
+        if kind is None:
+            _reject("typed lifecycle compound value is not sealed")
+        try:
+            snapshot = _compound_value_snapshot(value)
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
+            _reject(f"{kind} is not sealed")
+        metadata = registry.require(value, snapshot_sha256=snapshot, kind=kind)
+        if metadata is None:
+            _reject(f"{kind} is not sealed")
+        return metadata
+
+    def install_reauthentication_issuance_consumer(endpoint: object) -> None:
+        """Capture the exact reauthentication-registry consumer once."""
+
+        nonlocal reauthentication_issuance_consumer
+        nonlocal reauthentication_issuance_snapshot_type
+        if (
+            reauthentication_issuance_consumer is not None
+            or reauthentication_issuance_snapshot_type is not None
+            or not callable(endpoint)
+        ):
+            _reject("reauthentication semantic issuance consumer installation is invalid")
+        try:
+            realm_module = import_reauthentication_module(_REAUTHENTICATION_REALM_MODULE)
+            exact_endpoint = cast(
+                Any, realm_module
+            )._consume_exact_lifecycle_v2_reauthentication_semantic_binding_issuance_once
+            exact_snapshot_type = cast(
+                Any, realm_module
+            )._LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot
+        except (AttributeError, ImportError) as error:
+            raise TrustedTimeLifecycleV2SemanticsRejected(
+                "reauthentication semantic issuance consumer installation is invalid"
+            ) from error
+        if endpoint is not exact_endpoint or type(exact_snapshot_type) is not type:
+            _reject("reauthentication semantic issuance consumer installation is invalid")
+        reauthentication_issuance_consumer = cast(Callable[..., object], endpoint)
+        reauthentication_issuance_snapshot_type = cast(type[object], exact_snapshot_type)
+
+    original_observer_builder = cast(
+        Callable[..., LifecycleV2InjectedCleanupObserver],
+        _build_injected_fake_lifecycle_v2_cleanup_observer,
+    )
+
+    def build_fake_observer(
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2InjectedCleanupObserver:
+        result = original_observer_builder(*args, **kwargs)
+        if type(result) is not LifecycleV2InjectedCleanupObserver or not registry.seal(
+            result,
+            snapshot_sha256=result._snapshot(),
+            kind="cleanup_observer",
+            provenance="fake_injected_cleanup_observer",
+            scope_sha256=result.root.sha256,
+        ):
+            _reject("fake cleanup observer runtime seal could not be created")
+        return result
+
+    def require_observer_runtime(
+        value: object,
+        snapshot_sha256: str,
+        root_sha256: str,
+    ) -> RuntimeSealMetadata | None:
+        if type(value) is not LifecycleV2InjectedCleanupObserver:
+            return None
+        return registry.require(
+            value,
+            snapshot_sha256=snapshot_sha256,
+            kind="cleanup_observer",
+            scope_sha256=root_sha256,
+        )
+
+    original_host_identity = cast(
+        Callable[..., LifecycleV2HostTransportCleanupIdentity],
+        LifecycleV2HostTransportCleanupIdentity.capture,
+    )
+    original_transport_plan = cast(
+        Callable[..., LifecycleV2TransportCleanupPlan],
+        LifecycleV2TransportCleanupPlan.from_retained_result,
+    )
+    original_supervisor_observation = cast(
+        Callable[..., LifecycleV2SupervisorQuiescenceObservation],
+        LifecycleV2SupervisorQuiescenceObservation.capture,
+    )
+    original_host_receipt = cast(
+        Callable[..., LifecycleV2HostTransportCleanupReceipt],
+        LifecycleV2HostTransportCleanupReceipt.capture,
+    )
+    original_quiescence = cast(
+        Callable[..., LifecycleV2TransportQuiescence],
+        LifecycleV2TransportQuiescence.confirm,
+    )
+    original_reauth_intent = cast(
+        Callable[..., LifecycleV2ReauthenticationIntent],
+        LifecycleV2ReauthenticationIntent._capture_fixed,
+    )
+    original_reauth_binding = cast(
+        Callable[..., LifecycleV2AuthenticatedReauthenticationBinding],
+        LifecycleV2AuthenticatedReauthenticationBinding._capture_fake_for_tests,
+    )
+    original_reauth_binding_builder = cast(
+        Callable[..., LifecycleV2AuthenticatedReauthenticationBinding],
+        _build_unregistered_authenticated_reauthentication_binding,
+    )
+    original_empty_mount = cast(
+        Callable[..., LifecycleV2EmptySecretMountIdentity],
+        LifecycleV2EmptySecretMountIdentity.capture,
+    )
+    original_mount_projection = cast(
+        Callable[..., LifecycleV2EmptySecretMountProjection],
+        LifecycleV2EmptySecretMountProjection.from_mounts,
+    )
+    original_path_absence = cast(
+        Callable[..., LifecycleV2PathAbsence],
+        LifecycleV2PathAbsence._fixed,
+    )
+    original_owner_set = cast(
+        Callable[..., LifecycleV2NativeOwnerSet],
+        LifecycleV2NativeOwnerSet.capture,
+    )
+    original_unmount_receipt = cast(
+        Callable[..., LifecycleV2SecretMountUnmountReceipt],
+        LifecycleV2SecretMountUnmountReceipt.completed,
+    )
+    original_owner_receipt = cast(
+        Callable[..., LifecycleV2NativeOwnerCleanupReceipt],
+        LifecycleV2NativeOwnerCleanupReceipt.completed,
+    )
+    original_fixed_semantic = cast(
+        Callable[..., _FixedSemantic],
+        _FixedSemantic.capture,
+    )
+
+    def original_authorization_mint(
+        *,
+        root: LifecycleV2Root,
+        cleanup_intent: LifecycleV2ProgressRecord,
+        observer: LifecycleV2InjectedCleanupObserver,
+        authorized_boottime_ns: int,
+        not_before_boottime_ns: int,
+    ) -> LifecycleV2TerminalCleanupAuthorization:
+        exact_root = _exact_root(root)
+        _require_cleanup_observer(observer, root=exact_root)
+        exact_intent = _exact_record(cleanup_intent)
+        authorized = _require_int(authorized_boottime_ns, "authorized_boottime_ns")
+        if (
+            exact_intent.ordinal != 21
+            or exact_intent.stage is not LifecycleV2Stage.TERMINAL_CLEANUP_INTENT_RETAINED
+            or exact_intent.effect_kind != "terminal_cleanup"
+            or exact_intent.root_sha256 != exact_root.sha256
+            or exact_intent.deadline_boottime_ns != exact_root.operation_deadline_boottime_ns
+            or not not_before_boottime_ns < authorized < exact_root.operation_deadline_boottime_ns
+        ):
+            _reject("terminal cleanup authorization crossed or preceded ordinal twenty-one")
+        result = object.__new__(LifecycleV2TerminalCleanupAuthorization)
+        object.__setattr__(result, "root_sha256", exact_root.sha256)
+        object.__setattr__(result, "cleanup_intent_sha256", exact_intent.sha256)
+        object.__setattr__(
+            result,
+            "observer_nonce_sha256",
+            observer.observer_nonce_sha256,
+        )
+        object.__setattr__(result, "authorized_boottime_ns", authorized)
+        return result
+
+    def capture_host_identity(
+        cls: type[LifecycleV2HostTransportCleanupIdentity],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2HostTransportCleanupIdentity:
+        if cls is not LifecycleV2HostTransportCleanupIdentity:
+            _reject("host cleanup identity capture class is not exact")
+        result = original_host_identity(*args, **kwargs)
+        observer = kwargs.get("observer")
+        root = kwargs.get("root")
+        if (
+            type(observer) is not LifecycleV2InjectedCleanupObserver
+            or type(root) is not LifecycleV2Root
+        ):
+            _reject("host cleanup identity omitted its injected observer")
+        metadata = observer._require_sealed(root=root)
+        register_canonical(
+            result,
+            provenance=metadata.provenance,
+            scope_sha256=observer.observer_nonce_sha256,
+        )
+        return result
+
+    def capture_transport_plan(
+        cls: type[LifecycleV2TransportCleanupPlan],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2TransportCleanupPlan:
+        if cls is not LifecycleV2TransportCleanupPlan:
+            _reject("transport cleanup plan capture class is not exact")
+        result = original_transport_plan(*args, **kwargs)
+        if type(result) is not LifecycleV2TransportCleanupPlan:
+            _reject("transport cleanup plan capture returned an inexact type")
+        metadata = require_canonical(result.host_identity)
+        register_compound(
+            result,
+            provenance=metadata.provenance,
+            scope_sha256=metadata.scope_sha256,
+        )
+        return result
+
+    def capture_supervisor_observation(
+        cls: type[LifecycleV2SupervisorQuiescenceObservation],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2SupervisorQuiescenceObservation:
+        if cls is not LifecycleV2SupervisorQuiescenceObservation:
+            _reject("supervisor observation capture class is not exact")
+        result = original_supervisor_observation(*args, **kwargs)
+        observer = kwargs.get("observer")
+        root = kwargs.get("root")
+        if (
+            type(observer) is not LifecycleV2InjectedCleanupObserver
+            or type(root) is not LifecycleV2Root
+        ):
+            _reject("supervisor quiescence omitted its injected observer")
+        metadata = observer._require_sealed(root=root)
+        register_canonical(
+            result,
+            provenance=metadata.provenance,
+            scope_sha256=observer.observer_nonce_sha256,
+        )
+        return result
+
+    def capture_host_receipt(
+        cls: type[LifecycleV2HostTransportCleanupReceipt],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2HostTransportCleanupReceipt:
+        if cls is not LifecycleV2HostTransportCleanupReceipt:
+            _reject("host cleanup receipt capture class is not exact")
+        result = original_host_receipt(*args, **kwargs)
+        observer = kwargs.get("observer")
+        root = kwargs.get("root")
+        if (
+            type(observer) is not LifecycleV2InjectedCleanupObserver
+            or type(root) is not LifecycleV2Root
+        ):
+            _reject("host cleanup receipt omitted its injected observer")
+        metadata = observer._require_sealed(root=root)
+        register_canonical(
+            result,
+            provenance=metadata.provenance,
+            scope_sha256=observer.observer_nonce_sha256,
+        )
+        return result
+
+    def capture_quiescence(
+        cls: type[LifecycleV2TransportQuiescence],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2TransportQuiescence:
+        if cls is not LifecycleV2TransportQuiescence:
+            _reject("transport quiescence capture class is not exact")
+        result = original_quiescence(*args, **kwargs)
+        if type(result) is not LifecycleV2TransportQuiescence:
+            _reject("transport quiescence capture returned an inexact type")
+        metadata = require_compound(kwargs.get("plan"))
+        register_compound(
+            result,
+            provenance=metadata.provenance,
+            scope_sha256=metadata.scope_sha256,
+        )
+        return result
+
+    def capture_reauth_intent(
+        cls: type[LifecycleV2ReauthenticationIntent],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2ReauthenticationIntent:
+        if cls is not LifecycleV2ReauthenticationIntent:
+            _reject("reauthentication intent capture class is not exact")
+        result = original_reauth_intent(*args, **kwargs)
+        register_canonical(
+            result,
+            provenance="derived_lifecycle_semantic",
+            scope_sha256=_runtime_scope(result.fields),
+        )
+        return result
+
+    def capture_reauth_binding(
+        cls: type[LifecycleV2AuthenticatedReauthenticationBinding],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2AuthenticatedReauthenticationBinding:
+        if cls is not LifecycleV2AuthenticatedReauthenticationBinding:
+            _reject("reauthentication binding capture class is not exact")
+        result = original_reauth_binding(*args, **kwargs)
+        root = kwargs.get("root")
+        if type(root) is not LifecycleV2Root:
+            _reject("fake reauthentication binding omitted its exact root")
+        register_canonical(
+            result,
+            provenance="fake_reauthentication_binding",
+            scope_sha256=root.sha256,
+        )
+        return result
+
+    def capture_reauth_binding_from_realm(
+        binding_issuance: object,
+        *,
+        root: LifecycleV2Root,
+        intent: LifecycleV2ReauthenticationIntent,
+    ) -> LifecycleV2AuthenticatedReauthenticationBinding:
+        """Consume one live realm issuance, then seal its exact primitive binding."""
+
+        exact_root = _exact_root(root)
+        if type(intent) is not LifecycleV2ReauthenticationIntent:
+            _reject("reauthentication realm issuance omitted its exact intent")
+        require_canonical(intent)
+        consumer = reauthentication_issuance_consumer
+        snapshot_type = reauthentication_issuance_snapshot_type
+        if consumer is None or snapshot_type is None:
+            try:
+                import_reauthentication_module(_REAUTHENTICATION_REALM_MODULE)
+            except ImportError as error:
+                raise TrustedTimeLifecycleV2SemanticsRejected(
+                    "reauthentication semantic issuance consumer is not installed"
+                ) from error
+            consumer = reauthentication_issuance_consumer
+            snapshot_type = reauthentication_issuance_snapshot_type
+        if consumer is None or snapshot_type is None:
+            _reject("reauthentication semantic issuance consumer is not installed")
+        snapshot = consumer(binding_issuance, root=exact_root, intent=intent)
+        if type(snapshot) is not snapshot_type:
+            _reject("reauthentication semantic issuance snapshot type is not exact")
+        exact_snapshot = cast(Any, snapshot)
+        encoded = exact_snapshot.semantic_binding_encoded
+        provenance = exact_snapshot.provenance
+        if (
+            type(encoded) is not bytes
+            or provenance
+            not in {
+                "fake_reauthentication_binding",
+                "production_reauthentication_binding",
+            }
+            or type(exact_snapshot.root_sha256) is not str
+            or exact_snapshot.root_sha256 != exact_root.sha256
+            or type(exact_snapshot.intent_semantic_sha256) is not str
+            or exact_snapshot.intent_semantic_sha256 != intent.sha256
+            or type(exact_snapshot.boundary) is not str
+            or exact_snapshot.boundary != intent.boundary
+            or (provenance == "fake_reauthentication_binding" and exact_root.environment != "test")
+        ):
+            _reject("reauthentication semantic issuance snapshot crossed its exact realm")
+        fields = decode_reauthentication_snapshot(
+            encoded,
+            maximum_bytes=256 * 1_024,
+        )
+        result = original_reauth_binding_builder(
+            fields,
+            root=exact_root,
+            intent=intent,
+        )
+        register_canonical(
+            result,
+            provenance=provenance,
+            scope_sha256=exact_root.sha256,
+        )
+        return result
+
+    def capture_empty_mount(
+        cls: type[LifecycleV2EmptySecretMountIdentity],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2EmptySecretMountIdentity:
+        if cls is not LifecycleV2EmptySecretMountIdentity:
+            _reject("empty mount capture class is not exact")
+        result = original_empty_mount(*args, **kwargs)
+        observer = kwargs.get("observer")
+        if type(observer) is not LifecycleV2InjectedCleanupObserver:
+            _reject("empty mount capture omitted its injected observer")
+        metadata = observer._require_sealed(root=observer.root)
+        register_canonical(
+            result,
+            provenance=metadata.provenance,
+            scope_sha256=observer.observer_nonce_sha256,
+        )
+        return result
+
+    def capture_mount_projection(
+        cls: type[LifecycleV2EmptySecretMountProjection],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2EmptySecretMountProjection:
+        if cls is not LifecycleV2EmptySecretMountProjection:
+            _reject("empty mount projection capture class is not exact")
+        result = original_mount_projection(*args, **kwargs)
+        if type(result) is not LifecycleV2EmptySecretMountProjection or not result.mounts:
+            _reject("empty mount projection capture returned an inexact value")
+        metadata = require_canonical(result.mounts[0])
+        register_canonical(
+            result,
+            provenance=metadata.provenance,
+            scope_sha256=metadata.scope_sha256,
+        )
+        return result
+
+    def capture_path_absence(
+        cls: type[LifecycleV2PathAbsence],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2PathAbsence:
+        if cls is not LifecycleV2PathAbsence:
+            _reject("path absence capture class is not exact")
+        result = original_path_absence(*args, **kwargs)
+        observer = kwargs.get("observer")
+        root = kwargs.get("root")
+        if (
+            type(observer) is not LifecycleV2InjectedCleanupObserver
+            or type(root) is not LifecycleV2Root
+        ):
+            _reject("path absence omitted its injected observer")
+        metadata = observer._require_sealed(root=root)
+        register_canonical(
+            result,
+            provenance=metadata.provenance,
+            scope_sha256=observer.observer_nonce_sha256,
+        )
+        return result
+
+    def capture_owner_set(
+        cls: type[LifecycleV2NativeOwnerSet],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2NativeOwnerSet:
+        if cls is not LifecycleV2NativeOwnerSet:
+            _reject("native owner capture class is not exact")
+        result = original_owner_set(*args, **kwargs)
+        observer = kwargs.get("observer")
+        root = kwargs.get("root")
+        if (
+            type(observer) is not LifecycleV2InjectedCleanupObserver
+            or type(root) is not LifecycleV2Root
+        ):
+            _reject("native owner capture omitted its injected observer")
+        metadata = observer._require_sealed(root=root)
+        register_canonical(
+            result,
+            provenance=metadata.provenance,
+            scope_sha256=observer.observer_nonce_sha256,
+        )
+        return result
+
+    def mint_authorization(
+        *,
+        root: LifecycleV2Root,
+        cleanup_intent: LifecycleV2ProgressRecord,
+        observer: LifecycleV2InjectedCleanupObserver,
+        authorized_boottime_ns: int,
+        not_before_boottime_ns: int,
+    ) -> LifecycleV2TerminalCleanupAuthorization:
+        result = original_authorization_mint(
+            root=root,
+            cleanup_intent=cleanup_intent,
+            observer=observer,
+            authorized_boottime_ns=authorized_boottime_ns,
+            not_before_boottime_ns=not_before_boottime_ns,
+        )
+        metadata = observer._require_sealed(root=root)
+        register_compound(
+            result,
+            provenance=metadata.provenance,
+            scope_sha256=observer.observer_nonce_sha256,
+        )
+        return result
+
+    def consume_authorization_action(
+        value: object,
+        snapshot_sha256: str,
+        *,
+        action: str,
+        prerequisites: frozenset[str] = frozenset(),
+    ) -> RuntimeSealMetadata | None:
+        if type(value) is not LifecycleV2TerminalCleanupAuthorization:
+            return None
+        return registry.consume_action(
+            value,
+            snapshot_sha256=snapshot_sha256,
+            kind="terminal_cleanup_authorization",
+            action=action,
+            prerequisites=prerequisites,
+        )
+
+    def consume_unmount(
+        value: object,
+        snapshot_sha256: str,
+    ) -> RuntimeSealMetadata | None:
+        return consume_authorization_action(
+            value,
+            snapshot_sha256,
+            action="unmount",
+        )
+
+    def consume_native_owner(
+        value: object,
+        snapshot_sha256: str,
+    ) -> RuntimeSealMetadata | None:
+        return consume_authorization_action(
+            value,
+            snapshot_sha256,
+            action="native_owner_cleanup",
+        )
+
+    def consume_final_recovery(
+        value: object,
+        snapshot_sha256: str,
+    ) -> RuntimeSealMetadata | None:
+        return consume_authorization_action(
+            value,
+            snapshot_sha256,
+            action="final_recovery_secret_mount_absence",
+            prerequisites=frozenset({"native_owner_cleanup", "unmount"}),
+        )
+
+    def consume_final_socket(
+        value: object,
+        snapshot_sha256: str,
+    ) -> RuntimeSealMetadata | None:
+        return consume_authorization_action(
+            value,
+            snapshot_sha256,
+            action="final_transport_socket_absence",
+            prerequisites=frozenset({"native_owner_cleanup", "unmount"}),
+        )
+
+    def consume_final_credential(
+        value: object,
+        snapshot_sha256: str,
+    ) -> RuntimeSealMetadata | None:
+        return consume_authorization_action(
+            value,
+            snapshot_sha256,
+            action="final_credential_paths_absence",
+            prerequisites=frozenset({"native_owner_cleanup", "unmount"}),
+        )
+
+    def finalize_authorization(
+        value: object,
+        snapshot_sha256: str,
+    ) -> RuntimeSealMetadata | None:
+        if type(value) is not LifecycleV2TerminalCleanupAuthorization:
+            return None
+        metadata = registry.finalize_actions(
+            value,
+            snapshot_sha256=snapshot_sha256,
+            kind="terminal_cleanup_authorization",
+            required_actions=_TERMINAL_CLEANUP_AUTHORIZATION_ACTIONS,
+        )
+        if metadata is not None:
+            finalized_authorizations.add(id(value))
+        return metadata
+
+    def capture_unmount_receipt(
+        cls: type[LifecycleV2SecretMountUnmountReceipt],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2SecretMountUnmountReceipt:
+        if cls is not LifecycleV2SecretMountUnmountReceipt:
+            _reject("unmount receipt capture class is not exact")
+        result = original_unmount_receipt(*args, **kwargs)
+        authorization = kwargs.get("authorization")
+        metadata = require_compound(authorization)
+        register_canonical(
+            result,
+            provenance=metadata.provenance,
+            scope_sha256=metadata.scope_sha256,
+        )
+        return result
+
+    def capture_owner_receipt(
+        cls: type[LifecycleV2NativeOwnerCleanupReceipt],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2NativeOwnerCleanupReceipt:
+        if cls is not LifecycleV2NativeOwnerCleanupReceipt:
+            _reject("native owner receipt capture class is not exact")
+        result = original_owner_receipt(*args, **kwargs)
+        authorization = kwargs.get("authorization")
+        metadata = require_compound(authorization)
+        register_canonical(
+            result,
+            provenance=metadata.provenance,
+            scope_sha256=metadata.scope_sha256,
+        )
+        return result
+
+    def capture_fixed_semantic(
+        cls: type[_FixedSemantic],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> _FixedSemantic:
+        if cls is not _FixedSemantic:
+            _reject("fixed lifecycle semantic capture class is not exact")
+        result = original_fixed_semantic(*args, **kwargs)
+        register_canonical(
+            result,
+            provenance="derived_lifecycle_semantic",
+            scope_sha256=_runtime_scope(result.fields),
+        )
+        return result
+
+    cast(Any, LifecycleV2HostTransportCleanupIdentity).capture = classmethod(capture_host_identity)
+    cast(Any, LifecycleV2TransportCleanupPlan).from_retained_result = classmethod(
+        capture_transport_plan
+    )
+    cast(Any, LifecycleV2SupervisorQuiescenceObservation).capture = classmethod(
+        capture_supervisor_observation
+    )
+    cast(Any, LifecycleV2HostTransportCleanupReceipt).capture = classmethod(capture_host_receipt)
+    cast(Any, LifecycleV2TransportQuiescence).confirm = classmethod(capture_quiescence)
+    cast(Any, LifecycleV2ReauthenticationIntent)._capture_fixed = classmethod(capture_reauth_intent)
+    cast(
+        Any, LifecycleV2AuthenticatedReauthenticationBinding
+    )._capture_fake_for_tests = classmethod(capture_reauth_binding)
+    cast(Any, LifecycleV2EmptySecretMountIdentity).capture = classmethod(capture_empty_mount)
+    cast(Any, LifecycleV2EmptySecretMountProjection).from_mounts = classmethod(
+        capture_mount_projection
+    )
+    cast(Any, LifecycleV2PathAbsence)._fixed = classmethod(capture_path_absence)
+    cast(Any, LifecycleV2NativeOwnerSet).capture = classmethod(capture_owner_set)
+    cast(Any, LifecycleV2SecretMountUnmountReceipt).completed = classmethod(capture_unmount_receipt)
+    cast(Any, LifecycleV2NativeOwnerCleanupReceipt).completed = classmethod(capture_owner_receipt)
+    cast(Any, _FixedSemantic).capture = classmethod(capture_fixed_semantic)
+
+    original_initial_lineage = cast(
+        Callable[..., LifecycleV2NormalProgressLineage],
+        LifecycleV2NormalProgressLineage.from_retained_result,
+    )
+
+    def validate_lineage_records(
+        value: LifecycleV2NormalProgressLineage,
+        *,
+        exact_last_ordinal: int,
+    ) -> None:
+        if (
+            type(value) is not LifecycleV2NormalProgressLineage
+            or type(value.root) is not LifecycleV2Root
+            or type(value.records) is not tuple
+            or type(value.semantics) is not tuple
+            or len(value.records) != exact_last_ordinal - 1
+            or len(value.semantics) != len(value.records)
+            or tuple(record.ordinal for record in value.records)
+            != tuple(range(2, exact_last_ordinal + 1))
+        ):
+            _reject("normal lifecycle lineage is not the exact retained ordinal prefix")
+        previous_sha256 = value.records[0].predecessor_sha256
+        for record in value.records:
+            exact = _exact_record(record)
+            expected_stage = NORMAL_STAGE_BY_ORDINAL[exact.ordinal]
+            expected_effect = (
+                "clean_stop_result" if exact.ordinal == 2 else _SPECS[exact.ordinal].effect_kind
+            )
+            if (
+                exact.root_sha256 != value.root.sha256
+                or exact.graceful_stop_operation_id != value.root.graceful_stop_operation_id
+                or exact.stage is not expected_stage
+                or exact.effect_kind != expected_effect
+                or exact.deadline_boottime_ns != value.root.operation_deadline_boottime_ns
+                or exact.predecessor_sha256 != previous_sha256
+            ):
+                _reject("normal lifecycle lineage record chain is not exact")
+            previous_sha256 = exact.sha256
+
+    def capture_initial_lineage(
+        cls: type[LifecycleV2NormalProgressLineage],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> LifecycleV2NormalProgressLineage:
+        if cls is not LifecycleV2NormalProgressLineage:
+            _reject("normal lifecycle lineage capture class is not exact")
+        result = original_initial_lineage(*args, **kwargs)
+        validate_lineage_records(result, exact_last_ordinal=2)
+        if not registry.seal(
+            result,
+            snapshot_sha256=_lineage_snapshot(result),
+            kind="normal_progress_lineage",
+            provenance="authenticated_injected_lineage",
+            scope_sha256=result.root.sha256,
+        ):
+            _reject("normal lifecycle lineage runtime seal could not be created")
+        return result
+
+    cast(Any, LifecycleV2NormalProgressLineage).from_retained_result = classmethod(
+        capture_initial_lineage
+    )
+
+    semantic_type_by_ordinal = {
+        3: LifecycleV2TransportCleanupPlan,
+        4: LifecycleV2TransportQuiescence,
+        5: LifecycleV2ReauthenticationIntent,
+        6: LifecycleV2AuthenticatedReauthenticationBinding,
+        7: _FixedSemantic,
+        8: DockerMutationResultSemantic,
+        9: _FixedSemantic,
+        10: DockerMutationResultSemantic,
+        11: _FixedSemantic,
+        12: DockerMutationResultSemantic,
+        13: _FixedSemantic,
+        14: DockerMutationResultSemantic,
+        15: _FixedSemantic,
+        16: DockerMutationResultSemantic,
+        17: _FixedSemantic,
+        18: DockerVolumePreservationResult,
+        19: LifecycleV2ReauthenticationIntent,
+        20: LifecycleV2AuthenticatedReauthenticationBinding,
+        21: LifecycleV2TerminalCleanupPlan,
+        22: LifecycleV2TerminalCleanupResult,
+    }
+
+    def validate_transition(
+        source: LifecycleV2NormalProgressLineage,
+        result: object,
+        expected_ordinal: int,
+        transition_arguments: dict[str, object],
+    ) -> LifecycleV2NormalProgressLineage:
+        if type(result) is not LifecycleV2NormalProgressLineage:
+            _reject("named lifecycle transition returned an inexact lineage")
+        exact_result = result
+        if (
+            exact_result.root is not source.root
+            or exact_result.terminal_wire is not source.terminal_wire
+            or exact_result.clean_stop_result is not source.clean_stop_result
+            or len(exact_result.records) != len(source.records) + 1
+            or len(exact_result.semantics) != len(source.semantics) + 1
+            or any(
+                candidate is not retained
+                for candidate, retained in zip(
+                    exact_result.records[:-1], source.records, strict=True
+                )
+            )
+            or any(
+                candidate is not retained
+                for candidate, retained in zip(
+                    exact_result.semantics[:-1], source.semantics, strict=True
+                )
+            )
+            or type(exact_result.semantics[-1]) is not semantic_type_by_ordinal[expected_ordinal]
+        ):
+            _reject("named lifecycle transition substituted retained identity")
+        record = _exact_record(exact_result.records[-1])
+        spec = _SPECS[expected_ordinal]
+        if (
+            record.ordinal != expected_ordinal
+            or record.stage is not spec.stage
+            or record.effect_kind != spec.effect_kind
+            or record.predecessor_sha256 != source.records[-1].sha256
+            or record.root_sha256 != source.root.sha256
+            or record.graceful_stop_operation_id != source.root.graceful_stop_operation_id
+            or record.deadline_boottime_ns != source.root.operation_deadline_boottime_ns
+        ):
+            _reject("named lifecycle transition changed ordinal, stage, effect, or deadline")
+        trace_changes = frozenset({7, 8, 10, 12, 14, 16, 18})
+        if expected_ordinal == 7:
+            if (
+                type(exact_result.docker_admission) is not DockerAdmissionCapture
+                or type(exact_result.docker_trace) is not DockerAdmissionRootedTracePrefix
+            ):
+                _reject("ordinal seven omitted exact Docker admission identity")
+        elif exact_result.docker_admission is not source.docker_admission:
+            _reject("lifecycle transition substituted Docker admission identity")
+        if (
+            expected_ordinal not in trace_changes
+            and exact_result.docker_trace is not source.docker_trace
+        ):
+            _reject("lifecycle transition substituted Docker trace identity")
+        if expected_ordinal == 6:
+            if (
+                type(exact_result.pre_effect_binding)
+                is not LifecycleV2AuthenticatedReauthenticationBinding
+            ):
+                _reject("ordinal six omitted its exact reauthentication binding")
+        elif exact_result.pre_effect_binding is not source.pre_effect_binding:
+            _reject("lifecycle transition substituted pre-effect binding identity")
+        if expected_ordinal == 19:
+            if type(exact_result.prefix_through_eighteen) is not LifecycleV2Transcript:
+                _reject("ordinal nineteen omitted its exact prefix transcript")
+        elif exact_result.prefix_through_eighteen is not source.prefix_through_eighteen:
+            _reject("lifecycle transition substituted prefix transcript identity")
+        if expected_ordinal == 21:
+            plan = exact_result.terminal_cleanup_plan
+            observer = transition_arguments.get("observer")
+            authorized_boottime_ns = transition_arguments.get("cleanup_authorized_boottime_ns")
+            if (
+                type(plan) is not LifecycleV2TerminalCleanupPlan
+                or plan is not exact_result.semantics[-1]
+                or type(observer) is not LifecycleV2InjectedCleanupObserver
+            ):
+                _reject("ordinal twenty-one omitted its exact injected cleanup plan")
+            not_before_boottime_ns = max(
+                *(mount.observed_boottime_ns for mount in plan.mounts),
+                cast(int, plan.recovery_absence.to_dict()["observed_boottime_ns"]),
+                cast(int, plan.socket_absence.to_dict()["observed_boottime_ns"]),
+                cast(int, plan.credential_absence.to_dict()["observed_boottime_ns"]),
+                plan.owners.observed_boottime_ns,
+            )
+            exact_authorized_boottime_ns = _require_int(
+                authorized_boottime_ns,
+                "cleanup_authorized_boottime_ns",
+            )
+            authorization = mint_authorization(
+                root=exact_result.root,
+                cleanup_intent=exact_result.records[-1],
+                observer=observer,
+                authorized_boottime_ns=exact_authorized_boottime_ns,
+                not_before_boottime_ns=not_before_boottime_ns,
+            )
+            object.__setattr__(plan, "authorization", authorization)
+            object.__setattr__(
+                exact_result,
+                "terminal_cleanup_authorization",
+                authorization,
+            )
+            authorization_metadata = require_compound(authorization)
+            register_compound(
+                plan,
+                provenance=authorization_metadata.provenance,
+                scope_sha256=authorization_metadata.scope_sha256,
+            )
+        else:
+            if exact_result.terminal_cleanup_plan is not source.terminal_cleanup_plan:
+                _reject("lifecycle transition substituted terminal cleanup plan")
+            if (
+                exact_result.terminal_cleanup_authorization
+                is not source.terminal_cleanup_authorization
+            ):
+                _reject("lifecycle transition substituted terminal cleanup authorization")
+        if expected_ordinal == 22:
+            cleanup_result = exact_result.semantics[-1]
+            terminal_authorization = exact_result.terminal_cleanup_authorization
+            if (
+                type(cleanup_result) is not LifecycleV2TerminalCleanupResult
+                or type(terminal_authorization) is not LifecycleV2TerminalCleanupAuthorization
+                or cleanup_result.authorization is not terminal_authorization
+                or id(terminal_authorization) not in finalized_authorizations
+            ):
+                _reject("ordinal twenty-two lacks finalized exact cleanup evidence")
+            authorization_metadata = require_compound(terminal_authorization)
+            register_compound(
+                cleanup_result,
+                provenance=authorization_metadata.provenance,
+                scope_sha256=authorization_metadata.scope_sha256,
+            )
+        validate_lineage_records(exact_result, exact_last_ordinal=expected_ordinal)
+        return exact_result
+
+    def wrap_transition(
+        original: Callable[..., LifecycleV2NormalProgressLineage],
+        expected_ordinal: int,
+    ) -> Callable[..., LifecycleV2NormalProgressLineage]:
+        def transition(
+            self: LifecycleV2NormalProgressLineage,
+            *args: object,
+            **kwargs: object,
+        ) -> LifecycleV2NormalProgressLineage:
+            if type(self) is not LifecycleV2NormalProgressLineage:
+                _reject("normal lifecycle transition requires an exact lineage")
+            source_snapshot = _lineage_snapshot(self)
+            source_metadata = registry.require(
+                self,
+                snapshot_sha256=source_snapshot,
+                kind="normal_progress_lineage",
+                provenance="authenticated_injected_lineage",
+                scope_sha256=self.root.sha256,
+                allow_consumed=False,
+            )
+            if source_metadata is None or self.records[-1].ordinal + 1 != expected_ordinal:
+                _reject("normal lifecycle source is unavailable or already advanced")
+            result = original(self, *args, **kwargs)
+            exact_result = validate_transition(
+                self,
+                result,
+                expected_ordinal,
+                kwargs,
+            )
+            if not registry.transition(
+                self,
+                source_snapshot_sha256=source_snapshot,
+                result=exact_result,
+                result_snapshot_sha256=_lineage_snapshot(exact_result),
+                kind="normal_progress_lineage",
+                provenance=source_metadata.provenance,
+                scope_sha256=source_metadata.scope_sha256,
+            ):
+                _reject("normal lifecycle transition was replayed or crossed runtime scope")
+            return exact_result
+
+        return transition
+
+    transition_methods = (
+        ("retain_transport_cleanup_commitment", 3),
+        ("confirm_transport_channel_quiesced", 4),
+        ("retain_pre_effect_reauthentication_intent", 5),
+        ("retain_pre_effect_reauthentication_binding", 6),
+        ("retain_supervisor_container_stop_intent", 7),
+        ("retain_supervisor_container_stop_result", 8),
+        ("retain_source_container_stop_intent", 9),
+        ("retain_source_container_stop_result", 10),
+        ("retain_supervisor_container_remove_intent", 11),
+        ("retain_supervisor_container_remove_result", 12),
+        ("retain_source_container_remove_intent", 13),
+        ("retain_source_container_remove_result", 14),
+        ("retain_project_network_remove_intent", 15),
+        ("retain_project_network_remove_result", 16),
+        ("retain_named_volume_preservation_intent", 17),
+        ("retain_named_volumes_preserved", 18),
+        ("retain_post_teardown_reauthentication_intent", 19),
+        ("retain_post_teardown_reauthentication_binding", 20),
+        ("retain_terminal_cleanup_intent", 21),
+        ("retain_terminal_cleanup_confirmed", 22),
+    )
+    for method_name, ordinal in transition_methods:
+        original = cast(
+            Callable[..., LifecycleV2NormalProgressLineage],
+            getattr(LifecycleV2NormalProgressLineage, method_name),
+        )
+        setattr(
+            LifecycleV2NormalProgressLineage,
+            method_name,
+            wrap_transition(original, ordinal),
+        )
+
+    def require_lineage_runtime(
+        value: object,
+        snapshot_sha256: str,
+        root_sha256: str,
+        allow_consumed: bool,
+    ) -> RuntimeSealMetadata | None:
+        if type(value) is not LifecycleV2NormalProgressLineage:
+            return None
+        return registry.require(
+            value,
+            snapshot_sha256=snapshot_sha256,
+            kind="normal_progress_lineage",
+            provenance="authenticated_injected_lineage",
+            scope_sha256=root_sha256,
+            allow_consumed=allow_consumed,
+        )
+
+    def require_lineage_prefix(value: object, ordinal: int) -> LifecycleV2NormalProgressLineage:
+        if type(value) is not LifecycleV2NormalProgressLineage:
+            _reject("normal lifecycle lineage prefix type is not exact")
+        snapshot = _lineage_snapshot(value)
+        if (
+            registry.require(
+                value,
+                snapshot_sha256=snapshot,
+                kind="normal_progress_lineage",
+                provenance="authenticated_injected_lineage",
+                scope_sha256=value.root.sha256,
+                allow_consumed=False,
+            )
+            is None
+        ):
+            _reject("normal lifecycle lineage prefix is unavailable or already advanced")
+        validate_lineage_records(value, exact_last_ordinal=ordinal)
+        return value
+
+    def require_through_five(value: object) -> LifecycleV2NormalProgressLineage:
+        return require_lineage_prefix(value, 5)
+
+    def require_through_nineteen(value: object) -> LifecycleV2NormalProgressLineage:
+        result = require_lineage_prefix(value, 19)
+        if (
+            type(result.pre_effect_binding) is not LifecycleV2AuthenticatedReauthenticationBinding
+            or type(result.prefix_through_eighteen) is not LifecycleV2Transcript
+        ):
+            _reject("ordinal-nineteen lineage omitted exact pre-binding or transcript")
+        return result
+
+    def consume_confirmed_success(value: object) -> LifecycleV2ConfirmedSuccessLineageSnapshot:
+        if type(value) is not LifecycleV2NormalProgressLineage:
+            _reject("confirmed success requires one exact normal lineage")
+        lineage_digest = _lineage_snapshot(value)
+        validate_lineage_records(value, exact_last_ordinal=22)
+        cleanup_result = value.semantics[-1]
+        authorization = value.terminal_cleanup_authorization
+        if (
+            type(cleanup_result) is not LifecycleV2TerminalCleanupResult
+            or type(authorization) is not LifecycleV2TerminalCleanupAuthorization
+            or cleanup_result.authorization is not authorization
+            or id(authorization) not in finalized_authorizations
+        ):
+            _reject("confirmed success lacks exact finalized ordinal-twenty-two evidence")
+        cleanup_result._require_sealed()
+        metadata = registry.consume_action(
+            value,
+            snapshot_sha256=lineage_digest,
+            kind="normal_progress_lineage",
+            action="repository_confirmed_success",
+        )
+        if metadata is None:
+            _reject("confirmed-success lineage repository consumption was replayed")
+        result = object.__new__(LifecycleV2ConfirmedSuccessLineageSnapshot)
+        object.__setattr__(result, "root", value.root)
+        object.__setattr__(result, "records", value.records)
+        object.__setattr__(result, "root_encoded", value.root.encoded)
+        object.__setattr__(
+            result,
+            "record_encoded",
+            tuple(record.encoded for record in value.records),
+        )
+        object.__setattr__(result, "lineage_provenance", metadata.provenance)
+        object.__setattr__(result, "lineage_snapshot_sha256", lineage_digest)
+        object.__setattr__(result, "terminal_cleanup_result", cleanup_result)
+        object.__setattr__(
+            result,
+            "terminal_cleanup_result_snapshot_sha256",
+            _semantic_runtime_snapshot(cleanup_result),
+        )
+        if not registry.seal(
+            result,
+            snapshot_sha256=_confirmed_success_snapshot(result),
+            kind="confirmed_success_snapshot",
+            provenance=metadata.provenance,
+            scope_sha256=metadata.scope_sha256,
+        ):
+            _reject("confirmed-success repository snapshot could not be sealed")
+        return result
+
+    def consume_confirmed_success_snapshot_for_repository(
+        value: object,
+    ) -> LifecycleV2ConfirmedSuccessLineageSnapshot:
+        if type(value) is not LifecycleV2ConfirmedSuccessLineageSnapshot:
+            _reject("confirmed-success repository snapshot type is not exact")
+        try:
+            snapshot = _confirmed_success_snapshot(value)
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
+            _reject("confirmed-success repository snapshot is not sealed")
+        value.terminal_cleanup_result._require_sealed()
+        if (
+            registry.consume(
+                value,
+                snapshot_sha256=snapshot,
+                kind="confirmed_success_snapshot",
+                scope_sha256=value.root.sha256,
+            )
+            is None
+        ):
+            _reject("confirmed-success repository snapshot is not sealed or was replayed")
+        return value
+
+    return (
+        install_reauthentication_issuance_consumer,
+        capture_reauth_binding_from_realm,
+        build_fake_observer,
+        require_observer_runtime,
+        require_canonical,
+        require_compound,
+        consume_unmount,
+        consume_native_owner,
+        consume_final_recovery,
+        consume_final_socket,
+        consume_final_credential,
+        finalize_authorization,
+        require_lineage_runtime,
+        require_through_five,
+        require_through_nineteen,
+        consume_confirmed_success,
+        consume_confirmed_success_snapshot_for_repository,
+    )
+
+
+(
+    _install_lifecycle_v2_reauthentication_semantic_binding_issuance_consumer,
+    _capture_lifecycle_v2_authenticated_reauthentication_binding_from_realm,
+    _build_injected_fake_lifecycle_v2_cleanup_observer,
+    _require_exact_cleanup_observer_runtime,
+    _require_canonical_evidence,
+    _require_exact_compound_value,
+    _consume_terminal_cleanup_unmount_authorization,
+    _consume_terminal_cleanup_native_owner_authorization,
+    _consume_terminal_cleanup_final_recovery_absence_authorization,
+    _consume_terminal_cleanup_final_socket_absence_authorization,
+    _consume_terminal_cleanup_final_credential_absence_authorization,
+    _finalize_exact_terminal_cleanup_authorization_runtime,
+    _require_exact_normal_progress_lineage_runtime,
+    require_exact_lifecycle_v2_normal_lineage_through_ordinal_5,
+    require_exact_lifecycle_v2_normal_lineage_through_ordinal_19,
+    consume_exact_lifecycle_v2_confirmed_success_lineage,
+    consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository,
+) = _install_lifecycle_v2_runtime_seals()
+del _install_lifecycle_v2_runtime_seals
 
 
 def lifecycle_v2_semantics_non_authority_facts() -> dict[str, bool]:
@@ -2533,6 +4471,8 @@ def lifecycle_v2_semantics_non_authority_facts() -> dict[str, bool]:
         "reauthentication_issuer_consumed": False,
         "artifact_published": False,
         "stop_authority_granted": False,
+        "production_cleanup_observer_present": False,
+        "raw_cleanup_assertion_authority_present": False,
         "production_caller_present": False,
     }
 
@@ -2545,10 +4485,12 @@ __all__ = [
     "SUPERVISOR_SECRET_MOUNT_PATH",
     "TRANSPORT_MOUNT_PATH",
     "LifecycleV2AuthenticatedReauthenticationBinding",
+    "LifecycleV2ConfirmedSuccessLineageSnapshot",
     "LifecycleV2EmptySecretMountIdentity",
     "LifecycleV2EmptySecretMountProjection",
     "LifecycleV2HostTransportCleanupIdentity",
     "LifecycleV2HostTransportCleanupReceipt",
+    "LifecycleV2InjectedCleanupObserver",
     "LifecycleV2NativeOwnerCleanupReceipt",
     "LifecycleV2NativeOwnerSet",
     "LifecycleV2NormalProgressLineage",
@@ -2556,10 +4498,15 @@ __all__ = [
     "LifecycleV2ReauthenticationIntent",
     "LifecycleV2SecretMountUnmountReceipt",
     "LifecycleV2SupervisorQuiescenceObservation",
+    "LifecycleV2TerminalCleanupAuthorization",
     "LifecycleV2TerminalCleanupPlan",
     "LifecycleV2TerminalCleanupResult",
     "LifecycleV2TransportCleanupPlan",
     "LifecycleV2TransportQuiescence",
     "TrustedTimeLifecycleV2SemanticsRejected",
+    "consume_exact_lifecycle_v2_confirmed_success_lineage",
+    "consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository",
     "lifecycle_v2_semantics_non_authority_facts",
+    "require_exact_lifecycle_v2_normal_lineage_through_ordinal_5",
+    "require_exact_lifecycle_v2_normal_lineage_through_ordinal_19",
 ]

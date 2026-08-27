@@ -13,7 +13,7 @@ import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Self
+from typing import Any, Self, cast
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_V2_CLEAN_STOP_SERVICE,
@@ -34,6 +34,10 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     decode_unverified_lifecycle_v2_transport_envelope,
     lifecycle_v2_wire_file_name,
 )
+from packages.domain.trusted_time_graceful_stop_v2_runtime_seal import (
+    LifecycleV2RuntimeSealRegistry,
+    RuntimeSealMetadata,
+)
 
 CLEAN_STOP_RESULT_CONTRACT_VERSION = "phase6d-trusted-time-head-anchor-clean-stop-result-v2"
 CLEAN_STOP_ERROR_CONTRACT_VERSION = "phase6d-trusted-time-head-anchor-clean-stop-error-v2"
@@ -52,7 +56,6 @@ SUPERVISOR_RAW_KEY_PATH = (
 _RESULT_MAXIMUM_BYTES = 180_224
 _ERROR_MAXIMUM_BYTES = 32_768
 _UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\Z")
-_TERMINAL_WIRE_EVIDENCE_CAPABILITY = object()
 
 
 def _digest(encoded: bytes) -> str:
@@ -62,6 +65,16 @@ def _digest(encoded: bytes) -> str:
 def _domain_digest(domain: str, value: object, *, maximum_bytes: int = 256 * 1_024) -> str:
     encoded = canonical_v2_json_bytes(value, maximum_bytes=maximum_bytes)
     return hashlib.sha256(domain.encode("ascii") + b"\0" + encoded).hexdigest()
+
+
+def _terminal_wire_evidence_snapshot(
+    fields: FrozenJsonObject,
+    receipt: LifecycleV2WirePublicationReceipt,
+) -> str:
+    return _domain_digest(
+        "AutoQuantTrader/trusted-time/graceful-stop/runtime-terminal-wire-evidence-seal/v2",
+        {"fields": fields.to_dict(), "receipt": receipt.to_dict()},
+    )
 
 
 def _require_fields(value: dict[str, object], fields: frozenset[str]) -> None:
@@ -1289,7 +1302,6 @@ class LifecycleV2TerminalWireEvidence(_CanonicalValue):
 
     fields: FrozenJsonObject
     receipt: LifecycleV2WirePublicationReceipt
-    _capability: object
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("terminal wire evidence requires request-bound canonical capture")
@@ -1390,11 +1402,16 @@ class LifecycleV2TerminalWireEvidence(_CanonicalValue):
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
         object.__setattr__(result, "receipt", receipt)
-        object.__setattr__(result, "_capability", _TERMINAL_WIRE_EVIDENCE_CAPABILITY)
         return result
 
     def to_dict(self) -> dict[str, object]:
-        if getattr(self, "_capability", None) is not _TERMINAL_WIRE_EVIDENCE_CAPABILITY:
+        try:
+            snapshot = _terminal_wire_evidence_snapshot(self.fields, self.receipt)
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal wire evidence is not sealed"
+            ) from None
+        if _require_exact_terminal_wire_evidence(self, snapshot) is None:
             raise TrustedTimeGracefulStopV2Rejected("terminal wire evidence is not sealed")
         return self.fields.to_dict()
 
@@ -1440,6 +1457,64 @@ def terminal_non_authority_facts() -> dict[str, bool]:
         "docker_effect_present": False,
         "production_caller_present": False,
     }
+
+
+def _install_terminal_wire_runtime_seal() -> Callable[[object, str], RuntimeSealMetadata | None]:
+    """Install exact capture closure without exporting a registration capability."""
+
+    registry = LifecycleV2RuntimeSealRegistry()
+    original_capture = cast(
+        Callable[..., LifecycleV2TerminalWireEvidence],
+        LifecycleV2TerminalWireEvidence.capture,
+    )
+
+    def capture_terminal_wire(
+        cls: type[LifecycleV2TerminalWireEvidence], /, *args: object, **kwargs: object
+    ) -> LifecycleV2TerminalWireEvidence:
+        if cls is not LifecycleV2TerminalWireEvidence:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal wire evidence capture class is not exact"
+            )
+        result = original_capture(*args, **kwargs)
+        if type(result) is not LifecycleV2TerminalWireEvidence:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal wire evidence capture returned an inexact type"
+            )
+        exact_root = kwargs.get("root")
+        if type(exact_root) is not LifecycleV2Root:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal wire evidence capture omitted its exact root"
+            )
+        if not registry.seal(
+            result,
+            snapshot_sha256=_terminal_wire_evidence_snapshot(result.fields, result.receipt),
+            kind="terminal_wire_evidence",
+            provenance="authenticated_injected_terminal_wire",
+            scope_sha256=exact_root.sha256,
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal wire evidence runtime seal could not be created"
+            )
+        return result
+
+    def require_terminal_wire(
+        value: object,
+        snapshot_sha256: str,
+    ) -> RuntimeSealMetadata | None:
+        if type(value) is not LifecycleV2TerminalWireEvidence:
+            return None
+        return registry.require(
+            value,
+            snapshot_sha256=snapshot_sha256,
+            kind="terminal_wire_evidence",
+        )
+
+    cast(Any, LifecycleV2TerminalWireEvidence).capture = classmethod(capture_terminal_wire)
+    return require_terminal_wire
+
+
+_require_exact_terminal_wire_evidence = _install_terminal_wire_runtime_seal()
+del _install_terminal_wire_runtime_seal
 
 
 __all__ = [
