@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "575c1ff0e78efb0b2c561607163795ee8a6811eead44e582487cc80e2cd3416e"
+    "75f808317ebb9f5ea5b0155cf3d334bfb2ecf4daeda0150f8b450d6570ad2210"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -2397,6 +2397,14 @@ _EXACT_NATIVE_FFI_MODULE_AST_SHA256 = {
     ),
 }
 
+_DYNAMIC_MODULE_NAMESPACE_CARRIER_ATTRIBUTES = frozenset(
+    {
+        "__builtins__",
+        "__loader__",
+        "__spec__",
+    }
+)
+
 
 def _native_executable_loading_violations(
     tree: ast.AST,
@@ -2413,6 +2421,7 @@ def _native_executable_loading_violations(
     del image_import_root
     forbidden_modules = {"_ctypes", "_imp", "cffi", "ctypes"}
     forbidden_attributes = {
+        *_DYNAMIC_MODULE_NAMESPACE_CARRIER_ATTRIBUTES,
         "CDLL",
         "ExtensionFileLoader",
         "LoadLibrary",
@@ -2435,6 +2444,14 @@ def _native_executable_loading_violations(
     }
     private_native_module = "packages.adapters.trusted_time._native_owned_file_descriptor"
     violations: list[Violation] = []
+    import_bindings = _imported_symbol_bindings(tree)
+    reflection_text_bindings = _wave5_constant_text_bindings(tree)
+
+    def is_imported_namespace(node: ast.AST) -> bool:
+        while isinstance(node, ast.Attribute):
+            node = node.value
+        return isinstance(node, ast.Name) and node.id in import_bindings
+
     expected_ffi_digest = _EXACT_NATIVE_FFI_MODULE_AST_SHA256.get(relative_path)
     exact_ffi_exception = (
         expected_ffi_digest is not None and _canonical_ast_sha256(tree) == expected_ffi_digest
@@ -2486,6 +2503,42 @@ def _native_executable_loading_violations(
                 )
             )
             continue
+        if isinstance(node, ast.Call):
+            receiver: ast.AST | None = None
+            reflected_argument: ast.AST | None = None
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and len(node.args) >= 2
+            ):
+                receiver = node.args[0]
+                reflected_argument = node.args[1]
+            elif isinstance(node.func, ast.Attribute) and node.func.attr == "__getattribute__":
+                if len(node.args) >= 2:
+                    receiver = node.args[0]
+                    reflected_argument = node.args[1]
+                elif node.args:
+                    receiver = node.func.value
+                    reflected_argument = node.args[0]
+            reflected_name = (
+                _constant_wave5_reflection_text(
+                    reflected_argument,
+                    reflection_text_bindings,
+                )
+                if reflected_argument is not None
+                else None
+            )
+            if reflected_name in _DYNAMIC_MODULE_NAMESPACE_CARRIER_ATTRIBUTES or (
+                reflected_name is None and receiver is not None and is_imported_namespace(receiver)
+            ):
+                violations.append(
+                    Violation(
+                        relative_path,
+                        node.lineno,
+                        "dynamic or unresolved imported module namespace reflection is forbidden",
+                    )
+                )
+                continue
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if not exact_ffi_exception and alias.name.partition(".")[0] in forbidden_modules:
@@ -6158,7 +6211,9 @@ def _phase3h_proof_boundary_violations(
                 parent = parents.get(node)
                 if not (isinstance(parent, ast.Call) and parent.func is node):
                     dynamic_code = "getattr-alias"
-        elif isinstance(node, ast.Attribute) and node.attr in dynamic_namespace_attribute_names:
+        elif isinstance(node, ast.Attribute) and node.attr in (
+            dynamic_namespace_attribute_names | _DYNAMIC_MODULE_NAMESPACE_CARRIER_ATTRIBUTES
+        ):
             dynamic_code = node.attr
         elif reflected_builtin_dynamic_code(node) in dynamic_code_names:
             dynamic_code = reflected_builtin_dynamic_code(node)
@@ -6210,7 +6265,10 @@ def _phase3h_proof_boundary_violations(
                 )
                 if (
                     reflected_name is None
-                    or reflected_name in dynamic_loader_names | dynamic_namespace_attribute_names
+                    or reflected_name
+                    in dynamic_loader_names
+                    | dynamic_namespace_attribute_names
+                    | _DYNAMIC_MODULE_NAMESPACE_CARRIER_ATTRIBUTES
                     or is_builtins_namespace(receiver)
                     or is_dynamic_loader_namespace(receiver)
                     or constructed_import_reflection
@@ -6754,6 +6812,7 @@ def _isolated_wave5_module_boundary_violations(
             if (
                 node.attr in dynamic_loader_names
                 or node.attr in dynamic_namespace_attribute_names
+                or node.attr in _DYNAMIC_MODULE_NAMESPACE_CARRIER_ATTRIBUTES
                 or (node.attr in dynamic_namespace_names and is_builtins_namespace(node.value))
             ):
                 dynamic_reachability = node.attr
@@ -6786,7 +6845,9 @@ def _isolated_wave5_module_boundary_violations(
                 if (
                     reflected_name is None
                     or reflected_name
-                    in dynamic_reachability_names | dynamic_namespace_attribute_names
+                    in dynamic_reachability_names
+                    | dynamic_namespace_attribute_names
+                    | _DYNAMIC_MODULE_NAMESPACE_CARRIER_ATTRIBUTES
                     or is_builtins_namespace(receiver)
                     or is_dynamic_loader_namespace(receiver)
                     or constructed_import_reflection

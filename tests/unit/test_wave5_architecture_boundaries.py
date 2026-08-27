@@ -47,6 +47,25 @@ _SCOPE_POISONED_SCRIPT_FFI_ESCAPE = (
     "library = ctypes_owner.ctypes.pydll.LoadLibrary(None)"
 )
 
+_ORDINARY_MODULE_NAMESPACE_ESCAPES = (
+    "import dataclasses\n"
+    "def resolve(import_name, resolver_name, module_name, attribute_name):\n"
+    "    namespace = dataclasses.__builtins__\n"
+    "    loader = namespace[import_name]\n"
+    "    resolver = namespace[resolver_name]\n"
+    "    module = loader(module_name, fromlist=('sentinel',))\n"
+    "    return resolver(module, attribute_name)",
+    "import dataclasses\nloader = dataclasses.__loader__",
+    "import dataclasses\nspecification = dataclasses.__spec__",
+    "import dataclasses\nnamespace = getattr(dataclasses, '__builtins__')",
+    "import dataclasses\nloader = getattr(dataclasses, '__loader__')",
+    "import dataclasses\nspecification = getattr(dataclasses, '__spec__')",
+    "import dataclasses as carrier\n"
+    "carrier_name = '__built' + 'ins__'\n"
+    "namespace = getattr(carrier, carrier_name)",
+    "import dataclasses\ndef resolve(carrier_name):\n    return getattr(dataclasses, carrier_name)",
+)
+
 
 def _dynamic_code_exceptions() -> dict[Path, str]:
     with (REPOSITORY / "infra/architecture-boundaries.toml").open("rb") as stream:
@@ -277,6 +296,7 @@ def _phase4an_violations(source: str, *, relative_path: Path) -> list[Violation]
         "library = ctypes_owner.ctypes.pydll.LoadLibrary(None)",
         _SCOPE_POISONED_PACKAGE_EXCEPTION_ESCAPE,
         _SCOPE_POISONED_SCRIPT_FFI_ESCAPE,
+        *_ORDINARY_MODULE_NAMESPACE_ESCAPES,
         "owner._retain_progress(record)",
     ],
 )
@@ -490,6 +510,7 @@ def test_wave5_boundary_accepts_unique_protected_python_module_identities() -> N
         "library = ctypes_owner.ctypes.pydll.LoadLibrary(None)",
         _SCOPE_POISONED_PACKAGE_EXCEPTION_ESCAPE,
         _SCOPE_POISONED_SCRIPT_FFI_ESCAPE,
+        *_ORDINARY_MODULE_NAMESPACE_ESCAPES,
     ],
 )
 def test_phase4an_boundary_rejects_unreviewed_runtime_reachability(source: str) -> None:
@@ -546,6 +567,26 @@ def test_phase4an_boundary_allows_public_exception_exports(source: str) -> None:
     assert not _phase4an_violations(
         source,
         relative_path=Path("packages/application/benign_exception_consumer.py"),
+    )
+
+
+def test_wave5_boundaries_allow_benign_ordinary_module_metadata() -> None:
+    source = (
+        "import dataclasses\n"
+        "decorator = dataclasses.dataclass\n"
+        "field_reader = dataclasses.fields\n"
+        "module_name = dataclasses.__name__"
+    )
+    relative_path = Path("packages/application/benign_dataclasses_consumer.py")
+
+    assert not _trusted_time_violations(source, relative_path=relative_path)
+    assert not _phase4an_violations(source, relative_path=relative_path)
+    assert not _native_executable_loading_violations(
+        ast.parse(source),
+        relative_path=relative_path,
+        wrapper_path=Path("packages/adapters/trusted_time/native_wrapper.py"),
+        wrapper_module="packages.adapters.trusted_time.native_wrapper",
+        image_import_root=False,
     )
 
 
@@ -624,6 +665,7 @@ def test_wave5_isolated_module_boundary_noops_when_policy_is_absent() -> None:
         "import ctypes\n"
         "library = ctypes.pydll.LoadLibrary(None)\n"
         "bridge = library.PyObj_FromPtr",
+        *_ORDINARY_MODULE_NAMESPACE_ESCAPES,
     ],
 )
 def test_native_loader_boundary_rejects_all_production_roots(source: str) -> None:

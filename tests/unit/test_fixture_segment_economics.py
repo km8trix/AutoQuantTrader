@@ -90,6 +90,25 @@ _SCOPE_POISONED_SCRIPT_FFI_ESCAPE = (
     "library = ctypes_owner.ctypes.pydll.LoadLibrary(None)"
 )
 
+_ORDINARY_MODULE_NAMESPACE_ESCAPES = (
+    "import dataclasses\n"
+    "def resolve(import_name, resolver_name, module_name, attribute_name):\n"
+    "    namespace = dataclasses.__builtins__\n"
+    "    loader = namespace[import_name]\n"
+    "    resolver = namespace[resolver_name]\n"
+    "    module = loader(module_name, fromlist=('sentinel',))\n"
+    "    return resolver(module, attribute_name)",
+    "import dataclasses\nloader = dataclasses.__loader__",
+    "import dataclasses\nspecification = dataclasses.__spec__",
+    "import dataclasses\nnamespace = getattr(dataclasses, '__builtins__')",
+    "import dataclasses\nloader = getattr(dataclasses, '__loader__')",
+    "import dataclasses\nspecification = getattr(dataclasses, '__spec__')",
+    "import dataclasses as carrier\n"
+    "carrier_name = '__built' + 'ins__'\n"
+    "namespace = getattr(carrier, carrier_name)",
+    "import dataclasses\ndef resolve(carrier_name):\n    return getattr(dataclasses, carrier_name)",
+)
+
 
 def _completed() -> tuple[
     GovernanceFixture,
@@ -895,6 +914,7 @@ def test_object_new_reconstruction_cannot_mint_process_or_receipt_evidence() -> 
         "library = ctypes_owner.ctypes.pydll.LoadLibrary(None)",
         _SCOPE_POISONED_PACKAGE_EXCEPTION_ESCAPE,
         _SCOPE_POISONED_SCRIPT_FFI_ESCAPE,
+        *_ORDINARY_MODULE_NAMESPACE_ESCAPES,
         "import ctypes\n"
         "library = ctypes.CDLL(None)\n"
         "importer = library.PyImport_ImportModule\n"
