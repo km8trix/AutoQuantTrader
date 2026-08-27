@@ -216,6 +216,7 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
     snapshots: dict[int, _AuthenticatedTerminalProofIssuanceSnapshot] = {}
     production_capability = object()
     adapter_unwrap: Callable[[object], object] | None = None
+    import_adapter = importlib.import_module
     lock = threading.Lock()
 
     def install_adapter_unwrap(endpoint: Callable[[object], object]) -> None:
@@ -227,7 +228,7 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
                 "terminal adapter endpoint installation is invalid"
             )
         try:
-            adapter = importlib.import_module(_PRODUCTION_AUTHENTICATED_ENVELOPE_TYPE[0])
+            adapter = import_adapter(_PRODUCTION_AUTHENTICATED_ENVELOPE_TYPE[0])
             exact_endpoint = adapter._unwrap_authenticated_lifecycle_v2_transport_envelope
         except (AttributeError, ImportError) as error:
             raise TrustedTimeGracefulStopV2Rejected(

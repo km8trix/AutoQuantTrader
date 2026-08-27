@@ -996,6 +996,74 @@ else:
     assert completed.returncode == 0, completed.stderr
 
 
+@pytest.mark.parametrize("import_attack", ["module_object", "import_module"])
+@pytest.mark.parametrize(
+    ("domain_module", "installer_name", "endpoint_name"),
+    (
+        (
+            "trusted_time_graceful_stop_v2_recovery",
+            "_install_authenticated_lifecycle_v2_recovery_adapter_endpoint",
+            "_consume_authenticated_lifecycle_v2_recovery_envelope_value",
+        ),
+        (
+            "trusted_time_graceful_stop_v2_terminal",
+            "_install_authenticated_terminal_envelope_adapter_endpoint",
+            "_unwrap_authenticated_lifecycle_v2_transport_envelope",
+        ),
+    ),
+)
+def test_domain_first_endpoint_claim_ignores_mutated_importer(
+    import_attack: str,
+    domain_module: str,
+    installer_name: str,
+    endpoint_name: str,
+) -> None:
+    script = f"""
+from types import SimpleNamespace
+from packages.domain import trusted_time_graceful_stop_v2_recovery
+from packages.domain import trusted_time_graceful_stop_v2_terminal
+from packages.domain import {domain_module} as domain
+
+def forged(value):
+    return value
+
+fake_adapter = SimpleNamespace({endpoint_name}=forged)
+fake_import = lambda _name: fake_adapter
+if {import_attack!r} == "module_object":
+    domain.importlib = SimpleNamespace(import_module=fake_import)
+else:
+    domain.importlib.import_module = fake_import
+installer = getattr(domain, {installer_name!r})
+try:
+    installer(forged)
+except domain.TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("mutable importer claimed the adapter endpoint")
+from packages.adapters.trusted_time import graceful_stop_v2_ed25519 as adapter
+try:
+    installer(getattr(adapter, {endpoint_name!r}))
+except domain.TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("legitimate captured-import installation was not one-shot")
+"""
+    repository = Path(__file__).resolve().parents[2]
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(repository)
+    python_executable = Path(sys.executable).with_name("python")
+    completed = subprocess.run(
+        [python_executable, "-c", script],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_object_new_clones_cannot_reuse_authenticated_ed25519_issuances() -> None:
     manifest = _manifest()
     selection = _selection(
