@@ -223,6 +223,27 @@ def _phase4an_violations(source: str, *, relative_path: Path) -> list[Violation]
         "loader = Owners.resolver._port_method(Owners.builtins._BUILTINS, import_name)\n"
         "module = loader(module_name, fromlist=('sentinel',))\n"
         "capability = Owners.resolver._port_method(module, attribute_name)",
+        "from packages.application.durable_trusted_time_monitor import "
+        "DurableTrustedTimeMonitorError\n"
+        "from packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge "
+        "import TrustedTimeHeadAnchorCleanStopSupervisorBridgeError\n"
+        "import packages.domain.models\n"
+        "root_package = packages\n"
+        "loader = root_package.application.durable_trusted_time_monitor._port_method(\n"
+        "    root_package.application.trusted_time_head_anchor_clean_stop_supervisor_bridge."
+        "_BUILTINS, import_name\n"
+        ")\n"
+        "module = loader(module_name, fromlist=('sentinel',))\n"
+        "capability = root_package.application.durable_trusted_time_monitor._port_method(\n"
+        "    module, attribute_name\n"
+        ")",
+        "from scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication "
+        "import TrustedTimePostEnrollmentCleanStopTerminalReauthenticationRejected\n"
+        "import scripts.check_architecture\n"
+        "root_scripts = scripts\n"
+        "ctypes_owner = "
+        "root_scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication\n"
+        "library = ctypes_owner.ctypes.pydll.LoadLibrary(None)",
         "owner._retain_progress(record)",
     ],
 )
@@ -413,6 +434,27 @@ def test_wave5_boundary_accepts_unique_protected_python_module_identities() -> N
         "loader = Owners.resolver._port_method(Owners.builtins._BUILTINS, import_name)\n"
         "module = loader(module_name, fromlist=('sentinel',))\n"
         "capability = Owners.resolver._port_method(module, attribute_name)",
+        "from packages.application.durable_trusted_time_monitor import "
+        "DurableTrustedTimeMonitorError\n"
+        "from packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge "
+        "import TrustedTimeHeadAnchorCleanStopSupervisorBridgeError\n"
+        "import packages.domain.models\n"
+        "root_package = packages\n"
+        "loader = root_package.application.durable_trusted_time_monitor._port_method(\n"
+        "    root_package.application.trusted_time_head_anchor_clean_stop_supervisor_bridge."
+        "_BUILTINS, import_name\n"
+        ")\n"
+        "module = loader(module_name, fromlist=('sentinel',))\n"
+        "capability = root_package.application.durable_trusted_time_monitor._port_method(\n"
+        "    module, attribute_name\n"
+        ")",
+        "from scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication "
+        "import TrustedTimePostEnrollmentCleanStopTerminalReauthenticationRejected\n"
+        "import scripts.check_architecture\n"
+        "root_scripts = scripts\n"
+        "ctypes_owner = "
+        "root_scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication\n"
+        "library = ctypes_owner.ctypes.pydll.LoadLibrary(None)",
     ],
 )
 def test_phase4an_boundary_rejects_unreviewed_runtime_reachability(source: str) -> None:

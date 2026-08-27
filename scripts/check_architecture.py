@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "3d2a134aa53ab2858147566360147f01215b86b9b974c45be434706572d6a005"
+    "be4a17e0ff0010d77f96563ec50ab66eca8d13864b1eb11014ae988ff9b4ed99"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -5627,6 +5627,9 @@ def _dynamic_code_exception_private_import_violations(
     expected_digest = exception_module_ast_sha256.get(relative_path)
     if expected_digest is not None and observed_digest == expected_digest:
         return []
+    expected_ffi_digest = _EXACT_NATIVE_FFI_MODULE_AST_SHA256.get(relative_path)
+    if expected_ffi_digest is not None and observed_digest == expected_ffi_digest:
+        return []
 
     expected_consumer_digest = _EXACT_DYNAMIC_CODE_EXCEPTION_PRIVATE_CONSUMER_AST_SHA256.get(
         relative_path
@@ -5636,7 +5639,9 @@ def _dynamic_code_exception_private_import_violations(
 
     exception_modules = frozenset(
         module
-        for path in exception_module_ast_sha256
+        for path in (
+            frozenset(exception_module_ast_sha256) | frozenset(_EXACT_NATIVE_FFI_MODULE_AST_SHA256)
+        )
         if (module := _python_module_identity(path)) is not None
     )
     if not exception_modules:
@@ -5729,7 +5734,9 @@ def _dynamic_code_exception_private_import_violations(
             qualified = _qualified_symbol(node, bindings)
             if qualified is None:
                 continue
-            if qualified in exception_modules:
+            if qualified in exception_modules or any(
+                module.startswith(f"{qualified}.") for module in exception_modules
+            ):
                 parent = parents.get(node)
                 if not (isinstance(parent, ast.Attribute) and parent.value is node):
                     violations.append(
@@ -5737,7 +5744,7 @@ def _dynamic_code_exception_private_import_violations(
                             relative_path,
                             getattr(node, "lineno", 1),
                             f"{boundary} cannot alias, pass, return, or contain dynamic-code "
-                            f"exception namespace '{qualified}'",
+                            f"exception or ancestor namespace '{qualified}'",
                         )
                     )
                 continue
