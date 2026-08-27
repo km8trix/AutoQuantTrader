@@ -115,6 +115,21 @@ def _phase4an_violations(source: str, *, relative_path: Path) -> list[Violation]
         "fromlist=('sentinel',))\n"
         "resolved = getattr(module, '%(a)s%(b)s' % "
         "{'a': '_open_injected_', 'b': 'lifecycle_v2_repository'})",
+        "namespace = vars()['%(a)s%(b)s' % {'a': '__built', 'b': 'ins__'}]\n"
+        "loader = namespace['%(a)s%(b)s' % {'a': '__im', 'b': 'port__'}]\n"
+        "module = loader('packages.persistence.trusted_time_graceful_stop_v2', "
+        "fromlist=('sentinel',))\n"
+        "resolved = getattr(module, '_open_injected_lifecycle_v2_repository')",
+        "namespace = locals()['%(a)s%(b)s' % {'a': '__built', 'b': 'ins__'}]\n"
+        "loader = namespace['%(a)s%(b)s' % {'a': '__im', 'b': 'port__'}]",
+        "import uvicorn.importer as importer\n"
+        "loader_name = '%(a)s%(b)s' % {'a': 'import_from_', 'b': 'string'}\n"
+        "loader = getattr(importer, loader_name)\n"
+        "resolved = loader('packages.persistence.trusted_time_graceful_stop_v2:"
+        "_open_injected_lifecycle_v2_repository')",
+        "import builtins as runtime_builtins\n"
+        "loader_name = '%(a)s%(b)s' % {'a': '__im', 'b': 'port__'}\n"
+        "loader = getattr(runtime_builtins, loader_name)",
         "owner._retain_progress(record)",
     ],
 )
@@ -226,6 +241,15 @@ def test_wave5_boundary_accepts_unique_protected_python_module_identities() -> N
         "'mp': 'packages.application.etrade_oauth_token_', 'ms': 'runtime', "
         "'ep': 'execute_etrade_oauth_injected_', 'es': 'token_exchange'}\n"
         "runtime = import_from_string(target)",
+        "namespace = vars()['%(a)s%(b)s' % {'a': '__built', 'b': 'ins__'}]\n"
+        "loader = namespace['%(a)s%(b)s' % {'a': '__im', 'b': 'port__'}]\n"
+        "runtime = loader('packages.application.etrade_oauth_token_runtime', "
+        "fromlist=('sentinel',))",
+        "import uvicorn.importer as importer\n"
+        "loader_name = '%(a)s%(b)s' % {'a': 'import_from_', 'b': 'string'}\n"
+        "loader = getattr(importer, loader_name)\n"
+        "runtime = loader('packages.application.etrade_oauth_token_runtime:"
+        "execute_etrade_oauth_injected_token_exchange')",
     ],
 )
 def test_phase4an_boundary_rejects_unreviewed_runtime_reachability(source: str) -> None:

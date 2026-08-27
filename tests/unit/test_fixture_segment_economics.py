@@ -769,6 +769,14 @@ def test_object_new_reconstruction_cannot_mint_process_or_receipt_evidence() -> 
         "from packages.domain.fixture_segment_economics import "
         "FixtureEconomicProcessEvidence\n"
         "owner = globals()['Fixture' + 'EconomicProcessEvidence']",
+        "namespace = vars()['%(a)s%(b)s' % {'a': '__built', 'b': 'ins__'}]\n"
+        "loader = namespace['%(a)s%(b)s' % {'a': '__im', 'b': 'port__'}]\n"
+        "owner = loader('packages.domain.fixture_segment_economics', "
+        "fromlist=('sentinel',))",
+        "import uvicorn.importer as importer\n"
+        "loader = getattr(importer, '%s%s' % ('import_from_', 'string'))\n"
+        "owner = loader('packages.domain.fixture_segment_economics:"
+        "FixtureEconomicProcessEvidence')",
         "from packages.domain.fixture_segment_economics import "
         "FixtureEconomicProcessEvidence\n"
         "forged = object.__new__(FixtureEconomicProcessEvidence)",

@@ -5538,7 +5538,31 @@ def _phase3h_proof_boundary_violations(
             "zipimport",
         }
     )
-    dynamic_code_names = frozenset({"__builtins__", "compile", "eval", "exec", "globals"})
+    dynamic_code_names = frozenset(
+        {
+            "__builtins__",
+            "__loader__",
+            "__spec__",
+            "compile",
+            "eval",
+            "exec",
+            "globals",
+            "locals",
+            "vars",
+        }
+    )
+    dynamic_loader_modules = frozenset(
+        {
+            "django.utils.module_loading",
+            "importlib",
+            "operator",
+            "pkgutil",
+            "pydoc",
+            "runpy",
+            "uvicorn.importer",
+            "werkzeug.utils",
+        }
+    )
     reserved_text = reserved_names | dynamic_loader_names | {proof_module, execution_module}
     reserved_fragments = reserved_names | {
         proof_module,
@@ -5547,6 +5571,7 @@ def _phase3h_proof_boundary_violations(
         execution_path.as_posix(),
     }
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    bindings = _imported_symbol_bindings(tree)
     builtins_names = {"__builtins__"}
     builtins_names.update(
         alias.asname or "builtins"
@@ -5557,7 +5582,35 @@ def _phase3h_proof_boundary_violations(
     )
 
     def is_builtins_namespace(node: ast.AST) -> bool:
-        return isinstance(node, ast.Name) and node.id in builtins_names
+        return (isinstance(node, ast.Name) and node.id in builtins_names) or _qualified_symbol(
+            node, bindings
+        ) == "builtins"
+
+    def is_dynamic_loader_namespace(node: ast.AST) -> bool:
+        qualified = _qualified_symbol(node, bindings)
+        return qualified is not None and any(
+            qualified == module or qualified.startswith(f"{module}.")
+            for module in dynamic_loader_modules
+        )
+
+    def dynamic_loader_import(node: ast.AST) -> str | None:
+        imported: list[str] = []
+        if isinstance(node, ast.Import):
+            imported.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            imported.append(node.module)
+            imported.extend(f"{node.module}.{alias.name}" for alias in node.names)
+        return next(
+            (
+                candidate
+                for candidate in imported
+                if any(
+                    candidate == module or candidate.startswith(f"{module}.")
+                    for module in dynamic_loader_modules
+                )
+            ),
+            None,
+        )
 
     def reflected_builtin_dynamic_code(node: ast.AST) -> str | None:
         if isinstance(node, ast.Attribute):
@@ -5580,8 +5633,8 @@ def _phase3h_proof_boundary_violations(
         return None
 
     for node in ast.walk(tree):
-        dangerous_import: str | None = None
-        if isinstance(node, ast.Import):
+        dangerous_import = dynamic_loader_import(node)
+        if dangerous_import is None and isinstance(node, ast.Import):
             dangerous_import = next(
                 (
                     alias.name.partition(".")[0]
@@ -5590,7 +5643,12 @@ def _phase3h_proof_boundary_violations(
                 ),
                 None,
             )
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+        elif (
+            dangerous_import is None
+            and isinstance(node, ast.ImportFrom)
+            and node.level == 0
+            and node.module
+        ):
             root = node.module.partition(".")[0]
             dangerous_import = root if root in dangerous_import_roots else None
         if dangerous_import is not None:
@@ -5628,6 +5686,23 @@ def _phase3h_proof_boundary_violations(
             dynamic_loader = node.id
         elif isinstance(node, ast.Attribute) and node.attr in dynamic_loader_names:
             dynamic_loader = node.attr
+        elif isinstance(node, ast.Attribute) and node.attr in {"__dict__", "__getattribute__"}:
+            if is_builtins_namespace(node.value) or is_dynamic_loader_namespace(node.value):
+                dynamic_loader = node.attr
+        elif isinstance(node, ast.Call) and len(node.args) >= 2:
+            reflected_name = _constant_wave5_reflection_text(node.args[1])
+            direct_getattr = isinstance(node.func, ast.Name) and node.func.id == "getattr"
+            attribute_getter = isinstance(node.func, ast.Attribute) and node.func.attr in {
+                "getattr",
+                "__getattribute__",
+            }
+            receiver = node.args[0]
+            if (direct_getattr or attribute_getter) and (
+                reflected_name in dynamic_loader_names
+                or is_builtins_namespace(receiver)
+                or is_dynamic_loader_namespace(receiver)
+            ):
+                dynamic_loader = reflected_name or "reflected-loader-namespace"
         elif isinstance(node, ast.alias):
             origin = node.name.rpartition(".")[2]
             local = node.asname or origin
@@ -5942,10 +6017,14 @@ def _isolated_wave5_module_boundary_violations(
         {
             "__builtins__",
             "__import__",
+            "__loader__",
+            "__spec__",
             "compile",
             "eval",
             "exec",
             "globals",
+            "locals",
+            "vars",
         }
     )
     dynamic_loader_names = frozenset(
@@ -5964,17 +6043,87 @@ def _isolated_wave5_module_boundary_violations(
             "run_path",
         }
     )
+    dynamic_loader_modules = frozenset(
+        {
+            "django.utils.module_loading",
+            "importlib",
+            "operator",
+            "pkgutil",
+            "pydoc",
+            "runpy",
+            "uvicorn.importer",
+            "werkzeug.utils",
+        }
+    )
     dynamic_reachability_names = dynamic_namespace_names | dynamic_loader_names
     protected_text = reserved_symbols | frozenset(module_paths)
     reserved_text = protected_text
     reserved_fragments = protected_text | frozenset(path.as_posix() for path in protected_paths)
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    bindings = _imported_symbol_bindings(tree)
+
+    def is_dynamic_loader_namespace(node: ast.AST) -> bool:
+        qualified = _qualified_symbol(node, bindings)
+        return qualified is not None and any(
+            qualified == module or qualified.startswith(f"{module}.")
+            for module in dynamic_loader_modules
+        )
+
+    def is_builtins_namespace(node: ast.AST) -> bool:
+        return _qualified_symbol(node, bindings) in {"__builtins__", "builtins"}
+
+    def dynamic_loader_import(node: ast.AST) -> str | None:
+        imported: list[str] = []
+        if isinstance(node, ast.Import):
+            imported.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            imported.append(node.module)
+            imported.extend(f"{node.module}.{alias.name}" for alias in node.names)
+        return next(
+            (
+                candidate
+                for candidate in imported
+                if any(
+                    candidate == module or candidate.startswith(f"{module}.")
+                    for module in dynamic_loader_modules
+                )
+            ),
+            None,
+        )
+
     for node in ast.walk(tree):
         dynamic_reachability: str | None = None
-        if isinstance(node, ast.Name) and node.id in dynamic_reachability_names:
+        imported_loader = dynamic_loader_import(node)
+        if imported_loader is not None:
+            dynamic_reachability = imported_loader
+        elif isinstance(node, ast.Name) and node.id in dynamic_reachability_names:
             dynamic_reachability = node.id
-        elif isinstance(node, ast.Attribute) and node.attr in dynamic_loader_names:
-            dynamic_reachability = node.attr
+        elif isinstance(node, ast.Attribute):
+            if (
+                node.attr in dynamic_loader_names
+                or (node.attr in dynamic_namespace_names and is_builtins_namespace(node.value))
+                or (
+                    node.attr in {"__dict__", "__getattribute__"}
+                    and (
+                        is_builtins_namespace(node.value) or is_dynamic_loader_namespace(node.value)
+                    )
+                )
+            ):
+                dynamic_reachability = node.attr
+        elif isinstance(node, ast.Call) and len(node.args) >= 2:
+            reflected_name = _constant_wave5_reflection_text(node.args[1])
+            direct_getattr = isinstance(node.func, ast.Name) and node.func.id == "getattr"
+            attribute_getter = isinstance(node.func, ast.Attribute) and node.func.attr in {
+                "getattr",
+                "__getattribute__",
+            }
+            receiver = node.args[0]
+            if (direct_getattr or attribute_getter) and (
+                reflected_name in dynamic_reachability_names
+                or is_builtins_namespace(receiver)
+                or is_dynamic_loader_namespace(receiver)
+            ):
+                dynamic_reachability = reflected_name or "reflected-loader-namespace"
         elif isinstance(node, ast.alias):
             origin = node.name.rpartition(".")[2]
             local = node.asname or origin
@@ -9823,6 +9972,18 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
         ),
         Path("scripts/migrate_phase6_trusted_time_uncertainty.py"): (
             "a1d6f39be3585af028cc7905e14057d13626f4f92603e3365b16745f39bc2d6d"
+        ),
+        Path("packages/application/trusted_time_head_anchor_worker.py"): (
+            "0e544e036ffe41bcfcaa0422a7273bd0936f760748c539c440ccc7bec319e4eb"
+        ),
+        Path("scripts/capture_sharadar_sfp.py"): (
+            "a0708b4ce8599da754548a6c2e348f1accee7c8ecaa19c3b7348b45e54805ab8"
+        ),
+        Path("packages/adapters/trusted_time/_owned_file_descriptor.py"): (
+            "c67feb33d4f02b548c74bcea58a96c0890ab4da6afd38d1d10f8107789a411a7"
+        ),
+        Path("packages/adapters/trusted_time/_bounded_process.py"): (
+            "738691659c41a7478a71ac7af94e7d43b60a6dafc196b276304b0e64d6794e3a"
         ),
     }
     if production_contract_required and (
