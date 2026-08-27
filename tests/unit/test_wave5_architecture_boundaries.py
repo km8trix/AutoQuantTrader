@@ -7,12 +7,23 @@ from pathlib import Path
 import pytest
 
 from scripts.check_architecture import (
+    _EXACT_NATIVE_FFI_MODULE_AST_SHA256,
     Violation,
     _isolated_wave5_module_boundary_violations,
+    _native_executable_loading_violations,
     _python_module_identity_collision_violations,
 )
 
 REPOSITORY = Path(__file__).resolve().parents[2]
+
+
+def _dynamic_code_exceptions() -> dict[Path, str]:
+    with (REPOSITORY / "infra/architecture-boundaries.toml").open("rb") as stream:
+        scan = tomllib.load(stream)["scan"]
+    return {
+        Path(path): digest
+        for path, digest in scan["phase3h_dynamic_code_exception_module_ast_sha256"].items()
+    }
 
 
 def _trusted_time_policy() -> tuple[
@@ -48,6 +59,7 @@ def _trusted_time_violations(source: str, *, relative_path: Path) -> list[Violat
         allowed_imports=allowed_imports,
         module_ast_sha256=module_ast_sha256,
         reserved_symbols=reserved_symbols,
+        dynamic_code_exception_module_ast_sha256=_dynamic_code_exceptions(),
     )
 
 
@@ -81,6 +93,7 @@ def _phase4an_violations(source: str, *, relative_path: Path) -> list[Violation]
         allowed_imports=allowed_imports,
         module_ast_sha256=module_ast_sha256,
         reserved_symbols=reserved_symbols,
+        dynamic_code_exception_module_ast_sha256=_dynamic_code_exceptions(),
     )
 
 
@@ -170,6 +183,21 @@ def _phase4an_violations(source: str, *, relative_path: Path) -> list[Violation]
         "    loader = namespace[import_key]\n"
         "    module = loader(module_name, fromlist=('sentinel',))\n"
         "    return getattr(module, attribute_name)",
+        "import string\n"
+        "def resolve(module_name, attribute_name):\n"
+        "    formatter = string.Formatter()\n"
+        "    loader = formatter.get_field(\n"
+        "        '0.__globals__[__builtins__][__import__]', (resolve,), {}\n"
+        "    )[0]\n"
+        "    module = loader(module_name, fromlist=('sentinel',))\n"
+        "    return formatter.get_field('0.' + attribute_name, (module,), {})[0]",
+        "from packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge "
+        "import _BUILTINS\n"
+        "from packages.application.durable_trusted_time_monitor import _port_method\n"
+        "def resolve(import_name, module_name, attribute_name):\n"
+        "    loader = _port_method(_BUILTINS, import_name)\n"
+        "    module = loader(module_name, fromlist=('sentinel',))\n"
+        "    return _port_method(module, attribute_name)",
         "owner._retain_progress(record)",
     ],
 )
@@ -320,6 +348,21 @@ def test_wave5_boundary_accepts_unique_protected_python_module_identities() -> N
         "    loader = namespace[import_key]\n"
         "    module = loader(module_name, fromlist=('sentinel',))\n"
         "    return getattr(module, attribute_name)",
+        "import string\n"
+        "def resolve(module_name, attribute_name):\n"
+        "    formatter = string.Formatter()\n"
+        "    loader = formatter.get_field(\n"
+        "        '0.__globals__[__builtins__][__import__]', (resolve,), {}\n"
+        "    )[0]\n"
+        "    module = loader(module_name, fromlist=('sentinel',))\n"
+        "    return formatter.get_field('0.' + attribute_name, (module,), {})[0]",
+        "from packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge "
+        "import _BUILTINS\n"
+        "from packages.application.durable_trusted_time_monitor import _port_method\n"
+        "def resolve(import_name, module_name, attribute_name):\n"
+        "    loader = _port_method(_BUILTINS, import_name)\n"
+        "    module = loader(module_name, fromlist=('sentinel',))\n"
+        "    return _port_method(module, attribute_name)",
     ],
 )
 def test_phase4an_boundary_rejects_unreviewed_runtime_reachability(source: str) -> None:
@@ -412,4 +455,53 @@ def test_wave5_isolated_module_boundary_noops_when_policy_is_absent() -> None:
         allowed_imports={},
         module_ast_sha256={},
         reserved_symbols=frozenset(),
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import ctypes\n"
+        "importer = ctypes.pythonapi.PyImport_ImportModule\n"
+        "resolver = ctypes.pythonapi.PyObject_GetAttrString",
+        "import ctypes\n"
+        "library = ctypes.CDLL(None)\n"
+        "importer = library.PyImport_ImportModule\n"
+        "resolver = library.PyObject_GetAttrString",
+        "from ctypes import CDLL\nlibrary = CDLL(None)\nsymbol = getattr(library, symbol_name)",
+        "import cffi",
+        "import _imp",
+    ],
+)
+def test_native_loader_boundary_rejects_all_production_roots(source: str) -> None:
+    assert _native_executable_loading_violations(
+        ast.parse(source),
+        relative_path=Path("scripts/adversarial_wave5.py"),
+        wrapper_path=Path("packages/adapters/trusted_time/native_wrapper.py"),
+        wrapper_module="packages.adapters.trusted_time.native_wrapper",
+        image_import_root=False,
+    )
+
+
+def test_native_loader_boundary_accepts_only_exact_reviewed_ffi_modules() -> None:
+    for relative_path in _EXACT_NATIVE_FFI_MODULE_AST_SHA256:
+        tree = ast.parse((REPOSITORY / relative_path).read_text(encoding="utf-8"))
+        assert not _native_executable_loading_violations(
+            tree,
+            relative_path=relative_path,
+            wrapper_path=Path("packages/adapters/trusted_time/native_wrapper.py"),
+            wrapper_module="packages.adapters.trusted_time.native_wrapper",
+            image_import_root=False,
+        )
+
+
+def test_native_loader_boundary_rejects_reviewed_ffi_module_ast_drift() -> None:
+    relative_path = next(iter(_EXACT_NATIVE_FFI_MODULE_AST_SHA256))
+    source = (REPOSITORY / relative_path).read_text(encoding="utf-8") + "\nDRIFT = True\n"
+    assert _native_executable_loading_violations(
+        ast.parse(source),
+        relative_path=relative_path,
+        wrapper_path=Path("packages/adapters/trusted_time/native_wrapper.py"),
+        wrapper_module="packages.adapters.trusted_time.native_wrapper",
+        image_import_root=False,
     )

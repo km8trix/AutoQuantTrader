@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "98ab17574e942f5dae83d5501a1ef8b65530ea73c2faa7114a91d8988179f956"
+    "320271f46edb955eeff9a234fbcbf6b3bee45b2cbad8c1c90c859342ba2f633f"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -2373,6 +2373,31 @@ def _native_bounded_process_reader_usage_violations(
     return violations
 
 
+_EXACT_NATIVE_FFI_MODULE_AST_SHA256 = {
+    Path("scripts/provision_trusted_time_post_enrollment_operator_authority.py"): (
+        "deedb5fa36cf34751b2bbbda4e663e381b6710879c1ffc002a977e869e5e06a5"
+    ),
+    Path("scripts/trusted_time_post_enrollment_clean_stop_terminal_reauthentication.py"): (
+        "93c7963bf709a14cc74639dc84144f748101890f0698704a67abff4dab629829"
+    ),
+    Path("scripts/trusted_time_post_enrollment_execution_admission.py"): (
+        "406fc2c6ee034df2fefaf197bf26e0a96043816b149181c105ffb7ef6a064fd9"
+    ),
+    Path("scripts/trusted_time_post_enrollment_graceful_stop_lifecycle.py"): (
+        "b56cebdcac789e1faf342efda37b9a8bd54232fcb87387a384c91e4f3794665d"
+    ),
+    Path("scripts/trusted_time_post_enrollment_outcome.py"): (
+        "23a9306bff4db976d70a31044132db59dc2f7414d0018c8f250cbc3b720708da"
+    ),
+    Path("scripts/trusted_time_post_enrollment_topology_reader.py"): (
+        "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
+    ),
+    Path("scripts/verify_trusted_time_images.py"): (
+        "034d230d49384171807f61056f9cecce15564f238d329c4d2fbaa7cc3d9fd855"
+    ),
+}
+
+
 def _native_executable_loading_violations(
     tree: ast.AST,
     *,
@@ -2381,10 +2406,11 @@ def _native_executable_loading_violations(
     wrapper_module: str,
     image_import_root: bool,
 ) -> list[Violation]:
-    """Reject alternate native loaders from production image import roots."""
+    """Reject alternate native loaders from every production Python root."""
 
     if relative_path in {wrapper_path, Path("scripts/check_architecture.py")}:
         return []
+    del image_import_root
     forbidden_modules = {"_imp", "cffi", "ctypes"}
     forbidden_attributes = {
         "CDLL",
@@ -2406,10 +2432,57 @@ def _native_executable_loading_violations(
     }
     private_native_module = "packages.adapters.trusted_time._native_owned_file_descriptor"
     violations: list[Violation] = []
+    expected_ffi_digest = _EXACT_NATIVE_FFI_MODULE_AST_SHA256.get(relative_path)
+    exact_ffi_exception = (
+        expected_ffi_digest is not None and _canonical_ast_sha256(tree) == expected_ffi_digest
+    )
+    if expected_ffi_digest is not None and not exact_ffi_exception:
+        violations.append(
+            Violation(
+                relative_path,
+                1,
+                "native FFI exception must preserve its exact reviewed module AST",
+            )
+        )
+
+    cpython_api_prefixes = ("PyImport_", "PyObject_", "PyRun_", "PyEval_", "Py_")
+    forbidden_ctypes_capabilities = {
+        "CFUNCTYPE",
+        "PYFUNCTYPE",
+        "PyDLL",
+        "addressof",
+        "from_address",
+        "memmove",
+        "memoryview_at",
+        "py_object",
+        "pythonapi",
+        "resize",
+        "string_at",
+        "wstring_at",
+    }
     for node in ast.walk(tree):
+        native_name: str | None = None
+        if isinstance(node, ast.Name):
+            native_name = node.id
+        elif isinstance(node, ast.Attribute):
+            native_name = node.attr
+        elif isinstance(node, ast.alias):
+            native_name = node.name.rpartition(".")[2]
+        if native_name is not None and (
+            native_name in forbidden_ctypes_capabilities
+            or native_name.startswith(cpython_api_prefixes)
+        ):
+            violations.append(
+                Violation(
+                    relative_path,
+                    getattr(node, "lineno", 1),
+                    f"CPython/native object capability '{native_name}' is forbidden",
+                )
+            )
+            continue
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if image_import_root and alias.name.partition(".")[0] in forbidden_modules:
+                if not exact_ffi_exception and alias.name.partition(".")[0] in forbidden_modules:
                     violations.append(
                         Violation(
                             relative_path,
@@ -2418,7 +2491,7 @@ def _native_executable_loading_violations(
                         )
                     )
         elif isinstance(node, ast.ImportFrom) and node.module is not None:
-            if image_import_root and node.module.partition(".")[0] in forbidden_modules:
+            if not exact_ffi_exception and node.module.partition(".")[0] in forbidden_modules:
                 violations.append(
                     Violation(
                         relative_path,
@@ -2426,7 +2499,7 @@ def _native_executable_loading_violations(
                         f"alternate native loader import '{node.module}' is forbidden",
                     )
                 )
-            if image_import_root:
+            if not exact_ffi_exception:
                 for alias in node.names:
                     if alias.name in forbidden_attributes:
                         violations.append(
@@ -2437,7 +2510,7 @@ def _native_executable_loading_violations(
                             )
                         )
         elif isinstance(node, ast.Attribute) and (
-            (image_import_root and node.attr in forbidden_attributes)
+            (not exact_ffi_exception and node.attr in forbidden_attributes)
             or node.attr in forbidden_private_names
         ):
             violations.append(
@@ -5394,6 +5467,209 @@ def _isolated_origin_module_import_bindings(
     return bindings
 
 
+_EXACT_DYNAMIC_CODE_EXCEPTION_PRIVATE_CONSUMER_AST_SHA256 = {
+    Path("apps/trusted_time_supervisor/post_enrollment_read_probes.py"): (
+        "39bd2c7e349b023f9cd217e6b15271fcd3cb03454dfa863634bf2931259f316b"
+    ),
+    Path("apps/trusted_time_supervisor/post_enrollment_runtime_state.py"): (
+        "809a5a33362206ada58314b11e2a21c243d8a135411eaaf3ba248324e301f273"
+    ),
+    Path("packages/domain/trusted_time_post_enrollment_start.py"): (
+        "4782628980e61eb5e5c20bd5053d8c028e468b52f3ccddf2a95fd6e3f7b4b3a0"
+    ),
+    Path("packages/execution/account_coordinator.py"): (
+        "5b034054e130c034b1a098bf0f8f5120d8d81ec7781ee18e8e06a64897ef003d"
+    ),
+    Path("packages/persistence/account_coordinator.py"): (
+        "3a422bb08aeff646672d82e53d3abe0c7ac8d404f6a891e20958afeef1c09c13"
+    ),
+    Path("packages/persistence/alpaca_paper_account_activity_comparison.py"): (
+        "dfb4dafc3a4f2ee4e999f63b8868ee25a9c1f07b8df3b3e1b63aff885e366822"
+    ),
+    Path("packages/persistence/alpaca_paper_order_view_transition.py"): (
+        "d69c339759e6a70db43ebb56619f54d7fa86fcd17aaab9fb2eb9b78324a7a2e1"
+    ),
+    Path("packages/persistence/alpaca_paper_position_snapshot.py"): (
+        "ff761c9945b9212a16ae6d9e7b8bbc093cf5748ac32e924e8cbdfa4fa786aaff"
+    ),
+    Path("packages/persistence/alpaca_paper_position_view_transition.py"): (
+        "9d6c9f79fbbc8a5c084185b97c9295c6ce0b02a808e577f98ae3bfca3e2396a2"
+    ),
+    Path("packages/persistence/broker_reconciliation.py"): (
+        "a0de7464cef7f87cef855e60eda9956d7769fc390268b77127dc040b13929287"
+    ),
+    Path("packages/persistence/database.py"): (
+        "18097a9c0c9dd1c6751a005f1e0517435b5ce455e5d73cacd14f05f65ccee6cf"
+    ),
+    Path("packages/persistence/fixture_segment_worker.py"): (
+        "30892f96421a5a1dac16bc01862dae8264ce9a63600ef2ef3b0018d4777ae9cf"
+    ),
+    Path("packages/persistence/simulation_horizon.py"): (
+        "234b039a8d1a4570600136d0ebdcd69c2ae7001dbcd21d06d7c30a03721db93d"
+    ),
+    Path("packages/persistence/strategy_invocation_lifecycle.py"): (
+        "9e20b5088d67a7d55313fbb9509910f38aefcfe2cc1cd9dab5899e1efb5eead2"
+    ),
+    Path("packages/persistence/submission_attempt.py"): (
+        "778a3561a8ccd822712700ad3788e952edb44c50a17d012fa7231ed87e944429"
+    ),
+    Path("packages/persistence/trusted_time_graceful_stop_v2.py"): (
+        "8ae95ad12303fb60958392aa9cf58c5d4f609473544af51334e51a685a9bac4b"
+    ),
+    Path("packages/persistence/trusted_time_head_anchor.py"): (
+        "c1ee59bd3a82f3cc817bef7b2849ae810848ee965a97a440f8cf5e1ce3690689"
+    ),
+    Path("packages/persistence/unknown_submission_recovery.py"): (
+        "6da1bae6bc4151a67629066b21741eae102ec0b184d26e3840b0ae26a47b1ef6"
+    ),
+    Path("scripts/provision_trusted_time_post_enrollment_graceful_stop_operator_authority.py"): (
+        "3da53d5d203d2be0e7e22e7fd56144b8042d58074ee02bad34373dee2d08a498"
+    ),
+    Path("scripts/trusted_time_post_enrollment_action_topology_fence.py"): (
+        "b7e6da6647035df46e28eaa3d6c2795784a80fc704fe38cf759d6766c9a5042f"
+    ),
+    Path("scripts/trusted_time_post_enrollment_active_controller.py"): (
+        "3ce8173d00bbe4037cfa2df4df1c68e63dfd311d9cf977db0369fe11e22c85c4"
+    ),
+    Path("scripts/trusted_time_post_enrollment_controller_outcome.py"): (
+        "3825f250af621d65ffc904a99d2a51f525a07aed48acf3888454eeae65adb78a"
+    ),
+    Path("scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py"): (
+        "5625b64548122370b3822cc796cc88cbcfb192dcc92fa6ae99496222c66c17ee"
+    ),
+    Path("scripts/trusted_time_post_enrollment_graceful_stop_operator_attestation_artifacts.py"): (
+        "570d3ed4053faeefdf63a46125b785ab83c30da423d7588574c8a0c68fea4c2a"
+    ),
+    Path("scripts/trusted_time_post_enrollment_outcome.py"): (
+        "23a9306bff4db976d70a31044132db59dc2f7414d0018c8f250cbc3b720708da"
+    ),
+    Path("scripts/trusted_time_post_enrollment_shutdown_locator.py"): (
+        "4cf6fe157ea49784d929ab48608532a48f30f7e2e90da1306f21eaeb0427062b"
+    ),
+    Path("scripts/trusted_time_post_enrollment_staging.py"): (
+        "6e934b98892b25b1d3dee13f59e1611e8b7a1bb652cc6f40b0480c1aa8804847"
+    ),
+    Path("scripts/trusted_time_post_enrollment_start.py"): (
+        "f1e7fdc1beb1aee4b61c94ae255faa76126facfdd83035b7ccd8f8948415a9a3"
+    ),
+}
+
+
+def _dynamic_code_exception_private_import_violations(
+    tree: ast.AST,
+    *,
+    relative_path: Path,
+    boundary: str,
+    exception_module_ast_sha256: dict[Path, str],
+) -> list[Violation]:
+    """Treat exact-AST dynamic-code exceptions as local syntax waivers only."""
+
+    observed_digest = _canonical_ast_sha256(tree)
+    expected_digest = exception_module_ast_sha256.get(relative_path)
+    if expected_digest is not None and observed_digest == expected_digest:
+        return []
+
+    expected_consumer_digest = _EXACT_DYNAMIC_CODE_EXCEPTION_PRIVATE_CONSUMER_AST_SHA256.get(
+        relative_path
+    )
+    if expected_consumer_digest is not None and observed_digest == expected_consumer_digest:
+        return []
+
+    exception_modules = frozenset(
+        module
+        for path in exception_module_ast_sha256
+        if (module := _python_module_identity(path)) is not None
+    )
+    if not exception_modules:
+        return []
+
+    violations: list[Violation] = []
+    if expected_consumer_digest is not None:
+        violations.append(
+            Violation(
+                relative_path,
+                1,
+                f"{boundary} private dynamic-code exception consumer must preserve its "
+                "exact reviewed module AST",
+            )
+        )
+    bindings: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name.partition(".")[0]
+                bindings[local] = alias.name if alias.asname else local
+        elif isinstance(node, ast.ImportFrom):
+            imported_from = _resolved_import_from_module(node, relative_path)
+            for alias in node.names:
+                imported = (
+                    imported_from
+                    if alias.name == "*"
+                    else f"{imported_from}.{alias.name}"
+                    if imported_from
+                    else alias.name
+                )
+                if alias.name != "*":
+                    bindings[alias.asname or alias.name] = imported
+                if imported_from in exception_modules and (
+                    alias.name == "*" or alias.name.startswith("_")
+                ):
+                    violations.append(
+                        Violation(
+                            relative_path,
+                            node.lineno,
+                            f"{boundary} cannot import private binding "
+                            f"'{imported_from}:{alias.name}' from a dynamic-code exception",
+                        )
+                    )
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            qualified = _qualified_symbol(node, bindings)
+            if qualified is None:
+                continue
+            for module in exception_modules:
+                prefix = f"{module}."
+                if qualified.startswith(prefix) and qualified[len(prefix) :].split(".", 1)[
+                    0
+                ].startswith("_"):
+                    violations.append(
+                        Violation(
+                            relative_path,
+                            node.lineno,
+                            f"{boundary} cannot reach private dynamic-code exception "
+                            f"binding '{qualified}'",
+                        )
+                    )
+                    break
+        elif isinstance(node, ast.Call) and len(node.args) >= 2:
+            receiver: ast.AST | None = None
+            reflected_name_node: ast.AST | None = None
+            if isinstance(node.func, ast.Name) and node.func.id == "getattr":
+                receiver, reflected_name_node = node.args[0], node.args[1]
+            elif isinstance(node.func, ast.Attribute) and node.func.attr == "__getattribute__":
+                if len(node.args) >= 2:
+                    receiver, reflected_name_node = node.args[0], node.args[1]
+                else:
+                    receiver, reflected_name_node = node.func.value, node.args[0]
+            if receiver is None or reflected_name_node is None:
+                continue
+            receiver_name = _qualified_symbol(receiver, bindings)
+            if receiver_name not in exception_modules:
+                continue
+            reflected_name = _constant_wave5_reflection_text(reflected_name_node)
+            if reflected_name is None or reflected_name.startswith("_"):
+                violations.append(
+                    Violation(
+                        relative_path,
+                        node.lineno,
+                        f"{boundary} cannot reflect private bindings from dynamic-code "
+                        f"exception '{receiver_name}'",
+                    )
+                )
+    return violations
+
+
 def _phase3h_proof_boundary_violations(
     tree: ast.AST,
     *,
@@ -5434,6 +5710,14 @@ def _phase3h_proof_boundary_violations(
         for line, binding in proof_imports
         if binding not in expected_imports
     ]
+    violations.extend(
+        _dynamic_code_exception_private_import_violations(
+            tree,
+            relative_path=relative_path,
+            boundary=boundary,
+            exception_module_ast_sha256=dynamic_code_exception_module_ast_sha256,
+        )
+    )
     observed_imports = frozenset(binding for _, binding in proof_imports)
     violations.extend(
         Violation(
@@ -5472,6 +5756,19 @@ def _phase3h_proof_boundary_violations(
                     relative_path,
                     1,
                     f"{boundary} dynamic-code exception must preserve its exact module AST",
+                )
+            )
+        else:
+            return violations
+
+    native_ffi_digest = _EXACT_NATIVE_FFI_MODULE_AST_SHA256.get(relative_path)
+    if native_ffi_digest is not None:
+        if _canonical_ast_sha256(tree) != native_ffi_digest:
+            violations.append(
+                Violation(
+                    relative_path,
+                    1,
+                    f"{boundary} native FFI exception must preserve its exact module AST",
                 )
             )
         else:
@@ -5516,10 +5813,13 @@ def _phase3h_proof_boundary_violations(
         {
             "_frozen_importlib",
             "_frozen_importlib_external",
+            "_imp",
+            "cffi",
             "cloudpickle",
             "code",
             "codeop",
             "copyreg",
+            "ctypes",
             "dill",
             "gc",
             "imp",
@@ -5534,6 +5834,7 @@ def _phase3h_proof_boundary_violations(
             "pkgutil",
             "runpy",
             "shelve",
+            "string",
             "unittest",
             "zipimport",
         }
@@ -5571,12 +5872,16 @@ def _phase3h_proof_boundary_violations(
     )
     dynamic_loader_modules = frozenset(
         {
+            "_imp",
+            "cffi",
+            "ctypes",
             "django.utils.module_loading",
             "importlib",
             "operator",
             "pkgutil",
             "pydoc",
             "runpy",
+            "string",
             "uvicorn.importer",
             "werkzeug.utils",
         }
@@ -6109,6 +6414,14 @@ def _isolated_wave5_module_boundary_violations(
         if binding not in expected_imports
     ]
     violations.extend(
+        _dynamic_code_exception_private_import_violations(
+            tree,
+            relative_path=relative_path,
+            boundary=boundary,
+            exception_module_ast_sha256=(dynamic_code_exception_module_ast_sha256 or {}),
+        )
+    )
+    violations.extend(
         Violation(
             relative_path,
             1,
@@ -6138,6 +6451,18 @@ def _isolated_wave5_module_boundary_violations(
                     relative_path,
                     1,
                     f"{boundary} dynamic-code exception must preserve its exact module AST",
+                )
+            )
+        else:
+            return violations
+    native_ffi_digest = _EXACT_NATIVE_FFI_MODULE_AST_SHA256.get(relative_path)
+    if native_ffi_digest is not None:
+        if _canonical_ast_sha256(tree) != native_ffi_digest:
+            violations.append(
+                Violation(
+                    relative_path,
+                    1,
+                    f"{boundary} native FFI exception must preserve its exact module AST",
                 )
             )
         else:
@@ -6195,12 +6520,16 @@ def _isolated_wave5_module_boundary_violations(
     )
     dynamic_loader_modules = frozenset(
         {
+            "_imp",
+            "cffi",
+            "ctypes",
             "django.utils.module_loading",
             "importlib",
             "operator",
             "pkgutil",
             "pydoc",
             "runpy",
+            "string",
             "uvicorn.importer",
             "werkzeug.utils",
         }

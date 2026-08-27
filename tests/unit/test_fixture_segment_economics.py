@@ -802,6 +802,24 @@ def test_object_new_reconstruction_cannot_mint_process_or_receipt_evidence() -> 
         "    scope = getattr(resolve, scope_key)\n"
         "    namespace = scope[builtins_key]\n"
         "    return namespace[import_key]",
+        "import string\n"
+        "def resolve(module_name, attribute_name):\n"
+        "    formatter = string.Formatter()\n"
+        "    loader = formatter.get_field(\n"
+        "        '0.__globals__[__builtins__][__import__]', (resolve,), {}\n"
+        "    )[0]\n"
+        "    module = loader(module_name, fromlist=('sentinel',))\n"
+        "    return formatter.get_field('0.' + attribute_name, (module,), {})[0]",
+        "from packages.application.trusted_time_head_anchor_clean_stop_supervisor_bridge "
+        "import _BUILTINS\n"
+        "from packages.application.durable_trusted_time_monitor import _port_method\n"
+        "loader = _port_method(_BUILTINS, import_name)\n"
+        "module = loader(module_name, fromlist=('sentinel',))\n"
+        "capability = _port_method(module, attribute_name)",
+        "import ctypes\n"
+        "library = ctypes.CDLL(None)\n"
+        "importer = library.PyImport_ImportModule\n"
+        "resolver = library.PyObject_GetAttrString",
         "from packages.domain.fixture_segment_economics import "
         "FixtureEconomicProcessEvidence\n"
         "forged = object.__new__(FixtureEconomicProcessEvidence)",
@@ -829,6 +847,8 @@ def test_object_new_reconstruction_cannot_mint_process_or_receipt_evidence() -> 
     ),
 )
 def test_architecture_guard_rejects_phase3h_proof_reachability(source: str) -> None:
+    with (REPOSITORY / "infra/architecture-boundaries.toml").open("rb") as stream:
+        scan = tomllib.load(stream)["scan"]
     violations = _phase3h_proof_boundary_violations(
         ast.parse(source),
         policy_enabled=True,
@@ -839,7 +859,10 @@ def test_architecture_guard_rejects_phase3h_proof_reachability(source: str) -> N
         execution_path=Path("packages/application/fixture_segment_economics.py"),
         allowed_proof_imports=frozenset(),
         module_ast_sha256={},
-        dynamic_code_exception_module_ast_sha256={},
+        dynamic_code_exception_module_ast_sha256={
+            Path(path): digest
+            for path, digest in scan["phase3h_dynamic_code_exception_module_ast_sha256"].items()
+        },
     )
 
     assert violations
