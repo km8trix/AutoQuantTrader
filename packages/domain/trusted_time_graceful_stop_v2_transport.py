@@ -534,6 +534,7 @@ def resolve_lifecycle_v2_transport_authority(
         manifest_by_digest[manifest.sha256] = manifest
 
     previous_selected: LifecycleV2TransportAuthorityManifest | None = None
+    selected_manifest_digests: set[str] = set()
     for index, selection in enumerate(selections, start=1):
         if selection.environment != environment or selection.sequence != index:
             raise TrustedTimeGracefulStopV2Rejected(
@@ -556,18 +557,24 @@ def resolve_lifecycle_v2_transport_authority(
                     raise TrustedTimeGracefulStopV2Rejected(
                         "initial transport selection must choose generation one"
                     )
-            elif selected.sha256 != previous_selected.sha256 and (
-                selected.generation != previous_selected.generation + 1
-                or selected.predecessor_manifest_sha256 != previous_selected.sha256
-            ):
-                raise TrustedTimeGracefulStopV2Rejected(
-                    "transport generation rotation skips or overlaps its predecessor"
-                )
+            else:
+                if selected.sha256 == previous_selected.sha256:
+                    raise TrustedTimeGracefulStopV2Rejected(
+                        "transport selection cannot repeat the selected manifest"
+                    )
+                if (
+                    selected.generation != previous_selected.generation + 1
+                    or selected.predecessor_manifest_sha256 != previous_selected.sha256
+                ):
+                    raise TrustedTimeGracefulStopV2Rejected(
+                        "transport generation rotation skips or overlaps its predecessor"
+                    )
             previous_selected = selected
+            selected_manifest_digests.add(selected.sha256)
         recovery_digest = selection.recovery_manifest_sha256
-        if recovery_digest is not None and recovery_digest not in manifest_by_digest:
+        if recovery_digest is not None and recovery_digest not in selected_manifest_digests:
             raise TrustedTimeGracefulStopV2Rejected(
-                "transport recovery selection does not bind an installed manifest"
+                "transport recovery selection does not bind a previously selected manifest"
             )
 
     current = selections[-1]
@@ -786,7 +793,12 @@ class LifecycleV2PeerCredential:
                 )
             _require_sha256(fields["peer_executable_sha256"], "peer_executable_sha256")
         elif role == "supervisor" and disposition == "host_outside_private_pid_namespace":
-            if uid != 0 or gid != 0 or fields["peer_pid"] != 0:
+            if (
+                uid != 0
+                or gid != 0
+                or type(fields["peer_pid"]) is not int
+                or fields["peer_pid"] != 0
+            ):
                 raise TrustedTimeGracefulStopV2Rejected(
                     "supervisor peer credentials must use exact host PID-zero semantics"
                 )
@@ -975,6 +987,7 @@ class LifecycleV2HostHello:
             or fields["status"] != "host_hello_offered"
             or fields["protocol_version"] != TRANSPORT_PROTOCOL_VERSION
             or fields["direction"] != "host_to_supervisor"
+            or type(fields["message_counter"]) is not int
             or fields["message_counter"] != 0
         ):
             raise TrustedTimeGracefulStopV2Rejected("host hello discriminator is invalid")
@@ -1242,6 +1255,7 @@ class LifecycleV2SupervisorHello:
             or fields["status"] != "supervisor_hello_accepted"
             or fields["protocol_version"] != TRANSPORT_PROTOCOL_VERSION
             or fields["direction"] != "supervisor_to_host"
+            or type(fields["message_counter"]) is not int
             or fields["message_counter"] != 0
         ):
             raise TrustedTimeGracefulStopV2Rejected("supervisor hello discriminator is invalid")
@@ -1369,6 +1383,7 @@ class LifecycleV2HostChannelConfirmation:
             or fields["status"] != "host_channel_confirmed"
             or fields["protocol_version"] != TRANSPORT_PROTOCOL_VERSION
             or fields["direction"] != "host_to_supervisor"
+            or type(fields["message_counter"]) is not int
             or fields["message_counter"] != 1
         ):
             raise TrustedTimeGracefulStopV2Rejected(

@@ -140,6 +140,18 @@ def authenticate_lifecycle_v2_transport_authority_manifest(
             "transport authority manifest crossed the reviewed root identity"
         )
     public_key = reviewed_root_public_key if type(reviewed_root_public_key) is bytes else b""
+    if reviewed_root_key_id in {
+        manifest.host_key_id,
+        manifest.supervisor_key_id,
+        manifest.recovery_key_id,
+    } or public_key in {
+        manifest.host_public_key,
+        manifest.supervisor_public_key,
+        manifest.recovery_public_key,
+    }:
+        raise LifecycleV2TransportAuthenticationError(
+            "offline transport root identity cannot be reused by an endpoint role"
+        )
     _verify(public_key, manifest.signature_input, manifest.signature)
     return _authenticated_manifest(manifest, public_key)
 
@@ -341,7 +353,7 @@ class AuthenticatedLifecycleV2Handshake:
         raise TypeError("authenticated handshakes require signature verification")
 
 
-def authenticate_lifecycle_v2_handshake(
+def _authenticate_lifecycle_v2_handshake(
     authority_manifest: AuthenticatedLifecycleV2TransportAuthorityManifest,
     *,
     host_hello_encoded: bytes,
@@ -408,7 +420,7 @@ def authenticate_selected_lifecycle_v2_handshake(
         raise LifecycleV2TransportAuthenticationError(
             "current transport authority selection denies new roots"
         )
-    return authenticate_lifecycle_v2_handshake(
+    return _authenticate_lifecycle_v2_handshake(
         selected,
         host_hello_encoded=host_hello_encoded,
         supervisor_hello_encoded=supervisor_hello_encoded,
@@ -419,6 +431,7 @@ def authenticate_selected_lifecycle_v2_handshake(
 @dataclass(frozen=True, slots=True)
 class LifecycleV2TransportFrameExpectation:
     environment: str
+    transport_authority_manifest_sha256: str
     frame_type: str
     key_generation: int
     signing_key_id: str
@@ -458,6 +471,7 @@ class LifecycleV2TransportFrameExpectation:
         host_frame = frame_type == "clean_stop_request"
         return cls(
             environment=exact_root.environment,
+            transport_authority_manifest_sha256=(exact_root.transport_authority_manifest_sha256),
             frame_type=frame_type,
             key_generation=exact_root.transport_key_generation,
             signing_key_id=(
@@ -555,7 +569,8 @@ def authenticate_lifecycle_v2_transport_frame(
         )
     manifest = authenticated.manifest
     if (
-        manifest.environment != expectation.environment
+        manifest.sha256 != expectation.transport_authority_manifest_sha256
+        or manifest.environment != expectation.environment
         or manifest.generation != expectation.key_generation
     ):
         raise LifecycleV2TransportAuthenticationError(
@@ -644,7 +659,6 @@ __all__ = [
     "AuthenticatedLifecycleV2TransportEnvelope",
     "LifecycleV2TransportAuthenticationError",
     "LifecycleV2TransportFrameExpectation",
-    "authenticate_lifecycle_v2_handshake",
     "authenticate_lifecycle_v2_transport_authority",
     "authenticate_lifecycle_v2_transport_authority_manifest",
     "authenticate_lifecycle_v2_transport_authority_selection",

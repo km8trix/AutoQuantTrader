@@ -8,6 +8,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from packages.adapters.trusted_time import graceful_stop_v2_ed25519 as ed25519_adapter
 from packages.adapters.trusted_time.graceful_stop_v2_ed25519 import (
     LifecycleV2TransportAuthenticationError,
     LifecycleV2TransportFrameExpectation,
@@ -105,6 +106,26 @@ def _sign_canonical(
             **fields,
             "signature_ed25519_base64": _b64(private_key.sign(value.signature_input)),
         }
+    )
+
+
+def _sign_raw_fields(
+    fields: dict[str, object],
+    *,
+    signature_domain: str,
+    private_key: Ed25519PrivateKey,
+    maximum_bytes: int,
+) -> bytes:
+    unsigned = dict(fields)
+    unsigned.pop("signature_ed25519_base64", None)
+    signature = private_key.sign(
+        signature_domain.encode("ascii")
+        + b"\0"
+        + canonical_v2_json_bytes(unsigned, maximum_bytes=maximum_bytes)
+    )
+    return canonical_v2_json_bytes(
+        {**unsigned, "signature_ed25519_base64": _b64(signature)},
+        maximum_bytes=maximum_bytes,
     )
 
 
@@ -624,12 +645,16 @@ def test_rotation_is_gap_free_and_new_roots_denied_with_optional_recovery() -> N
             root_generation=1,
         )
 
+    denied_host = _host_hello(manifest_one)
+    denied_supervisor = _supervisor_hello(manifest_one, denied_host)
+    denied_confirmation = _confirmation(manifest_one, denied_host, denied_supervisor)
+    assert not hasattr(ed25519_adapter, "authenticate_lifecycle_v2_handshake")
     with pytest.raises(LifecycleV2TransportAuthenticationError, match="denies new roots"):
         authenticate_selected_lifecycle_v2_handshake(
             authority,
-            host_hello_encoded=b"{}\n",
-            supervisor_hello_encoded=b"{}\n",
-            host_confirmation_encoded=b"{}\n",
+            host_hello_encoded=denied_host.encoded,
+            supervisor_hello_encoded=denied_supervisor.encoded,
+            host_confirmation_encoded=denied_confirmation.encoded,
         )
 
 
@@ -785,6 +810,75 @@ def test_rotation_rejects_role_key_id_or_public_key_reuse() -> None:
         )
 
 
+def test_selection_rejects_noop_reselection_and_future_recovery_manifest() -> None:
+    manifest_one = _manifest()
+    manifest_two = _manifest(
+        generation=2,
+        predecessor=manifest_one.sha256,
+        host_private_key=Ed25519PrivateKey.from_private_bytes(bytes(range(16, 48))),
+        supervisor_private_key=Ed25519PrivateKey.from_private_bytes(bytes(range(17, 49))),
+        recovery_private_key=Ed25519PrivateKey.from_private_bytes(bytes(range(18, 50))),
+    )
+    selection_one = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest_one,
+        recovery=manifest_one,
+        reason="initial",
+    )
+    repeated = _selection(
+        sequence=2,
+        predecessor=selection_one.sha256,
+        selected=manifest_one,
+        recovery=manifest_one,
+        reason="rotation",
+    )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="predecessor chain"):
+        authenticate_lifecycle_v2_transport_authority(
+            (manifest_one.encoded,),
+            (selection_one.encoded, repeated.encoded),
+            reviewed_root_key_id=ROOT_KEY_ID,
+            reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+        )
+
+    future_recovery = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest_one,
+        recovery=manifest_two,
+        reason="initial",
+    )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="predecessor chain"):
+        authenticate_lifecycle_v2_transport_authority(
+            (manifest_one.encoded, manifest_two.encoded),
+            (future_recovery.encoded,),
+            reviewed_root_key_id=ROOT_KEY_ID,
+            reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+        )
+
+
+def test_authenticated_authority_rejects_offline_root_identity_role_reuse() -> None:
+    manifest = _manifest()
+    for key_id_field in ("host_key_id", "supervisor_key_id", "recovery_key_id"):
+        fields = manifest.to_dict()
+        fields.pop("signature_ed25519_base64")
+        fields[key_id_field] = ROOT_KEY_ID
+        key_id_reuse = cast(
+            LifecycleV2TransportAuthorityManifest,
+            _sign_canonical(fields, LifecycleV2TransportAuthorityManifest, ROOT_PRIVATE_KEY),
+        )
+        with pytest.raises(LifecycleV2TransportAuthenticationError, match="cannot be reused"):
+            _authenticated_manifest(key_id_reuse)
+
+    for public_key_reuse in (
+        _manifest(host_private_key=ROOT_PRIVATE_KEY),
+        _manifest(supervisor_private_key=ROOT_PRIVATE_KEY),
+        _manifest(recovery_private_key=ROOT_PRIVATE_KEY),
+    ):
+        with pytest.raises(LifecycleV2TransportAuthenticationError, match="cannot be reused"):
+            _authenticated_manifest(public_key_reuse)
+
+
 def test_boot_process_peer_and_socket_identity_codecs_are_role_exact() -> None:
     host_process = _process_epoch("host")
     supervisor_process = _process_epoch("supervisor")
@@ -806,6 +900,9 @@ def test_boot_process_peer_and_socket_identity_codecs_are_role_exact() -> None:
         lifecycle_v2_boot_epoch_sha256(BOOT_UUID.upper())
     bad_peer = supervisor_peer.to_dict()
     bad_peer["peer_pid"] = 1
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="PID-zero"):
+        LifecycleV2PeerCredential.capture(bad_peer)
+    bad_peer["peer_pid"] = False
     with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="PID-zero"):
         LifecycleV2PeerCredential.capture(bad_peer)
     bad_socket = host_socket.to_dict()
@@ -879,6 +976,80 @@ def test_three_signed_hellos_authenticate_and_bind_one_channel() -> None:
     assert authenticated.handshake.channel_binding.to_dict()["contract_version"] == (
         CHANNEL_BINDING_CONTRACT_VERSION
     )
+
+
+@pytest.mark.parametrize(
+    ("message_name", "boolean_counter", "signature_domain", "private_key"),
+    [
+        (
+            "host",
+            False,
+            "AutoQuantTrader/trusted-time/graceful-stop/host-hello/v2",
+            HOST_PRIVATE_KEY,
+        ),
+        (
+            "supervisor",
+            False,
+            "AutoQuantTrader/trusted-time/graceful-stop/supervisor-hello/v2",
+            SUPERVISOR_PRIVATE_KEY,
+        ),
+        (
+            "confirmation",
+            True,
+            "AutoQuantTrader/trusted-time/graceful-stop/host-channel-confirmation/v2",
+            HOST_PRIVATE_KEY,
+        ),
+    ],
+)
+def test_correctly_signed_boolean_handshake_counters_are_rejected(
+    message_name: str,
+    boolean_counter: bool,
+    signature_domain: str,
+    private_key: Ed25519PrivateKey,
+) -> None:
+    manifest = _manifest()
+    selection = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest,
+        recovery=manifest,
+        reason="initial",
+    )
+    authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (selection.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    host = _host_hello(manifest)
+    supervisor = _supervisor_hello(manifest, host)
+    confirmation = _confirmation(manifest, host, supervisor)
+    messages = {
+        "host": host.encoded,
+        "supervisor": supervisor.encoded,
+        "confirmation": confirmation.encoded,
+    }
+    value_by_name: dict[str, Any] = {
+        "host": host,
+        "supervisor": supervisor,
+        "confirmation": confirmation,
+    }
+    tampered = value_by_name[message_name].to_dict()
+    tampered["message_counter"] = boolean_counter
+    messages[message_name] = _sign_raw_fields(
+        tampered,
+        signature_domain=signature_domain,
+        private_key=private_key,
+        maximum_bytes=12_288,
+    )
+
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="not canonical"):
+        authenticate_selected_lifecycle_v2_handshake(
+            authority,
+            host_hello_encoded=messages["host"],
+            supervisor_hello_encoded=messages["supervisor"],
+            host_confirmation_encoded=messages["confirmation"],
+        )
 
 
 _HOST_HELLO_SIGNED_FIELDS = [
@@ -1031,6 +1202,29 @@ def test_ed25519_authenticator_verifies_every_transport_frame_role(frame_type: s
     assert authenticated.signer_role == (
         "host" if frame_type == "clean_stop_request" else "supervisor"
     )
+
+
+def test_generic_frame_verifier_rejects_parallel_manifest_with_same_endpoint_keys() -> None:
+    pinned_manifest = _manifest()
+    parallel_manifest = _manifest(
+        recovery_private_key=Ed25519PrivateKey.from_private_bytes(bytes(range(19, 51)))
+    )
+    assert pinned_manifest.sha256 != parallel_manifest.sha256
+    assert pinned_manifest.host_public_key == parallel_manifest.host_public_key
+    assert pinned_manifest.supervisor_public_key == parallel_manifest.supervisor_public_key
+    root = _root(pinned_manifest)
+    intent = _intent(root)
+    envelope = _envelope(root, intent, frame_type="clean_stop_result")
+    expectation = LifecycleV2TransportFrameExpectation.from_root_and_intent(
+        root, intent, frame_type="clean_stop_result"
+    )
+
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="authority generation"):
+        authenticate_lifecycle_v2_transport_frame(
+            envelope.encoded,
+            authority_manifest=_authenticated_manifest(parallel_manifest),
+            expectation=expectation,
+        )
 
 
 @pytest.mark.parametrize("frame_type", ["clean_stop_result", "clean_stop_error"])
