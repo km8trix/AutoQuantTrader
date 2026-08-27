@@ -198,6 +198,24 @@ def _phase4an_violations(source: str, *, relative_path: Path) -> list[Violation]
         "    loader = _port_method(_BUILTINS, import_name)\n"
         "    module = loader(module_name, fromlist=('sentinel',))\n"
         "    return _port_method(module, attribute_name)",
+        "from packages.application import "
+        "trusted_time_head_anchor_clean_stop_supervisor_bridge as builtins_owner\n"
+        "from packages.application import durable_trusted_time_monitor as resolver_owner\n"
+        "builtins_alias = builtins_owner\n"
+        "resolver_alias = resolver_owner\n"
+        "loader = resolver_alias._port_method(builtins_alias._BUILTINS, import_name)\n"
+        "module = loader(module_name, fromlist=('sentinel',))\n"
+        "capability = resolver_alias._port_method(module, attribute_name)",
+        "from packages.application import durable_trusted_time_monitor as owner\n"
+        "aliases = (owner,)\n"
+        "callback(owner)",
+        "from scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication "
+        "import ctypes\n"
+        "import _ctypes\n"
+        "library = ctypes.pydll.LoadLibrary(None)\n"
+        "importer = library['Py' + 'Import_ImportModule']\n"
+        "resolver = library['Py' + 'Object_GetAttrString']\n"
+        "bridge = _ctypes.PyObj_FromPtr",
         "owner._retain_progress(record)",
     ],
 )
@@ -363,6 +381,24 @@ def test_wave5_boundary_accepts_unique_protected_python_module_identities() -> N
         "    loader = _port_method(_BUILTINS, import_name)\n"
         "    module = loader(module_name, fromlist=('sentinel',))\n"
         "    return _port_method(module, attribute_name)",
+        "from packages.application import "
+        "trusted_time_head_anchor_clean_stop_supervisor_bridge as builtins_owner\n"
+        "from packages.application import durable_trusted_time_monitor as resolver_owner\n"
+        "builtins_alias = builtins_owner\n"
+        "resolver_alias = resolver_owner\n"
+        "loader = resolver_alias._port_method(builtins_alias._BUILTINS, import_name)\n"
+        "module = loader(module_name, fromlist=('sentinel',))\n"
+        "capability = resolver_alias._port_method(module, attribute_name)",
+        "from packages.application import durable_trusted_time_monitor as owner\n"
+        "aliases = (owner,)\n"
+        "callback(owner)",
+        "from scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication "
+        "import ctypes\n"
+        "import _ctypes\n"
+        "library = ctypes.pydll.LoadLibrary(None)\n"
+        "importer = library['Py' + 'Import_ImportModule']\n"
+        "resolver = library['Py' + 'Object_GetAttrString']\n"
+        "bridge = _ctypes.PyObj_FromPtr",
     ],
 )
 def test_phase4an_boundary_rejects_unreviewed_runtime_reachability(source: str) -> None:
@@ -399,6 +435,22 @@ def test_phase4an_boundary_accepts_exact_modules_and_no_production_importers() -
             reserved_symbols=reserved_symbols,
             dynamic_code_exception_module_ast_sha256=dynamic_code_exceptions,
         )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from packages.application.durable_trusted_time_monitor import "
+        "DurableTrustedTimeMonitorError",
+        "from packages.application import durable_trusted_time_monitor as owner\n"
+        "error_type = owner.DurableTrustedTimeMonitorError",
+    ],
+)
+def test_phase4an_boundary_allows_public_exception_exports(source: str) -> None:
+    assert not _phase4an_violations(
+        source,
+        relative_path=Path("packages/application/benign_exception_consumer.py"),
+    )
 
 
 def test_phase4an_boundary_rejects_protected_module_ast_drift() -> None:
@@ -470,7 +522,12 @@ def test_wave5_isolated_module_boundary_noops_when_policy_is_absent() -> None:
         "resolver = library.PyObject_GetAttrString",
         "from ctypes import CDLL\nlibrary = CDLL(None)\nsymbol = getattr(library, symbol_name)",
         "import cffi",
+        "import _ctypes",
         "import _imp",
+        "from scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication "
+        "import ctypes\n"
+        "library = ctypes.pydll.LoadLibrary(None)\n"
+        "bridge = library.PyObj_FromPtr",
     ],
 )
 def test_native_loader_boundary_rejects_all_production_roots(source: str) -> None:

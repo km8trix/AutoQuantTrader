@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "320271f46edb955eeff9a234fbcbf6b3bee45b2cbad8c1c90c859342ba2f633f"
+    "5dbaf6fbabaf66a8b2b7118d4e834e865f36f4ce2bde8fd7ee190bb214e8f442"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -2411,16 +2411,19 @@ def _native_executable_loading_violations(
     if relative_path in {wrapper_path, Path("scripts/check_architecture.py")}:
         return []
     del image_import_root
-    forbidden_modules = {"_imp", "cffi", "ctypes"}
+    forbidden_modules = {"_ctypes", "_imp", "cffi", "ctypes"}
     forbidden_attributes = {
         "CDLL",
         "ExtensionFileLoader",
+        "LoadLibrary",
         "PyDLL",
         "create_dynamic",
         "dlopen",
         "dlsym",
         "exec_dynamic",
         "memfd_create",
+        "pointer",
+        "pydll",
         "spec_from_file_location",
     }
     forbidden_private_names = {
@@ -2450,11 +2453,14 @@ def _native_executable_loading_violations(
         "CFUNCTYPE",
         "PYFUNCTYPE",
         "PyDLL",
+        "PyObj_FromPtr",
         "addressof",
+        "c_void_p",
         "from_address",
         "memmove",
         "memoryview_at",
         "py_object",
+        "pydll",
         "pythonapi",
         "resize",
         "string_at",
@@ -2501,7 +2507,7 @@ def _native_executable_loading_violations(
                 )
             if not exact_ffi_exception:
                 for alias in node.names:
-                    if alias.name in forbidden_attributes:
+                    if alias.name in forbidden_attributes | forbidden_modules:
                         violations.append(
                             Violation(
                                 relative_path,
@@ -5467,6 +5473,59 @@ def _isolated_origin_module_import_bindings(
     return bindings
 
 
+_DYNAMIC_CODE_EXCEPTION_NONEXPORTABLE_BINDINGS = frozenset(
+    {
+        "CDLL",
+        "LoadLibrary",
+        "PyDLL",
+        "PyObj_FromPtr",
+        "__builtins__",
+        "__import__",
+        "_ctypes",
+        "_frozen_importlib",
+        "_frozen_importlib_external",
+        "_imp",
+        "builtins",
+        "cast",
+        "cffi",
+        "cloudpickle",
+        "code",
+        "codeop",
+        "compile",
+        "copyreg",
+        "ctypes",
+        "dill",
+        "eval",
+        "exec",
+        "gc",
+        "getattr",
+        "globals",
+        "import_module",
+        "importlib",
+        "inspect",
+        "joblib",
+        "locals",
+        "marshal",
+        "mock",
+        "operator",
+        "pickle",
+        "pkgutil",
+        "pydll",
+        "pointer",
+        "pydoc",
+        "pythonapi",
+        "runpy",
+        "shelve",
+        "string",
+        "sys",
+        "types",
+        "unittest",
+        "vars",
+        "zipimport",
+    }
+)
+
+
 _EXACT_DYNAMIC_CODE_EXCEPTION_PRIVATE_CONSUMER_AST_SHA256 = {
     Path("apps/trusted_time_supervisor/post_enrollment_read_probes.py"): (
         "39bd2c7e349b023f9cd217e6b15271fcd3cb03454dfa863634bf2931259f316b"
@@ -5612,7 +5671,9 @@ def _dynamic_code_exception_private_import_violations(
                 if alias.name != "*":
                     bindings[alias.asname or alias.name] = imported
                 if imported_from in exception_modules and (
-                    alias.name == "*" or alias.name.startswith("_")
+                    alias.name == "*"
+                    or alias.name.startswith("_")
+                    or alias.name in _DYNAMIC_CODE_EXCEPTION_NONEXPORTABLE_BINDINGS
                 ):
                     violations.append(
                         Violation(
@@ -5623,16 +5684,35 @@ def _dynamic_code_exception_private_import_violations(
                         )
                     )
 
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute):
+        if isinstance(node, (ast.Name, ast.Attribute)):
             qualified = _qualified_symbol(node, bindings)
             if qualified is None:
                 continue
+            if qualified in exception_modules:
+                parent = parents.get(node)
+                if not (isinstance(parent, ast.Attribute) and parent.value is node):
+                    violations.append(
+                        Violation(
+                            relative_path,
+                            getattr(node, "lineno", 1),
+                            f"{boundary} cannot alias, pass, return, or contain dynamic-code "
+                            f"exception namespace '{qualified}'",
+                        )
+                    )
+                continue
             for module in exception_modules:
                 prefix = f"{module}."
-                if qualified.startswith(prefix) and qualified[len(prefix) :].split(".", 1)[
-                    0
-                ].startswith("_"):
+                exported_name = (
+                    qualified[len(prefix) :].split(".", 1)[0]
+                    if qualified.startswith(prefix)
+                    else ""
+                )
+                if exported_name and (
+                    exported_name.startswith("_")
+                    or exported_name in _DYNAMIC_CODE_EXCEPTION_NONEXPORTABLE_BINDINGS
+                ):
                     violations.append(
                         Violation(
                             relative_path,
@@ -5658,7 +5738,11 @@ def _dynamic_code_exception_private_import_violations(
             if receiver_name not in exception_modules:
                 continue
             reflected_name = _constant_wave5_reflection_text(reflected_name_node)
-            if reflected_name is None or reflected_name.startswith("_"):
+            if (
+                reflected_name is None
+                or reflected_name.startswith("_")
+                or reflected_name in _DYNAMIC_CODE_EXCEPTION_NONEXPORTABLE_BINDINGS
+            ):
                 violations.append(
                     Violation(
                         relative_path,
@@ -5811,6 +5895,7 @@ def _phase3h_proof_boundary_violations(
     )
     dangerous_import_roots = frozenset(
         {
+            "_ctypes",
             "_frozen_importlib",
             "_frozen_importlib_external",
             "_imp",
@@ -5872,6 +5957,7 @@ def _phase3h_proof_boundary_violations(
     )
     dynamic_loader_modules = frozenset(
         {
+            "_ctypes",
             "_imp",
             "cffi",
             "ctypes",
@@ -5929,6 +6015,7 @@ def _phase3h_proof_boundary_violations(
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             imported.append(node.module)
             imported.extend(f"{node.module}.{alias.name}" for alias in node.names)
+            imported.extend(alias.name for alias in node.names)
         return next(
             (
                 candidate
@@ -6520,6 +6607,7 @@ def _isolated_wave5_module_boundary_violations(
     )
     dynamic_loader_modules = frozenset(
         {
+            "_ctypes",
             "_imp",
             "cffi",
             "ctypes",
@@ -6564,6 +6652,7 @@ def _isolated_wave5_module_boundary_violations(
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             imported.append(node.module)
             imported.extend(f"{node.module}.{alias.name}" for alias in node.names)
+            imported.extend(alias.name for alias in node.names)
         return next(
             (
                 candidate

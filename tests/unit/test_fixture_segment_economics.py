@@ -816,6 +816,24 @@ def test_object_new_reconstruction_cannot_mint_process_or_receipt_evidence() -> 
         "loader = _port_method(_BUILTINS, import_name)\n"
         "module = loader(module_name, fromlist=('sentinel',))\n"
         "capability = _port_method(module, attribute_name)",
+        "from packages.application import "
+        "trusted_time_head_anchor_clean_stop_supervisor_bridge as builtins_owner\n"
+        "from packages.application import durable_trusted_time_monitor as resolver_owner\n"
+        "builtins_alias = builtins_owner\n"
+        "resolver_alias = resolver_owner\n"
+        "loader = resolver_alias._port_method(builtins_alias._BUILTINS, import_name)\n"
+        "module = loader(module_name, fromlist=('sentinel',))\n"
+        "capability = resolver_alias._port_method(module, attribute_name)",
+        "from packages.application import durable_trusted_time_monitor as owner\n"
+        "aliases = (owner,)\n"
+        "callback(owner)",
+        "from scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication "
+        "import ctypes\n"
+        "import _ctypes\n"
+        "library = ctypes.pydll.LoadLibrary(None)\n"
+        "importer = library['Py' + 'Import_ImportModule']\n"
+        "resolver = library['Py' + 'Object_GetAttrString']\n"
+        "bridge = _ctypes.PyObj_FromPtr",
         "import ctypes\n"
         "library = ctypes.CDLL(None)\n"
         "importer = library.PyImport_ImportModule\n"
