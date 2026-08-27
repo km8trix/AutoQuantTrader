@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import base64
 import hashlib
+import os
 import threading
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError, replace
@@ -61,6 +62,7 @@ from tests.unit.trusted_time_graceful_stop_v2_fakes import (
     FakeLifecycleV2ArtifactStore,
     FakeLifecycleV2DockerEffects,
     FakeLifecycleV2Fault,
+    FakeLifecycleV2RetainedWireVerifier,
     FakeLifecycleV2Transport,
     FakePublicationFault,
     fake_adapters_non_authority_facts,
@@ -223,6 +225,44 @@ def _result_record(
     envelope: UnverifiedLifecycleV2TransportEnvelope,
 ) -> LifecycleV2ProgressRecord:
     file_name = lifecycle_v2_wire_file_name(envelope)
+    fake_store = FakeLifecycleV2ArtifactStore()
+    store_identity = fake_store.identity
+    publication = fake_store.preview_publication_receipt(file_name, envelope.encoded)
+    publication_receipt = {
+        "contract_version": (
+            "phase6d-post-enrollment-graceful-stop-wire-envelope-publication-receipt-v2"
+        ),
+        "service": LIFECYCLE_V2_SERVICE,
+        "status": "wire_envelope_published",
+        "environment": root.environment,
+        "graceful_stop_operation_id": root.graceful_stop_operation_id,
+        "root_sha256": root.sha256,
+        "artifact_kind": "signed_result_envelope",
+        "artifact_directory_path": store_identity.artifact_directory_path,
+        "artifact_directory_device": store_identity.directory_device,
+        "artifact_directory_inode": store_identity.directory_inode,
+        "artifact_path": f"{store_identity.artifact_directory_path}/{file_name}",
+        "file_name": file_name,
+        "file_device": publication.final_device,
+        "file_inode": publication.final_inode,
+        "file_mode": publication.final_mode,
+        "file_size": publication.final_size,
+        "signed_envelope_sha256": envelope.sha256,
+        "envelope_contract_version": LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION,
+        "frame_type": envelope.frame_type,
+        "payload_contract_version": envelope.to_dict()["payload_contract_version"],
+        "payload_sha256": hashlib.sha256(envelope.payload).hexdigest(),
+        "signature_sha256": envelope.signature_sha256,
+        "key_generation": root.transport_key_generation,
+        "signing_key_id": root.supervisor_transport_key_id,
+        "channel_id": root.channel_id,
+        "lifecycle_dispatch_prefix_sha256": lifecycle_v2_dispatch_prefix_sha256(root, intent),
+        "message_counter": 1,
+        "deadline_boottime_ns": root.clean_stop_result_deadline_boottime_ns,
+        "directory_fsync_completed": True,
+        "stable_readback_completed": True,
+        "publication_authorized_boottime_ns": root.admission_started_boottime_ns + 1,
+    }
     return LifecycleV2ProgressRecord(
         graceful_stop_operation_id=root.graceful_stop_operation_id,
         root_sha256=root.sha256,
@@ -255,7 +295,7 @@ def _result_record(
                 ),
                 "message_counter": 1,
                 "deadline_boottime_ns": root.clean_stop_result_deadline_boottime_ns,
-                "wire_publication_receipt": {"test_only": True},
+                "wire_publication_receipt": publication_receipt,
                 "wire_publication_receipt_sha256": _digest("wire-receipt"),
                 "call_started_boottime_ns": root.admission_started_boottime_ns + 1,
                 "call_completed_boottime_ns": root.admission_started_boottime_ns + 2,
@@ -289,29 +329,83 @@ def _repository(
     )
 
 
-class _RecordingRetainedWireVerifier:
-    def __init__(self, *, reject: bool = False, invalid_return: bool = False) -> None:
-        self.reject = reject
-        self.invalid_return = invalid_return
-        self.calls: list[tuple[object, ...]] = []
-
-    def reauthenticate_retained_terminal_wire(
+class _NamespaceRaceArtifactStore(FakeLifecycleV2ArtifactStore):
+    def __init__(
         self,
         *,
-        envelope: UnverifiedLifecycleV2TransportEnvelope,
-        root: LifecycleV2Root,
-        request_intent: LifecycleV2ProgressRecord,
-        terminal_record: LifecycleV2ProgressRecord,
-        artifact_directory_path: str,
-    ) -> Any:
-        self.calls.append(
-            (envelope, root, request_intent, terminal_record, artifact_directory_path)
+        initial: dict[str, bytes],
+        racing_name: str,
+    ) -> None:
+        super().__init__(initial=initial)
+        self.racing_name = racing_name
+        self.race_injected = False
+
+    def read_stable(self, file_name: str) -> persistence.LifecycleV2ArtifactReadback:
+        readback = super().read_stable(file_name)
+        if not self.race_injected:
+            self.race_injected = True
+            self.inject(self.racing_name, b"racing-namespace-entry\n")
+        return readback
+
+
+class _CountingCloseArtifactStore(FakeLifecycleV2ArtifactStore):
+    __slots__ = ("close_calls",)
+
+    def __init__(self, *, inventory_failure_call: int) -> None:
+        super().__init__(inventory_failure_call=inventory_failure_call)
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+        super().close()
+
+
+class _WireReceiptInodeMismatchArtifactStore(FakeLifecycleV2ArtifactStore):
+    def publish_immutable(
+        self,
+        *,
+        staging_name: str,
+        final_name: str,
+        encoded: bytes,
+    ) -> persistence.LifecycleV2ArtifactPublicationReceipt:
+        receipt = super().publish_immutable(
+            staging_name=staging_name,
+            final_name=final_name,
+            encoded=encoded,
         )
-        if self.reject:
-            raise ValueError("injected signature rejection")
-        if self.invalid_return:
-            return object()
-        return None
+        if "-wire-" in final_name:
+            return replace(receipt, final_inode=receipt.final_inode + 1)
+        return receipt
+
+
+class _MissingNoReplaceReceiptArtifactStore(FakeLifecycleV2ArtifactStore):
+    def publish_immutable(
+        self,
+        *,
+        staging_name: str,
+        final_name: str,
+        encoded: bytes,
+    ) -> persistence.LifecycleV2ArtifactPublicationReceipt:
+        receipt = super().publish_immutable(
+            staging_name=staging_name,
+            final_name=final_name,
+            encoded=encoded,
+        )
+        if "-record-" in final_name:
+            return replace(receipt, no_replace_rename_completed=False)
+        return receipt
+
+
+def _tamper_wire_publication_receipt(
+    record: LifecycleV2ProgressRecord,
+    *,
+    field_name: str,
+    replacement: object,
+) -> LifecycleV2ProgressRecord:
+    evidence = record.evidence.to_dict()
+    receipt = cast(dict[str, object], evidence["wire_publication_receipt"])
+    evidence["wire_publication_receipt"] = {**receipt, field_name: replacement}
+    return replace(record, evidence=FrozenJsonObject.capture(evidence))
 
 
 def _recovery_intent(
@@ -483,7 +577,7 @@ def test_request_intent_and_final_request_are_derived_from_one_exact_root_basis(
         repository.retain_request_intent(caller_selected_intent, wrong_basis)
     with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="exact root/basis/intent"):
         LifecycleV2CleanStopRequest.from_prefix(root, wrong_basis, caller_selected_intent)
-    assert store.inventory() == (LIFECYCLE_ROOT_FILE_NAME,)
+    assert store.inventory().names == (LIFECYCLE_ROOT_FILE_NAME,)
 
     store.inject(
         lifecycle_v2_progress_file_name(caller_selected_intent),
@@ -718,7 +812,134 @@ def test_shared_root_rejects_v1_unknown_and_orphan_names_without_cleanup() -> No
     orphan = FakeLifecycleV2ArtifactStore(initial={"unknown.json": b"{}\n"})
     with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
         _repository(orphan)
-    assert orphan.inventory() == ("unknown.json",)
+    assert orphan.inventory().names == ("unknown.json",)
+
+
+def test_repository_derives_canonical_store_identity_and_rejects_duplicate_path_drift() -> None:
+    store = FakeLifecycleV2ArtifactStore()
+    repository = persistence._open_injected_lifecycle_v2_repository(store)
+    assert repository.artifact_store_identity == store.identity
+    with pytest.raises(FrozenInstanceError):
+        cast(Any, repository.artifact_store_identity).directory_inode = 999
+    repository.close()
+    assert store.close_count == 1
+
+    mismatched = FakeLifecycleV2ArtifactStore()
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="duplicates the store identity incorrectly",
+    ):
+        persistence._open_injected_lifecycle_v2_repository(
+            mismatched,
+            artifact_directory_path="/different/injected/trusted-time",
+        )
+    assert mismatched.close_count == 1
+
+
+def test_repository_context_close_is_origin_bound_and_idempotent() -> None:
+    store = FakeLifecycleV2ArtifactStore()
+    with _repository(store) as repository:
+        assert repository.status is persistence.LifecycleV2RepositoryStatus.UNRESERVED
+    assert store.close_count == 1
+    repository.close()
+    assert store.close_count == 1
+    with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed, match="closed"):
+        _ = repository.status
+
+
+def test_repository_burn_and_context_exit_invoke_store_disposal_only_once() -> None:
+    store = _CountingCloseArtifactStore(inventory_failure_call=3)
+    repository: Any
+    with (
+        pytest.raises(persistence.LifecycleV2RetentionUnconfirmed),
+        _repository(store) as repository,
+    ):
+        repository.reserve_root(_root())
+
+    assert store.close_calls == 1
+    repository.close()
+    assert store.close_calls == 1
+    with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed, match="closed"):
+        _ = repository.status
+
+
+def test_repository_status_and_close_reject_wrong_thread_before_any_disposal() -> None:
+    store = FakeLifecycleV2ArtifactStore()
+    repository = _repository(store)
+    failures: list[BaseException] = []
+
+    def wrong_thread() -> None:
+        for operation in (lambda: repository.status, repository.close):
+            try:
+                operation()
+            except BaseException as error:
+                failures.append(error)
+
+    thread = threading.Thread(target=wrong_thread)
+    thread.start()
+    thread.join()
+    assert len(failures) == 2
+    assert all(isinstance(error, persistence.LifecycleV2RetentionUnconfirmed) for error in failures)
+    assert store.close_count == 0
+    assert repository.status is persistence.LifecycleV2RepositoryStatus.UNRESERVED
+    repository.close()
+    assert store.close_count == 1
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="repository fork guard is POSIX-only")
+def test_repository_status_and_disposal_are_invalid_in_a_real_fork_child() -> None:
+    store = FakeLifecycleV2ArtifactStore()
+    repository = _repository(store)
+    read_pipe, write_pipe = os.pipe()
+    child_pid = os.fork()
+    if child_pid == 0:
+        os.close(read_pipe)
+        rejected = 0
+        for operation in (lambda: repository.status, repository.close):
+            try:
+                operation()
+            except persistence.LifecycleV2RetentionUnconfirmed:
+                rejected += 1
+        os.write(write_pipe, str(rejected).encode("ascii"))
+        os.close(write_pipe)
+        os._exit(0 if rejected == 2 else 93)
+
+    os.close(write_pipe)
+    child_report = os.read(read_pipe, 1)
+    os.close(read_pipe)
+    waited_pid, wait_status = os.waitpid(child_pid, 0)
+    try:
+        assert waited_pid == child_pid
+        assert os.waitstatus_to_exitcode(wait_status) == 0
+        assert child_report == b"2"
+        assert repository.status is persistence.LifecycleV2RepositoryStatus.UNRESERVED
+        assert store.close_count == 0
+    finally:
+        repository.close()
+    assert store.close_count == 1
+
+
+@pytest.mark.parametrize("fault", ["inventory", "identity_path"])
+def test_root_reservation_inventory_and_path_faults_poison_and_dispose(fault: str) -> None:
+    store = FakeLifecycleV2ArtifactStore(inventory_failure_call=3 if fault == "inventory" else None)
+    repository = _repository(store)
+    if fault == "identity_path":
+        store.replace_identity_for_test(
+            replace(
+                store.identity,
+                artifact_directory_path="/replaced/injected/trusted-time",
+            )
+        )
+
+    with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
+        repository.reserve_root(_root())
+
+    assert store.close_count == 1
+    if fault == "identity_path":
+        with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed, match="identity changed"):
+            _ = repository.status
+    else:
+        assert repository.status is persistence.LifecycleV2RepositoryStatus.RETENTION_UNCONFIRMED
 
 
 @pytest.mark.parametrize("phase", ["before", "renamed", "directory_fsynced", "readback"])
@@ -745,7 +966,7 @@ def test_progress_store_faults_are_retention_unconfirmed(phase: str) -> None:
         repository.retain_request_intent(intent, _request_basis(root))
     assert repository.status is persistence.LifecycleV2RepositoryStatus.RETENTION_UNCONFIRMED
     if phase in {"staging_created", "file_fsynced"}:
-        assert ".post-enrollment-graceful-stop-v2-record-staging" in store.inventory()
+        assert ".post-enrollment-graceful-stop-v2-record-staging" in store.inventory().names
 
 
 def test_order_replay_and_cross_root_substitution_are_rejected_before_store() -> None:
@@ -800,8 +1021,8 @@ def test_terminal_wire_is_full_envelope_named_by_full_envelope_digest() -> None:
     repository.retain_request_intent(intent, basis)
     repository.retain_authenticated_terminal_wire(record, authenticated)
     wire_name = lifecycle_v2_wire_file_name(envelope)
-    assert store.read_stable(wire_name) == envelope.encoded
-    assert hashlib.sha256(store.read_stable(wire_name)).hexdigest() == envelope.sha256
+    assert store.read_stable(wire_name).encoded == envelope.encoded
+    assert hashlib.sha256(store.read_stable(wire_name).encoded).hexdigest() == envelope.sha256
     transcript = repository.publish_transcript()
     assert transcript.entries[2].wire_artifact_file_name == wire_name
     assert transcript.entries[2].wire_artifact_sha256 == envelope.sha256
@@ -864,16 +1085,26 @@ def test_restart_with_retained_wire_uses_only_the_injected_verifier_seam() -> No
         _fake_authenticated_result(root, basis, intent, envelope),
     )
 
-    verifier = _RecordingRetainedWireVerifier()
+    verifier = FakeLifecycleV2RetainedWireVerifier()
     reopened = _repository(store, verifier)
 
     assert reopened.status is persistence.LifecycleV2RepositoryStatus.ROOT_RESERVED
     assert verifier.calls == [(envelope, root, intent, record, ARTIFACT_DIRECTORY)]
 
 
-@pytest.mark.parametrize("invalid_return", [False, True])
-def test_retained_wire_verifier_rejection_never_becomes_restart_authentication(
-    invalid_return: bool,
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "reject",
+        "invalid_return",
+        "invalid_capability",
+        "substitute_on_require",
+        "wrong_manifest",
+        "wrong_signer",
+    ],
+)
+def test_retained_wire_verifier_rejection_or_tamper_never_authenticates_restart(
+    fault: str,
 ) -> None:
     root = _root()
     basis = _request_basis(root)
@@ -888,13 +1119,138 @@ def test_retained_wire_verifier_rejection_never_becomes_restart_authentication(
         record,
         _fake_authenticated_result(root, basis, intent, envelope),
     )
-    verifier = _RecordingRetainedWireVerifier(
-        reject=not invalid_return,
-        invalid_return=invalid_return,
-    )
+    verifier = FakeLifecycleV2RetainedWireVerifier(**{fault: True})
 
     with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
         _repository(store, verifier)
+
+
+@pytest.mark.parametrize(
+    "racing_name",
+    [
+        ".post-enrollment-graceful-stop-v2-wire-result-staging",
+        "trusted-time-post-enrollment-graceful-stop-v2-wire-error-" + "b" * 64 + ".json",
+        "trusted-time-post-enrollment-graceful-stop-v2-outcome-" + "c" * 64 + ".json",
+        "unknown-racing-artifact.json",
+        LIFECYCLE_ROOT_FILE_NAME,
+    ],
+)
+def test_complete_namespace_load_rejects_every_post_snapshot_race(
+    racing_name: str,
+) -> None:
+    root = _root()
+    basis = _request_basis(root)
+    intent = _request_intent(root, basis)
+    envelope = _result_envelope(root, intent)
+    record = _result_record(root, intent, envelope)
+    store = _NamespaceRaceArtifactStore(
+        initial={
+            LIFECYCLE_ROOT_FILE_NAME: root.encoded,
+            lifecycle_v2_progress_file_name(intent): intent.encoded,
+            lifecycle_v2_progress_file_name(record): record.encoded,
+            lifecycle_v2_wire_file_name(envelope): envelope.encoded,
+        },
+        racing_name=racing_name,
+    )
+
+    with pytest.raises(
+        persistence.LifecycleV2RetentionUnconfirmed,
+        match="changed during complete stable load",
+    ):
+        _repository(store, FakeLifecycleV2RetainedWireVerifier())
+
+    assert store.race_injected is True
+    assert store.close_count == 1
+
+
+@pytest.mark.parametrize("load_phase", ["live", "restart"])
+@pytest.mark.parametrize(
+    ("field_name", "replacement"),
+    [
+        ("artifact_directory_path", "/wrong/trusted-time"),
+        ("file_inode", 999),
+        ("directory_fsync_completed", False),
+    ],
+)
+def test_ordinal_two_binds_live_and_restart_to_the_exact_physical_receipt(
+    load_phase: str,
+    field_name: str,
+    replacement: object,
+) -> None:
+    root = _root()
+    basis = _request_basis(root)
+    intent = _request_intent(root, basis)
+    envelope = _result_envelope(root, intent)
+    record = _tamper_wire_publication_receipt(
+        _result_record(root, intent, envelope),
+        field_name=field_name,
+        replacement=replacement,
+    )
+    store = FakeLifecycleV2ArtifactStore()
+    if load_phase == "live":
+        repository = _repository(store)
+        repository.reserve_root(root)
+        repository.retain_request_intent(intent, basis)
+        with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
+            repository.retain_authenticated_terminal_wire(
+                record,
+                _fake_authenticated_result(root, basis, intent, envelope),
+            )
+        assert lifecycle_v2_wire_file_name(envelope) in store.inventory().names
+    else:
+        for name, encoded in {
+            LIFECYCLE_ROOT_FILE_NAME: root.encoded,
+            lifecycle_v2_progress_file_name(intent): intent.encoded,
+            lifecycle_v2_progress_file_name(record): record.encoded,
+            lifecycle_v2_wire_file_name(envelope): envelope.encoded,
+        }.items():
+            store.inject(name, encoded)
+        with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
+            _repository(store, FakeLifecycleV2RetainedWireVerifier())
+    assert store.close_count == 1
+
+
+def test_live_ordinal_two_binds_receipt_inode_to_independent_stable_readback() -> None:
+    root = _root()
+    basis = _request_basis(root)
+    intent = _request_intent(root, basis)
+    envelope = _result_envelope(root, intent)
+    record = _result_record(root, intent, envelope)
+    store = _WireReceiptInodeMismatchArtifactStore()
+    repository = _repository(store)
+    repository.reserve_root(root)
+    repository.retain_request_intent(intent, basis)
+
+    with pytest.raises(
+        persistence.LifecycleV2RetentionUnconfirmed,
+        match="progress retention may have begun",
+    ):
+        repository.retain_authenticated_terminal_wire(
+            record,
+            _fake_authenticated_result(root, basis, intent, envelope),
+        )
+
+    assert lifecycle_v2_wire_file_name(envelope) in store.inventory().names
+    assert lifecycle_v2_progress_file_name(record) not in store.inventory().names
+    assert store.close_count == 1
+
+
+def test_every_immutable_progress_receipt_proves_no_replace_publication() -> None:
+    root = _root()
+    basis = _request_basis(root)
+    intent = _request_intent(root, basis)
+    store = _MissingNoReplaceReceiptArtifactStore()
+    repository = _repository(store)
+    repository.reserve_root(root)
+
+    with pytest.raises(
+        persistence.LifecycleV2RetentionUnconfirmed,
+        match="progress retention may have begun",
+    ):
+        repository.retain_request_intent(intent, basis)
+
+    assert lifecycle_v2_progress_file_name(intent) in store.inventory().names
+    assert store.close_count == 1
 
 
 def test_restart_recovery_intent_binds_exact_immediate_predecessor_transcript() -> None:

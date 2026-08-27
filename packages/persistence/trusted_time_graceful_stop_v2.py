@@ -1,8 +1,7 @@
-"""Injected, no-real-root lifecycle-v2 repository for ADR 0121 milestone-one core.
+"""Injected-root lifecycle-v2 repository for ADR 0121 milestone-one core.
 
-The repository owns ordering and namespace validation but has no filesystem
-implementation.  Tests supply the in-memory artifact store.  A native owned-
-file implementation is deliberately deferred to ADR-0121 milestone two.
+The repository owns ordering and namespace validation while all physical
+authority remains behind an explicitly injected, descriptor-safe store.
 """
 
 from __future__ import annotations
@@ -11,6 +10,7 @@ import json
 import os
 import threading
 from contextlib import suppress
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol, cast
 
@@ -63,6 +63,8 @@ _STAGING_NAMES = frozenset(
         _COMMIT_STAGING_NAME,
     }
 )
+_MAXIMUM_INVENTORY_ENTRIES = 128
+_MAXIMUM_INVENTORY_NAME_BYTES = 32 * 1_024
 
 
 class LifecycleV2RepositoryRejected(RuntimeError):
@@ -93,14 +95,147 @@ class LifecycleV2RepositoryStatus(StrEnum):
     RETENTION_UNCONFIRMED = "retention_unconfirmed"
 
 
+@dataclass(frozen=True, slots=True)
+class LifecycleV2ArtifactStoreIdentity:
+    """Canonical immutable identity of one injected artifact directory."""
+
+    artifact_directory_path: str
+    directory_device: int
+    directory_inode: int
+    owner_uid: int
+    owner_gid: int
+    directory_mode: int
+
+    def __post_init__(self) -> None:
+        _safe_artifact_directory_path(self.artifact_directory_path)
+        for name in ("directory_device", "directory_inode"):
+            value = getattr(self, name)
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be one exact positive integer")
+        for name in ("owner_uid", "owner_gid"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} must be one exact nonnegative integer")
+        if type(self.directory_mode) is not int or self.directory_mode != 0o700:
+            raise ValueError("artifact directory mode must be exactly 0700")
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleV2ArtifactInventorySnapshot:
+    """One bounded directory inventory and its exact native stability token."""
+
+    names: tuple[str, ...]
+    directory_token: tuple[int, int, int, int, int, int, int, int, int]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.names) is not tuple
+            or any(type(name) is not str for name in self.names)
+            or self.names != tuple(sorted(self.names))
+            or len(self.names) != len(frozenset(self.names))
+        ):
+            raise ValueError("artifact inventory names are not exact, sorted, and unique")
+        if (
+            type(self.directory_token) is not tuple
+            or len(self.directory_token) != 9
+            or any(type(field) is not int for field in self.directory_token)
+        ):
+            raise ValueError("artifact inventory token is not one exact native identity")
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleV2ArtifactReadback:
+    """Stable no-follow bytes and exact identity of one immutable artifact."""
+
+    encoded: bytes
+    file_device: int
+    file_inode: int
+    file_mode: int
+    file_size: int
+    stable_readback_completed: bool
+
+    def __post_init__(self) -> None:
+        if type(self.encoded) is not bytes:
+            raise ValueError("artifact readback bytes are not exact")
+        for name in ("file_device", "file_inode", "file_size"):
+            value = getattr(self, name)
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be one exact positive integer")
+        if self.file_size != len(self.encoded):
+            raise ValueError("artifact readback size disagrees with its bytes")
+        if type(self.file_mode) is not int or self.file_mode != 0o600:
+            raise ValueError("artifact readback mode must be exactly 0600")
+        if self.stable_readback_completed is not True:
+            raise ValueError("artifact readback is not complete")
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleV2ArtifactPublicationReceipt:
+    """Exact physical result of one create or immutable publication attempt."""
+
+    final_name: str
+    final_device: int
+    final_inode: int
+    final_mode: int
+    final_size: int
+    file_fsync_completed: bool
+    no_replace_rename_completed: bool
+    directory_fsync_completed: bool
+    stable_readback_completed: bool
+    existing_final_revalidated: bool
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.final_name) is not str
+            or not self.final_name
+            or self.final_name in {".", ".."}
+            or "/" in self.final_name
+            or "\0" in self.final_name
+        ):
+            raise ValueError("publication receipt final name is invalid")
+        for name in ("final_device", "final_inode", "final_size"):
+            value = getattr(self, name)
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be one exact positive integer")
+        if type(self.final_mode) is not int or self.final_mode != 0o600:
+            raise ValueError("publication receipt mode must be exactly 0600")
+        for name in (
+            "file_fsync_completed",
+            "no_replace_rename_completed",
+            "directory_fsync_completed",
+            "stable_readback_completed",
+            "existing_final_revalidated",
+        ):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be one exact boolean")
+        if self.stable_readback_completed is not True:
+            raise ValueError("publication receipt lacks stable readback")
+        if self.existing_final_revalidated:
+            if (
+                self.file_fsync_completed
+                or self.no_replace_rename_completed
+                or self.directory_fsync_completed
+            ):
+                raise ValueError("existing-final revalidation cannot claim new durability work")
+        elif not self.file_fsync_completed or not self.directory_fsync_completed:
+            raise ValueError("new publication receipt lacks required fsync completion")
+
+
 class LifecycleV2ArtifactStore(Protocol):
-    """Milestone-one storage seam; no production implementation exists."""
+    """Injected storage seam with no default root or production caller."""
 
-    def inventory(self) -> tuple[str, ...]: ...
+    @property
+    def identity(self) -> LifecycleV2ArtifactStoreIdentity: ...
 
-    def read_stable(self, file_name: str) -> bytes: ...
+    def inventory(self) -> LifecycleV2ArtifactInventorySnapshot: ...
 
-    def create_root_exclusive(self, file_name: str, encoded: bytes) -> None: ...
+    def read_stable(self, file_name: str) -> LifecycleV2ArtifactReadback: ...
+
+    def create_root_exclusive(
+        self,
+        file_name: str,
+        encoded: bytes,
+    ) -> LifecycleV2ArtifactPublicationReceipt: ...
 
     def publish_immutable(
         self,
@@ -108,13 +243,26 @@ class LifecycleV2ArtifactStore(Protocol):
         staging_name: str,
         final_name: str,
         encoded: bytes,
-    ) -> None: ...
+    ) -> LifecycleV2ArtifactPublicationReceipt: ...
 
     def close(self) -> None: ...
 
 
+class LifecycleV2AuthenticatedRetainedWireResult(Protocol):
+    """Read-only view opened from one verifier-owned sealed authentication result."""
+
+    @property
+    def envelope(self) -> UnverifiedLifecycleV2TransportEnvelope: ...
+
+    @property
+    def authority_manifest_sha256(self) -> str: ...
+
+    @property
+    def signer_role(self) -> str: ...
+
+
 class LifecycleV2RetainedWireVerifier(Protocol):
-    """Injected authenticator for complete retained terminal-envelope bytes."""
+    """Injected authenticator that owns and reopens its exact sealed result."""
 
     def reauthenticate_retained_terminal_wire(
         self,
@@ -124,7 +272,12 @@ class LifecycleV2RetainedWireVerifier(Protocol):
         request_intent: LifecycleV2ProgressRecord,
         terminal_record: LifecycleV2ProgressRecord,
         artifact_directory_path: str,
-    ) -> object | None: ...
+    ) -> object: ...
+
+    def require_exact_authenticated_retained_terminal_wire(
+        self,
+        result: object,
+    ) -> LifecycleV2AuthenticatedRetainedWireResult: ...
 
 
 def _safe_artifact_directory_path(value: object) -> str:
@@ -132,13 +285,34 @@ def _safe_artifact_directory_path(value: object) -> str:
         type(value) is not str
         or not value.startswith("/")
         or not value.endswith("/trusted-time")
+        or value == "/trusted-time"
         or "//" in value
         or "/../" in value
         or "/./" in value
         or "\0" in value
+        or len(value.encode("utf-8")) > 4_096
     ):
         raise LifecycleV2RepositoryRejected("artifact directory path is not exact")
     return value
+
+
+def _safe_artifact_store_identity(value: object) -> LifecycleV2ArtifactStoreIdentity:
+    if type(value) is not LifecycleV2ArtifactStoreIdentity:
+        raise LifecycleV2RepositoryRejected("artifact-store identity type is not exact")
+    try:
+        verified = LifecycleV2ArtifactStoreIdentity(
+            artifact_directory_path=value.artifact_directory_path,
+            directory_device=value.directory_device,
+            directory_inode=value.directory_inode,
+            owner_uid=value.owner_uid,
+            owner_gid=value.owner_gid,
+            directory_mode=value.directory_mode,
+        )
+    except (AttributeError, TypeError, ValueError):
+        raise LifecycleV2RepositoryRejected("artifact-store identity is not canonical") from None
+    if verified != value:
+        raise LifecycleV2RepositoryRejected("artifact-store identity changed under validation")
+    return verified
 
 
 def _contract_version(encoded: bytes) -> object:
@@ -168,6 +342,7 @@ class _LifecycleV2Repository:
 
     __slots__ = (
         "_artifact_directory_path",
+        "_closed",
         "_commit",
         "_origin_pid",
         "_origin_thread",
@@ -177,6 +352,8 @@ class _LifecycleV2Repository:
         "_retained_wire_verifier",
         "_root",
         "_store",
+        "_store_disposed",
+        "_store_identity",
         "_wire",
     )
 
@@ -184,42 +361,244 @@ class _LifecycleV2Repository:
         self,
         store: LifecycleV2ArtifactStore,
         *,
-        artifact_directory_path: str,
+        artifact_directory_path: str | None,
         retained_wire_verifier: LifecycleV2RetainedWireVerifier | None,
     ) -> None:
         self._store = store
-        self._artifact_directory_path = _safe_artifact_directory_path(artifact_directory_path)
         self._retained_wire_verifier = retained_wire_verifier
         self._origin_pid = os.getpid()
         self._origin_thread = threading.current_thread()
         self._poisoned = False
+        self._closed = False
+        self._store_disposed = False
         self._root: LifecycleV2Root | None = None
         self._records: tuple[LifecycleV2ProgressRecord, ...] = ()
         self._wire: UnverifiedLifecycleV2TransportEnvelope | None = None
         self._outcome: LifecycleV2Outcome | None = None
         self._commit: LifecycleV2OutcomeCommit | None = None
+        try:
+            identity = _safe_artifact_store_identity(store.identity)
+            if (
+                artifact_directory_path is not None
+                and _safe_artifact_directory_path(artifact_directory_path)
+                != identity.artifact_directory_path
+            ):
+                raise LifecycleV2RepositoryRejected(
+                    "artifact directory path duplicates the store identity incorrectly"
+                )
+        except BaseException:
+            with suppress(Exception):
+                store.close()
+            raise
+        self._store_identity = identity
+        self._artifact_directory_path = identity.artifact_directory_path
         self._load_namespace()
 
+    def _require_origin(self) -> None:
+        if os.getpid() != self._origin_pid or threading.current_thread() is not self._origin_thread:
+            raise LifecycleV2RetentionUnconfirmed("repository process or thread owner is invalid")
+
+    def _require_store_binding(self) -> None:
+        try:
+            identity = _safe_artifact_store_identity(self._store.identity)
+        except BaseException as error:
+            self._burn()
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2RetentionUnconfirmed(
+                "artifact-store identity is unavailable"
+            ) from None
+        if identity != self._store_identity:
+            self._burn()
+            raise LifecycleV2RetentionUnconfirmed("artifact-store identity changed")
+
     def _require_owner(self) -> None:
-        if (
-            self._poisoned
-            or os.getpid() != self._origin_pid
-            or threading.current_thread() is not self._origin_thread
-        ):
-            raise LifecycleV2RetentionUnconfirmed("repository owner is invalid or burned")
+        self._require_origin()
+        if self._closed:
+            raise LifecycleV2RetentionUnconfirmed("repository is closed")
+        self._require_store_binding()
+        if self._poisoned:
+            raise LifecycleV2RetentionUnconfirmed("repository owner is burned")
 
     def _burn(self) -> None:
         self._poisoned = True
-        with suppress(Exception):
+        if not self._store_disposed:
+            self._store_disposed = True
+            with suppress(Exception):
+                self._store.close()
+
+    def close(self) -> None:
+        """Dispose the repository once from its exact origin process and thread."""
+
+        self._require_origin()
+        if self._closed:
+            return
+        if self._store_disposed:
+            self._closed = True
+            return
+        self._store_disposed = True
+        try:
             self._store.close()
+        except BaseException as error:
+            self._poisoned = True
+            self._closed = True
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2RetentionUnconfirmed("repository disposal is unconfirmed") from None
+        self._closed = True
+
+    def __enter__(self) -> _LifecycleV2Repository:
+        self._require_owner()
+        return self
+
+    def __exit__(
+        self,
+        _exception_type: object,
+        _exception: object,
+        _traceback: object,
+    ) -> None:
+        self._require_origin()
+        self.close()
+
+    @property
+    def artifact_store_identity(self) -> LifecycleV2ArtifactStoreIdentity:
+        self._require_owner()
+        return self._store_identity
+
+    def _inventory(self) -> LifecycleV2ArtifactInventorySnapshot:
+        snapshot = self._store.inventory()
+        if type(snapshot) is not LifecycleV2ArtifactInventorySnapshot:
+            raise LifecycleV2ArtifactPublicationUncertain(
+                "artifact inventory snapshot type is not exact"
+            )
+        try:
+            name_bytes = tuple(name.encode("utf-8") for name in snapshot.names)
+        except UnicodeEncodeError:
+            raise LifecycleV2ArtifactPublicationUncertain(
+                "artifact inventory name encoding is invalid"
+            ) from None
+        if (
+            len(snapshot.names) > _MAXIMUM_INVENTORY_ENTRIES
+            or sum(map(len, name_bytes)) > _MAXIMUM_INVENTORY_NAME_BYTES
+            or any(
+                name in {"", ".", ".."} or "/" in name or "\0" in name or len(encoded) > 255
+                for name, encoded in zip(snapshot.names, name_bytes, strict=True)
+            )
+        ):
+            raise LifecycleV2ArtifactPublicationUncertain(
+                "artifact inventory is not one bounded component namespace"
+            )
+        token = snapshot.directory_token
+        if (token[0], token[1], token[2] & 0o7777, token[3], token[4]) != (
+            self._store_identity.directory_device,
+            self._store_identity.directory_inode,
+            self._store_identity.directory_mode,
+            self._store_identity.owner_uid,
+            self._store_identity.owner_gid,
+        ) or token[5] < 1:
+            raise LifecycleV2ArtifactPublicationUncertain(
+                "artifact inventory token crossed the injected directory identity"
+            )
+        return snapshot
+
+    def _read_artifact(self, file_name: str) -> LifecycleV2ArtifactReadback:
+        readback = self._store.read_stable(file_name)
+        if (
+            type(readback) is not LifecycleV2ArtifactReadback
+            or readback.file_device != self._store_identity.directory_device
+        ):
+            raise LifecycleV2ArtifactPublicationUncertain(
+                "artifact stable readback identity is not exact"
+            )
+        return readback
+
+    def _publication_receipt(
+        self,
+        value: object,
+        *,
+        final_name: str,
+        encoded: bytes,
+        require_no_replace_rename: bool = True,
+    ) -> LifecycleV2ArtifactPublicationReceipt:
+        if (
+            type(value) is not LifecycleV2ArtifactPublicationReceipt
+            or value.final_name != final_name
+            or value.final_device != self._store_identity.directory_device
+            or value.final_mode != 0o600
+            or value.final_size != len(encoded)
+            or value.stable_readback_completed is not True
+            or (
+                require_no_replace_rename
+                and not value.existing_final_revalidated
+                and value.no_replace_rename_completed is not True
+            )
+        ):
+            raise LifecycleV2ArtifactPublicationUncertain(
+                "artifact publication receipt is not exact"
+            )
+        return value
+
+    def _require_wire_publication_binding(
+        self,
+        *,
+        evidence: dict[str, object],
+        envelope: UnverifiedLifecycleV2TransportEnvelope,
+        file_name: str,
+        file_device: int,
+        file_inode: int,
+        file_mode: int,
+        file_size: int,
+        live_receipt: LifecycleV2ArtifactPublicationReceipt | None,
+    ) -> None:
+        nested = evidence.get("wire_publication_receipt")
+        if type(nested) is not dict:
+            raise LifecycleV2RetentionUnconfirmed(
+                "ordinal-two wire publication receipt is not one exact object"
+            )
+        kind = "result" if envelope.frame_type == "clean_stop_result" else "error"
+        expected: dict[str, object] = {
+            "artifact_directory_path": self._store_identity.artifact_directory_path,
+            "artifact_directory_device": self._store_identity.directory_device,
+            "artifact_directory_inode": self._store_identity.directory_inode,
+            "artifact_path": f"{self._store_identity.artifact_directory_path}/{file_name}",
+            "file_name": file_name,
+            "file_device": file_device,
+            "file_inode": file_inode,
+            "file_mode": file_mode,
+            "file_size": file_size,
+            "artifact_kind": f"signed_{kind}_envelope",
+            "signed_envelope_sha256": envelope.sha256,
+            "frame_type": envelope.frame_type,
+            "directory_fsync_completed": True,
+            "stable_readback_completed": True,
+        }
+        if any(nested.get(name) != expected_value for name, expected_value in expected.items()):
+            raise LifecycleV2RetentionUnconfirmed(
+                "ordinal-two receipt crossed its physical file or directory identity"
+            )
+        if live_receipt is not None and (
+            live_receipt.final_name != file_name
+            or live_receipt.final_device != file_device
+            or live_receipt.final_inode != file_inode
+            or live_receipt.final_mode != file_mode
+            or live_receipt.final_size != file_size
+            or (
+                not live_receipt.existing_final_revalidated
+                and (
+                    live_receipt.file_fsync_completed is not True
+                    or live_receipt.no_replace_rename_completed is not True
+                    or live_receipt.directory_fsync_completed is not True
+                )
+            )
+        ):
+            raise LifecycleV2RetentionUnconfirmed(
+                "live ordinal-two receipt does not prove exact publication"
+            )
 
     def _load_namespace(self) -> None:
         try:
-            names = self._store.inventory()
-            if type(names) is not tuple or any(type(name) is not str for name in names):
-                raise ValueError
-            if names != tuple(sorted(names)) or len(names) != len(frozenset(names)):
-                raise ValueError
+            initial_inventory = self._inventory()
+            names = initial_inventory.names
             if any(name in _STAGING_NAMES for name in names):
                 raise LifecycleV2RetentionUnconfirmed("staging artifact is retention ambiguity")
             unknown = tuple(name for name in names if _known_v2_name(name) is False)
@@ -228,40 +607,45 @@ class _LifecycleV2Repository:
             if LIFECYCLE_ROOT_FILE_NAME not in names:
                 if names:
                     raise LifecycleV2RetentionUnconfirmed("orphan lifecycle-v2 artifact")
-                return
-            root_encoded = self._store.read_stable(LIFECYCLE_ROOT_FILE_NAME)
-            contract = _contract_version(root_encoded)
-            if contract == _V1_ROOT_CONTRACT_VERSION:
-                raise LifecycleV2SlotConsumed("the shared root is already v1")
-            if contract != LIFECYCLE_V2_ROOT_CONTRACT_VERSION:
-                raise LifecycleV2RetentionUnconfirmed("shared root version is unknown or mixed")
-            self._root = decode_lifecycle_v2_root(root_encoded)
-            record_names = tuple(
-                name
-                for name in names
-                if name.startswith("trusted-time-post-enrollment-graceful-stop-v2-record-")
-            )
-            records: list[LifecycleV2ProgressRecord] = []
-            predecessor = self._root.sha256
-            for name in record_names:
-                record = decode_lifecycle_v2_progress_record(self._store.read_stable(name))
-                if (
-                    name != lifecycle_v2_progress_file_name(record)
-                    or record.ordinal != len(records) + 1
-                    or record.root_sha256 != self._root.sha256
-                    or record.graceful_stop_operation_id != self._root.graceful_stop_operation_id
-                    or record.predecessor_sha256 != predecessor
-                ):
-                    raise LifecycleV2RetentionUnconfirmed("progress lineage is mixed or gapped")
-                if record.stage is LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED:
-                    self._require_derived_request_intent(record)
-                self._require_stage_transition(record, records=tuple(records))
-                records.append(record)
-                predecessor = record.sha256
-            self._records = tuple(records)
-            self._load_wire(names)
-            self._load_outcome(names)
-            self._validate_transcripts(names)
+            else:
+                root_encoded = self._read_artifact(LIFECYCLE_ROOT_FILE_NAME).encoded
+                contract = _contract_version(root_encoded)
+                if contract == _V1_ROOT_CONTRACT_VERSION:
+                    raise LifecycleV2SlotConsumed("the shared root is already v1")
+                if contract != LIFECYCLE_V2_ROOT_CONTRACT_VERSION:
+                    raise LifecycleV2RetentionUnconfirmed("shared root version is unknown or mixed")
+                self._root = decode_lifecycle_v2_root(root_encoded)
+                record_names = tuple(
+                    name
+                    for name in names
+                    if name.startswith("trusted-time-post-enrollment-graceful-stop-v2-record-")
+                )
+                records: list[LifecycleV2ProgressRecord] = []
+                predecessor = self._root.sha256
+                for name in record_names:
+                    record = decode_lifecycle_v2_progress_record(self._read_artifact(name).encoded)
+                    if (
+                        name != lifecycle_v2_progress_file_name(record)
+                        or record.ordinal != len(records) + 1
+                        or record.root_sha256 != self._root.sha256
+                        or record.graceful_stop_operation_id
+                        != self._root.graceful_stop_operation_id
+                        or record.predecessor_sha256 != predecessor
+                    ):
+                        raise LifecycleV2RetentionUnconfirmed("progress lineage is mixed or gapped")
+                    if record.stage is LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED:
+                        self._require_derived_request_intent(record)
+                    self._require_stage_transition(record, records=tuple(records))
+                    records.append(record)
+                    predecessor = record.sha256
+                self._records = tuple(records)
+                self._load_wire(names)
+                self._load_outcome(names)
+                self._validate_transcripts(names)
+            if self._inventory() != initial_inventory:
+                raise LifecycleV2RetentionUnconfirmed(
+                    "lifecycle namespace changed during complete stable load"
+                )
         except (LifecycleV2SlotConsumed, LifecycleV2RetentionUnconfirmed):
             self._burn()
             raise
@@ -288,9 +672,8 @@ class _LifecycleV2Repository:
             return
         if len(wire_names) != 1 or len(self._records) < 2:
             raise LifecycleV2RetentionUnconfirmed("wire artifact is orphaned or conflicting")
-        envelope = decode_unverified_lifecycle_v2_transport_envelope(
-            self._store.read_stable(wire_names[0])
-        )
+        wire_readback = self._read_artifact(wire_names[0])
+        envelope = decode_unverified_lifecycle_v2_transport_envelope(wire_readback.encoded)
         if wire_names[0] != lifecycle_v2_wire_file_name(envelope):
             raise LifecycleV2RetentionUnconfirmed("wire artifact name or digest disagrees")
         record = self._records[1]
@@ -307,6 +690,16 @@ class _LifecycleV2Repository:
             or evidence["frame_type"] != envelope.frame_type
         ):
             raise LifecycleV2RetentionUnconfirmed("ordinal-two record and wire bytes disagree")
+        self._require_wire_publication_binding(
+            evidence=evidence,
+            envelope=envelope,
+            file_name=wire_names[0],
+            file_device=wire_readback.file_device,
+            file_inode=wire_readback.file_inode,
+            file_mode=wire_readback.file_mode,
+            file_size=wire_readback.file_size,
+            live_receipt=None,
+        )
         verifier = self._retained_wire_verifier
         if verifier is None:
             raise LifecycleV2RetentionUnconfirmed(
@@ -353,22 +746,30 @@ class _LifecycleV2Repository:
                 "retained wire does not bind the exact root, intent, record, and path"
             )
         try:
-            verified = verifier.reauthenticate_retained_terminal_wire(
+            sealed_result = verifier.reauthenticate_retained_terminal_wire(
                 envelope=envelope,
                 root=self._root,
                 request_intent=request_intent,
                 terminal_record=record,
                 artifact_directory_path=self._artifact_directory_path,
             )
+            verified = verifier.require_exact_authenticated_retained_terminal_wire(sealed_result)
         except BaseException as error:
             if not isinstance(error, Exception):
                 raise
             raise LifecycleV2RetentionUnconfirmed(
                 "retained wire signature reauthentication failed"
             ) from None
-        if verified is not None:
+        if (
+            verified is not sealed_result
+            or type(verified.envelope) is not UnverifiedLifecycleV2TransportEnvelope
+            or verified.envelope != envelope
+            or verified.envelope.encoded != envelope.encoded
+            or verified.authority_manifest_sha256 != self._root.transport_authority_manifest_sha256
+            or verified.signer_role != "supervisor"
+        ):
             raise LifecycleV2RetentionUnconfirmed(
-                "retained wire verifier returned an invalid authority value"
+                "retained wire verifier returned an invalid sealed authentication result"
             )
         self._wire = envelope
 
@@ -381,7 +782,7 @@ class _LifecycleV2Repository:
         if len(outcome_names) > 1:
             raise LifecycleV2RetentionUnconfirmed("multiple outcome candidates exist")
         if outcome_names:
-            outcome = decode_lifecycle_v2_outcome(self._store.read_stable(outcome_names[0]))
+            outcome = decode_lifecycle_v2_outcome(self._read_artifact(outcome_names[0]).encoded)
             if outcome_names[0] != outcome.file_name:
                 raise LifecycleV2RetentionUnconfirmed("outcome name or digest disagrees")
             self._outcome = outcome
@@ -389,7 +790,7 @@ class _LifecycleV2Repository:
             if self._outcome is None:
                 raise LifecycleV2RetentionUnconfirmed("commit has no outcome candidate")
             self._commit = decode_lifecycle_v2_outcome_commit(
-                self._store.read_stable(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME),
+                self._read_artifact(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).encoded,
                 outcome=self._outcome,
             )
 
@@ -401,7 +802,7 @@ class _LifecycleV2Repository:
         )
         retained_transcripts: dict[str, LifecycleV2Transcript] = {}
         for name in transcript_names:
-            transcript = decode_lifecycle_v2_transcript(self._store.read_stable(name))
+            transcript = decode_lifecycle_v2_transcript(self._read_artifact(name).encoded)
             if name != transcript.file_name:
                 raise LifecycleV2RetentionUnconfirmed("transcript name or digest disagrees")
             expected = self._transcript(last_ordinal=transcript.entries[-1].ordinal)
@@ -598,6 +999,10 @@ class _LifecycleV2Repository:
 
     @property
     def status(self) -> LifecycleV2RepositoryStatus:
+        self._require_origin()
+        if self._closed:
+            raise LifecycleV2RetentionUnconfirmed("repository is closed")
+        self._require_store_binding()
         if self._poisoned:
             return LifecycleV2RepositoryStatus.RETENTION_UNCONFIRMED
         if self._commit is not None:
@@ -624,11 +1029,24 @@ class _LifecycleV2Repository:
         if verified_root != root:
             raise LifecycleV2RepositoryRejected("root changed under canonical validation")
         root = verified_root
-        if self._root is not None or self._store.inventory():
+        if self._root is not None:
             raise LifecycleV2SlotConsumed("the shared lifecycle slot is consumed")
         try:
-            self._store.create_root_exclusive(LIFECYCLE_ROOT_FILE_NAME, root.encoded)
-            if self._store.read_stable(LIFECYCLE_ROOT_FILE_NAME) != root.encoded:
+            if self._inventory().names:
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "artifact namespace changed before root reservation"
+                )
+            receipt = self._publication_receipt(
+                self._store.create_root_exclusive(LIFECYCLE_ROOT_FILE_NAME, root.encoded),
+                final_name=LIFECYCLE_ROOT_FILE_NAME,
+                encoded=root.encoded,
+                require_no_replace_rename=False,
+            )
+            if receipt.existing_final_revalidated or receipt.no_replace_rename_completed:
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "exclusive root creation revalidated an existing artifact"
+                )
+            if self._read_artifact(LIFECYCLE_ROOT_FILE_NAME).encoded != root.encoded:
                 raise LifecycleV2ArtifactPublicationUncertain
         except BaseException as error:
             self._burn()
@@ -674,22 +1092,54 @@ class _LifecycleV2Repository:
         elif authenticated_envelope is not None:
             raise LifecycleV2RepositoryRejected("only ordinal two may retain wire bytes")
         try:
+            wire_receipt: LifecycleV2ArtifactPublicationReceipt | None = None
             if envelope is not None:
-                self._store.publish_immutable(
-                    staging_name=(
-                        _WIRE_RESULT_STAGING_NAME
-                        if envelope.frame_type == "clean_stop_result"
-                        else _WIRE_ERROR_STAGING_NAME
+                wire_name = lifecycle_v2_wire_file_name(envelope)
+                wire_receipt = self._publication_receipt(
+                    self._store.publish_immutable(
+                        staging_name=(
+                            _WIRE_RESULT_STAGING_NAME
+                            if envelope.frame_type == "clean_stop_result"
+                            else _WIRE_ERROR_STAGING_NAME
+                        ),
+                        final_name=wire_name,
+                        encoded=envelope.encoded,
                     ),
-                    final_name=lifecycle_v2_wire_file_name(envelope),
+                    final_name=wire_name,
                     encoded=envelope.encoded,
                 )
-            self._store.publish_immutable(
-                staging_name=_RECORD_STAGING_NAME,
-                final_name=lifecycle_v2_progress_file_name(record),
+                wire_readback = self._read_artifact(wire_name)
+                if (
+                    wire_readback.encoded != envelope.encoded
+                    or wire_readback.file_device != wire_receipt.final_device
+                    or wire_readback.file_inode != wire_receipt.final_inode
+                    or wire_readback.file_mode != wire_receipt.final_mode
+                    or wire_readback.file_size != wire_receipt.final_size
+                ):
+                    raise LifecycleV2ArtifactPublicationUncertain(
+                        "wire publication receipt and retained-file readback disagree"
+                    )
+                self._require_wire_publication_binding(
+                    evidence=record.evidence.to_dict(),
+                    envelope=envelope,
+                    file_name=wire_name,
+                    file_device=wire_readback.file_device,
+                    file_inode=wire_readback.file_inode,
+                    file_mode=wire_readback.file_mode,
+                    file_size=wire_readback.file_size,
+                    live_receipt=wire_receipt,
+                )
+            record_name = lifecycle_v2_progress_file_name(record)
+            self._publication_receipt(
+                self._store.publish_immutable(
+                    staging_name=_RECORD_STAGING_NAME,
+                    final_name=record_name,
+                    encoded=record.encoded,
+                ),
+                final_name=record_name,
                 encoded=record.encoded,
             )
-            if self._store.read_stable(lifecycle_v2_progress_file_name(record)) != record.encoded:
+            if self._read_artifact(record_name).encoded != record.encoded:
                 raise LifecycleV2ArtifactPublicationUncertain
         except BaseException as error:
             self._burn()
@@ -705,6 +1155,7 @@ class _LifecycleV2Repository:
         record: LifecycleV2ProgressRecord,
         basis: LifecycleV2CleanStopRequestBasis,
     ) -> None:
+        self._require_owner()
         if record.stage is not LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED:
             raise LifecycleV2RepositoryRejected("request-intent method received another stage")
         self._require_derived_request_intent(record, basis=basis)
@@ -715,6 +1166,7 @@ class _LifecycleV2Repository:
         record: LifecycleV2ProgressRecord,
         authenticated_envelope: _FakeAuthenticatedLifecycleV2TransportEnvelope,
     ) -> None:
+        self._require_owner()
         if record.stage not in {
             LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED,
             LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED,
@@ -723,16 +1175,19 @@ class _LifecycleV2Repository:
         self._retain_progress(record, authenticated_envelope=authenticated_envelope)
 
     def retain_transport_cleanup_commitment(self, record: LifecycleV2ProgressRecord) -> None:
+        self._require_owner()
         if record.stage is not LifecycleV2Stage.TRANSPORT_CLEANUP_COMMITMENT_RETAINED:
             raise LifecycleV2RepositoryRejected("cleanup-commitment stage is wrong")
         self._retain_progress(record)
 
     def retain_transport_quiescence(self, record: LifecycleV2ProgressRecord) -> None:
+        self._require_owner()
         if record.stage is not LifecycleV2Stage.TRANSPORT_CHANNEL_QUIESCED:
             raise LifecycleV2RepositoryRejected("transport-quiescence stage is wrong")
         self._retain_progress(record)
 
     def retain_reauthentication_intent(self, record: LifecycleV2ProgressRecord) -> None:
+        self._require_owner()
         if record.stage not in {
             LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_INTENT_RETAINED,
             LifecycleV2Stage.POST_TEARDOWN_REAUTHENTICATION_INTENT_RETAINED,
@@ -741,6 +1196,7 @@ class _LifecycleV2Repository:
         self._retain_progress(record)
 
     def retain_reauthentication_result(self, record: LifecycleV2ProgressRecord) -> None:
+        self._require_owner()
         if record.stage not in {
             LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_BOUND,
             LifecycleV2Stage.POST_TEARDOWN_TERMINAL_REAUTHENTICATION_BOUND,
@@ -749,6 +1205,7 @@ class _LifecycleV2Repository:
         self._retain_progress(record)
 
     def retain_effect_intent(self, record: LifecycleV2ProgressRecord) -> None:
+        self._require_owner()
         if record.stage not in {
             LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_INTENT_RETAINED,
             LifecycleV2Stage.SOURCE_CONTAINER_STOP_INTENT_RETAINED,
@@ -761,6 +1218,7 @@ class _LifecycleV2Repository:
         self._retain_progress(record)
 
     def retain_effect_result(self, record: LifecycleV2ProgressRecord) -> None:
+        self._require_owner()
         if record.stage not in {
             LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_RESULT_RETAINED,
             LifecycleV2Stage.SOURCE_CONTAINER_STOP_RESULT_RETAINED,
@@ -773,19 +1231,21 @@ class _LifecycleV2Repository:
         self._retain_progress(record)
 
     def retain_terminal_cleanup_intent(self, record: LifecycleV2ProgressRecord) -> None:
+        self._require_owner()
         if record.stage is not LifecycleV2Stage.TERMINAL_CLEANUP_INTENT_RETAINED:
             raise LifecycleV2RepositoryRejected("terminal-cleanup intent stage is wrong")
         self._retain_progress(record)
 
     def retain_terminal_cleanup_result(self, record: LifecycleV2ProgressRecord) -> None:
+        self._require_owner()
         if record.stage is not LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED:
             raise LifecycleV2RepositoryRejected("terminal-cleanup result stage is wrong")
         self._retain_progress(record)
 
     def retain_recovery_classification_intent(self, record: LifecycleV2ProgressRecord) -> None:
+        self._require_owner()
         if record.stage is not LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED:
             raise LifecycleV2RepositoryRejected("recovery-classification stage is wrong")
-        self._require_owner()
         self._require_record_binding(record)
         classified_transcript = self._transcript()
         if (
@@ -796,8 +1256,9 @@ class _LifecycleV2Repository:
                 "recovery intent does not bind the classified prefix"
             )
         try:
-            if self._store.read_stable(classified_transcript.file_name) != (
-                classified_transcript.encoded
+            if (
+                self._read_artifact(classified_transcript.file_name).encoded
+                != classified_transcript.encoded
             ):
                 raise LifecycleV2ArtifactPublicationUncertain
         except BaseException as error:
@@ -875,12 +1336,16 @@ class _LifecycleV2Repository:
             raise LifecycleV2RepositoryRejected("terminal outcome already retained")
         transcript = self._transcript()
         try:
-            self._store.publish_immutable(
-                staging_name=_TRANSCRIPT_STAGING_NAME,
+            self._publication_receipt(
+                self._store.publish_immutable(
+                    staging_name=_TRANSCRIPT_STAGING_NAME,
+                    final_name=transcript.file_name,
+                    encoded=transcript.encoded,
+                ),
                 final_name=transcript.file_name,
                 encoded=transcript.encoded,
             )
-            if self._store.read_stable(transcript.file_name) != transcript.encoded:
+            if self._read_artifact(transcript.file_name).encoded != transcript.encoded:
                 raise LifecycleV2ArtifactPublicationUncertain
         except BaseException as error:
             self._burn()
@@ -946,22 +1411,34 @@ class _LifecycleV2Repository:
             raise LifecycleV2RepositoryRejected("recovery outcome is not the exact next terminal")
         LifecycleV2OutcomeCommit.capture(commit.to_dict(), outcome=outcome)
         try:
-            self._store.publish_immutable(
-                staging_name=_TRANSCRIPT_STAGING_NAME,
+            self._publication_receipt(
+                self._store.publish_immutable(
+                    staging_name=_TRANSCRIPT_STAGING_NAME,
+                    final_name=transcript.file_name,
+                    encoded=transcript.encoded,
+                ),
                 final_name=transcript.file_name,
                 encoded=transcript.encoded,
             )
-            self._store.publish_immutable(
-                staging_name=_OUTCOME_STAGING_NAME,
+            self._publication_receipt(
+                self._store.publish_immutable(
+                    staging_name=_OUTCOME_STAGING_NAME,
+                    final_name=outcome.file_name,
+                    encoded=outcome.encoded,
+                ),
                 final_name=outcome.file_name,
                 encoded=outcome.encoded,
             )
-            self._store.publish_immutable(
-                staging_name=_COMMIT_STAGING_NAME,
+            self._publication_receipt(
+                self._store.publish_immutable(
+                    staging_name=_COMMIT_STAGING_NAME,
+                    final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+                    encoded=commit.encoded,
+                ),
                 final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
                 encoded=commit.encoded,
             )
-            if self._store.read_stable(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME) != commit.encoded:
+            if self._read_artifact(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).encoded != commit.encoded:
                 raise LifecycleV2ArtifactPublicationUncertain
         except BaseException as error:
             self._burn()
@@ -975,7 +1452,7 @@ class _LifecycleV2Repository:
 def _open_injected_lifecycle_v2_repository(
     store: LifecycleV2ArtifactStore,
     *,
-    artifact_directory_path: str,
+    artifact_directory_path: str | None = None,
     retained_wire_verifier: LifecycleV2RetainedWireVerifier | None = None,
 ) -> _LifecycleV2Repository:
     """Test-only builder; deliberately private and without a default root."""
@@ -999,8 +1476,13 @@ def lifecycle_v2_repository_non_authority_facts() -> dict[str, bool]:
 
 __all__ = [
     "LifecycleV2ArtifactAlreadyExists",
+    "LifecycleV2ArtifactInventorySnapshot",
+    "LifecycleV2ArtifactPublicationReceipt",
     "LifecycleV2ArtifactPublicationUncertain",
+    "LifecycleV2ArtifactReadback",
     "LifecycleV2ArtifactStore",
+    "LifecycleV2ArtifactStoreIdentity",
+    "LifecycleV2AuthenticatedRetainedWireResult",
     "LifecycleV2RepositoryRejected",
     "LifecycleV2RepositoryStatus",
     "LifecycleV2RetainedWireVerifier",

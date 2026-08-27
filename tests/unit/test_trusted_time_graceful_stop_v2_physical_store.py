@@ -60,16 +60,34 @@ def test_physical_store_publishes_root_and_immutable_artifact_with_exact_identit
     root_bytes = b'{"root":"v2"}\n'
     artifact_bytes = b'{"record":1}\n'
     try:
-        store.create_root_exclusive(LIFECYCLE_ROOT_FILE_NAME, root_bytes)
-        store.publish_immutable(
+        root_receipt = store.create_root_exclusive(LIFECYCLE_ROOT_FILE_NAME, root_bytes)
+        artifact_receipt = store.publish_immutable(
             staging_name=_STAGING,
             final_name=_FINAL,
             encoded=artifact_bytes,
         )
 
-        assert store.inventory() == (LIFECYCLE_ROOT_FILE_NAME, _FINAL)
-        assert store.read_stable(LIFECYCLE_ROOT_FILE_NAME) == root_bytes
-        assert store.read_stable(_FINAL) == artifact_bytes
+        assert store.identity == repository_module.LifecycleV2ArtifactStoreIdentity(
+            artifact_directory_path=str(artifact_directory),
+            directory_device=os.stat(artifact_directory).st_dev,
+            directory_inode=os.stat(artifact_directory).st_ino,
+            owner_uid=os.stat(artifact_directory).st_uid,
+            owner_gid=os.stat(artifact_directory).st_gid,
+            directory_mode=0o700,
+        )
+        assert store.inventory().names == (LIFECYCLE_ROOT_FILE_NAME, _FINAL)
+        assert store.read_stable(LIFECYCLE_ROOT_FILE_NAME).encoded == root_bytes
+        assert store.read_stable(_FINAL).encoded == artifact_bytes
+        assert root_receipt.final_name == LIFECYCLE_ROOT_FILE_NAME
+        assert root_receipt.file_fsync_completed is True
+        assert root_receipt.no_replace_rename_completed is False
+        assert root_receipt.directory_fsync_completed is True
+        assert root_receipt.stable_readback_completed is True
+        assert artifact_receipt.final_name == _FINAL
+        assert artifact_receipt.file_fsync_completed is True
+        assert artifact_receipt.no_replace_rename_completed is True
+        assert artifact_receipt.directory_fsync_completed is True
+        assert artifact_receipt.stable_readback_completed is True
         assert not (artifact_directory / _STAGING).exists()
         directory_identity = os.stat(artifact_directory, follow_symlinks=False)
         for name in (LIFECYCLE_ROOT_FILE_NAME, _FINAL):
@@ -94,12 +112,21 @@ def test_exact_existing_final_is_revalidated_but_conflict_is_never_replaced(
         store.publish_immutable(staging_name=_STAGING, final_name=_FINAL, encoded=encoded)
         identity_before = os.stat(artifact_directory / _FINAL, follow_symlinks=False)
 
-        store.publish_immutable(staging_name=_STAGING, final_name=_FINAL, encoded=encoded)
+        receipt = store.publish_immutable(
+            staging_name=_STAGING,
+            final_name=_FINAL,
+            encoded=encoded,
+        )
         identity_after = os.stat(artifact_directory / _FINAL, follow_symlinks=False)
         assert (identity_before.st_dev, identity_before.st_ino) == (
             identity_after.st_dev,
             identity_after.st_ino,
         )
+        assert receipt.existing_final_revalidated is True
+        assert receipt.file_fsync_completed is False
+        assert receipt.no_replace_rename_completed is False
+        assert receipt.directory_fsync_completed is False
+        assert receipt.stable_readback_completed is True
 
         with pytest.raises(LifecycleV2ArtifactAlreadyExists):
             store.publish_immutable(
@@ -285,16 +312,18 @@ def test_every_physical_publication_fault_is_ambiguous_and_closes_all_owners(
     assert names == (() if expected_name is None else (expected_name,))
 
 
-def test_rename_eexist_race_preserves_staging_and_never_normalizes_the_winner(
+@pytest.mark.parametrize("winner", [b"candidate", b"racing-winner"])
+def test_rename_eexist_race_preserves_staging_even_for_a_byte_identical_winner(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    winner: bytes,
 ) -> None:
     artifact_directory = _artifact_directory(tmp_path)
     store = _store(artifact_directory)
     real_rename: Any = cast(Any, physical)._rename_child_noreplace
 
     def race(*args: object) -> None:
-        _write_owner_only(artifact_directory / _FINAL, b"racing-winner")
+        _write_owner_only(artifact_directory / _FINAL, winner)
         real_rename(*args)
 
     monkeypatch.setattr(physical, "_rename_child_noreplace", race)
@@ -307,7 +336,7 @@ def test_rename_eexist_race_preserves_staging_and_never_normalizes_the_winner(
 
     assert store.closed is True
     assert (artifact_directory / _STAGING).read_bytes() == b"candidate"
-    assert (artifact_directory / _FINAL).read_bytes() == b"racing-winner"
+    assert (artifact_directory / _FINAL).read_bytes() == winner
 
 
 @pytest.mark.parametrize("attack", ["mode", "hardlink", "symlink"])
@@ -391,7 +420,7 @@ def test_inventory_bound_is_exact_and_overflow_burns_the_store(tmp_path: Path) -
         _write_owner_only(exact_directory / f"artifact-{index:03d}", b"x")
     exact_store = _store(exact_directory)
     try:
-        assert len(exact_store.inventory()) == 128
+        assert len(exact_store.inventory().names) == 128
     finally:
         exact_store.close()
 
@@ -442,7 +471,7 @@ def test_wrong_thread_rejects_before_native_registry_use(tmp_path: Path) -> None
         assert len(results) == 1
         assert isinstance(results[0], LifecycleV2ArtifactPublicationUncertain)
         assert store.closed is False
-        assert store.inventory() == ()
+        assert store.inventory().names == ()
     finally:
         store.close()
 
@@ -489,7 +518,7 @@ def test_fork_child_loses_physical_store_descriptors_before_python(tmp_path: Pat
         assert os.waitstatus_to_exitcode(wait_status) == 0
         assert child_report == b"1"
         assert store.closed is False
-        assert store.inventory() == ()
+        assert store.inventory().names == ()
     finally:
         store.close()
 

@@ -31,7 +31,11 @@ from packages.adapters.trusted_time._owned_file_descriptor import (
 from packages.domain.trusted_time_graceful_stop_v2 import LIFECYCLE_ROOT_FILE_NAME
 from packages.persistence.trusted_time_graceful_stop_v2 import (
     LifecycleV2ArtifactAlreadyExists,
+    LifecycleV2ArtifactInventorySnapshot,
+    LifecycleV2ArtifactPublicationReceipt,
     LifecycleV2ArtifactPublicationUncertain,
+    LifecycleV2ArtifactReadback,
+    LifecycleV2ArtifactStoreIdentity,
 )
 
 __all__: tuple[()] = ()
@@ -136,6 +140,7 @@ class _LifecycleV2PhysicalArtifactStore:
         "_directory_owner",
         "_expected_gid",
         "_expected_uid",
+        "_identity",
         "_origin_pid",
         "_origin_thread",
     )
@@ -187,21 +192,33 @@ class _LifecycleV2PhysicalArtifactStore:
         self._directory_identity_core = _stable_identity_core(identity)
         self._expected_uid = exact_uid
         self._expected_gid = exact_gid
+        self._identity = LifecycleV2ArtifactStoreIdentity(
+            artifact_directory_path=exact_path,
+            directory_device=identity[0],
+            directory_inode=identity[1],
+            owner_uid=identity[3],
+            owner_gid=identity[4],
+            directory_mode=stat.S_IMODE(identity[2]),
+        )
         self._origin_pid = os.getpid()
         self._origin_thread = threading.current_thread()
         self._closed = False
 
     @property
+    def identity(self) -> LifecycleV2ArtifactStoreIdentity:
+        return self._identity
+
+    @property
     def artifact_directory_path(self) -> str:
-        return self._artifact_directory_path
+        return self._identity.artifact_directory_path
 
     @property
     def directory_device(self) -> int:
-        return self._directory_identity_core[0]
+        return self._identity.directory_device
 
     @property
     def directory_inode(self) -> int:
-        return self._directory_identity_core[1]
+        return self._identity.directory_inode
 
     @property
     def closed(self) -> bool:
@@ -281,7 +298,7 @@ class _LifecycleV2PhysicalArtifactStore:
         self._directory_owner.close()
         self._closed = True
 
-    def inventory(self) -> tuple[str, ...]:
+    def inventory(self) -> LifecycleV2ArtifactInventorySnapshot:
         self._require_owner()
         try:
             names, before, after = _list_snapshot(self._directory_owner)
@@ -304,7 +321,10 @@ class _LifecycleV2PhysicalArtifactStore:
                 )
             for name in names:
                 _exact_component(name)
-            return names
+            return LifecycleV2ArtifactInventorySnapshot(
+                names=names,
+                directory_token=exact_after,
+            )
         except BaseException as error:
             self._close_after_failure()
             if not isinstance(error, Exception):
@@ -315,7 +335,7 @@ class _LifecycleV2PhysicalArtifactStore:
                 "artifact directory inventory is unconfirmed"
             ) from None
 
-    def _read_existing(self, file_name: str) -> bytes:
+    def _read_existing(self, file_name: str) -> LifecycleV2ArtifactReadback:
         maximum_bytes = _maximum_bytes_for_name(file_name)
         directory_before = self._directory_identity()
         owner = _open_child_regular(self._directory_owner, file_name)
@@ -346,11 +366,21 @@ class _LifecycleV2PhysicalArtifactStore:
                 raise LifecycleV2ArtifactPublicationUncertain(
                     "artifact stable readback identity drifted"
                 )
-            return payload
+            return LifecycleV2ArtifactReadback(
+                encoded=payload,
+                file_device=held_after[0],
+                file_inode=held_after[1],
+                file_mode=stat.S_IMODE(held_after[2]),
+                file_size=held_after[6],
+                stable_readback_completed=True,
+            )
         finally:
             owner.close()
 
-    def _read_existing_or_absent(self, file_name: str) -> bytes | None:
+    def _read_existing_or_absent(
+        self,
+        file_name: str,
+    ) -> LifecycleV2ArtifactReadback | None:
         directory_before = self._directory_identity()
         try:
             return self._read_existing(file_name)
@@ -362,7 +392,7 @@ class _LifecycleV2PhysicalArtifactStore:
                 ) from None
             return None
 
-    def read_stable(self, file_name: str) -> bytes:
+    def read_stable(self, file_name: str) -> LifecycleV2ArtifactReadback:
         self._require_owner()
         exact_name = _exact_component(file_name)
         try:
@@ -413,7 +443,34 @@ class _LifecycleV2PhysicalArtifactStore:
             owner.close()
             raise
 
-    def create_root_exclusive(self, file_name: str, encoded: bytes) -> None:
+    @staticmethod
+    def _publication_receipt(
+        *,
+        final_name: str,
+        readback: LifecycleV2ArtifactReadback,
+        file_fsync_completed: bool,
+        no_replace_rename_completed: bool,
+        directory_fsync_completed: bool,
+        existing_final_revalidated: bool,
+    ) -> LifecycleV2ArtifactPublicationReceipt:
+        return LifecycleV2ArtifactPublicationReceipt(
+            final_name=final_name,
+            final_device=readback.file_device,
+            final_inode=readback.file_inode,
+            final_mode=readback.file_mode,
+            final_size=readback.file_size,
+            file_fsync_completed=file_fsync_completed,
+            no_replace_rename_completed=no_replace_rename_completed,
+            directory_fsync_completed=directory_fsync_completed,
+            stable_readback_completed=readback.stable_readback_completed,
+            existing_final_revalidated=existing_final_revalidated,
+        )
+
+    def create_root_exclusive(
+        self,
+        file_name: str,
+        encoded: bytes,
+    ) -> LifecycleV2ArtifactPublicationReceipt:
         self._require_owner()
         exact_name = _exact_component(file_name)
         if exact_name != LIFECYCLE_ROOT_FILE_NAME:
@@ -425,8 +482,17 @@ class _LifecycleV2PhysicalArtifactStore:
             _fsync(self._directory_owner)
             owner.close()
             owner = None
-            if self._read_existing(exact_name) != encoded:
+            readback = self._read_existing(exact_name)
+            if readback.encoded != encoded:
                 raise LifecycleV2ArtifactPublicationUncertain("root stable readback bytes disagree")
+            return self._publication_receipt(
+                final_name=exact_name,
+                readback=readback,
+                file_fsync_completed=True,
+                no_replace_rename_completed=False,
+                directory_fsync_completed=True,
+                existing_final_revalidated=False,
+            )
         except FileExistsError as error:
             raise LifecycleV2ArtifactAlreadyExists(exact_name) from error
         except BaseException as error:
@@ -450,7 +516,7 @@ class _LifecycleV2PhysicalArtifactStore:
         staging_name: str,
         final_name: str,
         encoded: bytes,
-    ) -> None:
+    ) -> LifecycleV2ArtifactPublicationReceipt:
         self._require_owner()
         exact_staging = _exact_component(staging_name)
         exact_final = _exact_component(final_name)
@@ -464,8 +530,24 @@ class _LifecycleV2PhysicalArtifactStore:
                 raise LifecycleV2ArtifactAlreadyExists(exact_staging)
             existing = self._read_existing_or_absent(exact_final)
             if existing is not None:
-                if existing == encoded:
-                    return
+                if existing.encoded == encoded:
+                    if self._read_existing_or_absent(exact_staging) is not None:
+                        raise LifecycleV2ArtifactPublicationUncertain(
+                            "staging appeared during existing-final revalidation"
+                        )
+                    revalidated = self._read_existing(exact_final)
+                    if revalidated != existing:
+                        raise LifecycleV2ArtifactPublicationUncertain(
+                            "existing final changed during byte-identical revalidation"
+                        )
+                    return self._publication_receipt(
+                        final_name=exact_final,
+                        readback=revalidated,
+                        file_fsync_completed=False,
+                        no_replace_rename_completed=False,
+                        directory_fsync_completed=False,
+                        existing_final_revalidated=True,
+                    )
                 raise LifecycleV2ArtifactAlreadyExists(exact_final)
 
             owner = self._write_staging(staging_name=exact_staging, encoded=encoded)
@@ -498,10 +580,19 @@ class _LifecycleV2PhysicalArtifactStore:
                 )
             owner.close()
             owner = None
-            if self._read_existing(exact_final) != encoded:
+            readback = self._read_existing(exact_final)
+            if readback.encoded != encoded:
                 raise LifecycleV2ArtifactPublicationUncertain(
                     "immutable publication stable readback bytes disagree"
                 )
+            return self._publication_receipt(
+                final_name=exact_final,
+                readback=readback,
+                file_fsync_completed=True,
+                no_replace_rename_completed=True,
+                directory_fsync_completed=True,
+                existing_final_revalidated=False,
+            )
         except LifecycleV2ArtifactAlreadyExists:
             raise
         except BaseException as error:
