@@ -789,6 +789,19 @@ def test_object_new_reconstruction_cannot_mint_process_or_receipt_evidence() -> 
         "scope = getattr(owner, f'{a}{b}')\n"
         "c, d = '__built', 'ins__'\n"
         "namespace = scope[f'{c}{d}']",
+        "scope = getattr(lambda: None, '__gloXbals__'.replace('X', ''))\n"
+        "namespace = scope['__builXtins__'.replace('X', '')]",
+        "def resolve(module_name, attribute_name):\n"
+        "    reflect = getattr\n"
+        "    scope = reflect(resolve, '__globals__')\n"
+        "    namespace = scope['__builtins__']\n"
+        "    loader = namespace['__import__']\n"
+        "    module = loader(module_name, fromlist=('sentinel',))\n"
+        "    return reflect(module, attribute_name)",
+        "def resolve(scope_key, builtins_key, import_key):\n"
+        "    scope = getattr(resolve, scope_key)\n"
+        "    namespace = scope[builtins_key]\n"
+        "    return namespace[import_key]",
         "from packages.domain.fixture_segment_economics import "
         "FixtureEconomicProcessEvidence\n"
         "forged = object.__new__(FixtureEconomicProcessEvidence)",

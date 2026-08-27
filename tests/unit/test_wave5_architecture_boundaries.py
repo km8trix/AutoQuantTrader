@@ -154,6 +154,22 @@ def _phase4an_violations(source: str, *, relative_path: Path) -> list[Violation]
         "loader_prefix = 'import_from_'\n"
         "loader_suffix = 'string'\n"
         "loader = getattr(importer, loader_prefix + loader_suffix)",
+        "scope = getattr(lambda: None, '__gloXbals__'.replace('X', ''))\n"
+        "namespace = scope['__builXtins__'.replace('X', '')]\n"
+        "loader = namespace['__imXport__'.replace('X', '')]",
+        "def resolve(module_name, attribute_name):\n"
+        "    reflect = getattr\n"
+        "    scope = reflect(resolve, '__globals__')\n"
+        "    namespace = scope['__builtins__']\n"
+        "    loader = namespace['__import__']\n"
+        "    module = loader(module_name, fromlist=('sentinel',))\n"
+        "    return reflect(module, attribute_name)",
+        "def resolve(scope_key, builtins_key, import_key, module_name, attribute_name):\n"
+        "    scope = getattr(resolve, scope_key)\n"
+        "    namespace = scope[builtins_key]\n"
+        "    loader = namespace[import_key]\n"
+        "    module = loader(module_name, fromlist=('sentinel',))\n"
+        "    return getattr(module, attribute_name)",
         "owner._retain_progress(record)",
     ],
 )
@@ -288,6 +304,22 @@ def test_wave5_boundary_accepts_unique_protected_python_module_identities() -> N
         "builtins_prefix = '__built'\n"
         "builtins_suffix = 'ins__'\n"
         "namespace = scope[builtins_prefix + builtins_suffix]",
+        "scope = getattr(lambda: None, '__gloXbals__'.replace('X', ''))\n"
+        "namespace = scope['__builXtins__'.replace('X', '')]\n"
+        "loader = namespace['__imXport__'.replace('X', '')]",
+        "def resolve(module_name, attribute_name):\n"
+        "    reflect = getattr\n"
+        "    scope = reflect(resolve, '__globals__')\n"
+        "    namespace = scope['__builtins__']\n"
+        "    loader = namespace['__import__']\n"
+        "    module = loader(module_name, fromlist=('sentinel',))\n"
+        "    return reflect(module, attribute_name)",
+        "def resolve(scope_key, builtins_key, import_key, module_name, attribute_name):\n"
+        "    scope = getattr(resolve, scope_key)\n"
+        "    namespace = scope[builtins_key]\n"
+        "    loader = namespace[import_key]\n"
+        "    module = loader(module_name, fromlist=('sentinel',))\n"
+        "    return getattr(module, attribute_name)",
     ],
 )
 def test_phase4an_boundary_rejects_unreviewed_runtime_reachability(source: str) -> None:

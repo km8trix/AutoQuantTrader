@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "9d251d93304f36eebe5d1f0a12880b90cfd5e027b27a136998f4587ad518ea04"
+    "98ab17574e942f5dae83d5501a1ef8b65530ea73c2faa7114a91d8988179f956"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -5563,6 +5563,7 @@ def _phase3h_proof_boundary_violations(
             "f_builtins",
             "f_globals",
             "f_locals",
+            "getattr",
             "gi_frame",
             "modules",
             "tb_frame",
@@ -5685,8 +5686,13 @@ def _phase3h_proof_boundary_violations(
             continue
 
         dynamic_code: str | None = None
-        if isinstance(node, ast.Name) and node.id in dynamic_code_names:
-            dynamic_code = node.id
+        if isinstance(node, ast.Name):
+            if node.id in dynamic_code_names:
+                dynamic_code = node.id
+            elif node.id == "getattr":
+                parent = parents.get(node)
+                if not (isinstance(parent, ast.Call) and parent.func is node):
+                    dynamic_code = "getattr-alias"
         elif isinstance(node, ast.Attribute) and node.attr in dynamic_namespace_attribute_names:
             dynamic_code = node.attr
         elif reflected_builtin_dynamic_code(node) in dynamic_code_names:
@@ -5738,7 +5744,8 @@ def _phase3h_proof_boundary_violations(
                     and type(reflected_argument.value) is str
                 )
                 if (
-                    reflected_name in dynamic_loader_names | dynamic_namespace_attribute_names
+                    reflected_name is None
+                    or reflected_name in dynamic_loader_names | dynamic_namespace_attribute_names
                     or is_builtins_namespace(receiver)
                     or is_dynamic_loader_namespace(receiver)
                     or constructed_import_reflection
@@ -5747,7 +5754,9 @@ def _phase3h_proof_boundary_violations(
         elif isinstance(node, ast.alias):
             origin = node.name.rpartition(".")[2]
             local = node.asname or origin
-            if origin in dynamic_loader_names or local in dynamic_loader_names:
+            if origin in dynamic_loader_names | {"getattr"} or local in dynamic_loader_names | {
+                "getattr"
+            }:
                 dynamic_loader = origin
         if dynamic_loader is not None:
             violations.append(
@@ -6162,6 +6171,7 @@ def _isolated_wave5_module_boundary_violations(
             "f_builtins",
             "f_globals",
             "f_locals",
+            "getattr",
             "gi_frame",
             "modules",
             "tb_frame",
@@ -6242,8 +6252,13 @@ def _isolated_wave5_module_boundary_violations(
         imported_loader = dynamic_loader_import(node)
         if imported_loader is not None:
             dynamic_reachability = imported_loader
-        elif isinstance(node, ast.Name) and node.id in dynamic_reachability_names:
-            dynamic_reachability = node.id
+        elif isinstance(node, ast.Name):
+            if node.id in dynamic_reachability_names:
+                dynamic_reachability = node.id
+            elif node.id == "getattr":
+                parent = parents.get(node)
+                if not (isinstance(parent, ast.Call) and parent.func is node):
+                    dynamic_reachability = "getattr-alias"
         elif isinstance(node, ast.Attribute):
             if (
                 node.attr in dynamic_loader_names
@@ -6278,7 +6293,9 @@ def _isolated_wave5_module_boundary_violations(
                     and type(reflected_argument.value) is str
                 )
                 if (
-                    reflected_name in dynamic_reachability_names | dynamic_namespace_attribute_names
+                    reflected_name is None
+                    or reflected_name
+                    in dynamic_reachability_names | dynamic_namespace_attribute_names
                     or is_builtins_namespace(receiver)
                     or is_dynamic_loader_namespace(receiver)
                     or constructed_import_reflection
@@ -6287,7 +6304,9 @@ def _isolated_wave5_module_boundary_violations(
         elif isinstance(node, ast.alias):
             origin = node.name.rpartition(".")[2]
             local = node.asname or origin
-            if origin in dynamic_reachability_names or local in dynamic_reachability_names:
+            if origin in dynamic_reachability_names | {
+                "getattr"
+            } or local in dynamic_reachability_names | {"getattr"}:
                 dynamic_reachability = origin
         if dynamic_reachability is not None:
             violations.append(
@@ -10192,6 +10211,183 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
         ),
         Path("scripts/verify_trusted_time_images.py"): (
             "034d230d49384171807f61056f9cecce15564f238d329c4d2fbaa7cc3d9fd855"
+        ),
+        Path("apps/api/backtest_views.py"): (
+            "0d42ab3f6a8deb21092d3f51a2e8eaf8c19838d948a6625f1f1fb34702fdc141"
+        ),
+        Path("apps/trusted_time_supervisor/head_anchor_attempt.py"): (
+            "54897320fdc1492c65dc83611bcd5f14b9c7d6636e93c59cda2ca18b4b013c7f"
+        ),
+        Path("packages/adapters/broker/alpaca_paper.py"): (
+            "955aa81ec1bcb8f55decd4c736f3dea2e736e983bea2b6b7834355d974bbd56b"
+        ),
+        Path("packages/adapters/broker/alpaca_paper_account_activity_runtime.py"): (
+            "a2f7e077992e85fecffb043e8c9941ebe4fb56dee079b93c2c2c8bec8230a26e"
+        ),
+        Path("packages/adapters/broker/alpaca_paper_account_assets.py"): (
+            "c843b7919c4275182cee1fa61aa0b570348c094de6f23f2641955527026d1655"
+        ),
+        Path("packages/adapters/broker/alpaca_paper_asset_runtime.py"): (
+            "3bebb0eecab2a7dacfd60d3680dbf3cc74d89722e77b460ddbcf363572c0eaec"
+        ),
+        Path("packages/adapters/broker/alpaca_paper_lookup_runtime.py"): (
+            "8688fc1952f7f20fa7291cc406b8d6c0f7c834dff44e3982da910b707d86c6a2"
+        ),
+        Path("packages/adapters/broker/alpaca_paper_observations.py"): (
+            "0d194ae44749c77ec5098b61c6210b6861d600d22283176b4ee1dc779f5570b9"
+        ),
+        Path("packages/adapters/broker/alpaca_paper_order_snapshot_runtime.py"): (
+            "cdb6517a7a20f04b2ea385d4a06c1caf46a41b87e8e031bccf90853bf44c165d"
+        ),
+        Path("packages/adapters/broker/alpaca_paper_position_snapshot_runtime.py"): (
+            "96b606c6d3a7dda3ea11684d03bc12d4c15b6368b435e371b0e01cff9bb0d3ff"
+        ),
+        Path("packages/adapters/broker/alpaca_paper_reconciliation.py"): (
+            "29b83f173faeafe11b77b496232c5094a96b8edb079b717e66851f8b9150d9ba"
+        ),
+        Path("packages/adapters/broker/etrade.py"): (
+            "c8e6f99401837ee17d5acf080a7712b3cd2b075dcc8154911708bc0f10db5186"
+        ),
+        Path("packages/adapters/broker/etrade_accounts.py"): (
+            "218f84ed045fe4ab95027e17ee37f600da4469454f683662e59040e111fa3726"
+        ),
+        Path("packages/adapters/market_data/tiingo_eod_identity_lifecycle.py"): (
+            "8d83da9cc6f669fd3a81d88b732c912498f09656e236853ad83fc46a8429ad14"
+        ),
+        Path("packages/adapters/market_data/tiingo_eod_market_semantics.py"): (
+            "35e4c977dc2935676f5bd036c9a0f8db96f868ae6f7db180c4c7aa3d965f2214"
+        ),
+        Path("packages/adapters/market_data/tiingo_eod_retained_fields.py"): (
+            "9a43d49cb64c41f9c57ca096dd3e93f7cc0cb29d36523ea6a0b3dfbbd055df20"
+        ),
+        Path("packages/application/alpaca_paper_account_activity_supervisor.py"): (
+            "681cadeefe566e5178c9fa1532e29978aeda1c5514b09842082e4985f9fa46b1"
+        ),
+        Path("packages/application/alpaca_paper_order_view_runtime.py"): (
+            "cab5768f66f54ed354d172d06a57f34b7fc7999df8fd318d00b28f3f889a643b"
+        ),
+        Path("packages/application/alpaca_paper_order_view_supervisor.py"): (
+            "c3e6f09b64610c9eec16c59f57235c580c1fd6fa8ee02f93201dd6a49a2fbcc9"
+        ),
+        Path("packages/application/alpaca_paper_position_view_runtime.py"): (
+            "da26b3ea6a358b77033b50764831bf174f8a8e1a590f0f836626ffb1d93b27da"
+        ),
+        Path("packages/application/alpaca_paper_position_view_supervisor.py"): (
+            "73da200f7e2191fc817d9e68a9ff28fe02854ec08ce73a3a5e7403e6e0b9c3a3"
+        ),
+        Path("packages/application/alpaca_paper_reconciliation_normalization.py"): (
+            "e5e09df4a3925cad36aebdd47b2717ac31ef92ee7b4442c697e8b6a6517bcd52"
+        ),
+        Path("packages/application/alpaca_paper_unknown_recovery_pipeline.py"): (
+            "2b98dd36270cf81f9cf75c11263e689161a6222973472714dbd635e532dd9043"
+        ),
+        Path("packages/application/broker_inbox_admission.py"): (
+            "6ccb8cf2472953237f6b0aeddde2b41a8ad88c9721f4ccaeece86a1eccfca055"
+        ),
+        Path("packages/application/critical_alert_atomic_worker.py"): (
+            "5a50265aadd16b6886b44fea3bb3f8fce6ce9d170c30c9cafd1e0bf9c749a051"
+        ),
+        Path("packages/application/critical_alert_scheduler.py"): (
+            "018d222d59fb9b31d2f41ddd4faef3e81f5390cf87fc72eef5c824e519005d55"
+        ),
+        Path("packages/application/durable_supervised_strategy.py"): (
+            "430fed241841933d4f7feb410f2c6bf3c628eaae09a4911b14962289124ed198"
+        ),
+        Path("packages/application/durable_trusted_time_monitor.py"): (
+            "1c9334655527de6e98f05fc244621057fe4c15c5e31ae377c7ad6eec2f407dd3"
+        ),
+        Path("packages/application/operational_rearm.py"): (
+            "e2d8c0c2dfedcf92feab531a9f963fa652f7bbde8ed14cf35a85ecc96f43c181"
+        ),
+        Path("packages/application/paper_deployment.py"): (
+            "7480467b65251a305bc793262a93640e55afa678129c9dfd358cda43f66305bc"
+        ),
+        Path("packages/application/trusted_time_head_anchor.py"): (
+            "75b4efd21e6888c6d95b7bc85907e3b4f6ae9cd8a4dae115343ddd2b60c80964"
+        ),
+        Path("packages/backtest/simulated_broker.py"): (
+            "130c6055d5325f06037eb68be7c61ed665000dd150d6d104ef925b7e4a28eaa3"
+        ),
+        Path("packages/domain/account_coordinator.py"): (
+            "1a6abb3e532c422abb19e3f57b494ca65ba2a7c028c39603197d76590a2c2971"
+        ),
+        Path("packages/domain/advanced_risk_metrics.py"): (
+            "da6c9551de7084b5f8eaa69ea0eda4702358020a779695e63b8ced76569860cf"
+        ),
+        Path("packages/domain/advanced_risk_policy.py"): (
+            "45df8234f1c1a47c7a0dfbbbfdcf1233e16003504e1faa05ef1a115cb7118e49"
+        ),
+        Path("packages/domain/advanced_risk_sources.py"): (
+            "3ef77351335a8daca8fd577e8de2d2ac3a9868cc459cd64cff5c2838367bebf1"
+        ),
+        Path("packages/domain/backtest_report.py"): (
+            "4ed7ad62bf98af62d198ad5e7024ca58b128b902ccfdd982d3961547995bca80"
+        ),
+        Path("packages/domain/batch_risk.py"): (
+            "566a4968debf92a0ca04bb5e4d1c9fd7011d1e9cfb209727faa877c145004399"
+        ),
+        Path("packages/domain/experiment_registry.py"): (
+            "77158232e716c0d0816d0c38c6ad56afa26a8a0950af3697e77c07589534f8eb"
+        ),
+        Path("packages/domain/fixture_segment_economics.py"): (
+            "89054d8462035a86f3d219caf0ab5dd23ac394c25f0d3a5bbd2c54c94cf7009d"
+        ),
+        Path("packages/domain/models.py"): (
+            "be8bb5a1cea5b88ffe5b590ba77d23c6b14f5e502f10af3a21e68e398b9e1f35"
+        ),
+        Path("packages/domain/risk.py"): (
+            "5be5ad5f59f22abeae6b81a8172db7206a6b9dae6bd0505a37d453af83deea20"
+        ),
+        Path("packages/domain/trusted_time_enrollment_evidence.py"): (
+            "0d4191922d91390728e442784aa1291665f007516c82d202a443194857e26c84"
+        ),
+        Path("packages/domain/trusted_time_graceful_stop_v2.py"): (
+            "9e53f33c3655803171ae965ef27393234da1989ba93ef5e25bcfbf33b2980344"
+        ),
+        Path("packages/persistence/alpaca_paper_account_activity.py"): (
+            "9a39473e425ec84fc7d47402733d5cdbd42806f90fc52f4a0eb02554b3c77e27"
+        ),
+        Path("packages/persistence/alpaca_paper_account_binding.py"): (
+            "0e673b372864394181bb729becc3d70c60b1049500f8717f2a62108a16d16fdb"
+        ),
+        Path("packages/persistence/alpaca_paper_asset_binding.py"): (
+            "1a76fa2bb54eccdea8cdc2730a9b829af5275d2e6bfffe98ad9a67b9b59ee4e4"
+        ),
+        Path("packages/persistence/alpaca_paper_lookup_observation.py"): (
+            "c3d1c53fbcdf5d49c62402d76c64c7664eca985099b8534d84e29a15bfaef747"
+        ),
+        Path("packages/persistence/alpaca_paper_order_snapshot.py"): (
+            "dbef58673ebc54c293def61fbc26290423d09c1c292063b6106c49bf953cdbc8"
+        ),
+        Path("packages/persistence/alpaca_paper_order_view_comparison.py"): (
+            "7a5aaa24eb570281d96a3ec684adf81102cd25526916bdd7782c700f36aa3e7b"
+        ),
+        Path("packages/persistence/alpaca_paper_position_view_comparison.py"): (
+            "e5c18342308b4a4270e1a1fd80715122d7403365bd8d5bea57854688746d968e"
+        ),
+        Path("packages/persistence/experiment_governance.py"): (
+            "dedf5633fb644aed86cb3b1589b3d453a31ccf9449b487549ac7a0a65a832bae"
+        ),
+        Path("packages/persistence/replay.py"): (
+            "e23a017d4513ba450240b3d16b4d8c44443d5dafd23991d1a3ad777f4e2135f8"
+        ),
+        Path("packages/persistence/trusted_time.py"): (
+            "2b2e783fd9d35b9b2ff306ace9402d2e66aec70d8c1eb2c28e9c14f2ce7d323a"
+        ),
+        Path("scripts/trusted_time_post_enrollment_execution_admission.py"): (
+            "406fc2c6ee034df2fefaf197bf26e0a96043816b149181c105ffb7ef6a064fd9"
+        ),
+        Path("scripts/trusted_time_post_enrollment_sequence_one_reauthentication.py"): (
+            "985973368d4c5a632af3f167da80ae9070eaf7594d5446703f6655d2b3a81682"
+        ),
+        Path("scripts/trusted_time_post_enrollment_sequence_two_verifier.py"): (
+            "925f3c0e4fa3e97e5649f50b3ab12579f68548e68324c5e73e53bb6a8b7e78ca"
+        ),
+        Path("packages/adapters/broker/etrade_oauth.py"): (
+            "621fa2911f57b354969ab1787843475334bd3a352e678bfb6f52af59594b0275"
+        ),
+        Path("packages/persistence/etrade_oauth_coordinator.py"): (
+            "f2c90fc7bbbecea302b8491f8e27fb90395ba806d309fc3e658c390f665cdef2"
         ),
     }
     if production_contract_required and (
