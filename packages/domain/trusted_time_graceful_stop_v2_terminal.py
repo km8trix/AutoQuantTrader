@@ -49,6 +49,7 @@ SUPERVISOR_RAW_KEY_PATH = (
 _RESULT_MAXIMUM_BYTES = 180_224
 _ERROR_MAXIMUM_BYTES = 32_768
 _UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\Z")
+_TERMINAL_WIRE_EVIDENCE_CAPABILITY = object()
 
 
 def _digest(encoded: bytes) -> str:
@@ -1222,6 +1223,7 @@ class LifecycleV2TerminalWireEvidence(_CanonicalValue):
 
     fields: FrozenJsonObject
     receipt: LifecycleV2WirePublicationReceipt
+    _capability: object
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("terminal wire evidence requires request-bound canonical capture")
@@ -1322,7 +1324,13 @@ class LifecycleV2TerminalWireEvidence(_CanonicalValue):
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
         object.__setattr__(result, "receipt", receipt)
+        object.__setattr__(result, "_capability", _TERMINAL_WIRE_EVIDENCE_CAPABILITY)
         return result
+
+    def to_dict(self) -> dict[str, object]:
+        if getattr(self, "_capability", None) is not _TERMINAL_WIRE_EVIDENCE_CAPABILITY:
+            raise TrustedTimeGracefulStopV2Rejected("terminal wire evidence is not sealed")
+        return self.fields.to_dict()
 
     @property
     def maximum_bytes(self) -> int:

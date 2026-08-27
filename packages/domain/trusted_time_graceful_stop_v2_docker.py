@@ -48,6 +48,8 @@ _MUTATION_HEADERS = (*_GET_HEADERS, ("Content-Length", "0"))
 _CALL_SPEC_CAPABILITY = object()
 _RESPONSE_CAPTURE_CAPABILITY = object()
 _ADMISSION_ROOTED_TRACE_PREFIX_CAPABILITY = object()
+_MUTATION_RESULT_CAPABILITY = object()
+_VOLUME_RESULT_CAPABILITY = object()
 
 
 class TrustedTimeDockerEvidenceRejected(TrustedTimeGracefulStopV2Rejected):
@@ -2246,6 +2248,13 @@ class DockerAdmissionRootedTracePrefix:
         self._require_sealed()
         return self._entries[-1].trace.sha256
 
+    @property
+    def admission_sha256(self) -> str:
+        """Return the complete admission capture that seals this trace prefix."""
+
+        self._require_sealed()
+        return self._admission.sha256
+
     def _require_sealed(self) -> None:
         if (
             getattr(self, "_capability", None)
@@ -2470,6 +2479,7 @@ def _require_unchanged_stopped_container(
 class DockerMutationResultSemantic:
     fields: FrozenJsonObject
     digest_domain: str
+    _capability: object
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("Docker mutation results require exact paired ordinal evidence")
@@ -2790,9 +2800,12 @@ class DockerMutationResultSemantic:
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
         object.__setattr__(result, "digest_domain", domain)
+        object.__setattr__(result, "_capability", _MUTATION_RESULT_CAPABILITY)
         return result
 
     def to_dict(self) -> dict[str, object]:
+        if getattr(self, "_capability", None) is not _MUTATION_RESULT_CAPABILITY:
+            _reject("Docker mutation result is not sealed")
         return self.fields.to_dict()
 
     @property
@@ -2833,6 +2846,7 @@ _VOLUME_RESULT_FIELDS = frozenset(
 @dataclass(frozen=True, slots=True, init=False)
 class DockerVolumePreservationResult:
     fields: FrozenJsonObject
+    _capability: object
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("Docker volume preservation requires exact ordinal evidence")
@@ -3102,9 +3116,12 @@ class DockerVolumePreservationResult:
             _reject("Docker volume proof timestamps disagree")
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
+        object.__setattr__(result, "_capability", _VOLUME_RESULT_CAPABILITY)
         return result
 
     def to_dict(self) -> dict[str, object]:
+        if getattr(self, "_capability", None) is not _VOLUME_RESULT_CAPABILITY:
+            _reject("Docker volume preservation result is not sealed")
         return self.fields.to_dict()
 
     @property
