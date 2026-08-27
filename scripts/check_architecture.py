@@ -5695,6 +5695,137 @@ def _phase3h_proof_boundary_violations(
     return violations
 
 
+def _constant_wave5_reflection_text(node: ast.AST) -> str | None:
+    """Fold inert constant formatting used to spell protected Wave 5 names."""
+
+    folded = _constant_folded_text(node)
+    if folded is not None:
+        return folded
+
+    def value(part: ast.AST) -> object:
+        text = _constant_folded_text(part)
+        if text is not None:
+            return text
+        if isinstance(part, ast.Constant) and type(part.value) in {int, float, bytes}:
+            return part.value
+        if isinstance(part, ast.Tuple):
+            return tuple(value(item) for item in part.elts)
+        raise ValueError
+
+    try:
+        if isinstance(node, ast.JoinedStr):
+            parts: list[str] = []
+            for part in node.values:
+                if isinstance(part, ast.Constant) and type(part.value) is str:
+                    parts.append(part.value)
+                    continue
+                if not isinstance(part, ast.FormattedValue):
+                    return None
+                formatted_value = value(part.value)
+                if part.conversion == 114:
+                    formatted_value = repr(formatted_value)
+                elif part.conversion in {-1, 115}:
+                    formatted_value = str(formatted_value)
+                elif part.conversion == 97:
+                    formatted_value = ascii(formatted_value)
+                else:
+                    return None
+                format_spec = ""
+                if part.format_spec is not None:
+                    folded_spec = _constant_wave5_reflection_text(part.format_spec)
+                    if folded_spec is None:
+                        return None
+                    format_spec = folded_spec
+                parts.append(format(formatted_value, format_spec))
+            return "".join(parts)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+            template = _constant_folded_text(node.left)
+            if template is None:
+                return None
+            result = template % value(node.right)
+            return result if type(result) is str else None
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "format"
+            and not any(keyword.arg is None for keyword in node.keywords)
+        ):
+            template = _constant_folded_text(node.func.value)
+            if template is None:
+                return None
+            result = template.format(
+                *(value(argument) for argument in node.args),
+                **{
+                    str(keyword.arg): value(keyword.value)
+                    for keyword in node.keywords
+                    if keyword.arg is not None
+                },
+            )
+            return result if type(result) is str else None
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None
+    return None
+
+
+def _python_module_identity(relative_path: Path) -> str | None:
+    """Return the import identity for one repository-relative Python source path."""
+
+    if relative_path.is_absolute() or ".." in relative_path.parts or relative_path.suffix != ".py":
+        return None
+    parts = list(relative_path.parts)
+    if parts[-1] == "__init__.py":
+        parts.pop()
+    else:
+        parts[-1] = relative_path.stem
+    if not parts:
+        return None
+    return ".".join(parts)
+
+
+def _python_module_identity_collision_violations(
+    *,
+    relative_paths: set[Path],
+    protected_module_paths: dict[str, Path],
+    boundary: str,
+) -> list[Violation]:
+    """Reject import-shadowing source paths, including protected-module aliases."""
+
+    providers_by_identity: dict[str, list[Path]] = {}
+    for relative_path in sorted(relative_paths):
+        identity = _python_module_identity(relative_path)
+        if identity is not None:
+            providers_by_identity.setdefault(identity, []).append(relative_path)
+
+    violations: list[Violation] = []
+    for identity, providers in sorted(providers_by_identity.items()):
+        if len(providers) <= 1:
+            continue
+        rendered = ", ".join(path.as_posix() for path in providers)
+        violations.append(
+            Violation(
+                providers[0],
+                1,
+                f"{boundary} requires one source provider for '{identity}', found {rendered}",
+            )
+        )
+
+    for identity, expected_path in sorted(protected_module_paths.items()):
+        configured_identity = _python_module_identity(expected_path)
+        providers = providers_by_identity.get(identity, [])
+        if configured_identity == identity and providers == [expected_path]:
+            continue
+        rendered = ", ".join(path.as_posix() for path in providers) or "none"
+        violations.append(
+            Violation(
+                expected_path,
+                1,
+                f"{boundary} must preserve '{identity}' exclusively at "
+                f"{expected_path.as_posix()}; observed {rendered}",
+            )
+        )
+    return violations
+
+
 def _isolated_wave5_module_boundary_violations(
     tree: ast.AST,
     *,
@@ -5802,7 +5933,7 @@ def _isolated_wave5_module_boundary_violations(
                         f"{boundary} reserves embedded private name '{reflected_fragment}'",
                     )
                 )
-        folded = _constant_folded_text(node)
+        folded = _constant_wave5_reflection_text(node)
         if folded not in reserved_text:
             continue
         parent = parents.get(node)
@@ -9672,6 +9803,7 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
             "_consume_loaded_decision_receipt_for_v2",
             "_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY",
             "_FakeAuthenticatedLifecycleV2TransportEnvelope",
+            "_LifecycleV2Repository",
             "_LifecycleV2AdmissionIdentity",
             "_LIFECYCLE_V2_BRIDGE_CAPABILITY",
             "_open_injected_lifecycle_v2_repository",
@@ -9812,6 +9944,17 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
             )
         )
     native_capability_files = reviewed_python_files(production_python_source_manifest_roots)
+    violations.extend(
+        _python_module_identity_collision_violations(
+            relative_paths={path.relative_to(repository) for path in native_capability_files},
+            protected_module_paths=(
+                trusted_time_v2_isolated_module_paths
+                if trusted_time_v2_policy_keys_present == trusted_time_v2_policy_keys
+                else {}
+            ),
+            boundary="production Python module identity boundary",
+        )
+    )
     violations.extend(
         _trusted_time_topology_launch_lock_violations(
             repository=repository,

@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from scripts.check_architecture import Violation, _isolated_wave5_module_boundary_violations
+from scripts.check_architecture import (
+    Violation,
+    _isolated_wave5_module_boundary_violations,
+    _python_module_identity_collision_violations,
+)
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 
@@ -54,10 +58,19 @@ def _trusted_time_violations(source: str, *, relative_path: Path) -> list[Violat
         "_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY",
         "from packages.persistence.trusted_time_graceful_stop_v2 import "
         "_open_injected_lifecycle_v2_repository",
+        "from packages.persistence import trusted_time_graceful_stop_v2 as module\n"
+        "repository = getattr(module, f\"{'_LifecycleV2'}Repository\")",
         "import packages.application.trusted_time_graceful_stop_v2_admission",
         "from scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts "
         "import _LIFECYCLE_V2_BRIDGE_CAPABILITY",
         "name = '_consume_' + 'loaded_decision_receipt_for_v2'",
+        "name = '%s%s' % ('_retain_', 'progress')",
+        "name = '{}{}'.format('_retain_', 'progress')",
+        "name = f\"{'_retain_'}progress\"",
+        "from uvicorn.importer import import_from_string\n"
+        "builder = f\"{'_open_injected_'}lifecycle_v2_repository\"\n"
+        "module = f\"packages.persistence.{'trusted_time_graceful_stop_'}v2\"\n"
+        "factory = import_from_string(f'{module}:{builder}')",
         "owner._retain_progress(record)",
     ],
 )
@@ -98,6 +111,28 @@ def test_trusted_time_v2_boundary_rejects_protected_module_ast_drift() -> None:
         allowed_imports=allowed_imports,
         module_ast_sha256=module_ast_sha256,
         reserved_symbols=reserved_symbols,
+    )
+
+
+def test_wave5_boundary_rejects_python_package_shadow_of_protected_module() -> None:
+    module_paths, _, _, _ = _trusted_time_policy()
+    protected_path = module_paths["packages.persistence.trusted_time_graceful_stop_v2"]
+    shadow_path = Path("packages/persistence/trusted_time_graceful_stop_v2/__init__.py")
+
+    assert _python_module_identity_collision_violations(
+        relative_paths={protected_path, shadow_path},
+        protected_module_paths=module_paths,
+        boundary="production Python module identity boundary",
+    )
+
+
+def test_wave5_boundary_accepts_unique_protected_python_module_identities() -> None:
+    module_paths, _, _, _ = _trusted_time_policy()
+
+    assert not _python_module_identity_collision_violations(
+        relative_paths=set(module_paths.values()),
+        protected_module_paths=module_paths,
+        boundary="production Python module identity boundary",
     )
 
 

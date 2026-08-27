@@ -104,6 +104,7 @@ trusted_time_v2_reserved_symbols = [
   "_consume_loaded_decision_receipt_for_v2",
   "_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY",
   "_FakeAuthenticatedLifecycleV2TransportEnvelope",
+  "_LifecycleV2Repository",
   "_LifecycleV2AdmissionIdentity",
   "_LIFECYCLE_V2_BRIDGE_CAPABILITY",
   "_open_injected_lifecycle_v2_repository",
