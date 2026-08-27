@@ -5500,7 +5500,9 @@ def _phase3h_proof_boundary_violations(
             "exec_module",
             "find_spec",
             "get_loader",
+            "import_from_string",
             "import_module",
+            "import_string",
             "load_module",
             "locate",
             "module_from_spec",
@@ -5536,7 +5538,7 @@ def _phase3h_proof_boundary_violations(
             "zipimport",
         }
     )
-    dynamic_code_names = frozenset({"compile", "eval", "exec"})
+    dynamic_code_names = frozenset({"__builtins__", "compile", "eval", "exec", "globals"})
     reserved_text = reserved_names | dynamic_loader_names | {proof_module, execution_module}
     reserved_fragments = reserved_names | {
         proof_module,
@@ -5710,6 +5712,19 @@ def _constant_wave5_reflection_text(node: ast.AST) -> str | None:
             return part.value
         if isinstance(part, ast.Tuple):
             return tuple(value(item) for item in part.elts)
+        if isinstance(part, ast.List):
+            return [value(item) for item in part.elts]
+        if isinstance(part, ast.Dict):
+            result: dict[object, object] = {}
+            for key, item in zip(part.keys, part.values, strict=True):
+                if key is None:
+                    unpacked = value(item)
+                    if type(unpacked) is not dict:
+                        raise ValueError
+                    result.update(unpacked)
+                    continue
+                result[value(key)] = value(item)
+            return result
         raise ValueError
 
     try:
@@ -5747,20 +5762,38 @@ def _constant_wave5_reflection_text(node: ast.AST) -> str | None:
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "format"
-            and not any(keyword.arg is None for keyword in node.keywords)
+            and node.func.attr in {"format", "format_map"}
         ):
             template = _constant_folded_text(node.func.value)
             if template is None:
                 return None
-            result = template.format(
-                *(value(argument) for argument in node.args),
-                **{
-                    str(keyword.arg): value(keyword.value)
-                    for keyword in node.keywords
-                    if keyword.arg is not None
-                },
-            )
+            if node.func.attr == "format_map":
+                if len(node.args) != 1 or node.keywords:
+                    return None
+                mapping = value(node.args[0])
+                if type(mapping) is not dict:
+                    return None
+                result = template.format_map(mapping)
+                return result if type(result) is str else None
+            positional: list[object] = []
+            for argument in node.args:
+                if isinstance(argument, ast.Starred):
+                    expanded = value(argument.value)
+                    if type(expanded) not in {tuple, list}:
+                        return None
+                    positional.extend(expanded)
+                else:
+                    positional.append(value(argument))
+            keywords: dict[str, object] = {}
+            for keyword in node.keywords:
+                if keyword.arg is None:
+                    expanded = value(keyword.value)
+                    if type(expanded) is not dict or any(type(key) is not str for key in expanded):
+                        return None
+                    keywords.update(cast(dict[str, object], expanded))
+                else:
+                    keywords[keyword.arg] = value(keyword.value)
+            result = template.format(*positional, **keywords)
             return result if type(result) is str else None
     except (IndexError, KeyError, TypeError, ValueError):
         return None
@@ -5836,13 +5869,14 @@ def _isolated_wave5_module_boundary_violations(
     allowed_imports: dict[Path, frozenset[str]],
     module_ast_sha256: dict[Path, str],
     reserved_symbols: frozenset[str],
+    dynamic_code_exception_module_ast_sha256: dict[Path, str] | None = None,
 ) -> list[Violation]:
     """Seal exact Wave 5 modules and their reviewed production import graph."""
 
     if not policy_enabled:
         return []
     checker_path = Path("scripts/check_architecture.py")
-    protected_paths = frozenset(module_paths.values())
+    protected_paths = frozenset(module_paths.values()) | frozenset(module_ast_sha256)
     observed_imports = frozenset(
         binding
         for module in module_paths
@@ -5887,13 +5921,74 @@ def _isolated_wave5_module_boundary_violations(
                 f"{boundary} must preserve its exact reviewed module AST",
             )
         )
+    dynamic_code_exception_digest = (dynamic_code_exception_module_ast_sha256 or {}).get(
+        relative_path
+    )
+    if dynamic_code_exception_digest is not None:
+        if _canonical_ast_sha256(tree) != dynamic_code_exception_digest:
+            violations.append(
+                Violation(
+                    relative_path,
+                    1,
+                    f"{boundary} dynamic-code exception must preserve its exact module AST",
+                )
+            )
+        else:
+            return violations
     if relative_path in protected_paths or relative_path == checker_path:
         return violations
 
-    reserved_text = reserved_symbols | frozenset(module_paths)
-    reserved_fragments = reserved_text | frozenset(path.as_posix() for path in protected_paths)
+    dynamic_namespace_names = frozenset(
+        {
+            "__builtins__",
+            "__import__",
+            "compile",
+            "eval",
+            "exec",
+            "globals",
+        }
+    )
+    dynamic_loader_names = frozenset(
+        {
+            "exec_module",
+            "find_spec",
+            "get_loader",
+            "import_from_string",
+            "import_module",
+            "import_string",
+            "load_module",
+            "locate",
+            "module_from_spec",
+            "resolve_name",
+            "run_module",
+            "run_path",
+        }
+    )
+    dynamic_reachability_names = dynamic_namespace_names | dynamic_loader_names
+    protected_text = reserved_symbols | frozenset(module_paths)
+    reserved_text = protected_text
+    reserved_fragments = protected_text | frozenset(path.as_posix() for path in protected_paths)
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     for node in ast.walk(tree):
+        dynamic_reachability: str | None = None
+        if isinstance(node, ast.Name) and node.id in dynamic_reachability_names:
+            dynamic_reachability = node.id
+        elif isinstance(node, ast.Attribute) and node.attr in dynamic_loader_names:
+            dynamic_reachability = node.attr
+        elif isinstance(node, ast.alias):
+            origin = node.name.rpartition(".")[2]
+            local = node.asname or origin
+            if origin in dynamic_reachability_names or local in dynamic_reachability_names:
+                dynamic_reachability = origin
+        if dynamic_reachability is not None:
+            violations.append(
+                Violation(
+                    relative_path,
+                    getattr(node, "lineno", 1),
+                    f"{boundary} forbids dynamic reachability capability '{dynamic_reachability}'",
+                )
+            )
+            continue
         symbol: str | None = None
         if isinstance(node, ast.Name):
             symbol = node.id
@@ -8401,6 +8496,50 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
         }
     )
     trusted_time_v2_policy_keys_present = trusted_time_v2_policy_keys & scan.keys()
+    raw_phase4an_isolated_module_paths = scan.get("phase4an_isolated_module_paths", {})
+    if not isinstance(raw_phase4an_isolated_module_paths, dict) or any(
+        type(module) is not str or type(path) is not str
+        for module, path in raw_phase4an_isolated_module_paths.items()
+    ):
+        raise SystemExit("phase4an_isolated_module_paths must be a string table")
+    phase4an_isolated_module_paths = {
+        module: Path(path) for module, path in raw_phase4an_isolated_module_paths.items()
+    }
+    raw_phase4an_module_ast_sha256 = scan.get("phase4an_module_ast_sha256", {})
+    if not isinstance(raw_phase4an_module_ast_sha256, dict) or any(
+        type(path) is not str or type(digest) is not str
+        for path, digest in raw_phase4an_module_ast_sha256.items()
+    ):
+        raise SystemExit("phase4an_module_ast_sha256 must be a string table")
+    phase4an_module_ast_sha256 = {
+        Path(path): digest for path, digest in raw_phase4an_module_ast_sha256.items()
+    }
+    raw_phase4an_allowed_imports = scan.get("phase4an_allowed_imports", {})
+    if not isinstance(raw_phase4an_allowed_imports, dict) or any(
+        type(path) is not str
+        or not isinstance(bindings, list)
+        or any(type(binding) is not str for binding in bindings)
+        for path, bindings in raw_phase4an_allowed_imports.items()
+    ):
+        raise SystemExit("phase4an_allowed_imports must be a string-list table")
+    phase4an_allowed_imports = {
+        Path(path): frozenset(bindings) for path, bindings in raw_phase4an_allowed_imports.items()
+    }
+    raw_phase4an_reserved_symbols = scan.get("phase4an_reserved_symbols", [])
+    if not isinstance(raw_phase4an_reserved_symbols, list) or any(
+        type(symbol) is not str for symbol in raw_phase4an_reserved_symbols
+    ):
+        raise SystemExit("phase4an_reserved_symbols must be a string list")
+    phase4an_reserved_symbols = frozenset(raw_phase4an_reserved_symbols)
+    phase4an_policy_keys = frozenset(
+        {
+            "phase4an_isolated_module_paths",
+            "phase4an_module_ast_sha256",
+            "phase4an_allowed_imports",
+            "phase4an_reserved_symbols",
+        }
+    )
+    phase4an_policy_keys_present = phase4an_policy_keys & scan.keys()
     raw_exact_private_attribute_callsites = scan.get("exact_private_attribute_callsites", {})
     if not isinstance(raw_exact_private_attribute_callsites, dict) or any(
         type(binding) is not str
@@ -9828,6 +9967,122 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 "trusted-time lifecycle-v2 milestone isolation policy must be exact",
             )
         )
+    expected_phase4an_isolated_module_paths = {
+        "packages.application.etrade_oauth_token_runtime": Path(
+            "packages/application/etrade_oauth_token_runtime.py"
+        )
+    }
+    expected_phase4an_module_ast_sha256 = {
+        Path("packages/adapters/broker/etrade_oauth.py"): (
+            "621fa2911f57b354969ab1787843475334bd3a352e678bfb6f52af59594b0275"
+        ),
+        Path("packages/application/etrade_oauth_token_runtime.py"): (
+            "6e5a18323498a5b0b7f61cacaa9462065e69713682bfadbb5ecac826e8685f1f"
+        ),
+        Path("packages/persistence/etrade_oauth_coordinator.py"): (
+            "f2c90fc7bbbecea302b8491f8e27fb90395ba806d309fc3e658c390f665cdef2"
+        ),
+    }
+    expected_phase4an_reserved_symbols = frozenset(
+        {
+            "EtradeOAuthEphemeralTokenExchangeResult",
+            "EtradeOAuthTokenExchangeReceipt",
+            "EtradeOAuthTokenRuntimeCurrentnessReservation",
+            "_ACCESS_EXCHANGE_CAPABILITY_ISSUER",
+            "_EPHEMERAL_TRANSPORT_REQUEST_ISSUER",
+            "_EtradeOAuthAccessExchangeCapability__runtime_reservation",
+            "_EtradeOAuthAccessExchangeCapability__runtime_reservation_owner",
+            "_EtradeOAuthAccessExchangeCapability__verifier",
+            "_EtradeOAuthEphemeralTokenExchangeResult__raw_response",
+            "_EtradeOAuthEphemeralTokenExchangeResult__claimed",
+            "_EtradeOAuthEphemeralTokenExchangeResult__closed",
+            "_EtradeOAuthEphemeralTokenExchangeResult__issued_token_reference",
+            "_EtradeOAuthEphemeralTokenExchangeResult__lock",
+            "_EtradeOAuthEphemeralTokenExchangeResult__raw_response_binding_sha256",
+            "_EtradeOAuthEphemeralTokenExchangeResult__raw_response_lock_identity",
+            "_EtradeOAuthEphemeralTokenExchangeResult__receipt",
+            "_EtradeOAuthEphemeralTokenExchangeResult__receipt_sha256",
+            "_EtradeOAuthEphemeralTokenExchangeResult__replay_snapshot",
+            "_EtradeOAuthEphemeralTokenExchangeResult__replay_snapshot_sha256",
+            "_EtradeOAuthEphemeralTokenExchangeResult__successor_state",
+            "_EtradeOAuthEphemeralTokenExchangeResult__successor_state_sha256",
+            "_EtradeOAuthEphemeralTokenExchangeResult__token",
+            "_EtradeOAuthEphemeralTokenExchangeResult__token_secret",
+            "_EtradeOAuthEphemeralTransportRequest__lock",
+            "_EtradeOAuthEphemeralTransportRequest__original_lock",
+            "_EtradeOAuthEphemeralTransportRequest__response_custody",
+            "_EtradeOAuthEphemeralTransportRequest__signing_result",
+            "_EtradeOAuthRawTokenResponse",
+            "_EtradeOAuthRawTokenResponse__body",
+            "_EtradeOAuthRawTokenResponse__lock",
+            "_EtradeOAuthRawTokenResponse__original_lock",
+            "_EtradeOAuthRawTokenResponse__request",
+            "_EtradeOAuthRawTokenResponse__sealed_metadata_sha256",
+            "_EtradeOAuthResolvedSecretEnvelope",
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__coordinator",
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__snapshot",
+            "_EtradeOAuthTokenRuntimeCurrentnessReservation__store_identity",
+            "_EtradeOAuthTransportDispatchWitness",
+            "_RAW_RESPONSE_DISPATCH_REGISTRY",
+            "_RAW_RESPONSE_DISPATCH_REGISTRY_LOCK",
+            "_RAW_TOKEN_RESPONSE_ISSUER",
+            "_TOKEN_EXCHANGE_RECEIPT_ISSUER",
+            "_TOKEN_EXCHANGE_RESULT_ISSUER",
+            "_TOKEN_RUNTIME_RESERVATION_ISSUER",
+            "_TOKEN_RUNTIME_RESERVATION_OPERATION_ISSUER",
+            "_access_exchange_runtime_reservation",
+            "_authorization_header_matches_for_test",
+            "_bind_constructor_raw_response",
+            "_bind_response_custody",
+            "_claim_constructor_raw_response_lock_identity",
+            "_claim_snapshot_for_injected_token_runtime",
+            "_clone_optional_timestamp",
+            "_clone_signing_intent",
+            "_clone_token_reference",
+            "_close_constructor_raw_response_for_failure",
+            "_close_request_after_dispatch",
+            "_close_with_dispatch_witness",
+            "_close_with_runtime_lock_identity",
+            "_exchange_for_token_runtime",
+            "_lock_identity_for_dispatch_witness",
+            "_lock_identity_for_runtime_validation",
+            "_matches_independent_dispatch_witness",
+            "_matches_test_values_once",
+            "_present_for_injected_exchange",
+            "_register_raw_response_dispatch_witness",
+            "_registered_raw_response_dispatch_witness",
+            "_release_injected_token_runtime_reservation",
+            "_release_response_custody",
+            "_release_response_custody_for_result",
+            "_require_lock_identity_unlocked",
+            "_require_presented",
+            "_reservation_callables",
+            "_reserve_signing_intent_for_injected_token_runtime",
+            "_reserve_signing_intent_for_token_runtime",
+            "_reserve_unused_for_injected_token_runtime",
+            "_resolve_for_injected_token_exchange",
+            "_sealed_fields_sha256",
+            "_sealed_response_binding_material",
+            "_token_runtime_store_identity",
+            "_unregister_raw_response_dispatch_witness",
+            "_validate_after_injected_transport",
+            "_validate_before_injected_transport",
+            "issue_token_runtime_currentness_reservation",
+        }
+    )
+    if production_contract_required and (
+        phase4an_isolated_module_paths != expected_phase4an_isolated_module_paths
+        or phase4an_module_ast_sha256 != expected_phase4an_module_ast_sha256
+        or phase4an_allowed_imports
+        or phase4an_reserved_symbols != expected_phase4an_reserved_symbols
+    ):
+        violations.append(
+            Violation(
+                config_path,
+                1,
+                "Phase 4AN injected OAuth runtime isolation policy must be exact",
+            )
+        )
     expected_exact_private_attribute_callsites = {
         (
             "packages.domain.fixture_segment_economics."
@@ -9944,14 +10199,19 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
             )
         )
     native_capability_files = reviewed_python_files(production_python_source_manifest_roots)
+    protected_wave5_module_paths: dict[str, Path] = {}
+    if trusted_time_v2_policy_keys_present == trusted_time_v2_policy_keys:
+        protected_wave5_module_paths.update(trusted_time_v2_isolated_module_paths)
+    if phase4an_policy_keys_present == phase4an_policy_keys:
+        protected_wave5_module_paths.update(phase4an_isolated_module_paths)
+        for protected_path in phase4an_module_ast_sha256:
+            protected_identity = _python_module_identity(protected_path)
+            if protected_identity is not None:
+                protected_wave5_module_paths[protected_identity] = protected_path
     violations.extend(
         _python_module_identity_collision_violations(
             relative_paths={path.relative_to(repository) for path in native_capability_files},
-            protected_module_paths=(
-                trusted_time_v2_isolated_module_paths
-                if trusted_time_v2_policy_keys_present == trusted_time_v2_policy_keys
-                else {}
-            ),
+            protected_module_paths=protected_wave5_module_paths,
             boundary="production Python module identity boundary",
         )
     )
@@ -10088,6 +10348,24 @@ def check(repository: Path, config_path: Path) -> list[Violation]:
                 allowed_imports=trusted_time_v2_allowed_imports,
                 module_ast_sha256=trusted_time_v2_module_ast_sha256,
                 reserved_symbols=trusted_time_v2_reserved_symbols,
+                dynamic_code_exception_module_ast_sha256=(
+                    phase3h_dynamic_code_exception_module_ast_sha256
+                ),
+            )
+        )
+        violations.extend(
+            _isolated_wave5_module_boundary_violations(
+                tree,
+                boundary="Phase 4AN injected OAuth runtime boundary",
+                policy_enabled=(phase4an_policy_keys_present == phase4an_policy_keys),
+                relative_path=relative_path,
+                module_paths=phase4an_isolated_module_paths,
+                allowed_imports=phase4an_allowed_imports,
+                module_ast_sha256=phase4an_module_ast_sha256,
+                reserved_symbols=phase4an_reserved_symbols,
+                dynamic_code_exception_module_ast_sha256=(
+                    phase3h_dynamic_code_exception_module_ast_sha256
+                ),
             )
         )
         expected_process_consumer_module_digest = (

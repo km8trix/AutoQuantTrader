@@ -51,6 +51,39 @@ def _trusted_time_violations(source: str, *, relative_path: Path) -> list[Violat
     )
 
 
+def _phase4an_policy() -> tuple[
+    dict[str, Path],
+    dict[Path, frozenset[str]],
+    dict[Path, str],
+    frozenset[str],
+]:
+    with (REPOSITORY / "infra/architecture-boundaries.toml").open("rb") as stream:
+        scan = tomllib.load(stream)["scan"]
+    return (
+        {module: Path(path) for module, path in scan["phase4an_isolated_module_paths"].items()},
+        {
+            Path(path): frozenset(bindings)
+            for path, bindings in scan["phase4an_allowed_imports"].items()
+        },
+        {Path(path): digest for path, digest in scan["phase4an_module_ast_sha256"].items()},
+        frozenset(scan["phase4an_reserved_symbols"]),
+    )
+
+
+def _phase4an_violations(source: str, *, relative_path: Path) -> list[Violation]:
+    module_paths, allowed_imports, module_ast_sha256, reserved_symbols = _phase4an_policy()
+    return _isolated_wave5_module_boundary_violations(
+        ast.parse(source),
+        boundary="Phase 4AN injected OAuth runtime boundary",
+        policy_enabled=True,
+        relative_path=relative_path,
+        module_paths=module_paths,
+        allowed_imports=allowed_imports,
+        module_ast_sha256=module_ast_sha256,
+        reserved_symbols=reserved_symbols,
+    )
+
+
 @pytest.mark.parametrize(
     "source",
     [
@@ -65,12 +98,23 @@ def _trusted_time_violations(source: str, *, relative_path: Path) -> list[Violat
         "import _LIFECYCLE_V2_BRIDGE_CAPABILITY",
         "name = '_consume_' + 'loaded_decision_receipt_for_v2'",
         "name = '%s%s' % ('_retain_', 'progress')",
+        "name = '%(a)s%(b)s' % {'a': '_retain_', 'b': 'progress'}",
         "name = '{}{}'.format('_retain_', 'progress')",
+        "name = '{}{}'.format(*('_retain_', 'progress'))",
+        "name = '{a}{b}'.format(**{'a': '_retain_', 'b': 'progress'})",
+        "name = '{a}{b}'.format_map({'a': '_retain_', 'b': 'progress'})",
         "name = f\"{'_retain_'}progress\"",
         "from uvicorn.importer import import_from_string\n"
         "builder = f\"{'_open_injected_'}lifecycle_v2_repository\"\n"
         "module = f\"packages.persistence.{'trusted_time_graceful_stop_'}v2\"\n"
         "factory = import_from_string(f'{module}:{builder}')",
+        "namespace = globals()['%(a)s%(b)s' % {'a': '__built', 'b': 'ins__'}]\n"
+        "loader = namespace['%(a)s%(b)s' % {'a': '__im', 'b': 'port__'}]\n"
+        "module = loader('%(a)s%(b)s%(c)s' % "
+        "{'a': 'packages.persistence.', 'b': 'trusted_time_graceful_stop_', 'c': 'v2'}, "
+        "fromlist=('sentinel',))\n"
+        "resolved = getattr(module, '%(a)s%(b)s' % "
+        "{'a': '_open_injected_', 'b': 'lifecycle_v2_repository'})",
         "owner._retain_progress(record)",
     ],
 )
@@ -132,6 +176,134 @@ def test_wave5_boundary_accepts_unique_protected_python_module_identities() -> N
     assert not _python_module_identity_collision_violations(
         relative_paths=set(module_paths.values()),
         protected_module_paths=module_paths,
+        boundary="production Python module identity boundary",
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import packages.application.etrade_oauth_token_runtime",
+        "from packages.application import etrade_oauth_token_runtime",
+        "from packages.application.etrade_oauth_token_runtime import *",
+        "from .etrade_oauth_token_runtime import *",
+        "from packages.application.etrade_oauth_token_runtime import "
+        "execute_etrade_oauth_injected_token_exchange",
+        "from packages.persistence.etrade_oauth_coordinator import "
+        "EtradeOAuthTokenRuntimeCurrentnessReservation",
+        "reservation = coordinator.issue_token_runtime_currentness_reservation(env, scope)",
+        "name = f\"{'_TOKEN_EXCHANGE_'}RECEIPT_ISSUER\"",
+        "name = '%s%s' % ('_RAW_TOKEN_', 'RESPONSE_ISSUER')",
+        "reservation._claim_snapshot_for_injected_token_runtime()",
+        "capability._reserve_unused_for_injected_token_runtime(state=state, verifier=verifier)",
+        "request._authorization_header_matches_for_test(header)",
+        "request._present_for_injected_exchange()",
+        "request._sealed_response_binding_material()",
+        "result._matches_test_values_once(token, token_secret)",
+        "object.__setattr__(receipt, '_sealed_fields_sha256', digest)",
+        "object.__setattr__(result, "
+        "'_EtradeOAuthEphemeralTokenExchangeResult__token', bytearray())",
+        "from uvicorn.importer import import_from_string\n"
+        "module = f\"packages.application.{'etrade_oauth_token_'}runtime\"\n"
+        "entry = '{}{}'.format('execute_etrade_oauth_injected_', 'token_exchange')\n"
+        "runtime = import_from_string(f'{module}:{entry}')",
+        "from uvicorn.importer import import_from_string\n"
+        "target = '{mp}{ms}:{ep}{es}'.format_map({"
+        "'mp': 'packages.application.etrade_oauth_token_', 'ms': 'runtime', "
+        "'ep': 'execute_etrade_oauth_injected_', 'es': 'token_exchange'})\n"
+        "runtime = import_from_string(target)",
+        "from uvicorn.importer import import_from_string\n"
+        "target = '{}{}:{}{}'.format(*('packages.application.etrade_oauth_token_', "
+        "'runtime', 'execute_etrade_oauth_injected_', 'token_exchange'))\n"
+        "runtime = import_from_string(target)",
+        "from uvicorn.importer import import_from_string\n"
+        "target = '{mp}{ms}:{ep}{es}'.format(**{"
+        "'mp': 'packages.application.etrade_oauth_token_', 'ms': 'runtime', "
+        "'ep': 'execute_etrade_oauth_injected_', 'es': 'token_exchange'})\n"
+        "runtime = import_from_string(target)",
+        "from uvicorn.importer import import_from_string\n"
+        "target = '%(mp)s%(ms)s:%(ep)s%(es)s' % {"
+        "'mp': 'packages.application.etrade_oauth_token_', 'ms': 'runtime', "
+        "'ep': 'execute_etrade_oauth_injected_', 'es': 'token_exchange'}\n"
+        "runtime = import_from_string(target)",
+    ],
+)
+def test_phase4an_boundary_rejects_unreviewed_runtime_reachability(source: str) -> None:
+    assert _phase4an_violations(
+        source,
+        relative_path=Path("packages/application/adversarial_etrade_runtime.py"),
+    )
+
+
+def test_phase4an_boundary_accepts_exact_modules_and_no_production_importers() -> None:
+    module_paths, allowed_imports, module_ast_sha256, reserved_symbols = _phase4an_policy()
+    with (REPOSITORY / "infra/architecture-boundaries.toml").open("rb") as stream:
+        scan = tomllib.load(stream)["scan"]
+    dynamic_code_exceptions = {
+        Path(path): digest
+        for path, digest in scan["phase3h_dynamic_code_exception_module_ast_sha256"].items()
+    }
+    production_paths = {
+        path.relative_to(REPOSITORY)
+        for root in ("apps", "packages", "scripts")
+        for path in (REPOSITORY / root).rglob("*.py")
+        if "node_modules" not in path.parts
+    }
+    for relative_path in production_paths:
+        tree = ast.parse((REPOSITORY / relative_path).read_text(encoding="utf-8"))
+        assert not _isolated_wave5_module_boundary_violations(
+            tree,
+            boundary="Phase 4AN injected OAuth runtime boundary",
+            policy_enabled=True,
+            relative_path=relative_path,
+            module_paths=module_paths,
+            allowed_imports=allowed_imports,
+            module_ast_sha256=module_ast_sha256,
+            reserved_symbols=reserved_symbols,
+            dynamic_code_exception_module_ast_sha256=dynamic_code_exceptions,
+        )
+
+
+def test_phase4an_boundary_rejects_protected_module_ast_drift() -> None:
+    module_paths, allowed_imports, module_ast_sha256, reserved_symbols = _phase4an_policy()
+    relative_path = Path("packages/adapters/broker/etrade_oauth.py")
+    source = (REPOSITORY / relative_path).read_text(encoding="utf-8") + "\nDRIFT = True\n"
+
+    assert _isolated_wave5_module_boundary_violations(
+        ast.parse(source),
+        boundary="Phase 4AN injected OAuth runtime boundary",
+        policy_enabled=True,
+        relative_path=relative_path,
+        module_paths=module_paths,
+        allowed_imports=allowed_imports,
+        module_ast_sha256=module_ast_sha256,
+        reserved_symbols=reserved_symbols,
+    )
+
+
+@pytest.mark.parametrize(
+    ("shadow_path"),
+    [
+        Path("packages/adapters/broker/etrade_oauth/__init__.py"),
+        Path("packages/application/etrade_oauth_token_runtime/__init__.py"),
+        Path("packages/persistence/etrade_oauth_coordinator/__init__.py"),
+    ],
+)
+def test_phase4an_boundary_rejects_shadow_of_every_pinned_module(shadow_path: Path) -> None:
+    module_paths, _, module_ast_sha256, _ = _phase4an_policy()
+    protected_module_paths = {
+        **module_paths,
+        "packages.adapters.broker.etrade_oauth": Path("packages/adapters/broker/etrade_oauth.py"),
+        "packages.persistence.etrade_oauth_coordinator": Path(
+            "packages/persistence/etrade_oauth_coordinator.py"
+        ),
+    }
+    relative_paths = set(module_ast_sha256)
+    relative_paths.add(shadow_path)
+
+    assert _python_module_identity_collision_violations(
+        relative_paths=relative_paths,
+        protected_module_paths=protected_module_paths,
         boundary="production Python module identity boundary",
     )
 
