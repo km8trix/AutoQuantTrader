@@ -26,6 +26,7 @@ from packages.adapters.trusted_time.graceful_stop_v2_ed25519 import (
     consume_authenticated_lifecycle_v2_recovery_classification_envelope,
     lifecycle_v2_ed25519_non_authority_facts,
 )
+from packages.domain import trusted_time_graceful_stop_v2_recovery as recovery_domain
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_ROOT_FILE_NAME,
     LIFECYCLE_V2_CLEAN_STOP_REQUEST_CONTRACT_VERSION,
@@ -665,9 +666,7 @@ def _signed_terminal_result_record(
             "graceful_stop_operation_id": root.graceful_stop_operation_id,
             "lifecycle_root_sha256": root.sha256,
             "admission_sha256": root.admission_sha256,
-            "lifecycle_dispatch_prefix_sha256": request_fields[
-                "lifecycle_dispatch_prefix_sha256"
-            ],
+            "lifecycle_dispatch_prefix_sha256": request_fields["lifecycle_dispatch_prefix_sha256"],
             "channel_id": root.channel_id,
             "boot_epoch_sha256": root.boot_epoch_sha256,
             "host_process_epoch_sha256": root.host_process_epoch_sha256,
@@ -860,14 +859,13 @@ def test_authenticated_recovery_consumption_derives_exact_intent_and_is_one_use(
         "recovery_classification_envelope_sha256": envelope.sha256,
         "operator_nonce_sha256": envelope.operator_nonce_sha256,
         "recovery_key_id": envelope.recovery_key_id,
-        "transport_authority_manifest_sha256": (
-            envelope.transport_authority_manifest_sha256
-        ),
+        "transport_authority_manifest_sha256": (envelope.transport_authority_manifest_sha256),
         "classified_transcript_sha256": transcript.sha256,
         "admission_started_boottime_ns": root.admission_started_boottime_ns,
         "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
         "reason_code": envelope.reason_code,
     }
+    object.__setattr__(authenticated, "_consumed", False)
     with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="cannot be consumed"):
         consume_authenticated_lifecycle_v2_recovery_classification_envelope(
             authenticated,
@@ -877,9 +875,7 @@ def test_authenticated_recovery_consumption_derives_exact_intent_and_is_one_use(
         )
 
     # A second authenticated wrapper cannot replay the same root/nonce either.
-    second, _, _, _ = _authenticated_recovery_for_consumption(
-        nonce=bytes(range(64, 96))
-    )
+    second, _, _, _ = _authenticated_recovery_for_consumption(nonce=bytes(range(64, 96)))
     with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="already consumed"):
         consume_authenticated_lifecycle_v2_recovery_classification_envelope(
             second,
@@ -887,6 +883,210 @@ def test_authenticated_recovery_consumption_derives_exact_intent_and_is_one_use(
             classified_transcript=transcript,
             recorded_at_utc=UTC_TEXT,
         )
+
+
+def test_authenticated_recovery_wrapper_rejects_cross_root_mutation_before_consume() -> None:
+    authenticated, signed_root, _signed_transcript, _ = _authenticated_recovery_for_consumption(
+        nonce=bytes([203]) * 32
+    )
+    manifest = _manifest()
+    substituted_root = dataclasses.replace(
+        signed_root,
+        graceful_stop_operation_id="523e4567-e89b-42d3-a456-426614174006",
+    )
+    substituted_transcript = _classified_transcript(
+        substituted_root,
+        _intent(substituted_root),
+    )
+    substituted_fields = _recovery_envelope(
+        substituted_root,
+        substituted_transcript,
+        manifest,
+        nonce=bytes([204]) * 32,
+    ).to_dict()
+    substituted_fields["signature_ed25519_base64"] = _b64(bytes(64))
+    substituted_envelope = LifecycleV2RecoveryClassificationEnvelope.capture(substituted_fields)
+    object.__setattr__(authenticated, "envelope", substituted_envelope)
+    object.__setattr__(authenticated, "root_sha256", substituted_root.sha256)
+    object.__setattr__(
+        authenticated,
+        "classified_transcript_sha256",
+        substituted_transcript.sha256,
+    )
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="cannot be consumed"):
+        consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+            authenticated,
+            root=substituted_root,
+            classified_transcript=substituted_transcript,
+            recorded_at_utc=UTC_TEXT,
+        )
+
+
+def test_authenticated_recovery_wrapper_burns_before_downstream_base_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authenticated, root, transcript, _ = _authenticated_recovery_for_consumption(
+        nonce=bytes([205]) * 32
+    )
+    original = recovery_domain._canonical_recovery_inputs
+    interruption = KeyboardInterrupt("injected after authenticated unwrap")
+
+    def interrupt(**_kwargs: object) -> Any:
+        raise interruption
+
+    monkeypatch.setattr(recovery_domain, "_canonical_recovery_inputs", interrupt)
+    with pytest.raises(KeyboardInterrupt) as raised:
+        consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+            authenticated,
+            root=root,
+            classified_transcript=transcript,
+            recorded_at_utc=UTC_TEXT,
+        )
+    assert raised.value is interruption
+
+    monkeypatch.setattr(recovery_domain, "_canonical_recovery_inputs", original)
+    object.__setattr__(authenticated, "_consumed", False)
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="cannot be consumed"):
+        consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+            authenticated,
+            root=root,
+            classified_transcript=transcript,
+            recorded_at_utc=UTC_TEXT,
+        )
+
+
+def test_authenticated_recovery_intent_rejects_same_root_prefix_substitution() -> None:
+    authenticated, root, signed_transcript, _ = _authenticated_recovery_for_consumption(
+        nonce=bytes([200]) * 32
+    )
+    sealed = consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+        authenticated,
+        root=root,
+        classified_transcript=signed_transcript,
+        recorded_at_utc=UTC_TEXT,
+    )
+    substituted_request = dataclasses.replace(
+        _intent(root),
+        recorded_at_utc="2026-08-27T12:00:00.000001Z",
+    )
+    store = FakeLifecycleV2ArtifactStore()
+    repository = lifecycle_persistence._open_injected_lifecycle_v2_repository(store)
+    basis = LifecycleV2CleanStopRequestBasis.from_root(root)
+    repository.reserve_root(root)
+    repository.retain_request_intent(substituted_request, basis)
+    substituted_transcript = repository.publish_transcript()
+    substituted_evidence = sealed.record.evidence.to_dict()
+    substituted_evidence["classified_transcript_sha256"] = substituted_transcript.sha256
+    object.__setattr__(
+        sealed,
+        "record",
+        dataclasses.replace(
+            sealed.record,
+            predecessor_sha256=substituted_request.sha256,
+            evidence=FrozenJsonObject.capture(substituted_evidence),
+        ),
+    )
+    object.__setattr__(
+        sealed,
+        "classified_transcript_sha256",
+        substituted_transcript.sha256,
+    )
+
+    with pytest.raises(
+        lifecycle_persistence.LifecycleV2RepositoryRejected,
+        match="not authenticated",
+    ):
+        repository.retain_recovery_classification_intent(sealed)
+
+    assert signed_transcript.sha256 != substituted_transcript.sha256
+
+
+def test_authenticated_recovery_intent_rejects_cross_root_substitution() -> None:
+    authenticated, signed_root, signed_transcript, _ = _authenticated_recovery_for_consumption(
+        nonce=bytes([201]) * 32
+    )
+    sealed = consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+        authenticated,
+        root=signed_root,
+        classified_transcript=signed_transcript,
+        recorded_at_utc=UTC_TEXT,
+    )
+    substituted_root = dataclasses.replace(
+        signed_root,
+        graceful_stop_operation_id="423e4567-e89b-42d3-a456-426614174006",
+    )
+    substituted_request = _intent(substituted_root)
+    store = FakeLifecycleV2ArtifactStore()
+    repository = lifecycle_persistence._open_injected_lifecycle_v2_repository(store)
+    basis = LifecycleV2CleanStopRequestBasis.from_root(substituted_root)
+    repository.reserve_root(substituted_root)
+    repository.retain_request_intent(substituted_request, basis)
+    substituted_transcript = repository.publish_transcript()
+    substituted_evidence = sealed.record.evidence.to_dict()
+    substituted_evidence["classified_transcript_sha256"] = substituted_transcript.sha256
+    substituted_evidence["admission_started_boottime_ns"] = (
+        substituted_root.admission_started_boottime_ns
+    )
+    substituted_evidence["operation_deadline_boottime_ns"] = (
+        substituted_root.operation_deadline_boottime_ns
+    )
+    object.__setattr__(
+        sealed,
+        "record",
+        dataclasses.replace(
+            sealed.record,
+            graceful_stop_operation_id=substituted_root.graceful_stop_operation_id,
+            root_sha256=substituted_root.sha256,
+            predecessor_sha256=substituted_request.sha256,
+            deadline_boottime_ns=substituted_root.operation_deadline_boottime_ns,
+            evidence=FrozenJsonObject.capture(substituted_evidence),
+        ),
+    )
+    object.__setattr__(sealed, "root_sha256", substituted_root.sha256)
+    object.__setattr__(
+        sealed,
+        "classified_transcript_sha256",
+        substituted_transcript.sha256,
+    )
+
+    with pytest.raises(
+        lifecycle_persistence.LifecycleV2RepositoryRejected,
+        match="not authenticated",
+    ):
+        repository.retain_recovery_classification_intent(sealed)
+
+    assert signed_root.sha256 != substituted_root.sha256
+
+
+def test_authenticated_recovery_intent_is_consumed_by_first_store_attempt() -> None:
+    authenticated, root, transcript, _ = _authenticated_recovery_for_consumption(
+        nonce=bytes([202]) * 32
+    )
+    sealed = consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+        authenticated,
+        root=root,
+        classified_transcript=transcript,
+        recorded_at_utc=UTC_TEXT,
+    )
+    basis = LifecycleV2CleanStopRequestBasis.from_root(root)
+    repositories: list[object] = []
+    for _ in range(2):
+        repository = lifecycle_persistence._open_injected_lifecycle_v2_repository(
+            FakeLifecycleV2ArtifactStore()
+        )
+        repository.reserve_root(root)
+        repository.retain_request_intent(_intent(root), basis)
+        assert repository.publish_transcript() == transcript
+        repositories.append(repository)
+
+    first, second = repositories
+    first.retain_recovery_classification_intent(sealed)  # type: ignore[attr-defined]
+    with pytest.raises(
+        lifecycle_persistence.LifecycleV2RepositoryRejected,
+        match="already consumed",
+    ):
+        second.retain_recovery_classification_intent(sealed)  # type: ignore[attr-defined]
 
 
 def test_authenticated_recovery_consumption_is_thread_bound() -> None:
@@ -1047,9 +1247,7 @@ def test_recovery_classification_rejects_boolean_integer_fields(field_name: str)
     fields[field_name] = True
     encoded = _sign_raw_fields(
         fields,
-        signature_domain=(
-            "AutoQuantTrader/trusted-time/graceful-stop/recovery-classification/v1"
-        ),
+        signature_domain=("AutoQuantTrader/trusted-time/graceful-stop/recovery-classification/v1"),
         private_key=RECOVERY_PRIVATE_KEY,
         maximum_bytes=64 * 1_024,
     )
@@ -1195,10 +1393,7 @@ def test_terminal_transcript_entry_requires_stage_bound_digest_derived_wire_path
     replacement: object,
 ) -> None:
     wire_sha256 = _digest("wire")
-    file_name = (
-        "trusted-time-post-enrollment-graceful-stop-v2-wire-result-"
-        f"{wire_sha256}.json"
-    )
+    file_name = f"trusted-time-post-enrollment-graceful-stop-v2-wire-result-{wire_sha256}.json"
     values: dict[str, object] = {
         "ordinal": 2,
         "stage": LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED,
@@ -1981,10 +2176,8 @@ def test_repository_verifier_returns_only_its_sealed_authenticated_terminal_valu
     with pytest.raises(LifecycleV2TransportAuthenticationError, match="sealed value"):
         verifier.require_exact_authenticated_retained_terminal_wire(generic)
 
-    parallel_verifier = (
-        ed25519_adapter._build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
-            _authenticated_manifest(manifest)
-        )
+    parallel_verifier = ed25519_adapter._build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
+        _authenticated_manifest(manifest)
     )
     with pytest.raises(LifecycleV2TransportAuthenticationError, match="sealed value"):
         parallel_verifier.require_exact_authenticated_retained_terminal_wire(sealed)
@@ -2098,9 +2291,7 @@ def test_repository_verifier_rejects_cross_record_path_and_nested_payload() -> N
         )
     untyped_fields = terminal_record.to_dict()
     untyped_evidence = dict(cast(dict[str, object], untyped_fields["evidence"]))
-    untyped_receipt = dict(
-        cast(dict[str, object], untyped_evidence["wire_publication_receipt"])
-    )
+    untyped_receipt = dict(cast(dict[str, object], untyped_evidence["wire_publication_receipt"]))
     untyped_name = (
         "trusted-time-post-enrollment-graceful-stop-v2-wire-result-"
         f"{structurally_signed_but_untyped.sha256}.json"
@@ -2123,9 +2314,7 @@ def test_repository_verifier_rejects_cross_record_path_and_nested_payload() -> N
         structurally_signed_but_untyped.signature_sha256
     )
     untyped_evidence["clean_stop_result_artifact_name"] = untyped_name
-    untyped_evidence["clean_stop_result_artifact_path"] = untyped_receipt[
-        "artifact_path"
-    ]
+    untyped_evidence["clean_stop_result_artifact_path"] = untyped_receipt["artifact_path"]
     untyped_evidence["wire_publication_receipt"] = untyped_receipt
     untyped_evidence["wire_publication_receipt_sha256"] = hashlib.sha256(
         b"AutoQuantTrader/trusted-time/graceful-stop/"

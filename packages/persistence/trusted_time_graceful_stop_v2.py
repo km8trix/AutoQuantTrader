@@ -50,6 +50,7 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
 )
 from packages.domain.trusted_time_graceful_stop_v2_recovery import (
     LifecycleV2AuthenticatedRecoveryIntent,
+    consume_authenticated_lifecycle_v2_recovery_intent,
     require_authenticated_lifecycle_v2_recovery_intent,
 )
 
@@ -396,29 +397,20 @@ class _LifecycleV2OutcomeCommitMarkerBasis:
             "outcome_sha256": exact_outcome.sha256,
             "outcome_status": fields["status"],
             "transcript_sha256": fields["transcript_sha256"],
-            "admission_started_boottime_ns": fields[
-                "admission_started_boottime_ns"
-            ],
+            "admission_started_boottime_ns": fields["admission_started_boottime_ns"],
             "commit_protocol_started_boottime_ns": protocol_start,
             "commit_publication_authorization_deadline_boottime_ns": fields[
                 "commit_publication_authorization_deadline_boottime_ns"
             ],
             "commit_authorized_boottime_ns": placeholder,
-            "operation_deadline_boottime_ns": fields[
-                "operation_deadline_boottime_ns"
-            ],
+            "operation_deadline_boottime_ns": fields["operation_deadline_boottime_ns"],
             # Audit-only and deterministic across restart: the candidate fixes it.
             "committed_at_utc": fields["created_at_utc"],
         }
         marker = LifecycleV2OutcomeCommit.capture(marker_fields, outcome=exact_outcome)
-        needle = (
-            b'"commit_authorized_boottime_ns":'
-            + str(placeholder).encode("ascii")
-        )
+        needle = b'"commit_authorized_boottime_ns":' + str(placeholder).encode("ascii")
         if marker.encoded.count(needle) != 1:
-            raise LifecycleV2RepositoryRejected(
-                "fixed-marker authorization slot is not unique"
-            )
+            raise LifecycleV2RepositoryRejected("fixed-marker authorization slot is not unique")
         prefix, suffix = marker.encoded.split(needle, 1)
         result = object.__new__(cls)
         object.__setattr__(result, "outcome", exact_outcome)
@@ -433,11 +425,7 @@ class _LifecycleV2OutcomeCommitMarkerBasis:
     def materialize(self, commit_authorized_boottime_ns: int) -> bytes:
         """Mechanically fill the sole absent integer; perform no lookup or I/O."""
 
-        return (
-            self.prefix
-            + str(commit_authorized_boottime_ns).encode("ascii")
-            + self.suffix
-        )
+        return self.prefix + str(commit_authorized_boottime_ns).encode("ascii") + self.suffix
 
 
 def _safe_artifact_directory_path(value: object) -> str:
@@ -763,10 +751,7 @@ class _LifecycleV2Repository:
         try:
             initial_inventory = self._inventory()
             names = initial_inventory.names
-            if any(
-                name in _STAGING_NAMES - {_COMMIT_STAGING_NAME}
-                for name in names
-            ):
+            if any(name in _STAGING_NAMES - {_COMMIT_STAGING_NAME} for name in names):
                 raise LifecycleV2RetentionUnconfirmed("staging artifact is retention ambiguity")
             unknown = tuple(name for name in names if _known_v2_name(name) is False)
             if unknown:
@@ -799,8 +784,7 @@ class _LifecycleV2Repository:
                         or record.graceful_stop_operation_id
                         != self._root.graceful_stop_operation_id
                         or record.predecessor_sha256 != predecessor
-                        or record.deadline_boottime_ns
-                        != self._root.operation_deadline_boottime_ns
+                        or record.deadline_boottime_ns != self._root.operation_deadline_boottime_ns
                     ):
                         raise LifecycleV2RetentionUnconfirmed("progress lineage is mixed or gapped")
                     if record.stage is LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED:
@@ -1446,9 +1430,7 @@ class _LifecycleV2Repository:
     ) -> LifecycleV2ProgressRecord:
         self._require_owner()
         try:
-            exact_intent = require_authenticated_lifecycle_v2_recovery_intent(
-                authenticated_intent
-            )
+            exact_intent = require_authenticated_lifecycle_v2_recovery_intent(authenticated_intent)
         except TrustedTimeGracefulStopV2Rejected as error:
             raise LifecycleV2RepositoryRejected(
                 "recovery classification intent is not authenticated"
@@ -1461,10 +1443,8 @@ class _LifecycleV2Repository:
         if (
             self._root is None
             or exact_intent.root_sha256 != self._root.sha256
-            or exact_intent.classified_transcript_sha256
-            != classified_transcript.sha256
-            or
-            record.evidence.to_dict()["classified_transcript_sha256"]
+            or exact_intent.classified_transcript_sha256 != classified_transcript.sha256
+            or record.evidence.to_dict()["classified_transcript_sha256"]
             != classified_transcript.sha256
         ):
             raise LifecycleV2RepositoryRejected(
@@ -1483,8 +1463,20 @@ class _LifecycleV2Repository:
             raise LifecycleV2RetentionUnconfirmed(
                 "classified transcript retention is unconfirmed"
             ) from None
-        self._retain_progress(record)
-        return record
+        try:
+            consumed_intent = consume_authenticated_lifecycle_v2_recovery_intent(
+                authenticated_intent
+            )
+        except TrustedTimeGracefulStopV2Rejected as error:
+            raise LifecycleV2RepositoryRejected(
+                "recovery classification intent is invalid or already consumed"
+            ) from error
+        if consumed_intent is not exact_intent or consumed_intent.record != record:
+            raise LifecycleV2RepositoryRejected(
+                "recovery classification intent changed before retention"
+            )
+        self._retain_progress(consumed_intent.record)
+        return consumed_intent.record
 
     def _transcript(self, *, last_ordinal: int | None = None) -> LifecycleV2Transcript:
         if self._root is None:
@@ -1577,13 +1569,9 @@ class _LifecycleV2Repository:
         except BaseException as error:
             if not isinstance(error, Exception):
                 raise
-            raise LifecycleV2RepositoryRejected(
-                "CLOCK_BOOTTIME sample is unavailable"
-            ) from None
+            raise LifecycleV2RepositoryRejected("CLOCK_BOOTTIME sample is unavailable") from None
         if type(sample) is not int or not 0 <= sample <= MAXIMUM_SIGNED_INTEGER:
-            raise LifecycleV2RepositoryRejected(
-                "CLOCK_BOOTTIME sample is outside its exact bounds"
-            )
+            raise LifecycleV2RepositoryRejected("CLOCK_BOOTTIME sample is outside its exact bounds")
         return sample
 
     def _require_published_final_transcript(self) -> LifecycleV2Transcript:
@@ -1662,10 +1650,7 @@ class _LifecycleV2Repository:
                 final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
                 encoded=encoded,
             )
-            if (
-                self._read_artifact(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).encoded
-                != encoded
-            ):
+            if self._read_artifact(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).encoded != encoded:
                 raise LifecycleV2ArtifactPublicationUncertain(
                     "fixed marker stable readback disagrees"
                 )
@@ -1730,12 +1715,8 @@ class _LifecycleV2Repository:
                 "stop_effects_confirmed": False,
                 "teardown_confirmed": False,
                 "terminal_cleanup_confirmed": False,
-                "admission_started_boottime_ns": (
-                    self._root.admission_started_boottime_ns
-                ),
-                "operation_deadline_boottime_ns": (
-                    self._root.operation_deadline_boottime_ns
-                ),
+                "admission_started_boottime_ns": (self._root.admission_started_boottime_ns),
+                "operation_deadline_boottime_ns": (self._root.operation_deadline_boottime_ns),
                 "commit_protocol_started_boottime_ns": authorized,
                 "commit_publication_authorization_deadline_boottime_ns": (
                     authorized + LIFECYCLE_V2_COMMIT_BUDGET_NS
@@ -1774,8 +1755,7 @@ class _LifecycleV2Repository:
             self._root is None
             or self._opened_with_existing_root
             or len(self._records) != 22
-            or self._records[-1].stage
-            is not LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED
+            or self._records[-1].stage is not LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED
         ):
             raise LifecycleV2RepositoryRejected(
                 "confirmed success requires the exact ordinal-22 prefix"
@@ -1817,12 +1797,8 @@ class _LifecycleV2Repository:
                 "stop_effects_confirmed": True,
                 "teardown_confirmed": True,
                 "terminal_cleanup_confirmed": True,
-                "admission_started_boottime_ns": (
-                    self._root.admission_started_boottime_ns
-                ),
-                "operation_deadline_boottime_ns": (
-                    self._root.operation_deadline_boottime_ns
-                ),
+                "admission_started_boottime_ns": (self._root.admission_started_boottime_ns),
+                "operation_deadline_boottime_ns": (self._root.operation_deadline_boottime_ns),
                 "commit_protocol_started_boottime_ns": protocol_start,
                 "commit_publication_authorization_deadline_boottime_ns": min(
                     protocol_start + LIFECYCLE_V2_COMMIT_BUDGET_NS,
@@ -1841,9 +1817,7 @@ class _LifecycleV2Repository:
                 outcome=outcome,
                 artifact_store_identity=self._store_identity,
             )
-            disposition = precommit_disposer.require_exact_disposed_and_empty(
-                sealed_disposition
-            )
+            disposition = precommit_disposer.require_exact_disposed_and_empty(sealed_disposition)
             if (
                 disposition is not sealed_disposition
                 or disposition.root_sha256 != self._root.sha256
@@ -1867,15 +1841,11 @@ class _LifecycleV2Repository:
                 message = str(error)
             else:
                 message = "success precommit owner disposal is unconfirmed"
-            raise LifecycleV2RetentionUnconfirmed(
-                message
-            ) from None
+            raise LifecycleV2RetentionUnconfirmed(message) from None
 
         authorization_deadline = cast(
             int,
-            outcome.to_dict()[
-                "commit_publication_authorization_deadline_boottime_ns"
-            ],
+            outcome.to_dict()["commit_publication_authorization_deadline_boottime_ns"],
         )
         # This is the final classifying read and check.  The next operation is
         # mechanical marker materialization followed directly by publication.
@@ -1924,9 +1894,7 @@ class _LifecycleV2Repository:
             )
             encoded = basis.materialize(authorized)
             if encoded != self._commit_staging.encoded:
-                raise LifecycleV2RetentionUnconfirmed(
-                    "confirmed-success marker preimage changed"
-                )
+                raise LifecycleV2RetentionUnconfirmed("confirmed-success marker preimage changed")
             return self._publish_fixed_marker(
                 outcome=self._outcome,
                 encoded=encoded,
@@ -1939,9 +1907,7 @@ class _LifecycleV2Repository:
         encoded = basis.materialize(authorized)
         if self._commit_staging is not None:
             if encoded != self._commit_staging.encoded:
-                raise LifecycleV2RetentionUnconfirmed(
-                    "recovery marker preimage changed"
-                )
+                raise LifecycleV2RetentionUnconfirmed("recovery marker preimage changed")
             finalize_staging = True
         else:
             finalize_staging = False

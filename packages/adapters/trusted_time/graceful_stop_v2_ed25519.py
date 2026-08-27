@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from cryptography.exceptions import InvalidSignature
@@ -364,36 +365,146 @@ class AuthenticatedLifecycleV2RecoveryClassificationEnvelope:
         raise TypeError("authenticated recovery classifications require verification")
 
 
-def _require_authenticated_lifecycle_v2_recovery_classification_envelope(
+@dataclass(frozen=True, slots=True)
+class _AuthenticatedRecoveryClassificationIssuanceSnapshot:
+    """Closure-owned immutable facts captured after Ed25519 verification."""
+
+    value: AuthenticatedLifecycleV2RecoveryClassificationEnvelope
+    envelope_encoded: bytes
+    root_sha256: str
+    classified_transcript_sha256: str
+    authority_manifest_sha256: str
+    origin_pid: int
+    origin_thread: threading.Thread
+    capability: object
+
+
+def _authenticated_recovery_classification_issuance_registry() -> tuple[
+    Callable[..., None],
+    Callable[..., _AuthenticatedRecoveryClassificationIssuanceSnapshot],
+]:
+    snapshots: dict[int, _AuthenticatedRecoveryClassificationIssuanceSnapshot] = {}
+    consumed: set[int] = set()
+    lock = threading.Lock()
+
+    def issue(
+        value: AuthenticatedLifecycleV2RecoveryClassificationEnvelope,
+        *,
+        envelope_encoded: bytes,
+        root_sha256: str,
+        classified_transcript_sha256: str,
+        authority_manifest_sha256: str,
+    ) -> None:
+        key = id(value)
+        snapshot = _AuthenticatedRecoveryClassificationIssuanceSnapshot(
+            value=value,
+            envelope_encoded=envelope_encoded,
+            root_sha256=root_sha256,
+            classified_transcript_sha256=classified_transcript_sha256,
+            authority_manifest_sha256=authority_manifest_sha256,
+            origin_pid=os.getpid(),
+            origin_thread=threading.current_thread(),
+            capability=_AUTHENTICATED_VALUE_CAPABILITY,
+        )
+        with lock:
+            if key in snapshots:
+                raise LifecycleV2TransportAuthenticationError(
+                    "recovery classification identity was already authenticated"
+                )
+            snapshots[key] = snapshot
+
+    def lookup(
+        value: object,
+        *,
+        consume: bool,
+    ) -> _AuthenticatedRecoveryClassificationIssuanceSnapshot:
+        key = id(value)
+        with lock:
+            snapshot = snapshots.get(key)
+            if snapshot is None or snapshot.value is not value:
+                raise LifecycleV2TransportAuthenticationError(
+                    "recovery classification has no exact authenticated issuance"
+                )
+            if consume:
+                if (
+                    os.getpid() != snapshot.origin_pid
+                    or threading.current_thread() is not snapshot.origin_thread
+                ):
+                    raise LifecycleV2TransportAuthenticationError(
+                        "authenticated recovery classification owner is invalid"
+                    )
+                if key in consumed:
+                    raise LifecycleV2TransportAuthenticationError(
+                        "authenticated recovery classification was already consumed"
+                    )
+                consumed.add(key)
+            return snapshot
+
+    return issue, lookup
+
+
+(
+    _register_authenticated_recovery_classification_issuance,
+    _lookup_authenticated_recovery_classification_issuance,
+) = _authenticated_recovery_classification_issuance_registry()
+
+
+def _require_authenticated_recovery_classification_issuance(
     value: object,
+    snapshot: _AuthenticatedRecoveryClassificationIssuanceSnapshot,
 ) -> AuthenticatedLifecycleV2RecoveryClassificationEnvelope:
-    if (
-        type(value) is not AuthenticatedLifecycleV2RecoveryClassificationEnvelope
-        or value._capability is not _AUTHENTICATED_VALUE_CAPABILITY
-        or type(value.envelope) is not LifecycleV2RecoveryClassificationEnvelope
-    ):
+    if type(value) is not AuthenticatedLifecycleV2RecoveryClassificationEnvelope:
         raise LifecycleV2TransportAuthenticationError(
             "recovery classification is not authenticated"
         )
     try:
-        canonical = decode_lifecycle_v2_recovery_classification_envelope(
-            value.envelope.encoded
-        )
-    except TrustedTimeGracefulStopV2Rejected as error:
+        canonical = decode_lifecycle_v2_recovery_classification_envelope(snapshot.envelope_encoded)
+        value_envelope = value.envelope
+        value_root_sha256 = value.root_sha256
+        value_transcript_sha256 = value.classified_transcript_sha256
+        value_manifest_sha256 = value.authority_manifest_sha256
+        value_origin_pid = value._origin_pid
+        value_origin_thread = value._origin_thread
+        value_consumed = value._consumed
+        value_capability = value._capability
+    except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected) as error:
         raise LifecycleV2TransportAuthenticationError(
             "authenticated recovery classification changed under validation"
         ) from error
     if (
-        canonical != value.envelope
-        or canonical.root_sha256 != value.root_sha256
-        or canonical.transcript_sha256 != value.classified_transcript_sha256
-        or canonical.transport_authority_manifest_sha256
-        != value.authority_manifest_sha256
+        snapshot.value is not value
+        or snapshot.capability is not _AUTHENTICATED_VALUE_CAPABILITY
+        or value_capability is not snapshot.capability
+        or os.getpid() != snapshot.origin_pid
+        or threading.current_thread() is not snapshot.origin_thread
+        or value_origin_pid != snapshot.origin_pid
+        or value_origin_thread is not snapshot.origin_thread
+        or value_consumed is not False
+        or canonical.encoded != snapshot.envelope_encoded
+        or canonical.root_sha256 != snapshot.root_sha256
+        or canonical.transcript_sha256 != snapshot.classified_transcript_sha256
+        or canonical.transport_authority_manifest_sha256 != snapshot.authority_manifest_sha256
+        or type(value_envelope) is not LifecycleV2RecoveryClassificationEnvelope
+        or value_envelope != canonical
+        or value_envelope.encoded != snapshot.envelope_encoded
+        or value_root_sha256 != snapshot.root_sha256
+        or value_transcript_sha256 != snapshot.classified_transcript_sha256
+        or value_manifest_sha256 != snapshot.authority_manifest_sha256
     ):
         raise LifecycleV2TransportAuthenticationError(
             "authenticated recovery classification changed under validation"
         )
     return value
+
+
+def _require_authenticated_lifecycle_v2_recovery_classification_envelope(
+    value: object,
+) -> AuthenticatedLifecycleV2RecoveryClassificationEnvelope:
+    snapshot = _lookup_authenticated_recovery_classification_issuance(
+        value,
+        consume=False,
+    )
+    return _require_authenticated_recovery_classification_issuance(value, snapshot)
 
 
 def authenticate_lifecycle_v2_recovery_classification_envelope(
@@ -444,19 +555,15 @@ def authenticate_lifecycle_v2_recovery_classification_envelope(
         or manifest.generation != exact_root.transport_key_generation
         or manifest.environment != exact_root.environment
         or envelope.environment != exact_root.environment
-        or envelope.graceful_stop_operation_id
-        != exact_root.graceful_stop_operation_id
+        or envelope.graceful_stop_operation_id != exact_root.graceful_stop_operation_id
         or envelope.root_sha256 != exact_root.sha256
-        or envelope.admission_started_boottime_ns
-        != exact_root.admission_started_boottime_ns
-        or envelope.operation_deadline_boottime_ns
-        != exact_root.operation_deadline_boottime_ns
+        or envelope.admission_started_boottime_ns != exact_root.admission_started_boottime_ns
+        or envelope.operation_deadline_boottime_ns != exact_root.operation_deadline_boottime_ns
         or envelope.transcript_sha256 != exact_transcript.sha256
         or envelope.last_ordinal != exact_transcript.entries[-1].ordinal
         or envelope.last_stage is not exact_transcript.entries[-1].stage
         or exact_transcript.environment != exact_root.environment
-        or exact_transcript.graceful_stop_operation_id
-        != exact_root.graceful_stop_operation_id
+        or exact_transcript.graceful_stop_operation_id != exact_root.graceful_stop_operation_id
         or exact_transcript.root_sha256 != exact_root.sha256
         or envelope.transport_authority_manifest_sha256 != manifest.sha256
         or envelope.key_generation != manifest.generation
@@ -475,29 +582,30 @@ def authenticate_lifecycle_v2_recovery_classification_envelope(
     object.__setattr__(result, "_origin_thread", threading.current_thread())
     object.__setattr__(result, "_consumed", False)
     object.__setattr__(result, "_capability", _AUTHENTICATED_VALUE_CAPABILITY)
+    _register_authenticated_recovery_classification_issuance(
+        result,
+        envelope_encoded=envelope.encoded,
+        root_sha256=exact_root.sha256,
+        classified_transcript_sha256=exact_transcript.sha256,
+        authority_manifest_sha256=manifest.sha256,
+    )
     return _require_authenticated_lifecycle_v2_recovery_classification_envelope(result)
 
 
 def _consume_authenticated_lifecycle_v2_recovery_envelope_value(
     value: object,
 ) -> tuple[LifecycleV2RecoveryClassificationEnvelope, str, str, str]:
-    authenticated = _require_authenticated_lifecycle_v2_recovery_classification_envelope(
-        value
+    snapshot = _lookup_authenticated_recovery_classification_issuance(
+        value,
+        consume=True,
     )
-    if (
-        os.getpid() != authenticated._origin_pid
-        or threading.current_thread() is not authenticated._origin_thread
-        or authenticated._consumed
-    ):
-        raise LifecycleV2TransportAuthenticationError(
-            "authenticated recovery classification owner is invalid or consumed"
-        )
+    authenticated = _require_authenticated_recovery_classification_issuance(value, snapshot)
     object.__setattr__(authenticated, "_consumed", True)
     return (
-        authenticated.envelope,
-        authenticated.root_sha256,
-        authenticated.classified_transcript_sha256,
-        authenticated.authority_manifest_sha256,
+        decode_lifecycle_v2_recovery_classification_envelope(snapshot.envelope_encoded),
+        snapshot.root_sha256,
+        snapshot.classified_transcript_sha256,
+        snapshot.authority_manifest_sha256,
     )
 
 
@@ -933,9 +1041,7 @@ class _LifecycleV2Ed25519RetainedWireVerifier:
             or os.getpid() != self._origin_pid
             or threading.current_thread() is not self._origin_thread
         ):
-            raise LifecycleV2TransportAuthenticationError(
-                "retained-wire verifier owner is invalid"
-            )
+            raise LifecycleV2TransportAuthenticationError("retained-wire verifier owner is invalid")
         _require_authenticated_manifest(self._authority_manifest)
 
     def reauthenticate_retained_terminal_wire(
@@ -992,18 +1098,15 @@ class _LifecycleV2Ed25519RetainedWireVerifier:
         if (
             exact_record.ordinal != 2
             or exact_record.stage is not expected_stage
-            or exact_record.graceful_stop_operation_id
-            != exact_root.graceful_stop_operation_id
+            or exact_record.graceful_stop_operation_id != exact_root.graceful_stop_operation_id
             or exact_record.root_sha256 != exact_root.sha256
             or exact_record.predecessor_sha256 != exact_intent.sha256
             or exact_record.effect_kind != prefix
-            or exact_record.deadline_boottime_ns
-            != exact_root.operation_deadline_boottime_ns
+            or exact_record.deadline_boottime_ns != exact_root.operation_deadline_boottime_ns
             or evidence.get("intent_sha256") != exact_intent.sha256
             or evidence.get(f"{prefix}_sha256") != envelope.sha256
             or evidence.get(f"{prefix}_artifact_name") != file_name
-            or evidence.get(f"{prefix}_artifact_path")
-            != f"{artifact_directory_path}/{file_name}"
+            or evidence.get(f"{prefix}_artifact_path") != f"{artifact_directory_path}/{file_name}"
         ):
             raise LifecycleV2TransportAuthenticationError(
                 "retained-wire terminal record crossed its root, intent, or artifact"
@@ -1060,17 +1163,14 @@ class _LifecycleV2Ed25519RetainedWireVerifier:
             type(result) is not _LifecycleV2Ed25519RetainedWireResult
             or result._verifier_capability is not self._sealed_result_capability
             or type(result.envelope) is not UnverifiedLifecycleV2TransportEnvelope
-            or result.authority_manifest_sha256
-            != self._authority_manifest.manifest.sha256
+            or result.authority_manifest_sha256 != self._authority_manifest.manifest.sha256
             or result.signer_role != "supervisor"
         ):
             raise LifecycleV2TransportAuthenticationError(
                 "retained-wire verifier result is not its exact sealed value"
             )
         try:
-            canonical = decode_unverified_lifecycle_v2_transport_envelope(
-                result.envelope.encoded
-            )
+            canonical = decode_unverified_lifecycle_v2_transport_envelope(result.envelope.encoded)
         except TrustedTimeGracefulStopV2Rejected as error:
             raise LifecycleV2TransportAuthenticationError(
                 "retained-wire verifier result changed under validation"
