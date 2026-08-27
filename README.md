@@ -150,7 +150,7 @@ environment-specific adapters and operational gates added around it.
 | Status | Scope |
 |---|---|
 | **Working locally** | Synthetic SPY ingestion/cataloging; a separate golden backtest with risk, simulated execution, settlement, corporate actions, and balanced-ledger accounting; durable jobs, reports, and browser views |
-| **Bounded foundations** | Feature/target parity, read-only experiment governance, account fencing, ambiguous-submission handling, historical Alpaca raw-first recovery/reconciliation evidence, the E\*TRADE endpoint/request/signing and sanitized OAuth-session journal foundation, operational controls, alerts, tracing, and trusted time |
+| **Bounded foundations** | Feature/target parity, read-only experiment governance, and governed fixed-child exact-decimal fixture economics; account fencing, ambiguous-submission handling, and historical Alpaca raw-first recovery/reconciliation evidence; the E\*TRADE endpoint/request/signing, sanitized OAuth journal, and injected token-runtime prerequisite; operational controls, alerts, tracing, and an unreachable partial trusted-time lifecycle-v2 core |
 | **Disabled** | Admitted production data, an enabled broker loop, paper/live order authority, and automatic re-arm |
 
 The bounded foundations are locally tested but intentionally non-authorizing.

@@ -28,12 +28,13 @@ criteria, and promotion decisions. Phase 4AM adds a secret-free immutable OAuth
 replay/session journal and atomic stable-scope current head, with complete local
 history reconstructed and authenticated on read; it resolves no secret,
 authenticates no provider response or origin, and performs no provider call. ADR
-0121 resolves the trusted-time graceful-stop lifecycle-v2 design only; the
-selected transport, key custody, lifecycle repository, Docker client/effects,
-recovery path, and authority remain unimplemented, and `trusted-time-stop`
-remains hard closed. Phases 3-6 and their exit gates remain open, the trader
-remains `not_ready`; these Wave 4 changes add no production-source admission or
-provider I/O and claim no deployed trading runtime or paper/live authority.
+0121 resolves the trusted-time graceful-stop lifecycle-v2 design only; at the
+Wave 4 boundary the selected transport, key custody, lifecycle repository,
+Docker client/effects, recovery path, and authority remained unimplemented, and
+`trusted-time-stop` remained hard closed. Phases 3-6 and their exit gates remain
+open, the trader remains `not_ready`; these Wave 4 changes add no production-
+source admission or provider I/O and claim no deployed trading runtime or
+paper/live authority.
 
 The post-Wave-4 CI-repair wave restores four-way backend sharding with the
 PostgreSQL gates, native-package determinism, and native trusted-time image
@@ -43,15 +44,21 @@ admission. It also pins the explicit local named-volume driver so Docker 28 and
 the trusted-time evidence-image admission. This is build and regression
 evidence only; it closes no product, deployment, paper, or live-trading gate.
 
-Wave 5 begins only after this roadmap reconciliation. Its three repository-local
-lanes are: a bounded governed fixture economic-segment execution/isolation
-slice for Phase 3; the next secret-safe, non-authorizing E\*TRADE OAuth runtime
-prerequisite for Phase 4; and ADR 0121 rollout milestone 1 for independent
-trusted-time graceful-stop lifecycle-v2 types, codecs, repository, additive
-ADR-0112 seam, fake transport/Docker adapters, and fault tests. The lanes may be
-implemented concurrently, but integration and regression remain sequential.
-No lane may substitute for Phase 1 external admission or enable a provider,
-stop, broker, paper, or live effect.
+Wave 5 is integrated as three repository-local lanes without closing an exit
+gate. ADR 0122 completes the bounded Phase 3H path for the exact completed Phase
+3F reference fixture: one fixed repository-owned child executes a closed zero-
+cost economic model with exact Decimal arithmetic and bounded process/resource
+isolation, while the parent independently recomputes the internal receipt. ADR
+0123 completes the injected Phase 4AN OAuth prerequisite composition from an
+authenticated durable head through a fresh replay-only burn, ephemeral secret
+resolution, signing, sealed fake transport, raw-first custody, and a proposed
+request/access-token successor; it has no real provider transport or successful
+session-head commit. ADR 0124 implements only part of ADR 0121 milestone one:
+independent lifecycle-v2 types/codecs, an injected repository, a dormant
+ADR-0112 v2 seam, and test-only transport and Docker/effect fakes. Real resource
+owners, persistence, authenticated transport, effects, deployment/bootstrap,
+promotion, and authority remain open. No Wave 5 lane substitutes for Phase 1
+external admission or enables a provider, stop, broker, paper, or live effect.
 
 Phase 1B now provides the provider-neutral source seam, strict evidence evaluator,
 durable admission reports, and browser visibility. It is **implemented locally
@@ -466,9 +473,12 @@ configuration-bound evaluation evidence. Phase 3E remains a pure fail-closed
 captured-tape validity gate with no external provenance trust root or verifier;
 Phase 3F supplies only the durable bounded repository-fixture segment worker;
 and Phase 3G supplies only bounded, authenticated GET views of job/transcript-
-proof metadata. Captured live-tape, reconnect, shadow, general economic segment
-execution/isolation, end-to-end traceability, performance/criteria, promotion,
-and broader reporting remain open.
+proof metadata. Phase 3H supplies only the exact completed Phase 3F reference
+fixture's fixed-child, exact-decimal zero-cost economic execution and bounded
+isolation, with an internal parent-recomputed receipt. Arbitrary or fitted code,
+captured live tape, reconnect, shadow, general economics, persistence/API/report
+surfaces, end-to-end traceability, performance/criteria, promotion, and broader
+reporting remain open.
 
 Phases 4A-4AI are implemented as bounded local historical Alpaca contracts,
 persistence, authenticated read runtimes, comparisons, and restart-safe
@@ -486,9 +496,14 @@ provider-evidence consumer exists. Phase 4AL adds deterministic OAuth
 typed environment/consumer-secret scope, reconstructing and authenticating
 complete secret-free local replay/session history. This is durable local
 coordination only: it authenticates no token response or provider origin and
-performs no provider call. No deployed secret resolver, browser/OOB OAuth
-runtime, account binding, broader broker reads, Preview/Place/Cancel workflow,
-recovery, qualification, or authority exists.
+performs no provider call. Phase 4AN composes that authenticated head with a
+store-bound fresh replay reservation, injected secret resolver and fake
+transport, raw-first token custody, strict decode, and a proposed successor;
+the replay-only fact commits but the successful session successor does not. No
+deployed/concrete resolver, network/TLS provider transport or caller, secret
+store, browser/OOB or deployed session runtime, successful head commit, account
+binding, broader broker reads, Preview/Place/Cancel workflow, recovery,
+qualification, or authority exists.
 
 Phase 5A-5I provide local operational-control, advanced-risk,
 supervised-strategy, critical-alert, authenticated-operations, dashboard,
@@ -507,12 +522,16 @@ reauthenticate and cross-bind the exact decision-artifact receipt and historical
 start chain into the dormant operation-bound clean-stop supervisor bridge, but
 its host/core private entry points still have zero callers. ADR 0116 froze the
 non-separable transport → same-lock admission → lifecycle-v2 composition and its
-distinct pre-effect and post-teardown reauthentication order. ADR 0121 now
-resolves those lifecycle-v2 implementation choices as documentation only; the
-selected transport, key custody, lifecycle repository, Docker client/effects,
-recovery path, and authority remain unimplemented and unauthorized. Current-
-topology and stop-authority admission, durability, outcomes, and all effects
-remain absent; `trusted-time-stop` remains hard closed. Phase 6E is only a
+distinct pre-effect and post-teardown reauthentication order. ADR 0121 resolves
+the design, and ADR 0124 partially implements milestone one as independent
+canonical v2 values/codecs, an injected no-default-root repository, a separate
+dormant ADR-0112 v2 handoff, and test-only transport/Docker-effect fakes. The
+milestone is not complete: real authority/key/boot/process/socket resources,
+authenticated transport, physical persistence, complete success/recovery
+paths, Docker effects, production bootstrap/callers, deployment, and promotion
+remain unimplemented and unauthorized. Current-topology and stop-authority
+admission, operational durability/outcomes, and all effects remain absent;
+`trusted-time-stop` remains hard closed. Phase 6E is only a
 dormant watchdog-state reducer. The Phase 6 paper-MVP gate remains unmet, and
 the Phase 7 supervised paper soak and Phase 8 human-approved minimum-size live
 canary remain entirely ahead. No paper or live order authority is enabled.
@@ -1009,13 +1028,29 @@ This local pass grants no production-source, broker, paper, or live authority.
   payloads and members, holdout identities/material, configuration values,
   caller-controlled labels, terminal detail, economic results, criteria, and
   promotion decisions remain structurally absent.
+- **Phase 3H bounded fixture economic-segment isolation — fixed-child slice
+  implemented:** ADR 0122 accepts only an exact fully revalidated `COMPLETED`
+  Phase 3F projection and its exact certified target replay. The sole model is
+  `immediate-causal-close-zero-cost-v1`: USD 100,000 initial cash, same-causal-
+  close long-only whole-share fills for READY targets, WAITING carry, no costs
+  or external cash flow, and a final close mark. Requests are bounded to 2,048
+  rows, 64 instruments, and 256 KiB; all economics use the exact 64-digit/e63
+  Decimal policy and reject floats. Exactly one reviewed repository-owned
+  stdlib child runs from an unlinked read-only descriptor with fixed isolated
+  argv/environment/cwd, required read-back resource limits, bounded pipes and
+  wall time, a distinct process session, and a strict canonical JSON protocol.
+  The parent independently recomputes every result before issuing the internal
+  content-addressed receipt. This is fixed-program isolation, not a hostile-code
+  sandbox, and no application entry point or worker can call it.
 - Phase 3A and 3B evidence remains limited to repository-owned synthetic
   fixtures, Phase 3F/3G deliberately do not reuse the Phase 2 economic backtest
-  worker, and Phase 3E has no qualified external captured-tape input. General
-  segment execution and process/resource isolation, arbitrary or fitted
-  features and strategies, mutation APIs, performance/criteria evaluation,
-  captured live tapes, reconnect/freshness behavior, and shadow mode remain
-  pending. Phase 3 is not complete and its exit gate has not passed.
+  worker, Phase 3H is only the fixed reference fixture/model, and Phase 3E has
+  no qualified external captured-tape input. General economic segment
+  execution/isolation, arbitrary or fitted features and strategies, caller-
+  supplied economics, persistence, mutation or report APIs, performance/
+  criteria evaluation, captured live tapes, reconnect/freshness behavior,
+  shadow mode, and promotion remain pending. Phase 3 is not complete and its
+  exit gate has not passed.
 
 ### Build
 
@@ -1051,16 +1086,25 @@ This local pass grants no production-source, broker, paper, or live authority.
   atomic governed completion. Its job and transcript proof metadata is
   available through deterministic bounded authenticated read pages without
   exposing transcript members or caller-controlled labels. General scheduling,
-  arbitrary execution, subprocess isolation, and resource quotas remain
-  pending.
+  arbitrary execution, and general-purpose subprocess isolation/resource
+  quotas remain pending.
+- The exact completed Phase 3F reference fixture can now produce one internal
+  exact-decimal economic receipt through the fixed repository-owned child and
+  strict independently checked protocol. Parent recomputation, fixed resource
+  limits, wall/pipe bounds, process-session separation, source-snapshot
+  identity, and architecture reachability guards are implemented. Arbitrary or
+  fitted code, caller-selected fixtures/models, captured tapes, general costs/
+  fills/benchmarks, durable storage, API/report views, criteria, and promotion
+  remain pending.
 - Chronological and nested walk-forward evaluation, purging/embargo for
   overlapping labels, benchmark/cost stress, parameter stability, uncertainty,
   and declared multiple-testing treatment.
 - A typed, audited final-holdout reveal is bound to frozen criteria, one
   completed validation configuration, the opaque holdout commitment, and the
   exact pre-reveal registry head. The selected configuration can produce one
-  post-reveal bounded target-evaluation receipt; economic segment execution and
-  isolation remain pending.
+  post-reveal bounded target-evaluation receipt and the exact reference fixture
+  can use the fixed Phase 3H model; general or captured-tape economic execution,
+  persistence, criteria adjudication, and promotion remain pending.
 - A live market-data adapter with feed-entitlement metadata, quote/NBBO support,
   per-symbol freshness, gap backfill, reconnect watermarking, and captured event
   tapes. Run the candidate in shadow mode without any broker submission.
@@ -1082,9 +1126,12 @@ Phase 3F durably executes only the repository fixture's configuration-bound
 target-parity segment and publishes no economic result or promotion decision.
 Phase 3G makes that job's bounded authenticated proof metadata queryable but
 does not expose transcript members or add an economic or criteria view.
-These slices do not satisfy the
-captured-tape, reconnect, economic segment-execution/isolation, end-to-end
-traceability, or reporting requirements below.
+Phase 3H adds only the fixed-child exact-decimal zero-cost result for that exact
+completed fixture and retains it internally; it adds no arbitrary/fitted or
+captured-tape path, durable result, API/report, criteria decision, or promotion.
+These slices do not satisfy the captured-tape, reconnect, general economic
+segment-execution/isolation, end-to-end traceability, criteria/promotion, or
+reporting requirements below.
 
 - Batch and incremental features/targets agree on the same captured tape.
 - A reconnect backlog cannot emit one fresh intent per stale bar; expired targets
@@ -1099,7 +1146,7 @@ traceability, or reporting requirements below.
 
 ### Sequencing and current status
 
-- **E\*TRADE live-broker target — architecture selected, implementation
+- **E\*TRADE live-broker target — architecture selected, live adapter
   pending:** ADR 0096 selects E\*TRADE production as the intended live execution
   venue. E\*TRADE sandbox is protocol-only stored sample data and cannot satisfy
   paper-soak, lifecycle, reconciliation, timing, rejection, fill, slippage, or
@@ -1524,6 +1571,24 @@ traceability, or reporting requirements below.
   and adds no secret resolver, token-response authentication, OOB/browser
   runtime, provider transport/call, account binding, broker action, startup, or
   trading authority.
+- **Phase 4AN injected E\*TRADE OAuth token prerequisite — local non-authorizing
+  composition implemented:** ADR 0123 accepts only request-token and access-
+  token intents from a fully authenticated Phase 4AM snapshot plus a store-
+  issued, process/thread-bound one-use currentness reservation. The reservation
+  appends one fresh replay-only event before resolution, signing, or dispatch,
+  so a repeated intent cannot reach the injected transport twice. A sealed,
+  closable resolver envelope owns mutable secret copies; Phase 4AL produces the
+  signed request; and a one-presentation request capability reaches only the
+  fixed injected fake-transport port. Exact response bytes enter private mutable
+  custody before strict form decode, and every result/receipt keeps raw/token/
+  signature/header/verifier material out of ordinary evidence. A successful
+  call returns a sealed ephemeral result with the replay-only snapshot and a
+  proposed pure successor, but deliberately does not commit that session
+  successor. No deployed secret store can yet atomically retain token values
+  and bind their reference to the durable head. The slice has no concrete
+  resolver, network/TLS client, authenticated provider origin/response,
+  browser/OOB handoff, deployed session runtime, production caller, account or
+  broker action, startup, or authority, and adds no migration.
 - The capability value and translated request description are immutable and
   content-authenticated, and lookup/account/asset observations retain exact
   response digests, while the raw journal authenticates exact account-local
@@ -1567,9 +1632,11 @@ traceability, or reporting requirements below.
   bounded in-memory caller-declared raw evidence and strict historical decoder;
   Phase 4AL adds only pure OAuth signing and secret-free supervised-session
   transitions; Phase 4AM adds only the secret-free durable replay/session
-  current head. None reuses any Alpaca evidence. All slices remain
-  non-authorizing. A
-  deployed secret resolver, general
+  current head; and Phase 4AN adds only the injected ephemeral token-exchange
+  composition with a durable replay-only burn and uncommitted proposed session
+  successor. None reuses any Alpaca evidence. All slices remain non-authorizing.
+  A deployed/concrete secret resolver, secret store, real network/provider
+  transport, successful session-head commit, production caller, general
   security-master publication, runtime
   calendar/quote/reduce-only validation, end-to-end order request-budget
   enforcement, authenticated deployed lookup supervision, deployed traversal
@@ -1579,14 +1646,16 @@ traceability, or reporting requirements below.
   paper startup remain disabled.
 - Phases 4A through 4AI are complete only as bounded local contract,
   persistence, and authenticated read-runtime slices with the explicit limits
-  described above. Phases 4AJ through 4AM are complete only as a pure recorded-
+  described above. Phases 4AJ through 4AN are complete only as a pure recorded-
   offline provider/request foundation, an unauthenticated caller-declared
   in-memory raw-response/decoder slice, a non-I/O OAuth signing/session
-  contract, and a local sanitized durable replay/session-head coordinator.
+  contract, a local sanitized durable replay/session-head coordinator, and an
+  injected non-authorizing token-runtime prerequisite with no successful head
+  commit.
   Phase 4
   and its exit gate remain open. These slices are bounded local repository
   implementations and do not authorize paper or live trading.
-  Phase 3's captured-tape, reconnect, shadow, economic
+  Phase 3's captured-tape, reconnect, shadow, general economic
   segment-execution,
   traceability, and reporting gates also remain open and are not bypassed by
   starting Phase 4 work.
@@ -1615,8 +1684,14 @@ traceability, or reporting requirements below.
   signing
   consumes one in-process exact-verifier-identity capability, while the signing
   replay guard carries a per-scope nondecreasing time/generation high-water.
-  A deployed secret resolver, authenticated token response and OOB handoff,
-  authenticated account binding, provider transport,
+  Phase 4AN now composes exact authenticated currentness, a fresh-only durable
+  replay reservation, injected ephemeral resolution/signing/transport,
+  raw-first response custody, strict token decode, and a sealed proposed
+  request/access-token successor. It is reachable only through tests and leaves
+  the durable session phase unchanged even on success. A deployed/concrete
+  resolver, secure token store, atomic token-reference/session-head commit,
+  authenticated real token response and OOB handoff, deployed session runtime,
+  production caller, authenticated account binding, provider transport,
   and bounded raw-first Balance, Portfolio, Orders, and Transactions reads
   remain pending. Later
   budgets must reserve cancellation, token-control, and reconciliation capacity
@@ -1850,7 +1925,11 @@ only deterministic signing and secret-free in-memory session transitions.
 Phase 4AM durably coordinates that sanitized replay/session prefix under one
 stable environment/consumer-secret-scope head, but authenticates only the local
 SQL chain; none of its states or events authenticates a token response or
-provider origin. These phases add no authenticated provider evidence, runtime
+provider origin. Phase 4AN proves only the injected composition through a fresh
+replay-only burn and sealed ephemeral proposed successor. It has no concrete or
+deployed resolver, token store, network/TLS/provider transport, browser/OOB or
+session runtime, production caller, successful session-head commit, or caller
+authority. These phases add no authenticated provider evidence, runtime
 authority, or satisfaction of any runtime/fault gate below.
 
 Future E\*TRADE sandbox results may satisfy only protocol-contract checks and
@@ -3772,12 +3851,13 @@ lifecycle-v2 order while keeping their v1 types dormant. The v2 family must
 reject v1 contract strings, bytes, decoded objects, attempt/progress receipts or
 digests, host composites, scalar/digest adapters, and every mixed-version root,
 prefix, directory, or object graph; v1 decoders must reject v2 in the opposite
-direction, and wrapping v1 bytes in a v2 envelope is forbidden. The transport,
-admission, lifecycle schema and contract IDs, worker association, v2
-historical-receipt handoff, cross-version import/decoder boundaries, fork
-mechanism, effects, both reauthentication bindings, recovery operator, and
-numeric deadlines remain unimplemented external blockers. ADR 0116 changes
-documentation only; `trusted-time-stop` remains hard closed.
+direction, and wrapping v1 bytes in a v2 envelope is forbidden. At the ADR 0116
+boundary, the transport, admission, lifecycle schema and contract IDs, worker
+association, v2 historical-receipt handoff, cross-version import/decoder
+boundaries, fork mechanism, effects, both reauthentication bindings, recovery
+operator, and numeric deadlines were unimplemented external blockers. ADR 0116
+itself changes documentation only; ADR 0124 now implements the bounded partial
+core described below, and `trusted-time-stop` remains hard closed.
 
 ADR 0112's current private handoff is bound to ADR 0111's v1 bridge and is not a
 v2 input. [ADR 0121](adr/0121-trusted-time-graceful-stop-lifecycle-v2-implementation-resolution.md)
@@ -3898,8 +3978,33 @@ cutoff, and timely final authorization sample. It cannot load host/supervisor ke
 sign a transport frame, open the transport channel, reach Docker mutation,
 retry, continue, compensate, or select an effect. Unknown or mixed state permits
 no write. These decisions remove schema and choreography ambiguity, but every
-implementation, key, endpoint, manifest, root, effect, authority, and
-integration gate remains ahead; `trusted-time-stop` remains hard closed.
+activation and authority gate remains ahead.
+
+[ADR 0124](adr/0124-trusted-time-lifecycle-v2-milestone-one.md) now implements
+only a bounded partial milestone-one core. Independent v2 domain values and
+canonical codecs cover the root, progress records, immutable transcript
+prefixes, non-circular request basis/intent/dispatch/final request, structurally
+unverified bounded transport envelopes, recovery-required and confirmed-success
+outcome values, and the fixed commit codec, with direct v1/v2 mixing rejected.
+An injected process/thread-bound repository enforces the one shared slot,
+gap-free transition graph, ambiguous-store/call burns, exact wire/transcript
+relationships, and recovery-required commits. It has no default artifact root,
+filesystem implementation, confirmed-success writer, or ability to
+reauthenticate retained terminal wire after restart. A separate dormant
+ADR-0112 v2 handoff binds operation/admission/channel/PID/Thread without calling
+the v1 bridge. Test-only transport and Docker/effect fakes exercise one-shot
+correlation and exact effect ordering only; they are not real resource or
+effect adapters.
+
+ADR 0121 milestone one is therefore not complete. Authority manifests and
+selection rules, boot/process/peer/socket identities, Ed25519 frame
+authentication, physical descriptor-safe persistence, complete nested result
+and Docker HTTP schemas, real/fake-daemon resource boundaries, pre-effect and
+terminal issuers, confirmed-success sequencing, authenticated recovery and
+signer custody, full fault/fork vectors, and production-source policy closure
+remain. Milestones two through four, real endpoint/key owners, bootstrap,
+deployment, integration, promotion, and all stop effects/authority are wholly
+deferred; `trusted-time-stop` remains hard closed.
 
 The ADR-0111 static freeze includes a mandatory raw-byte manifest for every
 regular Python source below the exact `apps`, `packages`, and `scripts` roots.
@@ -4381,9 +4486,18 @@ unavailable before any watchdog consumer is designed or qualified. See
   separate fresh pre-effect and post-teardown ADR-0109 binding seams; and
   generation-pinned, one-use, classification-only recovery that cannot reach
   transport or Docker mutation. Every post-reservation CALL/STORE ambiguity is
-  recovery-required without automatic retry. The design choices are closed,
-  but no component is implemented or authorized, and the stop target continues
-  to exit 2.
+  recovery-required without automatic retry. The design choices are closed.
+  ADR 0124 now implements only a partial, unreachable milestone-one core:
+  independent canonical v2 types/codecs, a process/thread-bound injected
+  repository with no default or physical store, a separately guarded dormant
+  ADR-0112 v2 handoff, and test-only transport and ordered Docker/effect fakes.
+  It can commit only injected recovery-required outcomes and cannot authenticate
+  retained terminal wire after restart or publish confirmed success. Real
+  manifests/keys/boot/process/socket resources, cryptographic transport,
+  descriptor-safe persistence, complete nested effect schemas, Docker HTTP
+  adapters/effects, both live reauthentication bindings, recovery signer,
+  production bootstrap/caller/deployment, promotion, and authority remain open;
+  the stop target continues to exit 2.
   Claim persistence now uses one globally single-use fixed slot and rejects any
   current or legacy per-operation claim. An import-only coordinator checks the
   exact enrollment evidence before reauthentication and before and after claim
@@ -4542,6 +4656,14 @@ unavailable before any watchdog consumer is designed or qualified. See
 
 ### Exit gate for paper-trading MVP
 
+Status: **open**. ADR 0124's unreachable injected lifecycle-v2 core is local
+implementation evidence for only part of ADR 0121 milestone one. It provides no
+real authority/key/boot/process/socket resources, authenticated transport,
+physical persistence, Docker effect, confirmed-success or authenticated
+recovery path, production caller/bootstrap, deployed shutdown, or promotion
+evidence. `trusted-time-stop` remains the exact exit-2 no-effect target, and the
+partial core satisfies none of the deployment or operational outcomes below.
+
 - A fresh environment deploys from immutable artifacts without manual database
   edits; restore and recovery objectives are demonstrated.
 - Critical simulated failures reach the operator within the declared budget.
@@ -4679,8 +4801,10 @@ Every change includes:
    **Implemented by ADRs 0031 and 0032 for deterministic simulation.**
 10. Reproducible backtest report and experiment-family registry contracts.
     **Implemented for the Phase 2 golden fixture and the bounded Phase 3C
-    governance registry; governed segment execution and broader research
-    validity remain Phase 3.**
+    governance registry; Phase 3F/3H add only the exact governed reference-
+    fixture target/economic path. General or captured-tape execution,
+    persistence/reporting, criteria, promotion, and broader research validity
+    remain Phase 3.**
 11. Live market-data capture, quote freshness, shadow replay, feature parity.
 12. Alpaca capability matrix and recorded fixtures.
     **The bounded offline capability/translation contract is implemented by ADR
@@ -4691,12 +4815,14 @@ Every change includes:
 13. Additive E\*TRADE contract, OAuth/session and account binding, raw-first
     reads, provider-ID mapping, Preview/Place durability, provider-specific
     `UNKNOWN` recovery, and the ADR 0096 qualification ladder. **Architecture
-    is selected. Phases 4AJ-4AM now implement the pure endpoint/request
+    is selected. Phases 4AJ-4AN now implement the pure endpoint/request
     foundation, unauthenticated caller-declared Accounts List decoder, exact
     HMAC-SHA1 signing, secret-free supervised-session reducer, and atomic local
-    sanitized replay/session head. Deployed secret resolution, authenticated
-    OAuth responses and OOB handoff, all provider calls, account binding,
-    broader reads, Preview/Place, recovery, and qualification remain pending.**
+    sanitized replay/session head plus the injected non-authorizing token-
+    exchange prerequisite. Concrete/deployed secret resolution, a token store
+    and successful head commit, authenticated OAuth responses and OOB handoff,
+    deployed session runtime, all provider calls, account binding, broader
+    reads, Preview/Place, recovery, and qualification remain pending.**
 14. Account lease/fence and submission attempts are **implemented by ADR 0032**;
     normalized broker inbox/application and the real reconciliation barrier
     remain Phase 4 work.
@@ -4704,8 +4830,10 @@ Every change includes:
 16. Advanced breakers, alerts, operations UI, deployment, backups, and
     runbooks. **Local risk/control, supervised-strategy, provider-neutral alert,
     tracing, authenticated operations, read-only dashboard, and control-runbook
-    slices and atomic admission verification are locally implemented; approved
-    external routes/exporters, authoritative deployment composition, drills,
+    slices and atomic admission verification are locally implemented. ADR 0124
+    adds only a partial injected trusted-time lifecycle-v2 milestone-one core;
+    real resources, persistence, effects, bootstrap/deployment, promotion,
+    approved external routes/exporters, authoritative composition, drills,
     backups, and broader runbooks remain.**
 
 ## Decisions required before Phase 1

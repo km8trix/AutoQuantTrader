@@ -271,5 +271,24 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   exact prefix transcripts, distinct pre/post reauthentication, and
   classification-only recovery; it adds no implementation, key, endpoint,
   lifecycle artifact, effect, authority, or change to the exit-2 stop target)
+- [ADR 0122: Bounded fixture economic-segment execution and isolation](0122-bounded-economic-segment-execution-isolation.md)
+  (implements Phase 3H's exact-decimal economics for one fully revalidated
+  completed Phase 3F fixture transcript in a fixed repository-owned child with
+  bounded input/output, wall time, process group, and OS resources; the result
+  remains internal and adds no arbitrary code, captured-tape, persistence, API,
+  criteria, promotion, provider, deployment, or trading authority)
+- [ADR 0123: Injected E\*TRADE OAuth token runtime prerequisite](0123-injected-etrade-oauth-token-runtime-prerequisite.md)
+  (implements Phase 4AN's unreachable injected composition for ephemeral secret
+  resolution, signing, fresh durable replay burn, exact request-bound raw token
+  custody, strict decode, and a non-authorizing successor proposal; no concrete
+  resolver, TLS transport, provider caller, secret store, browser/OOB runtime,
+  session-head commit, account binding, broker action, or trading authority is
+  added)
+- [ADR 0124: Partial trusted-time lifecycle-v2 milestone-one core](0124-trusted-time-lifecycle-v2-milestone-one.md)
+  (implements an unreachable partial ADR-0121 core with independent v2 types and
+  codecs, an injected repository, an additive ADR-0112 admission seam, fake-only
+  transport/Docker ports, and fault tests; milestone one remains incomplete and
+  adds no real artifact root, authenticated production transport, Docker effect,
+  recovery signer, production caller, stop effect, or authority)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
