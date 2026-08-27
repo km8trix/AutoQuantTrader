@@ -9,9 +9,12 @@ provider observation, persistence, transport, Docker call, or stop effect.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import os
 import re
+import secrets
 import threading
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Never, Self, cast
@@ -19,6 +22,7 @@ from typing import Never, Self, cast
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_V2_SERVICE,
     MAXIMUM_SIGNED_INTEGER,
+    NORMAL_STAGE_BY_ORDINAL,
     FrozenJsonObject,
     LifecycleV2CleanStopRequest,
     LifecycleV2ProgressRecord,
@@ -32,6 +36,14 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     decode_lifecycle_v2_root,
     decode_lifecycle_v2_transcript,
 )
+from packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics import (
+    _FAKE_REAUTHENTICATION_BINDING_CAPABILITY,
+    _PRODUCTION_REAUTHENTICATION_BINDING_CAPABILITY,
+    LIFECYCLE_V2_CLEANUP_SERVICE,
+    LifecycleV2AuthenticatedReauthenticationBinding,
+    LifecycleV2NormalProgressLineage,
+    LifecycleV2ReauthenticationIntent,
+)
 from packages.domain.trusted_time_graceful_stop_v2_terminal import (
     LifecycleV2CleanStopResult,
 )
@@ -39,9 +51,7 @@ from packages.domain.trusted_time_graceful_stop_v2_terminal import (
 ADR0109_REAUTHENTICATION_CONTRACT_VERSION = (
     "phase6d-post-enrollment-clean-stop-terminal-reauthentication-v1"
 )
-ADR0109_REAUTHENTICATION_STATUS = (
-    "provider_terminal_observed_under_stable_sql_authenticated"
-)
+ADR0109_REAUTHENTICATION_STATUS = "provider_terminal_observed_under_stable_sql_authenticated"
 LIFECYCLE_V2_PRE_EFFECT_BINDING_CONTRACT_VERSION = (
     "phase6d-trusted-time-graceful-stop-pre-effect-reauthentication-binding-v2"
 )
@@ -53,17 +63,6 @@ ADR0109_OBSERVATION_BUDGET_NS = 120_000_000_000
 _MAXIMUM_BYTES = 256 * 1_024
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\Z")
-_PRODUCTION_OBSERVATION_CAPABILITY = object()
-_FAKE_OBSERVATION_CAPABILITY = object()
-_BINDING_SEAL = object()
-_ADR0109_ISSUER_TYPE = (
-    "scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication",
-    "TrustedTimePostEnrollmentCleanStopTerminalReauthenticationIssuer",
-)
-_ADR0109_POSTCONDITION_TYPE = (
-    "scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication",
-    "TrustedTimePostEnrollmentCleanStopTerminalPostcondition",
-)
 
 
 def _reject(message: str) -> Never:
@@ -146,10 +145,7 @@ def _require_exact_record(
         or canonical.root_sha256 != root.sha256
         or canonical.ordinal != ordinal
         or canonical.stage is not stage
-        or (
-            predecessor_sha256 is not None
-            and canonical.predecessor_sha256 != predecessor_sha256
-        )
+        or (predecessor_sha256 is not None and canonical.predecessor_sha256 != predecessor_sha256)
     ):
         _reject("reauthentication progress record crossed its lifecycle prefix")
     return canonical
@@ -262,15 +258,11 @@ class LifecycleV2ADR0109ObservationPrimitives:
             or fields["checkpoint_reason"] != "clean_stop"
         ):
             _reject("ADR-0109 observation discriminator is invalid")
-        anchor_sequence = _require_int(
-            fields["anchor_sequence"], "anchor_sequence", minimum=3
-        )
+        anchor_sequence = _require_int(fields["anchor_sequence"], "anchor_sequence", minimum=3)
         confirmed = _require_int(
             fields["confirmed_anchor_count"], "confirmed_anchor_count", minimum=3
         )
-        remote_count = _require_int(
-            fields["remote_object_count"], "remote_object_count", minimum=3
-        )
+        remote_count = _require_int(fields["remote_object_count"], "remote_object_count", minimum=3)
         local_count = _require_int(
             fields["local_transition_count"], "local_transition_count", minimum=3
         )
@@ -289,6 +281,13 @@ class LifecycleV2ADR0109ObservationPrimitives:
         for name in fields:
             if name.endswith("_sha256"):
                 _require_sha256(fields[name], name)
+        semantic_payload = dict(fields)
+        semantic_sha256 = cast(str, semantic_payload.pop("semantic_sha256"))
+        if (
+            _sha256(canonical_v2_json_bytes(semantic_payload, maximum_bytes=_MAXIMUM_BYTES))
+            != semantic_sha256
+        ):
+            _reject("ADR-0109 observation semantic digest is not canonical")
         if fields["candidate_remote_readback_sha256"] != fields["current_anchor_sha256"]:
             _reject("ADR-0109 observation readback is not its current anchor")
         receipt_utc = fields["receipt_observed_at_utc"]
@@ -334,124 +333,37 @@ class LifecycleV2ADR0109ObservationPrimitives:
         )
 
 
-@dataclass(frozen=True, slots=True, init=False, eq=False)
-class LifecycleV2AuthenticatedADR0109Observation:
-    """Process-local seal over one exact consumed ADR-0109 observation object."""
+@dataclass(frozen=True, slots=True, eq=False)
+class _LifecycleV2ADR0109ObservationCandidate:
+    """Non-authoritative callback data consumed inside one isolated realm.
+
+    The production realm fixes its callback to the direct ADR-0109 registry
+    consumer in the adapter.  Constructing this data grants no authority: a
+    caller cannot supply it to that fixed callback or choose the realm seal.
+    """
 
     primitives: LifecycleV2ADR0109ObservationPrimitives
     issuer_identity: object
     observation_identity: object
-    owner_pid: int
-    owner_thread: threading.Thread
-    _consumed_by: object | None
-    _lock: threading.Lock
-    _capability: object
-
-    def __init__(self, *_args: object, **_kwargs: object) -> None:
-        raise TypeError("authenticated ADR-0109 observations require a private seam")
-
-    def __copy__(self) -> Never:
-        _reject("authenticated ADR-0109 observations cannot be copied")
-
-    def __deepcopy__(self, _memo: object) -> Never:
-        _reject("authenticated ADR-0109 observations cannot be copied")
-
-    def __reduce__(self) -> Never:
-        _reject("authenticated ADR-0109 observations cannot be serialized")
-
-    def __reduce_ex__(self, _protocol: object) -> Never:
-        _reject("authenticated ADR-0109 observations cannot be serialized")
 
 
-def _seal_authenticated_observation(
-    primitives: object,
-    *,
-    issuer_identity: object,
-    observation_identity: object,
-    capability: object,
-) -> LifecycleV2AuthenticatedADR0109Observation:
-    if type(primitives) is not LifecycleV2ADR0109ObservationPrimitives:
-        _reject("authenticated ADR-0109 observation primitives are invalid")
-    exact = LifecycleV2ADR0109ObservationPrimitives.capture(primitives.to_dict())
-    if exact != primitives or issuer_identity is None or observation_identity is None:
-        _reject("authenticated ADR-0109 observation identity is invalid")
-    result = object.__new__(LifecycleV2AuthenticatedADR0109Observation)
-    object.__setattr__(result, "primitives", exact)
-    object.__setattr__(result, "issuer_identity", issuer_identity)
-    object.__setattr__(result, "observation_identity", observation_identity)
-    object.__setattr__(result, "owner_pid", os.getpid())
-    object.__setattr__(result, "owner_thread", threading.current_thread())
-    object.__setattr__(result, "_consumed_by", None)
-    object.__setattr__(result, "_lock", threading.Lock())
-    object.__setattr__(result, "_capability", capability)
-    return result
-
-
-def _mint_production_authenticated_adr0109_observation(
-    primitives: object,
-    *,
-    issuer_identity: object,
-    observation_identity: object,
-    capability: object,
-) -> LifecycleV2AuthenticatedADR0109Observation:
-    """Private mint used only after the adapter consumes the ADR-0109 registry."""
-
-    if capability is not _PRODUCTION_OBSERVATION_CAPABILITY:
-        _reject("production ADR-0109 observation capability is invalid")
-    issuer_type = type(issuer_identity)
-    observation_type = type(observation_identity)
-    if (
-        (issuer_type.__module__, issuer_type.__qualname__) != _ADR0109_ISSUER_TYPE
-        or (observation_type.__module__, observation_type.__qualname__)
-        != _ADR0109_POSTCONDITION_TYPE
-    ):
-        _reject("production ADR-0109 observation requires exact ADR-0109 objects")
-    return _seal_authenticated_observation(
-        primitives,
-        issuer_identity=issuer_identity,
-        observation_identity=observation_identity,
-        capability=capability,
-    )
-
-
-def _mint_fake_authenticated_adr0109_observation(
-    primitives: object,
-    *,
-    issuer_identity: object,
-    observation_identity: object,
-    capability: object,
-) -> LifecycleV2AuthenticatedADR0109Observation:
-    """Private deterministic fake mint; it grants no provider authority."""
-
-    if capability is not _FAKE_OBSERVATION_CAPABILITY:
-        _reject("fake ADR-0109 observation capability is invalid")
-    return _seal_authenticated_observation(
-        primitives,
-        issuer_identity=issuer_identity,
-        observation_identity=observation_identity,
-        capability=capability,
-    )
-
-
-def _require_authenticated_observation(
+def _require_observation_candidate(
     value: object,
-) -> LifecycleV2AuthenticatedADR0109Observation:
+) -> _LifecycleV2ADR0109ObservationCandidate:
+    if type(value) is not _LifecycleV2ADR0109ObservationCandidate:
+        _reject("ADR-0109 authenticator returned an invalid result")
+    canonical = LifecycleV2ADR0109ObservationPrimitives.capture(value.primitives.to_dict())
     if (
-        type(value) is not LifecycleV2AuthenticatedADR0109Observation
-        or (
-            value._capability is not _PRODUCTION_OBSERVATION_CAPABILITY
-            and value._capability is not _FAKE_OBSERVATION_CAPABILITY
-        )
-        or value.owner_pid != os.getpid()
-        or value.owner_thread is not threading.current_thread()
+        canonical != value.primitives
         or value.issuer_identity is None
         or value.observation_identity is None
     ):
-        _reject("authenticated ADR-0109 observation crossed its process or thread")
-    canonical = LifecycleV2ADR0109ObservationPrimitives.capture(value.primitives.to_dict())
-    if canonical != value.primitives:
-        _reject("authenticated ADR-0109 observation primitives changed")
-    return value
+        _reject("authenticated ADR-0109 observation changed after callback")
+    return _LifecycleV2ADR0109ObservationCandidate(
+        primitives=canonical,
+        issuer_identity=value.issuer_identity,
+        observation_identity=value.observation_identity,
+    )
 
 
 def _terminal_projection_from_result(result: LifecycleV2CleanStopResult) -> dict[str, object]:
@@ -468,19 +380,15 @@ def _terminal_projection_from_result(result: LifecycleV2CleanStopResult) -> dict
         "current_host_head_sha256": value["current_host_head_sha256"],
         "current_anchor_sha256": value["current_anchor_sha256"],
         "current_anchor_semantic_sha256": value["current_anchor_semantic_sha256"],
-        "anchor_intent_semantic_sha256": value[
-            "current_anchor_intent_semantic_sha256"
-        ],
-        "candidate_remote_readback_sha256": value[
-            "current_candidate_remote_readback_sha256"
-        ],
+        "anchor_intent_semantic_sha256": value["current_anchor_intent_semantic_sha256"],
+        "candidate_remote_readback_sha256": value["current_candidate_remote_readback_sha256"],
         "receipt_semantic_sha256": value["current_receipt_semantic_sha256"],
         "receipt_observed_at_utc": value["receipt_observed_at_utc"],
     }
 
 
 def _require_observation_matches_result(
-    observation: LifecycleV2AuthenticatedADR0109Observation,
+    observation: _LifecycleV2ADR0109ObservationCandidate,
     result: LifecycleV2CleanStopResult,
 ) -> dict[str, object]:
     fields = observation.primitives.to_dict()
@@ -525,6 +433,21 @@ class LifecycleV2PreEffectBindingEvidence:
         deadline = _require_int(fields["observation_deadline_monotonic_ns"], "deadline")
         if not started <= completed < deadline:
             _reject("pre-effect binding observation interval is invalid")
+        observation = LifecycleV2ADR0109ObservationPrimitives.capture(fields["adr0109_observation"])
+        observation_fields = observation.to_dict()
+        if (
+            fields["adr0109_observation_sha256"] != observation.sha256
+            or fields["provider_identity_sha256"] != observation.provider_identity_sha256
+            or fields["observation_semantic_sha256"] != observation_fields["semantic_sha256"]
+            or fields["adr0109_issuer_binding_sha256"]
+            != observation_fields["issuer_binding_sha256"]
+            or fields["adr0109_read_only_configuration_sha256"]
+            != observation_fields["read_only_configuration_sha256"]
+            or started != observation_fields["observation_started_monotonic_ns"]
+            or completed != observation_fields["observation_completed_monotonic_ns"]
+            or deadline != observation_fields["deadline_monotonic_ns"]
+        ):
+            _reject("pre-effect binding does not retain its exact ADR-0109 primitives")
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
         return result
@@ -562,6 +485,8 @@ _PRE_EFFECT_EVIDENCE_FIELDS = frozenset(
         "topology_lease_sha256",
         "transport_quiescence_record_sha256",
         "pre_effect_intent_sha256",
+        "adr0109_observation",
+        "adr0109_observation_sha256",
         "provider_identity_sha256",
         "observation_semantic_sha256",
         "adr0109_issuer_binding_sha256",
@@ -589,8 +514,7 @@ class LifecycleV2PostTeardownBindingEvidence:
         fields = frozen.to_dict()
         _require_fields(fields, _POST_TEARDOWN_EVIDENCE_FIELDS, "post-teardown binding")
         if (
-            fields["contract_version"]
-            != LIFECYCLE_V2_POST_TEARDOWN_BINDING_CONTRACT_VERSION
+            fields["contract_version"] != LIFECYCLE_V2_POST_TEARDOWN_BINDING_CONTRACT_VERSION
             or fields["service"] != LIFECYCLE_V2_SERVICE
             or fields["status"] != "distinct_post_teardown_adr0109_observation_bound"
             or fields["expected_checkpoint_reason"] != "clean_stop"
@@ -610,6 +534,21 @@ class LifecycleV2PostTeardownBindingEvidence:
         deadline = _require_int(fields["observation_deadline_monotonic_ns"], "deadline")
         if not started <= completed < deadline:
             _reject("post-teardown binding observation interval is invalid")
+        observation = LifecycleV2ADR0109ObservationPrimitives.capture(fields["adr0109_observation"])
+        observation_fields = observation.to_dict()
+        if (
+            fields["adr0109_observation_sha256"] != observation.sha256
+            or fields["provider_identity_sha256"] != observation.provider_identity_sha256
+            or fields["observation_semantic_sha256"] != observation_fields["semantic_sha256"]
+            or fields["adr0109_issuer_binding_sha256"]
+            != observation_fields["issuer_binding_sha256"]
+            or fields["adr0109_read_only_configuration_sha256"]
+            != observation_fields["read_only_configuration_sha256"]
+            or started != observation_fields["observation_started_monotonic_ns"]
+            or completed != observation_fields["observation_completed_monotonic_ns"]
+            or deadline != observation_fields["deadline_monotonic_ns"]
+        ):
+            _reject("post-teardown binding does not retain its exact ADR-0109 primitives")
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
         return result
@@ -649,6 +588,8 @@ _POST_TEARDOWN_EVIDENCE_FIELDS = frozenset(
         "project_network_remove_result_sha256",
         "volume_proof_sha256",
         "post_teardown_intent_sha256",
+        "adr0109_observation",
+        "adr0109_observation_sha256",
         "provider_identity_sha256",
         "observation_semantic_sha256",
         "adr0109_issuer_binding_sha256",
@@ -668,6 +609,7 @@ class _PreEffectContext:
     result: LifecycleV2CleanStopResult
     transport_quiescence: LifecycleV2ProgressRecord
     intent: LifecycleV2ProgressRecord
+    intent_semantic: LifecycleV2ReauthenticationIntent
 
 
 @dataclass(frozen=True, slots=True)
@@ -678,25 +620,28 @@ class _PostTeardownContext:
     result: LifecycleV2CleanStopResult
     result_records: tuple[LifecycleV2ProgressRecord, ...]
     intent: LifecycleV2ProgressRecord
+    intent_semantic: LifecycleV2ReauthenticationIntent
 
 
 class _BindingIssuerBase:
     __slots__ = (
+        "__weakref__",
         "_challenge",
         "_challenge_sha256",
         "_expected_observation_issuer",
-        "_lock",
         "_owner_pid",
         "_owner_thread",
+        "_realm_identity",
         "_status",
     )
 
     _challenge: bytearray
     _challenge_sha256: str
+    _context: _PreEffectContext | _PostTeardownContext
     _expected_observation_issuer: object
-    _lock: threading.Lock
     _owner_pid: int
     _owner_thread: threading.Thread
+    _realm_identity: object
     _status: str
 
     def __new__(cls) -> Self:
@@ -735,13 +680,15 @@ class _LifecycleV2PostTeardownBindingIssuer(_BindingIssuerBase):
 
 class _BindingBase:
     __slots__ = (
+        "__weakref__",
         "_evidence",
         "_issuer_identity",
         "_observation_identity",
         "_observation_issuer_identity",
         "_owner_pid",
         "_owner_thread",
-        "_seal",
+        "_realm_identity",
+        "_semantic_binding",
     )
 
     _evidence: LifecycleV2PreEffectBindingEvidence | LifecycleV2PostTeardownBindingEvidence
@@ -750,7 +697,8 @@ class _BindingBase:
     _observation_issuer_identity: object
     _owner_pid: int
     _owner_thread: threading.Thread
-    _seal: object
+    _realm_identity: object
+    _semantic_binding: LifecycleV2AuthenticatedReauthenticationBinding
 
     def __new__(cls) -> Self:
         _reject("lifecycle-v2 reauthentication bindings require a private one-shot seam")
@@ -773,6 +721,17 @@ class _BindingBase:
     def __reduce_ex__(self, _protocol: object) -> Never:
         _reject("lifecycle-v2 reauthentication bindings cannot be serialized")
 
+    @property
+    def lifecycle_semantic_binding(
+        self,
+    ) -> LifecycleV2AuthenticatedReauthenticationBinding:
+        expected_type: type[LifecycleV2PreEffectBinding] | type[LifecycleV2PostTeardownBinding] = (
+            LifecycleV2PreEffectBinding
+            if type(self) is LifecycleV2PreEffectBinding
+            else LifecycleV2PostTeardownBinding
+        )
+        return _require_live_binding(self, expected_type=expected_type).semantic_binding
+
 
 class LifecycleV2PreEffectBinding(_BindingBase):
     """Live pre-effect seal; its durable projection grants no effect authority."""
@@ -781,8 +740,11 @@ class LifecycleV2PreEffectBinding(_BindingBase):
 
     @property
     def durable_evidence(self) -> LifecycleV2PreEffectBindingEvidence:
-        _require_live_binding(self, expected_type=LifecycleV2PreEffectBinding)
-        return cast(LifecycleV2PreEffectBindingEvidence, self._evidence)
+        registration = _require_live_binding(
+            self,
+            expected_type=LifecycleV2PreEffectBinding,
+        )
+        return cast(LifecycleV2PreEffectBindingEvidence, registration.evidence)
 
 
 class LifecycleV2PostTeardownBinding(_BindingBase):
@@ -792,39 +754,653 @@ class LifecycleV2PostTeardownBinding(_BindingBase):
 
     @property
     def durable_evidence(self) -> LifecycleV2PostTeardownBindingEvidence:
-        _require_live_binding(self, expected_type=LifecycleV2PostTeardownBinding)
-        return cast(LifecycleV2PostTeardownBindingEvidence, self._evidence)
+        registration = _require_live_binding(
+            self,
+            expected_type=LifecycleV2PostTeardownBinding,
+        )
+        return cast(LifecycleV2PostTeardownBindingEvidence, registration.evidence)
 
 
-def _require_live_binding(
-    value: object,
-    *,
-    expected_type: type[LifecycleV2PreEffectBinding] | type[LifecycleV2PostTeardownBinding],
-) -> LifecycleV2PreEffectBinding | LifecycleV2PostTeardownBinding:
-    if (
-        type(value) is not expected_type
-        or value._seal is not _BINDING_SEAL
-        or value._owner_pid != os.getpid()
-        or value._owner_thread is not threading.current_thread()
-        or value._issuer_identity is None
-        or value._observation_identity is None
-        or value._observation_issuer_identity is None
-    ):
-        _reject("lifecycle-v2 reauthentication binding crossed its process or thread")
-    evidence = value._evidence
-    if type(value) is LifecycleV2PreEffectBinding:
-        if type(evidence) is not LifecycleV2PreEffectBindingEvidence:
-            _reject("pre-effect binding evidence type is invalid")
-        pre_canonical = LifecycleV2PreEffectBindingEvidence._capture(evidence.to_dict())
-        if pre_canonical != evidence:
-            _reject("lifecycle-v2 reauthentication binding evidence changed")
+_BindingEvidence = LifecycleV2PreEffectBindingEvidence | LifecycleV2PostTeardownBindingEvidence
+_BindingContext = _PreEffectContext | _PostTeardownContext
+
+
+@dataclass(frozen=True, slots=True)
+class _IssuerAttempt:
+    issuer: _BindingIssuerBase
+    context: _BindingContext
+    expected_observation_issuer: object
+    challenge_sha256: str
+    realm_identity: object
+    semantic_binding_capability: object
+
+
+@dataclass(frozen=True, slots=True)
+class _BindingRegistrySnapshot:
+    evidence: _BindingEvidence
+    semantic_binding: LifecycleV2AuthenticatedReauthenticationBinding
+    context: _BindingContext
+    issuer_identity: object
+    observation_identity: object
+    observation_issuer_identity: object
+    realm_identity: object
+    post_reservation_status: str
+
+
+@dataclass(slots=True)
+class _IssuerRegistration:
+    reference: weakref.ReferenceType[_BindingIssuerBase]
+    issuer_type: type[_BindingIssuerBase]
+    exposed_context: _BindingContext
+    exposed_context_sha256: str
+    context: _BindingContext
+    expected_observation_issuer: object
+    challenge: bytearray
+    challenge_sha256: str
+    owner_pid: int
+    owner_thread: threading.Thread
+    realm_identity: object
+    semantic_binding_capability: object
+    status: str
+
+
+@dataclass(slots=True)
+class _BindingRegistration:
+    reference: weakref.ReferenceType[_BindingBase]
+    binding_type: type[_BindingBase]
+    exposed_evidence: _BindingEvidence
+    evidence_encoded: bytes
+    exposed_semantic_binding: LifecycleV2AuthenticatedReauthenticationBinding
+    semantic_binding_encoded: bytes
+    context: _BindingContext
+    issuer_identity: object
+    observation_identity: object
+    observation_issuer_identity: object
+    owner_pid: int
+    owner_thread: threading.Thread
+    realm_identity: object
+    semantic_binding_capability: object
+    status: str
+    post_reservation_status: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ExposedBindingSeal:
+    evidence: _BindingEvidence
+    evidence_encoded: bytes
+    semantic_binding: LifecycleV2AuthenticatedReauthenticationBinding
+    semantic_binding_encoded: bytes
+    semantic_boundary: str
+    issuer_identity: object
+    observation_identity: object
+    observation_issuer_identity: object
+    realm_identity: object
+
+
+@dataclass(frozen=True, slots=True)
+class _BindingRegistryMaterial:
+    binding_type: type[_BindingBase]
+    evidence_encoded: bytes
+    semantic_binding_encoded: bytes
+    context: _BindingContext
+    issuer_identity: object
+    observation_identity: object
+    observation_issuer_identity: object
+    realm_identity: object
+    semantic_binding_capability: object
+    post_reservation_status: str
+
+
+def _clone_context(value: _BindingContext) -> _BindingContext:
+    if type(value) is _PreEffectContext:
+        return _PreEffectContext(
+            decode_lifecycle_v2_root(value.root.encoded),
+            decode_lifecycle_v2_clean_stop_request(value.request.encoded),
+            LifecycleV2CleanStopResult.capture(value.result.to_dict()),
+            decode_lifecycle_v2_progress_record(value.transport_quiescence.encoded),
+            decode_lifecycle_v2_progress_record(value.intent.encoded),
+            LifecycleV2ReauthenticationIntent._capture_fixed(
+                value.intent_semantic.to_dict(),
+                boundary="pre_effect",
+            ),
+        )
+    if type(value) is _PostTeardownContext:
+        return _PostTeardownContext(
+            decode_lifecycle_v2_root(value.root.encoded),
+            decode_lifecycle_v2_transcript(value.transcript.encoded),
+            value.pre_binding,
+            LifecycleV2CleanStopResult.capture(value.result.to_dict()),
+            tuple(
+                decode_lifecycle_v2_progress_record(record.encoded)
+                for record in value.result_records
+            ),
+            decode_lifecycle_v2_progress_record(value.intent.encoded),
+            LifecycleV2ReauthenticationIntent._capture_fixed(
+                value.intent_semantic.to_dict(),
+                boundary="post_teardown",
+            ),
+        )
+    _reject("reauthentication binding context type is invalid")
+
+
+def _context_snapshot_sha256(value: _BindingContext) -> str:
+    if type(value) is _PreEffectContext:
+        payload: dict[str, object] = {
+            "kind": "pre_effect",
+            "root_sha256": value.root.sha256,
+            "request_sha256": value.request.sha256,
+            "result_sha256": value.result.sha256,
+            "transport_quiescence_sha256": value.transport_quiescence.sha256,
+            "intent_sha256": value.intent.sha256,
+            "intent_semantic_sha256": value.intent_semantic.sha256,
+        }
+    elif type(value) is _PostTeardownContext:
+        payload = {
+            "kind": "post_teardown",
+            "root_sha256": value.root.sha256,
+            "transcript_sha256": value.transcript.sha256,
+            "pre_binding_object_identity": id(value.pre_binding),
+            "result_sha256": value.result.sha256,
+            "result_record_sha256_list": [record.sha256 for record in value.result_records],
+            "intent_sha256": value.intent.sha256,
+            "intent_semantic_sha256": value.intent_semantic.sha256,
+        }
     else:
-        if type(evidence) is not LifecycleV2PostTeardownBindingEvidence:
-            _reject("post-teardown binding evidence type is invalid")
-        post_canonical = LifecycleV2PostTeardownBindingEvidence._capture(evidence.to_dict())
-        if post_canonical != evidence:
-            _reject("lifecycle-v2 reauthentication binding evidence changed")
-    return value
+        _reject("reauthentication binding context type is invalid")
+    return _domain_sha256(
+        "AutoQuantTrader/trusted-time/graceful-stop/reauthentication-context-seal/v2",
+        payload,
+    )
+
+
+def _evidence_from_encoded(
+    encoded: bytes,
+    *,
+    evidence_type: type[LifecycleV2PreEffectBindingEvidence]
+    | type[LifecycleV2PostTeardownBindingEvidence],
+) -> _BindingEvidence:
+    value = _canonical_object_from_encoded(encoded)
+    if evidence_type is LifecycleV2PreEffectBindingEvidence:
+        return LifecycleV2PreEffectBindingEvidence._capture(value)
+    return LifecycleV2PostTeardownBindingEvidence._capture(value)
+
+
+def _canonical_object_from_encoded(encoded: bytes) -> dict[str, object]:
+    from packages.domain.trusted_time_graceful_stop_v2 import (
+        decode_canonical_v2_json_object,
+    )
+
+    return decode_canonical_v2_json_object(encoded, maximum_bytes=_MAXIMUM_BYTES)
+
+
+def _build_binding_registries() -> tuple[
+    Callable[..., None],
+    Callable[..., None],
+    Callable[..., _IssuerAttempt],
+    Callable[..., None],
+    Callable[..., _BindingRegistrySnapshot],
+    Callable[..., _BindingRegistrySnapshot],
+]:
+    """Keep all live issuance state outside caller-mutable Python objects."""
+
+    origin_pid = os.getpid()
+    registry_lock = threading.Lock()
+    realm_permits: dict[int, tuple[object, object, object]] = {}
+    issuers: dict[int, _IssuerRegistration] = {}
+    bindings: dict[int, _BindingRegistration] = {}
+
+    def register_realm(
+        realm_permit: object,
+        *,
+        realm_identity: object,
+        semantic_binding_capability: object,
+    ) -> None:
+        if (
+            os.getpid() != origin_pid
+            or realm_permit is None
+            or realm_identity is None
+            or semantic_binding_capability
+            not in {
+                _FAKE_REAUTHENTICATION_BINDING_CAPABILITY,
+                _PRODUCTION_REAUTHENTICATION_BINDING_CAPABILITY,
+            }
+        ):
+            _reject("lifecycle-v2 reauthentication realm registration is invalid")
+        with registry_lock:
+            if id(realm_permit) in realm_permits:
+                _reject("lifecycle-v2 reauthentication realm registration replayed")
+            realm_permits[id(realm_permit)] = (
+                realm_permit,
+                realm_identity,
+                semantic_binding_capability,
+            )
+
+    def require_realm_permit(
+        realm_permit: object,
+        *,
+        realm_identity: object,
+    ) -> object:
+        if os.getpid() != origin_pid:
+            _reject("lifecycle-v2 reauthentication realm crossed its process")
+        registration = realm_permits.get(id(realm_permit))
+        if (
+            registration is None
+            or registration[0] is not realm_permit
+            or registration[1] is not realm_identity
+        ):
+            _reject("lifecycle-v2 reauthentication realm permit is invalid")
+        return registration[2]
+
+    def _precheck_issuer(
+        value: object,
+        *,
+        expected_type: type[_BindingIssuerBase],
+        realm_identity: object,
+    ) -> _BindingIssuerBase:
+        if os.getpid() != origin_pid or type(value) is not expected_type:
+            _reject("lifecycle-v2 reauthentication issuer crossed its process")
+        issuer = value
+        try:
+            if (
+                issuer._owner_pid != os.getpid()
+                or issuer._owner_thread is not threading.current_thread()
+                or issuer._realm_identity is not realm_identity
+            ):
+                raise ValueError
+        except Exception:
+            _reject("lifecycle-v2 reauthentication issuer crossed its process or thread")
+        return issuer
+
+    def _precheck_binding(
+        value: object,
+        *,
+        expected_type: type[_BindingBase],
+        realm_identity: object | None,
+    ) -> _BindingBase:
+        if os.getpid() != origin_pid or type(value) is not expected_type:
+            _reject("lifecycle-v2 reauthentication binding crossed its process")
+        binding = value
+        try:
+            if (
+                binding._owner_pid != os.getpid()
+                or binding._owner_thread is not threading.current_thread()
+                or (realm_identity is not None and binding._realm_identity is not realm_identity)
+            ):
+                raise ValueError
+        except Exception:
+            _reject("lifecycle-v2 reauthentication binding crossed its process or thread")
+        return binding
+
+    def capture_exposed_binding_seal(
+        binding: _BindingBase,
+        *,
+        expected_type: type[_BindingBase],
+    ) -> _ExposedBindingSeal | None:
+        evidence_type: (
+            type[LifecycleV2PreEffectBindingEvidence] | type[LifecycleV2PostTeardownBindingEvidence]
+        ) = (
+            LifecycleV2PreEffectBindingEvidence
+            if expected_type is LifecycleV2PreEffectBinding
+            else LifecycleV2PostTeardownBindingEvidence
+        )
+        try:
+            evidence = binding._evidence
+            semantic_binding = binding._semantic_binding
+            if (
+                type(evidence) is not evidence_type
+                or type(semantic_binding) is not LifecycleV2AuthenticatedReauthenticationBinding
+            ):
+                raise ValueError
+            return _ExposedBindingSeal(
+                evidence=evidence,
+                evidence_encoded=bytes(evidence.encoded),
+                semantic_binding=semantic_binding,
+                semantic_binding_encoded=bytes(semantic_binding.encoded),
+                semantic_boundary=semantic_binding.boundary,
+                issuer_identity=binding._issuer_identity,
+                observation_identity=binding._observation_identity,
+                observation_issuer_identity=binding._observation_issuer_identity,
+                realm_identity=binding._realm_identity,
+            )
+        except Exception:
+            return None
+
+    def register_issuer(
+        issuer: _BindingIssuerBase,
+        *,
+        realm_permit: object,
+        issuer_type: type[_BindingIssuerBase],
+        context: _BindingContext,
+        expected_observation_issuer: object,
+        challenge: bytearray,
+        challenge_sha256: str,
+        realm_identity: object,
+    ) -> None:
+        semantic_binding_capability = require_realm_permit(
+            realm_permit,
+            realm_identity=realm_identity,
+        )
+        if (
+            os.getpid() != origin_pid
+            or type(issuer) is not issuer_type
+            or type(challenge) is not bytearray
+            or len(challenge) != 32
+            or _sha256(bytes(challenge)) != challenge_sha256
+        ):
+            _reject("lifecycle-v2 reauthentication issuer registration is invalid")
+        issuer_id = id(issuer)
+
+        def issuer_lost(reference: weakref.ReferenceType[_BindingIssuerBase]) -> None:
+            if os.getpid() != origin_pid:
+                return
+            with registry_lock:
+                current = issuers.get(issuer_id)
+                if current is not None and current.reference is reference:
+                    for index in range(len(current.challenge)):
+                        current.challenge[index] = 0
+                    current.challenge.clear()
+                    issuers.pop(issuer_id, None)
+
+        registration = _IssuerRegistration(
+            reference=weakref.ref(issuer, issuer_lost),
+            issuer_type=issuer_type,
+            exposed_context=context,
+            exposed_context_sha256=_context_snapshot_sha256(context),
+            context=_clone_context(context),
+            expected_observation_issuer=expected_observation_issuer,
+            challenge=challenge,
+            challenge_sha256=challenge_sha256,
+            owner_pid=os.getpid(),
+            owner_thread=threading.current_thread(),
+            realm_identity=realm_identity,
+            semantic_binding_capability=semantic_binding_capability,
+            status="prepared",
+        )
+        with registry_lock:
+            if issuer_id in issuers:
+                _reject("lifecycle-v2 reauthentication issuer registration replayed")
+            issuers[issuer_id] = registration
+
+    def begin_issuer_once(
+        value: object,
+        *,
+        realm_permit: object,
+        expected_type: type[_BindingIssuerBase],
+        realm_identity: object,
+    ) -> _IssuerAttempt:
+        semantic_binding_capability = require_realm_permit(
+            realm_permit,
+            realm_identity=realm_identity,
+        )
+        issuer = _precheck_issuer(
+            value,
+            expected_type=expected_type,
+            realm_identity=realm_identity,
+        )
+        try:
+            exposed_context_sha256 = _context_snapshot_sha256(issuer._context)
+        except Exception:
+            exposed_context_sha256 = None
+        invalid = False
+        with registry_lock:
+            registration = issuers.get(id(issuer))
+            if (
+                registration is None
+                or registration.reference() is not issuer
+                or registration.issuer_type is not expected_type
+                or registration.owner_pid != os.getpid()
+                or registration.owner_thread is not threading.current_thread()
+                or registration.realm_identity is not realm_identity
+                or registration.semantic_binding_capability is not semantic_binding_capability
+                or registration.status != "prepared"
+            ):
+                _reject("lifecycle-v2 reauthentication binding issuer was replayed")
+            try:
+                invalid = (
+                    issuer._challenge is not registration.challenge
+                    or issuer._challenge_sha256 != registration.challenge_sha256
+                    or issuer._expected_observation_issuer
+                    is not registration.expected_observation_issuer
+                    or issuer._status != "prepared"
+                    or issuer._context is not registration.exposed_context
+                    or exposed_context_sha256 != registration.exposed_context_sha256
+                    or len(registration.challenge) != 32
+                    or _sha256(bytes(registration.challenge)) != registration.challenge_sha256
+                )
+            except Exception:
+                invalid = True
+            registration.status = "consumed"
+            object.__setattr__(issuer, "_status", "consumed")
+            raw_challenge = getattr(issuer, "_challenge", None)
+            if type(raw_challenge) is bytearray and raw_challenge is not registration.challenge:
+                for index in range(len(raw_challenge)):
+                    raw_challenge[index] = 0
+                raw_challenge.clear()
+            for index in range(len(registration.challenge)):
+                registration.challenge[index] = 0
+            registration.challenge.clear()
+            registered_context = registration.context
+            expected_observation_issuer = registration.expected_observation_issuer
+            challenge_sha256 = registration.challenge_sha256
+        if invalid:
+            _reject("lifecycle-v2 reauthentication issuer seal changed")
+        return _IssuerAttempt(
+            issuer=issuer,
+            context=_clone_context(registered_context),
+            expected_observation_issuer=expected_observation_issuer,
+            challenge_sha256=challenge_sha256,
+            realm_identity=realm_identity,
+            semantic_binding_capability=semantic_binding_capability,
+        )
+
+    def register_binding(
+        binding: _BindingBase,
+        *,
+        realm_permit: object,
+        binding_type: type[_BindingBase],
+        evidence: _BindingEvidence,
+        semantic_binding: LifecycleV2AuthenticatedReauthenticationBinding,
+        context: _BindingContext,
+        issuer_identity: object,
+        observation_identity: object,
+        observation_issuer_identity: object,
+        realm_identity: object,
+    ) -> None:
+        semantic_binding_capability = require_realm_permit(
+            realm_permit,
+            realm_identity=realm_identity,
+        )
+        if (
+            os.getpid() != origin_pid
+            or type(binding) is not binding_type
+            or type(semantic_binding) is not LifecycleV2AuthenticatedReauthenticationBinding
+            or getattr(semantic_binding, "_capability", None) is not semantic_binding_capability
+        ):
+            _reject("lifecycle-v2 reauthentication binding registration is invalid")
+        semantic_binding._require_sealed()
+        binding_id = id(binding)
+
+        def binding_lost(reference: weakref.ReferenceType[_BindingBase]) -> None:
+            if os.getpid() != origin_pid:
+                return
+            with registry_lock:
+                current = bindings.get(binding_id)
+                if current is not None and current.reference is reference:
+                    bindings.pop(binding_id, None)
+
+        registration = _BindingRegistration(
+            reference=weakref.ref(binding, binding_lost),
+            binding_type=binding_type,
+            exposed_evidence=evidence,
+            evidence_encoded=bytes(evidence.encoded),
+            exposed_semantic_binding=semantic_binding,
+            semantic_binding_encoded=bytes(semantic_binding.encoded),
+            context=_clone_context(context),
+            issuer_identity=issuer_identity,
+            observation_identity=observation_identity,
+            observation_issuer_identity=observation_issuer_identity,
+            owner_pid=os.getpid(),
+            owner_thread=threading.current_thread(),
+            realm_identity=realm_identity,
+            semantic_binding_capability=semantic_binding_capability,
+            status="live",
+            post_reservation_status=(
+                "available" if binding_type is LifecycleV2PreEffectBinding else "not_applicable"
+            ),
+        )
+        with registry_lock:
+            if binding_id in bindings:
+                _reject("lifecycle-v2 reauthentication binding registration replayed")
+            bindings[binding_id] = registration
+
+    def _binding_snapshot_locked(
+        registration: _BindingRegistration,
+        exposed: _ExposedBindingSeal | None,
+    ) -> _BindingRegistryMaterial:
+        valid = (
+            exposed is not None
+            and exposed.evidence is registration.exposed_evidence
+            and exposed.evidence_encoded == registration.evidence_encoded
+            and exposed.semantic_binding is registration.exposed_semantic_binding
+            and exposed.semantic_binding_encoded == registration.semantic_binding_encoded
+            and exposed.semantic_boundary
+            == (
+                "pre_effect"
+                if registration.binding_type is LifecycleV2PreEffectBinding
+                else "post_teardown"
+            )
+            and exposed.issuer_identity is registration.issuer_identity
+            and exposed.observation_identity is registration.observation_identity
+            and exposed.observation_issuer_identity is registration.observation_issuer_identity
+            and exposed.realm_identity is registration.realm_identity
+        )
+        if not valid:
+            registration.status = "revoked"
+            _reject("lifecycle-v2 reauthentication binding seal changed")
+        return _BindingRegistryMaterial(
+            binding_type=registration.binding_type,
+            evidence_encoded=registration.evidence_encoded,
+            semantic_binding_encoded=registration.semantic_binding_encoded,
+            context=registration.context,
+            issuer_identity=registration.issuer_identity,
+            observation_identity=registration.observation_identity,
+            observation_issuer_identity=registration.observation_issuer_identity,
+            realm_identity=registration.realm_identity,
+            semantic_binding_capability=registration.semantic_binding_capability,
+            post_reservation_status=registration.post_reservation_status,
+        )
+
+    def materialize_binding_snapshot(
+        material: _BindingRegistryMaterial,
+    ) -> _BindingRegistrySnapshot:
+        evidence_type: (
+            type[LifecycleV2PreEffectBindingEvidence] | type[LifecycleV2PostTeardownBindingEvidence]
+        ) = (
+            LifecycleV2PreEffectBindingEvidence
+            if material.binding_type is LifecycleV2PreEffectBinding
+            else LifecycleV2PostTeardownBindingEvidence
+        )
+        evidence = _evidence_from_encoded(
+            material.evidence_encoded,
+            evidence_type=evidence_type,
+        )
+        context = _clone_context(material.context)
+        semantic_value = _canonical_object_from_encoded(material.semantic_binding_encoded)
+        semantic_binding = LifecycleV2AuthenticatedReauthenticationBinding._capture(
+            semantic_value,
+            root=context.root,
+            intent=context.intent_semantic,
+            capability=material.semantic_binding_capability,
+        )
+        return _BindingRegistrySnapshot(
+            evidence=evidence,
+            semantic_binding=semantic_binding,
+            context=context,
+            issuer_identity=material.issuer_identity,
+            observation_identity=material.observation_identity,
+            observation_issuer_identity=material.observation_issuer_identity,
+            realm_identity=material.realm_identity,
+            post_reservation_status=material.post_reservation_status,
+        )
+
+    def require_binding(
+        value: object,
+        *,
+        expected_type: type[_BindingBase],
+        realm_identity: object | None = None,
+    ) -> _BindingRegistrySnapshot:
+        binding = _precheck_binding(
+            value,
+            expected_type=expected_type,
+            realm_identity=realm_identity,
+        )
+        exposed = capture_exposed_binding_seal(
+            binding,
+            expected_type=expected_type,
+        )
+        with registry_lock:
+            registration = bindings.get(id(binding))
+            if (
+                registration is None
+                or registration.reference() is not binding
+                or registration.binding_type is not expected_type
+                or registration.owner_pid != os.getpid()
+                or registration.owner_thread is not threading.current_thread()
+                or registration.status != "live"
+                or (
+                    realm_identity is not None and registration.realm_identity is not realm_identity
+                )
+            ):
+                _reject("lifecycle-v2 reauthentication binding is not registered")
+            material = _binding_snapshot_locked(registration, exposed)
+        return materialize_binding_snapshot(material)
+
+    def reserve_pre_binding_for_post(
+        value: object,
+        *,
+        realm_permit: object,
+        realm_identity: object,
+    ) -> _BindingRegistrySnapshot:
+        semantic_binding_capability = require_realm_permit(
+            realm_permit,
+            realm_identity=realm_identity,
+        )
+        binding = _precheck_binding(
+            value,
+            expected_type=LifecycleV2PreEffectBinding,
+            realm_identity=realm_identity,
+        )
+        exposed = capture_exposed_binding_seal(
+            binding,
+            expected_type=LifecycleV2PreEffectBinding,
+        )
+        with registry_lock:
+            registration = bindings.get(id(binding))
+            if (
+                registration is None
+                or registration.reference() is not binding
+                or registration.binding_type is not LifecycleV2PreEffectBinding
+                or registration.realm_identity is not realm_identity
+                or registration.semantic_binding_capability is not semantic_binding_capability
+                or registration.status != "live"
+                or registration.post_reservation_status != "available"
+            ):
+                _reject("pre-effect binding was already reserved for post-teardown")
+            registration.post_reservation_status = "post_reserved"
+            material = _binding_snapshot_locked(registration, exposed)
+        return materialize_binding_snapshot(material)
+
+    return (
+        register_realm,
+        register_issuer,
+        begin_issuer_once,
+        register_binding,
+        require_binding,
+        reserve_pre_binding_for_post,
+    )
+
+
+_require_live_binding: Callable[..., _BindingRegistrySnapshot]
 
 
 def _capture_challenge(challenge_source: Callable[[int], bytes]) -> bytearray:
@@ -841,79 +1417,210 @@ def _capture_challenge(challenge_source: Callable[[int], bytes]) -> bytearray:
     return bytearray(challenge)
 
 
+@dataclass(frozen=True, slots=True)
+class _ValidatedLineageBoundary:
+    root: LifecycleV2Root
+    request: LifecycleV2CleanStopRequest
+    result: LifecycleV2CleanStopResult
+    records: tuple[LifecycleV2ProgressRecord, ...]
+    intent: LifecycleV2ProgressRecord
+    intent_semantic: LifecycleV2ReauthenticationIntent
+    transcript: LifecycleV2Transcript | None
+
+
+def _require_exact_normal_lineage_boundary(
+    value: object,
+    *,
+    last_ordinal: int,
+    boundary: str,
+) -> _ValidatedLineageBoundary:
+    if (
+        type(value) is not LifecycleV2NormalProgressLineage
+        or last_ordinal not in {5, 19}
+        or boundary not in {"pre_effect", "post_teardown"}
+    ):
+        _reject("reauthentication requires one exact typed normal lineage")
+    lineage = value
+    lineage._require_sealed()
+    root = _require_exact_root(lineage.root)
+    result = _require_exact_result(lineage.clean_stop_result)
+    request = _require_exact_request(result.request)
+    if (
+        result.to_dict()["lifecycle_root_sha256"] != root.sha256
+        or request.to_dict()["lifecycle_root_sha256"] != root.sha256
+        or result.request.encoded != request.encoded
+        or type(lineage.records) is not tuple
+        or type(lineage.semantics) is not tuple
+        or len(lineage.records) != last_ordinal - 1
+        or len(lineage.semantics) != len(lineage.records)
+    ):
+        _reject("typed normal lineage changed at its root or result")
+    exact_records: list[LifecycleV2ProgressRecord] = []
+    previous_sha256 = cast(str, request.to_dict()["request_intent_sha256"])
+    for expected_ordinal, raw_record in enumerate(lineage.records, start=2):
+        expected_stage = NORMAL_STAGE_BY_ORDINAL[expected_ordinal]
+        record = _require_exact_record(
+            raw_record,
+            root=root,
+            ordinal=expected_ordinal,
+            stage=expected_stage,
+            predecessor_sha256=previous_sha256,
+        )
+        if lineage.record_at(expected_ordinal) != record:
+            _reject("typed normal lineage record lookup changed")
+        exact_records.append(record)
+        previous_sha256 = record.sha256
+    if exact_records[-1].ordinal != last_ordinal:
+        _reject("typed normal lineage ended at the wrong boundary")
+    # Re-run the authenticated ordinal-two constructor so a caller-selected
+    # lineage capability cannot substitute the retained terminal wire.
+    LifecycleV2NormalProgressLineage.from_retained_result(
+        root=root,
+        result_record=exact_records[0],
+        terminal_wire_evidence=lineage.terminal_wire,
+        clean_stop_result=result,
+    )
+    raw_intent = lineage.semantic_at(last_ordinal)
+    if type(raw_intent) is not LifecycleV2ReauthenticationIntent or raw_intent.boundary != boundary:
+        _reject("typed normal lineage lacks its exact reauthentication intent")
+    raw_intent._require_canonical_seal()
+    intent = LifecycleV2ReauthenticationIntent._capture_fixed(
+        raw_intent.to_dict(),
+        boundary=boundary,
+    )
+    intent_fields = intent.to_dict()
+    terminal = result.terminal_projection.to_dict()
+    if (
+        intent_fields["lifecycle_root_sha256"] != root.sha256
+        or intent_fields["graceful_stop_operation_id"] != root.graceful_stop_operation_id
+        or intent_fields["channel_id"] != root.channel_id
+        or intent_fields["expected_head_sha256"] != terminal["current_anchor_sha256"]
+        or exact_records[-1].evidence.to_dict()["arguments_sha256"] != intent.sha256
+        or exact_records[-1].evidence.to_dict()["channel_id"] != root.channel_id
+        or exact_records[-1].evidence.to_dict()["admission_sha256"] != root.admission_sha256
+    ):
+        _reject("typed reauthentication intent crossed its exact lineage")
+    transcript: LifecycleV2Transcript | None = None
+    if last_ordinal == 19:
+        raw_transcript = lineage.prefix_through_eighteen
+        if type(raw_transcript) is not LifecycleV2Transcript:
+            _reject("post-teardown lineage lacks its exact published prefix")
+        transcript = _require_exact_transcript(
+            raw_transcript,
+            root=root,
+            last_ordinal=18,
+            last_stage=LifecycleV2Stage.NAMED_VOLUMES_PRESERVED,
+        )
+        if len(transcript.entries) != 19:
+            _reject("post-teardown prefix is not complete through ordinal eighteen")
+        by_ordinal = {record.ordinal: record for record in exact_records}
+        for entry in transcript.entries:
+            if entry.stage is not NORMAL_STAGE_BY_ORDINAL[entry.ordinal]:
+                _reject("post-teardown prefix stage order is not exact")
+            if entry.ordinal == 0:
+                expected_digest = root.sha256
+            elif entry.ordinal == 1:
+                expected_digest = cast(str, request.to_dict()["request_intent_sha256"])
+            else:
+                expected_digest = by_ordinal[entry.ordinal].sha256
+            if entry.record_artifact_sha256 != expected_digest:
+                _reject("post-teardown prefix substituted a typed lifecycle record")
+        pre_semantic = lineage.pre_effect_binding
+        if type(pre_semantic) is not LifecycleV2AuthenticatedReauthenticationBinding:
+            _reject("post-teardown lineage lacks its exact pre-effect binding")
+        pre_semantic._require_sealed()
+        if intent_fields["pre_effect_binding_sha256"] != pre_semantic.sha256:
+            _reject("post-teardown intent crossed its pre-effect binding")
+    return _ValidatedLineageBoundary(
+        root=root,
+        request=request,
+        result=result,
+        records=tuple(exact_records),
+        intent=exact_records[-1],
+        intent_semantic=intent,
+        transcript=transcript,
+    )
+
+
 def _initialize_issuer(
     issuer: _BindingIssuerBase,
     *,
+    issuer_type: type[_BindingIssuerBase],
+    context: _BindingContext,
     observation_issuer_identity: object,
     challenge_source: Callable[[int], bytes],
+    realm_identity: object,
+    realm_permit: object,
+    register_issuer: Callable[..., None],
 ) -> None:
     if observation_issuer_identity is None:
         _reject("ADR-0109 observation issuer identity is required")
     challenge = _capture_challenge(challenge_source)
-    object.__setattr__(issuer, "_challenge", challenge)
-    object.__setattr__(issuer, "_challenge_sha256", _sha256(bytes(challenge)))
-    object.__setattr__(issuer, "_expected_observation_issuer", observation_issuer_identity)
-    object.__setattr__(issuer, "_lock", threading.Lock())
-    object.__setattr__(issuer, "_owner_pid", os.getpid())
-    object.__setattr__(issuer, "_owner_thread", threading.current_thread())
-    object.__setattr__(issuer, "_status", "prepared")
+    challenge_sha256 = _sha256(bytes(challenge))
+    try:
+        object.__setattr__(issuer, "_challenge", challenge)
+        object.__setattr__(issuer, "_challenge_sha256", challenge_sha256)
+        object.__setattr__(
+            issuer,
+            "_expected_observation_issuer",
+            observation_issuer_identity,
+        )
+        object.__setattr__(issuer, "_owner_pid", os.getpid())
+        object.__setattr__(issuer, "_owner_thread", threading.current_thread())
+        object.__setattr__(issuer, "_realm_identity", realm_identity)
+        object.__setattr__(issuer, "_status", "prepared")
+        object.__setattr__(issuer, "_context", context)
+        register_issuer(
+            issuer,
+            realm_permit=realm_permit,
+            issuer_type=issuer_type,
+            context=context,
+            expected_observation_issuer=observation_issuer_identity,
+            challenge=challenge,
+            challenge_sha256=challenge_sha256,
+            realm_identity=realm_identity,
+        )
+    except BaseException:
+        for index in range(len(challenge)):
+            challenge[index] = 0
+        challenge.clear()
+        object.__setattr__(issuer, "_status", "consumed")
+        raise
 
 
 def _prepare_lifecycle_v2_pre_effect_binding_issuer(
     *,
-    root: object,
-    request: object,
-    result: object,
-    transport_quiescence: object,
-    pre_effect_intent: object,
+    lineage_through_ordinal_5: object,
     observation_issuer_identity: object,
     challenge_source: Callable[[int], bytes],
+    realm_identity: object,
+    realm_permit: object,
+    register_issuer: Callable[..., None],
+    initialize_issuer: Callable[..., None],
 ) -> _LifecycleV2PreEffectBindingIssuer:
-    exact_root = _require_exact_root(root)
-    exact_request = _require_exact_request(request)
-    exact_result = _require_exact_result(result)
-    result_fields = exact_result.to_dict()
-    request_fields = exact_request.to_dict()
-    if (
-        exact_result.request != exact_request
-        or exact_result.request.encoded != exact_request.encoded
-        or request_fields["lifecycle_root_sha256"] != exact_root.sha256
-        or result_fields["lifecycle_root_sha256"] != exact_root.sha256
-        or request_fields["graceful_stop_operation_id"]
-        != exact_root.graceful_stop_operation_id
-        or result_fields["graceful_stop_operation_id"]
-        != exact_root.graceful_stop_operation_id
-        or request_fields["channel_id"] != exact_root.channel_id
-        or result_fields["channel_id"] != exact_root.channel_id
-        or request_fields["topology_sha256"] != exact_root.topology_sha256
-        or request_fields["topology_lease_sha256"] != exact_root.topology_lease_sha256
-    ):
-        _reject("pre-effect binding crossed its root, request, result, channel, or topology")
-    quiescence = _require_exact_record(
-        transport_quiescence,
-        root=exact_root,
-        ordinal=4,
-        stage=LifecycleV2Stage.TRANSPORT_CHANNEL_QUIESCED,
+    boundary = _require_exact_normal_lineage_boundary(
+        lineage_through_ordinal_5,
+        last_ordinal=5,
+        boundary="pre_effect",
     )
-    intent = _require_exact_record(
-        pre_effect_intent,
-        root=exact_root,
-        ordinal=5,
-        stage=LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_INTENT_RETAINED,
-        predecessor_sha256=quiescence.sha256,
-    )
-    issuer: _LifecycleV2PreEffectBindingIssuer = object.__new__(
-        _LifecycleV2PreEffectBindingIssuer
-    )
-    _initialize_issuer(
+    quiescence = boundary.records[2]
+    issuer: _LifecycleV2PreEffectBindingIssuer = object.__new__(_LifecycleV2PreEffectBindingIssuer)
+    initialize_issuer(
         issuer,
+        issuer_type=_LifecycleV2PreEffectBindingIssuer,
+        context=_PreEffectContext(
+            boundary.root,
+            boundary.request,
+            boundary.result,
+            quiescence,
+            boundary.intent,
+            boundary.intent_semantic,
+        ),
         observation_issuer_identity=observation_issuer_identity,
         challenge_source=challenge_source,
-    )
-    object.__setattr__(
-        issuer,
-        "_context",
-        _PreEffectContext(exact_root, exact_request, exact_result, quiescence, intent),
+        realm_identity=realm_identity,
+        realm_permit=realm_permit,
+        register_issuer=register_issuer,
     )
     return issuer
 
@@ -930,154 +1637,215 @@ _POST_TEARDOWN_RESULT_RULES = (
 
 def _prepare_lifecycle_v2_post_teardown_binding_issuer(
     *,
-    root: object,
-    published_prefix_through_ordinal_18: object,
+    lineage_through_ordinal_19: object,
     pre_effect_binding: object,
-    teardown_result_records: object,
-    post_teardown_intent: object,
     observation_issuer_identity: object,
     challenge_source: Callable[[int], bytes],
+    realm_identity: object,
+    realm_permit: object,
+    register_issuer: Callable[..., None],
+    begin_issuer: Callable[..., _IssuerAttempt],
+    require_binding: Callable[..., _BindingRegistrySnapshot],
+    reserve_pre_binding: Callable[..., _BindingRegistrySnapshot],
+    initialize_issuer: Callable[..., None],
 ) -> _LifecycleV2PostTeardownBindingIssuer:
-    exact_root = _require_exact_root(root)
-    transcript = _require_exact_transcript(
-        published_prefix_through_ordinal_18,
-        root=exact_root,
-        last_ordinal=18,
-        last_stage=LifecycleV2Stage.NAMED_VOLUMES_PRESERVED,
+    exact_lineage = cast(
+        LifecycleV2NormalProgressLineage,
+        lineage_through_ordinal_19,
     )
-    pre_binding = _require_live_binding(
+    boundary = _require_exact_normal_lineage_boundary(
+        exact_lineage,
+        last_ordinal=19,
+        boundary="post_teardown",
+    )
+    assert boundary.transcript is not None
+    pre_registration = require_binding(
         pre_effect_binding,
         expected_type=LifecycleV2PreEffectBinding,
+        realm_identity=realm_identity,
     )
-    assert type(pre_binding) is LifecycleV2PreEffectBinding
-    raw_pre_issuer = pre_binding._issuer_identity
+    if type(pre_registration.context) is not _PreEffectContext:
+        _reject("post-teardown binding lacks its exact pre-effect context")
+    raw_pre_issuer = pre_registration.issuer_identity
     if type(raw_pre_issuer) is not _LifecycleV2PreEffectBindingIssuer:
         _reject("post-teardown binding lacks its exact pre-effect issuer")
-    pre_issuer = raw_pre_issuer
-    pre_result = pre_issuer._context.result
-    pre_fields = pre_binding.durable_evidence.to_dict()
+    pre_result = pre_registration.context.result
+    if type(pre_registration.evidence) is not LifecycleV2PreEffectBindingEvidence:
+        _reject("post-teardown binding lacks exact pre-effect evidence")
+    pre_fields = pre_registration.evidence.to_dict()
     if (
-        pre_fields["environment"] != exact_root.environment
-        or pre_fields["graceful_stop_operation_id"]
-        != exact_root.graceful_stop_operation_id
-        or pre_fields["lifecycle_root_sha256"] != exact_root.sha256
-        or observation_issuer_identity is pre_binding._observation_issuer_identity
+        pre_fields["environment"] != boundary.root.environment
+        or pre_fields["graceful_stop_operation_id"] != boundary.root.graceful_stop_operation_id
+        or pre_fields["lifecycle_root_sha256"] != boundary.root.sha256
+        or pre_fields["clean_stop_request_sha256"] != boundary.request.sha256
+        or pre_fields["clean_stop_result_sha256"] != boundary.result.sha256
+        or pre_result.encoded != boundary.result.encoded
+        or observation_issuer_identity is pre_registration.observation_issuer_identity
+        or type(exact_lineage.pre_effect_binding)
+        is not LifecycleV2AuthenticatedReauthenticationBinding
+        or exact_lineage.pre_effect_binding.encoded != pre_registration.semantic_binding.encoded
     ):
         _reject("post-teardown binding reused or crossed the pre-effect boundary")
-    if type(teardown_result_records) is not tuple or len(teardown_result_records) != 6:
-        _reject("post-teardown binding requires the six exact teardown results")
-    exact_results: list[LifecycleV2ProgressRecord] = []
-    for raw_record, (ordinal, stage) in zip(
-        teardown_result_records,
-        _POST_TEARDOWN_RESULT_RULES,
-        strict=True,
-    ):
-        record = _require_exact_record(
-            raw_record,
-            root=exact_root,
-            ordinal=ordinal,
-            stage=stage,
-            predecessor_sha256=transcript.entries[ordinal - 1].record_artifact_sha256,
-        )
-        if transcript.entries[ordinal].record_artifact_sha256 != record.sha256:
-            _reject("post-teardown result is not in the published ordinal-18 prefix")
-        exact_results.append(record)
-    intent = _require_exact_record(
-        post_teardown_intent,
-        root=exact_root,
-        ordinal=19,
-        stage=LifecycleV2Stage.POST_TEARDOWN_REAUTHENTICATION_INTENT_RETAINED,
-        predecessor_sha256=transcript.entries[-1].record_artifact_sha256,
+    exact_results = tuple(
+        boundary.records[ordinal - 2] for ordinal, _ in _POST_TEARDOWN_RESULT_RULES
     )
+    reserved = reserve_pre_binding(
+        pre_effect_binding,
+        realm_permit=realm_permit,
+        realm_identity=realm_identity,
+    )
+    if (
+        reserved.evidence != pre_registration.evidence
+        or reserved.issuer_identity is not pre_registration.issuer_identity
+        or reserved.observation_identity is not pre_registration.observation_identity
+        or reserved.observation_issuer_identity is not pre_registration.observation_issuer_identity
+    ):
+        _reject("pre-effect binding changed during post-teardown reservation")
     issuer: _LifecycleV2PostTeardownBindingIssuer = object.__new__(
         _LifecycleV2PostTeardownBindingIssuer
     )
-    _initialize_issuer(
+    initialize_issuer(
         issuer,
+        issuer_type=_LifecycleV2PostTeardownBindingIssuer,
+        context=_PostTeardownContext(
+            boundary.root,
+            boundary.transcript,
+            cast(LifecycleV2PreEffectBinding, pre_effect_binding),
+            pre_result,
+            exact_results,
+            boundary.intent,
+            boundary.intent_semantic,
+        ),
         observation_issuer_identity=observation_issuer_identity,
         challenge_source=challenge_source,
+        realm_identity=realm_identity,
+        realm_permit=realm_permit,
+        register_issuer=register_issuer,
     )
     if issuer._challenge_sha256 == pre_fields["issuer_challenge_sha256"]:
-        with issuer._lock:
-            _burn_issuer_locked(issuer)
+        begin_issuer(
+            issuer,
+            realm_permit=realm_permit,
+            expected_type=_LifecycleV2PostTeardownBindingIssuer,
+            realm_identity=realm_identity,
+        )
         _reject("post-teardown issuer challenge reused the pre-effect challenge")
-    object.__setattr__(
-        issuer,
-        "_context",
-        _PostTeardownContext(
-            exact_root,
-            transcript,
-            pre_binding,
-            pre_result,
-            tuple(exact_results),
-            intent,
-        ),
-    )
     return issuer
-
-
-def _require_issuer_origin(issuer: _BindingIssuerBase) -> None:
-    if issuer._owner_pid != os.getpid() or issuer._owner_thread is not threading.current_thread():
-        _reject("lifecycle-v2 reauthentication issuer crossed its process or thread")
-
-
-def _burn_issuer_locked(issuer: _BindingIssuerBase) -> None:
-    object.__setattr__(issuer, "_status", "consumed")
-    for index in range(len(issuer._challenge)):
-        issuer._challenge[index] = 0
-    issuer._challenge.clear()
-
-
-def _consume_issuer_once(
-    issuer: _BindingIssuerBase,
-    *,
-    observation: object,
-) -> LifecycleV2AuthenticatedADR0109Observation:
-    _require_issuer_origin(issuer)
-    authenticated = _require_authenticated_observation(observation)
-    with issuer._lock:
-        if issuer._status != "prepared":
-            _reject("lifecycle-v2 reauthentication binding issuer was replayed")
-        _burn_issuer_locked(issuer)
-    with authenticated._lock:
-        if authenticated._consumed_by is not None:
-            _reject("authenticated ADR-0109 observation was replayed")
-        object.__setattr__(authenticated, "_consumed_by", issuer)
-    if authenticated.issuer_identity is not issuer._expected_observation_issuer:
-        _reject("ADR-0109 observation crossed its exact issuer object")
-    return authenticated
 
 
 def _issue_binding(
     binding_type: type[LifecycleV2PreEffectBinding] | type[LifecycleV2PostTeardownBinding],
     *,
     evidence: LifecycleV2PreEffectBindingEvidence | LifecycleV2PostTeardownBindingEvidence,
-    issuer: _BindingIssuerBase,
-    observation: LifecycleV2AuthenticatedADR0109Observation,
+    semantic_binding: LifecycleV2AuthenticatedReauthenticationBinding,
+    attempt: _IssuerAttempt,
+    observation: _LifecycleV2ADR0109ObservationCandidate,
+    realm_permit: object,
+    register_binding: Callable[..., None],
 ) -> LifecycleV2PreEffectBinding | LifecycleV2PostTeardownBinding:
     result = object.__new__(binding_type)
     object.__setattr__(result, "_evidence", evidence)
-    object.__setattr__(result, "_issuer_identity", issuer)
+    object.__setattr__(result, "_issuer_identity", attempt.issuer)
     object.__setattr__(result, "_observation_identity", observation.observation_identity)
-    object.__setattr__(
-        result, "_observation_issuer_identity", observation.issuer_identity
-    )
+    object.__setattr__(result, "_observation_issuer_identity", observation.issuer_identity)
     object.__setattr__(result, "_owner_pid", os.getpid())
     object.__setattr__(result, "_owner_thread", threading.current_thread())
-    object.__setattr__(result, "_seal", _BINDING_SEAL)
+    object.__setattr__(result, "_realm_identity", attempt.realm_identity)
+    object.__setattr__(result, "_semantic_binding", semantic_binding)
+    register_binding(
+        result,
+        realm_permit=realm_permit,
+        binding_type=binding_type,
+        evidence=evidence,
+        semantic_binding=semantic_binding,
+        context=attempt.context,
+        issuer_identity=attempt.issuer,
+        observation_identity=observation.observation_identity,
+        observation_issuer_identity=observation.issuer_identity,
+        realm_identity=attempt.realm_identity,
+    )
     return result
+
+
+def _semantic_binding(
+    *,
+    boundary: str,
+    context: _BindingContext,
+    attempt: _IssuerAttempt,
+    authenticated: _LifecycleV2ADR0109ObservationCandidate,
+) -> LifecycleV2AuthenticatedReauthenticationBinding:
+    observation_fields = authenticated.primitives.to_dict()
+    intent = context.intent_semantic
+    return LifecycleV2AuthenticatedReauthenticationBinding._capture(
+        {
+            "contract_version": (
+                "phase6d-trusted-time-graceful-stop-"
+                f"{boundary.replace('_', '-')}-reauthentication-binding-v2"
+            ),
+            "service": LIFECYCLE_V2_CLEANUP_SERVICE,
+            "status": f"{boundary}_reauthentication_bound",
+            "environment": context.root.environment,
+            "graceful_stop_operation_id": context.root.graceful_stop_operation_id,
+            "lifecycle_root_sha256": context.root.sha256,
+            "channel_id": context.root.channel_id,
+            "boundary": boundary,
+            "intent_semantic_sha256": intent.sha256,
+            "issuer_identity_sha256": observation_fields["issuer_binding_sha256"],
+            "challenge_sha256": attempt.challenge_sha256,
+            "observation_semantic_sha256": observation_fields["semantic_sha256"],
+            "observed_head_sha256": observation_fields["current_anchor_sha256"],
+            "provider_identity_sha256": authenticated.primitives.provider_identity_sha256,
+            "observation_started_boottime_ns": observation_fields[
+                "observation_started_monotonic_ns"
+            ],
+            "observation_completed_boottime_ns": observation_fields[
+                "observation_completed_monotonic_ns"
+            ],
+        },
+        root=context.root,
+        intent=intent,
+        capability=attempt.semantic_binding_capability,
+    )
+
+
+_ObservationAuthenticator = Callable[
+    [object, object],
+    _LifecycleV2ADR0109ObservationCandidate,
+]
 
 
 def _bind_lifecycle_v2_pre_effect_observation_once(
     issuer: object,
     *,
     observation: object,
+    realm_identity: object,
+    realm_permit: object,
+    authenticate_observation: _ObservationAuthenticator,
+    begin_issuer: Callable[..., _IssuerAttempt],
+    register_binding: Callable[..., None],
+    semantic_binding_builder: Callable[
+        ...,
+        LifecycleV2AuthenticatedReauthenticationBinding,
+    ],
+    issue_binding: Callable[
+        ...,
+        LifecycleV2PreEffectBinding | LifecycleV2PostTeardownBinding,
+    ],
 ) -> LifecycleV2PreEffectBinding:
-    if type(issuer) is not _LifecycleV2PreEffectBindingIssuer:
-        _reject("pre-effect seam requires its exact private issuer")
-    exact_issuer = issuer
-    authenticated = _consume_issuer_once(exact_issuer, observation=observation)
-    context = exact_issuer._context
+    attempt = begin_issuer(
+        issuer,
+        realm_permit=realm_permit,
+        expected_type=_LifecycleV2PreEffectBindingIssuer,
+        realm_identity=realm_identity,
+    )
+    authenticated = _require_observation_candidate(
+        authenticate_observation(attempt.issuer, observation)
+    )
+    if authenticated.issuer_identity is not attempt.expected_observation_issuer:
+        _reject("ADR-0109 observation crossed its exact issuer object")
+    if type(attempt.context) is not _PreEffectContext:
+        _reject("pre-effect binding context is invalid")
+    context = attempt.context
     observation_fields = _require_observation_matches_result(
         authenticated,
         context.result,
@@ -1111,25 +1879,34 @@ def _bind_lifecycle_v2_pre_effect_observation_once(
             "topology_lease_sha256": context.root.topology_lease_sha256,
             "transport_quiescence_record_sha256": context.transport_quiescence.sha256,
             "pre_effect_intent_sha256": context.intent.sha256,
+            "adr0109_observation": observation_fields,
+            "adr0109_observation_sha256": authenticated.primitives.sha256,
             "provider_identity_sha256": authenticated.primitives.provider_identity_sha256,
             "observation_semantic_sha256": observation_fields["semantic_sha256"],
             "adr0109_issuer_binding_sha256": observation_fields["issuer_binding_sha256"],
             "adr0109_read_only_configuration_sha256": observation_fields[
                 "read_only_configuration_sha256"
             ],
-            "issuer_challenge_sha256": exact_issuer._challenge_sha256,
+            "issuer_challenge_sha256": attempt.challenge_sha256,
             "observation_started_monotonic_ns": started,
             "observation_completed_monotonic_ns": completed,
-            "observation_deadline_monotonic_ns": observation_fields[
-                "deadline_monotonic_ns"
-            ],
+            "observation_deadline_monotonic_ns": observation_fields["deadline_monotonic_ns"],
         }
     )
-    binding = _issue_binding(
+    semantic_binding = semantic_binding_builder(
+        boundary="pre_effect",
+        context=context,
+        attempt=attempt,
+        authenticated=authenticated,
+    )
+    binding = issue_binding(
         LifecycleV2PreEffectBinding,
         evidence=evidence,
-        issuer=exact_issuer,
+        semantic_binding=semantic_binding,
+        attempt=attempt,
         observation=authenticated,
+        realm_permit=realm_permit,
+        register_binding=register_binding,
     )
     assert type(binding) is LifecycleV2PreEffectBinding
     return binding
@@ -1139,27 +1916,52 @@ def _bind_lifecycle_v2_post_teardown_observation_once(
     issuer: object,
     *,
     observation: object,
+    realm_identity: object,
+    realm_permit: object,
+    authenticate_observation: _ObservationAuthenticator,
+    begin_issuer: Callable[..., _IssuerAttempt],
+    register_binding: Callable[..., None],
+    require_binding: Callable[..., _BindingRegistrySnapshot],
+    semantic_binding_builder: Callable[
+        ...,
+        LifecycleV2AuthenticatedReauthenticationBinding,
+    ],
+    issue_binding: Callable[
+        ...,
+        LifecycleV2PreEffectBinding | LifecycleV2PostTeardownBinding,
+    ],
 ) -> LifecycleV2PostTeardownBinding:
-    if type(issuer) is not _LifecycleV2PostTeardownBindingIssuer:
-        _reject("post-teardown seam requires its exact private issuer")
-    exact_issuer = issuer
-    authenticated = _consume_issuer_once(exact_issuer, observation=observation)
-    context = exact_issuer._context
-    pre_binding = _require_live_binding(
+    attempt = begin_issuer(
+        issuer,
+        realm_permit=realm_permit,
+        expected_type=_LifecycleV2PostTeardownBindingIssuer,
+        realm_identity=realm_identity,
+    )
+    authenticated = _require_observation_candidate(
+        authenticate_observation(attempt.issuer, observation)
+    )
+    if authenticated.issuer_identity is not attempt.expected_observation_issuer:
+        _reject("ADR-0109 observation crossed its exact issuer object")
+    if type(attempt.context) is not _PostTeardownContext:
+        _reject("post-teardown binding context is invalid")
+    context = attempt.context
+    pre_registration = require_binding(
         context.pre_binding,
         expected_type=LifecycleV2PreEffectBinding,
+        realm_identity=realm_identity,
     )
-    assert type(pre_binding) is LifecycleV2PreEffectBinding
     if (
-        authenticated.issuer_identity is pre_binding._observation_issuer_identity
-        or authenticated.observation_identity is pre_binding._observation_identity
+        authenticated.issuer_identity is pre_registration.observation_issuer_identity
+        or authenticated.observation_identity is pre_registration.observation_identity
     ):
         _reject("post-teardown seam reused the pre-effect issuer or observation object")
     observation_fields = _require_observation_matches_result(
         authenticated,
         context.result,
     )
-    pre_evidence = pre_binding.durable_evidence
+    if type(pre_registration.evidence) is not LifecycleV2PreEffectBindingEvidence:
+        _reject("post-teardown seam lost its pre-effect evidence")
+    pre_evidence = pre_registration.evidence
     pre_fields = pre_evidence.to_dict()
     latest_teardown_completion = max(
         cast(int, record.evidence.to_dict()["call_completed_boottime_ns"])
@@ -1173,8 +1975,7 @@ def _bind_lifecycle_v2_post_teardown_observation_once(
         or completed >= context.root.operation_deadline_boottime_ns
         or observation_fields["issuer_binding_sha256"]
         == pre_fields["adr0109_issuer_binding_sha256"]
-        or observation_fields["semantic_sha256"]
-        == pre_fields["observation_semantic_sha256"]
+        or observation_fields["semantic_sha256"] == pre_fields["observation_semantic_sha256"]
         or authenticated.primitives.provider_identity_sha256
         != pre_fields["provider_identity_sha256"]
         or observation_fields["current_anchor_sha256"]
@@ -1192,9 +1993,7 @@ def _bind_lifecycle_v2_post_teardown_observation_once(
             "lifecycle_root_sha256": context.root.sha256,
             "published_prefix_through_ordinal_18_sha256": context.transcript.sha256,
             "expected_checkpoint_reason": "clean_stop",
-            "expected_clean_stop_head_sha256": pre_fields[
-                "expected_clean_stop_head_sha256"
-            ],
+            "expected_clean_stop_head_sha256": pre_fields["expected_clean_stop_head_sha256"],
             "expected_clean_stop_terminal_result_semantic_sha256": pre_fields[
                 "expected_clean_stop_terminal_result_semantic_sha256"
             ],
@@ -1206,27 +2005,254 @@ def _bind_lifecycle_v2_post_teardown_observation_once(
             "project_network_remove_result_sha256": result_by_ordinal[16].sha256,
             "volume_proof_sha256": result_by_ordinal[18].sha256,
             "post_teardown_intent_sha256": context.intent.sha256,
+            "adr0109_observation": observation_fields,
+            "adr0109_observation_sha256": authenticated.primitives.sha256,
             "provider_identity_sha256": authenticated.primitives.provider_identity_sha256,
             "observation_semantic_sha256": observation_fields["semantic_sha256"],
             "adr0109_issuer_binding_sha256": observation_fields["issuer_binding_sha256"],
             "adr0109_read_only_configuration_sha256": observation_fields[
                 "read_only_configuration_sha256"
             ],
-            "issuer_challenge_sha256": exact_issuer._challenge_sha256,
+            "issuer_challenge_sha256": attempt.challenge_sha256,
             "observation_started_monotonic_ns": started,
             "observation_completed_monotonic_ns": completed,
-            "observation_deadline_monotonic_ns": observation_fields[
-                "deadline_monotonic_ns"
-            ],
+            "observation_deadline_monotonic_ns": observation_fields["deadline_monotonic_ns"],
         }
     )
     if evidence.binding_sha256 == pre_evidence.binding_sha256:
         _reject("pre-effect and post-teardown binding digests must be distinct")
-    binding = _issue_binding(
+    semantic_binding = semantic_binding_builder(
+        boundary="post_teardown",
+        context=context,
+        attempt=attempt,
+        authenticated=authenticated,
+    )
+    binding = issue_binding(
         LifecycleV2PostTeardownBinding,
         evidence=evidence,
-        issuer=exact_issuer,
+        semantic_binding=semantic_binding,
+        attempt=attempt,
         observation=authenticated,
+        realm_permit=realm_permit,
+        register_binding=register_binding,
     )
     assert type(binding) is LifecycleV2PostTeardownBinding
     return binding
+
+
+@dataclass(frozen=True, slots=True)
+class _LifecycleV2ReauthenticationBindingRealm:
+    prepare_pre_effect: Callable[..., _LifecycleV2PreEffectBindingIssuer]
+    bind_pre_effect: Callable[..., LifecycleV2PreEffectBinding]
+    prepare_post_teardown: Callable[..., _LifecycleV2PostTeardownBindingIssuer]
+    bind_post_teardown: Callable[..., LifecycleV2PostTeardownBinding]
+
+
+_PRODUCTION_ADAPTER_MODULE = "packages.adapters.trusted_time.graceful_stop_v2_reauthentication"
+_PRODUCTION_ADAPTER_AUTHENTICATOR = "_consume_exact_adr0109_observation"
+
+
+def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
+    Callable[..., _LifecycleV2ReauthenticationBindingRealm],
+    Callable[..., _LifecycleV2ReauthenticationBindingRealm],
+    Callable[..., _BindingRegistrySnapshot],
+]:
+    """Hide every registry mutation and production permit in one closure."""
+
+    (
+        register_realm,
+        register_issuer,
+        begin_issuer,
+        register_binding,
+        require_binding,
+        reserve_pre_binding,
+    ) = _build_binding_registries()  # noqa: F821 - captured before module deletion
+    initialize_issuer = _initialize_issuer  # noqa: F821 - installation-only binding
+    prepare_pre_effect_issuer = _prepare_lifecycle_v2_pre_effect_binding_issuer  # noqa: F821
+    prepare_post_teardown_issuer = _prepare_lifecycle_v2_post_teardown_binding_issuer  # noqa: F821
+    bind_pre_effect_observation = _bind_lifecycle_v2_pre_effect_observation_once  # noqa: F821
+    bind_post_teardown_observation = _bind_lifecycle_v2_post_teardown_observation_once  # noqa: F821
+    semantic_binding_builder = _semantic_binding  # noqa: F821 - installation-only
+    issue_binding = _issue_binding  # noqa: F821 - installation-only binding
+    production_challenge_source = secrets.token_bytes
+    production_claimed = False
+
+    def create_realm(
+        *,
+        authenticate_observation: _ObservationAuthenticator,
+        challenge_source: Callable[[int], bytes],
+        semantic_binding_capability: object,
+    ) -> _LifecycleV2ReauthenticationBindingRealm:
+        if not callable(authenticate_observation) or not callable(challenge_source):
+            _reject("reauthentication binding realm dependencies are invalid")
+        realm_identity = object()
+        realm_permit = object()
+        register_realm(
+            realm_permit,
+            realm_identity=realm_identity,
+            semantic_binding_capability=semantic_binding_capability,
+        )
+        origin_pid = os.getpid()
+        consumed_observation_lock = threading.Lock()
+        consumed_observations: dict[int, object] = {}
+
+        def authenticate_once(
+            binding_issuer: object,
+            observation: object,
+        ) -> _LifecycleV2ADR0109ObservationCandidate:
+            if os.getpid() != origin_pid:
+                _reject("reauthentication observation realm crossed its process")
+            authenticated = _require_observation_candidate(
+                authenticate_observation(binding_issuer, observation)
+            )
+            observation_identity = authenticated.observation_identity
+            with consumed_observation_lock:
+                existing = consumed_observations.get(id(observation_identity))
+                if existing is not None:
+                    _reject("authenticated ADR-0109 observation was replayed")
+                consumed_observations[id(observation_identity)] = observation_identity
+            return authenticated
+
+        def prepare_pre_effect(
+            *,
+            lineage_through_ordinal_5: object,
+            observation_issuer_identity: object,
+        ) -> _LifecycleV2PreEffectBindingIssuer:
+            return prepare_pre_effect_issuer(
+                lineage_through_ordinal_5=lineage_through_ordinal_5,
+                observation_issuer_identity=observation_issuer_identity,
+                challenge_source=challenge_source,
+                realm_identity=realm_identity,
+                realm_permit=realm_permit,
+                register_issuer=register_issuer,
+                initialize_issuer=initialize_issuer,
+            )
+
+        def bind_pre_effect(
+            issuer: object,
+            *,
+            observation: object,
+        ) -> LifecycleV2PreEffectBinding:
+            return bind_pre_effect_observation(
+                issuer,
+                observation=observation,
+                realm_identity=realm_identity,
+                realm_permit=realm_permit,
+                authenticate_observation=authenticate_once,
+                begin_issuer=begin_issuer,
+                register_binding=register_binding,
+                semantic_binding_builder=semantic_binding_builder,
+                issue_binding=issue_binding,
+            )
+
+        def prepare_post_teardown(
+            *,
+            lineage_through_ordinal_19: object,
+            pre_effect_binding: object,
+            observation_issuer_identity: object,
+        ) -> _LifecycleV2PostTeardownBindingIssuer:
+            return prepare_post_teardown_issuer(
+                lineage_through_ordinal_19=lineage_through_ordinal_19,
+                pre_effect_binding=pre_effect_binding,
+                observation_issuer_identity=observation_issuer_identity,
+                challenge_source=challenge_source,
+                realm_identity=realm_identity,
+                realm_permit=realm_permit,
+                register_issuer=register_issuer,
+                begin_issuer=begin_issuer,
+                require_binding=require_binding,
+                reserve_pre_binding=reserve_pre_binding,
+                initialize_issuer=initialize_issuer,
+            )
+
+        def bind_post_teardown(
+            issuer: object,
+            *,
+            observation: object,
+        ) -> LifecycleV2PostTeardownBinding:
+            return bind_post_teardown_observation(
+                issuer,
+                observation=observation,
+                realm_identity=realm_identity,
+                realm_permit=realm_permit,
+                authenticate_observation=authenticate_once,
+                begin_issuer=begin_issuer,
+                register_binding=register_binding,
+                require_binding=require_binding,
+                semantic_binding_builder=semantic_binding_builder,
+                issue_binding=issue_binding,
+            )
+
+        return _LifecycleV2ReauthenticationBindingRealm(
+            prepare_pre_effect=prepare_pre_effect,
+            bind_pre_effect=bind_pre_effect,
+            prepare_post_teardown=prepare_post_teardown,
+            bind_post_teardown=bind_post_teardown,
+        )
+
+    def build_fake_realm(
+        *,
+        authenticate_observation: _ObservationAuthenticator,
+        challenge_source: Callable[[int], bytes],
+    ) -> _LifecycleV2ReauthenticationBindingRealm:
+        """Build an explicitly fake realm with no production binding seal."""
+
+        return create_realm(
+            authenticate_observation=authenticate_observation,
+            challenge_source=challenge_source,
+            semantic_binding_capability=_FAKE_REAUTHENTICATION_BINDING_CAPABILITY,
+        )
+
+    def claim_production_realm(
+        *,
+        authenticate_observation: _ObservationAuthenticator,
+        challenge_source: Callable[[int], bytes],
+    ) -> _LifecycleV2ReauthenticationBindingRealm:
+        """One-shot claim by the exact direct ADR-0109 adapter function."""
+
+        nonlocal production_claimed
+        if production_claimed or not callable(authenticate_observation):
+            _reject("production ADR-0109 binding realm claim is invalid")
+        try:
+            adapter = importlib.import_module(_PRODUCTION_ADAPTER_MODULE)
+            exact_authenticator = getattr(
+                adapter,
+                _PRODUCTION_ADAPTER_AUTHENTICATOR,
+            )
+        except (AttributeError, ImportError) as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "production ADR-0109 binding realm claim is invalid"
+            ) from error
+        if (
+            authenticate_observation is not exact_authenticator
+            or challenge_source is not production_challenge_source
+        ):
+            _reject("production ADR-0109 binding realm claim is invalid")
+        production_claimed = True
+        return create_realm(
+            authenticate_observation=authenticate_observation,
+            challenge_source=challenge_source,
+            semantic_binding_capability=(_PRODUCTION_REAUTHENTICATION_BINDING_CAPABILITY),
+        )
+
+    return build_fake_realm, claim_production_realm, require_binding
+
+
+(
+    _build_fake_lifecycle_v2_reauthentication_binding_realm,
+    _claim_lifecycle_v2_production_reauthentication_binding_realm,
+    _require_live_binding,
+) = _install_lifecycle_v2_reauthentication_binding_realms()
+
+# Registry writers and object mints are installation-only implementation
+# details.  Removing their module bindings prevents consumers from combining
+# object.__new__ forgeries with a callable register/issue seam.
+del _bind_lifecycle_v2_post_teardown_observation_once
+del _bind_lifecycle_v2_pre_effect_observation_once
+del _build_binding_registries
+del _initialize_issuer
+del _install_lifecycle_v2_reauthentication_binding_realms
+del _issue_binding
+del _prepare_lifecycle_v2_post_teardown_binding_issuer
+del _prepare_lifecycle_v2_pre_effect_binding_issuer
+del _semantic_binding
