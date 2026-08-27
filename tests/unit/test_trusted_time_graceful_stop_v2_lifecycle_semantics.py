@@ -1696,9 +1696,20 @@ def test_post_teardown_transcript_rejects_digest_stage_predecessor_and_wire_subs
             )
             entries[2] = replace(entries[2], predecessor_sha256=forged_predecessor)
         else:
+            forged_wire_sha256 = _digest("forged-terminal-wire")
+            forged_wire_file_name = (
+                "trusted-time-post-enrollment-graceful-stop-v2-wire-result-"
+                f"{forged_wire_sha256}.json"
+            )
+            assert entries[2].wire_artifact_path is not None
             entries[2] = replace(
                 entries[2],
-                wire_artifact_sha256=_digest("forged-terminal-wire"),
+                wire_artifact_path=(
+                    entries[2].wire_artifact_path.rsplit("/", maxsplit=1)[0]
+                    + f"/{forged_wire_file_name}"
+                ),
+                wire_artifact_file_name=forged_wire_file_name,
+                wire_artifact_sha256=forged_wire_sha256,
             )
         forged = replace(transcript, entries=tuple(entries))
         with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
