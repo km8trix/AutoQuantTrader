@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from contextlib import suppress
 from enum import StrEnum
 from typing import Protocol, cast
 
@@ -38,6 +39,7 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     decode_lifecycle_v2_root,
     decode_lifecycle_v2_transcript,
     decode_unverified_lifecycle_v2_transport_envelope,
+    lifecycle_v2_dispatch_prefix_sha256,
     lifecycle_v2_progress_file_name,
     lifecycle_v2_wire_file_name,
 )
@@ -108,6 +110,22 @@ class LifecycleV2ArtifactStore(Protocol):
         encoded: bytes,
     ) -> None: ...
 
+    def close(self) -> None: ...
+
+
+class LifecycleV2RetainedWireVerifier(Protocol):
+    """Injected authenticator for complete retained terminal-envelope bytes."""
+
+    def reauthenticate_retained_terminal_wire(
+        self,
+        *,
+        envelope: UnverifiedLifecycleV2TransportEnvelope,
+        root: LifecycleV2Root,
+        request_intent: LifecycleV2ProgressRecord,
+        terminal_record: LifecycleV2ProgressRecord,
+        artifact_directory_path: str,
+    ) -> object | None: ...
+
 
 def _safe_artifact_directory_path(value: object) -> str:
     if (
@@ -156,14 +174,22 @@ class _LifecycleV2Repository:
         "_outcome",
         "_poisoned",
         "_records",
+        "_retained_wire_verifier",
         "_root",
         "_store",
         "_wire",
     )
 
-    def __init__(self, store: LifecycleV2ArtifactStore, *, artifact_directory_path: str) -> None:
+    def __init__(
+        self,
+        store: LifecycleV2ArtifactStore,
+        *,
+        artifact_directory_path: str,
+        retained_wire_verifier: LifecycleV2RetainedWireVerifier | None,
+    ) -> None:
         self._store = store
         self._artifact_directory_path = _safe_artifact_directory_path(artifact_directory_path)
+        self._retained_wire_verifier = retained_wire_verifier
         self._origin_pid = os.getpid()
         self._origin_thread = threading.current_thread()
         self._poisoned = False
@@ -184,6 +210,8 @@ class _LifecycleV2Repository:
 
     def _burn(self) -> None:
         self._poisoned = True
+        with suppress(Exception):
+            self._store.close()
 
     def _load_namespace(self) -> None:
         try:
@@ -279,9 +307,70 @@ class _LifecycleV2Repository:
             or evidence["frame_type"] != envelope.frame_type
         ):
             raise LifecycleV2RetentionUnconfirmed("ordinal-two record and wire bytes disagree")
-        raise LifecycleV2RetentionUnconfirmed(
-            "partial milestone-one cannot reauthenticate retained wire signatures"
+        verifier = self._retained_wire_verifier
+        if verifier is None:
+            raise LifecycleV2RetentionUnconfirmed(
+                "partial milestone-one cannot reauthenticate retained wire signatures "
+                "without an injected verifier"
+            )
+        if self._root is None or not self._records:
+            raise LifecycleV2RetentionUnconfirmed("retained wire has no exact dispatch prefix")
+        request_intent = self._records[0]
+        envelope_fields = envelope.to_dict()
+        expected_dispatch_prefix = lifecycle_v2_dispatch_prefix_sha256(
+            self._root,
+            request_intent,
         )
+        if (
+            evidence["intent_sha256"] != request_intent.sha256
+            or evidence["responder_identity_sha256"] != self._root.supervisor_process_epoch_sha256
+            or evidence[f"{prefix}_artifact_path"]
+            != f"{self._artifact_directory_path}/{wire_names[0]}"
+            or evidence["envelope_contract_version"] != envelope_fields["contract_version"]
+            or evidence["payload_contract_version"] != envelope_fields["payload_contract_version"]
+            or evidence[f"{prefix}_payload_sha256"] != envelope_fields["payload_sha256"]
+            or evidence[f"{prefix}_signature_sha256"] != envelope.signature_sha256
+            or evidence["key_generation"] != envelope_fields["key_generation"]
+            or evidence["signing_key_id"] != envelope_fields["signing_key_id"]
+            or evidence["channel_id"] != envelope_fields["channel_id"]
+            or evidence["lifecycle_dispatch_prefix_sha256"] != expected_dispatch_prefix
+            or evidence["message_counter"] != envelope_fields["message_counter"]
+            or evidence["deadline_boottime_ns"] != envelope_fields["deadline_boottime_ns"]
+            or envelope_fields["environment"] != self._root.environment
+            or envelope_fields["key_generation"] != self._root.transport_key_generation
+            or envelope_fields["signing_key_id"] != self._root.supervisor_transport_key_id
+            or envelope_fields["boot_epoch_sha256"] != self._root.boot_epoch_sha256
+            or envelope_fields["host_process_epoch_sha256"] != self._root.host_process_epoch_sha256
+            or envelope_fields["supervisor_process_epoch_sha256"]
+            != self._root.supervisor_process_epoch_sha256
+            or envelope_fields["channel_id"] != self._root.channel_id
+            or envelope_fields["lifecycle_dispatch_prefix_sha256"] != expected_dispatch_prefix
+            or envelope_fields["message_counter"] != 1
+            or envelope_fields["deadline_boottime_ns"]
+            != self._root.clean_stop_result_deadline_boottime_ns
+        ):
+            raise LifecycleV2RetentionUnconfirmed(
+                "retained wire does not bind the exact root, intent, record, and path"
+            )
+        try:
+            verified = verifier.reauthenticate_retained_terminal_wire(
+                envelope=envelope,
+                root=self._root,
+                request_intent=request_intent,
+                terminal_record=record,
+                artifact_directory_path=self._artifact_directory_path,
+            )
+        except BaseException as error:
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2RetentionUnconfirmed(
+                "retained wire signature reauthentication failed"
+            ) from None
+        if verified is not None:
+            raise LifecycleV2RetentionUnconfirmed(
+                "retained wire verifier returned an invalid authority value"
+            )
+        self._wire = envelope
 
     def _load_outcome(self, names: tuple[str, ...]) -> None:
         outcome_names = tuple(
@@ -887,10 +976,15 @@ def _open_injected_lifecycle_v2_repository(
     store: LifecycleV2ArtifactStore,
     *,
     artifact_directory_path: str,
+    retained_wire_verifier: LifecycleV2RetainedWireVerifier | None = None,
 ) -> _LifecycleV2Repository:
     """Test-only builder; deliberately private and without a default root."""
 
-    return _LifecycleV2Repository(store, artifact_directory_path=artifact_directory_path)
+    return _LifecycleV2Repository(
+        store,
+        artifact_directory_path=artifact_directory_path,
+        retained_wire_verifier=retained_wire_verifier,
+    )
 
 
 def lifecycle_v2_repository_non_authority_facts() -> dict[str, bool]:
@@ -909,6 +1003,7 @@ __all__ = [
     "LifecycleV2ArtifactStore",
     "LifecycleV2RepositoryRejected",
     "LifecycleV2RepositoryStatus",
+    "LifecycleV2RetainedWireVerifier",
     "LifecycleV2RetentionUnconfirmed",
     "LifecycleV2SlotConsumed",
     "lifecycle_v2_repository_non_authority_facts",

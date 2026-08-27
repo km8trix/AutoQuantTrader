@@ -125,6 +125,9 @@ class FakeLifecycleV2ArtifactStore:
 
         self._artifacts[file_name] = encoded
 
+    def close(self) -> None:
+        """Match the physical-store cleanup seam without hiding retained evidence."""
+
 
 def _publication_operation(file_name: str) -> str:
     if "wire-result" in file_name:

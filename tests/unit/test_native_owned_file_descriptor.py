@@ -49,6 +49,7 @@ from packages.adapters.trusted_time._owned_file_descriptor import (
     _open_root_directory,
     _OwnedFileDescriptor,
     _read_snapshot,
+    _rename_child_noreplace,
     _statat,
     _TrustedTimeLaunchLockLease,
     _validate_trusted_time_launch_lock,
@@ -255,6 +256,7 @@ def test_multiphase_module_is_inert_before_exec_and_active_exactly_once(
         (module._open_child_directory, ()),
         (module._open_child_regular, ()),
         (module._create_child_regular_exclusive, ()),
+        (module._rename_child_noreplace, ()),
         (module._fstat, (object(),)),
         (module._statat, ()),
         (module._read_snapshot, ()),
@@ -706,6 +708,32 @@ def test_writer_profile_is_bounded_exact_and_cannot_mutate_read_authority(
         directory.close()
 
 
+def test_owned_staging_rename_is_noreplace_and_identity_bound(tmp_path: Path) -> None:
+    directory = _open_directory(tmp_path)
+    first = _create_child_regular_exclusive(directory, "first-staging")
+    try:
+        _write_all(first, b"first")
+        _fsync(first)
+        first_identity = _fstat(first)
+        _rename_child_noreplace(directory, first, "first-staging", "artifact")
+        assert not (tmp_path / "first-staging").exists()
+        assert _statat(directory, "artifact")[:7] == first_identity[:7]
+
+        second = _create_child_regular_exclusive(directory, "second-staging")
+        try:
+            _write_all(second, b"second")
+            _fsync(second)
+            with pytest.raises(FileExistsError):
+                _rename_child_noreplace(directory, second, "second-staging", "artifact")
+            assert (tmp_path / "second-staging").read_bytes() == b"second"
+            assert (tmp_path / "artifact").read_bytes() == b"first"
+        finally:
+            second.close()
+    finally:
+        first.close()
+        directory.close()
+
+
 def test_flock_is_native_nonblocking_and_accepts_directory_authority(tmp_path: Path) -> None:
     first = _open_directory(tmp_path)
     second = _open_directory(tmp_path)
@@ -1070,7 +1098,7 @@ def test_capabilities_and_installed_binary_origin_are_exact() -> None:
         else "linux-close-once-no-retry"
     )
     assert _native_owned_file_descriptor_capabilities() == (
-        "cpython-c-extension-owned-fd-v3",
+        "cpython-c-extension-owned-fd-v4",
         "no-python-visible-descriptor",
         "atomic-owner-cell",
         "operation-specific-open-profiles",
@@ -1078,6 +1106,7 @@ def test_capabilities_and_installed_binary_origin_are_exact() -> None:
         "native-owner-authority-syscalls",
         "bounded-offset-zero-read-write-snapshots",
         "bounded-sorted-directory-snapshot",
+        "same-directory-native-noreplace-rename",
         "nonblocking-flock-and-fsync",
         "opaque-trusted-time-launch-lock-lease",
         "two-phase-current-path-launch-lock-validation",
@@ -2116,6 +2145,7 @@ def test_static_launcher_wrapper_has_no_dynamic_loader_or_owner_return_frame() -
         "_open_child_directory",
         "_open_child_regular",
         "_create_child_regular_exclusive",
+        "_rename_child_noreplace",
     ):
         operation = getattr(owned_fd_module, operation_name)
         native_operation = getattr(owned_fd_module, f"_native{operation_name}")

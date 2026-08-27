@@ -86,6 +86,13 @@ extern int change_fdguard_np(
 #define AQT_GUARD_CLOSE (1U << 0)
 #define AQT_GUARD_DUP (1U << 1)
 #define AQT_GUARD_FLAGS (AQT_GUARD_CLOSE | AQT_GUARD_DUP)
+#ifndef RENAME_EXCL
+#define RENAME_EXCL 0x00000004
+#endif
+#elif defined(__linux__)
+#ifndef RENAME_NOREPLACE
+#define RENAME_NOREPLACE (1U << 0)
+#endif
 #endif
 
 #ifndef AQT_NATIVE_MODULE_NAME
@@ -64181,6 +64188,207 @@ aqt_create_child_regular_exclusive(PyObject *module, PyObject *args)
     );
 }
 
+static int
+aqt_same_regular_identity_core(
+    const struct stat *left,
+    const struct stat *right
+)
+{
+    return S_ISREG(left->st_mode)
+        && S_ISREG(right->st_mode)
+        && left->st_dev == right->st_dev
+        && left->st_ino == right->st_ino
+        && left->st_mode == right->st_mode
+        && left->st_uid == right->st_uid
+        && left->st_gid == right->st_gid
+        && left->st_nlink == right->st_nlink
+        && left->st_size == right->st_size;
+}
+
+static int
+aqt_renameat_noreplace_native(
+    int directory_fd,
+    const char *source,
+    const char *destination
+)
+{
+#if defined(__APPLE__)
+    return renameatx_np(
+        directory_fd,
+        source,
+        directory_fd,
+        destination,
+        RENAME_EXCL
+    );
+#else
+    return renameat2(
+        directory_fd,
+        source,
+        directory_fd,
+        destination,
+        RENAME_NOREPLACE
+    );
+#endif
+}
+
+static PyObject *
+aqt_rename_child_noreplace(PyObject *module, PyObject *args)
+{
+    PyObject *directory_object;
+    PyObject *source_object;
+    PyObject *source_component;
+    PyObject *destination_component;
+    PyObject *source_bytes = NULL;
+    PyObject *destination_bytes = NULL;
+    const char *source_data = NULL;
+    const char *destination_data = NULL;
+    struct stat held_before;
+    struct stat named_before;
+    struct stat held_after;
+    struct stat named_after;
+    int directory_fd;
+    int source_fd;
+    int call_result = -1;
+    int saved_errno = 0;
+
+    if (aqt_require_active_module(module) < 0) {
+        return NULL;
+    }
+    if (!PyArg_ParseTuple(
+            args,
+            "OOOO:_rename_child_noreplace",
+            &directory_object,
+            &source_object,
+            &source_component,
+            &destination_component
+        )) {
+        return NULL;
+    }
+    if (aqt_exact_relative_component(
+            source_component,
+            &source_bytes,
+            &source_data
+        ) < 0) {
+        return NULL;
+    }
+    if (aqt_exact_relative_component(
+            destination_component,
+            &destination_bytes,
+            &destination_data
+        ) < 0) {
+        Py_DECREF(source_bytes);
+        return NULL;
+    }
+    if (strcmp(source_data, destination_data) == 0) {
+        Py_DECREF(destination_bytes);
+        Py_DECREF(source_bytes);
+        PyErr_SetString(
+            PyExc_ValueError,
+            "source and destination components must be distinct"
+        );
+        return NULL;
+    }
+
+    aqt_lock_owner_list_or_fail_stop();
+    directory_fd = aqt_live_owner_profile_fd_locked(
+        directory_object,
+        AQT_PROFILE_DIRECTORY
+    );
+    source_fd = aqt_live_owner_profile_fd_locked(
+        source_object,
+        AQT_PROFILE_WRITE_REGULAR
+    );
+    if (directory_fd < 0 || source_fd < 0) {
+        saved_errno = EBADF;
+    }
+    else if (fstat(source_fd, &held_before) < 0) {
+        saved_errno = errno;
+    }
+    else if (fstatat(
+            directory_fd,
+            source_data,
+            &named_before,
+            AT_SYMLINK_NOFOLLOW
+        ) < 0) {
+        saved_errno = errno;
+    }
+    else if (!aqt_same_regular_identity_core(&held_before, &named_before)
+            || held_before.st_nlink != 1) {
+        saved_errno = ESTALE;
+    }
+    else {
+        call_result = aqt_renameat_noreplace_native(
+            directory_fd,
+            source_data,
+            destination_data
+        );
+        saved_errno = errno;
+        if (call_result == 0) {
+            if (fstat(source_fd, &held_after) < 0) {
+                call_result = -1;
+                saved_errno = errno;
+            }
+            else if (fstatat(
+                    directory_fd,
+                    destination_data,
+                    &named_after,
+                    AT_SYMLINK_NOFOLLOW
+                ) < 0) {
+                call_result = -1;
+                saved_errno = errno;
+            }
+            else if (!aqt_same_regular_identity_core(
+                    &held_after,
+                    &named_after
+                )
+                || held_after.st_nlink != 1) {
+                call_result = -1;
+                saved_errno = ESTALE;
+            }
+            else if (fstatat(
+                    directory_fd,
+                    source_data,
+                    &named_before,
+                    AT_SYMLINK_NOFOLLOW
+                ) == 0) {
+                call_result = -1;
+                saved_errno = ESTALE;
+            }
+            else if (errno != ENOENT) {
+                call_result = -1;
+                saved_errno = errno;
+            }
+        }
+    }
+    aqt_unlock_owner_list_or_fail_stop();
+    Py_DECREF(destination_bytes);
+    Py_DECREF(source_bytes);
+
+    if (call_result < 0) {
+        if (directory_fd == -2 || source_fd == -2) {
+            PyErr_SetString(
+                PyExc_TypeError,
+                "owners must be exact native owned file descriptors"
+            );
+            return NULL;
+        }
+        if (directory_fd == -3 || source_fd == -3) {
+            PyErr_SetString(
+                PyExc_ValueError,
+                "owner has the wrong native authority profile"
+            );
+            return NULL;
+        }
+        if (directory_fd == -1 || source_fd == -1) {
+            PyErr_SetString(PyExc_ValueError, "owner is closed");
+            return NULL;
+        }
+        errno = saved_errno;
+        return PyErr_SetFromErrno(PyExc_OSError);
+    }
+    Py_RETURN_NONE;
+}
+
 static PyObject *
 aqt_capabilities(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
@@ -64189,8 +64397,8 @@ aqt_capabilities(PyObject *module, PyObject *Py_UNUSED(ignored))
     }
 #if defined(__APPLE__)
     return Py_BuildValue(
-        "(sssssssssssss)",
-        "cpython-c-extension-owned-fd-v3",
+        "(ssssssssssssss)",
+        "cpython-c-extension-owned-fd-v4",
         "no-python-visible-descriptor",
         "atomic-owner-cell",
         "operation-specific-open-profiles",
@@ -64198,6 +64406,7 @@ aqt_capabilities(PyObject *module, PyObject *Py_UNUSED(ignored))
         "native-owner-authority-syscalls",
         "bounded-offset-zero-read-write-snapshots",
         "bounded-sorted-directory-snapshot",
+        "same-directory-native-noreplace-rename",
         "nonblocking-flock-and-fsync",
         "opaque-trusted-time-launch-lock-lease",
         "two-phase-current-path-launch-lock-validation",
@@ -64206,8 +64415,8 @@ aqt_capabilities(PyObject *module, PyObject *Py_UNUSED(ignored))
     );
 #else
     return Py_BuildValue(
-        "(sssssssssssss)",
-        "cpython-c-extension-owned-fd-v3",
+        "(ssssssssssssss)",
+        "cpython-c-extension-owned-fd-v4",
         "no-python-visible-descriptor",
         "atomic-owner-cell",
         "operation-specific-open-profiles",
@@ -64215,6 +64424,7 @@ aqt_capabilities(PyObject *module, PyObject *Py_UNUSED(ignored))
         "native-owner-authority-syscalls",
         "bounded-offset-zero-read-write-snapshots",
         "bounded-sorted-directory-snapshot",
+        "same-directory-native-noreplace-rename",
         "nonblocking-flock-and-fsync",
         "opaque-trusted-time-launch-lock-lease",
         "two-phase-current-path-launch-lock-validation",
@@ -66484,6 +66694,12 @@ static PyMethodDef aqt_module_methods[] = {
         (PyCFunction)aqt_create_child_regular_exclusive,
         METH_VARARGS,
         PyDoc_STR("Exclusively create one mode-0600 child through an exact owner.")
+    },
+    {
+        "_rename_child_noreplace",
+        (PyCFunction)aqt_rename_child_noreplace,
+        METH_VARARGS,
+        PyDoc_STR("Rename one exact owned staging inode without replacing a child.")
     },
     {
         "_fstat",

@@ -37,6 +37,7 @@ _NATIVE_FUNCTION_NAMES = (
     "_open_child_directory",
     "_open_child_regular",
     "_create_child_regular_exclusive",
+    "_rename_child_noreplace",
     "_fstat",
     "_statat",
     "_read_snapshot",
@@ -52,7 +53,7 @@ _NATIVE_FUNCTION_NAMES = (
     "_self_test",
 )
 _EXPECTED_CAPABILITIES = (
-    "cpython-c-extension-owned-fd-v3",
+    "cpython-c-extension-owned-fd-v4",
     "no-python-visible-descriptor",
     "atomic-owner-cell",
     "operation-specific-open-profiles",
@@ -60,6 +61,7 @@ _EXPECTED_CAPABILITIES = (
     "native-owner-authority-syscalls",
     "bounded-offset-zero-read-write-snapshots",
     "bounded-sorted-directory-snapshot",
+    "same-directory-native-noreplace-rename",
     "nonblocking-flock-and-fsync",
     "opaque-trusted-time-launch-lock-lease",
     "two-phase-current-path-launch-lock-validation",
@@ -184,6 +186,7 @@ del _preloaded_candidate
     _native_open_child_directory,
     _native_open_child_regular,
     _native_create_child_regular_exclusive,
+    _native_rename_child_noreplace,
     _native_fstat,
     _native_statat,
     _native_read_snapshot,
@@ -236,6 +239,13 @@ if TYPE_CHECKING:
         component: str | bytes,
     ) -> _OwnedFileDescriptor: ...
 
+    def _rename_child_noreplace(
+        directory: _OwnedFileDescriptor,
+        source: _OwnedFileDescriptor,
+        source_component: str | bytes,
+        destination_component: str | bytes,
+    ) -> None: ...
+
     def _fstat(owner: _OwnedFileDescriptor) -> _Stat9: ...
 
     def _statat(directory: _OwnedFileDescriptor, component: str | bytes) -> _Stat9: ...
@@ -275,6 +285,7 @@ else:
     _open_child_directory = _native_open_child_directory
     _open_child_regular = _native_open_child_regular
     _create_child_regular_exclusive = _native_create_child_regular_exclusive
+    _rename_child_noreplace = _native_rename_child_noreplace
     _fstat = _native_fstat
     _statat = _native_statat
     _read_snapshot = _native_read_snapshot

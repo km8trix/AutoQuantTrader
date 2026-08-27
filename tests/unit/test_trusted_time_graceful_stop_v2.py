@@ -280,11 +280,38 @@ def _fake_authenticated_result(
 
 def _repository(
     store: FakeLifecycleV2ArtifactStore | None = None,
+    verifier: persistence.LifecycleV2RetainedWireVerifier | None = None,
 ) -> Any:
     return persistence._open_injected_lifecycle_v2_repository(
         store or FakeLifecycleV2ArtifactStore(),
         artifact_directory_path=ARTIFACT_DIRECTORY,
+        retained_wire_verifier=verifier,
     )
+
+
+class _RecordingRetainedWireVerifier:
+    def __init__(self, *, reject: bool = False, invalid_return: bool = False) -> None:
+        self.reject = reject
+        self.invalid_return = invalid_return
+        self.calls: list[tuple[object, ...]] = []
+
+    def reauthenticate_retained_terminal_wire(
+        self,
+        *,
+        envelope: UnverifiedLifecycleV2TransportEnvelope,
+        root: LifecycleV2Root,
+        request_intent: LifecycleV2ProgressRecord,
+        terminal_record: LifecycleV2ProgressRecord,
+        artifact_directory_path: str,
+    ) -> Any:
+        self.calls.append(
+            (envelope, root, request_intent, terminal_record, artifact_directory_path)
+        )
+        if self.reject:
+            raise ValueError("injected signature rejection")
+        if self.invalid_return:
+            return object()
+        return None
 
 
 def _recovery_intent(
@@ -820,6 +847,54 @@ def test_restart_with_retained_wire_fails_closed_until_crypto_reauth_exists() ->
         match="cannot reauthenticate retained wire signatures",
     ):
         _repository(store)
+
+
+def test_restart_with_retained_wire_uses_only_the_injected_verifier_seam() -> None:
+    root = _root()
+    basis = _request_basis(root)
+    intent = _request_intent(root, basis)
+    envelope = _result_envelope(root, intent)
+    record = _result_record(root, intent, envelope)
+    store = FakeLifecycleV2ArtifactStore()
+    repository = _repository(store)
+    repository.reserve_root(root)
+    repository.retain_request_intent(intent, basis)
+    repository.retain_authenticated_terminal_wire(
+        record,
+        _fake_authenticated_result(root, basis, intent, envelope),
+    )
+
+    verifier = _RecordingRetainedWireVerifier()
+    reopened = _repository(store, verifier)
+
+    assert reopened.status is persistence.LifecycleV2RepositoryStatus.ROOT_RESERVED
+    assert verifier.calls == [(envelope, root, intent, record, ARTIFACT_DIRECTORY)]
+
+
+@pytest.mark.parametrize("invalid_return", [False, True])
+def test_retained_wire_verifier_rejection_never_becomes_restart_authentication(
+    invalid_return: bool,
+) -> None:
+    root = _root()
+    basis = _request_basis(root)
+    intent = _request_intent(root, basis)
+    envelope = _result_envelope(root, intent)
+    record = _result_record(root, intent, envelope)
+    store = FakeLifecycleV2ArtifactStore()
+    repository = _repository(store)
+    repository.reserve_root(root)
+    repository.retain_request_intent(intent, basis)
+    repository.retain_authenticated_terminal_wire(
+        record,
+        _fake_authenticated_result(root, basis, intent, envelope),
+    )
+    verifier = _RecordingRetainedWireVerifier(
+        reject=not invalid_return,
+        invalid_return=invalid_return,
+    )
+
+    with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
+        _repository(store, verifier)
 
 
 def test_restart_recovery_intent_binds_exact_immediate_predecessor_transcript() -> None:
