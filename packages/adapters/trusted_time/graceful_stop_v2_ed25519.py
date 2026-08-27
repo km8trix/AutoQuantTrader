@@ -27,6 +27,11 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     decode_unverified_lifecycle_v2_transport_envelope,
     lifecycle_v2_dispatch_prefix_sha256,
 )
+from packages.domain.trusted_time_graceful_stop_v2_terminal import (
+    _PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
+    LifecycleV2AuthenticatedTerminalEnvelopeProof,
+    _mint_authenticated_lifecycle_v2_terminal_envelope_proof,
+)
 from packages.domain.trusted_time_graceful_stop_v2_transport import (
     LifecycleV2Handshake,
     LifecycleV2TransportAuthorityManifest,
@@ -511,6 +516,32 @@ class AuthenticatedLifecycleV2TransportEnvelope:
         raise TypeError("authenticated transport envelopes require signature verification")
 
 
+def _unwrap_authenticated_lifecycle_v2_transport_envelope(
+    value: object,
+) -> tuple[UnverifiedLifecycleV2TransportEnvelope, str, str]:
+    if (
+        type(value) is not AuthenticatedLifecycleV2TransportEnvelope
+        or value._capability is not _AUTHENTICATED_VALUE_CAPABILITY
+        or type(value.envelope) is not UnverifiedLifecycleV2TransportEnvelope
+    ):
+        raise LifecycleV2TransportAuthenticationError(
+            "terminal proof requires an exact authenticated transport envelope"
+        )
+    return value.envelope, value.authority_manifest_sha256, value.signer_role
+
+
+def bind_authenticated_lifecycle_v2_terminal_envelope_proof(
+    authenticated_envelope: object,
+) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
+    """Cross the reviewed adapter-to-domain seam for one authenticated terminal frame."""
+
+    return _mint_authenticated_lifecycle_v2_terminal_envelope_proof(
+        authenticated_envelope,
+        unwrap=_unwrap_authenticated_lifecycle_v2_transport_envelope,
+        capability=_PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
+    )
+
+
 def _transport_envelope_signature_input(
     envelope: UnverifiedLifecycleV2TransportEnvelope,
 ) -> bytes:
@@ -705,5 +736,6 @@ __all__ = [
     "authenticate_root_bound_lifecycle_v2_transport_frame",
     "authenticate_selected_lifecycle_v2_handshake",
     "authenticated_lifecycle_v2_recovery_manifest_for_root",
+    "bind_authenticated_lifecycle_v2_terminal_envelope_proof",
     "lifecycle_v2_ed25519_non_authority_facts",
 ]

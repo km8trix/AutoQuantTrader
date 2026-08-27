@@ -19,6 +19,7 @@ from packages.adapters.trusted_time.graceful_stop_v2_ed25519 import (
     authenticate_root_bound_lifecycle_v2_transport_frame,
     authenticate_selected_lifecycle_v2_handshake,
     authenticated_lifecycle_v2_recovery_manifest_for_root,
+    bind_authenticated_lifecycle_v2_terminal_envelope_proof,
     lifecycle_v2_ed25519_non_authority_facts,
 )
 from packages.domain.trusted_time_graceful_stop_v2 import (
@@ -1199,6 +1200,47 @@ def test_ed25519_authenticator_verifies_every_transport_frame_role(frame_type: s
     assert authenticated.signer_role == (
         "host" if frame_type == "clean_stop_request" else "supervisor"
     )
+
+
+@pytest.mark.parametrize("frame_type", ["clean_stop_result", "clean_stop_error"])
+def test_authenticated_terminal_frame_crosses_the_private_proof_seam(
+    frame_type: str,
+) -> None:
+    manifest = _manifest()
+    root = _root(manifest)
+    intent = _intent(root)
+    envelope = _envelope(root, intent, frame_type=frame_type)
+    authenticated = authenticate_root_bound_lifecycle_v2_transport_frame(
+        envelope.encoded,
+        authority_manifest=_authenticated_manifest(manifest),
+        root=root,
+        request_intent=intent,
+    )
+
+    proof = bind_authenticated_lifecycle_v2_terminal_envelope_proof(authenticated)
+
+    assert proof.envelope == envelope
+    assert proof.authority_manifest_sha256 == root.transport_authority_manifest_sha256
+    assert proof.signer_role == "supervisor"
+
+
+def test_terminal_proof_seam_rejects_raw_or_non_terminal_envelopes() -> None:
+    manifest = _manifest()
+    root = _root(manifest)
+    intent = _intent(root)
+    result_envelope = _envelope(root, intent, frame_type="clean_stop_result")
+    request_envelope = _envelope(root, intent, frame_type="clean_stop_request")
+    authenticated_request = authenticate_root_bound_lifecycle_v2_transport_frame(
+        request_envelope.encoded,
+        authority_manifest=_authenticated_manifest(manifest),
+        root=root,
+        request_intent=intent,
+    )
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+        bind_authenticated_lifecycle_v2_terminal_envelope_proof(result_envelope)
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+        bind_authenticated_lifecycle_v2_terminal_envelope_proof(authenticated_request)
 
 
 def test_generic_frame_verifier_rejects_parallel_manifest_with_same_endpoint_keys() -> None:
