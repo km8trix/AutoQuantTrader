@@ -68,6 +68,33 @@ reserved origins across `apps`, `packages`, `scripts`, and executable Alembic
 `migrations`, while the bootstrap seal pins `alembic.ini`; these are static
 integrity controls and add no runtime authority.
 
+Wave 5 and its Linux type-check repair are promoted to local and remote
+`main` at exact revision
+`56167801080eceb9ff6de2cf1739641730bb0224`. Exact-main CI run 135 passed all
+eleven jobs: the four backend shards and their PostgreSQL gates, architecture
+and browser checks, all four native OS/Python package jobs, the container and
+paper-image builds, and trusted-time evidence-image admission. The backend
+union reported 11,700 passed tests and 1,089 expected skips with zero failures.
+This evidence closes the Wave 5 integration and CI-repair checkpoints only;
+the Phase 1 external-admission dependency and the Phase 3-6 exit gates remain
+open.
+
+The next repository-local delivery wave is Wave 6: completion of ADR 0121
+lifecycle-v2 milestone one. ADR 0124 is only its injected partial core. Wave 6
+must remain unreachable from production and keep `trusted-time-stop` at its
+exact exit-2 no-effect contract while it closes the remaining canonical
+authority/identity/channel and signed-envelope contracts, complete clean-stop
+and Docker HTTP evidence schemas, byte-level fake daemon, descriptor-safe
+injected-root persistence, retained-wire authentication, confirmed-success and
+authenticated-recovery sequencing, full fault/fork/bounds evidence, and the
+associated architecture/source seals. Foundation contract, fake-daemon, and
+persistence lanes may proceed concurrently; success/recovery integration must
+follow their frozen interfaces, and closure requires the complete regression
+and independent exact-commit review. ADR 0121 milestone two remains a later
+wave: no real endpoint or signer owner, credential provisioning, production
+root, real Docker transport, production caller, deployment change, stop effect,
+or operational authority belongs in Wave 6.
+
 Phase 1B now provides the provider-neutral source seam, strict evidence evaluator,
 durable admission reports, and browser visibility. It is **implemented locally
 against synthetic contract fixtures; licensed vendor admission remains pending**.
