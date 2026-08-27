@@ -827,6 +827,21 @@ def test_architecture_guard_is_disabled_when_phase3h_policy_is_absent() -> None:
     )
 
 
+def test_architecture_guard_allows_benign_compile_attribute_and_exec_text() -> None:
+    assert not _phase3h_proof_boundary_violations(
+        ast.parse("import re\npattern = re.compile('x')\nlabel = 'exec'"),
+        policy_enabled=True,
+        relative_path=Path("packages/domain/benign_fixture.py"),
+        proof_module="packages.domain.fixture_segment_economics",
+        proof_path=Path("packages/domain/fixture_segment_economics.py"),
+        execution_module="packages.application.fixture_segment_economics",
+        execution_path=Path("packages/application/fixture_segment_economics.py"),
+        allowed_proof_imports=frozenset(),
+        module_ast_sha256={},
+        dynamic_code_exception_module_ast_sha256={},
+    )
+
+
 def test_architecture_guard_accepts_only_exact_phase3h_modules() -> None:
     with (REPOSITORY / "infra/architecture-boundaries.toml").open("rb") as stream:
         scan = tomllib.load(stream)["scan"]

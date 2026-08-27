@@ -5537,12 +5537,7 @@ def _phase3h_proof_boundary_violations(
         }
     )
     dynamic_code_names = frozenset({"compile", "eval", "exec"})
-    reserved_text = (
-        reserved_names
-        | dynamic_code_names
-        | dynamic_loader_names
-        | {proof_module, execution_module}
-    )
+    reserved_text = reserved_names | dynamic_loader_names | {proof_module, execution_module}
     reserved_fragments = reserved_names | {
         proof_module,
         execution_module,
@@ -5550,6 +5545,38 @@ def _phase3h_proof_boundary_violations(
         execution_path.as_posix(),
     }
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    builtins_names = {"__builtins__"}
+    builtins_names.update(
+        alias.asname or "builtins"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "builtins"
+    )
+
+    def is_builtins_namespace(node: ast.AST) -> bool:
+        return isinstance(node, ast.Name) and node.id in builtins_names
+
+    def reflected_builtin_dynamic_code(node: ast.AST) -> str | None:
+        if isinstance(node, ast.Attribute):
+            return node.attr if is_builtins_namespace(node.value) else None
+        if isinstance(node, ast.Call) and len(node.args) >= 2:
+            direct_getattr = isinstance(node.func, ast.Name) and node.func.id == "getattr"
+            builtin_getattr = (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "getattr"
+                and is_builtins_namespace(node.func.value)
+            )
+            if (direct_getattr or builtin_getattr) and is_builtins_namespace(node.args[0]):
+                return _constant_folded_text(node.args[1])
+        if isinstance(node, ast.Subscript):
+            namespace = node.value
+            if isinstance(namespace, ast.Attribute) and namespace.attr == "__dict__":
+                namespace = namespace.value
+            if is_builtins_namespace(namespace):
+                return _constant_folded_text(node.slice)
+        return None
+
     for node in ast.walk(tree):
         dangerous_import: str | None = None
         if isinstance(node, ast.Import):
@@ -5577,8 +5604,8 @@ def _phase3h_proof_boundary_violations(
         dynamic_code: str | None = None
         if isinstance(node, ast.Name) and node.id in dynamic_code_names:
             dynamic_code = node.id
-        elif isinstance(node, ast.Attribute) and node.attr in dynamic_code_names:
-            dynamic_code = node.attr
+        elif reflected_builtin_dynamic_code(node) in dynamic_code_names:
+            dynamic_code = reflected_builtin_dynamic_code(node)
         elif isinstance(node, ast.alias):
             origin = node.name.rpartition(".")[2]
             local = node.asname or origin
