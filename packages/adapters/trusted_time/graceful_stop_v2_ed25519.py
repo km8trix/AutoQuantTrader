@@ -37,16 +37,16 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     lifecycle_v2_wire_file_name,
 )
 from packages.domain.trusted_time_graceful_stop_v2_recovery import (
-    _PRODUCTION_RECOVERY_INTENT_CAPABILITY,
     LifecycleV2AuthenticatedRecoveryIntent,
     LifecycleV2RecoveryClassificationEnvelope,
     _consume_authenticated_lifecycle_v2_recovery_classification_envelope,
+    _install_authenticated_lifecycle_v2_recovery_adapter_endpoint,
     decode_lifecycle_v2_recovery_classification_envelope,
 )
 from packages.domain.trusted_time_graceful_stop_v2_terminal import (
-    _PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
     LifecycleV2AuthenticatedTerminalEnvelopeProof,
     LifecycleV2TerminalWireEvidence,
+    _install_authenticated_terminal_envelope_adapter_endpoint,
     _mint_authenticated_lifecycle_v2_terminal_envelope_proof,
 )
 from packages.domain.trusted_time_graceful_stop_v2_transport import (
@@ -68,8 +68,6 @@ TRANSPORT_ENVELOPE_SIGNATURE_DOMAIN = (
     "AutoQuantTrader/trusted-time/graceful-stop/transport-envelope/v2"
 )
 TRANSPORT_ENVELOPE_MAXIMUM_OVERHEAD_BYTES = 8_192
-
-_AUTHENTICATED_VALUE_CAPABILITY = object()
 
 
 class LifecycleV2TransportAuthenticationError(RuntimeError):
@@ -114,68 +112,120 @@ class AuthenticatedLifecycleV2TransportAuthorityManifest:
         raise TypeError("authenticated authority manifests require verification")
 
 
-def _authenticated_manifest(
-    manifest: LifecycleV2TransportAuthorityManifest,
-    root_public_key: bytes,
-) -> AuthenticatedLifecycleV2TransportAuthorityManifest:
-    result = object.__new__(AuthenticatedLifecycleV2TransportAuthorityManifest)
-    object.__setattr__(result, "manifest", manifest)
-    object.__setattr__(
-        result,
-        "root_public_key_sha256",
-        hashlib.sha256(root_public_key).hexdigest(),
-    )
-    object.__setattr__(result, "_capability", _AUTHENTICATED_VALUE_CAPABILITY)
-    return result
+@dataclass(frozen=True, slots=True)
+class _AuthenticatedManifestIssuanceSnapshot:
+    value: AuthenticatedLifecycleV2TransportAuthorityManifest
+    manifest_encoded: bytes
+    root_public_key_sha256: str
+    origin_pid: int
+    origin_thread: threading.Thread
 
 
-def _require_authenticated_manifest(
-    value: object,
-) -> AuthenticatedLifecycleV2TransportAuthorityManifest:
-    if (
-        type(value) is not AuthenticatedLifecycleV2TransportAuthorityManifest
-        or value._capability is not _AUTHENTICATED_VALUE_CAPABILITY
-        or type(value.manifest) is not LifecycleV2TransportAuthorityManifest
-    ):
-        raise LifecycleV2TransportAuthenticationError(
-            "transport authority manifest is not authenticated"
+def _build_manifest_authentication_endpoints() -> tuple[
+    Callable[..., AuthenticatedLifecycleV2TransportAuthorityManifest],
+    Callable[[object], AuthenticatedLifecycleV2TransportAuthorityManifest],
+]:
+    """Keep manifest issuance authority inside the verifying endpoint closure."""
+
+    snapshots: dict[int, _AuthenticatedManifestIssuanceSnapshot] = {}
+    issuance_capability = object()
+    lock = threading.Lock()
+
+    def require(value: object) -> AuthenticatedLifecycleV2TransportAuthorityManifest:
+        key = id(value)
+        with lock:
+            snapshot = snapshots.get(key)
+        if (
+            snapshot is None
+            or snapshot.value is not value
+            or type(value) is not AuthenticatedLifecycleV2TransportAuthorityManifest
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "transport authority manifest is not authenticated"
+            )
+        try:
+            canonical = decode_lifecycle_v2_transport_authority_manifest(snapshot.manifest_encoded)
+            value_manifest = value.manifest
+            value_root_digest = value.root_public_key_sha256
+            value_capability = value._capability
+        except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "authenticated transport authority manifest changed under validation"
+            ) from error
+        if (
+            os.getpid() != snapshot.origin_pid
+            or threading.current_thread() is not snapshot.origin_thread
+            or value_capability is not issuance_capability
+            or type(value_manifest) is not LifecycleV2TransportAuthorityManifest
+            or canonical.encoded != snapshot.manifest_encoded
+            or value_manifest != canonical
+            or value_manifest.encoded != snapshot.manifest_encoded
+            or value_root_digest != snapshot.root_public_key_sha256
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "authenticated transport authority manifest changed under validation"
+            )
+        return value
+
+    def authenticate(
+        encoded: object,
+        *,
+        reviewed_root_key_id: str,
+        reviewed_root_public_key: bytes,
+    ) -> AuthenticatedLifecycleV2TransportAuthorityManifest:
+        """Decode and authenticate one manifest under the injected offline root."""
+
+        try:
+            manifest = decode_lifecycle_v2_transport_authority_manifest(encoded)
+        except TrustedTimeGracefulStopV2Rejected as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "transport authority manifest is not canonical"
+            ) from error
+        if type(reviewed_root_key_id) is not str or manifest.root_key_id != reviewed_root_key_id:
+            raise LifecycleV2TransportAuthenticationError(
+                "transport authority manifest crossed the reviewed root identity"
+            )
+        public_key = reviewed_root_public_key if type(reviewed_root_public_key) is bytes else b""
+        if reviewed_root_key_id in {
+            manifest.host_key_id,
+            manifest.supervisor_key_id,
+            manifest.recovery_key_id,
+        } or public_key in {
+            manifest.host_public_key,
+            manifest.supervisor_public_key,
+            manifest.recovery_public_key,
+        }:
+            raise LifecycleV2TransportAuthenticationError(
+                "offline transport root identity cannot be reused by an endpoint role"
+            )
+        _verify(public_key, manifest.signature_input, manifest.signature)
+        result = object.__new__(AuthenticatedLifecycleV2TransportAuthorityManifest)
+        root_digest = hashlib.sha256(public_key).hexdigest()
+        object.__setattr__(result, "manifest", manifest)
+        object.__setattr__(result, "root_public_key_sha256", root_digest)
+        object.__setattr__(result, "_capability", issuance_capability)
+        snapshot = _AuthenticatedManifestIssuanceSnapshot(
+            value=result,
+            manifest_encoded=manifest.encoded,
+            root_public_key_sha256=root_digest,
+            origin_pid=os.getpid(),
+            origin_thread=threading.current_thread(),
         )
-    return value
+        with lock:
+            if id(result) in snapshots:
+                raise LifecycleV2TransportAuthenticationError(
+                    "transport authority manifest identity was already authenticated"
+                )
+            snapshots[id(result)] = snapshot
+        return require(result)
+
+    return authenticate, require
 
 
-def authenticate_lifecycle_v2_transport_authority_manifest(
-    encoded: object,
-    *,
-    reviewed_root_key_id: str,
-    reviewed_root_public_key: bytes,
-) -> AuthenticatedLifecycleV2TransportAuthorityManifest:
-    """Decode and authenticate one manifest under the injected offline root."""
-
-    try:
-        manifest = decode_lifecycle_v2_transport_authority_manifest(encoded)
-    except TrustedTimeGracefulStopV2Rejected as error:
-        raise LifecycleV2TransportAuthenticationError(
-            "transport authority manifest is not canonical"
-        ) from error
-    if type(reviewed_root_key_id) is not str or manifest.root_key_id != reviewed_root_key_id:
-        raise LifecycleV2TransportAuthenticationError(
-            "transport authority manifest crossed the reviewed root identity"
-        )
-    public_key = reviewed_root_public_key if type(reviewed_root_public_key) is bytes else b""
-    if reviewed_root_key_id in {
-        manifest.host_key_id,
-        manifest.supervisor_key_id,
-        manifest.recovery_key_id,
-    } or public_key in {
-        manifest.host_public_key,
-        manifest.supervisor_public_key,
-        manifest.recovery_public_key,
-    }:
-        raise LifecycleV2TransportAuthenticationError(
-            "offline transport root identity cannot be reused by an endpoint role"
-        )
-    _verify(public_key, manifest.signature_input, manifest.signature)
-    return _authenticated_manifest(manifest, public_key)
+(
+    authenticate_lifecycle_v2_transport_authority_manifest,
+    _require_authenticated_manifest,
+) = _build_manifest_authentication_endpoints()
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -188,51 +238,105 @@ class AuthenticatedLifecycleV2TransportAuthoritySelection:
         raise TypeError("authenticated authority selections require verification")
 
 
-def _authenticated_selection(
-    selection: LifecycleV2TransportAuthoritySelection,
-    root_public_key: bytes,
-) -> AuthenticatedLifecycleV2TransportAuthoritySelection:
-    result = object.__new__(AuthenticatedLifecycleV2TransportAuthoritySelection)
-    object.__setattr__(result, "selection", selection)
-    object.__setattr__(
-        result,
-        "root_public_key_sha256",
-        hashlib.sha256(root_public_key).hexdigest(),
-    )
-    object.__setattr__(result, "_capability", _AUTHENTICATED_VALUE_CAPABILITY)
-    return result
+@dataclass(frozen=True, slots=True)
+class _AuthenticatedSelectionIssuanceSnapshot:
+    value: AuthenticatedLifecycleV2TransportAuthoritySelection
+    selection_encoded: bytes
+    root_public_key_sha256: str
+    origin_pid: int
+    origin_thread: threading.Thread
 
 
-def _require_authenticated_selection(
-    value: object,
-) -> AuthenticatedLifecycleV2TransportAuthoritySelection:
-    if (
-        type(value) is not AuthenticatedLifecycleV2TransportAuthoritySelection
-        or value._capability is not _AUTHENTICATED_VALUE_CAPABILITY
-        or type(value.selection) is not LifecycleV2TransportAuthoritySelection
-    ):
-        raise LifecycleV2TransportAuthenticationError(
-            "transport authority selection is not authenticated"
+def _build_selection_authentication_endpoints() -> tuple[
+    Callable[..., AuthenticatedLifecycleV2TransportAuthoritySelection],
+    Callable[[object], AuthenticatedLifecycleV2TransportAuthoritySelection],
+]:
+    """Keep selection issuance authority inside the verifying endpoint closure."""
+
+    snapshots: dict[int, _AuthenticatedSelectionIssuanceSnapshot] = {}
+    issuance_capability = object()
+    lock = threading.Lock()
+
+    def require(value: object) -> AuthenticatedLifecycleV2TransportAuthoritySelection:
+        key = id(value)
+        with lock:
+            snapshot = snapshots.get(key)
+        if (
+            snapshot is None
+            or snapshot.value is not value
+            or type(value) is not AuthenticatedLifecycleV2TransportAuthoritySelection
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "transport authority selection is not authenticated"
+            )
+        try:
+            canonical = decode_lifecycle_v2_transport_authority_selection(
+                snapshot.selection_encoded
+            )
+            value_selection = value.selection
+            value_root_digest = value.root_public_key_sha256
+            value_capability = value._capability
+        except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "authenticated transport authority selection changed under validation"
+            ) from error
+        if (
+            os.getpid() != snapshot.origin_pid
+            or threading.current_thread() is not snapshot.origin_thread
+            or value_capability is not issuance_capability
+            or type(value_selection) is not LifecycleV2TransportAuthoritySelection
+            or canonical.encoded != snapshot.selection_encoded
+            or value_selection != canonical
+            or value_selection.encoded != snapshot.selection_encoded
+            or value_root_digest != snapshot.root_public_key_sha256
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "authenticated transport authority selection changed under validation"
+            )
+        return value
+
+    def authenticate(
+        encoded: object,
+        *,
+        reviewed_root_public_key: bytes,
+    ) -> AuthenticatedLifecycleV2TransportAuthoritySelection:
+        """Decode and authenticate one selection under the injected offline root."""
+
+        try:
+            selection = decode_lifecycle_v2_transport_authority_selection(encoded)
+        except TrustedTimeGracefulStopV2Rejected as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "transport authority selection is not canonical"
+            ) from error
+        public_key = reviewed_root_public_key if type(reviewed_root_public_key) is bytes else b""
+        _verify(public_key, selection.signature_input, selection.signature)
+        result = object.__new__(AuthenticatedLifecycleV2TransportAuthoritySelection)
+        root_digest = hashlib.sha256(public_key).hexdigest()
+        object.__setattr__(result, "selection", selection)
+        object.__setattr__(result, "root_public_key_sha256", root_digest)
+        object.__setattr__(result, "_capability", issuance_capability)
+        snapshot = _AuthenticatedSelectionIssuanceSnapshot(
+            value=result,
+            selection_encoded=selection.encoded,
+            root_public_key_sha256=root_digest,
+            origin_pid=os.getpid(),
+            origin_thread=threading.current_thread(),
         )
-    return value
+        with lock:
+            if id(result) in snapshots:
+                raise LifecycleV2TransportAuthenticationError(
+                    "transport authority selection identity was already authenticated"
+                )
+            snapshots[id(result)] = snapshot
+        return require(result)
+
+    return authenticate, require
 
 
-def authenticate_lifecycle_v2_transport_authority_selection(
-    encoded: object,
-    *,
-    reviewed_root_public_key: bytes,
-) -> AuthenticatedLifecycleV2TransportAuthoritySelection:
-    """Decode and authenticate one selection under the injected offline root."""
-
-    try:
-        selection = decode_lifecycle_v2_transport_authority_selection(encoded)
-    except TrustedTimeGracefulStopV2Rejected as error:
-        raise LifecycleV2TransportAuthenticationError(
-            "transport authority selection is not canonical"
-        ) from error
-    public_key = reviewed_root_public_key if type(reviewed_root_public_key) is bytes else b""
-    _verify(public_key, selection.signature_input, selection.signature)
-    return _authenticated_selection(selection, public_key)
+(
+    authenticate_lifecycle_v2_transport_authority_selection,
+    _require_authenticated_selection,
+) = _build_selection_authentication_endpoints()
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -265,55 +369,161 @@ class AuthenticatedLifecycleV2TransportAuthority:
         )
 
 
-def authenticate_lifecycle_v2_transport_authority(
-    manifest_encoded_chain: tuple[bytes, ...],
-    selection_encoded_chain: tuple[bytes, ...],
-    *,
-    reviewed_root_key_id: str,
-    reviewed_root_public_key: bytes,
-) -> AuthenticatedLifecycleV2TransportAuthority:
-    """Authenticate and structurally resolve complete manifest/selection chains."""
+@dataclass(frozen=True, slots=True)
+class _AuthenticatedAuthorityIssuanceSnapshot:
+    value: AuthenticatedLifecycleV2TransportAuthority
+    manifest_encoded_chain: tuple[bytes, ...]
+    selection_encoded_chain: tuple[bytes, ...]
+    authenticated_manifests: tuple[AuthenticatedLifecycleV2TransportAuthorityManifest, ...]
+    authenticated_selections: tuple[AuthenticatedLifecycleV2TransportAuthoritySelection, ...]
+    root_public_key_sha256: str
+    origin_pid: int
+    origin_thread: threading.Thread
 
-    manifests = tuple(
-        authenticate_lifecycle_v2_transport_authority_manifest(
-            encoded,
-            reviewed_root_key_id=reviewed_root_key_id,
-            reviewed_root_public_key=reviewed_root_public_key,
+
+def _build_authority_authentication_endpoints() -> tuple[
+    Callable[..., AuthenticatedLifecycleV2TransportAuthority],
+    Callable[[object], AuthenticatedLifecycleV2TransportAuthority],
+]:
+    """Keep resolved-chain issuance behind complete signature verification."""
+
+    snapshots: dict[int, _AuthenticatedAuthorityIssuanceSnapshot] = {}
+    issuance_capability = object()
+    lock = threading.Lock()
+
+    def require(value: object) -> AuthenticatedLifecycleV2TransportAuthority:
+        key = id(value)
+        with lock:
+            snapshot = snapshots.get(key)
+        if (
+            snapshot is None
+            or snapshot.value is not value
+            or type(value) is not AuthenticatedLifecycleV2TransportAuthority
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "transport authority resolution is not authenticated"
+            )
+        try:
+            manifests = tuple(
+                _require_authenticated_manifest(item) for item in snapshot.authenticated_manifests
+            )
+            selections = tuple(
+                _require_authenticated_selection(item) for item in snapshot.authenticated_selections
+            )
+            canonical_manifests = tuple(
+                decode_lifecycle_v2_transport_authority_manifest(encoded)
+                for encoded in snapshot.manifest_encoded_chain
+            )
+            canonical_selections = tuple(
+                decode_lifecycle_v2_transport_authority_selection(encoded)
+                for encoded in snapshot.selection_encoded_chain
+            )
+            resolution = resolve_lifecycle_v2_transport_authority(
+                canonical_manifests,
+                canonical_selections,
+            )
+            value_resolution = value.resolution
+            value_manifests = value.authenticated_manifests
+            value_selections = value.authenticated_selections
+            value_root_digest = value.root_public_key_sha256
+            value_capability = value._capability
+        except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "authenticated transport authority changed under validation"
+            ) from error
+        if (
+            os.getpid() != snapshot.origin_pid
+            or threading.current_thread() is not snapshot.origin_thread
+            or value_capability is not issuance_capability
+            or value_manifests is not snapshot.authenticated_manifests
+            or value_selections is not snapshot.authenticated_selections
+            or manifests != snapshot.authenticated_manifests
+            or selections != snapshot.authenticated_selections
+            or tuple(item.manifest for item in manifests) != canonical_manifests
+            or tuple(item.selection for item in selections) != canonical_selections
+            or value_resolution != resolution
+            or value_root_digest != snapshot.root_public_key_sha256
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "authenticated transport authority changed under validation"
+            )
+        return value
+
+    def authenticate(
+        manifest_encoded_chain: tuple[bytes, ...],
+        selection_encoded_chain: tuple[bytes, ...],
+        *,
+        reviewed_root_key_id: str,
+        reviewed_root_public_key: bytes,
+    ) -> AuthenticatedLifecycleV2TransportAuthority:
+        """Authenticate and structurally resolve complete manifest/selection chains."""
+
+        manifests = tuple(
+            authenticate_lifecycle_v2_transport_authority_manifest(
+                encoded,
+                reviewed_root_key_id=reviewed_root_key_id,
+                reviewed_root_public_key=reviewed_root_public_key,
+            )
+            for encoded in manifest_encoded_chain
         )
-        for encoded in manifest_encoded_chain
-    )
-    selections = tuple(
-        authenticate_lifecycle_v2_transport_authority_selection(
-            encoded,
-            reviewed_root_public_key=reviewed_root_public_key,
+        selections = tuple(
+            authenticate_lifecycle_v2_transport_authority_selection(
+                encoded,
+                reviewed_root_public_key=reviewed_root_public_key,
+            )
+            for encoded in selection_encoded_chain
         )
-        for encoded in selection_encoded_chain
-    )
-    if not manifests or not selections:
-        raise LifecycleV2TransportAuthenticationError("transport authority chains cannot be empty")
-    root_digest = manifests[0].root_public_key_sha256
-    if any(item.root_public_key_sha256 != root_digest for item in manifests) or any(
-        item.root_public_key_sha256 != root_digest for item in selections
-    ):
-        raise LifecycleV2TransportAuthenticationError(
-            "transport authority chain crossed the reviewed root key"
+        if not manifests or not selections:
+            raise LifecycleV2TransportAuthenticationError(
+                "transport authority chains cannot be empty"
+            )
+        root_digest = manifests[0].root_public_key_sha256
+        if any(item.root_public_key_sha256 != root_digest for item in manifests) or any(
+            item.root_public_key_sha256 != root_digest for item in selections
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "transport authority chain crossed the reviewed root key"
+            )
+        try:
+            resolution = resolve_lifecycle_v2_transport_authority(
+                tuple(item.manifest for item in manifests),
+                tuple(item.selection for item in selections),
+            )
+        except TrustedTimeGracefulStopV2Rejected as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "transport authority predecessor chain is invalid"
+            ) from error
+        result = object.__new__(AuthenticatedLifecycleV2TransportAuthority)
+        object.__setattr__(result, "resolution", resolution)
+        object.__setattr__(result, "authenticated_manifests", manifests)
+        object.__setattr__(result, "authenticated_selections", selections)
+        object.__setattr__(result, "root_public_key_sha256", root_digest)
+        object.__setattr__(result, "_capability", issuance_capability)
+        snapshot = _AuthenticatedAuthorityIssuanceSnapshot(
+            value=result,
+            manifest_encoded_chain=tuple(item.manifest.encoded for item in manifests),
+            selection_encoded_chain=tuple(item.selection.encoded for item in selections),
+            authenticated_manifests=manifests,
+            authenticated_selections=selections,
+            root_public_key_sha256=root_digest,
+            origin_pid=os.getpid(),
+            origin_thread=threading.current_thread(),
         )
-    try:
-        resolution = resolve_lifecycle_v2_transport_authority(
-            tuple(item.manifest for item in manifests),
-            tuple(item.selection for item in selections),
-        )
-    except TrustedTimeGracefulStopV2Rejected as error:
-        raise LifecycleV2TransportAuthenticationError(
-            "transport authority predecessor chain is invalid"
-        ) from error
-    result = object.__new__(AuthenticatedLifecycleV2TransportAuthority)
-    object.__setattr__(result, "resolution", resolution)
-    object.__setattr__(result, "authenticated_manifests", manifests)
-    object.__setattr__(result, "authenticated_selections", selections)
-    object.__setattr__(result, "root_public_key_sha256", root_digest)
-    object.__setattr__(result, "_capability", _AUTHENTICATED_VALUE_CAPABILITY)
-    return result
+        with lock:
+            if id(result) in snapshots:
+                raise LifecycleV2TransportAuthenticationError(
+                    "transport authority identity was already authenticated"
+                )
+            snapshots[id(result)] = snapshot
+        return require(result)
+
+    return authenticate, require
+
+
+(
+    authenticate_lifecycle_v2_transport_authority,
+    _require_authenticated_authority,
+) = _build_authority_authentication_endpoints()
 
 
 def authenticated_lifecycle_v2_recovery_manifest_for_root(
@@ -324,16 +534,10 @@ def authenticated_lifecycle_v2_recovery_manifest_for_root(
 ) -> AuthenticatedLifecycleV2TransportAuthorityManifest | None:
     """Return the authenticated recovery key only for an exact pinned root."""
 
-    if (
-        type(authority) is not AuthenticatedLifecycleV2TransportAuthority
-        or authority._capability is not _AUTHENTICATED_VALUE_CAPABILITY
-    ):
-        raise LifecycleV2TransportAuthenticationError(
-            "transport authority resolution is not authenticated"
-        )
+    authenticated_authority = _require_authenticated_authority(authority)
     try:
         recovery = lifecycle_v2_recovery_manifest_for_root(
-            authority.resolution,
+            authenticated_authority.resolution,
             root_manifest_sha256=root_manifest_sha256,
             root_generation=root_generation,
         )
@@ -345,7 +549,7 @@ def authenticated_lifecycle_v2_recovery_manifest_for_root(
         return None
     return next(
         item
-        for item in authority.authenticated_manifests
+        for item in authenticated_authority.authenticated_manifests
         if item.manifest.sha256 == recovery.sha256
     )
 
@@ -380,11 +584,13 @@ class _AuthenticatedRecoveryClassificationIssuanceSnapshot:
 
 
 def _authenticated_recovery_classification_issuance_registry() -> tuple[
-    Callable[..., None],
-    Callable[..., _AuthenticatedRecoveryClassificationIssuanceSnapshot],
+    Callable[..., AuthenticatedLifecycleV2RecoveryClassificationEnvelope],
+    Callable[[object], AuthenticatedLifecycleV2RecoveryClassificationEnvelope],
+    Callable[[object], tuple[LifecycleV2RecoveryClassificationEnvelope, str, str, str]],
 ]:
     snapshots: dict[int, _AuthenticatedRecoveryClassificationIssuanceSnapshot] = {}
     consumed: set[int] = set()
+    issuance_capability = object()
     lock = threading.Lock()
 
     def issue(
@@ -404,7 +610,7 @@ def _authenticated_recovery_classification_issuance_registry() -> tuple[
             authority_manifest_sha256=authority_manifest_sha256,
             origin_pid=os.getpid(),
             origin_thread=threading.current_thread(),
-            capability=_AUTHENTICATED_VALUE_CAPABILITY,
+            capability=issuance_capability,
         )
         with lock:
             if key in snapshots:
@@ -440,13 +646,68 @@ def _authenticated_recovery_classification_issuance_registry() -> tuple[
                 consumed.add(key)
             return snapshot
 
-    return issue, lookup
+    def authenticate(
+        encoded: object,
+        *,
+        authority: AuthenticatedLifecycleV2TransportAuthority,
+        root: LifecycleV2Root,
+        classified_transcript: LifecycleV2Transcript,
+    ) -> AuthenticatedLifecycleV2RecoveryClassificationEnvelope:
+        envelope, exact_root, exact_transcript, manifest = (
+            _verify_lifecycle_v2_recovery_classification_envelope(
+                encoded,
+                authority=authority,
+                root=root,
+                classified_transcript=classified_transcript,
+            )
+        )
+        result = object.__new__(AuthenticatedLifecycleV2RecoveryClassificationEnvelope)
+        object.__setattr__(result, "envelope", envelope)
+        object.__setattr__(result, "root_sha256", exact_root.sha256)
+        object.__setattr__(result, "classified_transcript_sha256", exact_transcript.sha256)
+        object.__setattr__(result, "authority_manifest_sha256", manifest.sha256)
+        object.__setattr__(result, "_origin_pid", os.getpid())
+        object.__setattr__(result, "_origin_thread", threading.current_thread())
+        object.__setattr__(result, "_consumed", False)
+        object.__setattr__(result, "_capability", issuance_capability)
+        issue(
+            result,
+            envelope_encoded=envelope.encoded,
+            root_sha256=exact_root.sha256,
+            classified_transcript_sha256=exact_transcript.sha256,
+            authority_manifest_sha256=manifest.sha256,
+        )
+        return require(result)
+
+    def require(value: object) -> AuthenticatedLifecycleV2RecoveryClassificationEnvelope:
+        snapshot = lookup(value, consume=False)
+        return _require_authenticated_recovery_classification_issuance(value, snapshot)
+
+    def consume_value(
+        value: object,
+    ) -> tuple[LifecycleV2RecoveryClassificationEnvelope, str, str, str]:
+        snapshot = lookup(value, consume=True)
+        authenticated = _require_authenticated_recovery_classification_issuance(value, snapshot)
+        object.__setattr__(authenticated, "_consumed", True)
+        return (
+            decode_lifecycle_v2_recovery_classification_envelope(snapshot.envelope_encoded),
+            snapshot.root_sha256,
+            snapshot.classified_transcript_sha256,
+            snapshot.authority_manifest_sha256,
+        )
+
+    return authenticate, require, consume_value
 
 
 (
-    _register_authenticated_recovery_classification_issuance,
-    _lookup_authenticated_recovery_classification_issuance,
+    authenticate_lifecycle_v2_recovery_classification_envelope,
+    _require_authenticated_lifecycle_v2_recovery_classification_envelope,
+    _consume_authenticated_lifecycle_v2_recovery_envelope_value,
 ) = _authenticated_recovery_classification_issuance_registry()
+
+_install_authenticated_lifecycle_v2_recovery_adapter_endpoint(
+    _consume_authenticated_lifecycle_v2_recovery_envelope_value
+)
 
 
 def _require_authenticated_recovery_classification_issuance(
@@ -473,7 +734,6 @@ def _require_authenticated_recovery_classification_issuance(
         ) from error
     if (
         snapshot.value is not value
-        or snapshot.capability is not _AUTHENTICATED_VALUE_CAPABILITY
         or value_capability is not snapshot.capability
         or os.getpid() != snapshot.origin_pid
         or threading.current_thread() is not snapshot.origin_thread
@@ -497,24 +757,19 @@ def _require_authenticated_recovery_classification_issuance(
     return value
 
 
-def _require_authenticated_lifecycle_v2_recovery_classification_envelope(
-    value: object,
-) -> AuthenticatedLifecycleV2RecoveryClassificationEnvelope:
-    snapshot = _lookup_authenticated_recovery_classification_issuance(
-        value,
-        consume=False,
-    )
-    return _require_authenticated_recovery_classification_issuance(value, snapshot)
-
-
-def authenticate_lifecycle_v2_recovery_classification_envelope(
+def _verify_lifecycle_v2_recovery_classification_envelope(
     encoded: object,
     *,
     authority: AuthenticatedLifecycleV2TransportAuthority,
     root: LifecycleV2Root,
     classified_transcript: LifecycleV2Transcript,
-) -> AuthenticatedLifecycleV2RecoveryClassificationEnvelope:
-    """Authenticate one recovery-only classification against its exact prefix."""
+) -> tuple[
+    LifecycleV2RecoveryClassificationEnvelope,
+    LifecycleV2Root,
+    LifecycleV2Transcript,
+    LifecycleV2TransportAuthorityManifest,
+]:
+    """Verify exact recovery-classification inputs without minting authority."""
 
     try:
         envelope = decode_lifecycle_v2_recovery_classification_envelope(encoded)
@@ -573,40 +828,7 @@ def authenticate_lifecycle_v2_recovery_classification_envelope(
             "recovery classification crossed its root, prefix, or recovery generation"
         )
     _verify(manifest.recovery_public_key, envelope.signature_input, envelope.signature)
-    result = object.__new__(AuthenticatedLifecycleV2RecoveryClassificationEnvelope)
-    object.__setattr__(result, "envelope", envelope)
-    object.__setattr__(result, "root_sha256", exact_root.sha256)
-    object.__setattr__(result, "classified_transcript_sha256", exact_transcript.sha256)
-    object.__setattr__(result, "authority_manifest_sha256", manifest.sha256)
-    object.__setattr__(result, "_origin_pid", os.getpid())
-    object.__setattr__(result, "_origin_thread", threading.current_thread())
-    object.__setattr__(result, "_consumed", False)
-    object.__setattr__(result, "_capability", _AUTHENTICATED_VALUE_CAPABILITY)
-    _register_authenticated_recovery_classification_issuance(
-        result,
-        envelope_encoded=envelope.encoded,
-        root_sha256=exact_root.sha256,
-        classified_transcript_sha256=exact_transcript.sha256,
-        authority_manifest_sha256=manifest.sha256,
-    )
-    return _require_authenticated_lifecycle_v2_recovery_classification_envelope(result)
-
-
-def _consume_authenticated_lifecycle_v2_recovery_envelope_value(
-    value: object,
-) -> tuple[LifecycleV2RecoveryClassificationEnvelope, str, str, str]:
-    snapshot = _lookup_authenticated_recovery_classification_issuance(
-        value,
-        consume=True,
-    )
-    authenticated = _require_authenticated_recovery_classification_issuance(value, snapshot)
-    object.__setattr__(authenticated, "_consumed", True)
-    return (
-        decode_lifecycle_v2_recovery_classification_envelope(snapshot.envelope_encoded),
-        snapshot.root_sha256,
-        snapshot.classified_transcript_sha256,
-        snapshot.authority_manifest_sha256,
-    )
+    return envelope, exact_root, exact_transcript, manifest
 
 
 def consume_authenticated_lifecycle_v2_recovery_classification_envelope(
@@ -623,8 +845,6 @@ def consume_authenticated_lifecycle_v2_recovery_classification_envelope(
         root=root,
         classified_transcript=classified_transcript,
         recorded_at_utc=recorded_at_utc,
-        unwrap=_consume_authenticated_lifecycle_v2_recovery_envelope_value,
-        capability=_PRODUCTION_RECOVERY_INTENT_CAPABILITY,
     )
 
 
@@ -653,14 +873,14 @@ class AuthenticatedLifecycleV2Handshake:
         raise TypeError("authenticated handshakes require signature verification")
 
 
-def _authenticate_lifecycle_v2_handshake(
+def _verify_lifecycle_v2_handshake(
     authority_manifest: AuthenticatedLifecycleV2TransportAuthorityManifest,
     *,
     host_hello_encoded: bytes,
     supervisor_hello_encoded: bytes,
     host_confirmation_encoded: bytes,
-) -> AuthenticatedLifecycleV2Handshake:
-    """Authenticate and correlate the exact three-message mutual handshake."""
+) -> tuple[LifecycleV2Handshake, str]:
+    """Verify and correlate the exact three-message mutual handshake."""
 
     authenticated = _require_authenticated_manifest(authority_manifest)
     manifest = authenticated.manifest
@@ -692,40 +912,114 @@ def _authenticate_lifecycle_v2_handshake(
         raise LifecycleV2TransportAuthenticationError(
             "authenticated handshake correlators disagree"
         ) from error
-    result = object.__new__(AuthenticatedLifecycleV2Handshake)
-    object.__setattr__(result, "handshake", handshake)
-    object.__setattr__(result, "authority_manifest_sha256", manifest.sha256)
-    object.__setattr__(result, "_capability", _AUTHENTICATED_VALUE_CAPABILITY)
-    return result
+    return handshake, manifest.sha256
 
 
-def authenticate_selected_lifecycle_v2_handshake(
-    authority: AuthenticatedLifecycleV2TransportAuthority,
-    *,
-    host_hello_encoded: bytes,
-    supervisor_hello_encoded: bytes,
-    host_confirmation_encoded: bytes,
-) -> AuthenticatedLifecycleV2Handshake:
-    """Authenticate a new-root handshake only when the current selection permits it."""
+@dataclass(frozen=True, slots=True)
+class _AuthenticatedHandshakeIssuanceSnapshot:
+    value: AuthenticatedLifecycleV2Handshake
+    host_hello_encoded: bytes
+    supervisor_hello_encoded: bytes
+    host_confirmation_encoded: bytes
+    authority_manifest_sha256: str
+    origin_pid: int
+    origin_thread: threading.Thread
 
-    if (
-        type(authority) is not AuthenticatedLifecycleV2TransportAuthority
-        or authority._capability is not _AUTHENTICATED_VALUE_CAPABILITY
-    ):
-        raise LifecycleV2TransportAuthenticationError(
-            "transport authority resolution is not authenticated"
+
+def _build_handshake_authentication_endpoints() -> tuple[
+    Callable[..., AuthenticatedLifecycleV2Handshake],
+    Callable[[object], AuthenticatedLifecycleV2Handshake],
+]:
+    snapshots: dict[int, _AuthenticatedHandshakeIssuanceSnapshot] = {}
+    issuance_capability = object()
+    lock = threading.Lock()
+
+    def require(value: object) -> AuthenticatedLifecycleV2Handshake:
+        key = id(value)
+        with lock:
+            snapshot = snapshots.get(key)
+        if (
+            snapshot is None
+            or snapshot.value is not value
+            or type(value) is not AuthenticatedLifecycleV2Handshake
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "lifecycle-v2 handshake is not authenticated"
+            )
+        try:
+            canonical_handshake = bind_lifecycle_v2_handshake(
+                decode_lifecycle_v2_host_hello(snapshot.host_hello_encoded),
+                decode_lifecycle_v2_supervisor_hello(snapshot.supervisor_hello_encoded),
+                decode_lifecycle_v2_host_channel_confirmation(snapshot.host_confirmation_encoded),
+            )
+            value_handshake = value.handshake
+            value_manifest_sha256 = value.authority_manifest_sha256
+            value_capability = value._capability
+        except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "authenticated lifecycle-v2 handshake changed under validation"
+            ) from error
+        if (
+            os.getpid() != snapshot.origin_pid
+            or threading.current_thread() is not snapshot.origin_thread
+            or value_capability is not issuance_capability
+            or value_handshake != canonical_handshake
+            or value_manifest_sha256 != snapshot.authority_manifest_sha256
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "authenticated lifecycle-v2 handshake changed under validation"
+            )
+        return value
+
+    def authenticate(
+        authority: AuthenticatedLifecycleV2TransportAuthority,
+        *,
+        host_hello_encoded: bytes,
+        supervisor_hello_encoded: bytes,
+        host_confirmation_encoded: bytes,
+    ) -> AuthenticatedLifecycleV2Handshake:
+        """Authenticate a new-root handshake only when current selection permits it."""
+
+        authenticated_authority = _require_authenticated_authority(authority)
+        selected = authenticated_authority.selected_manifest
+        if selected is None:
+            raise LifecycleV2TransportAuthenticationError(
+                "current transport authority selection denies new roots"
+            )
+        handshake, manifest_sha256 = _verify_lifecycle_v2_handshake(
+            selected,
+            host_hello_encoded=host_hello_encoded,
+            supervisor_hello_encoded=supervisor_hello_encoded,
+            host_confirmation_encoded=host_confirmation_encoded,
         )
-    selected = authority.selected_manifest
-    if selected is None:
-        raise LifecycleV2TransportAuthenticationError(
-            "current transport authority selection denies new roots"
+        result = object.__new__(AuthenticatedLifecycleV2Handshake)
+        object.__setattr__(result, "handshake", handshake)
+        object.__setattr__(result, "authority_manifest_sha256", manifest_sha256)
+        object.__setattr__(result, "_capability", issuance_capability)
+        snapshot = _AuthenticatedHandshakeIssuanceSnapshot(
+            value=result,
+            host_hello_encoded=handshake.host_hello.encoded,
+            supervisor_hello_encoded=handshake.supervisor_hello.encoded,
+            host_confirmation_encoded=handshake.host_confirmation.encoded,
+            authority_manifest_sha256=manifest_sha256,
+            origin_pid=os.getpid(),
+            origin_thread=threading.current_thread(),
         )
-    return _authenticate_lifecycle_v2_handshake(
-        selected,
-        host_hello_encoded=host_hello_encoded,
-        supervisor_hello_encoded=supervisor_hello_encoded,
-        host_confirmation_encoded=host_confirmation_encoded,
-    )
+        with lock:
+            if id(result) in snapshots:
+                raise LifecycleV2TransportAuthenticationError(
+                    "lifecycle-v2 handshake identity was already authenticated"
+                )
+            snapshots[id(result)] = snapshot
+        return require(result)
+
+    return authenticate, require
+
+
+(
+    authenticate_selected_lifecycle_v2_handshake,
+    _require_authenticated_lifecycle_v2_handshake,
+) = _build_handshake_authentication_endpoints()
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -755,6 +1049,81 @@ class _LifecycleV2TransportFrameExpectation:
         *,
         frame_type: str,
     ) -> _LifecycleV2TransportFrameExpectation:
+        return _derive_lifecycle_v2_transport_frame_expectation(
+            root,
+            request_intent,
+            frame_type=frame_type,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _TransportFrameExpectationIssuanceSnapshot:
+    value: _LifecycleV2TransportFrameExpectation
+    fields: tuple[object, ...]
+    origin_pid: int
+    origin_thread: threading.Thread
+
+
+_EXPECTATION_FIELD_NAMES = (
+    "environment",
+    "transport_authority_manifest_sha256",
+    "frame_type",
+    "key_generation",
+    "signing_key_id",
+    "boot_epoch_sha256",
+    "host_process_epoch_sha256",
+    "supervisor_process_epoch_sha256",
+    "channel_id",
+    "lifecycle_dispatch_prefix_sha256",
+    "message_counter",
+    "deadline_boottime_ns",
+)
+
+
+def _build_transport_frame_expectation_endpoints() -> tuple[
+    Callable[..., _LifecycleV2TransportFrameExpectation],
+    Callable[[object], _LifecycleV2TransportFrameExpectation],
+]:
+    snapshots: dict[int, _TransportFrameExpectationIssuanceSnapshot] = {}
+    issuance_capability = object()
+    lock = threading.Lock()
+
+    def require(value: object) -> _LifecycleV2TransportFrameExpectation:
+        key = id(value)
+        with lock:
+            snapshot = snapshots.get(key)
+        if (
+            snapshot is None
+            or snapshot.value is not value
+            or type(value) is not _LifecycleV2TransportFrameExpectation
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "transport frame expectation has no exact issuance"
+            )
+        try:
+            fields = tuple(getattr(value, name) for name in _EXPECTATION_FIELD_NAMES)
+            capability = value._capability
+        except AttributeError as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "transport frame expectation changed under validation"
+            ) from error
+        if (
+            os.getpid() != snapshot.origin_pid
+            or threading.current_thread() is not snapshot.origin_thread
+            or capability is not issuance_capability
+            or fields != snapshot.fields
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "transport frame expectation changed under validation"
+            )
+        return value
+
+    def derive(
+        root: LifecycleV2Root,
+        request_intent: LifecycleV2ProgressRecord,
+        *,
+        frame_type: str,
+    ) -> _LifecycleV2TransportFrameExpectation:
         try:
             exact_root = decode_lifecycle_v2_root(root.encoded)
             exact_intent = decode_lifecycle_v2_progress_record(request_intent.encoded)
@@ -763,7 +1132,9 @@ class _LifecycleV2TransportFrameExpectation:
                 "retained-wire expectation requires canonical root and intent"
             ) from error
         if (
-            exact_intent.ordinal != 1
+            exact_root != root
+            or exact_intent != request_intent
+            or exact_intent.ordinal != 1
             or exact_intent.stage is not LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED
             or exact_intent.root_sha256 != exact_root.sha256
             or exact_intent.predecessor_sha256 != exact_root.sha256
@@ -773,31 +1144,49 @@ class _LifecycleV2TransportFrameExpectation:
                 "retained-wire expectation does not bind the ordinal-one prefix"
             )
         host_frame = frame_type == "clean_stop_request"
-        result = object.__new__(cls)
-        values: dict[str, object] = {
-            "environment": exact_root.environment,
-            "transport_authority_manifest_sha256": (exact_root.transport_authority_manifest_sha256),
-            "frame_type": frame_type,
-            "key_generation": exact_root.transport_key_generation,
-            "signing_key_id": (
+        result = object.__new__(_LifecycleV2TransportFrameExpectation)
+        fields = (
+            exact_root.environment,
+            exact_root.transport_authority_manifest_sha256,
+            frame_type,
+            exact_root.transport_key_generation,
+            (
                 exact_root.host_transport_key_id
                 if host_frame
                 else exact_root.supervisor_transport_key_id
             ),
-            "boot_epoch_sha256": exact_root.boot_epoch_sha256,
-            "host_process_epoch_sha256": exact_root.host_process_epoch_sha256,
-            "supervisor_process_epoch_sha256": exact_root.supervisor_process_epoch_sha256,
-            "channel_id": exact_root.channel_id,
-            "lifecycle_dispatch_prefix_sha256": lifecycle_v2_dispatch_prefix_sha256(
-                exact_root, exact_intent
-            ),
-            "message_counter": 2 if host_frame else 1,
-            "deadline_boottime_ns": exact_root.clean_stop_result_deadline_boottime_ns,
-            "_capability": _AUTHENTICATED_VALUE_CAPABILITY,
-        }
-        for name, value in values.items():
+            exact_root.boot_epoch_sha256,
+            exact_root.host_process_epoch_sha256,
+            exact_root.supervisor_process_epoch_sha256,
+            exact_root.channel_id,
+            lifecycle_v2_dispatch_prefix_sha256(exact_root, exact_intent),
+            2 if host_frame else 1,
+            exact_root.clean_stop_result_deadline_boottime_ns,
+        )
+        for name, value in zip(_EXPECTATION_FIELD_NAMES, fields, strict=True):
             object.__setattr__(result, name, value)
-        return result
+        object.__setattr__(result, "_capability", issuance_capability)
+        snapshot = _TransportFrameExpectationIssuanceSnapshot(
+            value=result,
+            fields=fields,
+            origin_pid=os.getpid(),
+            origin_thread=threading.current_thread(),
+        )
+        with lock:
+            if id(result) in snapshots:
+                raise LifecycleV2TransportAuthenticationError(
+                    "transport frame expectation identity was already issued"
+                )
+            snapshots[id(result)] = snapshot
+        return require(result)
+
+    return derive, require
+
+
+(
+    _derive_lifecycle_v2_transport_frame_expectation,
+    _require_lifecycle_v2_transport_frame_expectation,
+) = _build_transport_frame_expectation_endpoints()
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -811,30 +1200,14 @@ class AuthenticatedLifecycleV2TransportEnvelope:
         raise TypeError("authenticated transport envelopes require signature verification")
 
 
-def _unwrap_authenticated_lifecycle_v2_transport_envelope(
-    value: object,
-) -> tuple[UnverifiedLifecycleV2TransportEnvelope, str, str]:
-    if (
-        type(value) is not AuthenticatedLifecycleV2TransportEnvelope
-        or value._capability is not _AUTHENTICATED_VALUE_CAPABILITY
-        or type(value.envelope) is not UnverifiedLifecycleV2TransportEnvelope
-    ):
-        raise LifecycleV2TransportAuthenticationError(
-            "terminal proof requires an exact authenticated transport envelope"
-        )
-    return value.envelope, value.authority_manifest_sha256, value.signer_role
-
-
-def bind_authenticated_lifecycle_v2_terminal_envelope_proof(
-    authenticated_envelope: object,
-) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
-    """Cross the reviewed adapter-to-domain seam for one authenticated terminal frame."""
-
-    return _mint_authenticated_lifecycle_v2_terminal_envelope_proof(
-        authenticated_envelope,
-        unwrap=_unwrap_authenticated_lifecycle_v2_transport_envelope,
-        capability=_PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
-    )
+@dataclass(frozen=True, slots=True)
+class _AuthenticatedTransportEnvelopeIssuanceSnapshot:
+    value: AuthenticatedLifecycleV2TransportEnvelope
+    envelope_encoded: bytes
+    authority_manifest_sha256: str
+    signer_role: str
+    origin_pid: int
+    origin_thread: threading.Thread
 
 
 def _transport_envelope_signature_input(
@@ -866,20 +1239,16 @@ def _validate_transport_envelope_formula(
         )
 
 
-def _authenticate_lifecycle_v2_transport_frame(
+def _verify_lifecycle_v2_transport_frame(
     encoded: object,
     *,
     authority_manifest: AuthenticatedLifecycleV2TransportAuthorityManifest,
     expectation: _LifecycleV2TransportFrameExpectation,
-) -> AuthenticatedLifecycleV2TransportEnvelope:
-    """Authenticate one request, result, or error against exact correlators."""
+) -> tuple[UnverifiedLifecycleV2TransportEnvelope, str, str]:
+    """Verify one request, result, or error against exact correlators."""
 
     authenticated = _require_authenticated_manifest(authority_manifest)
-    if (
-        type(expectation) is not _LifecycleV2TransportFrameExpectation
-        or expectation._capability is not _AUTHENTICATED_VALUE_CAPABILITY
-    ):
-        raise LifecycleV2TransportAuthenticationError("transport frame expectation is invalid")
+    exact_expectation = _require_lifecycle_v2_transport_frame_expectation(expectation)
     try:
         envelope = decode_unverified_lifecycle_v2_transport_envelope(encoded)
     except TrustedTimeGracefulStopV2Rejected as error:
@@ -889,17 +1258,17 @@ def _authenticate_lifecycle_v2_transport_frame(
     _validate_transport_envelope_formula(envelope)
     fields = envelope.to_dict()
     expected_fields: dict[str, object] = {
-        "environment": expectation.environment,
-        "frame_type": expectation.frame_type,
-        "key_generation": expectation.key_generation,
-        "signing_key_id": expectation.signing_key_id,
-        "boot_epoch_sha256": expectation.boot_epoch_sha256,
-        "host_process_epoch_sha256": expectation.host_process_epoch_sha256,
-        "supervisor_process_epoch_sha256": expectation.supervisor_process_epoch_sha256,
-        "channel_id": expectation.channel_id,
-        "lifecycle_dispatch_prefix_sha256": expectation.lifecycle_dispatch_prefix_sha256,
-        "message_counter": expectation.message_counter,
-        "deadline_boottime_ns": expectation.deadline_boottime_ns,
+        "environment": exact_expectation.environment,
+        "frame_type": exact_expectation.frame_type,
+        "key_generation": exact_expectation.key_generation,
+        "signing_key_id": exact_expectation.signing_key_id,
+        "boot_epoch_sha256": exact_expectation.boot_epoch_sha256,
+        "host_process_epoch_sha256": exact_expectation.host_process_epoch_sha256,
+        "supervisor_process_epoch_sha256": exact_expectation.supervisor_process_epoch_sha256,
+        "channel_id": exact_expectation.channel_id,
+        "lifecycle_dispatch_prefix_sha256": exact_expectation.lifecycle_dispatch_prefix_sha256,
+        "message_counter": exact_expectation.message_counter,
+        "deadline_boottime_ns": exact_expectation.deadline_boottime_ns,
     }
     if any(fields[name] != expected for name, expected in expected_fields.items()):
         raise LifecycleV2TransportAuthenticationError(
@@ -907,14 +1276,14 @@ def _authenticate_lifecycle_v2_transport_frame(
         )
     manifest = authenticated.manifest
     if (
-        manifest.sha256 != expectation.transport_authority_manifest_sha256
-        or manifest.environment != expectation.environment
-        or manifest.generation != expectation.key_generation
+        manifest.sha256 != exact_expectation.transport_authority_manifest_sha256
+        or manifest.environment != exact_expectation.environment
+        or manifest.generation != exact_expectation.key_generation
     ):
         raise LifecycleV2TransportAuthenticationError(
             "transport frame crossed its authenticated authority generation"
         )
-    if expectation.frame_type == "clean_stop_request":
+    if exact_expectation.frame_type == "clean_stop_request":
         public_key = manifest.host_public_key
         expected_key_id = manifest.host_key_id
         signer_role = "host"
@@ -922,17 +1291,137 @@ def _authenticate_lifecycle_v2_transport_frame(
         public_key = manifest.supervisor_public_key
         expected_key_id = manifest.supervisor_key_id
         signer_role = "supervisor"
-    if expectation.signing_key_id != expected_key_id:
+    if exact_expectation.signing_key_id != expected_key_id:
         raise LifecycleV2TransportAuthenticationError(
             "transport frame crossed its authenticated signer role"
         )
     _verify(public_key, _transport_envelope_signature_input(envelope), envelope.signature)
-    result = object.__new__(AuthenticatedLifecycleV2TransportEnvelope)
-    object.__setattr__(result, "envelope", envelope)
-    object.__setattr__(result, "authority_manifest_sha256", manifest.sha256)
-    object.__setattr__(result, "signer_role", signer_role)
-    object.__setattr__(result, "_capability", _AUTHENTICATED_VALUE_CAPABILITY)
-    return result
+    return envelope, manifest.sha256, signer_role
+
+
+def _build_transport_frame_authentication_endpoints() -> tuple[
+    Callable[..., AuthenticatedLifecycleV2TransportEnvelope],
+    Callable[[object], AuthenticatedLifecycleV2TransportEnvelope],
+]:
+    snapshots: dict[int, _AuthenticatedTransportEnvelopeIssuanceSnapshot] = {}
+    issuance_capability = object()
+    lock = threading.Lock()
+
+    def require(value: object) -> AuthenticatedLifecycleV2TransportEnvelope:
+        key = id(value)
+        with lock:
+            snapshot = snapshots.get(key)
+        if (
+            snapshot is None
+            or snapshot.value is not value
+            or type(value) is not AuthenticatedLifecycleV2TransportEnvelope
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "transport envelope has no exact authenticated issuance"
+            )
+        try:
+            canonical = decode_unverified_lifecycle_v2_transport_envelope(snapshot.envelope_encoded)
+            value_envelope = value.envelope
+            value_manifest_sha256 = value.authority_manifest_sha256
+            value_signer_role = value.signer_role
+            value_capability = value._capability
+        except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "authenticated transport envelope changed under validation"
+            ) from error
+        if (
+            os.getpid() != snapshot.origin_pid
+            or threading.current_thread() is not snapshot.origin_thread
+            or value_capability is not issuance_capability
+            or type(value_envelope) is not UnverifiedLifecycleV2TransportEnvelope
+            or canonical.encoded != snapshot.envelope_encoded
+            or value_envelope != canonical
+            or value_envelope.encoded != snapshot.envelope_encoded
+            or value_manifest_sha256 != snapshot.authority_manifest_sha256
+            or value_signer_role != snapshot.signer_role
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "authenticated transport envelope changed under validation"
+            )
+        return value
+
+    def authenticate(
+        encoded: object,
+        *,
+        authority_manifest: AuthenticatedLifecycleV2TransportAuthorityManifest,
+        expectation: _LifecycleV2TransportFrameExpectation,
+    ) -> AuthenticatedLifecycleV2TransportEnvelope:
+        envelope, manifest_sha256, signer_role = _verify_lifecycle_v2_transport_frame(
+            encoded,
+            authority_manifest=authority_manifest,
+            expectation=expectation,
+        )
+        result = object.__new__(AuthenticatedLifecycleV2TransportEnvelope)
+        object.__setattr__(result, "envelope", envelope)
+        object.__setattr__(result, "authority_manifest_sha256", manifest_sha256)
+        object.__setattr__(result, "signer_role", signer_role)
+        object.__setattr__(result, "_capability", issuance_capability)
+        snapshot = _AuthenticatedTransportEnvelopeIssuanceSnapshot(
+            value=result,
+            envelope_encoded=envelope.encoded,
+            authority_manifest_sha256=manifest_sha256,
+            signer_role=signer_role,
+            origin_pid=os.getpid(),
+            origin_thread=threading.current_thread(),
+        )
+        with lock:
+            if id(result) in snapshots:
+                raise LifecycleV2TransportAuthenticationError(
+                    "transport envelope identity was already authenticated"
+                )
+            snapshots[id(result)] = snapshot
+        return require(result)
+
+    return authenticate, require
+
+
+(
+    _authenticate_lifecycle_v2_transport_frame,
+    _require_authenticated_lifecycle_v2_transport_envelope,
+) = _build_transport_frame_authentication_endpoints()
+
+
+def _build_authenticated_transport_envelope_unwrapper(
+    require_endpoint: Callable[[object], AuthenticatedLifecycleV2TransportEnvelope],
+) -> Callable[[object], tuple[UnverifiedLifecycleV2TransportEnvelope, str, str]]:
+    """Capture the registry validator so module-global replacement cannot redirect it."""
+
+    def unwrap(
+        value: object,
+    ) -> tuple[UnverifiedLifecycleV2TransportEnvelope, str, str]:
+        authenticated = require_endpoint(value)
+        return (
+            authenticated.envelope,
+            authenticated.authority_manifest_sha256,
+            authenticated.signer_role,
+        )
+
+    return unwrap
+
+
+_unwrap_authenticated_lifecycle_v2_transport_envelope = (
+    _build_authenticated_transport_envelope_unwrapper(
+        _require_authenticated_lifecycle_v2_transport_envelope
+    )
+)
+_install_authenticated_terminal_envelope_adapter_endpoint(
+    _unwrap_authenticated_lifecycle_v2_transport_envelope
+)
+
+
+def bind_authenticated_lifecycle_v2_terminal_envelope_proof(
+    authenticated_envelope: object,
+) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
+    """Cross the reviewed adapter-to-domain seam for one authenticated terminal frame."""
+
+    return _mint_authenticated_lifecycle_v2_terminal_envelope_proof(
+        authenticated_envelope,
+    )
 
 
 def authenticate_root_bound_lifecycle_v2_transport_frame(
@@ -1036,13 +1525,7 @@ class _LifecycleV2Ed25519RetainedWireVerifier:
         raise TypeError("retained-wire verifiers require authenticated construction")
 
     def _require_owner(self) -> None:
-        if (
-            self._capability is not _AUTHENTICATED_VALUE_CAPABILITY
-            or os.getpid() != self._origin_pid
-            or threading.current_thread() is not self._origin_thread
-        ):
-            raise LifecycleV2TransportAuthenticationError("retained-wire verifier owner is invalid")
-        _require_authenticated_manifest(self._authority_manifest)
+        _require_exact_retained_wire_verifier(self)
 
     def reauthenticate_retained_terminal_wire(
         self,
@@ -1140,60 +1623,291 @@ class _LifecycleV2Ed25519RetainedWireVerifier:
             raise LifecycleV2TransportAuthenticationError(
                 "retained-wire evidence changed under terminal validation"
             )
-        result = object.__new__(_LifecycleV2Ed25519RetainedWireResult)
-        for name, value in {
-            "envelope": authenticated.envelope,
-            "authority_manifest_sha256": authenticated.authority_manifest_sha256,
-            "signer_role": authenticated.signer_role,
-            "root_sha256": exact_root.sha256,
-            "request_intent_sha256": exact_intent.sha256,
-            "terminal_record_sha256": exact_record.sha256,
-            "artifact_directory_path": artifact_directory_path,
-            "_verifier_capability": self._sealed_result_capability,
-        }.items():
-            object.__setattr__(result, name, value)
-        return result
+        return _seal_exact_retained_wire_result(
+            self,
+            authenticated=authenticated,
+            root=exact_root,
+            request_intent=exact_intent,
+            terminal_record=exact_record,
+            artifact_directory_path=artifact_directory_path,
+        )
 
     def require_exact_authenticated_retained_terminal_wire(
         self,
         result: object,
     ) -> _LifecycleV2Ed25519RetainedWireResult:
-        self._require_owner()
+        return _require_exact_retained_wire_result(self, result)
+
+
+@dataclass(frozen=True, slots=True)
+class _RetainedWireVerifierIssuanceSnapshot:
+    value: _LifecycleV2Ed25519RetainedWireVerifier
+    authority_manifest: AuthenticatedLifecycleV2TransportAuthorityManifest
+    authority_manifest_encoded: bytes
+    sealed_result_capability: object
+    origin_pid: int
+    origin_thread: threading.Thread
+
+
+@dataclass(frozen=True, slots=True)
+class _RetainedWireResultIssuanceSnapshot:
+    value: _LifecycleV2Ed25519RetainedWireResult
+    verifier: _LifecycleV2Ed25519RetainedWireVerifier
+    envelope_encoded: bytes
+    authority_manifest_sha256: str
+    signer_role: str
+    root_sha256: str
+    request_intent_sha256: str
+    terminal_record_sha256: str
+    artifact_directory_path: str
+    verifier_capability: object
+
+
+def _build_retained_wire_verifier_endpoints() -> tuple[
+    Callable[..., _LifecycleV2Ed25519RetainedWireVerifier],
+    Callable[[object], _LifecycleV2Ed25519RetainedWireVerifier],
+    Callable[..., _LifecycleV2Ed25519RetainedWireResult],
+    Callable[..., _LifecycleV2Ed25519RetainedWireResult],
+]:
+    verifier_snapshots: dict[int, _RetainedWireVerifierIssuanceSnapshot] = {}
+    result_snapshots: dict[int, _RetainedWireResultIssuanceSnapshot] = {}
+    issuance_capability = object()
+    lock = threading.Lock()
+
+    def require_verifier(value: object) -> _LifecycleV2Ed25519RetainedWireVerifier:
+        key = id(value)
+        with lock:
+            snapshot = verifier_snapshots.get(key)
         if (
-            type(result) is not _LifecycleV2Ed25519RetainedWireResult
-            or result._verifier_capability is not self._sealed_result_capability
-            or type(result.envelope) is not UnverifiedLifecycleV2TransportEnvelope
-            or result.authority_manifest_sha256 != self._authority_manifest.manifest.sha256
-            or result.signer_role != "supervisor"
+            snapshot is None
+            or snapshot.value is not value
+            or type(value) is not _LifecycleV2Ed25519RetainedWireVerifier
+        ):
+            raise LifecycleV2TransportAuthenticationError("retained-wire verifier owner is invalid")
+        try:
+            authenticated_manifest = _require_authenticated_manifest(snapshot.authority_manifest)
+            value_manifest = value._authority_manifest
+            value_pid = value._origin_pid
+            value_thread = value._origin_thread
+            value_result_capability = value._sealed_result_capability
+            value_capability = value._capability
+        except AttributeError as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire verifier owner is invalid"
+            ) from error
+        if (
+            os.getpid() != snapshot.origin_pid
+            or threading.current_thread() is not snapshot.origin_thread
+            or value_pid != snapshot.origin_pid
+            or value_thread is not snapshot.origin_thread
+            or value_capability is not issuance_capability
+            or value_manifest is not snapshot.authority_manifest
+            or authenticated_manifest.manifest.encoded != snapshot.authority_manifest_encoded
+            or value_result_capability is not snapshot.sealed_result_capability
+        ):
+            raise LifecycleV2TransportAuthenticationError("retained-wire verifier owner is invalid")
+        return value
+
+    def build(
+        authority_manifest: AuthenticatedLifecycleV2TransportAuthorityManifest,
+    ) -> _LifecycleV2Ed25519RetainedWireVerifier:
+        authenticated = _require_authenticated_manifest(authority_manifest)
+        result = object.__new__(_LifecycleV2Ed25519RetainedWireVerifier)
+        result_capability = object()
+        object.__setattr__(result, "_authority_manifest", authenticated)
+        object.__setattr__(result, "_origin_pid", os.getpid())
+        object.__setattr__(result, "_origin_thread", threading.current_thread())
+        object.__setattr__(result, "_sealed_result_capability", result_capability)
+        object.__setattr__(result, "_capability", issuance_capability)
+        snapshot = _RetainedWireVerifierIssuanceSnapshot(
+            value=result,
+            authority_manifest=authenticated,
+            authority_manifest_encoded=authenticated.manifest.encoded,
+            sealed_result_capability=result_capability,
+            origin_pid=os.getpid(),
+            origin_thread=threading.current_thread(),
+        )
+        with lock:
+            if id(result) in verifier_snapshots:
+                raise LifecycleV2TransportAuthenticationError(
+                    "retained-wire verifier identity was already issued"
+                )
+            verifier_snapshots[id(result)] = snapshot
+        return require_verifier(result)
+
+    def seal_result(
+        verifier: object,
+        *,
+        authenticated: AuthenticatedLifecycleV2TransportEnvelope,
+        root: LifecycleV2Root,
+        request_intent: LifecycleV2ProgressRecord,
+        terminal_record: LifecycleV2ProgressRecord,
+        artifact_directory_path: str,
+    ) -> _LifecycleV2Ed25519RetainedWireResult:
+        exact_verifier = require_verifier(verifier)
+        exact_authenticated = _require_authenticated_lifecycle_v2_transport_envelope(authenticated)
+        try:
+            exact_root = decode_lifecycle_v2_root(root.encoded)
+            exact_intent = decode_lifecycle_v2_progress_record(request_intent.encoded)
+            exact_record = decode_lifecycle_v2_progress_record(terminal_record.encoded)
+        except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire result inputs are not canonical"
+            ) from error
+        envelope = exact_authenticated.envelope
+        prefix = (
+            "clean_stop_result"
+            if envelope.frame_type == "clean_stop_result"
+            else "clean_stop_error"
+        )
+        expected_stage = (
+            LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED
+            if envelope.frame_type == "clean_stop_result"
+            else LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED
+        )
+        evidence = exact_record.evidence.to_dict()
+        file_name = lifecycle_v2_wire_file_name(envelope)
+        if (
+            exact_root != root
+            or exact_intent != request_intent
+            or exact_record != terminal_record
+            or envelope.frame_type not in {"clean_stop_result", "clean_stop_error"}
+            or exact_authenticated.authority_manifest_sha256
+            != exact_verifier._authority_manifest.manifest.sha256
+            or exact_authenticated.signer_role != "supervisor"
+            or exact_record.ordinal != 2
+            or exact_record.stage is not expected_stage
+            or exact_record.graceful_stop_operation_id != exact_root.graceful_stop_operation_id
+            or exact_record.root_sha256 != exact_root.sha256
+            or exact_record.predecessor_sha256 != exact_intent.sha256
+            or exact_record.effect_kind != prefix
+            or exact_record.deadline_boottime_ns != exact_root.operation_deadline_boottime_ns
+            or evidence.get("intent_sha256") != exact_intent.sha256
+            or evidence.get(f"{prefix}_sha256") != envelope.sha256
+            or evidence.get(f"{prefix}_artifact_name") != file_name
+            or evidence.get(f"{prefix}_artifact_path") != f"{artifact_directory_path}/{file_name}"
+        ):
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire result crossed its verifier, root, intent, or artifact"
+            )
+        try:
+            request = LifecycleV2CleanStopRequest.from_prefix(
+                exact_root,
+                LifecycleV2CleanStopRequestBasis.from_root(exact_root),
+                exact_intent,
+            )
+            proof = bind_authenticated_lifecycle_v2_terminal_envelope_proof(exact_authenticated)
+            wire_evidence = LifecycleV2TerminalWireEvidence.capture(
+                evidence,
+                proof=proof,
+                request=request,
+                root=exact_root,
+                responder_identity_sha256=exact_root.supervisor_process_epoch_sha256,
+            )
+        except TrustedTimeGracefulStopV2Rejected as error:
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire result terminal evidence is not exact"
+            ) from error
+        if wire_evidence.to_dict() != evidence:
+            raise LifecycleV2TransportAuthenticationError(
+                "retained-wire result terminal evidence changed"
+            )
+        result = object.__new__(_LifecycleV2Ed25519RetainedWireResult)
+        values: dict[str, object] = {
+            "envelope": envelope,
+            "authority_manifest_sha256": exact_authenticated.authority_manifest_sha256,
+            "signer_role": exact_authenticated.signer_role,
+            "root_sha256": exact_root.sha256,
+            "request_intent_sha256": exact_intent.sha256,
+            "terminal_record_sha256": exact_record.sha256,
+            "artifact_directory_path": artifact_directory_path,
+            "_verifier_capability": exact_verifier._sealed_result_capability,
+        }
+        for name, value in values.items():
+            object.__setattr__(result, name, value)
+        snapshot = _RetainedWireResultIssuanceSnapshot(
+            value=result,
+            verifier=exact_verifier,
+            envelope_encoded=envelope.encoded,
+            authority_manifest_sha256=exact_authenticated.authority_manifest_sha256,
+            signer_role=exact_authenticated.signer_role,
+            root_sha256=exact_root.sha256,
+            request_intent_sha256=exact_intent.sha256,
+            terminal_record_sha256=exact_record.sha256,
+            artifact_directory_path=artifact_directory_path,
+            verifier_capability=exact_verifier._sealed_result_capability,
+        )
+        with lock:
+            if id(result) in result_snapshots:
+                raise LifecycleV2TransportAuthenticationError(
+                    "retained-wire result identity was already issued"
+                )
+            result_snapshots[id(result)] = snapshot
+        return require_result(exact_verifier, result)
+
+    def require_result(
+        verifier: object,
+        result: object,
+    ) -> _LifecycleV2Ed25519RetainedWireResult:
+        exact_verifier = require_verifier(verifier)
+        key = id(result)
+        with lock:
+            snapshot = result_snapshots.get(key)
+        if (
+            snapshot is None
+            or snapshot.value is not result
+            or snapshot.verifier is not exact_verifier
+            or type(result) is not _LifecycleV2Ed25519RetainedWireResult
         ):
             raise LifecycleV2TransportAuthenticationError(
                 "retained-wire verifier result is not its exact sealed value"
             )
         try:
-            canonical = decode_unverified_lifecycle_v2_transport_envelope(result.envelope.encoded)
-        except TrustedTimeGracefulStopV2Rejected as error:
+            canonical = decode_unverified_lifecycle_v2_transport_envelope(snapshot.envelope_encoded)
+            fields = (
+                result.authority_manifest_sha256,
+                result.signer_role,
+                result.root_sha256,
+                result.request_intent_sha256,
+                result.terminal_record_sha256,
+                result.artifact_directory_path,
+            )
+            result_envelope = result.envelope
+            result_capability = result._verifier_capability
+        except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
             raise LifecycleV2TransportAuthenticationError(
                 "retained-wire verifier result changed under validation"
             ) from error
-        if canonical != result.envelope:
+        if (
+            type(result_envelope) is not UnverifiedLifecycleV2TransportEnvelope
+            or canonical.encoded != snapshot.envelope_encoded
+            or result_envelope != canonical
+            or result_envelope.encoded != snapshot.envelope_encoded
+            or fields
+            != (
+                snapshot.authority_manifest_sha256,
+                snapshot.signer_role,
+                snapshot.root_sha256,
+                snapshot.request_intent_sha256,
+                snapshot.terminal_record_sha256,
+                snapshot.artifact_directory_path,
+            )
+            or result_capability is not snapshot.verifier_capability
+        ):
             raise LifecycleV2TransportAuthenticationError(
                 "retained-wire verifier result changed under validation"
             )
         return result
 
+    return build, require_verifier, seal_result, require_result
 
-def _build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
-    authority_manifest: AuthenticatedLifecycleV2TransportAuthorityManifest,
-) -> _LifecycleV2Ed25519RetainedWireVerifier:
-    authenticated = _require_authenticated_manifest(authority_manifest)
-    result = object.__new__(_LifecycleV2Ed25519RetainedWireVerifier)
-    object.__setattr__(result, "_authority_manifest", authenticated)
-    object.__setattr__(result, "_origin_pid", os.getpid())
-    object.__setattr__(result, "_origin_thread", threading.current_thread())
-    object.__setattr__(result, "_sealed_result_capability", object())
-    object.__setattr__(result, "_capability", _AUTHENTICATED_VALUE_CAPABILITY)
-    result._require_owner()
-    return result
+
+(
+    _build_injected_lifecycle_v2_ed25519_retained_wire_verifier,
+    _require_exact_retained_wire_verifier,
+    _seal_exact_retained_wire_result,
+    _require_exact_retained_wire_result,
+) = _build_retained_wire_verifier_endpoints()
 
 
 def lifecycle_v2_ed25519_non_authority_facts() -> dict[str, bool]:

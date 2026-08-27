@@ -90,14 +90,11 @@ _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\Z")
 
-_PRODUCTION_RECOVERY_INTENT_CAPABILITY = object()
 _FAKE_RECOVERY_INTENT_CAPABILITY = object()
 _PRODUCTION_AUTHENTICATED_RECOVERY_TYPE = (
     "packages.adapters.trusted_time.graceful_stop_v2_ed25519",
     "AuthenticatedLifecycleV2RecoveryClassificationEnvelope",
 )
-_CONSUMED_RECOVERY_NONCES: set[tuple[int, str, str]] = set()
-_CONSUMED_RECOVERY_NONCES_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,14 +117,35 @@ class _LifecycleV2RecoveryIntentIssuanceSnapshot:
 
 
 def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
-    Callable[..., None],
-    Callable[..., _LifecycleV2RecoveryIntentIssuanceSnapshot],
+    Callable[[Callable[[object], object]], None],
+    Callable[..., LifecycleV2AuthenticatedRecoveryIntent],
+    Callable[..., LifecycleV2AuthenticatedRecoveryIntent],
+    Callable[[object], LifecycleV2AuthenticatedRecoveryIntent],
+    Callable[[object], LifecycleV2AuthenticatedRecoveryIntent],
 ]:
     """Own issuance snapshots and one-use state outside caller-held values."""
 
     snapshots: dict[int, _LifecycleV2RecoveryIntentIssuanceSnapshot] = {}
     consumed: set[int] = set()
+    consumed_nonces: set[tuple[int, str, str]] = set()
+    production_capability = object()
+    adapter_unwrap: Callable[[object], object] | None = None
     lock = threading.Lock()
+
+    def install_adapter_unwrap(endpoint: Callable[[object], object]) -> None:
+        """Capture the exact verifier-owned endpoint once during adapter import."""
+
+        nonlocal adapter_unwrap
+        if (
+            adapter_unwrap is not None
+            or not callable(endpoint)
+            or getattr(endpoint, "__module__", None) != _PRODUCTION_AUTHENTICATED_RECOVERY_TYPE[0]
+            or getattr(endpoint, "__name__", None) != "consume_value"
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery adapter endpoint installation is invalid"
+            )
+        adapter_unwrap = endpoint
 
     def issue(
         value: LifecycleV2AuthenticatedRecoveryIntent,
@@ -188,12 +206,133 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
                 consumed.add(key)
             return snapshot
 
-    return issue, lookup
+    def derive_production(
+        authenticated_envelope: object,
+        *,
+        root: LifecycleV2Root,
+        classified_transcript: LifecycleV2Transcript,
+        recorded_at_utc: str,
+    ) -> LifecycleV2AuthenticatedRecoveryIntent:
+        """Consume only an exact adapter issuance, then seal its durable intent."""
+
+        authenticated_type = type(authenticated_envelope)
+        if (
+            authenticated_type.__module__,
+            authenticated_type.__qualname__,
+        ) != _PRODUCTION_AUTHENTICATED_RECOVERY_TYPE:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery intent requires the exact adapter-authenticated type"
+            )
+        exact_unwrap = adapter_unwrap
+        if exact_unwrap is None:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated recovery classification adapter is unavailable"
+            )
+        try:
+            unwrapped = exact_unwrap(authenticated_envelope)
+        except Exception as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated recovery classification cannot be consumed"
+            ) from error
+        if type(unwrapped) is not tuple or len(unwrapped) != 4:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery-intent adapter returned an invalid value"
+            )
+        envelope, wrapped_root_sha256, wrapped_transcript_sha256, wrapped_manifest_sha256 = (
+            unwrapped
+        )
+        exact_envelope, exact_root, exact_transcript = _canonical_recovery_inputs(
+            envelope=envelope,
+            root=root,
+            classified_transcript=classified_transcript,
+        )
+        if (
+            wrapped_root_sha256 != exact_root.sha256
+            or wrapped_transcript_sha256 != exact_transcript.sha256
+            or wrapped_manifest_sha256 != exact_envelope.transport_authority_manifest_sha256
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated recovery classification crossed its sealed bindings"
+            )
+        consumption_key = (
+            os.getpid(),
+            exact_root.sha256,
+            exact_envelope.operator_nonce_sha256,
+        )
+        with lock:
+            if consumption_key in consumed_nonces:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "recovery classification nonce was already consumed"
+                )
+            consumed_nonces.add(consumption_key)
+        result = _build_recovery_intent_value(
+            envelope=exact_envelope,
+            root=exact_root,
+            classified_transcript=exact_transcript,
+            recorded_at_utc=recorded_at_utc,
+            capability=production_capability,
+        )
+        issue(
+            result,
+            envelope_encoded=exact_envelope.encoded,
+            root_encoded=exact_root.encoded,
+            classified_transcript_encoded=exact_transcript.encoded,
+            recorded_at_utc=recorded_at_utc,
+            capability=production_capability,
+        )
+        return require(result)
+
+    def mint_fake(
+        *,
+        envelope: LifecycleV2RecoveryClassificationEnvelope,
+        root: LifecycleV2Root,
+        classified_transcript: LifecycleV2Transcript,
+        recorded_at_utc: str,
+        capability: object,
+    ) -> LifecycleV2AuthenticatedRecoveryIntent:
+        """Private fake seam; capability-separated from production auth."""
+
+        if capability is not _FAKE_RECOVERY_INTENT_CAPABILITY:
+            raise TrustedTimeGracefulStopV2Rejected("fake recovery-intent capability is invalid")
+        exact_envelope, exact_root, exact_transcript = _canonical_recovery_inputs(
+            envelope=envelope,
+            root=root,
+            classified_transcript=classified_transcript,
+        )
+        result = _build_recovery_intent_value(
+            envelope=exact_envelope,
+            root=exact_root,
+            classified_transcript=exact_transcript,
+            recorded_at_utc=recorded_at_utc,
+            capability=capability,
+        )
+        issue(
+            result,
+            envelope_encoded=exact_envelope.encoded,
+            root_encoded=exact_root.encoded,
+            classified_transcript_encoded=exact_transcript.encoded,
+            recorded_at_utc=recorded_at_utc,
+            capability=capability,
+        )
+        return require(result)
+
+    def require(value: object) -> LifecycleV2AuthenticatedRecoveryIntent:
+        snapshot = lookup(value, consume=False)
+        return _require_lifecycle_v2_recovery_intent_issuance(value, snapshot)
+
+    def consume(value: object) -> LifecycleV2AuthenticatedRecoveryIntent:
+        snapshot = lookup(value, consume=True)
+        return _require_lifecycle_v2_recovery_intent_issuance(value, snapshot)
+
+    return install_adapter_unwrap, derive_production, mint_fake, require, consume
 
 
 (
-    _register_lifecycle_v2_recovery_intent_issuance,
-    _lookup_lifecycle_v2_recovery_intent_issuance,
+    _install_authenticated_lifecycle_v2_recovery_adapter_endpoint,
+    _derive_authenticated_lifecycle_v2_recovery_intent,
+    _mint_fake_authenticated_lifecycle_v2_recovery_intent,
+    require_authenticated_lifecycle_v2_recovery_intent,
+    consume_authenticated_lifecycle_v2_recovery_intent,
 ) = _lifecycle_v2_recovery_intent_issuance_registry()
 
 
@@ -545,7 +684,7 @@ def _recovery_intent_record(
     )
 
 
-def _derive_recovery_intent(
+def _build_recovery_intent_value(
     *,
     envelope: LifecycleV2RecoveryClassificationEnvelope,
     root: LifecycleV2Root,
@@ -581,14 +720,6 @@ def _derive_recovery_intent(
     object.__setattr__(result, "_origin_pid", os.getpid())
     object.__setattr__(result, "_origin_thread", threading.current_thread())
     object.__setattr__(result, "_capability", capability)
-    _register_lifecycle_v2_recovery_intent_issuance(
-        result,
-        envelope_encoded=exact_envelope.encoded,
-        root_encoded=exact_root.encoded,
-        classified_transcript_encoded=exact_transcript.encoded,
-        recorded_at_utc=recorded_at_utc,
-        capability=capability,
-    )
     return result
 
 
@@ -598,87 +729,14 @@ def _consume_authenticated_lifecycle_v2_recovery_classification_envelope(
     root: LifecycleV2Root,
     classified_transcript: LifecycleV2Transcript,
     recorded_at_utc: str,
-    unwrap: _RecoveryEnvelopeUnwrapper,
-    capability: object,
 ) -> LifecycleV2AuthenticatedRecoveryIntent:
-    """Private adapter seam for one authenticated, process-local consumption."""
+    """Compatibility name for the safe adapter-validated derivation endpoint."""
 
-    if capability is not _PRODUCTION_RECOVERY_INTENT_CAPABILITY:
-        raise TrustedTimeGracefulStopV2Rejected("production recovery-intent capability is invalid")
-    authenticated_type = type(authenticated_envelope)
-    if (
-        authenticated_type.__module__,
-        authenticated_type.__qualname__,
-    ) != _PRODUCTION_AUTHENTICATED_RECOVERY_TYPE:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "recovery intent requires the exact adapter-authenticated type"
-        )
-    if not callable(unwrap):
-        raise TrustedTimeGracefulStopV2Rejected(
-            "recovery-intent authenticated unwrapper is invalid"
-        )
-    try:
-        unwrapped = unwrap(authenticated_envelope)
-    except Exception as error:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "authenticated recovery classification cannot be consumed"
-        ) from error
-    if type(unwrapped) is not tuple or len(unwrapped) != 4:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "recovery-intent unwrapper returned an invalid value"
-        )
-    envelope, wrapped_root_sha256, wrapped_transcript_sha256, wrapped_manifest_sha256 = unwrapped
-    exact_envelope, exact_root, exact_transcript = _canonical_recovery_inputs(
-        envelope=envelope,
-        root=root,
-        classified_transcript=classified_transcript,
-    )
-    if (
-        wrapped_root_sha256 != exact_root.sha256
-        or wrapped_transcript_sha256 != exact_transcript.sha256
-        or wrapped_manifest_sha256 != exact_envelope.transport_authority_manifest_sha256
-    ):
-        raise TrustedTimeGracefulStopV2Rejected(
-            "authenticated recovery classification crossed its sealed bindings"
-        )
-    consumption_key = (
-        os.getpid(),
-        exact_root.sha256,
-        exact_envelope.operator_nonce_sha256,
-    )
-    with _CONSUMED_RECOVERY_NONCES_LOCK:
-        if consumption_key in _CONSUMED_RECOVERY_NONCES:
-            raise TrustedTimeGracefulStopV2Rejected(
-                "recovery classification nonce was already consumed"
-            )
-        _CONSUMED_RECOVERY_NONCES.add(consumption_key)
-    return _derive_recovery_intent(
-        envelope=exact_envelope,
-        root=exact_root,
-        classified_transcript=exact_transcript,
-        recorded_at_utc=recorded_at_utc,
-        capability=capability,
-    )
-
-
-def _mint_fake_authenticated_lifecycle_v2_recovery_intent(
-    *,
-    envelope: LifecycleV2RecoveryClassificationEnvelope,
-    root: LifecycleV2Root,
-    classified_transcript: LifecycleV2Transcript,
-    recorded_at_utc: str,
-    capability: object,
-) -> LifecycleV2AuthenticatedRecoveryIntent:
-    """Private fake seam; it is capability-separated from production auth."""
-
-    if capability is not _FAKE_RECOVERY_INTENT_CAPABILITY:
-        raise TrustedTimeGracefulStopV2Rejected("fake recovery-intent capability is invalid")
-    return _derive_recovery_intent(
-        envelope=envelope,
+    return _derive_authenticated_lifecycle_v2_recovery_intent(
+        authenticated_envelope,
         root=root,
         classified_transcript=classified_transcript,
         recorded_at_utc=recorded_at_utc,
-        capability=capability,
     )
 
 
@@ -716,10 +774,6 @@ def _require_lifecycle_v2_recovery_intent_issuance(
         ) from error
     if (
         snapshot.value is not value
-        or (
-            snapshot.capability is not _PRODUCTION_RECOVERY_INTENT_CAPABILITY
-            and snapshot.capability is not _FAKE_RECOVERY_INTENT_CAPABILITY
-        )
         or value_capability is not snapshot.capability
         or os.getpid() != snapshot.origin_pid
         or threading.current_thread() is not snapshot.origin_thread
@@ -745,30 +799,6 @@ def _require_lifecycle_v2_recovery_intent_issuance(
             "authenticated recovery intent changed under validation"
         )
     return value
-
-
-def require_authenticated_lifecycle_v2_recovery_intent(
-    value: object,
-) -> LifecycleV2AuthenticatedRecoveryIntent:
-    """Require one exact issuance on its originating process and thread."""
-
-    snapshot = _lookup_lifecycle_v2_recovery_intent_issuance(
-        value,
-        consume=False,
-    )
-    return _require_lifecycle_v2_recovery_intent_issuance(value, snapshot)
-
-
-def consume_authenticated_lifecycle_v2_recovery_intent(
-    value: object,
-) -> LifecycleV2AuthenticatedRecoveryIntent:
-    """Consume one exact issuance immediately before its first STORE attempt."""
-
-    snapshot = _lookup_lifecycle_v2_recovery_intent_issuance(
-        value,
-        consume=True,
-    )
-    return _require_lifecycle_v2_recovery_intent_issuance(value, snapshot)
 
 
 def lifecycle_v2_recovery_non_authority_facts() -> dict[str, bool]:

@@ -27,6 +27,7 @@ from packages.adapters.trusted_time.graceful_stop_v2_ed25519 import (
     lifecycle_v2_ed25519_non_authority_facts,
 )
 from packages.domain import trusted_time_graceful_stop_v2_recovery as recovery_domain
+from packages.domain import trusted_time_graceful_stop_v2_terminal as terminal_domain
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_ROOT_FILE_NAME,
     LIFECYCLE_V2_CLEAN_STOP_REQUEST_CONTRACT_VERSION,
@@ -882,6 +883,289 @@ def test_authenticated_recovery_consumption_derives_exact_intent_and_is_one_use(
             root=root,
             classified_transcript=transcript,
             recorded_at_utc=UTC_TEXT,
+        )
+
+
+def test_authenticated_issuance_authority_is_not_exposed_as_module_state() -> None:
+    for module, names in (
+        (
+            ed25519_adapter,
+            (
+                "_AUTHENTICATED_VALUE_CAPABILITY",
+                "_register_authenticated_recovery_classification_issuance",
+            ),
+        ),
+        (
+            recovery_domain,
+            (
+                "_PRODUCTION_RECOVERY_INTENT_CAPABILITY",
+                "_register_lifecycle_v2_recovery_intent_issuance",
+            ),
+        ),
+        (
+            terminal_domain,
+            ("_PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY",),
+        ),
+    ):
+        for name in names:
+            assert not hasattr(module, name)
+
+
+def test_object_new_clones_cannot_reuse_authenticated_ed25519_issuances() -> None:
+    manifest = _manifest()
+    selection = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest,
+        recovery=manifest,
+        reason="initial",
+    )
+    authenticated_manifest = _authenticated_manifest(manifest)
+    forged_manifest = object.__new__(
+        ed25519_adapter.AuthenticatedLifecycleV2TransportAuthorityManifest
+    )
+    for name in ("manifest", "root_public_key_sha256", "_capability"):
+        object.__setattr__(forged_manifest, name, getattr(authenticated_manifest, name))
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="not authenticated"):
+        ed25519_adapter._require_authenticated_manifest(forged_manifest)
+
+    authenticated_selection = authenticate_lifecycle_v2_transport_authority_selection(
+        selection.encoded,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    forged_selection = object.__new__(
+        ed25519_adapter.AuthenticatedLifecycleV2TransportAuthoritySelection
+    )
+    for name in ("selection", "root_public_key_sha256", "_capability"):
+        object.__setattr__(forged_selection, name, getattr(authenticated_selection, name))
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="not authenticated"):
+        ed25519_adapter._require_authenticated_selection(forged_selection)
+
+    authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (selection.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    forged_authority = object.__new__(ed25519_adapter.AuthenticatedLifecycleV2TransportAuthority)
+    for name in (
+        "resolution",
+        "authenticated_manifests",
+        "authenticated_selections",
+        "root_public_key_sha256",
+        "_capability",
+    ):
+        object.__setattr__(forged_authority, name, getattr(authority, name))
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="not authenticated"):
+        ed25519_adapter._require_authenticated_authority(forged_authority)
+
+    host = _host_hello(manifest)
+    supervisor = _supervisor_hello(manifest, host)
+    confirmation = _confirmation(manifest, host, supervisor)
+    handshake = authenticate_selected_lifecycle_v2_handshake(
+        authority,
+        host_hello_encoded=host.encoded,
+        supervisor_hello_encoded=supervisor.encoded,
+        host_confirmation_encoded=confirmation.encoded,
+    )
+    forged_handshake = object.__new__(ed25519_adapter.AuthenticatedLifecycleV2Handshake)
+    for name in ("handshake", "authority_manifest_sha256", "_capability"):
+        object.__setattr__(forged_handshake, name, getattr(handshake, name))
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="not authenticated"):
+        ed25519_adapter._require_authenticated_lifecycle_v2_handshake(forged_handshake)
+
+
+def test_authenticated_ed25519_issuances_are_thread_bound_without_cross_thread_burn() -> None:
+    manifest = _manifest()
+    authenticated_manifest = _authenticated_manifest(manifest)
+    root = _root(manifest)
+    intent = _intent(root)
+    envelope = _envelope(root, intent, frame_type="clean_stop_result")
+    failures: list[BaseException] = []
+
+    def authenticate_on_wrong_thread() -> None:
+        try:
+            authenticate_root_bound_lifecycle_v2_transport_frame(
+                envelope.encoded,
+                authority_manifest=authenticated_manifest,
+                root=root,
+                request_intent=intent,
+            )
+        except BaseException as error:
+            failures.append(error)
+
+    worker = threading.Thread(target=authenticate_on_wrong_thread)
+    worker.start()
+    worker.join()
+    assert len(failures) == 1
+    assert isinstance(failures[0], LifecycleV2TransportAuthenticationError)
+
+    authenticated = authenticate_root_bound_lifecycle_v2_transport_frame(
+        envelope.encoded,
+        authority_manifest=authenticated_manifest,
+        root=root,
+        request_intent=intent,
+    )
+    assert authenticated.envelope == envelope
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires fork ownership proof")
+def test_authenticated_authority_issuance_is_fork_bound() -> None:
+    manifest = _manifest()
+    selection = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest,
+        recovery=manifest,
+        reason="initial",
+    )
+    authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (selection.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    read_fd, write_fd = os.pipe()
+    child = os.fork()
+    if child == 0:
+        os.close(read_fd)
+        try:
+            ed25519_adapter._require_authenticated_authority(authority)
+        except LifecycleV2TransportAuthenticationError:
+            os.write(write_fd, b"rejected")
+        else:
+            os.write(write_fd, b"accepted")
+        finally:
+            os.close(write_fd)
+        os._exit(0)
+    os.close(write_fd)
+    child_result = os.read(read_fd, 32)
+    os.close(read_fd)
+    _, status = os.waitpid(child, 0)
+    assert os.waitstatus_to_exitcode(status) == 0
+    assert child_result == b"rejected"
+    assert ed25519_adapter._require_authenticated_authority(authority) is authority
+
+
+def test_object_new_clones_and_module_monkeypatches_cannot_reuse_proofs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authenticated_recovery, root, transcript, _ = _authenticated_recovery_for_consumption(
+        nonce=bytes([211]) * 32
+    )
+    forged_recovery = object.__new__(
+        ed25519_adapter.AuthenticatedLifecycleV2RecoveryClassificationEnvelope
+    )
+    for name in (
+        "envelope",
+        "root_sha256",
+        "classified_transcript_sha256",
+        "authority_manifest_sha256",
+        "_origin_pid",
+        "_origin_thread",
+        "_consumed",
+        "_capability",
+    ):
+        object.__setattr__(forged_recovery, name, getattr(authenticated_recovery, name))
+    monkeypatch.setattr(
+        ed25519_adapter,
+        "_consume_authenticated_lifecycle_v2_recovery_envelope_value",
+        lambda _value: (
+            authenticated_recovery.envelope,
+            root.sha256,
+            transcript.sha256,
+            authenticated_recovery.authority_manifest_sha256,
+        ),
+    )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="cannot be consumed"):
+        consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+            forged_recovery,
+            root=root,
+            classified_transcript=transcript,
+            recorded_at_utc=UTC_TEXT,
+        )
+    intent = consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+        authenticated_recovery,
+        root=root,
+        classified_transcript=transcript,
+        recorded_at_utc=UTC_TEXT,
+    )
+    forged_intent = object.__new__(recovery_domain.LifecycleV2AuthenticatedRecoveryIntent)
+    for name in (
+        "record",
+        "recovery_classification_envelope_sha256",
+        "operator_nonce_sha256",
+        "classified_transcript_sha256",
+        "root_sha256",
+        "_origin_pid",
+        "_origin_thread",
+        "_capability",
+    ):
+        object.__setattr__(forged_intent, name, getattr(intent, name))
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="issuance snapshot"):
+        recovery_domain.require_authenticated_lifecycle_v2_recovery_intent(forged_intent)
+
+    manifest = _manifest()
+    request_intent = _intent(root)
+    envelope = _envelope(root, request_intent, frame_type="clean_stop_result")
+    authenticated_frame = authenticate_root_bound_lifecycle_v2_transport_frame(
+        envelope.encoded,
+        authority_manifest=_authenticated_manifest(manifest),
+        root=root,
+        request_intent=request_intent,
+    )
+    expectation = ed25519_adapter._LifecycleV2TransportFrameExpectation.from_root_and_intent(
+        root,
+        request_intent,
+        frame_type="clean_stop_result",
+    )
+    forged_expectation = object.__new__(ed25519_adapter._LifecycleV2TransportFrameExpectation)
+    for name in (*ed25519_adapter._EXPECTATION_FIELD_NAMES, "_capability"):
+        object.__setattr__(forged_expectation, name, getattr(expectation, name))
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="issuance"):
+        ed25519_adapter._authenticate_lifecycle_v2_transport_frame(
+            envelope.encoded,
+            authority_manifest=_authenticated_manifest(manifest),
+            expectation=forged_expectation,
+        )
+    forged_frame = object.__new__(ed25519_adapter.AuthenticatedLifecycleV2TransportEnvelope)
+    for name in ("envelope", "authority_manifest_sha256", "signer_role", "_capability"):
+        object.__setattr__(forged_frame, name, getattr(authenticated_frame, name))
+    monkeypatch.setattr(
+        ed25519_adapter,
+        "_unwrap_authenticated_lifecycle_v2_transport_envelope",
+        lambda _value: (envelope, manifest.sha256, "supervisor"),
+    )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="not valid"):
+        bind_authenticated_lifecycle_v2_terminal_envelope_proof(forged_frame)
+    forged_dynamic_type = type(
+        "AuthenticatedLifecycleV2TransportEnvelope",
+        (),
+        {
+            "__module__": "packages.adapters.trusted_time.graceful_stop_v2_ed25519",
+        },
+    )
+    forged_dynamic = forged_dynamic_type()
+    forged_dynamic.envelope = envelope
+    forged_dynamic.authority_manifest_sha256 = manifest.sha256
+    forged_dynamic.signer_role = "supervisor"
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="not valid"):
+        bind_authenticated_lifecycle_v2_terminal_envelope_proof(forged_dynamic)
+
+    proof = bind_authenticated_lifecycle_v2_terminal_envelope_proof(authenticated_frame)
+    forged_proof = object.__new__(terminal_domain.LifecycleV2AuthenticatedTerminalEnvelopeProof)
+    for name in ("envelope", "authority_manifest_sha256", "signer_role", "_capability"):
+        object.__setattr__(forged_proof, name, getattr(proof, name))
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="lacks"):
+        terminal_domain._require_authenticated_terminal_envelope_proof(forged_proof)
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="installation"):
+        terminal_domain._install_authenticated_terminal_envelope_adapter_endpoint(
+            ed25519_adapter._unwrap_authenticated_lifecycle_v2_transport_envelope
+        )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="installation"):
+        recovery_domain._install_authenticated_lifecycle_v2_recovery_adapter_endpoint(
+            ed25519_adapter._consume_authenticated_lifecycle_v2_recovery_envelope_value
         )
 
 
@@ -2181,6 +2465,49 @@ def test_repository_verifier_returns_only_its_sealed_authenticated_terminal_valu
     )
     with pytest.raises(LifecycleV2TransportAuthenticationError, match="sealed value"):
         parallel_verifier.require_exact_authenticated_retained_terminal_wire(sealed)
+
+
+def test_retained_wire_verifier_and_result_clones_cannot_reuse_private_fields() -> None:
+    manifest = _manifest()
+    root = _root(manifest)
+    intent = _intent(root)
+    envelope, terminal_record = _signed_terminal_result_record(root, intent)
+    verifier = ed25519_adapter._build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
+        _authenticated_manifest(manifest)
+    )
+    forged_verifier = object.__new__(ed25519_adapter._LifecycleV2Ed25519RetainedWireVerifier)
+    for name in (
+        "_authority_manifest",
+        "_origin_pid",
+        "_origin_thread",
+        "_sealed_result_capability",
+        "_capability",
+    ):
+        object.__setattr__(forged_verifier, name, getattr(verifier, name))
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="owner"):
+        forged_verifier._require_owner()
+
+    sealed = verifier.reauthenticate_retained_terminal_wire(
+        envelope=envelope,
+        root=root,
+        request_intent=intent,
+        terminal_record=terminal_record,
+        artifact_directory_path="/injected/adr0121/trusted-time",
+    )
+    forged_result = object.__new__(ed25519_adapter._LifecycleV2Ed25519RetainedWireResult)
+    for name in (
+        "envelope",
+        "authority_manifest_sha256",
+        "signer_role",
+        "root_sha256",
+        "request_intent_sha256",
+        "terminal_record_sha256",
+        "artifact_directory_path",
+        "_verifier_capability",
+    ):
+        object.__setattr__(forged_result, name, getattr(sealed, name))
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="sealed value"):
+        verifier.require_exact_authenticated_retained_terminal_wire(forged_result)
 
 
 @pytest.mark.parametrize(

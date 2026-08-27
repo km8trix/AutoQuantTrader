@@ -23,7 +23,6 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
 )
 from packages.domain.trusted_time_graceful_stop_v2_terminal import (
     _FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
-    _PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
     CLEAN_STOP_ERROR_CONTRACT_VERSION,
     CLEAN_STOP_RESULT_CONTRACT_VERSION,
     LISTENER_PATH,
@@ -146,9 +145,7 @@ def _terminal_projection() -> LifecycleV2TerminalProjection:
             "confirmed_anchor_local_transition_ordinal"
         ],
         "contract_version": "phase6d-trusted-time-head-anchor-clean-stop-terminal-result-v1",
-        "current_anchor_intent_semantic_sha256": value[
-            "current_anchor_intent_semantic_sha256"
-        ],
+        "current_anchor_intent_semantic_sha256": value["current_anchor_intent_semantic_sha256"],
         "current_anchor_semantic_sha256": value["current_anchor_semantic_sha256"],
         "current_anchor_sha256": value["current_anchor_sha256"],
         "current_candidate_remote_readback_sha256": value[
@@ -190,9 +187,7 @@ def _cleanup(
             "boot_epoch_sha256": root.boot_epoch_sha256,
             "supervisor_process_epoch_sha256": root.supervisor_process_epoch_sha256,
             "supervisor_container_id": root.supervisor_container_id,
-            "transport_authority_manifest_sha256": (
-                root.transport_authority_manifest_sha256
-            ),
+            "transport_authority_manifest_sha256": (root.transport_authority_manifest_sha256),
             "key_generation": root.transport_key_generation,
             "supervisor_key_id": root.supervisor_transport_key_id,
             "supervisor_socket_identity_sha256": _digest("socket"),
@@ -219,35 +214,39 @@ def _result() -> tuple[LifecycleV2Root, LifecycleV2CleanStopRequest, LifecycleV2
     projection = _terminal_projection()
     cleanup = _cleanup(root, request)
     request_fields = request.to_dict()
-    return root, request, LifecycleV2CleanStopResult.capture(
-        {
-            "contract_version": CLEAN_STOP_RESULT_CONTRACT_VERSION,
-            "service": "trusted-time-head-anchor-clean-stop-v2",
-            "status": "exact_operation_bound_new_record_clean_stop_correlated_unqualified",
-            "environment": root.environment,
-            "graceful_stop_operation_id": root.graceful_stop_operation_id,
-            "lifecycle_root_sha256": root.sha256,
-            "admission_sha256": root.admission_sha256,
-            "lifecycle_dispatch_prefix_sha256": request_fields[
-                "lifecycle_dispatch_prefix_sha256"
-            ],
-            "channel_id": root.channel_id,
-            "boot_epoch_sha256": root.boot_epoch_sha256,
-            "host_process_epoch_sha256": root.host_process_epoch_sha256,
-            "supervisor_process_epoch_sha256": root.supervisor_process_epoch_sha256,
-            "supervisor_container_id": root.supervisor_container_id,
-            "operation_bound_request": request_fields,
-            "request_sha256": request.sha256,
-            "terminal_projection": projection.to_dict(),
-            "terminal_projection_sha256": projection.sha256,
-            "supervisor_transport_cleanup_commitment": cleanup.to_dict(),
-            "supervisor_transport_cleanup_commitment_sha256": cleanup.sha256,
-            "result_completed_boottime_ns": root.admission_started_boottime_ns + 1,
-            "transport_cleanup_deadline_boottime_ns": request_fields[
-                "transport_cleanup_deadline_boottime_ns"
-            ],
-            "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
-        }
+    return (
+        root,
+        request,
+        LifecycleV2CleanStopResult.capture(
+            {
+                "contract_version": CLEAN_STOP_RESULT_CONTRACT_VERSION,
+                "service": "trusted-time-head-anchor-clean-stop-v2",
+                "status": "exact_operation_bound_new_record_clean_stop_correlated_unqualified",
+                "environment": root.environment,
+                "graceful_stop_operation_id": root.graceful_stop_operation_id,
+                "lifecycle_root_sha256": root.sha256,
+                "admission_sha256": root.admission_sha256,
+                "lifecycle_dispatch_prefix_sha256": request_fields[
+                    "lifecycle_dispatch_prefix_sha256"
+                ],
+                "channel_id": root.channel_id,
+                "boot_epoch_sha256": root.boot_epoch_sha256,
+                "host_process_epoch_sha256": root.host_process_epoch_sha256,
+                "supervisor_process_epoch_sha256": root.supervisor_process_epoch_sha256,
+                "supervisor_container_id": root.supervisor_container_id,
+                "operation_bound_request": request_fields,
+                "request_sha256": request.sha256,
+                "terminal_projection": projection.to_dict(),
+                "terminal_projection_sha256": projection.sha256,
+                "supervisor_transport_cleanup_commitment": cleanup.to_dict(),
+                "supervisor_transport_cleanup_commitment_sha256": cleanup.sha256,
+                "result_completed_boottime_ns": root.admission_started_boottime_ns + 1,
+                "transport_cleanup_deadline_boottime_ns": request_fields[
+                    "transport_cleanup_deadline_boottime_ns"
+                ],
+                "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
+            }
+        ),
     )
 
 
@@ -255,37 +254,41 @@ def _error() -> tuple[LifecycleV2Root, LifecycleV2CleanStopRequest, LifecycleV2C
     root, request = _request()
     cleanup = _cleanup(root, request)
     request_fields = request.to_dict()
-    return root, request, LifecycleV2CleanStopError.capture(
-        {
-            "contract_version": CLEAN_STOP_ERROR_CONTRACT_VERSION,
-            "service": "trusted-time-head-anchor-clean-stop-v2",
-            "status": "operation_bound_clean_stop_failed_unqualified",
-            "environment": root.environment,
-            "graceful_stop_operation_id": root.graceful_stop_operation_id,
-            "lifecycle_root_sha256": root.sha256,
-            "request_sha256": request.sha256,
-            "admission_sha256": root.admission_sha256,
-            "lifecycle_dispatch_prefix_sha256": request_fields[
-                "lifecycle_dispatch_prefix_sha256"
-            ],
-            "channel_id": root.channel_id,
-            "boot_epoch_sha256": root.boot_epoch_sha256,
-            "host_process_epoch_sha256": root.host_process_epoch_sha256,
-            "supervisor_process_epoch_sha256": root.supervisor_process_epoch_sha256,
-            "supervisor_container_id": root.supervisor_container_id,
-            "error_code": "clean_stop_failed",
-            "failure_boundary": "during_or_after_selection",
-            "call_may_have_occurred": True,
-            "retryable": False,
-            "observed_boottime_ns": root.admission_started_boottime_ns + 1,
-            "supervisor_transport_cleanup_commitment": cleanup.to_dict(),
-            "supervisor_transport_cleanup_commitment_sha256": cleanup.sha256,
-            "transport_cleanup_deadline_boottime_ns": request_fields[
-                "transport_cleanup_deadline_boottime_ns"
-            ],
-            "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
-        },
-        request=request,
+    return (
+        root,
+        request,
+        LifecycleV2CleanStopError.capture(
+            {
+                "contract_version": CLEAN_STOP_ERROR_CONTRACT_VERSION,
+                "service": "trusted-time-head-anchor-clean-stop-v2",
+                "status": "operation_bound_clean_stop_failed_unqualified",
+                "environment": root.environment,
+                "graceful_stop_operation_id": root.graceful_stop_operation_id,
+                "lifecycle_root_sha256": root.sha256,
+                "request_sha256": request.sha256,
+                "admission_sha256": root.admission_sha256,
+                "lifecycle_dispatch_prefix_sha256": request_fields[
+                    "lifecycle_dispatch_prefix_sha256"
+                ],
+                "channel_id": root.channel_id,
+                "boot_epoch_sha256": root.boot_epoch_sha256,
+                "host_process_epoch_sha256": root.host_process_epoch_sha256,
+                "supervisor_process_epoch_sha256": root.supervisor_process_epoch_sha256,
+                "supervisor_container_id": root.supervisor_container_id,
+                "error_code": "clean_stop_failed",
+                "failure_boundary": "during_or_after_selection",
+                "call_may_have_occurred": True,
+                "retryable": False,
+                "observed_boottime_ns": root.admission_started_boottime_ns + 1,
+                "supervisor_transport_cleanup_commitment": cleanup.to_dict(),
+                "supervisor_transport_cleanup_commitment_sha256": cleanup.sha256,
+                "transport_cleanup_deadline_boottime_ns": request_fields[
+                    "transport_cleanup_deadline_boottime_ns"
+                ],
+                "operation_deadline_boottime_ns": root.operation_deadline_boottime_ns,
+            },
+            request=request,
+        ),
     )
 
 
@@ -335,10 +338,7 @@ def _publication_receipt_value(
     publication_authorized_boottime_ns: int,
 ) -> dict[str, object]:
     kind = "result" if envelope.frame_type == "clean_stop_result" else "error"
-    file_name = (
-        "trusted-time-post-enrollment-graceful-stop-v2-wire-"
-        f"{kind}-{envelope.sha256}.json"
-    )
+    file_name = f"trusted-time-post-enrollment-graceful-stop-v2-wire-{kind}-{envelope.sha256}.json"
     return {
         "contract_version": WIRE_PUBLICATION_RECEIPT_CONTRACT_VERSION,
         "service": "trusted-time-post-enrollment-graceful-stop-lifecycle-v2",
@@ -365,9 +365,7 @@ def _publication_receipt_value(
         "key_generation": root.transport_key_generation,
         "signing_key_id": root.supervisor_transport_key_id,
         "channel_id": root.channel_id,
-        "lifecycle_dispatch_prefix_sha256": request.to_dict()[
-            "lifecycle_dispatch_prefix_sha256"
-        ],
+        "lifecycle_dispatch_prefix_sha256": request.to_dict()["lifecycle_dispatch_prefix_sha256"],
         "message_counter": 1,
         "deadline_boottime_ns": root.clean_stop_result_deadline_boottime_ns,
         "directory_fsync_completed": True,
@@ -434,9 +432,7 @@ def _result_evidence_value(
         "key_generation": root.transport_key_generation,
         "signing_key_id": root.supervisor_transport_key_id,
         "channel_id": root.channel_id,
-        "lifecycle_dispatch_prefix_sha256": request.to_dict()[
-            "lifecycle_dispatch_prefix_sha256"
-        ],
+        "lifecycle_dispatch_prefix_sha256": request.to_dict()["lifecycle_dispatch_prefix_sha256"],
         "message_counter": 1,
         "deadline_boottime_ns": root.clean_stop_result_deadline_boottime_ns,
         "wire_publication_receipt": receipt_fields,
@@ -475,7 +471,7 @@ def test_terminal_proof_is_sealed_and_raw_wire_cannot_cross_either_mint() -> Non
         _mint_authenticated_lifecycle_v2_terminal_envelope_proof(
             envelope,
             unwrap=unwrap_raw,
-            capability=_PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
+            capability=object(),
         )
     with pytest.raises(TrustedTimeGracefulStopV2Rejected):
         LifecycleV2WirePublicationReceipt.capture(
@@ -600,9 +596,7 @@ def test_receipt_rejects_every_cross_root_cleanup_correlator(
         assert type(request_value) is dict
         request_value["transport_cleanup_deadline_boottime_ns"] = replacement
         assert type(replacement) is int
-        request_value["clean_stop_result_deadline_boottime_ns"] = (
-            replacement - 5_000_000_000
-        )
+        request_value["clean_stop_result_deadline_boottime_ns"] = replacement - 5_000_000_000
         value["request_sha256"] = LifecycleV2CleanStopRequest.capture(request_value).sha256
     terminal = LifecycleV2CleanStopResult.capture(value)
     envelope = _envelope(

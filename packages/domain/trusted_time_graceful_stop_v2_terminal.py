@@ -7,7 +7,9 @@ signature, publish an artifact, open a transport, or grant stop authority.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Self
@@ -135,7 +137,6 @@ class _CanonicalValue:
         raise NotImplementedError
 
 
-_PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY = object()
 _FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY = object()
 _PRODUCTION_AUTHENTICATED_ENVELOPE_TYPE = (
     "packages.adapters.trusted_time.graceful_stop_v2_ed25519",
@@ -154,11 +155,6 @@ class LifecycleV2AuthenticatedTerminalEnvelopeProof:
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("terminal envelope proofs require an authentication boundary")
-
-
-_TerminalEnvelopeUnwrapper = Callable[
-    [object], tuple[UnverifiedLifecycleV2TransportEnvelope, str, str]
-]
 
 
 def _seal_terminal_envelope_proof(
@@ -197,101 +193,180 @@ def _seal_terminal_envelope_proof(
     return result
 
 
-def _mint_authenticated_lifecycle_v2_terminal_envelope_proof(
-    authenticated_envelope: object,
-    *,
-    unwrap: _TerminalEnvelopeUnwrapper,
-    capability: object,
-) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
-    """Private adapter seam for a production authenticated-envelope value.
-
-    The Ed25519 adapter owns the exact-type/capability check for its
-    ``AuthenticatedLifecycleV2TransportEnvelope``.  Its private unwrapper may
-    cross this seam only while holding this module's production mint
-    capability; the domain therefore never imports the adapter.
-    """
-
-    if capability is not _PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "production terminal proof mint capability is invalid"
-        )
-    authenticated_type = type(authenticated_envelope)
-    if (
-        authenticated_type.__module__,
-        authenticated_type.__qualname__,
-    ) != _PRODUCTION_AUTHENTICATED_ENVELOPE_TYPE:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "production terminal proof requires the exact adapter-authenticated type"
-        )
-    if not callable(unwrap):
-        raise TrustedTimeGracefulStopV2Rejected(
-            "production terminal proof unwrapper is invalid"
-        )
-    try:
-        unwrapped = unwrap(authenticated_envelope)
-    except Exception as error:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "production terminal envelope authentication is not valid"
-        ) from error
-    if type(unwrapped) is not tuple or len(unwrapped) != 3:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "production terminal proof unwrapper returned an invalid value"
-        )
-    envelope, manifest_sha256, signer_role = unwrapped
-    return _seal_terminal_envelope_proof(
-        envelope,
-        authority_manifest_sha256=manifest_sha256,
-        signer_role=signer_role,
-        capability=capability,
-    )
+@dataclass(frozen=True, slots=True)
+class _AuthenticatedTerminalProofIssuanceSnapshot:
+    value: LifecycleV2AuthenticatedTerminalEnvelopeProof
+    envelope_encoded: bytes
+    authority_manifest_sha256: str
+    signer_role: str
+    capability: object
+    origin_pid: int
+    origin_thread: threading.Thread
 
 
-def _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof(
-    authenticated_envelope: object,
-    *,
-    root: LifecycleV2Root,
-    capability: object,
-) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
-    """Private test seam for the existing fake-authenticated envelope value."""
+def _build_authenticated_terminal_proof_endpoints() -> tuple[
+    Callable[[Callable[[object], object]], None],
+    Callable[..., LifecycleV2AuthenticatedTerminalEnvelopeProof],
+    Callable[..., LifecycleV2AuthenticatedTerminalEnvelopeProof],
+    Callable[[object], LifecycleV2AuthenticatedTerminalEnvelopeProof],
+]:
+    """Keep proof issuance behind exact adapter/fake authentication registries."""
 
-    if capability is not _FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "fake terminal proof mint capability is invalid"
+    snapshots: dict[int, _AuthenticatedTerminalProofIssuanceSnapshot] = {}
+    production_capability = object()
+    adapter_unwrap: Callable[[object], object] | None = None
+    lock = threading.Lock()
+
+    def install_adapter_unwrap(endpoint: Callable[[object], object]) -> None:
+        """Capture the exact verifier-owned endpoint once during adapter import."""
+
+        nonlocal adapter_unwrap
+        if (
+            adapter_unwrap is not None
+            or not callable(endpoint)
+            or getattr(endpoint, "__module__", None) != _PRODUCTION_AUTHENTICATED_ENVELOPE_TYPE[0]
+            or getattr(endpoint, "__name__", None) != "unwrap"
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal adapter endpoint installation is invalid"
+            )
+        adapter_unwrap = endpoint
+
+    def issue(
+        value: LifecycleV2AuthenticatedTerminalEnvelopeProof,
+        *,
+        capability: object,
+    ) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
+        snapshot = _AuthenticatedTerminalProofIssuanceSnapshot(
+            value=value,
+            envelope_encoded=value.envelope.encoded,
+            authority_manifest_sha256=value.authority_manifest_sha256,
+            signer_role=value.signer_role,
+            capability=capability,
+            origin_pid=os.getpid(),
+            origin_thread=threading.current_thread(),
         )
-    exact_root = _require_exact_root(root)
-    envelope = _require_fake_authenticated_lifecycle_v2_transport_envelope(
-        authenticated_envelope
-    )
-    return _seal_terminal_envelope_proof(
-        envelope,
-        authority_manifest_sha256=exact_root.transport_authority_manifest_sha256,
-        signer_role="supervisor",
-        capability=capability,
-    )
+        with lock:
+            if id(value) in snapshots:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "terminal proof identity was already issued"
+                )
+            snapshots[id(value)] = snapshot
+        return require(value)
+
+    def mint_production(
+        authenticated_envelope: object,
+        *,
+        unwrap: object | None = None,
+        capability: object | None = None,
+    ) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
+        if unwrap is not None or capability is not None:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "production terminal proof has no caller-supplied mint authority"
+            )
+        authenticated_type = type(authenticated_envelope)
+        if (
+            authenticated_type.__module__,
+            authenticated_type.__qualname__,
+        ) != _PRODUCTION_AUTHENTICATED_ENVELOPE_TYPE:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "production terminal proof requires the exact adapter-authenticated type"
+            )
+        exact_unwrap = adapter_unwrap
+        if exact_unwrap is None:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated terminal envelope adapter is unavailable"
+            )
+        try:
+            unwrapped = exact_unwrap(authenticated_envelope)
+        except Exception as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "production terminal envelope authentication is not valid"
+            ) from error
+        if type(unwrapped) is not tuple or len(unwrapped) != 3:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "production terminal proof adapter returned an invalid value"
+            )
+        envelope, manifest_sha256, signer_role = unwrapped
+        proof = _seal_terminal_envelope_proof(
+            envelope,
+            authority_manifest_sha256=manifest_sha256,
+            signer_role=signer_role,
+            capability=production_capability,
+        )
+        return issue(proof, capability=production_capability)
+
+    def mint_fake(
+        authenticated_envelope: object,
+        *,
+        root: LifecycleV2Root,
+        capability: object,
+    ) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
+        if capability is not _FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "fake terminal proof mint capability is invalid"
+            )
+        exact_root = _require_exact_root(root)
+        envelope = _require_fake_authenticated_lifecycle_v2_transport_envelope(
+            authenticated_envelope
+        )
+        proof = _seal_terminal_envelope_proof(
+            envelope,
+            authority_manifest_sha256=exact_root.transport_authority_manifest_sha256,
+            signer_role="supervisor",
+            capability=capability,
+        )
+        return issue(proof, capability=capability)
+
+    def require(value: object) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
+        key = id(value)
+        with lock:
+            snapshot = snapshots.get(key)
+        if (
+            snapshot is None
+            or snapshot.value is not value
+            or type(value) is not LifecycleV2AuthenticatedTerminalEnvelopeProof
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal wire lacks an authenticated-envelope proof"
+            )
+        try:
+            canonical = decode_unverified_lifecycle_v2_transport_envelope(snapshot.envelope_encoded)
+            value_envelope = value.envelope
+            value_manifest_sha256 = value.authority_manifest_sha256
+            value_signer_role = value.signer_role
+            value_capability = value._capability
+        except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated terminal wire changed under validation"
+            ) from error
+        if (
+            os.getpid() != snapshot.origin_pid
+            or threading.current_thread() is not snapshot.origin_thread
+            or value_capability is not snapshot.capability
+            or type(value_envelope) is not UnverifiedLifecycleV2TransportEnvelope
+            or canonical.encoded != snapshot.envelope_encoded
+            or value_envelope != canonical
+            or value_envelope.encoded != snapshot.envelope_encoded
+            or value_manifest_sha256 != snapshot.authority_manifest_sha256
+            or value_signer_role != snapshot.signer_role
+            or value_signer_role != "supervisor"
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated terminal wire changed under validation"
+            )
+        _require_sha256(value_manifest_sha256, "authority_manifest_sha256")
+        return value
+
+    return install_adapter_unwrap, mint_production, mint_fake, require
 
 
-def _require_authenticated_terminal_envelope_proof(
-    value: object,
-) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
-    if (
-        type(value) is not LifecycleV2AuthenticatedTerminalEnvelopeProof
-        or (
-            value._capability is not _PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY
-            and value._capability is not _FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY
-        )
-        or type(value.envelope) is not UnverifiedLifecycleV2TransportEnvelope
-        or value.signer_role != "supervisor"
-    ):
-        raise TrustedTimeGracefulStopV2Rejected(
-            "terminal wire lacks an authenticated-envelope proof"
-        )
-    canonical = decode_unverified_lifecycle_v2_transport_envelope(value.envelope.encoded)
-    if canonical != value.envelope:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "authenticated terminal wire changed under validation"
-        )
-    _require_sha256(value.authority_manifest_sha256, "authority_manifest_sha256")
-    return value
+(
+    _install_authenticated_terminal_envelope_adapter_endpoint,
+    _mint_authenticated_lifecycle_v2_terminal_envelope_proof,
+    _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof,
+    _require_authenticated_terminal_envelope_proof,
+) = _build_authenticated_terminal_proof_endpoints()
 
 
 _TERMINAL_PROJECTION_FIELDS = frozenset(
@@ -615,17 +690,12 @@ def _require_root_request_correlators(
         "host_process_epoch_sha256": "host_process_epoch_sha256",
         "supervisor_process_epoch_sha256": "supervisor_process_epoch_sha256",
         "admission_started_boottime_ns": "admission_started_boottime_ns",
-        "clean_stop_result_deadline_boottime_ns": (
-            "clean_stop_result_deadline_boottime_ns"
-        ),
+        "clean_stop_result_deadline_boottime_ns": ("clean_stop_result_deadline_boottime_ns"),
         "operation_deadline_boottime_ns": "operation_deadline_boottime_ns",
     }
-    if (
-        request_fields["lifecycle_root_sha256"] != exact_root.sha256
-        or any(
-            request_fields[request_name] != getattr(exact_root, root_name)
-            for request_name, root_name in pairs.items()
-        )
+    if request_fields["lifecycle_root_sha256"] != exact_root.sha256 or any(
+        request_fields[request_name] != getattr(exact_root, root_name)
+        for request_name, root_name in pairs.items()
     ):
         raise TrustedTimeGracefulStopV2Rejected(
             "clean-stop request crossed its exact lifecycle root"
@@ -898,22 +968,18 @@ def _require_authenticated_terminal_context(
         "host_process_epoch_sha256": exact_root.host_process_epoch_sha256,
         "supervisor_process_epoch_sha256": exact_root.supervisor_process_epoch_sha256,
         "channel_id": exact_root.channel_id,
-        "lifecycle_dispatch_prefix_sha256": request_fields[
-            "lifecycle_dispatch_prefix_sha256"
-        ],
+        "lifecycle_dispatch_prefix_sha256": request_fields["lifecycle_dispatch_prefix_sha256"],
         "message_counter": 1,
         "deadline_boottime_ns": exact_root.clean_stop_result_deadline_boottime_ns,
     }
     if (
-        authenticated.authority_manifest_sha256
-        != exact_root.transport_authority_manifest_sha256
+        authenticated.authority_manifest_sha256 != exact_root.transport_authority_manifest_sha256
         or authenticated.signer_role != "supervisor"
         or key_generation != exact_root.transport_key_generation
         or message_counter != 1
         or deadline != exact_root.clean_stop_result_deadline_boottime_ns
         or any(
-            envelope_fields[name] != expected
-            for name, expected in expected_envelope_fields.items()
+            envelope_fields[name] != expected for name, expected in expected_envelope_fields.items()
         )
     ):
         raise TrustedTimeGracefulStopV2Rejected(
@@ -931,9 +997,7 @@ def _require_authenticated_terminal_context(
         "graceful_stop_operation_id": exact_root.graceful_stop_operation_id,
         "lifecycle_root_sha256": exact_root.sha256,
         "admission_sha256": exact_root.admission_sha256,
-        "lifecycle_dispatch_prefix_sha256": request_fields[
-            "lifecycle_dispatch_prefix_sha256"
-        ],
+        "lifecycle_dispatch_prefix_sha256": request_fields["lifecycle_dispatch_prefix_sha256"],
         "channel_id": exact_root.channel_id,
         "boot_epoch_sha256": exact_root.boot_epoch_sha256,
         "host_process_epoch_sha256": exact_root.host_process_epoch_sha256,
@@ -953,14 +1017,10 @@ def _require_authenticated_terminal_context(
         "boot_epoch_sha256": exact_root.boot_epoch_sha256,
         "supervisor_process_epoch_sha256": exact_root.supervisor_process_epoch_sha256,
         "supervisor_container_id": exact_root.supervisor_container_id,
-        "transport_authority_manifest_sha256": (
-            exact_root.transport_authority_manifest_sha256
-        ),
+        "transport_authority_manifest_sha256": (exact_root.transport_authority_manifest_sha256),
         "key_generation": exact_root.transport_key_generation,
         "supervisor_key_id": exact_root.supervisor_transport_key_id,
-        "cleanup_deadline_boottime_ns": request_fields[
-            "transport_cleanup_deadline_boottime_ns"
-        ],
+        "cleanup_deadline_boottime_ns": request_fields["transport_cleanup_deadline_boottime_ns"],
     }
     cleanup_key_generation = _require_int(
         cleanup_fields["key_generation"],
@@ -973,12 +1033,10 @@ def _require_authenticated_terminal_context(
         != authenticated.authority_manifest_sha256
         or cleanup_fields["supervisor_key_id"] != envelope_fields["signing_key_id"]
         or any(
-            terminal_fields[name] != expected
-            for name, expected in expected_terminal_fields.items()
+            terminal_fields[name] != expected for name, expected in expected_terminal_fields.items()
         )
         or any(
-            cleanup_fields[name] != expected
-            for name, expected in expected_cleanup_fields.items()
+            cleanup_fields[name] != expected for name, expected in expected_cleanup_fields.items()
         )
     ):
         raise TrustedTimeGracefulStopV2Rejected(
