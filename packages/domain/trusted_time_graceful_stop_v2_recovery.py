@@ -165,7 +165,12 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
             "authenticate_lifecycle_v2_recovery_classification_envelope",
         }
     )
-    expected_endpoint_freevars = ("lookup",)
+    expected_endpoint_freevars = (
+        "decode_envelope",
+        "lookup",
+        "require_issuance",
+        "set_attribute",
+    )
     canonicalize_inputs = _canonical_recovery_inputs
     build_intent_value = _build_recovery_intent_value
     validate_issuance = _require_lifecycle_v2_recovery_intent_issuance
