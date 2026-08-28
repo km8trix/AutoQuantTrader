@@ -177,6 +177,8 @@ def _write_adr0111_production_manifest_fixture(
         _NATIVE_BOUNDED_PROCESS_REFLECTION_MODULE_AST_SHA256,
         _NATIVE_BUILD_CONSTRAINTS_TEXT,
         _NATIVE_BUILD_REQUIREMENTS,
+        _PROJECT_BUILD_BOOTSTRAP_MANIFEST_PATHS,
+        _PROJECT_SDIST_FORCE_INCLUDE_PATHS,
         _canonical_ast_sha256,
         _production_python_source_manifest_sha256,
         _project_build_bootstrap_manifest_sha256,
@@ -685,18 +687,10 @@ def _read_boot_id_snapshot(*, _open_root=_open_root_directory,
     roots = tuple(root / value for value in ("apps", "packages", "scripts", "migrations"))
     pruned = (root / "apps/web/node_modules",)
     manifest_sha256 = _production_python_source_manifest_sha256(root, roots, pruned)
-    bootstrap_paths = (
-        ".python-version",
-        "alembic.ini",
-        "pyproject.toml",
-        "uv.lock",
-        "build_support/build_native_test_launcher.py",
-        "build_support/native_build_constraints.txt",
-        "build_support/native_image_manifest.py",
-        "build_support/native_owned_file_descriptor_hook.py",
-        "native/bounded_process.c",
-        "native/owned_file_descriptor.c",
-        "native/trusted_time_python_launcher.c",
+    bootstrap_paths = _PROJECT_BUILD_BOOTSTRAP_MANIFEST_PATHS
+    force_include_source = "".join(
+        f"{json.dumps(relative)} = {json.dumps(relative)}\n"
+        for relative in _PROJECT_SDIST_FORCE_INCLUDE_PATHS
     )
     (root / ".python-version").write_text("3.12\n", encoding="utf-8")
     (root / "alembic.ini").write_text(
@@ -742,17 +736,8 @@ path = "build_support/native_owned_file_descriptor_hook.py"
 exclude = ["/.uv-cache", "build_support/build_native_test_launcher.py"]
 
 [tool.hatch.build.targets.sdist.force-include]
-"build_support/native_build_constraints.txt" = \
-"build_support/native_build_constraints.txt"
-"build_support/native_image_manifest.py" = "build_support/native_image_manifest.py"
-"build_support/native_owned_file_descriptor_hook.py" = \
-"build_support/native_owned_file_descriptor_hook.py"
-"native/bounded_process.c" = "native/bounded_process.c"
-"native/owned_file_descriptor.c" = "native/owned_file_descriptor.c"
-"native/trusted_time_python_launcher.c" = "native/trusted_time_python_launcher.c"
-"packages/adapters/trusted_time/_bounded_process.py" = \
-"packages/adapters/trusted_time/_bounded_process.py"
-""",
+"""
+        + force_include_source,
         encoding="utf-8",
     )
     assert tuple(_NATIVE_BUILD_REQUIREMENTS) == (
@@ -782,9 +767,15 @@ exclude = ["/.uv-cache", "build_support/build_native_test_launcher.py"]
     native_source.write_text("/* reviewed fixture */\n", encoding="utf-8")
     launcher_source = root / "native/trusted_time_python_launcher.c"
     launcher_source.write_text("/* reviewed launcher fixture */\n", encoding="utf-8")
+    for relative in bootstrap_paths:
+        bootstrap_path = root / relative
+        if bootstrap_path.exists():
+            continue
+        bootstrap_path.parent.mkdir(parents=True, exist_ok=True)
+        bootstrap_path.write_text("reviewed Wave 7 fixture\n", encoding="utf-8")
     bootstrap_sha256 = _project_build_bootstrap_manifest_sha256(root, bootstrap_paths)
     config = root / "infra/architecture-boundaries.toml"
-    config.parent.mkdir(parents=True)
+    config.parent.mkdir(parents=True, exist_ok=True)
     (root / "Makefile").write_text(
         "override PYTHONDONTWRITEBYTECODE := 1\n"
         "export PYTHONDONTWRITEBYTECODE\n"
@@ -880,6 +871,9 @@ exclude = ["/.uv-cache", "build_support/build_native_test_launcher.py"]
         )
     make_sha256 = hashlib.sha256((root / "Makefile").read_bytes()).hexdigest()
     workflow_sha256 = hashlib.sha256(workflow.read_bytes()).hexdigest()
+    bootstrap_manifest_config = "\n".join(
+        f"  {json.dumps(relative)}," for relative in bootstrap_paths
+    )
     config.write_text(
         f'''[scan]
 source_roots = []
@@ -888,17 +882,7 @@ production_python_source_manifest_roots = ["apps", "packages", "scripts", "migra
 production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]
 production_python_source_manifest_sha256 = "{manifest_sha256}"
 project_build_bootstrap_manifest_paths = [
-  ".python-version",
-  "alembic.ini",
-  "pyproject.toml",
-  "uv.lock",
-  "build_support/build_native_test_launcher.py",
-  "build_support/native_build_constraints.txt",
-  "build_support/native_image_manifest.py",
-  "build_support/native_owned_file_descriptor_hook.py",
-  "native/bounded_process.c",
-  "native/owned_file_descriptor.c",
-  "native/trusted_time_python_launcher.c",
+{bootstrap_manifest_config}
 ]
 project_build_bootstrap_manifest_sha256 = "{bootstrap_sha256}"
 project_build_bootstrap_forbidden_paths = [
@@ -9642,6 +9626,10 @@ def test_adr0111_architecture_checker_rejects_invocation_source_digest_mutation(
         "mutate_pyproject",
         "mutate_lock",
         "mutate_test_builder",
+        "mutate_wave7_candidate_builder",
+        "mutate_wave7_candidate_dockerfile",
+        "mutate_wave7_seccomp_manifest",
+        "mutate_wave7_monocypher_source",
         "mutate_build_constraints",
         "mutate_image_helper",
         "mutate_hook",
@@ -9658,6 +9646,7 @@ def test_adr0111_architecture_checker_rejects_invocation_source_digest_mutation(
         "bad_python_range",
         "bad_hook_path",
         "bad_wheel_excludes",
+        "bad_wheel_sources",
         "bad_sdist_excludes",
         "bad_sdist_sources",
         "bad_python_pin",
@@ -9671,21 +9660,14 @@ def test_adr0111_architecture_checker_rejects_project_build_bootstrap_mutation(
     config, _, _, _ = _write_adr0111_production_manifest_fixture(tmp_path)
     assert _check_adr0111_fixture(tmp_path, config) == []
     config_source = config.read_text(encoding="utf-8")
-    manifest_paths = (
-        "project_build_bootstrap_manifest_paths = [\n"
-        '  ".python-version",\n'
-        '  "alembic.ini",\n'
-        '  "pyproject.toml",\n'
-        '  "uv.lock",\n'
-        '  "build_support/build_native_test_launcher.py",\n'
-        '  "build_support/native_build_constraints.txt",\n'
-        '  "build_support/native_image_manifest.py",\n'
-        '  "build_support/native_owned_file_descriptor_hook.py",\n'
-        '  "native/bounded_process.c",\n'
-        '  "native/owned_file_descriptor.c",\n'
-        '  "native/trusted_time_python_launcher.c",\n'
-        "]\n"
+    manifest_match = re.search(
+        r"(?m)^project_build_bootstrap_manifest_paths = \[\n"
+        r'(?:  "[^"]+",\n)+'
+        r"\]\n",
+        config_source,
     )
+    assert manifest_match is not None
+    manifest_paths = manifest_match.group(0)
     digest_match = re.search(
         r'^project_build_bootstrap_manifest_sha256 = "([0-9a-f]{64})"$',
         config_source,
@@ -9754,6 +9736,18 @@ def test_adr0111_architecture_checker_rejects_project_build_bootstrap_mutation(
             "mutate_pyproject": tmp_path / "pyproject.toml",
             "mutate_lock": tmp_path / "uv.lock",
             "mutate_test_builder": tmp_path / "build_support/build_native_test_launcher.py",
+            "mutate_wave7_candidate_builder": (
+                tmp_path / "build_support/build_trusted_time_v2_candidates.py"
+            ),
+            "mutate_wave7_candidate_dockerfile": (
+                tmp_path / "build_support/trusted_time_v2_candidate_execution.Dockerfile"
+            ),
+            "mutate_wave7_seccomp_manifest": (
+                tmp_path / "infra/trusted-time/graceful-stop-v2/seccomp/host.json"
+            ),
+            "mutate_wave7_monocypher_source": (
+                tmp_path / "third_party/monocypher/4.0.3/src/monocypher.c"
+            ),
             "mutate_build_constraints": (tmp_path / "build_support/native_build_constraints.txt"),
             "mutate_image_helper": tmp_path / "build_support/native_image_manifest.py",
             "mutate_hook": tmp_path / "build_support/native_owned_file_descriptor_hook.py",
@@ -9843,6 +9837,18 @@ def test_adr0111_architecture_checker_rejects_project_build_bootstrap_mutation(
             path.read_text(encoding="utf-8").replace(
                 'exclude = ["packages/adapters/trusted_time/_bounded_process.py"]',
                 "exclude = []",
+                1,
+            ),
+            encoding="utf-8",
+        )
+    elif mutation == "bad_wheel_sources":
+        path = tmp_path / "pyproject.toml"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'exclude = ["packages/adapters/trusted_time/_bounded_process.py"]\n',
+                'exclude = ["packages/adapters/trusted_time/_bounded_process.py"]\n'
+                'force-include = {"native/trusted_time_v2_role_launcher.c" = '
+                '"native/trusted_time_v2_role_launcher.c"}\n',
                 1,
             ),
             encoding="utf-8",
@@ -11834,6 +11840,7 @@ operation_bound_clean_stop_bridge_allowed_imports."{relative_path.as_posix()}" =
 
 def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnected() -> None:
     from scripts.check_architecture import (
+        _PROJECT_BUILD_BOOTSTRAP_MANIFEST_PATHS,
         _canonical_ast_sha256,
         _direct_qualified_function_definitions,
         _production_python_source_manifest_sha256,
@@ -11870,7 +11877,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
         "apps/web/node_modules"
     ]
     assert architecture_config["production_python_source_manifest_sha256"] == (
-        "dc1366b303cb2b1d8c87e3d0f865d8c3a2a3b6a85fb29ccb0b5c4c3846d6c0f3"
+        "cba7237e045802bd0db52e33f043cf40e1b96f7c405654f04a2b83a4d3afcf1d"
     )
     assert (
         _production_python_source_manifest_sha256(
@@ -11910,19 +11917,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
     dockerignore_lines = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
     assert "**/__pycache__" in dockerignore_lines
     assert "**/*.pyc" in dockerignore_lines
-    expected_bootstrap_paths = [
-        ".python-version",
-        "alembic.ini",
-        "pyproject.toml",
-        "uv.lock",
-        "build_support/build_native_test_launcher.py",
-        "build_support/native_build_constraints.txt",
-        "build_support/native_image_manifest.py",
-        "build_support/native_owned_file_descriptor_hook.py",
-        "native/bounded_process.c",
-        "native/owned_file_descriptor.c",
-        "native/trusted_time_python_launcher.c",
-    ]
+    expected_bootstrap_paths = list(_PROJECT_BUILD_BOOTSTRAP_MANIFEST_PATHS)
     assert architecture_config["project_build_bootstrap_manifest_paths"] == (
         expected_bootstrap_paths
     )
@@ -11943,7 +11938,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
     expected_invocation_source_sha256 = {
         "Makefile": "6802268c7998df71d5543feba63663e1d6d3e07d87b4ff679107b42594770e42",
         ".github/workflows/ci.yml": (
-            "45eb3a33cf8564a6c0d16476083b72cbafdcc7e2f00844afb4308e1ad2861526"
+            "f72261bfc102ef8efb95411ff70f76e27135033f8173ae838047fdc417e3dee7"
         ),
     }
     assert architecture_config["architecture_checker_invocation_source_sha256"] == (

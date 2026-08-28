@@ -10,16 +10,10 @@ from pathlib import Path
 import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-SYSTEMD_DIRECTORY = (
-    REPOSITORY_ROOT / "infra/trusted-time/graceful-stop-v2/systemd"
-)
+SYSTEMD_DIRECTORY = REPOSITORY_ROOT / "infra/trusted-time/graceful-stop-v2/systemd"
 
-TRANSPORT_MOUNT = (
-    r"run-autoquant-trusted\x2dtime-graceful\x2dstop\x2dv2-transport.mount"
-)
-HOST_SECRET_MOUNT = (
-    r"run-autoquant-trusted\x2dtime-graceful\x2dstop\x2dv2-host\x2dsecrets.mount"
-)
+TRANSPORT_MOUNT = r"run-autoquant-trusted\x2dtime-graceful\x2dstop\x2dv2-transport.mount"
+HOST_SECRET_MOUNT = r"run-autoquant-trusted\x2dtime-graceful\x2dstop\x2dv2-host\x2dsecrets.mount"
 SUPERVISOR_SECRET_MOUNT = (
     r"run-autoquant-trusted\x2dtime-graceful\x2dstop\x2dv2-supervisor\x2dsecrets.mount"
 )
@@ -92,18 +86,10 @@ EXPECTED_UNIT_SHA256 = {
     "autoquant-trusted-time-graceful-stop-v2-supervisor.service": (
         "716c0acf326ba0a07e9eac84041d3b80ddcdf83c4438715121ebfc366b9eafc6"
     ),
-    HOST_SECRET_MOUNT: (
-        "0fd219ec43c6dd68eec70e1c3ff6066f18661e800d405731326aa0942ce08ecd"
-    ),
-    RECOVERY_SECRET_MOUNT: (
-        "b58614a9fc175f24f0503f19d8e0ad73ca56cef09f5ac69e4b2ca60e66c1b6fd"
-    ),
-    SUPERVISOR_SECRET_MOUNT: (
-        "374194dc36000573bb98a897811b0c238375c46100767ce3ede5b00d044e9a6d"
-    ),
-    TRANSPORT_MOUNT: (
-        "34a419c7614574186f4b4419c1cf42a75015a0d85378d1d4e4c33f4b7ad4fd18"
-    ),
+    HOST_SECRET_MOUNT: ("0fd219ec43c6dd68eec70e1c3ff6066f18661e800d405731326aa0942ce08ecd"),
+    RECOVERY_SECRET_MOUNT: ("b58614a9fc175f24f0503f19d8e0ad73ca56cef09f5ac69e4b2ca60e66c1b6fd"),
+    SUPERVISOR_SECRET_MOUNT: ("374194dc36000573bb98a897811b0c238375c46100767ce3ede5b00d044e9a6d"),
+    TRANSPORT_MOUNT: ("34a419c7614574186f4b4419c1cf42a75015a0d85378d1d4e4c33f4b7ad4fd18"),
 }
 
 
@@ -139,9 +125,10 @@ def test_source_only_unit_set_and_mount_contracts_are_exact() -> None:
         assert "Alias=" not in text
         assert "systemctl" not in text
         assert "daemon-reload" not in text
-        assert hashlib.sha256(unit_path.read_bytes()).hexdigest() == EXPECTED_UNIT_SHA256[
-            unit_path.name
-        ]
+        assert (
+            hashlib.sha256(unit_path.read_bytes()).hexdigest()
+            == EXPECTED_UNIT_SHA256[unit_path.name]
+        )
 
     for file_name, (where, options) in EXPECTED_MOUNTS.items():
         unit = _read_unit(SYSTEMD_DIRECTORY / file_name)
@@ -171,8 +158,7 @@ def test_every_fixed_service_has_one_argument_free_candidate_executable() -> Non
 
 def test_recovery_is_source_isolated_from_normal_transport() -> None:
     recovery = _read_unit(
-        SYSTEMD_DIRECTORY
-        / "autoquant-trusted-time-graceful-stop-v2-recovery.service"
+        SYSTEMD_DIRECTORY / "autoquant-trusted-time-graceful-stop-v2-recovery.service"
     )
     recovery_unit = recovery["Unit"]
     conflicts = set(recovery_unit["Conflicts"].split())
@@ -193,8 +179,7 @@ def test_recovery_is_source_isolated_from_normal_transport() -> None:
 
     for role in ("host", "supervisor"):
         normal = _read_unit(
-            SYSTEMD_DIRECTORY
-            / f"autoquant-trusted-time-graceful-stop-v2-{role}.service"
+            SYSTEMD_DIRECTORY / f"autoquant-trusted-time-graceful-stop-v2-{role}.service"
         )
         assert (
             normal["Unit"]["ConditionPathIsMountPoint"]
@@ -208,8 +193,7 @@ def test_recovery_is_source_isolated_from_normal_transport() -> None:
 
     recovery_mount = _read_unit(SYSTEMD_DIRECTORY / RECOVERY_SECRET_MOUNT)
     recovery_provisioner = _read_unit(
-        SYSTEMD_DIRECTORY
-        / "autoquant-trusted-time-graceful-stop-v2-recovery-provision.service"
+        SYSTEMD_DIRECTORY / "autoquant-trusted-time-graceful-stop-v2-recovery-provision.service"
     )
     for unit in (recovery_mount, recovery_provisioner):
         assert normal_owners <= set(unit["Unit"]["Conflicts"].split())
@@ -234,9 +218,7 @@ def test_no_deployment_or_activation_surface_names_wave_7_resources() -> None:
         REPOSITORY_ROOT / "scripts",
     ):
         surfaces.extend(
-            path
-            for path in root.rglob("*")
-            if path.is_file() and not path.is_symlink()
+            path for path in root.rglob("*") if path.is_file() and not path.is_symlink()
         )
     for path in surfaces:
         try:

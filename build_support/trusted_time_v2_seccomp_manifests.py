@@ -630,9 +630,7 @@ def build_documents() -> dict[str, bytes]:
                 ):
                     _fail("the provisioner phase filters misstate process authority")
                 document["process_authority"] = {
-                    "child_exec_phase_exec_authority": (
-                        "exact-fd64-execveat-at-empty-path"
-                    ),
+                    "child_exec_phase_exec_authority": ("exact-fd64-execveat-at-empty-path"),
                     "initial_phase_process_creation_denied": False,
                     "one_pinned_systemd_creds_child": True,
                     "post_child_phase_process_creation_denied": True,

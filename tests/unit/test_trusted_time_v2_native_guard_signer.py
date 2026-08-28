@@ -156,9 +156,7 @@ def compiled_native_lane(tmp_path_factory: pytest.TempPathFactory) -> dict[str, 
         )
         outputs[f"{role}-secret-mount-object"] = mount_object
 
-        provisioner_mount_object = (
-            build_directory / f"{role}-provisioner-secret-mount.o"
-        )
+        provisioner_mount_object = build_directory / f"{role}-provisioner-secret-mount.o"
         subprocess.run(
             [
                 compiler,
@@ -174,9 +172,7 @@ def compiled_native_lane(tmp_path_factory: pytest.TempPathFactory) -> dict[str, 
             text=True,
             capture_output=True,
         )
-        outputs[f"{role}-provisioner-secret-mount-object"] = (
-            provisioner_mount_object
-        )
+        outputs[f"{role}-provisioner-secret-mount-object"] = provisioner_mount_object
     return outputs
 
 
@@ -234,9 +230,7 @@ def test_role_signer_lifecycle(compiled_native_lane: dict[str, Path], role: str)
 
 
 @pytest.mark.parametrize("role", tuple(ROLE_METHODS))
-def test_role_secret_mountinfo_is_exact(
-    compiled_native_lane: dict[str, Path], role: str
-) -> None:
+def test_role_secret_mountinfo_is_exact(compiled_native_lane: dict[str, Path], role: str) -> None:
     subprocess.run(
         [compiled_native_lane[role], "secret-mountinfo"],
         cwd=ROOT,
@@ -397,15 +391,9 @@ def test_production_role_object_has_closed_symbol_surface(
 def test_secret_mount_admission_has_one_private_fixed_role_surface(
     compiled_native_lane: dict[str, Path], role: str
 ) -> None:
-    signer_source = (NATIVE / "trusted_time_graceful_stop_v2_signer.c").read_text(
-        encoding="utf-8"
-    )
-    mount_source = (NATIVE / "trusted_time_v2_secret_mount_admission.c").read_text(
-        encoding="utf-8"
-    )
-    mount_header = (NATIVE / "trusted_time_v2_secret_mount_admission.h").read_text(
-        encoding="utf-8"
-    )
+    signer_source = (NATIVE / "trusted_time_graceful_stop_v2_signer.c").read_text(encoding="utf-8")
+    mount_source = (NATIVE / "trusted_time_v2_secret_mount_admission.c").read_text(encoding="utf-8")
+    mount_header = (NATIVE / "trusted_time_v2_secret_mount_admission.h").read_text(encoding="utf-8")
     assert '#include "trusted_time_v2_secret_mount_admission.h"' in signer_source
     assert "mountinfo" not in signer_source
     assert "aqt_signer_parse_mountinfo" not in signer_source
@@ -444,15 +432,9 @@ def test_secret_mount_admission_has_one_private_fixed_role_surface(
 
 
 def test_production_custody_uses_literal_correlation_and_two_admissions() -> None:
-    signer_source = (NATIVE / "trusted_time_graceful_stop_v2_signer.c").read_text(
-        encoding="utf-8"
-    )
-    mount_source = (NATIVE / "trusted_time_v2_secret_mount_admission.c").read_text(
-        encoding="utf-8"
-    )
-    assert "descriptor_metadata_before.st_dev != directory_metadata.st_dev" in (
-        signer_source
-    )
+    signer_source = (NATIVE / "trusted_time_graceful_stop_v2_signer.c").read_text(encoding="utf-8")
+    mount_source = (NATIVE / "trusted_time_v2_secret_mount_admission.c").read_text(encoding="utf-8")
+    assert "descriptor_metadata_before.st_dev != directory_metadata.st_dev" in (signer_source)
     assert "secret->verification_seed" in signer_source
     assert "index == 0U ? UINT64_C(1) : UINT64_C(2)" in signer_source
     assert "index == 0U ? UINT64_C(1) : UINT64_C(2)" in mount_source
@@ -463,21 +445,13 @@ def test_production_custody_uses_literal_correlation_and_two_admissions() -> Non
         internal_start,
     )
     internal = signer_source[internal_start:internal_end]
-    pre_revalidate = internal.index(
-        "aqt_trusted_time_v2_secret_mount_admission_revalidate("
-    )
+    pre_revalidate = internal.index("aqt_trusted_time_v2_secret_mount_admission_revalidate(")
     unlink = internal.index("unlinkat(", pre_revalidate)
-    pre_close = internal.index(
-        "aqt_trusted_time_v2_secret_mount_admission_close(", unlink
-    )
-    post_capture = internal.index(
-        "aqt_trusted_time_v2_secret_mount_admission_capture(", pre_close
-    )
+    pre_close = internal.index("aqt_trusted_time_v2_secret_mount_admission_close(", unlink)
+    post_capture = internal.index("aqt_trusted_time_v2_secret_mount_admission_capture(", pre_close)
     assert pre_revalidate < unlink < pre_close < post_capture
 
-    production_start = signer_source.index(
-        "aqt_trusted_time_v2_signer_owner_open("
-    )
+    production_start = signer_source.index("aqt_trusted_time_v2_signer_owner_open(")
     production = signer_source[production_start:]
     assert production.index(
         "aqt_trusted_time_v2_secret_mount_admission_capture("
@@ -490,9 +464,7 @@ def test_production_custody_uses_literal_correlation_and_two_admissions() -> Non
         "aqt_secret_stat9_equal(&identity, &literal_identity)"
     )
 
-    capture_start = mount_source.index(
-        "aqt_trusted_time_v2_secret_mount_admission_capture("
-    )
+    capture_start = mount_source.index("aqt_trusted_time_v2_secret_mount_admission_capture(")
     capture_end = mount_source.index(
         "aqt_trusted_time_v2_secret_mount_admission_revalidate(",
         capture_start,

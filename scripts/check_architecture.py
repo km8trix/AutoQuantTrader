@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "667ffaa7d7efc01a958d571a54e98684f87b3ea744f1f89ecca6674a24ee8916"
+    "09f3424d172a0b03f333a07adb9c1b9630cd313de555ea7ccf535fda6713f6fc"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -108,6 +108,87 @@ trove-classifiers==2026.6.1.19 \\
     --hash=sha256:ab4c4ec93cc4a4e7815fa759906e05e6bb3f2fbd92ea0f897288c6a43efd15b3 \\
     --hash=sha256:c5132b4b61a829d11cfbd2d72e97f20a45ed6edb95e45c5efdeb5e00836b2745
 """
+
+_PROJECT_SDIST_FORCE_INCLUDE_PATHS = (
+    "build_support/build_trusted_time_v2_candidates.py",
+    "build_support/build_trusted_time_v2_linked_role_test.py",
+    "build_support/exercise_trusted_time_v2_exact_candidates.py",
+    "build_support/native_build_constraints.txt",
+    "build_support/native_image_manifest.py",
+    "build_support/native_owned_file_descriptor_hook.py",
+    "build_support/qualify_trusted_time_v2_candidates.py",
+    "build_support/smoke_trusted_time_v2_sdist.py",
+    "build_support/trusted_time_v2_candidate_execution.Dockerfile",
+    (
+        "build_support/trusted_time_v2_candidate_import_roots/host/"
+        "autoquant_trusted_time_v2_host_entry.py"
+    ),
+    (
+        "build_support/trusted_time_v2_candidate_import_roots/recovery/"
+        "autoquant_trusted_time_v2_recovery_entry.py"
+    ),
+    (
+        "build_support/trusted_time_v2_candidate_import_roots/supervisor/"
+        "autoquant_trusted_time_v2_supervisor_entry.py"
+    ),
+    "build_support/trusted_time_v2_seccomp_manifests.py",
+    "infra/trusted-time/graceful-stop-v2/seccomp/host.json",
+    "infra/trusted-time/graceful-stop-v2/seccomp/provisioner.json",
+    "infra/trusted-time/graceful-stop-v2/seccomp/recovery.json",
+    "infra/trusted-time/graceful-stop-v2/seccomp/supervisor.json",
+    "native/bounded_process.c",
+    "native/owned_file_descriptor.c",
+    "native/trusted_time_graceful_stop_v2_endpoint.c",
+    "native/trusted_time_graceful_stop_v2_endpoint.h",
+    "native/trusted_time_graceful_stop_v2_resources.c",
+    "native/trusted_time_graceful_stop_v2_resources.h",
+    "native/trusted_time_graceful_stop_v2_signer.c",
+    "native/trusted_time_graceful_stop_v2_signer.h",
+    "native/trusted_time_python_launcher.c",
+    "native/trusted_time_v2_authority.c",
+    "native/trusted_time_v2_authority.h",
+    "native/trusted_time_v2_descriptor_baseline.c",
+    "native/trusted_time_v2_descriptor_baseline.h",
+    "native/trusted_time_v2_fork_guard.c",
+    "native/trusted_time_v2_fork_guard.h",
+    "native/trusted_time_v2_provisioner.c",
+    "native/trusted_time_v2_provisioner.h",
+    "native/trusted_time_v2_role_launcher.c",
+    "native/trusted_time_v2_role_launcher.h",
+    "native/trusted_time_v2_seccomp.c",
+    "native/trusted_time_v2_seccomp.h",
+    "native/trusted_time_v2_secret_mount_admission.c",
+    "native/trusted_time_v2_secret_mount_admission.h",
+    "packages/adapters/trusted_time/_bounded_process.py",
+    "tests/fixtures/native/trusted-time-v2/import-roots/host/"
+    "autoquant_trusted_time_v2_host_entry.py",
+    "tests/fixtures/native/trusted-time-v2/import-roots/recovery/"
+    "autoquant_trusted_time_v2_recovery_entry.py",
+    "tests/fixtures/native/trusted-time-v2/import-roots/supervisor/"
+    "autoquant_trusted_time_v2_supervisor_entry.py",
+    "tests/native/trusted_time_v2_seccomp_manifest_harness.c",
+    "third_party/monocypher/4.0.3/LICENCE.md",
+    "third_party/monocypher/4.0.3/VENDORING.json",
+    "third_party/monocypher/4.0.3/src/monocypher.c",
+    "third_party/monocypher/4.0.3/src/monocypher.h",
+    "third_party/monocypher/4.0.3/src/optional/monocypher-ed25519.c",
+    "third_party/monocypher/4.0.3/src/optional/monocypher-ed25519.h",
+)
+_PROJECT_SDIST_FORCE_INCLUDE = {
+    relative_path: relative_path for relative_path in _PROJECT_SDIST_FORCE_INCLUDE_PATHS
+}
+_PROJECT_BUILD_BOOTSTRAP_MANIFEST_PATHS = (
+    ".python-version",
+    "alembic.ini",
+    "pyproject.toml",
+    "uv.lock",
+    "build_support/build_native_test_launcher.py",
+    *(
+        relative_path
+        for relative_path in _PROJECT_SDIST_FORCE_INCLUDE_PATHS
+        if relative_path != "packages/adapters/trusted_time/_bounded_process.py"
+    ),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -3484,6 +3565,7 @@ def _project_build_bootstrap_configuration_violations(repository: Path) -> list[
     wheel_hooks = wheel.get("hooks") if isinstance(wheel, dict) else None
     custom_hook = wheel_hooks.get("custom") if isinstance(wheel_hooks, dict) else None
     wheel_exclude = wheel.get("exclude") if isinstance(wheel, dict) else None
+    wheel_force_include = wheel.get("force-include") if isinstance(wheel, dict) else None
     sdist_exclude = sdist.get("exclude") if isinstance(sdist, dict) else None
     force_include = sdist.get("force-include") if isinstance(sdist, dict) else None
     if build_system != {
@@ -3529,6 +3611,14 @@ def _project_build_bootstrap_configuration_violations(repository: Path) -> list[
                 "project native wheel exclusion set must remain exact",
             )
         )
+    if wheel_force_include is not None:
+        violations.append(
+            Violation(
+                Path("pyproject.toml"),
+                1,
+                "project native wheel source inclusion must remain absent",
+            )
+        )
     if sdist_exclude != [
         "/.uv-cache",
         "build_support/build_native_test_launcher.py",
@@ -3540,21 +3630,7 @@ def _project_build_bootstrap_configuration_violations(repository: Path) -> list[
                 "project native sdist exclusion set must remain exact",
             )
         )
-    if force_include != {
-        "build_support/native_build_constraints.txt": (
-            "build_support/native_build_constraints.txt"
-        ),
-        "build_support/native_image_manifest.py": "build_support/native_image_manifest.py",
-        "build_support/native_owned_file_descriptor_hook.py": (
-            "build_support/native_owned_file_descriptor_hook.py"
-        ),
-        "native/bounded_process.c": "native/bounded_process.c",
-        "native/owned_file_descriptor.c": "native/owned_file_descriptor.c",
-        "native/trusted_time_python_launcher.c": "native/trusted_time_python_launcher.c",
-        "packages/adapters/trusted_time/_bounded_process.py": (
-            "packages/adapters/trusted_time/_bounded_process.py"
-        ),
-    }:
+    if force_include != _PROJECT_SDIST_FORCE_INCLUDE:
         violations.append(
             Violation(
                 Path("pyproject.toml"),
@@ -10626,19 +10702,7 @@ def check(
             )
         )
         violations.extend(_architecture_checker_invocation_violations(repository))
-        expected_bootstrap_paths = (
-            ".python-version",
-            "alembic.ini",
-            "pyproject.toml",
-            "uv.lock",
-            "build_support/build_native_test_launcher.py",
-            "build_support/native_build_constraints.txt",
-            "build_support/native_image_manifest.py",
-            "build_support/native_owned_file_descriptor_hook.py",
-            "native/bounded_process.c",
-            "native/owned_file_descriptor.c",
-            "native/trusted_time_python_launcher.c",
-        )
+        expected_bootstrap_paths = _PROJECT_BUILD_BOOTSTRAP_MANIFEST_PATHS
         expected_forbidden_paths = (
             "MANIFEST.in",
             "hatch.toml",

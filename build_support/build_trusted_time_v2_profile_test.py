@@ -459,9 +459,7 @@ def _audit_recovery(
     nm = _tool("nm")
     undefined = _run((str(nm), "-u", str(role_binary))).decode("utf-8", errors="strict")
     undefined_symbols = {
-        line.split()[-1].partition("@")[0]
-        for line in undefined.splitlines()
-        if line.split()
+        line.split()[-1].partition("@")[0] for line in undefined.splitlines() if line.split()
     }
     found_symbols = sorted(undefined_symbols & set(_FORBIDDEN_RECOVERY_UNDEFINED))
     if found_symbols:

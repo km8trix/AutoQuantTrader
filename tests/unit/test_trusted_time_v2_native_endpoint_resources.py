@@ -15,9 +15,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 NATIVE = ROOT / "native"
 BUILD_HELPER = ROOT / "build_support" / "build_trusted_time_v2_endpoint_test.py"
-SOCKET_PATH = (
-    "/run/autoquant/trusted-time/graceful-stop-v2/transport/supervisor.sock"
-)
+SOCKET_PATH = "/run/autoquant/trusted-time/graceful-stop-v2/transport/supervisor.sock"
 
 HOST_METHODS = {
     "aqt_trusted_time_graceful_stop_v2_endpoint_initialize_before_python",
@@ -99,9 +97,7 @@ def _symbols(path: Path, undefined: bool) -> set[str]:
     if nm is None:
         pytest.skip("nm is required for native role-surface audit")
     command = [nm, "-u" if undefined else "-g", str(path)]
-    output = subprocess.run(
-        command, cwd=ROOT, check=True, text=True, capture_output=True
-    ).stdout
+    output = subprocess.run(command, cwd=ROOT, check=True, text=True, capture_output=True).stdout
     symbols: set[str] = set()
     for line in output.splitlines():
         fields = line.split()
@@ -123,10 +119,7 @@ def production_objects(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Pa
     for role in ("host", "supervisor"):
         definition = f"-DAQT_TRUSTED_TIME_V2_{role.upper()}_PROFILE"
         for component in ("endpoint", "resources"):
-            source = (
-                NATIVE
-                / f"trusted_time_graceful_stop_v2_{component}.c"
-            )
+            source = NATIVE / f"trusted_time_graceful_stop_v2_{component}.c"
             output = directory / f"{role}-{component}.o"
             subprocess.run(
                 [
@@ -151,14 +144,8 @@ def test_adversarial_native_harness(tmp_path: Path) -> None:
     executable = tmp_path / "trusted-time-v2-endpoint-resources"
     helper = _load_build_helper()
     assert helper.build(executable) == executable
-    completed = subprocess.run(
-        [executable], cwd=ROOT, check=True, text=True, capture_output=True
-    )
-    expected = (
-        "all checks passed"
-        if platform.system() == "Linux"
-        else "portable compile passed"
-    )
+    completed = subprocess.run([executable], cwd=ROOT, check=True, text=True, capture_output=True)
+    expected = "all checks passed" if platform.system() == "Linux" else "portable compile passed"
     assert expected in completed.stdout
 
 
@@ -166,12 +153,8 @@ def test_production_role_symbols_are_closed(
     production_objects: dict[str, Path],
 ) -> None:
     host_defined = _symbols(production_objects["host-endpoint"], undefined=False)
-    supervisor_defined = _symbols(
-        production_objects["supervisor-endpoint"], undefined=False
-    )
-    host_resource_defined = _symbols(
-        production_objects["host-resources"], undefined=False
-    )
+    supervisor_defined = _symbols(production_objects["supervisor-endpoint"], undefined=False)
+    host_resource_defined = _symbols(production_objects["host-resources"], undefined=False)
     supervisor_resource_defined = _symbols(
         production_objects["supervisor-resources"], undefined=False
     )
@@ -195,9 +178,7 @@ def test_linux_role_syscalls_are_asymmetric(
     production_objects: dict[str, Path],
 ) -> None:
     host_undefined = _symbols(production_objects["host-endpoint"], undefined=True)
-    supervisor_undefined = _symbols(
-        production_objects["supervisor-endpoint"], undefined=True
-    )
+    supervisor_undefined = _symbols(production_objects["supervisor-endpoint"], undefined=True)
     assert {"socket", "connect", "sendmsg", "recvmsg", "ppoll"} <= host_undefined
     assert not {"bind", "listen", "accept", "accept4"} & host_undefined
     assert {"socket", "bind", "listen", "accept4", "sendmsg", "recvmsg", "ppoll"} <= (
@@ -207,12 +188,8 @@ def test_linux_role_syscalls_are_asymmetric(
 
 
 def test_header_has_only_role_narrow_production_surface() -> None:
-    header = (
-        NATIVE / "trusted_time_graceful_stop_v2_endpoint.h"
-    ).read_text(encoding="utf-8")
-    source = (
-        NATIVE / "trusted_time_graceful_stop_v2_endpoint.c"
-    ).read_text(encoding="utf-8")
+    header = (NATIVE / "trusted_time_graceful_stop_v2_endpoint.h").read_text(encoding="utf-8")
+    source = (NATIVE / "trusted_time_graceful_stop_v2_endpoint.c").read_text(encoding="utf-8")
     declarations = set(
         re.findall(
             r"\b(aqt_trusted_time_graceful_stop_v2_[a-z0-9_]+)\s*\(",
@@ -234,14 +211,12 @@ def test_header_has_only_role_narrow_production_surface() -> None:
     assert "shutdown(" not in source
     assert "aqt_trusted_time_v2_fork_guard_close_fd(" in source
     bind_call = source.index("result = bind(")
-    bind_resource = source.index(
-        "supervisor_transport_resources_bind_listener", bind_call
-    )
+    bind_resource = source.index("supervisor_transport_resources_bind_listener", bind_call)
     listen_call = source.index("if (listen(", bind_resource)
     assert bind_call < bind_resource < listen_call
-    resource_header = (
-        NATIVE / "trusted_time_graceful_stop_v2_resources.h"
-    ).read_text(encoding="utf-8")
+    resource_header = (NATIVE / "trusted_time_graceful_stop_v2_resources.h").read_text(
+        encoding="utf-8"
+    )
     assert header.count("uintptr_t interpreter_instance_identity") >= 16
     assert resource_header.count("uintptr_t interpreter_instance_identity") == 9
     assert SOCKET_PATH.rsplit("/", 1)[0] in resource_header
@@ -249,9 +224,7 @@ def test_header_has_only_role_narrow_production_surface() -> None:
 
 
 def test_resource_admission_is_literal_and_stable() -> None:
-    source = (
-        NATIVE / "trusted_time_graceful_stop_v2_resources.c"
-    ).read_text(encoding="utf-8")
+    source = (NATIVE / "trusted_time_graceful_stop_v2_resources.c").read_text(encoding="utf-8")
     assert '"/proc/self/mountinfo"' not in source
     assert '"mountinfo"' in source
     assert '"proc"' in source
@@ -273,9 +246,7 @@ def test_resource_admission_is_literal_and_stable() -> None:
     assert "0555U" in source
     assert "0511U" in source
     assert "PROC_SUPER_MAGIC" in source
-    assert '#error "Linux trusted-time PID-namespace admission requires NSFS_MAGIC."' in (
-        source
-    )
+    assert '#error "Linux trusted-time PID-namespace admission requires NSFS_MAGIC."' in (source)
     assert "bytes[length - 1U]" in source
     assert "aqt_guarded_fd_adopt(" in source
     assert "aqt_validate_literal_directory_binding" in source

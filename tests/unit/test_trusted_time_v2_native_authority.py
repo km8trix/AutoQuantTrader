@@ -35,9 +35,7 @@ ROOT_PRIVATE_KEY = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
 ROOT_KEY_ID = "trusted-time-transport-root-ed25519-v1"
 ENVIRONMENT = "test"
 MANIFEST_DOMAIN = "AutoQuantTrader/trusted-time/graceful-stop/transport-authority/v1"
-SELECTION_DOMAIN = (
-    "AutoQuantTrader/trusted-time/graceful-stop/transport-authority-selection/v1"
-)
+SELECTION_DOMAIN = "AutoQuantTrader/trusted-time/graceful-stop/transport-authority-selection/v1"
 
 
 def _compiler() -> str:
@@ -162,9 +160,7 @@ def _build_authority(
         if extra_manifest_field and generation == 2:
             fields["unexpected"] = "field"
         signer = (
-            _key("wrong-root")
-            if bad_manifest_signature and generation == 2
-            else ROOT_PRIVATE_KEY
+            _key("wrong-root") if bad_manifest_signature and generation == 2 else ROOT_PRIVATE_KEY
         )
         encoded = _signed(fields, MANIFEST_DOMAIN, signer=signer)
         if noncanonical_last_manifest and generation == 2:
@@ -560,11 +556,7 @@ def test_all_production_role_provisioners_link_without_a_release_root_pin(
             "-Wpedantic",
             "-Werror",
             f"-DAQT_TRUSTED_TIME_V2_{role}_PROVISIONER_PROFILE=1",
-            (
-                "-DAQT_TRUSTED_TIME_V2_SYSTEMD_CREDS_SHA256=\""
-                + "0" * 64
-                + "\""
-            ),
+            ('-DAQT_TRUSTED_TIME_V2_SYSTEMD_CREDS_SHA256="' + "0" * 64 + '"'),
             f"-I{NATIVE}",
             f"-I{VENDOR}",
             f"-I{OPTIONAL}",

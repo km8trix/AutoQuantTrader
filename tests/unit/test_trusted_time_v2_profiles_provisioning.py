@@ -116,9 +116,7 @@ def test_provisioner_contract_is_descriptor_pinned_and_fail_closed() -> None:
         "aqt_trusted_time_v2_secret_mount_admission_revalidate(", pre_capture
     )
     create = main.index("aqt_create_target(", pre_revalidate)
-    pre_close = main.index(
-        "aqt_trusted_time_v2_secret_mount_admission_close(", create
-    )
+    pre_close = main.index("aqt_trusted_time_v2_secret_mount_admission_close(", create)
     post_capture = main.index("&post_create_mount_admission", pre_close)
     before_child = main.index(
         "aqt_trusted_time_v2_secret_mount_admission_revalidate(", post_capture
@@ -130,12 +128,8 @@ def test_provisioner_contract_is_descriptor_pinned_and_fail_closed() -> None:
         "aqt_trusted_time_v2_secret_mount_admission_revalidate(", blob_revalidate
     )
     verify = main.index("aqt_read_and_verify_seed(", post_filter)
-    final_revalidate = main.index(
-        "aqt_trusted_time_v2_secret_mount_admission_revalidate(", verify
-    )
-    final_close = main.index(
-        "aqt_trusted_time_v2_secret_mount_admission_close(", final_revalidate
-    )
+    final_revalidate = main.index("aqt_trusted_time_v2_secret_mount_admission_revalidate(", verify)
+    final_close = main.index("aqt_trusted_time_v2_secret_mount_admission_close(", final_revalidate)
     assert (
         pre_capture
         < pre_revalidate
@@ -153,13 +147,9 @@ def test_provisioner_contract_is_descriptor_pinned_and_fail_closed() -> None:
     )
 
     cleanup = main[main.index("cleanup:") :]
-    cleanup_revalidate = cleanup.index(
-        "aqt_trusted_time_v2_secret_mount_admission_revalidate("
-    )
+    cleanup_revalidate = cleanup.index("aqt_trusted_time_v2_secret_mount_admission_revalidate(")
     exact_unlink = cleanup.index("aqt_unlink_exact_target(", cleanup_revalidate)
-    cleanup_close = cleanup.index(
-        "aqt_trusted_time_v2_secret_mount_admission_close(", exact_unlink
-    )
+    cleanup_close = cleanup.index("aqt_trusted_time_v2_secret_mount_admission_close(", exact_unlink)
     assert cleanup_revalidate < exact_unlink < cleanup_close
 
 
