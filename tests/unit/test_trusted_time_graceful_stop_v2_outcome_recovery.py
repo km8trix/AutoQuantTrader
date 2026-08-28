@@ -75,10 +75,7 @@ def _assert_no_mutable_module_closure_state(*roots: object, module_name: str) ->
         seen.add(id(value))
         assert not isinstance(value, (dict, list, set))
         if isinstance(value, FunctionType) and value.__module__ == module_name:
-            pending.extend(
-                cell.cell_contents
-                for cell in value.__closure__ or ()
-            )
+            pending.extend(cell.cell_contents for cell in value.__closure__ or ())
             pending.extend(value.__defaults__ or ())
             pending.extend((value.__kwdefaults__ or {}).values())
         elif isinstance(value, MethodType):
@@ -266,7 +263,11 @@ def _terminal_record(
                 "message_counter": 1,
                 "deadline_boottime_ns": root.clean_stop_result_deadline_boottime_ns,
                 "wire_publication_receipt": receipt,
-                "wire_publication_receipt_sha256": _digest("wire-receipt"),
+                "wire_publication_receipt_sha256": hashlib.sha256(
+                    b"AutoQuantTrader/trusted-time/graceful-stop/"
+                    b"wire-envelope-publication-receipt/v2\0"
+                    + canonical_v2_json_bytes(receipt, maximum_bytes=256 * 1_024)
+                ).hexdigest(),
                 "call_started_boottime_ns": root.admission_started_boottime_ns + 1,
                 "call_completed_boottime_ns": root.admission_started_boottime_ns + 2,
             }
@@ -680,9 +681,7 @@ def test_fake_terminal_wire_path_rejects_production_root_live_and_restart(
             forged_authenticated,
         )
 
-    initial = {
-        name: store.read_stable(name).encoded for name in store.inventory().names
-    }
+    initial = {name: store.read_stable(name).encoded for name in store.inventory().names}
     reopened_store = _SealedLineageArtifactStore(initial=initial)
     reopened = _repository(reopened_store)
     with pytest.raises(
@@ -967,9 +966,7 @@ def _replace_record_artifact(
     original: LifecycleV2ProgressRecord,
     changed: LifecycleV2ProgressRecord,
 ) -> dict[str, bytes]:
-    initial = {
-        name: store.read_stable(name).encoded for name in store.inventory().names
-    }
+    initial = {name: store.read_stable(name).encoded for name in store.inventory().names}
     del initial[lifecycle_v2_progress_file_name(original)]
     initial[lifecycle_v2_progress_file_name(changed)] = changed.encoded
     return initial
@@ -1264,12 +1261,8 @@ def test_recovery_gc_introspection_cannot_forge_intent_consume_or_nonce_state() 
     snapshot_state = read_closure["snapshot_state"].cell_contents
     assert type(snapshot_state) is tuple
     assert not any(type(referent) is dict for referent in gc.get_referents(snapshot_state))
-    snapshot = next(
-        candidate for candidate in snapshot_state if candidate.value is authentic
-    )
-    snapshot.__init__(
-        *snapshot._replace(provenance="production_authenticated_recovery")
-    )
+    snapshot = next(candidate for candidate in snapshot_state if candidate.value is authentic)
+    snapshot.__init__(*snapshot._replace(provenance="production_authenticated_recovery"))
     assert snapshot.provenance == "fake_test_recovery"
     with pytest.raises(AttributeError):
         object.__setattr__(snapshot, "provenance", "production_authenticated_recovery")
@@ -1300,9 +1293,7 @@ def test_recovery_gc_introspection_cannot_forge_intent_consume_or_nonce_state() 
         recovery.consume_authenticated_lifecycle_v2_recovery_intent(authentic)
 
     derive = recovery._derive_authenticated_lifecycle_v2_recovery_intent
-    derive_closure = dict(
-        zip(derive.__code__.co_freevars, derive.__closure__ or (), strict=True)
-    )
+    derive_closure = dict(zip(derive.__code__.co_freevars, derive.__closure__ or (), strict=True))
     reserve_nonce = derive_closure["reserve_production_nonce"].cell_contents
     with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="caller"):
         reserve_nonce(root.sha256, envelope.operator_nonce_sha256)
@@ -1316,8 +1307,7 @@ def test_recovery_gc_introspection_cannot_forge_intent_consume_or_nonce_state() 
     nonce_state = reserve_closure["nonce_state"].cell_contents
     assert type(nonce_state) is frozenset
     assert not any(
-        type(referent) in {dict, list, set, bytearray}
-        for referent in gc.get_referents(nonce_state)
+        type(referent) in {dict, list, set, bytearray} for referent in gc.get_referents(nonce_state)
     )
 
     _assert_no_mutable_module_closure_state(
@@ -1411,9 +1401,7 @@ def test_recovery_builder_defaults_cannot_substitute_authenticated_classificatio
 
 def test_recovery_builder_defaults_cannot_cross_fake_intent_into_production_record() -> None:
     test_root, test_transcript = _classified_recovery_inputs()
-    production_root, production_transcript = _classified_recovery_inputs(
-        environment="production"
-    )
+    production_root, production_transcript = _classified_recovery_inputs(environment="production")
     production_envelope = _recovery_envelope(
         production_root,
         production_transcript,
@@ -1579,9 +1567,7 @@ def test_recovery_authorization_cannot_be_redirected_to_an_empty_store() -> None
     repository.reserve_root(root)
     repository.retain_request_intent(request, basis)
     classified = repository.publish_transcript()
-    repository.retain_recovery_classification_intent(
-        _fake_recovery_intent(root, classified)
-    )
+    repository.retain_recovery_classification_intent(_fake_recovery_intent(root, classified))
 
     target_store = FakeLifecycleV2ArtifactStore()
     assert target_store.identity == repository.artifact_store_identity
@@ -1609,9 +1595,7 @@ def test_recovery_authorization_cannot_be_redirected_to_an_empty_store() -> None
 def test_reopened_state_transfer_cannot_authorize_confirmed_success() -> None:
     store = _SealedLineageArtifactStore()
     live, root, lineage = _complete_sealed_success_prefix(store)
-    initial = {
-        name: store.read_stable(name).encoded for name in store.inventory().names
-    }
+    initial = {name: store.read_stable(name).encoded for name in store.inventory().names}
     reopened = _repository(_SealedLineageArtifactStore(initial=initial))
     assert reopened._opened_with_existing_root is True
     assert reopened._root == live._root
@@ -1705,9 +1689,7 @@ def test_completed_candidate_history_cannot_be_restored_by_repository_flags() ->
         clock=_Clock([root.admission_started_boottime_ns]),
         created_at_utc=UTC_TEXT,
     )
-    marker_encoded = store.read_stable(
-        LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME
-    ).encoded
+    marker_encoded = store.read_stable(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).encoded
     assert commit.to_dict()["outcome_sha256"] == outcome.sha256
 
     repository._commit = None
@@ -1719,10 +1701,7 @@ def test_completed_candidate_history_cannot_be_restored_by_repository_flags() ->
         match="one exact retained candidate",
     ):
         repository.finalize_retained_outcome_commit()
-    assert (
-        store.read_stable(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).encoded
-        == marker_encoded
-    )
+    assert store.read_stable(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).encoded == marker_encoded
 
 
 def test_docker_result_rule_replacement_cannot_authorize_durable_recovery_prefix() -> None:
@@ -1734,8 +1713,7 @@ def test_docker_result_rule_replacement_cannot_authorize_durable_recovery_prefix
     semantic["outcome"] = "attacker_outcome"
     evidence["disposition"] = "attacker_outcome"
     evidence["result_semantic_sha256"] = core_module._nested_domain_sha256(
-        "AutoQuantTrader/trusted-time/graceful-stop/"
-        "docker-container-stop-result/v2",
+        "AutoQuantTrader/trusted-time/graceful-stop/docker-container-stop-result/v2",
         semantic,
     )
     original_rules = core_module._DOCKER_RESULT_RULE_BY_STAGE
@@ -2135,20 +2113,17 @@ def test_production_recovery_nonce_replay_is_independent_of_pid_globals() -> Non
     first_repository.reserve_root(root)
     first_repository.retain_request_intent(intent, basis)
     assert first_repository.publish_transcript() == transcript
-    first_recovery = (
-        consume_authenticated_lifecycle_v2_recovery_classification_envelope(
-            first,
-            root=root,
-            classified_transcript=transcript,
-            recorded_at_utc=UTC_TEXT,
-        )
+    first_recovery = consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+        first,
+        root=root,
+        classified_transcript=transcript,
+        recorded_at_utc=UTC_TEXT,
     )
     first_repository.retain_recovery_classification_intent(first_recovery)
     derive_closure = dict(
         zip(
             recovery._derive_authenticated_lifecycle_v2_recovery_intent.__code__.co_freevars,
-            recovery._derive_authenticated_lifecycle_v2_recovery_intent.__closure__
-            or (),
+            recovery._derive_authenticated_lifecycle_v2_recovery_intent.__closure__ or (),
             strict=True,
         )
     )
@@ -2164,8 +2139,7 @@ def test_production_recovery_nonce_replay_is_independent_of_pid_globals() -> Non
     expected_nonce_key = (root.sha256, hashlib.sha256(nonce).hexdigest())
     assert expected_nonce_key in nonce_state
     assert not any(
-        type(referent) in {dict, list, set, bytearray}
-        for referent in gc.get_referents(nonce_state)
+        type(referent) in {dict, list, set, bytearray} for referent in gc.get_referents(nonce_state)
     )
 
     second, second_root, second_transcript, _ = (

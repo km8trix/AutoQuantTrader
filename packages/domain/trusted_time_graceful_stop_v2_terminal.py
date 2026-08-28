@@ -258,10 +258,19 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
             "graceful_stop_v2_ed25519.py",
         )
     )
-    expected_adapter_code_sha256 = (
-        "713f396e7016f17c3aa421260f2370877a4cd28cf4367b88ebd99a1719bd020d"
-    )
+    source_open = open
     digest_code = hashlib.sha256
+    expected_adapter_source_sha256 = (
+        "c79357ddcb8bc588367b06990e5739fffea5e16e8e1828597312b11709ab1509"
+    )
+    with source_open(adapter_source, "rb") as adapter_source_file:
+        if digest_code(adapter_source_file.read()).hexdigest() != expected_adapter_source_sha256:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal adapter source identity is unreviewed"
+            )
+    expected_adapter_code_sha256 = (
+        "6966933a024964c3550092987d5e1aa2de88de9aa4252bccd7234552f54158b5"
+    )
     exact_repr = repr
 
     def code_sha256(value: CodeType) -> str:
@@ -309,6 +318,7 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
             )
 
         return digest_code(exact_repr(code_material(value)).encode("utf-8")).hexdigest()
+
     expected_adapter_names = frozenset(
         {
             "_build_authenticated_transport_envelope_unwrapper",
@@ -370,11 +380,9 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
             if (
                 adapter_globals is not caller_globals
                 or exact_getattr(adapter, "__name__", None) != adapter_module_name
-                or exact_realpath(exact_getattr(adapter, "__file__", ""))
-                != adapter_source
+                or exact_realpath(exact_getattr(adapter, "__file__", "")) != adapter_source
                 or exact_getattr(adapter_spec, "name", None) != adapter_module_name
-                or exact_realpath(exact_getattr(adapter_spec, "origin", ""))
-                != adapter_source
+                or exact_realpath(exact_getattr(adapter_spec, "origin", "")) != adapter_source
                 or exact_getattr(adapter_spec, "_initializing", False) is not True
                 or endpoint is not exact_endpoint
                 or exact_getattr(endpoint, "__globals__", None) is not caller_globals
@@ -442,9 +450,7 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
             or signer_role != "supervisor"
             or value_provenance != provenance
         ):
-            raise TrustedTimeGracefulStopV2Rejected(
-                "terminal proof issuance is not canonical"
-            )
+            raise TrustedTimeGracefulStopV2Rejected("terminal proof issuance is not canonical")
         snapshot = snapshot_type(
             value=value,
             envelope_encoded=canonical.encoded,
@@ -558,11 +564,7 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
     def require(value: object) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
         with lock:
             snapshot = next(
-                (
-                    candidate
-                    for candidate in snapshot_state
-                    if candidate.value is value
-                ),
+                (candidate for candidate in snapshot_state if candidate.value is value),
                 None,
             )
         if snapshot is None or snapshot.value is not value or type(value) is not proof_type:

@@ -48,6 +48,7 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     TrustedTimeGracefulStopV2Rejected,
     UnverifiedLifecycleV2TransportEnvelope,
     canonical_v2_json_bytes,
+    decode_lifecycle_v2_root,
     lifecycle_v2_dispatch_prefix_sha256,
     lifecycle_v2_progress_file_name,
     lifecycle_v2_wire_file_name,
@@ -916,15 +917,17 @@ def test_authenticated_issuance_authority_is_not_exposed_as_module_state() -> No
 
 def test_domain_bridge_installers_reject_preemptive_metadata_spoofing() -> None:
     assert not hasattr(recovery_domain, "_lifecycle_v2_recovery_intent_issuance_registry")
+    assert not hasattr(terminal_domain, "_build_authenticated_terminal_proof_endpoints")
 
     def forged_terminal_endpoint(_value: object) -> object:
         return object()
 
     forged_terminal_endpoint.__module__ = "packages.adapters.trusted_time.graceful_stop_v2_ed25519"
     forged_terminal_endpoint.__name__ = "unwrap"
-    terminal_installer, *_ = terminal_domain._build_authenticated_terminal_proof_endpoints()
     with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="installation"):
-        terminal_installer(forged_terminal_endpoint)
+        terminal_domain._install_authenticated_terminal_envelope_adapter_endpoint(
+            forged_terminal_endpoint
+        )
 
 
 @pytest.mark.parametrize(
@@ -1604,9 +1607,7 @@ def test_ed25519_issuers_ignore_replaced_adapter_globals_and_modules(
         root=root,
         request_intent=intent,
     )
-    ed25519_adapter._require_authenticated_lifecycle_v2_transport_envelope(
-        replacement_safe_frame
-    )
+    ed25519_adapter._require_authenticated_lifecycle_v2_transport_envelope(replacement_safe_frame)
     replacement_safe_verifier = (
         ed25519_adapter._build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
             replacement_safe_manifest
@@ -2173,14 +2174,15 @@ def test_authenticated_recovery_intent_is_consumed_by_first_store_attempt() -> N
         classified_transcript=transcript,
         recorded_at_utc=UTC_TEXT,
     )
-    basis = LifecycleV2CleanStopRequestBasis.from_root(root)
     repositories: list[object] = []
-    for _ in range(2):
+    for index in range(2):
+        repository_root = root if index == 0 else decode_lifecycle_v2_root(root.encoded)
+        basis = LifecycleV2CleanStopRequestBasis.from_root(repository_root)
         repository = lifecycle_persistence._open_injected_lifecycle_v2_repository(
             FakeLifecycleV2ArtifactStore()
         )
-        repository.reserve_root(root)
-        repository.retain_request_intent(_intent(root), basis)
+        repository.reserve_root(repository_root)
+        repository.retain_request_intent(_intent(repository_root), basis)
         assert repository.publish_transcript() == transcript
         repositories.append(repository)
 

@@ -1064,12 +1064,8 @@ def test_semantic_issuance_rejects_direct_object_new_and_snapshot_substitution()
         provider_identity_sha256=primitives.provider_identity_sha256,
     )
     intent = cast(Any, lineage.semantic_at(5))
-    issuance_type = (
-        reauthentication._LifecycleV2ReauthenticationSemanticBindingIssuance
-    )
-    snapshot_type = (
-        reauthentication._LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot
-    )
+    issuance_type = reauthentication._LifecycleV2ReauthenticationSemanticBindingIssuance
+    snapshot_type = reauthentication._LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot
     forged_issuance = object.__new__(issuance_type)
     evidence = _pre_setup().binding.durable_evidence
     forged_snapshot = snapshot_type(
@@ -1148,9 +1144,7 @@ def test_fake_semantic_binding_mint_rejects_a_production_root() -> None:
     with pytest.raises(TrustedTimeGracefulStopV2Rejected):
         LifecycleV2AuthenticatedReauthenticationBinding._capture_fake_for_tests(
             setup.binding.lifecycle_semantic_binding.to_dict(),
-            binding_evidence=(
-                setup.binding.lifecycle_semantic_binding.binding_evidence
-            ),
+            binding_evidence=(setup.binding.lifecycle_semantic_binding.binding_evidence),
             root=production_root,
             intent=cast(Any, setup.lineage_five.semantic_at(5)),
         )
@@ -1214,9 +1208,7 @@ def test_fake_realm_closure_cannot_mint_or_register_production_realm() -> None:
         )
 
     claim = reauthentication._claim_lifecycle_v2_production_reauthentication_binding_realm
-    claim_closure = dict(
-        zip(claim.__code__.co_freevars, claim.__closure__ or (), strict=True)
-    )
+    claim_closure = dict(zip(claim.__code__.co_freevars, claim.__closure__ or (), strict=True))
     with pytest.raises(ValueError):
         _ = claim_closure["production_bootstrap_permit"].cell_contents
 
@@ -1336,9 +1328,7 @@ def test_gc_referents_cannot_mutate_fake_realm_provenance_into_production() -> N
     )["realm_permit_state"].cell_contents
     assert type(realm_state) is tuple
     realm_permit = prepare_closure["realm_permit"].cell_contents
-    registration = next(
-        item for _, item in realm_state if item[0] is realm_permit
-    )
+    registration = next(item for _, item in realm_state if item[0] is realm_permit)
     assert registration[2] == "fake_reauthentication_binding"
     pending = [realm_state]
     seen: set[int] = set()
@@ -1370,9 +1360,7 @@ def test_gc_referents_cannot_mutate_fake_realm_provenance_into_production() -> N
         issuer,
         observation=_ObservationInput(primitives, observation_issuer, object()),
     )
-    metadata = lifecycle_semantics._require_canonical_evidence(
-        binding.lifecycle_semantic_binding
-    )
+    metadata = lifecycle_semantics._require_canonical_evidence(binding.lifecycle_semantic_binding)
     assert metadata.provenance == "fake_reauthentication_binding"
 
 
@@ -1380,8 +1368,7 @@ def test_production_realm_helpers_require_one_exact_wrapper_operation_chain() ->
     adapter_bind_closure = dict(
         zip(
             adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__code__.co_freevars,
-            adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__closure__
-            or (),
+            adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__closure__ or (),
             strict=True,
         )
     )
@@ -1430,6 +1417,8 @@ def test_production_realm_helpers_require_one_exact_wrapper_operation_chain() ->
             ].cell_contents,
             register_issuer=prepare_closure["register_issuer"].cell_contents,
             initialize_issuer=prepare_closure["initialize_issuer"].cell_contents,
+            require_lineage_boundary=prepare_closure["require_lineage_boundary"].cell_contents,
+            normal_stage_for_ordinal=prepare_closure["exact_normal_stage_lookup"].cell_contents,
             getpid=prepare_closure["getpid"].cell_contents,
             current_thread=prepare_closure["current_thread"].cell_contents,
         )
@@ -1473,9 +1462,7 @@ def test_production_realm_helpers_require_one_exact_wrapper_operation_chain() ->
             ].cell_contents,
             begin_issuer=bind_closure["begin_issuer"].cell_contents,
             register_binding=bind_closure["register_binding"].cell_contents,
-            semantic_binding_builder=bind_closure[
-                "build_semantic_binding"
-            ].cell_contents,
+            semantic_binding_builder=bind_closure["build_semantic_binding"].cell_contents,
             issue_binding=bind_closure["issue_binding"].cell_contents,
             getpid=bind_closure["getpid"].cell_contents,
             current_thread=bind_closure["current_thread"].cell_contents,
@@ -1643,8 +1630,7 @@ def test_traced_live_operation_token_cannot_reenter_production_prepare() -> None
     adapter_closure = dict(
         zip(
             adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__code__.co_freevars,
-            adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__closure__
-            or (),
+            adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__closure__ or (),
             strict=True,
         )
     )
@@ -1693,9 +1679,7 @@ def test_traced_live_operation_token_cannot_reenter_production_prepare() -> None
         inside = True
         try:
             try:
-                captured["hidden"] = prepare[
-                    "prepare_pre_effect_issuer"
-                ].cell_contents(
+                captured["hidden"] = prepare["prepare_pre_effect_issuer"].cell_contents(
                     operation_token=operation.token,
                     lineage_through_ordinal_5=lineage_five,
                     observation_issuer_identity=observation_issuer,
@@ -1707,6 +1691,8 @@ def test_traced_live_operation_token_cannot_reenter_production_prepare() -> None
                     ].cell_contents,
                     register_issuer=prepare["register_issuer"].cell_contents,
                     initialize_issuer=prepare["initialize_issuer"].cell_contents,
+                    require_lineage_boundary=prepare["require_lineage_boundary"].cell_contents,
+                    normal_stage_for_ordinal=prepare["exact_normal_stage_lookup"].cell_contents,
                     getpid=prepare["getpid"].cell_contents,
                     current_thread=prepare["current_thread"].cell_contents,
                 )
@@ -1724,9 +1710,7 @@ def test_traced_live_operation_token_cannot_reenter_production_prepare() -> None
         )
     finally:
         sys.settrace(None)
-    assert captured == {
-        "direct_error": "lifecycle-v2 reauthentication call chain is invalid"
-    }
+    assert captured == {"direct_error": "lifecycle-v2 reauthentication call chain is invalid"}
     assert issuer._status == "prepared"
     binding = adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once(
         issuer,
@@ -1740,8 +1724,7 @@ def test_traced_live_bind_token_cannot_burn_issuer_or_adr0109_observation() -> N
     adapter_closure = dict(
         zip(
             adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__code__.co_freevars,
-            adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__closure__
-            or (),
+            adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__closure__ or (),
             strict=True,
         )
     )
@@ -1835,9 +1818,7 @@ def test_traced_live_bind_token_cannot_burn_issuer_or_adr0109_observation() -> N
             )
     finally:
         sys.settrace(None)
-    assert captured == {
-        "direct_error": "lifecycle-v2 reauthentication call chain is invalid"
-    }
+    assert captured == {"direct_error": "lifecycle-v2 reauthentication call chain is invalid"}
     assert victim._status == "prepared"
     binding = adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once(
         victim,

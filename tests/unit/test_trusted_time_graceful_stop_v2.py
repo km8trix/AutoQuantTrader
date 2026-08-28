@@ -83,6 +83,14 @@ def _digest(label: str) -> str:
     return hashlib.sha256(label.encode("ascii")).hexdigest()
 
 
+def _wire_publication_receipt_sha256(receipt: dict[str, object]) -> str:
+    return hashlib.sha256(
+        b"AutoQuantTrader/trusted-time/graceful-stop/"
+        b"wire-envelope-publication-receipt/v2\0"
+        + canonical_v2_json_bytes(receipt, maximum_bytes=256 * 1_024)
+    ).hexdigest()
+
+
 def _root() -> LifecycleV2Root:
     start = 1_000_000_000
     return LifecycleV2Root(
@@ -301,7 +309,9 @@ def _result_record(
                 "message_counter": 1,
                 "deadline_boottime_ns": root.clean_stop_result_deadline_boottime_ns,
                 "wire_publication_receipt": publication_receipt,
-                "wire_publication_receipt_sha256": _digest("wire-receipt"),
+                "wire_publication_receipt_sha256": (
+                    _wire_publication_receipt_sha256(publication_receipt)
+                ),
                 "call_started_boottime_ns": root.admission_started_boottime_ns + 1,
                 "call_completed_boottime_ns": root.admission_started_boottime_ns + 2,
             }
@@ -409,7 +419,12 @@ def _tamper_wire_publication_receipt(
 ) -> LifecycleV2ProgressRecord:
     evidence = record.evidence.to_dict()
     receipt = cast(dict[str, object], evidence["wire_publication_receipt"])
-    evidence["wire_publication_receipt"] = {**receipt, field_name: replacement}
+    changed_receipt = {**receipt, field_name: replacement}
+    if field_name == "artifact_directory_path":
+        changed_receipt["artifact_path"] = f"{replacement}/{receipt['file_name']}"
+        evidence["clean_stop_result_artifact_path"] = changed_receipt["artifact_path"]
+    evidence["wire_publication_receipt"] = changed_receipt
+    evidence["wire_publication_receipt_sha256"] = _wire_publication_receipt_sha256(changed_receipt)
     return replace(record, evidence=FrozenJsonObject.capture(evidence))
 
 
@@ -460,14 +475,10 @@ def _authenticated_recovery_intent(
             "last_ordinal": classified_transcript.entries[-1].ordinal,
             "last_stage": classified_transcript.entries[-1].stage.value,
             "reason_code": "call_or_result_ambiguous",
-            "transport_authority_manifest_sha256": (
-                root.transport_authority_manifest_sha256
-            ),
+            "transport_authority_manifest_sha256": (root.transport_authority_manifest_sha256),
             "key_generation": root.transport_key_generation,
             "recovery_key_id": "recovery-key-1",
-            "operator_nonce_base64": base64.b64encode(bytes(range(32))).decode(
-                "ascii"
-            ),
+            "operator_nonce_base64": base64.b64encode(bytes(range(32))).decode("ascii"),
             "issued_at_utc": UTC_TEXT,
             "signature_ed25519_base64": base64.b64encode(bytes(64)).decode("ascii"),
         }
@@ -768,35 +779,16 @@ def test_ordinal_two_evidence_requires_exact_integer_generation_and_counter(
 
 
 def test_volume_delete_count_rejects_boolean_zero_alias() -> None:
-    root = _root()
+    from tests.unit import (
+        test_trusted_time_graceful_stop_v2_lifecycle_semantics as lifecycle_fx,
+    )
+
+    lineage = lifecycle_fx._through_eighteen(lifecycle_fx._scenario())
+    record = lineage.record_at(18)
+    evidence = record.evidence.to_dict()
+    evidence["volume_delete_call_count"] = False
     with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="volume_delete_call_count"):
-        LifecycleV2ProgressRecord(
-            graceful_stop_operation_id=root.graceful_stop_operation_id,
-            root_sha256=root.sha256,
-            ordinal=18,
-            stage=LifecycleV2Stage.NAMED_VOLUMES_PRESERVED,
-            predecessor_sha256=_digest("ordinal-17"),
-            effect_kind="volume_preservation",
-            deadline_boottime_ns=root.operation_deadline_boottime_ns,
-            evidence=FrozenJsonObject.capture(
-                {
-                    "intent_sha256": _digest("volume-intent"),
-                    "responder_identity_sha256": _digest("daemon"),
-                    "disposition": "confirmed",
-                    "result_semantic_sha256": _digest("result"),
-                    "call_started_boottime_ns": root.admission_started_boottime_ns + 1,
-                    "call_completed_boottime_ns": root.admission_started_boottime_ns + 2,
-                    "command_socket_volume_identity_sha256": _digest("command-volume"),
-                    "state_volume_identity_sha256": _digest("state-volume"),
-                    "docker_api_trace_sha256": _digest("trace"),
-                    "volume_delete_call_count": False,
-                    "docker_request_semantic_sha256_list": [_digest("request")],
-                    "result_semantic": {"confirmed": True},
-                    "docker_method_trace_entry_sha256_list": [_digest("entry")],
-                }
-            ),
-            recorded_at_utc=UTC_TEXT,
-        )
+        replace(record, evidence=FrozenJsonObject.capture(evidence))
 
 
 def test_operation_deadline_equality_overflow_and_drift_fail_closed() -> None:
@@ -1252,7 +1244,6 @@ def test_complete_namespace_load_rejects_every_post_snapshot_race(
     [
         ("artifact_directory_path", "/wrong/trusted-time"),
         ("file_inode", 999),
-        ("directory_fsync_completed", False),
     ],
 )
 def test_ordinal_two_binds_live_and_restart_to_the_exact_physical_receipt(
@@ -1291,6 +1282,27 @@ def test_ordinal_two_binds_live_and_restart_to_the_exact_physical_receipt(
         with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
             _repository(store, FakeLifecycleV2RetainedWireVerifier())
     assert store.close_count == 1
+
+
+def test_ordinal_two_rejects_unconfirmed_directory_fsync_before_retention() -> None:
+    root = _root()
+    intent = _request_intent(root, _request_basis(root))
+    record = _result_record(root, intent, _result_envelope(root, intent))
+    evidence = record.evidence.to_dict()
+    receipt = cast(dict[str, object], evidence["wire_publication_receipt"])
+    changed_receipt = {**receipt, "directory_fsync_completed": False}
+    evidence["wire_publication_receipt"] = changed_receipt
+    evidence["wire_publication_receipt_sha256"] = _wire_publication_receipt_sha256(changed_receipt)
+    changed_evidence = FrozenJsonObject.capture(evidence)
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="discriminator"):
+        replace(record, evidence=changed_evidence)
+
+    encoded = record.to_dict()
+    encoded["evidence"] = changed_evidence.to_dict()
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="discriminator"):
+        decode_lifecycle_v2_progress_record(
+            canonical_v2_json_bytes(encoded, maximum_bytes=256 * 1_024)
+        )
 
 
 def test_live_ordinal_two_binds_receipt_inode_to_independent_stable_readback() -> None:
@@ -1803,34 +1815,23 @@ def test_recovery_classification_is_single_use_and_can_follow_terminal_cleanup()
     ):
         repository.retain_recovery_classification_intent(authenticated)
 
-    terminal_cleanup = LifecycleV2ProgressRecord(
-        graceful_stop_operation_id=root.graceful_stop_operation_id,
-        root_sha256=root.sha256,
-        ordinal=22,
-        stage=LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED,
-        predecessor_sha256=_digest("ordinal-21"),
-        effect_kind="terminal_cleanup",
-        deadline_boottime_ns=root.operation_deadline_boottime_ns,
-        evidence=FrozenJsonObject.capture(
-            {
-                "cleanup_intent_sha256": _digest("cleanup-intent"),
-                "transport_quiescence_record_sha256": _digest("quiescence"),
-                "supervisor_remove_result_sha256": _digest("supervisor-remove"),
-                "socket_absence_sha256": _digest("socket-absence"),
-                "credential_path_absence_sha256": _digest("credential-absence"),
-                "empty_mount_projection_sha256": _digest("empty-mounts"),
-                "unmount_receipt_sha256": _digest("unmount"),
-                "native_owner_cleanup_receipt_sha256": _digest("native-cleanup"),
-                "all_private_material_unreachable": True,
-                "cleanup_completed_boottime_ns": root.admission_started_boottime_ns + 20,
-            }
-        ),
-        recorded_at_utc=UTC_TEXT,
+    from tests.unit import (
+        test_trusted_time_graceful_stop_v2_lifecycle_semantics as lifecycle_fx,
     )
-    post_cleanup = _recovery_intent(root, terminal_cleanup, _digest("terminal-transcript"))
-    repository._require_stage_transition(
+
+    scenario = lifecycle_fx._scenario()
+    lineage = lifecycle_fx._complete_lineage(scenario)
+    terminal_cleanup = lineage.record_at(22)
+    post_cleanup = _recovery_intent(
+        scenario.root,
+        terminal_cleanup,
+        _digest("terminal-transcript"),
+    )
+    transition_repository = _repository()
+    transition_repository.reserve_root(scenario.root)
+    transition_repository._require_stage_transition(
         post_cleanup,
-        records=(terminal_cleanup,) * 22,
+        records=(scenario.request_intent, *lineage.records),
     )
 
 
