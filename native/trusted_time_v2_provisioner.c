@@ -632,7 +632,7 @@ static int
 aqt_capture_blob_identity(const char *path, struct stat *identity)
 {
     char basename[AQT_MAX_PATH_BYTES];
-    char canonical[AQT_MAX_PATH_BYTES];
+    char canonical[PATH_MAX];
     int directory_descriptor = -1;
     int result = -1;
 
@@ -841,7 +841,7 @@ static int
 aqt_open_systemd_creds(void)
 {
     char basename[AQT_MAX_PATH_BYTES];
-    char canonical[AQT_MAX_PATH_BYTES];
+    char canonical[PATH_MAX];
     unsigned char actual[AQT_SHA256_BYTES];
     unsigned char expected[AQT_SHA256_BYTES];
     struct stat metadata;

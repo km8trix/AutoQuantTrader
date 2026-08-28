@@ -105,6 +105,7 @@ aqt_fail(const char *message)
     _exit(AQT_FAILURE_STATUS);
 }
 
+#ifdef AQT_TRUSTED_TIME_V2_PORTABLE_TEST_PROFILE
 static const char *
 aqt_basename(const char *path)
 {
@@ -116,6 +117,7 @@ aqt_basename(const char *path)
     separator = strrchr(path, '/');
     return separator == NULL ? path : separator + 1;
 }
+#endif
 
 #ifndef AQT_TRUSTED_TIME_V2_PORTABLE_TEST_PROFILE
 static void

@@ -311,6 +311,7 @@ jobs:
           .venv/bin/python -I -B - <<'PY'
           import hashlib
           import os
+          import zipfile
           from pathlib import Path
 
           root = Path(os.environ["NATIVE_DIST_ROOT"])
@@ -321,6 +322,29 @@ jobs:
           assert hashlib.file_digest(first[0].open("rb"), "sha256").digest() == hashlib.file_digest(
               second[0].open("rb"), "sha256"
           ).digest()
+          forbidden_fragments = (
+              "build_support/build_trusted_time_v2_",
+              "build_support/exercise_trusted_time_v2_",
+              "build_support/qualify_trusted_time_v2_",
+              "build_support/smoke_trusted_time_v2_",
+              "build_support/trusted_time_v2_candidate_",
+              "build_support/trusted_time_v2_seccomp_",
+              "infra/trusted-time/graceful-stop-v2/seccomp/",
+              "infra/trusted-time/graceful-stop-v2/systemd/",
+              "native/trusted_time_graceful_stop_v2_",
+              "native/trusted_time_v2_",
+              "tests/native/trusted_time_v2_seccomp_manifest_harness.c",
+              "tests/fixtures/native/trusted-time-v2/",
+              "third_party/monocypher/",
+          )
+          for wheel in (first[0], second[0]):
+              with zipfile.ZipFile(wheel) as archive:
+                  forbidden = sorted(
+                      name
+                      for name in archive.namelist()
+                      if any(fragment in name for fragment in forbidden_fragments)
+                  )
+              assert forbidden == [], forbidden
           PY
 
       - name: Install the reviewed wheel into the test environment
@@ -330,6 +354,23 @@ jobs:
           wheel_paths=("${NATIVE_DIST_ROOT}"/wheel-one/*.whl)
           test "${#wheel_paths[@]}" -eq 1
           uv pip install --python .venv/bin/python --no-deps "${wheel_paths[0]}"
+
+      - name: Extract and validate Wave 7 sdist evidence outside checkout
+        if: runner.os == 'Linux'
+        env:
+          AQT_WAVE7_SDIST_RECEIPT: ${{ runner.temp }}/wave7-sdist-${{ matrix.python-version }}.json
+          AQT_WAVE7_SDIST_ROOT: ${{ runner.temp }}/wave7-sdist-${{ matrix.python-version }}
+          NATIVE_DIST_ROOT: ${{ runner.temp }}/autoquant-native-${{ matrix.python-version }}
+        run: |
+          set -o pipefail
+          test ! -e "${AQT_WAVE7_SDIST_ROOT}"
+          .venv/bin/python \
+            -I \
+            -B \
+            build_support/smoke_trusted_time_v2_sdist.py \
+            "${NATIVE_DIST_ROOT}/sdist/autoquant_trader-0.1.0.tar.gz" \
+            "${AQT_WAVE7_SDIST_ROOT}" \
+            | tee "${AQT_WAVE7_SDIST_RECEIPT}"
 
       - name: Build the exact source-checkout test launcher
         run: .venv/bin/python -I -B build_support/build_native_test_launcher.py
@@ -341,6 +382,234 @@ jobs:
           -q
           tests/unit/test_native_owned_file_descriptor.py
           tests/unit/test_native_bounded_process.py
+
+      - name: Build twice, audit six candidates, and execute linked role gates
+        if: runner.os == 'Linux'
+        run: >-
+          .venv/bin/python
+          -m
+          pytest
+          -q
+          tests/unit/test_trusted_time_v2_candidate_packaging.py
+
+      - name: Build pinned disposable Wave 7 qualification image
+        if: runner.os == 'Linux'
+        env:
+          AQT_WAVE7_IMAGE: autoquant-wave7-qualification:${{ matrix.python-version }}
+          AQT_WAVE7_IMAGE_ID_FILE: ${{ runner.temp }}/wave7-image-${{ matrix.python-version }}.txt
+          AQT_WAVE7_SDIST_ROOT: ${{ runner.temp }}/wave7-sdist-${{ matrix.python-version }}
+        run: |
+          docker build \
+            --pull=false \
+            --platform linux/amd64 \
+            --file \
+            "${AQT_WAVE7_SDIST_ROOT}/build_support/trusted_time_v2_candidate_execution.Dockerfile" \
+            --tag "${AQT_WAVE7_IMAGE}" \
+            "${AQT_WAVE7_SDIST_ROOT}/build_support"
+          qualification_image_id="$(docker image inspect "${AQT_WAVE7_IMAGE}" --format '{{.Id}}')"
+          if [[ ! "${qualification_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Qualification image ID is invalid" >&2
+            exit 1
+          fi
+          printf '%s\n' "${qualification_image_id}" > "${AQT_WAVE7_IMAGE_ID_FILE}"
+
+      - name: Execute exact six candidates in locked disposable container
+        if: runner.os == 'Linux'
+        env:
+          AQT_WAVE7_CONTAINER: aqt-wave7-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.python-version }}
+          AQT_WAVE7_IMAGE: autoquant-wave7-qualification:${{ matrix.python-version }}
+          AQT_WAVE7_IMAGE_ID_FILE: ${{ runner.temp }}/wave7-image-${{ matrix.python-version }}.txt
+          AQT_WAVE7_RECEIPT: ${{ runner.temp }}/wave7-qualification-${{ matrix.python-version }}.json
+          AQT_WAVE7_SDIST_RECEIPT: ${{ runner.temp }}/wave7-sdist-${{ matrix.python-version }}.json
+          AQT_WAVE7_SDIST_ROOT: ${{ runner.temp }}/wave7-sdist-${{ matrix.python-version }}
+        run: |
+          set -o pipefail
+          cleanup_container() {
+            docker container rm --force "${AQT_WAVE7_CONTAINER}" >/dev/null 2>&1 || true
+          }
+          trap cleanup_container EXIT
+          python_home="$(${GITHUB_WORKSPACE}/.venv/bin/python -I -B -c 'import pathlib, sys; print(pathlib.Path(sys.base_prefix).resolve(strict=True))')"
+          qualification_python="$(${GITHUB_WORKSPACE}/.venv/bin/python -I -B -c 'import sys; print(__import__("pathlib").Path(sys.executable).resolve())')"
+          case "${qualification_python}" in
+            "${python_home}"/*) ;;
+            *) echo "Qualification Python is outside its resolved base prefix" >&2; exit 1 ;;
+          esac
+          read -r sdist_archive_sha256 sdist_root_sha256 < <(
+            "${GITHUB_WORKSPACE}/.venv/bin/python" -I -B - "${AQT_WAVE7_SDIST_RECEIPT}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          receipt = json.loads(Path(sys.argv[1]).read_text(encoding="ascii"))
+          assert receipt["status"] == "validated_for_locked_container_qualification"
+          print(receipt["archive"]["sha256"], receipt["extracted_root"]["tree_sha256"])
+          PY
+          )
+          read -r qualification_image_id < "${AQT_WAVE7_IMAGE_ID_FILE}"
+          if [ "$(docker image inspect "${AQT_WAVE7_IMAGE}" --format '{{.Id}}')" != "${qualification_image_id}" ]; then
+            echo "Qualification image tag changed after its exact ID was retained" >&2
+            exit 1
+          fi
+          docker run \
+            --rm \
+            --name "${AQT_WAVE7_CONTAINER}" \
+            --platform linux/amd64 \
+            --network none \
+            --ipc private \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --pids-limit 256 \
+            --memory 3g \
+            --cpus 2 \
+            --read-only \
+            --tmpfs /opt:rw,exec,nosuid,nodev,size=512m,mode=0755 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
+            --volume "${AQT_WAVE7_SDIST_ROOT}:/workspace:ro" \
+            --volume "${python_home}:${python_home}:ro" \
+            --env "AQT_WAVE7_QUALIFICATION_IMAGE_ID=${qualification_image_id}" \
+            --env "AQT_WAVE7_SDIST_ARCHIVE_SHA256=${sdist_archive_sha256}" \
+            --env "AQT_WAVE7_SDIST_ROOT_SHA256=${sdist_root_sha256}" \
+            "${qualification_image_id}" \
+            "${qualification_python}" \
+            -I \
+            -B \
+            /workspace/build_support/qualify_trusted_time_v2_candidates.py \
+            | tee "${AQT_WAVE7_RECEIPT}"
+          if docker container inspect "${AQT_WAVE7_CONTAINER}" >/dev/null 2>&1; then
+            echo "Disposable qualification container survived --rm" >&2
+            exit 1
+          fi
+          trap - EXIT
+          "${GITHUB_WORKSPACE}/.venv/bin/python" -I -B - \
+            "${AQT_WAVE7_RECEIPT}" "${qualification_image_id}" \
+            "${AQT_WAVE7_SDIST_RECEIPT}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          receipt = json.loads(Path(sys.argv[1]).read_text(encoding="ascii"))
+          expected_image_id = sys.argv[2]
+          sdist_receipt = json.loads(Path(sys.argv[3]).read_text(encoding="ascii"))
+          assert receipt["status"] == "passed"
+          assert receipt["activation_authorized"] is False
+          assert receipt["candidate_artifacts_copied_back"] is False
+          assert len(receipt["receipts"]) == 3
+          assert len(receipt["candidate_build"]["artifacts"]) == 6
+          assert len(receipt["exact_execution"]["executions"]) == 6
+          assert receipt["exact_execution"]["qualification_image_id"] == expected_image_id
+          assert receipt["exact_execution"]["transient_exact_path_staging_performed"] is True
+          assert receipt["exact_execution"]["candidate_staging_persisted"] is False
+          assert receipt["exact_execution"]["runtime_owner_installed"] is False
+          expected_paths = {
+              "/opt/autoquant/trusted-time-graceful-stop-v2-host/bin/"
+              "autoquant-trusted-time-graceful-stop-v2-host",
+              "/opt/autoquant/trusted-time-graceful-stop-v2-provision/bin/"
+              "autoquant-trusted-time-graceful-stop-v2-host-provision",
+              "/opt/autoquant/trusted-time-graceful-stop-v2-provision/bin/"
+              "autoquant-trusted-time-graceful-stop-v2-recovery-provision",
+              "/opt/autoquant/trusted-time-graceful-stop-v2-provision/bin/"
+              "autoquant-trusted-time-graceful-stop-v2-supervisor-provision",
+              "/opt/autoquant/trusted-time-graceful-stop-v2-recovery/bin/"
+              "autoquant-trusted-time-graceful-stop-v2-recovery",
+              "/opt/autoquant/trusted-time-graceful-stop-v2-supervisor/bin/"
+              "autoquant-trusted-time-graceful-stop-v2-supervisor",
+          }
+          executions = receipt["exact_execution"]["executions"]
+          assert {record["path"] for record in executions} == expected_paths
+          assert all(
+              record["status"] == record["expected_status"] == 191
+              and record["marker_count"] == 1
+              and record["candidate_sha256"] == record["candidate_artifact_sha256"]
+              for record in executions
+          )
+          assert receipt["managed_python_mount"]["unchanged"] is True
+          assert receipt["exact_execution"]["python_mount_provenance"]["unchanged"] is True
+          assert receipt["candidate_build"]["python"]["base_prefix_tree"]["entry_count"] > 0
+          assert receipt["source_sdist"]["archive_sha256"]
+          assert receipt["source_sdist"]["archive_sha256"] == sdist_receipt["archive"][
+              "sha256"
+          ]
+          assert receipt["source_sdist"]["extracted_root_sha256"] == sdist_receipt[
+              "extracted_root"
+          ]["tree_sha256"]
+          assert receipt["source_sdist"]["extracted_root_entry_count"] == (
+              sdist_receipt["extracted_root"]["file_count"]
+              + sdist_receipt["extracted_root"]["directory_count"]
+          )
+          assert (
+              receipt["source_sdist"]["workspace_pre_qualification_sha256"]
+              == receipt["source_sdist"]["workspace_post_qualification_sha256"]
+              == receipt["source_sdist"]["extracted_root_sha256"]
+          )
+          PY
+
+      - name: Remove disposable Wave 7 qualification state
+        if: always() && runner.os == 'Linux'
+        env:
+          AQT_WAVE7_CONTAINER: aqt-wave7-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.python-version }}
+          AQT_WAVE7_IMAGE: autoquant-wave7-qualification:${{ matrix.python-version }}
+          AQT_WAVE7_IMAGE_ID_FILE: ${{ runner.temp }}/wave7-image-${{ matrix.python-version }}.txt
+          AQT_WAVE7_SDIST_ROOT: ${{ runner.temp }}/wave7-sdist-${{ matrix.python-version }}
+          EXPECTED_RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          docker container rm --force "${AQT_WAVE7_CONTAINER}" >/dev/null 2>&1 || true
+          qualification_image_id=""
+          image_id_cleanup_valid=true
+          if [ -f "${AQT_WAVE7_IMAGE_ID_FILE}" ]; then
+            read -r qualification_image_id < "${AQT_WAVE7_IMAGE_ID_FILE}"
+            if [[ "${qualification_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              docker image rm --force "${qualification_image_id}" >/dev/null 2>&1 || true
+            else
+              echo "Qualification image-ID file is invalid; skipping unsafe exact-ID removal" >&2
+              qualification_image_id=""
+              image_id_cleanup_valid=false
+            fi
+          else
+            echo "Qualification image-ID file is missing" >&2
+            image_id_cleanup_valid=false
+          fi
+          docker image rm --force "${AQT_WAVE7_IMAGE}" >/dev/null 2>&1 || true
+          .venv/bin/python -I -B - \
+            "${AQT_WAVE7_SDIST_ROOT}" "${AQT_WAVE7_IMAGE_ID_FILE}" \
+            "${EXPECTED_RUNNER_TEMP}" <<'PY'
+          import shutil
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          image_id_file = Path(sys.argv[2])
+          parent = Path(sys.argv[3]).resolve(strict=True)
+          if root.parent.resolve(strict=True) != parent or not root.name.startswith("wave7-sdist-"):
+              raise SystemExit("refusing to remove an unexpected extracted-sdist root")
+          if (
+              image_id_file.parent.resolve(strict=True) != parent
+              or not image_id_file.name.startswith("wave7-image-")
+          ):
+              raise SystemExit("refusing to remove an unexpected qualification image-ID file")
+          if root.exists():
+              shutil.rmtree(root)
+          if image_id_file.exists():
+              image_id_file.unlink()
+          assert not root.exists()
+          assert not image_id_file.exists()
+          PY
+          if docker container inspect "${AQT_WAVE7_CONTAINER}" >/dev/null 2>&1; then
+            echo "Disposable qualification container survived cleanup" >&2
+            exit 1
+          fi
+          if [ -n "${qualification_image_id}" ]; then
+            if docker image inspect "${qualification_image_id}" >/dev/null 2>&1; then
+              echo "Exact qualification image ID survived cleanup" >&2
+              exit 1
+            fi
+          fi
+          if docker image inspect "${AQT_WAVE7_IMAGE}" >/dev/null 2>&1; then
+            echo "Qualification image tag survived cleanup" >&2
+            exit 1
+          fi
+          if [ "${image_id_cleanup_valid}" != true ]; then
+            exit 1
+          fi
 
   frontend:
     name: Browser quality and tests
