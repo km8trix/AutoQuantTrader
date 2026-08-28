@@ -301,5 +301,12 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   passing all 11 jobs; it adds no real endpoint, signer/private-key owner,
   production root, Docker transport/effect, runtime caller, deployment, stop
   authority, or change to the exit-2 target)
+- [ADR 0126: Native trusted-time lifecycle-v2 milestone-two owner foundation](0126-native-trusted-time-lifecycle-v2-milestone-two-owner-foundation.md)
+  (pins Wave 7's Monocypher 4.0.3 supply chain, pre-Python fixed-table fork
+  guard, separately compiled host/supervisor/recovery and provisioner profiles,
+  role-narrow signer/seqpacket owners, argument-free encrypted-credential
+  provisioning, source-only systemd topology, and Linux seccomp manifests;
+  grants no real-root, Docker-effect, caller, deployment, recovery-effect, or
+  stop authority)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).
