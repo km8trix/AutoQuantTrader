@@ -176,12 +176,22 @@ static int test_resource_validators(void) {
       "rw,nosuid,nodev,noexec,relatime shared:9 - tmpfs tmpfs "
       "rw,size=64k,mode=770,gid=10001,inode64\n";
   unsigned char duplicate[sizeof(valid_mount) * 2U];
+  unsigned char control[sizeof(valid_mount)];
   aqt_trusted_time_v2_test_mount_identity identity;
   aqt_trusted_time_v2_test_stat9 left;
   aqt_trusted_time_v2_test_stat9 right;
 
   CHECK(aqt_trusted_time_v2_resources_test_parse_transport_mountinfo(
             valid_mount, sizeof(valid_mount) - 1U, &identity) == 0);
+  CHECK(aqt_trusted_time_v2_resources_test_parse_transport_mountinfo(
+            valid_mount, sizeof(valid_mount) - 2U, &identity) == EINVAL);
+  memcpy(control, valid_mount, sizeof(valid_mount));
+  control[2] = (unsigned char)'\t';
+  CHECK(aqt_trusted_time_v2_resources_test_parse_transport_mountinfo(
+            control, sizeof(control) - 1U, &identity) == EINVAL);
+  control[2] = 0x7fU;
+  CHECK(aqt_trusted_time_v2_resources_test_parse_transport_mountinfo(
+            control, sizeof(control) - 1U, &identity) == EINVAL);
   CHECK(identity.mount_id == 42U);
   CHECK(identity.parent_mount_id == 1U);
   CHECK(identity.major_device == 0U);

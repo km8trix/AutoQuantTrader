@@ -293,8 +293,18 @@ static int aqt_parse_transport_mountinfo(const unsigned char *bytes,
   AqtMountIdentity selected;
 
   if (bytes == NULL || identity_out == NULL || length == 0U ||
-      length > AQT_MOUNTINFO_LIMIT || memchr(bytes, '\0', length) != NULL) {
+      length > AQT_MOUNTINFO_LIMIT ||
+      bytes[length - 1U] != (unsigned char)'\n' ||
+      memchr(bytes, '\0', length) != NULL) {
     return EINVAL;
+  }
+  for (size_t index = 0U; index < length; ++index) {
+    unsigned char value = bytes[index];
+
+    if ((value < (unsigned char)' ' && value != (unsigned char)'\n') ||
+        value == 0x7fU) {
+      return EINVAL;
+    }
   }
   memset(&selected, 0, sizeof(selected));
   while (offset < length) {
@@ -521,75 +531,334 @@ static int aqt_read_bounded_descriptor(int descriptor, unsigned char *buffer,
   return EFBIG;
 }
 
-static int aqt_read_path_stably(const char *path, size_t limit,
-                                unsigned char **bytes_out, size_t *length_out) {
+typedef struct {
+  AqtStat9 root;
+  AqtStat9 proc;
+  AqtStat9 process;
+} AqtProcPathIdentity;
+
+static int aqt_root_owned_ancestor_is_valid(const AqtStat9 *identity) {
+  return identity != NULL && identity->file_type == S_IFDIR &&
+                 identity->uid == 0U && identity->gid == 0U &&
+                 (identity->mode & 0022U) == 0U
+             ? 0
+             : EPERM;
+}
+
+static int aqt_process_directory_is_valid(const AqtStat9 *identity) {
+  return identity != NULL && identity->file_type == S_IFDIR &&
+                 identity->uid == (uint32_t)geteuid() &&
+                 identity->gid == (uint32_t)getegid() &&
+                 (identity->mode & 0022U) == 0U
+             ? 0
+             : EPERM;
+}
+
+static int aqt_open_root_correlated(AqtGuardedFd *root_out,
+                                    AqtStat9 *identity_out) {
+  AqtGuardedFd first;
+  AqtGuardedFd second;
+  AqtStat9 first_identity;
+  AqtStat9 second_identity;
+  int result;
+
+  if (root_out == NULL || identity_out == NULL) {
+    return EINVAL;
+  }
+  aqt_guarded_fd_initialize(root_out);
+  aqt_guarded_fd_initialize(&first);
+  aqt_guarded_fd_initialize(&second);
+  result = aqt_guarded_fd_adopt(
+      open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW), &first);
+  if (result == 0) {
+    result = aqt_fstat9(first.descriptor, &first_identity);
+  }
+  if (result == 0) {
+    result = aqt_root_owned_ancestor_is_valid(&first_identity);
+  }
+  if (result == 0) {
+    result = aqt_guarded_fd_adopt(
+        open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW), &second);
+  }
+  if (result == 0) {
+    result = aqt_fstat9(second.descriptor, &second_identity);
+  }
+  if (result == 0 && !aqt_stat9_equal(&first_identity, &second_identity)) {
+    result = ESTALE;
+  }
+  {
+    int cleanup_result = aqt_guarded_fd_close(&second);
+
+    if (cleanup_result != 0 && result == 0) {
+      result = cleanup_result;
+    }
+  }
+  if (result != 0) {
+    (void)aqt_guarded_fd_close(&first);
+    return result;
+  }
+  *root_out = first;
+  *identity_out = first_identity;
+  return 0;
+}
+
+static int aqt_openat_correlated_directory(int parent_fd, const char *name,
+                                           int require_root_owned_ancestor,
+                                           AqtGuardedFd *directory_out,
+                                           AqtStat9 *identity_out) {
+  AqtGuardedFd directory;
+  AqtStat9 before;
+  AqtStat9 held;
+  AqtStat9 after;
+  int result;
+
+  if (parent_fd < 0 || name == NULL || *name == '\0' ||
+      strchr(name, '/') != NULL || directory_out == NULL ||
+      identity_out == NULL) {
+    return EINVAL;
+  }
+  aqt_guarded_fd_initialize(directory_out);
+  aqt_guarded_fd_initialize(&directory);
+  result = aqt_fstatat9(parent_fd, name, &before);
+  if (result == 0 && before.file_type != S_IFDIR) {
+    result = EPERM;
+  }
+  if (result == 0 && require_root_owned_ancestor) {
+    result = aqt_root_owned_ancestor_is_valid(&before);
+  }
+  if (result == 0) {
+    result = aqt_guarded_fd_adopt(
+        openat(parent_fd, name,
+               O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW),
+        &directory);
+  }
+  if (result == 0) {
+    result = aqt_fstat9(directory.descriptor, &held);
+  }
+  if (result == 0) {
+    result = aqt_fstatat9(parent_fd, name, &after);
+  }
+  if (result == 0 &&
+      (!aqt_stat9_equal(&before, &held) || !aqt_stat9_equal(&held, &after))) {
+    result = ESTALE;
+  }
+  if (result != 0) {
+    (void)aqt_guarded_fd_close(&directory);
+    return result;
+  }
+  *directory_out = directory;
+  *identity_out = held;
+  return 0;
+}
+
+static int aqt_open_numeric_proc_directory(pid_t pid, AqtGuardedFd *process_out,
+                                           AqtProcPathIdentity *identity_out) {
+  char pid_name[32];
+  AqtGuardedFd root;
+  AqtGuardedFd proc;
+  AqtGuardedFd process;
+  AqtProcPathIdentity identity;
+  struct statfs filesystem;
+  int length;
+  int result;
+
+  if (pid <= 0 || pid != getpid() || process_out == NULL ||
+      identity_out == NULL) {
+    return EINVAL;
+  }
+  aqt_guarded_fd_initialize(process_out);
+  aqt_guarded_fd_initialize(&root);
+  aqt_guarded_fd_initialize(&proc);
+  aqt_guarded_fd_initialize(&process);
+  memset(&identity, 0, sizeof(identity));
+  length = snprintf(pid_name, sizeof(pid_name), "%" PRIdMAX, (intmax_t)pid);
+  if (length <= 0 || (size_t)length >= sizeof(pid_name)) {
+    return EINVAL;
+  }
+  result = aqt_open_root_correlated(&root, &identity.root);
+  if (result == 0) {
+    result = aqt_openat_correlated_directory(root.descriptor, "proc", 1, &proc,
+                                             &identity.proc);
+  }
+  if (result == 0 && fstatfs(proc.descriptor, &filesystem) != 0) {
+    result = aqt_errno_or_io();
+  }
+  if (result == 0 && filesystem.f_type != PROC_SUPER_MAGIC) {
+    result = EPERM;
+  }
+  {
+    int cleanup_result = aqt_guarded_fd_close(&root);
+
+    if (cleanup_result != 0 && result == 0) {
+      result = cleanup_result;
+    }
+  }
+  if (result == 0) {
+    result = aqt_openat_correlated_directory(proc.descriptor, pid_name, 0,
+                                             &process, &identity.process);
+  }
+  if (result == 0) {
+    result = aqt_process_directory_is_valid(&identity.process);
+  }
+  if (result == 0 && fstatfs(process.descriptor, &filesystem) != 0) {
+    result = aqt_errno_or_io();
+  }
+  if (result == 0 && filesystem.f_type != PROC_SUPER_MAGIC) {
+    result = EPERM;
+  }
+  {
+    int cleanup_result = aqt_guarded_fd_close(&proc);
+
+    if (cleanup_result != 0 && result == 0) {
+      result = cleanup_result;
+    }
+  }
+  if (result != 0) {
+    (void)aqt_guarded_fd_close(&process);
+    return result;
+  }
+  *process_out = process;
+  *identity_out = identity;
+  return 0;
+}
+
+static int aqt_proc_path_identity_equal(const AqtProcPathIdentity *left,
+                                        const AqtProcPathIdentity *right) {
+  return left != NULL && right != NULL &&
+         aqt_stat9_equal(&left->root, &right->root) &&
+         aqt_stat9_equal(&left->proc, &right->proc) &&
+         aqt_stat9_equal(&left->process, &right->process);
+}
+
+static int aqt_read_mountinfo_once(int process_fd, unsigned char *buffer,
+                                   size_t capacity, size_t *length_out,
+                                   AqtStat9 *identity_out) {
+  AqtGuardedFd descriptor;
+  AqtStat9 named_before;
+  AqtStat9 held_before;
+  AqtStat9 held_after;
+  AqtStat9 named_after;
+  struct statfs filesystem;
+  int result;
+
+  if (process_fd < 0 || buffer == NULL || capacity == 0U ||
+      length_out == NULL || identity_out == NULL) {
+    return EINVAL;
+  }
+  aqt_guarded_fd_initialize(&descriptor);
+  result = aqt_fstatat9(process_fd, "mountinfo", &named_before);
+  if (result == 0 &&
+      (named_before.file_type != S_IFREG ||
+       named_before.uid != (uint32_t)geteuid() ||
+       named_before.gid != (uint32_t)getegid() || named_before.mode != 0444U ||
+       named_before.link_count != 1U || named_before.size != 0)) {
+    result = EPERM;
+  }
+  if (result == 0) {
+    result = aqt_guarded_fd_adopt(
+        openat(process_fd, "mountinfo", O_RDONLY | O_CLOEXEC | O_NOFOLLOW),
+        &descriptor);
+  }
+  if (result == 0) {
+    result = aqt_fstat9(descriptor.descriptor, &held_before);
+  }
+  if (result == 0) {
+    result = aqt_fstatat9(process_fd, "mountinfo", &named_after);
+  }
+  if (result == 0 && (!aqt_stat9_equal(&named_before, &held_before) ||
+                      !aqt_stat9_equal(&held_before, &named_after))) {
+    result = ESTALE;
+  }
+  if (result == 0 && fstatfs(descriptor.descriptor, &filesystem) != 0) {
+    result = aqt_errno_or_io();
+  }
+  if (result == 0 && filesystem.f_type != PROC_SUPER_MAGIC) {
+    result = EPERM;
+  }
+  if (result == 0) {
+    result = aqt_read_bounded_descriptor(descriptor.descriptor, buffer,
+                                         capacity, length_out);
+  }
+  if (result == 0) {
+    result = aqt_fstat9(descriptor.descriptor, &held_after);
+  }
+  if (result == 0) {
+    result = aqt_fstatat9(process_fd, "mountinfo", &named_after);
+  }
+  if (result == 0 && (!aqt_stat9_equal(&held_before, &held_after) ||
+                      !aqt_stat9_equal(&held_after, &named_after))) {
+    result = ESTALE;
+  }
+  {
+    int cleanup_result = aqt_guarded_fd_close(&descriptor);
+
+    if (cleanup_result != 0 && result == 0) {
+      result = cleanup_result;
+    }
+  }
+  if (result == 0) {
+    *identity_out = held_after;
+  }
+  return result;
+}
+
+static int aqt_capture_mount_identity(pid_t pid,
+                                      AqtMountIdentity *identity_out) {
   unsigned char *first = NULL;
   unsigned char *second = NULL;
   size_t first_length = 0U;
   size_t second_length = 0U;
-  AqtStat9 first_before;
-  AqtStat9 first_after;
-  AqtStat9 second_before;
-  AqtStat9 second_after;
-  AqtGuardedFd descriptor;
+  AqtProcPathIdentity first_path;
+  AqtProcPathIdentity second_path;
+  AqtStat9 first_file;
+  AqtStat9 second_file;
+  AqtGuardedFd process;
   int result = 0;
 
-  aqt_guarded_fd_initialize(&descriptor);
-  first = calloc(limit, 1U);
-  second = calloc(limit, 1U);
+  if (identity_out == NULL) {
+    return EINVAL;
+  }
+  aqt_guarded_fd_initialize(&process);
+  first = calloc(AQT_MOUNTINFO_LIMIT, 1U);
+  second = calloc(AQT_MOUNTINFO_LIMIT, 1U);
   if (first == NULL || second == NULL) {
     result = ENOMEM;
     goto cleanup;
   }
-  result = aqt_guarded_fd_adopt(open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW),
-                                &descriptor);
-  if (result != 0) {
-    goto cleanup;
+  result = aqt_open_numeric_proc_directory(pid, &process, &first_path);
+  if (result == 0) {
+    result =
+        aqt_read_mountinfo_once(process.descriptor, first, AQT_MOUNTINFO_LIMIT,
+                                &first_length, &first_file);
   }
-  result = aqt_fstat9(descriptor.descriptor, &first_before);
-  if (result != 0 || first_before.file_type != S_IFREG ||
-      first_before.link_count != 1U || (first_before.mode & 0222U) != 0U) {
-    result = result == 0 ? EPERM : result;
-    goto cleanup;
+  {
+    int cleanup_result = aqt_guarded_fd_close(&process);
+
+    if (cleanup_result != 0 && result == 0) {
+      result = cleanup_result;
+    }
   }
-  result = aqt_read_bounded_descriptor(descriptor.descriptor, first, limit,
-                                       &first_length);
-  if (result != 0 || aqt_fstat9(descriptor.descriptor, &first_after) != 0 ||
-      !aqt_stat9_equal(&first_before, &first_after)) {
-    result = result == 0 ? ESTALE : result;
-    goto cleanup;
+  if (result == 0) {
+    result = aqt_open_numeric_proc_directory(pid, &process, &second_path);
   }
-  result = aqt_guarded_fd_close(&descriptor);
-  if (result != 0) {
-    goto cleanup;
-  }
-  result = aqt_guarded_fd_adopt(open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW),
-                                &descriptor);
-  if (result != 0) {
-    goto cleanup;
-  }
-  result = aqt_fstat9(descriptor.descriptor, &second_before);
-  if (result != 0 || !aqt_stat9_equal(&first_before, &second_before)) {
-    result = result == 0 ? ESTALE : result;
-    goto cleanup;
-  }
-  result = aqt_read_bounded_descriptor(descriptor.descriptor, second, limit,
-                                       &second_length);
-  if (result != 0 || aqt_fstat9(descriptor.descriptor, &second_after) != 0 ||
-      !aqt_stat9_equal(&second_before, &second_after)) {
-    result = result == 0 ? ESTALE : result;
-    goto cleanup;
-  }
-  if (first_length != second_length ||
-      memcmp(first, second, first_length) != 0) {
+  if (result == 0 && !aqt_proc_path_identity_equal(&first_path, &second_path)) {
     result = ESTALE;
-    goto cleanup;
   }
-  *bytes_out = first;
-  *length_out = first_length;
-  first = NULL;
+  if (result == 0) {
+    result =
+        aqt_read_mountinfo_once(process.descriptor, second, AQT_MOUNTINFO_LIMIT,
+                                &second_length, &second_file);
+  }
+  if (result == 0 && (!aqt_stat9_equal(&first_file, &second_file) ||
+                      first_length != second_length ||
+                      memcmp(first, second, first_length) != 0)) {
+    result = ESTALE;
+  }
+  if (result == 0) {
+    result = aqt_parse_transport_mountinfo(first, first_length, identity_out);
+  }
 cleanup: {
-  int cleanup_result = aqt_guarded_fd_close(&descriptor);
+  int cleanup_result = aqt_guarded_fd_close(&process);
 
   if (cleanup_result != 0 && result == 0) {
     result = cleanup_result;
@@ -597,19 +866,6 @@ cleanup: {
 }
   free(first);
   free(second);
-  return result;
-}
-
-static int aqt_capture_mount_identity(AqtMountIdentity *identity_out) {
-  unsigned char *bytes = NULL;
-  size_t length = 0U;
-  int result = aqt_read_path_stably("/proc/self/mountinfo", AQT_MOUNTINFO_LIMIT,
-                                    &bytes, &length);
-
-  if (result == 0) {
-    result = aqt_parse_transport_mountinfo(bytes, length, identity_out);
-  }
-  free(bytes);
   return result;
 }
 
@@ -625,20 +881,24 @@ static int aqt_open_literal_transport_directory(AqtGuardedFd *directory_out) {
   }
   aqt_guarded_fd_initialize(directory_out);
   aqt_guarded_fd_initialize(&descriptor);
-  result = aqt_guarded_fd_adopt(
-      open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW), &descriptor);
+  {
+    AqtStat9 root_identity;
+
+    result = aqt_open_root_correlated(&descriptor, &root_identity);
+  }
   if (result != 0) {
     return result;
   }
   for (size_t index = 0U; index < sizeof(components) / sizeof(components[0]);
        ++index) {
     AqtGuardedFd next;
+    AqtStat9 identity;
 
     aqt_guarded_fd_initialize(&next);
-    result = aqt_guarded_fd_adopt(
-        openat(descriptor.descriptor, components[index],
-               O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW),
-        &next);
+    result = aqt_openat_correlated_directory(
+        descriptor.descriptor, components[index],
+        index + 1U < sizeof(components) / sizeof(components[0]), &next,
+        &identity);
     if (result != 0) {
       (void)aqt_guarded_fd_close(&descriptor);
       return result;
@@ -1204,7 +1464,8 @@ static int AQT_MAYBE_UNUSED aqt_transport_resources_prepare(
   if (result != 0) {
     return result;
   }
-  result = aqt_capture_mount_identity(&owner->mount_identity);
+  result = aqt_capture_mount_identity(owner->fork_identity.origin_pid,
+                                      &owner->mount_identity);
   if (result != 0) {
     return result;
   }
@@ -1291,7 +1552,7 @@ aqt_transport_resources_revalidate(AqtTransportResources *owner,
   if (result != 0) {
     return result;
   }
-  result = aqt_capture_mount_identity(&mount);
+  result = aqt_capture_mount_identity(owner->fork_identity.origin_pid, &mount);
   if (result != 0 ||
       !aqt_mount_identity_equal(&owner->mount_identity, &mount)) {
     return result == 0 ? ESTALE : result;

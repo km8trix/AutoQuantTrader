@@ -252,14 +252,17 @@ def test_resource_admission_is_literal_and_stable() -> None:
     source = (
         NATIVE / "trusted_time_graceful_stop_v2_resources.c"
     ).read_text(encoding="utf-8")
-    assert '"/proc/self/mountinfo"' in source
+    assert '"/proc/self/mountinfo"' not in source
+    assert '"mountinfo"' in source
     assert '"/proc"' in source
     assert '"ns/pid"' in source
     assert '"NSpid:"' in source
     assert '"cgroup"' in source
     assert "O_NOFOLLOW" in source
-    assert "aqt_fstat9(descriptor.descriptor, &first_before)" in source
-    assert "aqt_fstat9(descriptor.descriptor, &second_after)" in source
+    assert "aqt_open_numeric_proc_directory" in source
+    assert "aqt_openat_correlated_directory" in source
+    assert "PROC_SUPER_MAGIC" in source
+    assert "bytes[length - 1U]" in source
     assert "aqt_guarded_fd_adopt(" in source
     assert "aqt_validate_literal_directory_binding" in source
     assert "process_directory_identity" in source
