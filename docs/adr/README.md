@@ -295,8 +295,11 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   HTTP evidence, a byte-level fake daemon, descriptor-safe injected storage,
   full ordinal-6/20 ADR-0109 evidence, exact lifecycle sequencing through
   confirmed-success ordinal 23, and authenticated classification-only recovery;
-  it adds no real endpoint, signer/private-key owner, production root, Docker
-  transport/effect, runtime caller, deployment, stop authority, or change to the
-  exit-2 target)
+  promoted to local and remote `main` at
+  `c64cbb2da0e600a3899387d3d58e6a7d8762b00c`, with exact-main
+  [CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
+  passing all 11 jobs; it adds no real endpoint, signer/private-key owner,
+  production root, Docker transport/effect, runtime caller, deployment, stop
+  authority, or change to the exit-2 target)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

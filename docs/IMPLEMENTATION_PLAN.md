@@ -89,15 +89,21 @@ Ed25519 reauthentication; the exact normal lifecycle through authenticated
 terminal cleanup at ordinal 22 and confirmed success at ordinal 23; complete
 canonical ADR-0109 binding evidence at ordinals 6 and 20; authenticated
 classification-only recovery; and the required fault, fork, and boundary
-vectors. On the current unpromoted local integration tree, the architecture/
-source-seal reconciliation, complete branch-wide regression, and independent
-read-only review of the stabilized source and configuration tree are complete.
+vectors. The architecture/source-seal reconciliation, complete local branch-
+wide regression, and independent read-only review of the stabilized source and
+configuration tree are complete.
 The backend reports 12,301 passed and 1,097 skipped; frontend lint, typecheck, 67
 Vitest tests, 33 bundle-policy tests, and the production build pass; and native
 Python 3.12/3.13 packaging parity reports 142 passed with 36 expected skips.
-These facts close Wave 6 local implementation evidence only; they claim neither
-promotion nor remote CI and add no deployment, stop authority, operational
-authority, or milestone-two completion.
+Wave 6 is promoted to local and remote `main` at exact revision
+`c64cbb2da0e600a3899387d3d58e6a7d8762b00c`. Exact-main
+[CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
+passed all 11 jobs: architecture, four backend/PostgreSQL shards, four native
+OS/Python packaging jobs, browser quality/tests/build, and container/paper
+admission including production fail-closed and trusted-time evidence-image
+gates. These facts close the Wave 6 implementation, repository promotion, and
+remote-CI verification checkpoints only; they add no deployment, stop
+authority, operational authority, or milestone-two completion.
 
 Wave 6 remains zero-caller and non-authorizing. `trusted-time-stop` keeps its
 exact exit-2 no-effect contract. No real endpoint or signer/private-key owner,
@@ -576,13 +582,16 @@ descriptor-safe injected storage, exact normal sequencing through ordinal 23,
 full ADR-0109 evidence at ordinals 6/20, and classification-only recovery. The
 complete local branch-wide regression, architecture/source-seal reconciliation,
 and independent read-only review are now recorded as Wave 6 implementation-
-closure evidence on the current unpromoted integration tree. Milestone two's
+closure evidence. Wave 6 is promoted to local and remote `main` at
+`c64cbb2da0e600a3899387d3d58e6a7d8762b00c`, with exact-main
+[CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
+passing all 11 jobs. Milestone two's
 native endpoint/signer/fork/key/mount owners,
 every real-root and Docker transport/effect path, production bootstrap/callers,
-deployment, promotion, and stop authority remain unimplemented and
-unauthorized. Current-topology and stop-authority admission, operational
-durability/outcomes, and all effects remain absent; `trusted-time-stop` remains
-hard closed. Phase 6E is only a
+deployment, strategy/deployment-promotion authority, and stop authority remain
+unimplemented and unauthorized. Current-topology and stop-authority admission,
+operational durability/outcomes, and all effects remain absent;
+`trusted-time-stop` remains hard closed. Phase 6E is only a
 dormant watchdog-state reducer. The Phase 6 paper-MVP gate remains unmet, and
 the Phase 7 supervised paper soak and Phase 8 human-approved minimum-size live
 canary remain entirely ahead. No paper or live order authority is enabled.
@@ -4050,12 +4059,15 @@ already-created marker preimage.
 This implementation completes a contract milestone, not an activation gate.
 The complete local integration regression, independent read-only review of the
 stabilized source/configuration tree, and reconciled architecture/native/
-production source seals are complete on the current unpromoted integration
-tree. This closes Wave 6 local implementation evidence only and claims neither
-promotion nor remote CI. ADR 0121 milestone two and later milestones remain wholly
-deferred: there is no real endpoint/signer/private-key owner, credential
+production source seals are complete. Wave 6 is promoted to local and remote
+`main` at `c64cbb2da0e600a3899387d3d58e6a7d8762b00c`, and exact-main
+[CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
+passed all 11 jobs. This closes Wave 6 implementation, repository promotion,
+and remote-CI verification only. ADR 0121 milestone two and later milestones
+remain wholly deferred: there is no real endpoint/signer/private-key owner,
+credential
 provisioning, production root, real Docker transport or effect, bootstrap or
-production caller, deployment, promotion, stop effect, or operational
+production caller, deployment, strategy/deployment promotion, stop effect, or operational
 authority. `trusted-time-stop` remains hard closed.
 
 The ADR-0111 static freeze includes a mandatory raw-byte manifest for every
@@ -4551,11 +4563,15 @@ unavailable before any watchdog consumer is designed or qualified. See
   success ordinal 23; complete canonical ADR-0109 binding evidence at ordinals
   6 and 20; and authenticated, one-use, classification-only recovery. The
   architecture/source seals, complete integration regression, and independent
-  read-only review are complete as Wave 6 local implementation-closure evidence
-  on the current unpromoted integration tree. The implementation has
+  read-only review are complete as Wave 6 implementation-closure evidence. Wave
+  6 is promoted to local and remote `main` at
+  `c64cbb2da0e600a3899387d3d58e6a7d8762b00c`, and exact-main
+  [CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
+  passed all 11 jobs. The implementation has
   no real endpoint, signer/private-key owner, credential provisioning,
   production root, real Docker transport/effect, production bootstrap/caller,
-  deployment, promotion, stop authority, or operational authority; the stop
+  deployment, strategy/deployment promotion, stop authority, or operational
+  authority; the stop
   target continues to exit 2.
   Claim persistence now uses one globally single-use fixed slot and rejects any
   current or legacy per-operation claim. An import-only coordinator checks the
@@ -4721,9 +4737,13 @@ contracts, injected physical publication, exact ordinal-23 success sequencing,
 and classification-only recovery, but supplies no native endpoint or signer
 owner, private-key custody/provisioning, production root, real Docker transport
 or effect, production caller/bootstrap, deployed shutdown, operational drill,
-or promotion authority. Wave 6 source-seal reconciliation, the complete local
-regression, and independent read-only review are complete on the current
-unpromoted integration tree; this is no claim of promotion or remote CI.
+or operational strategy-promotion authority. Wave 6 source-seal reconciliation,
+the complete local regression, and independent read-only review are complete;
+the implementation is promoted to local and remote `main` at
+`c64cbb2da0e600a3899387d3d58e6a7d8762b00c`, and exact-main
+[CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
+passed all 11 jobs. That repository promotion and CI evidence grant no
+operational or strategy-promotion authority.
 `trusted-time-stop` remains the
 exact exit-2 no-effect target, and milestone-one contract evidence satisfies
 none of the deployment or operational outcomes below.

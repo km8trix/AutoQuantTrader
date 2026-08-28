@@ -254,13 +254,15 @@ unreachable injected lifecycle-v2 implementation: canonical authority/channel
 and signed-wire contracts, complete terminal and Docker HTTP evidence, a byte-
 level fake daemon, descriptor-safe injected storage, exact lifecycle semantics
 through confirmed-success ordinal 23, complete ADR-0109 evidence at ordinals
-6/20, and authenticated classification-only recovery. On the current
-unpromoted local integration tree, the full branch-wide regression,
-architecture/source-seal reconciliation, and independent read-only review of
-the stabilized source and configuration tree are complete. The backend reports
-12,301 passed and 1,097 skipped, and the frontend and native packaging parity
-lanes are green. This is local implementation-closure evidence only, not a
-promotion or remote-CI claim.
+6/20, and authenticated classification-only recovery. The full local branch-
+wide regression, architecture/source-seal reconciliation, and independent
+read-only review of the stabilized source and configuration tree are complete;
+the backend reports 12,301 passed and 1,097 skipped, and the frontend and native
+packaging parity lanes are green. Wave 6 is promoted to local and remote `main`
+at exact revision `c64cbb2da0e600a3899387d3d58e6a7d8762b00c`, and exact-main
+[CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
+passed all 11 jobs. This closes implementation, repository promotion, and
+remote-CI verification only, not a deployment or authority gate.
 Milestone two's real endpoint/signer/fork/key/mount owners, every production
 root and Docker transport/effect, bootstrap/callers, deployment, and every
 promotion or stop-authority gate remain open; `trusted-time-stop` remains the
@@ -5464,16 +5466,19 @@ preimage, never dispatch transport or mutate Docker.
 This is still a zero-production-caller implementation. It has no real endpoint,
 signer/private-key owner, credential provisioning, admitted key/socket mounts,
 production root, real Docker transport/effect, controller, bootstrap, deployment,
-or operational authority. On the current unpromoted local integration tree,
-the branch-wide regression, independent read-only review of the stabilized
-source and configuration tree, and architecture/source-seal reconciliation are
-complete. The full backend regression reports 12,301 passed and 1,097 skipped;
+or operational authority. The local branch-wide regression, independent read-
+only review of the stabilized source and configuration tree, and architecture/
+source-seal reconciliation are complete. The full backend regression reports
+12,301 passed and 1,097 skipped;
 frontend lint, typecheck, 67 Vitest tests, 33 bundle-policy tests, and the
 production build pass; and native Python 3.12/3.13 packaging parity reports 142
-passed with 36 expected skips. These facts close Wave 6 local implementation
-evidence only; they claim neither promotion nor remote CI and add no deployment,
-stop authority, operational authority, or milestone-two completion. ADR 0121
-milestone two and later milestones, every promotion,
+passed with 36 expected skips. Wave 6 is promoted to local and remote `main` at
+exact revision `c64cbb2da0e600a3899387d3d58e6a7d8762b00c`; exact-main
+[CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
+passed all 11 jobs. These facts close Wave 6 implementation, repository
+promotion, and remote-CI verification only; they add no deployment, stop
+authority, operational authority, or milestone-two completion. ADR 0121
+milestone two and later milestones, every strategy/deployment promotion,
 and every stop-authority gate remain deferred. `trusted-time-stop` remains the
 exact exit-2 no-effect target. See
 [ADR 0124](adr/0124-trusted-time-lifecycle-v2-milestone-one.md) and

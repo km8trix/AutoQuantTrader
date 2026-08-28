@@ -159,12 +159,17 @@ authority/channel and signed-wire contracts, complete terminal and Docker HTTP
 evidence, descriptor-safe injected storage, exact lifecycle sequencing through
 confirmed success, full pre-effect/post-teardown ADR-0109 evidence, and
 classification-only recovery. Final branch-wide regression and source-seal
-reconciliation, including independent read-only review, are complete on the
-current unpromoted local integration tree. The full backend regression reports
+reconciliation, including independent read-only review, are complete. The full
+local backend regression reports
 12,301 passed and 1,097 skipped; frontend lint, typecheck, 67 Vitest tests, 33
 bundle-policy tests, and the production build pass; and native Python 3.12/3.13
-packaging parity reports 142 passed with 36 expected skips. This closes Wave 6
-local implementation evidence only and claims neither promotion nor remote CI.
+packaging parity reports 142 passed with 36 expected skips. Wave 6 is promoted
+to local and remote `main` at exact revision
+`c64cbb2da0e600a3899387d3d58e6a7d8762b00c`; exact-main
+[CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
+passed all 11 jobs. This closes the Wave 6 implementation, repository
+promotion, and remote-CI verification checkpoints only and adds no deployment,
+stop authority, operational authority, or milestone-two completion.
 ADR 0121 milestone two is next;
 there is still no real endpoint, signer/private-key owner, production root,
 Docker transport/effect, runtime caller, deployment, or stop authority.

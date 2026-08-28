@@ -1,8 +1,9 @@
 # ADR 0125: Complete injected trusted-time lifecycle-v2 milestone one
 
-- Status: Accepted for a locally verified, unreachable, injected milestone-one
-  implementation on the current unpromoted integration tree; this is
-  implementation-closure evidence, not runtime authority
+- Status: Accepted for a promoted and exact-main-CI-verified, unreachable,
+  injected milestone-one implementation at
+  `c64cbb2da0e600a3899387d3d58e6a7d8762b00c`; this is implementation-closure
+  evidence, not runtime authority
 - Date: 2026-08-27
 - Completes milestone one of:
   [ADR 0121](0121-trusted-time-graceful-stop-lifecycle-v2-implementation-resolution.md)
@@ -158,15 +159,21 @@ and authenticated recovery replay and ambiguity.
 
 Architecture policy isolates every new authority-bearing module and private
 seam, reserves removed bypass names, constrains reviewed cross-imports, and pins
-the final production and native source bytes. On the current unpromoted local
-integration tree, the reconciled architecture/source seals and independent
-read-only review of the stabilized source and configuration tree pass. The full
+the final production and native source bytes. The reconciled architecture/
+source seals and independent read-only review of the stabilized source and
+configuration tree pass. The full local
 backend regression reports 12,301 passed and 1,097 skipped; frontend lint,
 typecheck, 67 Vitest tests, 33 bundle-policy tests, and the production build
 pass; and native Python 3.12/3.13 packaging parity reports 142 passed with 36
-expected skips. These facts close Wave 6 local implementation evidence only;
-they claim neither promotion nor remote CI and add no deployment, stop
-authority, operational authority, or milestone-two completion.
+expected skips. Wave 6 is promoted to local and remote `main` at exact revision
+`c64cbb2da0e600a3899387d3d58e6a7d8762b00c`. Exact-main
+[CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
+passed all 11 jobs: architecture, four backend/PostgreSQL shards, four native
+OS/Python packaging jobs, browser quality/tests/build, and container/paper
+admission including the production fail-closed and trusted-time evidence-image
+gates. These facts close Wave 6 implementation, repository promotion, and
+remote-CI verification only; they add no deployment, stop authority,
+operational authority, or milestone-two completion.
 
 ## Supersession and remaining roadmap
 
