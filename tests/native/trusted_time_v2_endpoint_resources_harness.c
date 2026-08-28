@@ -180,6 +180,8 @@ static int test_resource_validators(void) {
   aqt_trusted_time_v2_test_mount_identity identity;
   aqt_trusted_time_v2_test_stat9 left;
   aqt_trusted_time_v2_test_stat9 right;
+  char maximum_path[256];
+  char changed_path[256];
 
   CHECK(aqt_trusted_time_v2_resources_test_parse_transport_mountinfo(
             valid_mount, sizeof(valid_mount) - 1U, &identity) == 0);
@@ -283,8 +285,80 @@ static int test_resource_validators(void) {
   left.link_count = 1U;
   right = left;
   CHECK(aqt_trusted_time_v2_resources_test_stat9_equal(&left, &right) == 1);
+  /* Same-device inode substitution is never an equal held-file identity. */
+  right.inode++;
+  CHECK(aqt_trusted_time_v2_resources_test_stat9_equal(&left, &right) == 0);
+  right = left;
+  right.size++;
+  CHECK(aqt_trusted_time_v2_resources_test_stat9_equal(&left, &right) == 0);
+  right = left;
   right.change_nanoseconds = 1;
   CHECK(aqt_trusted_time_v2_resources_test_stat9_equal(&left, &right) == 0);
+  /* Overlay `/` and literal `/run` are the only one-link exceptions. */
+  CHECK(aqt_trusted_time_v2_resources_test_overlay_link_count(1U) == 0);
+  CHECK(aqt_trusted_time_v2_resources_test_overlay_link_count(0U) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_strict_directory_link_count(1U) ==
+        EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_strict_directory_link_count(2U) ==
+        0);
+  CHECK(aqt_trusted_time_v2_resources_test_transport_component_link_count(
+            0U, 1U) == 0);
+  for (size_t component = 1U; component < 5U; ++component) {
+    CHECK(aqt_trusted_time_v2_resources_test_transport_component_link_count(
+              component, 1U) == EPERM);
+    CHECK(aqt_trusted_time_v2_resources_test_transport_component_link_count(
+              component, 2U) == 0);
+  }
+  CHECK(aqt_trusted_time_v2_resources_test_transport_component_link_count(
+            5U, 2U) == EINVAL);
+  CHECK(aqt_trusted_time_v2_resources_test_proc_root_directory_metadata(
+            0U, 0U, 0555U, 2U) == 0);
+  CHECK(aqt_trusted_time_v2_resources_test_proc_root_directory_metadata(
+            0U, 0U, 0550U, 2U) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_proc_root_directory_metadata(
+            0U, 0U, 0755U, 2U) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_proc_root_directory_metadata(
+            0U, 0U, 0555U, 1U) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_peer_process_directory_metadata(
+            10001U, 10001U, 0555U, 2U) == 0);
+  CHECK(aqt_trusted_time_v2_resources_test_peer_process_directory_metadata(
+            10001U, 10001U, 0550U, 2U) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_peer_process_directory_metadata(
+            10001U, 10001U, 0555U, 1U) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_peer_process_directory_metadata(
+            0U, 10001U, 0555U, 2U) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_peer_namespace_directory_metadata(
+            10001U, 10001U, 0511U, 2U) == 0);
+  CHECK(aqt_trusted_time_v2_resources_test_peer_namespace_directory_metadata(
+            10001U, 10001U, 0500U, 2U) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_peer_namespace_directory_metadata(
+            10001U, 10001U, 0511U, 1U) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_peer_namespace_directory_metadata(
+            10001U, 0U, 0511U, 2U) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_executable_metadata(
+            0U, 0U, 0555U, 1U, INT64_C(268435456)) == 0);
+  CHECK(aqt_trusted_time_v2_resources_test_executable_metadata(
+            10001U, 0U, 0555U, 1U, 1) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_executable_metadata(0U, 0U, 0575U,
+                                                               1U, 1) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_executable_metadata(0U, 0U, 0555U,
+                                                               0U, 1) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_executable_metadata(
+            0U, 0U, 0555U, 1U, INT64_C(268435457)) == EPERM);
+  CHECK(aqt_trusted_time_v2_resources_test_executable_metadata(
+            0U, 0U, 0555U, 1U, -1) == EPERM);
+  memset(maximum_path, 'x', sizeof(maximum_path));
+  maximum_path[0] = '/';
+  memcpy(changed_path, maximum_path, sizeof(maximum_path));
+  CHECK(aqt_trusted_time_v2_resources_test_executable_path_pair(
+            maximum_path, 255, maximum_path, 255) == 0);
+  CHECK(aqt_trusted_time_v2_resources_test_executable_path_pair(
+            maximum_path, 256, maximum_path, 256) == ESTALE);
+  changed_path[254] = 'y';
+  CHECK(aqt_trusted_time_v2_resources_test_executable_path_pair(
+            maximum_path, 255, changed_path, 255) == ESTALE);
+  CHECK(aqt_trusted_time_v2_resources_test_executable_path_pair(
+            maximum_path, 255, maximum_path, 254) == ESTALE);
   CHECK(aqt_trusted_time_graceful_stop_v2_test_packet_admission(
             AQT_TRUSTED_TIME_GRACEFUL_STOP_V2_PACKET_LIMIT - 1U, 0,
             AQT_TRUSTED_TIME_GRACEFUL_STOP_V2_PACKET_LIMIT, 0U, 0U) == 0);
@@ -744,6 +818,9 @@ int main(void) {
         0);
   CHECK(aqt_trusted_time_graceful_stop_v2_endpoint_initialize_before_python() ==
         EALREADY);
+  CHECK(aqt_trusted_time_v2_resources_test_current_process_proc_admission() ==
+        0);
+  CHECK(aqt_trusted_time_v2_fork_guard_require_owner_table_empty() == 0);
   CHECK(test_complete_state_machine() == 0);
   CHECK(test_terminal_receive_boundaries() == 0);
   CHECK(test_order_deadline_and_size_rejection() == 0);

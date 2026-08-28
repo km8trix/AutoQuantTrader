@@ -254,18 +254,32 @@ def test_resource_admission_is_literal_and_stable() -> None:
     ).read_text(encoding="utf-8")
     assert '"/proc/self/mountinfo"' not in source
     assert '"mountinfo"' in source
-    assert '"/proc"' in source
-    assert '"ns/pid"' in source
+    assert '"proc"' in source
+    assert 'open("/proc"' not in source
+    assert '"ns/pid"' not in source
+    assert 'process_directory_fd, "ns"' in source
+    assert 'namespace_directory.descriptor, "pid"' in source
     assert '"NSpid:"' in source
     assert '"cgroup"' in source
     assert "O_NOFOLLOW" in source
     assert "aqt_open_numeric_proc_directory" in source
     assert "aqt_openat_correlated_directory" in source
+    assert "aqt_read_proc_file_once" in source
+    assert "aqt_capture_executable_identity" in source
+    assert "aqt_executable_identity_is_valid" in source
+    assert "executable_after" in source
+    assert "aqt_capture_pid_namespace_identity" in source
+    assert "expected_mode" in source
+    assert "0555U" in source
+    assert "0511U" in source
     assert "PROC_SUPER_MAGIC" in source
+    assert '#error "Linux trusted-time PID-namespace admission requires NSFS_MAGIC."' in (
+        source
+    )
     assert "bytes[length - 1U]" in source
     assert "aqt_guarded_fd_adopt(" in source
     assert "aqt_validate_literal_directory_binding" in source
-    assert "process_directory_identity" in source
+    assert "proc_path_identity" in source
     assert "aqt_process_identity_equal" in source
     assert "aqt_trusted_time_v2_fork_guard_close_fd(" in source
     assert not any(

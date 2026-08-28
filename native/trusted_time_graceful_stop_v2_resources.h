@@ -101,6 +101,26 @@ int aqt_trusted_time_v2_resources_test_socket_metadata(uint32_t uid,
 int aqt_trusted_time_v2_resources_test_stat9_equal(
     const aqt_trusted_time_v2_test_stat9 *left,
     const aqt_trusted_time_v2_test_stat9 *right);
+int aqt_trusted_time_v2_resources_test_overlay_link_count(uint64_t link_count);
+int aqt_trusted_time_v2_resources_test_strict_directory_link_count(
+    uint64_t link_count);
+int aqt_trusted_time_v2_resources_test_transport_component_link_count(
+    size_t component_index, uint64_t link_count);
+int aqt_trusted_time_v2_resources_test_proc_root_directory_metadata(
+    uint32_t uid, uint32_t gid, uint32_t mode, uint64_t link_count);
+int aqt_trusted_time_v2_resources_test_peer_process_directory_metadata(
+    uint32_t uid, uint32_t gid, uint32_t mode, uint64_t link_count);
+int aqt_trusted_time_v2_resources_test_peer_namespace_directory_metadata(
+    uint32_t uid, uint32_t gid, uint32_t mode, uint64_t link_count);
+int aqt_trusted_time_v2_resources_test_executable_metadata(uint32_t uid,
+                                                           uint32_t gid,
+                                                           uint32_t mode,
+                                                           uint64_t link_count,
+                                                           int64_t size);
+int aqt_trusted_time_v2_resources_test_executable_path_pair(
+    const char *first, int64_t first_length, const char *second,
+    int64_t second_length);
+int aqt_trusted_time_v2_resources_test_current_process_proc_admission(void);
 #endif
 
 #ifdef __cplusplus
