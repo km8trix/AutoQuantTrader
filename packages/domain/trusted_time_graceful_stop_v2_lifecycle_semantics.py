@@ -8,15 +8,246 @@ ordinal so no caller can select a stage, ordinal, predecessor, or effect kind.
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import importlib
+import os
 import re
+import stat
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from types import MappingProxyType
-from typing import Any, Never, Self, cast
+from types import MappingProxyType, ModuleType
+from typing import TYPE_CHECKING, Any, Never, Self, cast
 
-from packages.domain.trusted_time_graceful_stop_v2 import (
+if TYPE_CHECKING:
+    from packages.domain.trusted_time_graceful_stop_v2_runtime_seal import (
+        LifecycleV2RuntimeSealRegistry,
+        RuntimeSealMetadata,
+    )
+
+_RUNTIME_SEAL_MODULE_NAME = (
+    "packages.domain.trusted_time_graceful_stop_v2_runtime_seal"
+)
+_RUNTIME_SEAL_SOURCE_NAME = "trusted_time_graceful_stop_v2_runtime_seal.py"
+_RUNTIME_SEAL_SOURCE_SHA256 = (
+    "2f18c334567ba19c627c13b219896d70bebca185b7c63fd7ac54c0ea7506d726"
+)
+_RUNTIME_SEAL_BOOTSTRAP_CLAIM = (
+    "_claim_lifecycle_v2_runtime_seal_bootstrap"
+)
+_RUNTIME_SEAL_LOADING = "_lifecycle_v2_runtime_seal_bootstrap_loading"
+_RUNTIME_SEAL_FAILED = "_lifecycle_v2_runtime_seal_bootstrap_failed"
+
+
+def _load_canonical_lifecycle_v2_runtime_seal() -> tuple[type[object], type[object]]:
+    """Load the exact seal source without trusting a preseeded module object."""
+
+    module_name = _RUNTIME_SEAL_MODULE_NAME
+    source_name = _RUNTIME_SEAL_SOURCE_NAME
+    source_sha256 = _RUNTIME_SEAL_SOURCE_SHA256
+    bootstrap_claim_name = _RUNTIME_SEAL_BOOTSTRAP_CLAIM
+    loading_name = _RUNTIME_SEAL_LOADING
+    failed_name = _RUNTIME_SEAL_FAILED
+    modules = sys.modules
+    current = modules.get(module_name)
+    if type(current) is ModuleType and (
+        current.__dict__.get(loading_name) is not None
+        or current.__dict__.get(failed_name) is True
+    ):
+        raise ImportError("lifecycle-v2 runtime-seal bootstrap was reentered or failed")
+
+    semantics_path = os.path.realpath(__file__)
+    domain_directory = os.path.dirname(semantics_path)
+    if (
+        os.path.basename(semantics_path)
+        != "trusted_time_graceful_stop_v2_lifecycle_semantics.py"
+        or os.path.basename(domain_directory) != "domain"
+        or os.path.basename(os.path.dirname(domain_directory)) != "packages"
+    ):
+        raise ImportError("lifecycle-v2 runtime-seal source topology is invalid")
+    source_path = os.path.join(domain_directory, source_name)
+    if os.path.realpath(source_path) != source_path:
+        raise ImportError("lifecycle-v2 runtime-seal source path is not canonical")
+
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(source_path, flags)
+    try:
+        source_stat = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(source_stat.st_mode)
+            or source_stat.st_size <= 0
+            or source_stat.st_size > 65_536
+        ):
+            raise ImportError("lifecycle-v2 runtime-seal source file is invalid")
+        chunks: list[bytes] = []
+        remaining = source_stat.st_size
+        while remaining:
+            chunk = os.read(descriptor, min(remaining, 16_384))
+            if not chunk:
+                raise ImportError("lifecycle-v2 runtime-seal source read was truncated")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        if os.read(descriptor, 1):
+            raise ImportError("lifecycle-v2 runtime-seal source changed during read")
+        source = b"".join(chunks)
+    finally:
+        os.close(descriptor)
+    if hashlib.sha256(source).hexdigest() != source_sha256:
+        raise ImportError("lifecycle-v2 runtime-seal source digest is invalid")
+
+    code = builtins.compile(source, source_path, "exec", dont_inherit=True, optimize=0)
+    if code.co_filename != source_path:
+        raise ImportError("lifecycle-v2 runtime-seal code provenance is invalid")
+    module = ModuleType(module_name)
+    namespace = module.__dict__
+    permit = object()
+    receipt = object()
+    claim_state = "available"
+    claimed: tuple[type[object], type[object]] | None = None
+    namespace.update(
+        {
+            "__builtins__": builtins.__dict__,
+            "__file__": source_path,
+            "__loader__": None,
+            "__name__": module_name,
+            "__package__": "packages.domain",
+            "__spec__": importlib.machinery.ModuleSpec(
+                module_name,
+                loader=None,
+                origin=source_path,
+            ),
+            loading_name: permit,
+        }
+    )
+    modules[module_name] = module
+
+    def claim_runtime_seal_exports(
+        received_permit: object,
+        metadata_type: type[object],
+        registry_type: type[object],
+    ) -> object:
+        nonlocal claim_state, claimed
+        if claim_state != "available":
+            claim_state = "failed"
+            claimed = None
+            raise ImportError("lifecycle-v2 runtime-seal bootstrap claim was replayed")
+        claim_state = "consumed"
+        if (
+            received_permit is not permit
+            or type(metadata_type) is not type
+            or metadata_type.__module__ != module_name
+            or metadata_type.__qualname__ != "RuntimeSealMetadata"
+            or vars(metadata_type).get("__slots__")
+            != (
+                "provenance",
+                "scope_sha256",
+                "origin_pid",
+                "origin_thread",
+                "fork_epoch",
+            )
+            or type(registry_type) is not type
+            or registry_type.__module__ != module_name
+            or registry_type.__qualname__ != "LifecycleV2RuntimeSealRegistry"
+            or vars(registry_type).get("__slots__")
+            != (
+                "__dict__",
+                "_current_thread",
+                "_entries",
+                "_fork_epoch",
+                "_fork_invalidated",
+                "_getpid",
+                "_lock",
+                "_origin_fork_epoch",
+                "_origin_pid",
+            )
+        ):
+            claim_state = "failed"
+            raise ImportError("lifecycle-v2 runtime-seal bootstrap exports are invalid")
+        forbidden_globals = frozenset(
+            {
+                "RuntimeSealMetadata",
+                "_RuntimeSealEntry",
+                "_REGISTER_AT_FORK",
+                "id",
+                "os",
+                "replace",
+                "threading",
+            }
+        )
+        for method_name in (
+            "__init__",
+            "_registry_is_current",
+            "_entry_is_current",
+            "seal",
+            "require",
+            "consume",
+            "transition",
+            "consume_action",
+            "finalize_actions",
+        ):
+            method = vars(registry_type).get(method_name)
+            if (
+                type(method) is not type(claim_runtime_seal_exports)
+                or method.__globals__ is not namespace
+                or method.__code__.co_filename != source_path
+                or forbidden_globals.intersection(method.__code__.co_names)
+            ):
+                claim_state = "failed"
+                raise ImportError("lifecycle-v2 runtime-seal endpoint topology is invalid")
+        claimed = (registry_type, metadata_type)
+        return receipt
+
+    parent = modules.get("packages.domain")
+    try:
+        builtins.exec(code, namespace, namespace)
+        endpoint = namespace.pop(bootstrap_claim_name, None)
+        exact_endpoint = cast(
+            Callable[
+                [
+                    object,
+                    Callable[[object, type[object], type[object]], object],
+                ],
+                object,
+            ],
+            endpoint,
+        )
+        if (
+            type(endpoint) is not type(claim_runtime_seal_exports)
+            or endpoint.__globals__ is not namespace
+            or endpoint.__code__.co_filename != source_path
+            or exact_endpoint(permit, claim_runtime_seal_exports) is not receipt
+            or claim_state != "consumed"
+            or claimed is None
+            or namespace.get("__all__")
+            != ["LifecycleV2RuntimeSealRegistry", "RuntimeSealMetadata"]
+        ):
+            raise ImportError("lifecycle-v2 runtime-seal bootstrap claim is invalid")
+        namespace.pop(loading_name, None)
+        if parent is not None:
+            setattr(parent, source_name.removesuffix(".py"), module)
+        return claimed
+    except BaseException as error:
+        claim_state = "failed"
+        claimed = None
+        namespace.pop(bootstrap_claim_name, None)
+        namespace.pop(loading_name, None)
+        namespace[failed_name] = True
+        if parent is not None:
+            setattr(parent, source_name.removesuffix(".py"), module)
+        if isinstance(error, ImportError):
+            raise
+        raise ImportError("lifecycle-v2 runtime-seal bootstrap failed") from error
+
+
+if not TYPE_CHECKING:
+    (
+        LifecycleV2RuntimeSealRegistry,
+        RuntimeSealMetadata,
+    ) = _load_canonical_lifecycle_v2_runtime_seal()
+del _load_canonical_lifecycle_v2_runtime_seal
+
+from packages.domain.trusted_time_graceful_stop_v2 import (  # noqa: E402
     LIFECYCLE_V2_OPERATION_BUDGET_NS,
     LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION,
     LIFECYCLE_V2_ROOT_CONTRACT_VERSION,
@@ -35,7 +266,7 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     decode_lifecycle_v2_root,
     decode_lifecycle_v2_transcript,
 )
-from packages.domain.trusted_time_graceful_stop_v2_docker import (
+from packages.domain.trusted_time_graceful_stop_v2_docker import (  # noqa: E402
     COMMAND_SOCKET_VOLUME,
     STATE_VOLUME,
     DockerAdmissionCapture,
@@ -47,11 +278,7 @@ from packages.domain.trusted_time_graceful_stop_v2_docker import (
     DockerVolumePreservationResult,
     docker_call_spec,
 )
-from packages.domain.trusted_time_graceful_stop_v2_runtime_seal import (
-    LifecycleV2RuntimeSealRegistry,
-    RuntimeSealMetadata,
-)
-from packages.domain.trusted_time_graceful_stop_v2_terminal import (
+from packages.domain.trusted_time_graceful_stop_v2_terminal import (  # noqa: E402
     LISTENER_PATH,
     SUPERVISOR_RAW_KEY_PATH,
     LifecycleV2CleanStopResult,
@@ -3387,6 +3614,12 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
     """Install exact construction/transition closures around a closure-owned registry."""
 
     registry = LifecycleV2RuntimeSealRegistry()
+    registry_seal = registry.seal
+    registry_require = registry.require
+    registry_consume = registry.consume
+    registry_transition = registry.transition
+    registry_consume_action = registry.consume_action
+    registry_finalize_actions = registry.finalize_actions
     finalized_authorizations: set[int] = set()
     reauthentication_issuance_consumer: Callable[..., object] | None = None
     reauthentication_issuance_snapshot_type: type[object] | None = None
@@ -3416,7 +3649,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
     }
 
     def register_canonical(value: object, *, provenance: str, scope_sha256: str) -> None:
-        if type(value) not in canonical_types or not registry.seal(
+        if type(value) not in canonical_types or not registry_seal(
             value,
             snapshot_sha256=_canonical_evidence_snapshot(value),
             kind="canonical_evidence",
@@ -3432,7 +3665,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             snapshot = _canonical_evidence_snapshot(value)
         except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
             _reject("typed lifecycle semantic is not canonically sealed")
-        metadata = registry.require(
+        metadata = registry_require(
             value,
             snapshot_sha256=snapshot,
             kind="canonical_evidence",
@@ -3443,7 +3676,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
 
     def register_compound(value: object, *, provenance: str, scope_sha256: str) -> None:
         kind = compound_kind_by_type.get(type(value))
-        if kind is None or not registry.seal(
+        if kind is None or not registry_seal(
             value,
             snapshot_sha256=_compound_value_snapshot(value),
             kind=kind,
@@ -3460,7 +3693,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             snapshot = _compound_value_snapshot(value)
         except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
             _reject(f"{kind} is not sealed")
-        metadata = registry.require(value, snapshot_sha256=snapshot, kind=kind)
+        metadata = registry_require(value, snapshot_sha256=snapshot, kind=kind)
         if metadata is None:
             _reject(f"{kind} is not sealed")
         return metadata
@@ -3503,7 +3736,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         **kwargs: object,
     ) -> LifecycleV2InjectedCleanupObserver:
         result = original_observer_builder(*args, **kwargs)
-        if type(result) is not LifecycleV2InjectedCleanupObserver or not registry.seal(
+        if type(result) is not LifecycleV2InjectedCleanupObserver or not registry_seal(
             result,
             snapshot_sha256=result._snapshot(),
             kind="cleanup_observer",
@@ -3520,7 +3753,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
     ) -> RuntimeSealMetadata | None:
         if type(value) is not LifecycleV2InjectedCleanupObserver:
             return None
-        return registry.require(
+        return registry_require(
             value,
             snapshot_sha256=snapshot_sha256,
             kind="cleanup_observer",
@@ -3965,7 +4198,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
     ) -> RuntimeSealMetadata | None:
         if type(value) is not LifecycleV2TerminalCleanupAuthorization:
             return None
-        return registry.consume_action(
+        return registry_consume_action(
             value,
             snapshot_sha256=snapshot_sha256,
             kind="terminal_cleanup_authorization",
@@ -4032,7 +4265,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
     ) -> RuntimeSealMetadata | None:
         if type(value) is not LifecycleV2TerminalCleanupAuthorization:
             return None
-        metadata = registry.finalize_actions(
+        metadata = registry_finalize_actions(
             value,
             snapshot_sha256=snapshot_sha256,
             kind="terminal_cleanup_authorization",
@@ -4166,7 +4399,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             _reject("normal lifecycle lineage capture class is not exact")
         result = original_initial_lineage(*args, **kwargs)
         validate_lineage_records(result, exact_last_ordinal=2)
-        if not registry.seal(
+        if not registry_seal(
             result,
             snapshot_sha256=_lineage_snapshot(result),
             kind="normal_progress_lineage",
@@ -4351,7 +4584,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             if type(self) is not LifecycleV2NormalProgressLineage:
                 _reject("normal lifecycle transition requires an exact lineage")
             source_snapshot = _lineage_snapshot(self)
-            source_metadata = registry.require(
+            source_metadata = registry_require(
                 self,
                 snapshot_sha256=source_snapshot,
                 kind="normal_progress_lineage",
@@ -4368,7 +4601,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
                 expected_ordinal,
                 kwargs,
             )
-            if not registry.transition(
+            if not registry_transition(
                 self,
                 source_snapshot_sha256=source_snapshot,
                 result=exact_result,
@@ -4423,7 +4656,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
     ) -> RuntimeSealMetadata | None:
         if type(value) is not LifecycleV2NormalProgressLineage:
             return None
-        return registry.require(
+        return registry_require(
             value,
             snapshot_sha256=snapshot_sha256,
             kind="normal_progress_lineage",
@@ -4437,7 +4670,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             _reject("normal lifecycle lineage prefix type is not exact")
         snapshot = _lineage_snapshot(value)
         if (
-            registry.require(
+            registry_require(
                 value,
                 snapshot_sha256=snapshot,
                 kind="normal_progress_lineage",
@@ -4478,7 +4711,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         ):
             _reject("confirmed success lacks exact finalized ordinal-twenty-two evidence")
         cleanup_result._require_sealed()
-        metadata = registry.consume_action(
+        metadata = registry_consume_action(
             value,
             snapshot_sha256=lineage_digest,
             kind="normal_progress_lineage",
@@ -4503,7 +4736,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             "terminal_cleanup_result_snapshot_sha256",
             _semantic_runtime_snapshot(cleanup_result),
         )
-        if not registry.seal(
+        if not registry_seal(
             result,
             snapshot_sha256=_confirmed_success_snapshot(result),
             kind="confirmed_success_snapshot",
@@ -4524,7 +4757,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             _reject("confirmed-success repository snapshot is not sealed")
         value.terminal_cleanup_result._require_sealed()
         if (
-            registry.consume(
+            registry_consume(
                 value,
                 snapshot_sha256=snapshot,
                 kind="confirmed_success_snapshot",
