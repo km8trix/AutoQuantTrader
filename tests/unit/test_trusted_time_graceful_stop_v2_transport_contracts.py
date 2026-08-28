@@ -1315,6 +1315,473 @@ def test_object_new_clones_and_module_monkeypatches_cannot_reuse_proofs(
         )
 
 
+def test_ed25519_issuers_ignore_replaced_adapter_globals_and_modules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    manifest_fields = manifest.to_dict()
+    manifest_fields["signature_ed25519_base64"] = _b64(bytes([99]) * 64)
+    invalid_manifest = LifecycleV2TransportAuthorityManifest.capture(manifest_fields)
+    selection = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest,
+        recovery=manifest,
+        reason="initial",
+    )
+    selection_fields = selection.to_dict()
+    selection_fields["signature_ed25519_base64"] = _b64(bytes([98]) * 64)
+    invalid_selection = LifecycleV2TransportAuthoritySelection.capture(selection_fields)
+    authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (selection.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    authenticated_manifest = _authenticated_manifest(manifest)
+    host = _host_hello(manifest)
+    host_fields = host.to_dict()
+    host_fields["signature_ed25519_base64"] = _b64(bytes([97]) * 64)
+    invalid_host = LifecycleV2HostHello.capture(host_fields)
+    supervisor = _supervisor_hello(manifest, invalid_host)
+    confirmation = _confirmation(manifest, invalid_host, supervisor)
+    root = _root(manifest)
+    intent = _intent(root)
+    transcript = _classified_transcript(root, intent)
+    recovery_envelope = _recovery_envelope(root, transcript, manifest)
+    recovery_fields = recovery_envelope.to_dict()
+    recovery_fields["signature_ed25519_base64"] = _b64(bytes([96]) * 64)
+    invalid_recovery = LifecycleV2RecoveryClassificationEnvelope.capture(recovery_fields)
+    transport_envelope = _envelope(root, intent, frame_type="clean_stop_result")
+    transport_fields = transport_envelope.to_dict()
+    transport_fields["signature_ed25519_base64"] = _b64(bytes([95]) * 64)
+    invalid_transport = UnverifiedLifecycleV2TransportEnvelope.capture(transport_fields)
+    forged_manifest = object.__new__(type(authenticated_manifest))
+    for name in ("manifest", "root_public_key_sha256", "_capability"):
+        object.__setattr__(forged_manifest, name, getattr(authenticated_manifest, name))
+
+    def accepting(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    def identity(value: object, *_args: object, **_kwargs: object) -> object:
+        return value
+
+    for name in (
+        "_verify",
+        "_public_key",
+        "_verify_lifecycle_v2_handshake",
+        "_verify_lifecycle_v2_recovery_classification_envelope",
+        "_verify_lifecycle_v2_transport_frame",
+        "_validate_transport_envelope_formula",
+    ):
+        monkeypatch.setattr(ed25519_adapter, name, accepting)
+    for name in (
+        "_require_authenticated_manifest",
+        "_require_authenticated_selection",
+        "_require_authenticated_authority",
+        "_require_lifecycle_v2_transport_frame_expectation",
+    ):
+        monkeypatch.setattr(ed25519_adapter, name, identity)
+    for name in (
+        "decode_lifecycle_v2_host_channel_confirmation",
+        "decode_lifecycle_v2_host_hello",
+        "decode_lifecycle_v2_recovery_classification_envelope",
+        "decode_lifecycle_v2_root",
+        "decode_lifecycle_v2_supervisor_hello",
+        "decode_lifecycle_v2_transport_authority_manifest",
+        "decode_lifecycle_v2_transport_authority_selection",
+        "decode_unverified_lifecycle_v2_transport_envelope",
+    ):
+        monkeypatch.setattr(ed25519_adapter, name, identity)
+    monkeypatch.setattr(ed25519_adapter, "Ed25519PublicKey", object)
+    monkeypatch.setattr(ed25519_adapter, "InvalidSignature", RuntimeError)
+    adapter_os = cast(Any, ed25519_adapter).os
+    adapter_threading = cast(Any, ed25519_adapter).threading
+    monkeypatch.setattr(adapter_os, "getpid", lambda: 1)
+    monkeypatch.setattr(adapter_threading, "current_thread", lambda: object())
+    for module_name in (
+        "packages.domain.trusted_time_graceful_stop_v2",
+        "packages.domain.trusted_time_graceful_stop_v2_recovery",
+        "packages.domain.trusted_time_graceful_stop_v2_terminal",
+        "packages.domain.trusted_time_graceful_stop_v2_transport",
+    ):
+        monkeypatch.setitem(sys.modules, module_name, object())
+
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="signature"):
+        authenticate_lifecycle_v2_transport_authority_manifest(
+            invalid_manifest.encoded,
+            reviewed_root_key_id=ROOT_KEY_ID,
+            reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+        )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="signature"):
+        authenticate_lifecycle_v2_transport_authority_selection(
+            invalid_selection.encoded,
+            reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+        )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="signature"):
+        authenticate_lifecycle_v2_transport_authority(
+            (invalid_manifest.encoded,),
+            (selection.encoded,),
+            reviewed_root_key_id=ROOT_KEY_ID,
+            reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+        )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="signature"):
+        authenticate_selected_lifecycle_v2_handshake(
+            authority,
+            host_hello_encoded=invalid_host.encoded,
+            supervisor_hello_encoded=supervisor.encoded,
+            host_confirmation_encoded=confirmation.encoded,
+        )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="signature"):
+        authenticate_lifecycle_v2_recovery_classification_envelope(
+            invalid_recovery.encoded,
+            authority=authority,
+            root=root,
+            classified_transcript=transcript,
+        )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="signature"):
+        authenticate_root_bound_lifecycle_v2_transport_frame(
+            invalid_transport.encoded,
+            authority_manifest=authenticated_manifest,
+            root=root,
+            request_intent=intent,
+        )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="not authenticated"):
+        authenticate_root_bound_lifecycle_v2_transport_frame(
+            transport_envelope.encoded,
+            authority_manifest=forged_manifest,
+            root=root,
+            request_intent=intent,
+        )
+
+
+def test_replaced_manifest_validator_cannot_mint_production_terminal_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys.modules[__name__], "ENVIRONMENT", "production")
+    signed_manifest = _manifest()
+    authenticated_manifest = _authenticated_manifest(signed_manifest)
+    invalid_fields = signed_manifest.to_dict()
+    invalid_fields["signature_ed25519_base64"] = _b64(bytes([94]) * 64)
+    invalid_manifest = LifecycleV2TransportAuthorityManifest.capture(invalid_fields)
+    forged_manifest = object.__new__(type(authenticated_manifest))
+    object.__setattr__(forged_manifest, "manifest", invalid_manifest)
+    object.__setattr__(
+        forged_manifest,
+        "root_public_key_sha256",
+        authenticated_manifest.root_public_key_sha256,
+    )
+    object.__setattr__(forged_manifest, "_capability", authenticated_manifest._capability)
+    root = _root(invalid_manifest)
+    intent = _intent(root)
+    envelope = _envelope(root, intent, frame_type="clean_stop_result")
+    monkeypatch.setattr(ed25519_adapter, "_require_authenticated_manifest", lambda value: value)
+    monkeypatch.setattr(ed25519_adapter, "_verify", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="not authenticated"):
+        authenticate_root_bound_lifecycle_v2_transport_frame(
+            envelope.encoded,
+            authority_manifest=forged_manifest,
+            root=root,
+            request_intent=intent,
+        )
+
+
+def test_replaced_high_level_frame_verifier_cannot_register_corrupt_terminal_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys.modules[__name__], "ENVIRONMENT", "production")
+    manifest = _manifest()
+    authenticated_manifest = _authenticated_manifest(manifest)
+    root = _root(manifest)
+    intent = _intent(root)
+    envelope = _envelope(root, intent, frame_type="clean_stop_result")
+    invalid_fields = envelope.to_dict()
+    invalid_fields["signature_ed25519_base64"] = _b64(bytes(64))
+    invalid_envelope = UnverifiedLifecycleV2TransportEnvelope.capture(invalid_fields)
+    original_verifier = ed25519_adapter._verify_lifecycle_v2_transport_frame
+
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="signature"):
+        authenticate_root_bound_lifecycle_v2_transport_frame(
+            invalid_envelope.encoded,
+            authority_manifest=authenticated_manifest,
+            root=root,
+            request_intent=intent,
+        )
+    monkeypatch.setattr(
+        ed25519_adapter,
+        "_verify_lifecycle_v2_transport_frame",
+        lambda _encoded, *, authority_manifest, expectation: (
+            invalid_envelope,
+            authority_manifest.manifest.sha256,
+            "supervisor",
+        ),
+    )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="signature"):
+        authenticate_root_bound_lifecycle_v2_transport_frame(
+            invalid_envelope.encoded,
+            authority_manifest=authenticated_manifest,
+            root=root,
+            request_intent=intent,
+        )
+    monkeypatch.setattr(
+        ed25519_adapter,
+        "_verify_lifecycle_v2_transport_frame",
+        original_verifier,
+    )
+
+
+def test_replaced_high_level_recovery_verifier_cannot_register_or_consume_corrupt_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys.modules[__name__], "ENVIRONMENT", "production")
+    manifest = _manifest()
+    selection = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest,
+        recovery=manifest,
+        reason="initial",
+    )
+    authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (selection.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    root = _root(manifest)
+    transcript = _classified_transcript(root, _intent(root))
+    envelope = _recovery_envelope(root, transcript, manifest)
+    invalid_fields = envelope.to_dict()
+    invalid_fields["signature_ed25519_base64"] = _b64(bytes(64))
+    invalid_envelope = LifecycleV2RecoveryClassificationEnvelope.capture(invalid_fields)
+    original_verifier = ed25519_adapter._verify_lifecycle_v2_recovery_classification_envelope
+
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="signature"):
+        authenticate_lifecycle_v2_recovery_classification_envelope(
+            invalid_envelope.encoded,
+            authority=authority,
+            root=root,
+            classified_transcript=transcript,
+        )
+    monkeypatch.setattr(
+        ed25519_adapter,
+        "_verify_lifecycle_v2_recovery_classification_envelope",
+        lambda _encoded, *, authority, root, classified_transcript: (
+            invalid_envelope,
+            root,
+            classified_transcript,
+            manifest,
+        ),
+    )
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="signature"):
+        authenticate_lifecycle_v2_recovery_classification_envelope(
+            invalid_envelope.encoded,
+            authority=authority,
+            root=root,
+            classified_transcript=transcript,
+        )
+    monkeypatch.setattr(
+        ed25519_adapter,
+        "_verify_lifecycle_v2_recovery_classification_envelope",
+        original_verifier,
+    )
+
+
+def _complete_authenticated_ed25519_issuance_family() -> tuple[
+    object,
+    object,
+    object,
+    object,
+    object,
+    object,
+    object,
+    object,
+    object,
+]:
+    manifest = _manifest()
+    selection = _selection(
+        sequence=1,
+        predecessor=None,
+        selected=manifest,
+        recovery=manifest,
+        reason="initial",
+    )
+    authenticated_manifest = _authenticated_manifest(manifest)
+    authenticated_selection = authenticate_lifecycle_v2_transport_authority_selection(
+        selection.encoded,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (selection.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    host = _host_hello(manifest)
+    supervisor = _supervisor_hello(manifest, host)
+    confirmation = _confirmation(manifest, host, supervisor)
+    handshake = authenticate_selected_lifecycle_v2_handshake(
+        authority,
+        host_hello_encoded=host.encoded,
+        supervisor_hello_encoded=supervisor.encoded,
+        host_confirmation_encoded=confirmation.encoded,
+    )
+    root = _root(manifest)
+    intent = _intent(root)
+    expectation = ed25519_adapter._LifecycleV2TransportFrameExpectation.from_root_and_intent(
+        root,
+        intent,
+        frame_type="clean_stop_result",
+    )
+    envelope, terminal_record = _signed_terminal_result_record(root, intent)
+    authenticated_frame = authenticate_root_bound_lifecycle_v2_transport_frame(
+        envelope.encoded,
+        authority_manifest=authenticated_manifest,
+        root=root,
+        request_intent=intent,
+    )
+    transcript = _classified_transcript(root, intent)
+    authenticated_recovery = authenticate_lifecycle_v2_recovery_classification_envelope(
+        _recovery_envelope(root, transcript, manifest).encoded,
+        authority=authority,
+        root=root,
+        classified_transcript=transcript,
+    )
+    verifier = ed25519_adapter._build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
+        authenticated_manifest
+    )
+    sealed_result = verifier.reauthenticate_retained_terminal_wire(
+        envelope=envelope,
+        root=root,
+        request_intent=intent,
+        terminal_record=terminal_record,
+        artifact_directory_path="/injected/adr0121/trusted-time",
+    )
+    return (
+        authenticated_manifest,
+        authenticated_selection,
+        authority,
+        handshake,
+        expectation,
+        authenticated_frame,
+        authenticated_recovery,
+        verifier,
+        sealed_result,
+    )
+
+
+def test_ed25519_issuance_families_reject_thread_owner_global_spoof() -> None:
+    values = _complete_authenticated_ed25519_issuance_family()
+    adapter_os = cast(Any, ed25519_adapter).os
+    adapter_threading = cast(Any, ed25519_adapter).threading
+    owner_pid = os.getpid()
+    owner_thread = threading.current_thread()
+    original_getpid = adapter_os.getpid
+    original_current_thread = adapter_threading.current_thread
+    outcomes: list[bool] = []
+
+    def attack() -> None:
+        adapter_os.getpid = lambda: owner_pid
+        adapter_threading.current_thread = lambda: owner_thread
+        checks = (
+            lambda: ed25519_adapter._require_authenticated_manifest(values[0]),
+            lambda: ed25519_adapter._require_authenticated_selection(values[1]),
+            lambda: ed25519_adapter._require_authenticated_authority(values[2]),
+            lambda: ed25519_adapter._require_authenticated_lifecycle_v2_handshake(values[3]),
+            lambda: ed25519_adapter._require_lifecycle_v2_transport_frame_expectation(values[4]),
+            lambda: ed25519_adapter._require_authenticated_lifecycle_v2_transport_envelope(
+                values[5]
+            ),
+            lambda: (
+                ed25519_adapter._require_authenticated_lifecycle_v2_recovery_classification_envelope(
+                    values[6]
+                )
+            ),
+            lambda: ed25519_adapter._require_exact_retained_wire_verifier(values[7]),
+            lambda: ed25519_adapter._require_exact_retained_wire_result(values[7], values[8]),
+            lambda: ed25519_adapter._consume_authenticated_lifecycle_v2_recovery_envelope_value(
+                values[6]
+            ),
+        )
+        try:
+            for check in checks:
+                try:
+                    check()
+                except LifecycleV2TransportAuthenticationError:
+                    outcomes.append(True)
+                else:
+                    outcomes.append(False)
+        finally:
+            adapter_os.getpid = original_getpid
+            adapter_threading.current_thread = original_current_thread
+
+    worker = threading.Thread(target=attack)
+    worker.start()
+    worker.join()
+    assert outcomes == [True] * 10
+    assert ed25519_adapter._require_authenticated_manifest(values[0]) is values[0]
+    assert (
+        ed25519_adapter._require_authenticated_lifecycle_v2_recovery_classification_envelope(
+            values[6]
+        )
+        is values[6]
+    )
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires fork ownership proof")
+def test_ed25519_issuance_families_reject_fork_owner_global_spoof() -> None:
+    values = _complete_authenticated_ed25519_issuance_family()
+    adapter_os = cast(Any, ed25519_adapter).os
+    adapter_threading = cast(Any, ed25519_adapter).threading
+    owner_pid = os.getpid()
+    owner_thread = threading.current_thread()
+    read_fd, write_fd = os.pipe()
+    child = os.fork()
+    if child == 0:
+        os.close(read_fd)
+        adapter_os.getpid = lambda: owner_pid
+        adapter_threading.current_thread = lambda: owner_thread
+        checks = (
+            lambda: ed25519_adapter._require_authenticated_manifest(values[0]),
+            lambda: ed25519_adapter._require_authenticated_selection(values[1]),
+            lambda: ed25519_adapter._require_authenticated_authority(values[2]),
+            lambda: ed25519_adapter._require_authenticated_lifecycle_v2_handshake(values[3]),
+            lambda: ed25519_adapter._require_lifecycle_v2_transport_frame_expectation(values[4]),
+            lambda: ed25519_adapter._require_authenticated_lifecycle_v2_transport_envelope(
+                values[5]
+            ),
+            lambda: (
+                ed25519_adapter._require_authenticated_lifecycle_v2_recovery_classification_envelope(
+                    values[6]
+                )
+            ),
+            lambda: ed25519_adapter._require_exact_retained_wire_verifier(values[7]),
+            lambda: ed25519_adapter._require_exact_retained_wire_result(values[7], values[8]),
+            lambda: ed25519_adapter._consume_authenticated_lifecycle_v2_recovery_envelope_value(
+                values[6]
+            ),
+        )
+        all_rejected = True
+        for check in checks:
+            try:
+                check()
+            except LifecycleV2TransportAuthenticationError:
+                continue
+            all_rejected = False
+            break
+        os.write(write_fd, b"rejected" if all_rejected else b"accepted")
+        os.close(write_fd)
+        os._exit(0)
+    os.close(write_fd)
+    child_result = os.read(read_fd, 32)
+    os.close(read_fd)
+    _, status = os.waitpid(child, 0)
+    assert os.waitstatus_to_exitcode(status) == 0
+    assert child_result == b"rejected"
+    assert ed25519_adapter._require_authenticated_authority(values[2]) is values[2]
+
+
 def test_authenticated_recovery_wrapper_rejects_cross_root_mutation_before_consume() -> None:
     authenticated, signed_root, _signed_transcript, _ = _authenticated_recovery_for_consumption(
         nonce=bytes([203]) * 32
