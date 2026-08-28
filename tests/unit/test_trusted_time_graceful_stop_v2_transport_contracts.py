@@ -981,7 +981,7 @@ else:
     environment["PYTHONPATH"] = str(repository)
     python_executable = Path(sys.executable).with_name("python")
     completed = subprocess.run(
-        [python_executable, "-c", script],
+        [python_executable, "-B", "-c", script],
         cwd=repository,
         env=environment,
         check=False,
@@ -1049,7 +1049,7 @@ else:
     environment["PYTHONPATH"] = str(repository)
     python_executable = Path(sys.executable).with_name("python")
     completed = subprocess.run(
-        [python_executable, "-c", script],
+        [python_executable, "-B", "-c", script],
         cwd=repository,
         env=environment,
         check=False,
@@ -1144,7 +1144,7 @@ if type(backend_key).__module__ != "cryptography.hazmat.bindings._rust.openssl.e
     environment["PYTHONPATH"] = str(repository)
     python_executable = Path(sys.executable).with_name("python")
     completed = subprocess.run(
-        [python_executable, "-c", script],
+        [python_executable, "-B", "-c", script],
         cwd=repository,
         env=environment,
         check=False,
@@ -1193,7 +1193,7 @@ else:
     environment["PYTHONPATH"] = str(repository)
     python_executable = Path(sys.executable).with_name("python")
     completed = subprocess.run(
-        [python_executable, "-c", script],
+        [python_executable, "-B", "-c", script],
         cwd=repository,
         env=environment,
         check=False,
@@ -2197,7 +2197,7 @@ def test_authenticated_recovery_intent_is_consumed_by_first_store_attempt() -> N
 
 def test_authenticated_recovery_consumption_is_thread_bound() -> None:
     authenticated, root, transcript, _ = _authenticated_recovery_for_consumption(
-        nonce=bytes(range(96, 128))
+        nonce=bytes(range(160, 192))
     )
     failures: list[BaseException] = []
 
