@@ -10,9 +10,11 @@ import hashlib
 import importlib
 import os
 import re
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from types import CodeType
 from typing import Any, Self, cast
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
@@ -246,6 +248,35 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
     fake_capability = object()
     adapter_unwrap: Callable[[object], object] | None = None
     import_adapter = importlib.import_module
+    get_call_frame = sys._getframe
+    exact_getattr = getattr
+    exact_realpath = os.path.realpath
+    adapter_module_name = _PRODUCTION_AUTHENTICATED_ENVELOPE_TYPE[0]
+    adapter_source = os.path.realpath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "adapters",
+            "trusted_time",
+            "graceful_stop_v2_ed25519.py",
+        )
+    )
+    with open(adapter_source, "rb") as adapter_source_file:
+        expected_adapter_code = compile(
+            adapter_source_file.read(),
+            adapter_source,
+            "exec",
+        )
+    expected_adapter_names = frozenset(
+        {
+            "_build_authenticated_transport_envelope_unwrapper",
+            "_unwrap_authenticated_lifecycle_v2_transport_envelope",
+            "_install_authenticated_terminal_envelope_adapter_endpoint",
+            "_mint_authenticated_lifecycle_v2_terminal_envelope_proof",
+            "bind_authenticated_lifecycle_v2_terminal_envelope_proof",
+        }
+    )
+    expected_endpoint_freevars = ("require_endpoint",)
     getpid = os.getpid
     current_thread = threading.current_thread
     lock = threading.Lock()
@@ -265,17 +296,63 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
             raise TrustedTimeGracefulStopV2Rejected(
                 "terminal adapter endpoint installation is invalid"
             )
+        caller = get_call_frame(1)
         try:
-            adapter = import_adapter(_PRODUCTION_AUTHENTICATED_ENVELOPE_TYPE[0])
-            exact_endpoint = adapter._unwrap_authenticated_lifecycle_v2_transport_envelope
-        except (AttributeError, ImportError) as error:
+            caller_code = caller.f_code
+            caller_globals = caller.f_globals
+            caller_codes: set[CodeType] = set()
+            pending_codes = [caller_code]
+            while pending_codes:
+                nested_code = pending_codes.pop()
+                caller_codes.add(nested_code)
+                pending_codes.extend(
+                    item for item in nested_code.co_consts if type(item) is CodeType
+                )
+            if (
+                caller_code.co_name != "<module>"
+                or caller_code != expected_adapter_code
+                or not expected_adapter_names.issubset(caller_code.co_names)
+                or exact_realpath(caller_code.co_filename) != adapter_source
+            ):
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "terminal adapter endpoint installation is invalid"
+                )
+            adapter = import_adapter(adapter_module_name)
+            adapter_globals = exact_getattr(adapter, "__dict__", None)
+            adapter_spec = exact_getattr(adapter, "__spec__", None)
+            exact_endpoint = exact_getattr(
+                adapter,
+                "_unwrap_authenticated_lifecycle_v2_transport_envelope",
+            )
+            endpoint_code = exact_getattr(endpoint, "__code__", None)
+            if (
+                adapter_globals is not caller_globals
+                or exact_getattr(adapter, "__name__", None) != adapter_module_name
+                or exact_realpath(exact_getattr(adapter, "__file__", ""))
+                != adapter_source
+                or exact_getattr(adapter_spec, "name", None) != adapter_module_name
+                or exact_realpath(exact_getattr(adapter_spec, "origin", ""))
+                != adapter_source
+                or exact_getattr(adapter_spec, "_initializing", False) is not True
+                or endpoint is not exact_endpoint
+                or exact_getattr(endpoint, "__globals__", None) is not caller_globals
+                or exact_getattr(endpoint, "__module__", None) != adapter_module_name
+                or type(endpoint_code) is not CodeType
+                or endpoint_code not in caller_codes
+                or endpoint_code.co_name != "unwrap"
+                or endpoint_code.co_qualname
+                != "_build_authenticated_transport_envelope_unwrapper.<locals>.unwrap"
+                or endpoint_code.co_freevars != expected_endpoint_freevars
+            ):
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "terminal adapter endpoint installation is invalid"
+                )
+        except (AttributeError, ImportError, TypeError, ValueError) as error:
             raise TrustedTimeGracefulStopV2Rejected(
                 "terminal adapter endpoint installation is invalid"
             ) from error
-        if endpoint is not exact_endpoint:
-            raise TrustedTimeGracefulStopV2Rejected(
-                "terminal adapter endpoint installation is invalid"
-            )
+        finally:
+            del caller
         adapter_unwrap = endpoint
 
     def issue(

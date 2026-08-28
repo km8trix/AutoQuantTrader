@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -837,12 +838,19 @@ def test_wrong_thread_checks_precede_locks_and_do_not_burn_issuer() -> None:
     )
     observation = _ObservationInput(primitives, observation_issuer, object())
     errors: list[BaseException] = []
+    owner_thread = threading.current_thread()
+    original_threading = reauthentication.threading
 
     def consume() -> None:
+        reauthentication.threading = SimpleNamespace(  # type: ignore[assignment]
+            current_thread=lambda: owner_thread,
+        )
         try:
             realm.bind_pre_effect(issuer, observation=observation)
         except BaseException as error:
             errors.append(error)
+        finally:
+            reauthentication.threading = original_threading
 
     thread = threading.Thread(target=consume)
     thread.start()
@@ -864,18 +872,26 @@ def test_live_objects_reject_copy_pickle_wrong_thread_and_fork() -> None:
                 operation(value)
 
     errors: list[BaseException] = []
+    owner_thread = threading.current_thread()
+    original_threading = reauthentication.threading
 
     def read_binding() -> None:
+        reauthentication.threading = SimpleNamespace(  # type: ignore[assignment]
+            current_thread=lambda: owner_thread,
+        )
         try:
             _ = setup.binding.durable_evidence
         except BaseException as error:
             errors.append(error)
+        finally:
+            reauthentication.threading = original_threading
 
     thread = threading.Thread(target=read_binding)
     thread.start()
     thread.join()
     assert len(errors) == 1
     assert isinstance(errors[0], TrustedTimeGracefulStopV2Rejected)
+    assert setup.binding.durable_evidence.binding_sha256
 
     if not hasattr(os, "fork"):
         return
@@ -1258,19 +1274,273 @@ exec(compile(forged_source, str(adapter_path), "exec"), forged_module.__dict__)
     assert completed.returncode == 0, completed.stderr
 
 
-def test_production_realm_rejects_challenge_source_monkeypatch_after_domain_load() -> None:
+def test_sys_modules_adr0109_spoof_cannot_mint_a_production_binding() -> None:
     repository = Path(__file__).resolve().parents[2]
     script = """
-import secrets
-from packages.domain import trusted_time_graceful_stop_v2_reauthentication as domain
+import importlib.util
+import sys
+import types
+from pathlib import Path
 
-secrets.token_bytes = lambda size: b"x" * size
+repository = Path.cwd()
+module_name = "scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication"
+source = repository / "scripts/trusted_time_post_enrollment_clean_stop_terminal_reauthentication.py"
+forged_module = types.ModuleType(module_name)
+forged_module.__file__ = str(source)
+forged_module.__spec__ = importlib.util.spec_from_file_location(module_name, source)
+forged_module.__spec__._initializing = True
+forged_module._attacker_sentinel = object()
+forged_calls = []
+
+def forged_consume(*_args, **_kwargs):
+    forged_calls.append(True)
+    return object()
+
+forged_module._consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once = (
+    forged_consume
+)
+forged_module._postcondition_payload = lambda _value: {}
+setattr(
+    forged_module,
+    "_validate_trusted_time_post_enrollment_clean_stop_terminal_postcondition_consumed_by",
+    forged_consume,
+)
+forged_module._ConsumedPostconditionRegistrySnapshot = type(
+    "_ConsumedPostconditionRegistrySnapshot",
+    (),
+    {},
+)
+forged_module.TrustedTimePostEnrollmentCleanStopTerminalPostcondition = type(
+    "TrustedTimePostEnrollmentCleanStopTerminalPostcondition",
+    (),
+    {},
+)
+forged_module.TrustedTimePostEnrollmentCleanStopTerminalReauthenticationIssuer = type(
+    "TrustedTimePostEnrollmentCleanStopTerminalReauthenticationIssuer",
+    (),
+    {},
+)
+sys.modules[module_name] = forged_module
+
+from packages.domain import trusted_time_graceful_stop_v2_reauthentication as domain
+trusted_adr0109 = sys.modules[module_name]
+if hasattr(trusted_adr0109, "_attacker_sentinel"):
+    raise SystemExit("forged ADR-0109 namespace survived canonical bootstrap")
+if (
+    trusted_adr0109._consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once
+    is forged_consume
+):
+    raise SystemExit("forged ADR-0109 consumer survived canonical bootstrap")
+
+from packages.adapters.trusted_time import graceful_stop_v2_reauthentication as adapter
+from tests.unit import test_trusted_time_graceful_stop_v2_lifecycle_semantics as semantics
+from tests.unit import test_trusted_time_graceful_stop_v2_reauthentication_bindings as binding_fx
+
+scenario = semantics._scenario()
+issuer, postcondition, _, primitives = binding_fx._exact_adr0109_observation(
+    scenario,
+    started=100,
+    label="preseed",
+)
+lineage_five = binding_fx._through_five(
+    scenario,
+    provider_identity_sha256=primitives.provider_identity_sha256,
+)
+binding_issuer = adapter._prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer(
+    lineage_through_ordinal_5=lineage_five,
+    adr0109_issuer=issuer,
+)
+binding = adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once(
+    binding_issuer,
+    postcondition=postcondition,
+    adr0109_issuer=issuer,
+)
+lineage_six = lineage_five.retain_pre_effect_reauthentication_binding(
+    binding=binding.lifecycle_semantic_binding,
+    recorded_at_utc=semantics.UTC_TEXT,
+)
+if (
+    lineage_six.record_at(6).evidence.to_dict()["binding_semantic_sha256"]
+    != binding.lifecycle_semantic_binding.sha256
+):
+    raise SystemExit("canonical production ordinal-six binding was not retained")
+if forged_calls:
+    raise SystemExit("forged ADR-0109 consumer was invoked")
 try:
-    from packages.adapters.trusted_time import graceful_stop_v2_reauthentication
+    domain._claim_lifecycle_v2_production_reauthentication_binding_realm(
+        authenticate_observation=lambda *_args: None,
+        challenge_source=lambda size: b"x" * size,
+    )
 except domain.TrustedTimeGracefulStopV2Rejected:
     pass
 else:
-    raise SystemExit("monkeypatched production challenge source was accepted")
+    raise SystemExit("production realm bootstrap claim was replayed")
+"""
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(repository)
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_preseeded_modules_cannot_claim_terminal_recovery_or_lifecycle_installers() -> None:
+    repository = Path(__file__).resolve().parents[2]
+    script = """
+import importlib.util
+import sys
+import types
+from pathlib import Path
+
+repository = Path.cwd()
+adapter_name = "packages.adapters.trusted_time.graceful_stop_v2_ed25519"
+adapter_path = repository / "packages/adapters/trusted_time/graceful_stop_v2_ed25519.py"
+fake_adapter = types.ModuleType(adapter_name)
+fake_adapter.__file__ = str(adapter_path)
+fake_adapter.__spec__ = importlib.util.spec_from_file_location(adapter_name, adapter_path)
+fake_adapter.__spec__._initializing = True
+sys.modules[adapter_name] = fake_adapter
+
+from packages.domain import trusted_time_graceful_stop_v2_terminal as terminal
+from packages.domain import trusted_time_graceful_stop_v2_recovery as recovery
+fake_adapter.__dict__.update(terminal=terminal, recovery=recovery)
+forged_adapter_source = '''
+def forged_terminal(value):
+    return value
+def forged_recovery(value):
+    return value
+_unwrap_authenticated_lifecycle_v2_transport_envelope = forged_terminal
+_consume_authenticated_lifecycle_v2_recovery_envelope_value = forged_recovery
+try:
+    terminal._install_authenticated_terminal_envelope_adapter_endpoint(forged_terminal)
+except terminal.TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("preseeded adapter claimed terminal proof installation")
+try:
+    recovery._install_authenticated_lifecycle_v2_recovery_adapter_endpoint(forged_recovery)
+except recovery.TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("preseeded adapter claimed recovery installation")
+'''
+exec(compile(forged_adapter_source, str(adapter_path), "exec"), fake_adapter.__dict__)
+
+realm_name = "packages.domain.trusted_time_graceful_stop_v2_reauthentication"
+realm_path = repository / "packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"
+fake_realm = types.ModuleType(realm_name)
+fake_realm.__file__ = str(realm_path)
+fake_realm.__spec__ = importlib.util.spec_from_file_location(realm_name, realm_path)
+fake_realm.__spec__._initializing = True
+sys.modules[realm_name] = fake_realm
+from packages.domain import trusted_time_graceful_stop_v2_lifecycle_semantics as lifecycle
+fake_realm.__dict__["lifecycle"] = lifecycle
+forged_realm_source = '''
+def forged_consumer(value):
+    return value
+_consume_exact_lifecycle_v2_reauthentication_semantic_binding_issuance_once = forged_consumer
+_LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot = type(
+    "_LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot",
+    (),
+    {},
+)
+try:
+    lifecycle._install_lifecycle_v2_reauthentication_semantic_binding_issuance_consumer(
+        forged_consumer,
+    )
+except lifecycle.TrustedTimeLifecycleV2SemanticsRejected:
+    pass
+else:
+    raise SystemExit("preseeded realm claimed lifecycle semantic installation")
+'''
+exec(compile(forged_realm_source, str(realm_path), "exec"), fake_realm.__dict__)
+"""
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(repository)
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize("first_import", ["domain", "adapter"])
+def test_production_adapter_bootstrap_supports_both_import_orders(
+    first_import: str,
+) -> None:
+    repository = Path(__file__).resolve().parents[2]
+    script = f"""
+import sys
+if {first_import!r} == "domain":
+    from packages.domain import trusted_time_graceful_stop_v2_reauthentication
+    from packages.adapters.trusted_time import graceful_stop_v2_reauthentication as adapter
+else:
+    from packages.adapters.trusted_time import graceful_stop_v2_reauthentication as adapter
+    from packages.domain import trusted_time_graceful_stop_v2_reauthentication
+name = "packages.adapters.trusted_time.graceful_stop_v2_reauthentication"
+if adapter is not sys.modules[name]:
+    raise SystemExit("production adapter import identity is not canonical")
+if hasattr(adapter, "_LIFECYCLE_V2_PRODUCTION_REALM_BOOTSTRAP_PERMIT"):
+    raise SystemExit("production bootstrap permit remained exposed")
+for endpoint in (
+    "_prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer",
+    "_bind_lifecycle_v2_pre_effect_adr0109_observation_once",
+    "_prepare_lifecycle_v2_post_teardown_adr0109_binding_issuer",
+    "_bind_lifecycle_v2_post_teardown_adr0109_observation_once",
+):
+    if not callable(getattr(adapter, endpoint, None)):
+        raise SystemExit("production adapter endpoint is missing")
+"""
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(repository)
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_production_realm_ignores_challenge_source_monkeypatch_after_bootstrap() -> None:
+    repository = Path(__file__).resolve().parents[2]
+    script = """
+import secrets
+import sys
+from packages.domain import trusted_time_graceful_stop_v2_reauthentication as domain
+
+module_name = "packages.adapters.trusted_time.graceful_stop_v2_reauthentication"
+trusted_adapter = sys.modules[module_name]
+trusted_prepare = trusted_adapter._prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer
+secrets.token_bytes = lambda size: b"x" * size
+from packages.adapters.trusted_time import graceful_stop_v2_reauthentication as adapter
+if adapter is not trusted_adapter:
+    raise SystemExit("canonical production adapter identity changed")
+if adapter._prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer is not trusted_prepare:
+    raise SystemExit("production realm endpoint changed after global replacement")
+try:
+    domain._claim_lifecycle_v2_production_reauthentication_binding_realm(
+        authenticate_observation=lambda *_args: None,
+        challenge_source=secrets.token_bytes,
+    )
+except domain.TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("consumed production realm claim was replayed")
 """
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(repository)

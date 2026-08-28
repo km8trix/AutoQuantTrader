@@ -17,8 +17,10 @@ import sys
 import threading
 import weakref
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
-from types import CodeType
+from importlib.machinery import ModuleSpec
+from types import CodeType, ModuleType
 from typing import Never, Self, cast
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
@@ -1098,7 +1100,9 @@ def _build_binding_registries() -> tuple[
 ]:
     """Keep all live issuance state outside caller-mutable Python objects."""
 
-    origin_pid = os.getpid()
+    getpid = os.getpid
+    current_thread = threading.current_thread
+    origin_pid = getpid()
     registry_lock = threading.Lock()
     realm_permits: dict[int, tuple[object, object, str]] = {}
     issuers: dict[int, _IssuerRegistration] = {}
@@ -1133,7 +1137,7 @@ def _build_binding_registries() -> tuple[
         semantic_binding_provenance: str,
     ) -> None:
         if (
-            os.getpid() != origin_pid
+            getpid() != origin_pid
             or realm_permit is None
             or realm_identity is None
             or semantic_binding_provenance
@@ -1154,7 +1158,7 @@ def _build_binding_registries() -> tuple[
         *,
         realm_identity: object,
     ) -> str:
-        if os.getpid() != origin_pid:
+        if getpid() != origin_pid:
             _reject("lifecycle-v2 reauthentication realm crossed its process")
         registration = realm_permits.get(id(realm_permit))
         if (
@@ -1171,13 +1175,13 @@ def _build_binding_registries() -> tuple[
         expected_type: type[_BindingIssuerBase],
         realm_identity: object,
     ) -> _BindingIssuerBase:
-        if os.getpid() != origin_pid or type(value) is not expected_type:
+        if getpid() != origin_pid or type(value) is not expected_type:
             _reject("lifecycle-v2 reauthentication issuer crossed its process")
         issuer = value
         try:
             if (
-                issuer._owner_pid != os.getpid()
-                or issuer._owner_thread is not threading.current_thread()
+                issuer._owner_pid != getpid()
+                or issuer._owner_thread is not current_thread()
                 or issuer._realm_identity is not realm_identity
             ):
                 raise ValueError
@@ -1191,13 +1195,13 @@ def _build_binding_registries() -> tuple[
         expected_type: type[_BindingBase],
         realm_identity: object | None,
     ) -> _BindingBase:
-        if os.getpid() != origin_pid or type(value) is not expected_type:
+        if getpid() != origin_pid or type(value) is not expected_type:
             _reject("lifecycle-v2 reauthentication binding crossed its process")
         binding = value
         try:
             if (
-                binding._owner_pid != os.getpid()
-                or binding._owner_thread is not threading.current_thread()
+                binding._owner_pid != getpid()
+                or binding._owner_thread is not current_thread()
                 or (realm_identity is not None and binding._realm_identity is not realm_identity)
             ):
                 raise ValueError
@@ -1255,7 +1259,7 @@ def _build_binding_registries() -> tuple[
             realm_identity=realm_identity,
         )
         if (
-            os.getpid() != origin_pid
+            getpid() != origin_pid
             or type(issuer) is not issuer_type
             or type(challenge) is not bytearray
             or len(challenge) != 32
@@ -1265,7 +1269,7 @@ def _build_binding_registries() -> tuple[
         issuer_id = id(issuer)
 
         def issuer_lost(reference: weakref.ReferenceType[_BindingIssuerBase]) -> None:
-            if os.getpid() != origin_pid:
+            if getpid() != origin_pid:
                 return
             with registry_lock:
                 current = issuers.get(issuer_id)
@@ -1284,8 +1288,8 @@ def _build_binding_registries() -> tuple[
             expected_observation_issuer=expected_observation_issuer,
             challenge=challenge,
             challenge_sha256=challenge_sha256,
-            owner_pid=os.getpid(),
-            owner_thread=threading.current_thread(),
+            owner_pid=getpid(),
+            owner_thread=current_thread(),
             realm_identity=realm_identity,
             semantic_binding_provenance=semantic_binding_provenance,
             status="prepared",
@@ -1322,8 +1326,8 @@ def _build_binding_registries() -> tuple[
                 registration is None
                 or registration.reference() is not issuer
                 or registration.issuer_type is not expected_type
-                or registration.owner_pid != os.getpid()
-                or registration.owner_thread is not threading.current_thread()
+                or registration.owner_pid != getpid()
+                or registration.owner_thread is not current_thread()
                 or registration.realm_identity is not realm_identity
                 or registration.semantic_binding_provenance
                 != semantic_binding_provenance
@@ -1386,7 +1390,7 @@ def _build_binding_registries() -> tuple[
             realm_identity=realm_identity,
         )
         if (
-            os.getpid() != origin_pid
+            getpid() != origin_pid
             or type(binding) is not binding_type
             or type(semantic_binding) is not LifecycleV2AuthenticatedReauthenticationBinding
         ):
@@ -1395,7 +1399,7 @@ def _build_binding_registries() -> tuple[
         binding_id = id(binding)
 
         def binding_lost(reference: weakref.ReferenceType[_BindingBase]) -> None:
-            if os.getpid() != origin_pid:
+            if getpid() != origin_pid:
                 return
             with registry_lock:
                 current = bindings.get(binding_id)
@@ -1413,8 +1417,8 @@ def _build_binding_registries() -> tuple[
             issuer_identity=issuer_identity,
             observation_identity=observation_identity,
             observation_issuer_identity=observation_issuer_identity,
-            owner_pid=os.getpid(),
-            owner_thread=threading.current_thread(),
+            owner_pid=getpid(),
+            owner_thread=current_thread(),
             realm_identity=realm_identity,
             semantic_binding_provenance=semantic_binding_provenance,
             status="live",
@@ -1516,8 +1520,8 @@ def _build_binding_registries() -> tuple[
                 registration is None
                 or registration.reference() is not binding
                 or registration.binding_type is not expected_type
-                or registration.owner_pid != os.getpid()
-                or registration.owner_thread is not threading.current_thread()
+                or registration.owner_pid != getpid()
+                or registration.owner_thread is not current_thread()
                 or registration.status != "live"
                 or (
                     realm_identity is not None and registration.realm_identity is not realm_identity
@@ -1633,11 +1637,11 @@ def _build_binding_registries() -> tuple[
             "_intent_semantic_sha256",
             intent_semantic_sha256,
         )
-        object.__setattr__(issuance, "_owner_pid", os.getpid())
+        object.__setattr__(issuance, "_owner_pid", getpid())
         object.__setattr__(
             issuance,
             "_owner_thread",
-            threading.current_thread(),
+            current_thread(),
         )
         object.__setattr__(issuance, "_provenance", provenance)
         object.__setattr__(issuance, "_realm_identity", realm_identity)
@@ -1650,7 +1654,7 @@ def _build_binding_registries() -> tuple[
                 _LifecycleV2ReauthenticationSemanticBindingIssuance
             ],
         ) -> None:
-            if os.getpid() != origin_pid:
+            if getpid() != origin_pid:
                 return
             with registry_lock:
                 current = semantic_issuances.get(issuance_id)
@@ -1666,8 +1670,8 @@ def _build_binding_registries() -> tuple[
             root_sha256=root_sha256,
             intent_semantic_sha256=intent_semantic_sha256,
             boundary=boundary,
-            owner_pid=os.getpid(),
-            owner_thread=threading.current_thread(),
+            owner_pid=getpid(),
+            owner_thread=current_thread(),
             realm_identity=realm_identity,
             status="prepared",
         )
@@ -1683,13 +1687,13 @@ def _build_binding_registries() -> tuple[
         root: LifecycleV2Root,
         intent: LifecycleV2ReauthenticationIntent,
     ) -> _LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot:
-        if os.getpid() != origin_pid or type(value) is not semantic_issuance_type:
+        if getpid() != origin_pid or type(value) is not semantic_issuance_type:
             _reject("reauthentication semantic issuance crossed its process")
         issuance = value
         try:
             if (
-                issuance._owner_pid != os.getpid()
-                or issuance._owner_thread is not threading.current_thread()
+                issuance._owner_pid != getpid()
+                or issuance._owner_thread is not current_thread()
             ):
                 raise ValueError
         except Exception:
@@ -1707,8 +1711,8 @@ def _build_binding_registries() -> tuple[
             if (
                 registration is None
                 or registration.reference() is not issuance
-                or registration.owner_pid != os.getpid()
-                or registration.owner_thread is not threading.current_thread()
+                or registration.owner_pid != getpid()
+                or registration.owner_thread is not current_thread()
                 or registration.status != "prepared"
             ):
                 _reject("reauthentication semantic issuance was replayed")
@@ -1921,6 +1925,8 @@ def _initialize_issuer(
     realm_identity: object,
     realm_permit: object,
     register_issuer: Callable[..., None],
+    getpid: Callable[[], int],
+    current_thread: Callable[[], threading.Thread],
 ) -> None:
     if observation_issuer_identity is None:
         _reject("ADR-0109 observation issuer identity is required")
@@ -1934,8 +1940,8 @@ def _initialize_issuer(
             "_expected_observation_issuer",
             observation_issuer_identity,
         )
-        object.__setattr__(issuer, "_owner_pid", os.getpid())
-        object.__setattr__(issuer, "_owner_thread", threading.current_thread())
+        object.__setattr__(issuer, "_owner_pid", getpid())
+        object.__setattr__(issuer, "_owner_thread", current_thread())
         object.__setattr__(issuer, "_realm_identity", realm_identity)
         object.__setattr__(issuer, "_status", "prepared")
         object.__setattr__(issuer, "_context", context)
@@ -1966,6 +1972,8 @@ def _prepare_lifecycle_v2_pre_effect_binding_issuer(
     realm_permit: object,
     register_issuer: Callable[..., None],
     initialize_issuer: Callable[..., None],
+    getpid: Callable[[], int],
+    current_thread: Callable[[], threading.Thread],
 ) -> _LifecycleV2PreEffectBindingIssuer:
     boundary = _require_exact_normal_lineage_boundary(
         lineage_through_ordinal_5,
@@ -1990,6 +1998,8 @@ def _prepare_lifecycle_v2_pre_effect_binding_issuer(
         realm_identity=realm_identity,
         realm_permit=realm_permit,
         register_issuer=register_issuer,
+        getpid=getpid,
+        current_thread=current_thread,
     )
     return issuer
 
@@ -2017,6 +2027,8 @@ def _prepare_lifecycle_v2_post_teardown_binding_issuer(
     require_binding: Callable[..., _BindingRegistrySnapshot],
     reserve_pre_binding: Callable[..., _BindingRegistrySnapshot],
     initialize_issuer: Callable[..., None],
+    getpid: Callable[[], int],
+    current_thread: Callable[[], threading.Thread],
 ) -> _LifecycleV2PostTeardownBindingIssuer:
     exact_lineage = cast(
         LifecycleV2NormalProgressLineage,
@@ -2091,6 +2103,8 @@ def _prepare_lifecycle_v2_post_teardown_binding_issuer(
         realm_identity=realm_identity,
         realm_permit=realm_permit,
         register_issuer=register_issuer,
+        getpid=getpid,
+        current_thread=current_thread,
     )
     if issuer._challenge_sha256 == pre_fields["issuer_challenge_sha256"]:
         begin_issuer(
@@ -2112,14 +2126,16 @@ def _issue_binding(
     observation: _LifecycleV2ADR0109ObservationCandidate,
     realm_permit: object,
     register_binding: Callable[..., None],
+    getpid: Callable[[], int],
+    current_thread: Callable[[], threading.Thread],
 ) -> LifecycleV2PreEffectBinding | LifecycleV2PostTeardownBinding:
     result = object.__new__(binding_type)
     object.__setattr__(result, "_evidence", evidence)
     object.__setattr__(result, "_issuer_identity", attempt.issuer)
     object.__setattr__(result, "_observation_identity", observation.observation_identity)
     object.__setattr__(result, "_observation_issuer_identity", observation.issuer_identity)
-    object.__setattr__(result, "_owner_pid", os.getpid())
-    object.__setattr__(result, "_owner_thread", threading.current_thread())
+    object.__setattr__(result, "_owner_pid", getpid())
+    object.__setattr__(result, "_owner_thread", current_thread())
     object.__setattr__(result, "_realm_identity", attempt.realm_identity)
     object.__setattr__(result, "_semantic_binding", semantic_binding)
     register_binding(
@@ -2238,6 +2254,8 @@ def _bind_lifecycle_v2_pre_effect_observation_once(
         ...,
         LifecycleV2PreEffectBinding | LifecycleV2PostTeardownBinding,
     ],
+    getpid: Callable[[], int],
+    current_thread: Callable[[], threading.Thread],
 ) -> LifecycleV2PreEffectBinding:
     attempt = begin_issuer(
         issuer,
@@ -2315,6 +2333,8 @@ def _bind_lifecycle_v2_pre_effect_observation_once(
         observation=authenticated,
         realm_permit=realm_permit,
         register_binding=register_binding,
+        getpid=getpid,
+        current_thread=current_thread,
     )
     assert type(binding) is LifecycleV2PreEffectBinding
     return binding
@@ -2342,6 +2362,8 @@ def _bind_lifecycle_v2_post_teardown_observation_once(
         ...,
         LifecycleV2PreEffectBinding | LifecycleV2PostTeardownBinding,
     ],
+    getpid: Callable[[], int],
+    current_thread: Callable[[], threading.Thread],
 ) -> LifecycleV2PostTeardownBinding:
     attempt = begin_issuer(
         issuer,
@@ -2448,6 +2470,8 @@ def _bind_lifecycle_v2_post_teardown_observation_once(
         observation=authenticated,
         realm_permit=realm_permit,
         register_binding=register_binding,
+        getpid=getpid,
+        current_thread=current_thread,
     )
     assert type(binding) is LifecycleV2PostTeardownBinding
     return binding
@@ -2470,6 +2494,7 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
     Callable[..., _LifecycleV2ReauthenticationBindingRealm],
     Callable[..., _BindingRegistrySnapshot],
     Callable[..., _LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot],
+    Callable[[], ModuleType],
 ]:
     """Hide every registry mutation and production permit in one closure."""
 
@@ -2497,6 +2522,9 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
         _capture_lifecycle_v2_authenticated_reauthentication_binding_from_realm  # noqa: F821
     )
     import_production_adapter = importlib.import_module
+    source_open = open
+    compile_source = compile
+    sha256 = _sha256
     production_adapter_module = _PRODUCTION_ADAPTER_MODULE  # noqa: F821
     production_adapter_authenticator = _PRODUCTION_ADAPTER_AUTHENTICATOR  # noqa: F821
     production_adapter_source = os.path.realpath(
@@ -2507,6 +2535,44 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
             "trusted_time",
             "graceful_stop_v2_reauthentication.py",
         )
+    )
+    with source_open(production_adapter_source, "rb") as adapter_source_file:
+        production_adapter_source_bytes = adapter_source_file.read()
+        expected_production_adapter_code = compile_source(
+            production_adapter_source_bytes,
+            production_adapter_source,
+            "exec",
+        )
+    production_adapter_source_sha256 = sha256(production_adapter_source_bytes)
+    adr0109_module_name = (
+        "scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication"
+    )
+    adr0109_module_source = os.path.realpath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "scripts",
+            "trusted_time_post_enrollment_clean_stop_terminal_reauthentication.py",
+        )
+    )
+    with source_open(adr0109_module_source, "rb") as adr0109_source_file:
+        adr0109_source_bytes = adr0109_source_file.read()
+        expected_adr0109_module_code = compile_source(
+            adr0109_source_bytes,
+            adr0109_module_source,
+            "exec",
+        )
+    adr0109_source_sha256 = sha256(adr0109_source_bytes)
+    expected_adr0109_names = frozenset(
+        {
+            "TrustedTimePostEnrollmentCleanStopTerminalPostcondition",
+            "TrustedTimePostEnrollmentCleanStopTerminalReauthenticationIssuer",
+            "_consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once",
+            "_ConsumedPostconditionRegistrySnapshot",
+            "_postcondition_payload",
+            "_validate_trusted_time_post_enrollment_clean_stop_terminal_postcondition_consumed_by",
+        }
     )
     expected_adapter_names = frozenset(
         {
@@ -2537,7 +2603,21 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
         _PRODUCTION_REAUTHENTICATION_BINDING_PROVENANCE  # noqa: F821
     )
     production_challenge_source = secrets.token_bytes
+    production_bootstrap_permit = object()
+    production_bootstrap_consumed = False
     production_claimed = False
+    exact_modules = sys.modules
+    module_type = ModuleType
+    module_spec_type = ModuleSpec
+    execute_code = exec
+    exact_setattr = setattr
+    exact_delattr = delattr
+    reject = _reject
+    getpid = os.getpid
+    current_thread = threading.current_thread
+    new_lock = threading.Lock
+    adapter_parent_name, _, adapter_leaf_name = production_adapter_module.rpartition(".")
+    adr0109_parent_name, _, adr0109_leaf_name = adr0109_module_name.rpartition(".")
 
     def create_realm(
         *,
@@ -2546,7 +2626,7 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
         semantic_binding_provenance: str,
     ) -> _LifecycleV2ReauthenticationBindingRealm:
         if not callable(authenticate_observation) or not callable(challenge_source):
-            _reject("reauthentication binding realm dependencies are invalid")
+            reject("reauthentication binding realm dependencies are invalid")
         realm_identity = object()
         realm_permit = object()
         register_realm(
@@ -2554,8 +2634,8 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
             realm_identity=realm_identity,
             semantic_binding_provenance=semantic_binding_provenance,
         )
-        origin_pid = os.getpid()
-        consumed_observation_lock = threading.Lock()
+        origin_pid = getpid()
+        consumed_observation_lock = new_lock()
         consumed_observations: dict[int, object] = {}
 
         def build_semantic_binding(
@@ -2583,8 +2663,8 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
             binding_issuer: object,
             observation: object,
         ) -> _LifecycleV2ADR0109ObservationCandidate:
-            if os.getpid() != origin_pid:
-                _reject("reauthentication observation realm crossed its process")
+            if getpid() != origin_pid:
+                reject("reauthentication observation realm crossed its process")
             authenticated = require_observation_candidate(
                 authenticate_observation(binding_issuer, observation)
             )
@@ -2592,7 +2672,7 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
             with consumed_observation_lock:
                 existing = consumed_observations.get(id(observation_identity))
                 if existing is not None:
-                    _reject("authenticated ADR-0109 observation was replayed")
+                    reject("authenticated ADR-0109 observation was replayed")
                 consumed_observations[id(observation_identity)] = observation_identity
             return authenticated
 
@@ -2609,6 +2689,8 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
                 realm_permit=realm_permit,
                 register_issuer=register_issuer,
                 initialize_issuer=initialize_issuer,
+                getpid=getpid,
+                current_thread=current_thread,
             )
 
         def bind_pre_effect(
@@ -2627,6 +2709,8 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
                 register_binding=register_binding,
                 semantic_binding_builder=build_semantic_binding,
                 issue_binding=issue_binding,
+                getpid=getpid,
+                current_thread=current_thread,
             )
 
         def prepare_post_teardown(
@@ -2647,6 +2731,8 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
                 require_binding=require_binding,
                 reserve_pre_binding=reserve_pre_binding,
                 initialize_issuer=initialize_issuer,
+                getpid=getpid,
+                current_thread=current_thread,
             )
 
         def bind_post_teardown(
@@ -2666,6 +2752,8 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
                 require_binding=require_binding,
                 semantic_binding_builder=build_semantic_binding,
                 issue_binding=issue_binding,
+                getpid=getpid,
+                current_thread=current_thread,
             )
 
         return _LifecycleV2ReauthenticationBindingRealm(
@@ -2694,12 +2782,20 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
         *,
         authenticate_observation: _ObservationAuthenticator,
         challenge_source: Callable[[int], bytes],
+        _bootstrap_permit: object | None = None,
     ) -> _LifecycleV2ReauthenticationBindingRealm:
         """One-shot claim by the exact direct ADR-0109 adapter function."""
 
+        nonlocal production_bootstrap_consumed
         nonlocal production_claimed
-        if production_claimed or not callable(authenticate_observation):
-            _reject("production ADR-0109 binding realm claim is invalid")
+        if (
+            production_claimed
+            or production_bootstrap_consumed
+            or _bootstrap_permit is not production_bootstrap_permit
+            or not callable(authenticate_observation)
+        ):
+            reject("production ADR-0109 binding realm claim is invalid")
+        production_bootstrap_consumed = True
         caller = get_call_frame(1)
         try:
             caller_code = caller.f_code
@@ -2716,11 +2812,12 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
                 )
             if (
                 caller_code.co_name != "<module>"
+                or caller_code != expected_production_adapter_code
                 or not expected_adapter_names.issubset(caller_code.co_names)
                 or exact_realpath(caller_code.co_filename)
                 != production_adapter_source
             ):
-                _reject("production ADR-0109 binding realm claim is invalid")
+                reject("production ADR-0109 binding realm claim is invalid")
             adapter = import_production_adapter(production_adapter_module)
             adapter_globals = exact_getattr(adapter, "__dict__", None)
             adapter_spec = exact_getattr(adapter, "__spec__", None)
@@ -2760,7 +2857,7 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
                 != expected_authenticator_freevars
                 or challenge_source is not production_challenge_source
             ):
-                _reject("production ADR-0109 binding realm claim is invalid")
+                reject("production ADR-0109 binding realm claim is invalid")
         except (AttributeError, ImportError, TypeError, ValueError) as error:
             raise TrustedTimeGracefulStopV2Rejected(
                 "production ADR-0109 binding realm claim is invalid"
@@ -2776,11 +2873,158 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
             ),
         )
 
+    def bootstrap_production_adapter() -> ModuleType:
+        """Execute the pinned adapter source with one closure-owned permit."""
+
+        if production_claimed or production_bootstrap_consumed:
+            reject("production ADR-0109 adapter bootstrap is already consumed")
+        if (
+            sha256(production_adapter_source_bytes)
+            != production_adapter_source_sha256
+            or expected_production_adapter_code.co_filename
+            != production_adapter_source
+            or sha256(adr0109_source_bytes) != adr0109_source_sha256
+            or expected_adr0109_module_code.co_filename != adr0109_module_source
+        ):
+            reject("production ADR-0109 adapter source snapshot changed")
+        previous_adr0109_module = exact_modules.get(adr0109_module_name)
+        adr0109_parent_module = exact_modules.get(adr0109_parent_name)
+        previous_adr0109_parent_child = (
+            None
+            if adr0109_parent_module is None
+            else exact_getattr(adr0109_parent_module, adr0109_leaf_name, None)
+        )
+        reuse_adr0109_module = type(previous_adr0109_module) is module_type
+        previous_adr0109_namespace = (
+            dict(previous_adr0109_module.__dict__)
+            if reuse_adr0109_module
+            else None
+        )
+        trusted_adr0109_module = (
+            previous_adr0109_module
+            if reuse_adr0109_module
+            else module_type(adr0109_module_name)
+        )
+        if type(trusted_adr0109_module) is not module_type:
+            reject("canonical ADR-0109 module bootstrap target is invalid")
+        if reuse_adr0109_module:
+            trusted_adr0109_module.__dict__.clear()
+        trusted_adr0109_spec = module_spec_type(
+            adr0109_module_name,
+            loader=None,
+            origin=adr0109_module_source,
+        )
+        exact_setattr(trusted_adr0109_spec, "_initializing", True)
+        trusted_adr0109_module.__name__ = adr0109_module_name
+        trusted_adr0109_module.__file__ = adr0109_module_source
+        trusted_adr0109_module.__package__ = adr0109_parent_name
+        trusted_adr0109_module.__spec__ = trusted_adr0109_spec
+        exact_modules[adr0109_module_name] = trusted_adr0109_module
+        if adr0109_parent_module is not None:
+            exact_setattr(
+                adr0109_parent_module,
+                adr0109_leaf_name,
+                trusted_adr0109_module,
+            )
+        try:
+            execute_code(expected_adr0109_module_code, trusted_adr0109_module.__dict__)
+            if any(
+                name not in trusted_adr0109_module.__dict__
+                for name in expected_adr0109_names
+            ):
+                reject("canonical ADR-0109 module bootstrap is incomplete")
+        except BaseException:
+            if reuse_adr0109_module:
+                if previous_adr0109_namespace is None:
+                    reject("canonical ADR-0109 rollback snapshot is invalid")
+                trusted_adr0109_module.__dict__.clear()
+                trusted_adr0109_module.__dict__.update(
+                    previous_adr0109_namespace
+                )
+            elif previous_adr0109_module is None:
+                exact_modules.pop(adr0109_module_name, None)
+            else:
+                exact_modules[adr0109_module_name] = previous_adr0109_module
+            if adr0109_parent_module is not None:
+                if previous_adr0109_parent_child is None:
+                    with suppress(AttributeError):
+                        exact_delattr(adr0109_parent_module, adr0109_leaf_name)
+                else:
+                    exact_setattr(
+                        adr0109_parent_module,
+                        adr0109_leaf_name,
+                        previous_adr0109_parent_child,
+                    )
+            raise
+        finally:
+            exact_setattr(trusted_adr0109_spec, "_initializing", False)
+        previous_module = exact_modules.get(production_adapter_module)
+        parent_module = exact_modules.get(adapter_parent_name)
+        previous_parent_child = (
+            None
+            if parent_module is None
+            else exact_getattr(parent_module, adapter_leaf_name, None)
+        )
+        trusted_module = module_type(production_adapter_module)
+        trusted_spec = module_spec_type(
+            production_adapter_module,
+            loader=None,
+            origin=production_adapter_source,
+        )
+        exact_setattr(trusted_spec, "_initializing", True)
+        trusted_module.__file__ = production_adapter_source
+        trusted_module.__package__ = adapter_parent_name
+        trusted_module.__spec__ = trusted_spec
+        trusted_module.__dict__["_LIFECYCLE_V2_PRODUCTION_REALM_BOOTSTRAP_PERMIT"] = (
+            production_bootstrap_permit
+        )
+        exact_modules[production_adapter_module] = trusted_module
+        if parent_module is not None:
+            exact_setattr(parent_module, adapter_leaf_name, trusted_module)
+        try:
+            execute_code(expected_production_adapter_code, trusted_module.__dict__)
+            if (
+                trusted_module.__dict__.get(
+                    "_LIFECYCLE_V2_PRODUCTION_REALM_BOOTSTRAP_PERMIT"
+                )
+                is not None
+                or any(
+                    not callable(trusted_module.__dict__.get(name))
+                    for name in (
+                        "_prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer",
+                        "_bind_lifecycle_v2_pre_effect_adr0109_observation_once",
+                        "_prepare_lifecycle_v2_post_teardown_adr0109_binding_issuer",
+                        "_bind_lifecycle_v2_post_teardown_adr0109_observation_once",
+                    )
+                )
+            ):
+                reject("production ADR-0109 adapter bootstrap did not consume its permit")
+        except BaseException:
+            if previous_module is None:
+                exact_modules.pop(production_adapter_module, None)
+            else:
+                exact_modules[production_adapter_module] = previous_module
+            if parent_module is not None:
+                if previous_parent_child is None:
+                    with suppress(AttributeError):
+                        exact_delattr(parent_module, adapter_leaf_name)
+                else:
+                    exact_setattr(parent_module, adapter_leaf_name, previous_parent_child)
+            raise
+        finally:
+            trusted_module.__dict__.pop(
+                "_LIFECYCLE_V2_PRODUCTION_REALM_BOOTSTRAP_PERMIT",
+                None,
+            )
+            exact_setattr(trusted_spec, "_initializing", False)
+        return trusted_module
+
     return (
         build_fake_realm,
         claim_production_realm,
         require_binding,
         consume_semantic_binding_issuance_once,
+        bootstrap_production_adapter,
     )
 
 
@@ -2789,7 +3033,11 @@ def _install_lifecycle_v2_reauthentication_binding_realms() -> tuple[
     _claim_lifecycle_v2_production_reauthentication_binding_realm,
     _require_live_binding,
     _consume_exact_lifecycle_v2_reauthentication_semantic_binding_issuance_once,
+    _bootstrap_lifecycle_v2_production_reauthentication_adapter,
 ) = _install_lifecycle_v2_reauthentication_binding_realms()
+
+_bootstrap_lifecycle_v2_production_reauthentication_adapter()
+del _bootstrap_lifecycle_v2_production_reauthentication_adapter
 
 _install_lifecycle_v2_reauthentication_semantic_binding_issuance_consumer(
     _consume_exact_lifecycle_v2_reauthentication_semantic_binding_issuance_once

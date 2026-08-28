@@ -17,7 +17,7 @@ import stat
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from types import MappingProxyType, ModuleType
+from types import CodeType, MappingProxyType, ModuleType
 from typing import TYPE_CHECKING, Any, Never, Self, cast
 
 if TYPE_CHECKING:
@@ -2574,6 +2574,8 @@ class LifecycleV2NormalProgressLineage:
                 "binding_semantic_sha256": binding.sha256,
                 "observed_head_sha256": fields["observed_head_sha256"],
                 "provider_identity_sha256": fields["provider_identity_sha256"],
+                "channel_id": fields["channel_id"],
+                "intent_semantic_sha256": fields["intent_semantic_sha256"],
                 "binding_evidence": binding_evidence,
             }
         )
@@ -3325,6 +3327,8 @@ class LifecycleV2NormalProgressLineage:
                 "binding_semantic_sha256": binding.sha256,
                 "observed_head_sha256": fields["observed_head_sha256"],
                 "provider_identity_sha256": fields["provider_identity_sha256"],
+                "channel_id": fields["channel_id"],
+                "intent_semantic_sha256": fields["intent_semantic_sha256"],
                 "binding_evidence": binding_evidence,
             }
         )
@@ -3571,6 +3575,11 @@ class LifecycleV2NormalProgressLineage:
                 "empty_mount_projection_sha256": empty_mount_projection.sha256,
                 "unmount_receipt_sha256": unmount_receipt.sha256,
                 "native_owner_cleanup_receipt_sha256": native_owner_cleanup_receipt.sha256,
+                "socket_absence": socket_absence.to_dict(),
+                "credential_path_absence": credential_path_absence.to_dict(),
+                "empty_mount_projection": empty_mount_projection.to_dict(),
+                "unmount_receipt": unmount_receipt.to_dict(),
+                "native_owner_cleanup_receipt": native_owner_cleanup_receipt.to_dict(),
                 "all_private_material_unreachable": True,
                 "cleanup_completed_boottime_ns": completed,
             }
@@ -3624,6 +3633,40 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
     reauthentication_issuance_consumer: Callable[..., object] | None = None
     reauthentication_issuance_snapshot_type: type[object] | None = None
     import_reauthentication_module = importlib.import_module
+    get_call_frame = sys._getframe
+    exact_getattr = getattr
+    exact_realpath = os.path.realpath
+    reauthentication_module_name = _REAUTHENTICATION_REALM_MODULE
+    reauthentication_module_source = os.path.realpath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "trusted_time_graceful_stop_v2_reauthentication.py",
+        )
+    )
+    with open(reauthentication_module_source, "rb") as realm_source_file:
+        expected_reauthentication_module_code = compile(
+            realm_source_file.read(),
+            reauthentication_module_source,
+            "exec",
+        )
+    expected_reauthentication_names = frozenset(
+        {
+            "_install_lifecycle_v2_reauthentication_binding_realms",
+            "_consume_exact_lifecycle_v2_reauthentication_semantic_binding_issuance_once",
+            "_install_lifecycle_v2_reauthentication_semantic_binding_issuance_consumer",
+            "_LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot",
+        }
+    )
+    expected_consumer_freevars = (
+        "current_thread",
+        "fake_semantic_binding_provenance",
+        "getpid",
+        "origin_pid",
+        "registry_lock",
+        "semantic_issuance_snapshot_type",
+        "semantic_issuance_type",
+        "semantic_issuances",
+    )
     decode_reauthentication_snapshot = decode_canonical_v2_json_object
 
     canonical_types = (
@@ -3709,20 +3752,71 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             or not callable(endpoint)
         ):
             _reject("reauthentication semantic issuance consumer installation is invalid")
+        caller = get_call_frame(1)
         try:
-            realm_module = import_reauthentication_module(_REAUTHENTICATION_REALM_MODULE)
+            caller_code = caller.f_code
+            caller_globals = caller.f_globals
+            caller_codes: set[CodeType] = set()
+            pending_codes = [caller_code]
+            while pending_codes:
+                nested_code = pending_codes.pop()
+                caller_codes.add(nested_code)
+                pending_codes.extend(
+                    item for item in nested_code.co_consts if type(item) is CodeType
+                )
+            if (
+                caller_code.co_name != "<module>"
+                or caller_code != expected_reauthentication_module_code
+                or not expected_reauthentication_names.issubset(caller_code.co_names)
+                or exact_realpath(caller_code.co_filename)
+                != reauthentication_module_source
+            ):
+                _reject("reauthentication semantic issuance consumer installation is invalid")
+            realm_module = import_reauthentication_module(reauthentication_module_name)
+            realm_globals = exact_getattr(realm_module, "__dict__", None)
+            realm_spec = exact_getattr(realm_module, "__spec__", None)
             exact_endpoint = cast(
                 Any, realm_module
             )._consume_exact_lifecycle_v2_reauthentication_semantic_binding_issuance_once
             exact_snapshot_type = cast(
                 Any, realm_module
             )._LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot
-        except (AttributeError, ImportError) as error:
+            endpoint_code = exact_getattr(endpoint, "__code__", None)
+            if (
+                realm_globals is not caller_globals
+                or exact_getattr(realm_module, "__name__", None)
+                != reauthentication_module_name
+                or exact_realpath(exact_getattr(realm_module, "__file__", ""))
+                != reauthentication_module_source
+                or exact_getattr(realm_spec, "name", None)
+                != reauthentication_module_name
+                or exact_realpath(exact_getattr(realm_spec, "origin", ""))
+                != reauthentication_module_source
+                or exact_getattr(realm_spec, "_initializing", False) is not True
+                or endpoint is not exact_endpoint
+                or exact_getattr(endpoint, "__globals__", None) is not caller_globals
+                or exact_getattr(endpoint, "__module__", None)
+                != reauthentication_module_name
+                or type(endpoint_code) is not CodeType
+                or endpoint_code not in caller_codes
+                or endpoint_code.co_name
+                != "consume_semantic_binding_issuance_once"
+                or endpoint_code.co_qualname
+                != "_build_binding_registries.<locals>.consume_semantic_binding_issuance_once"
+                or endpoint_code.co_freevars != expected_consumer_freevars
+                or type(exact_snapshot_type) is not type
+                or exact_getattr(exact_snapshot_type, "__module__", None)
+                != reauthentication_module_name
+                or exact_getattr(exact_snapshot_type, "__qualname__", None)
+                != "_LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot"
+            ):
+                _reject("reauthentication semantic issuance consumer installation is invalid")
+        except (AttributeError, ImportError, TypeError, ValueError) as error:
             raise TrustedTimeLifecycleV2SemanticsRejected(
                 "reauthentication semantic issuance consumer installation is invalid"
             ) from error
-        if endpoint is not exact_endpoint or type(exact_snapshot_type) is not type:
-            _reject("reauthentication semantic issuance consumer installation is invalid")
+        finally:
+            del caller
         reauthentication_issuance_consumer = cast(Callable[..., object], endpoint)
         reauthentication_issuance_snapshot_type = cast(type[object], exact_snapshot_type)
 

@@ -2252,3 +2252,66 @@ def test_cleanup_authorization_actions_are_one_shot_and_receipts_cannot_predate_
             authorization=authorization,
             observed_boottime_ns=1_100_501,
         )
+
+
+def test_progress_decoder_rejects_unbound_nested_durable_semantics() -> None:
+    scenario = _scenario()
+    lineage = _complete_lineage(scenario)
+
+    for ordinal in (6, 20):
+        value = lineage.record_at(ordinal).to_dict()
+        evidence = cast(dict[str, object], value["evidence"])
+        evidence["binding_semantic_sha256"] = "f" * 64
+        evidence["result_semantic_sha256"] = "f" * 64
+        with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+            decode_lifecycle_v2_progress_record(
+                canonical_v2_json_bytes(value, maximum_bytes=256 * 1_024)
+            )
+
+    for ordinal in (2, 6, 8, 18, 20):
+        record = scenario.result_record if ordinal == 2 else lineage.record_at(ordinal)
+        value = record.to_dict()
+        evidence = cast(dict[str, object], value["evidence"])
+        evidence["intent_sha256"] = "e" * 64
+        with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+            decode_lifecycle_v2_progress_record(
+                canonical_v2_json_bytes(value, maximum_bytes=256 * 1_024)
+            )
+
+    for ordinal in (8, 18):
+        value = lineage.record_at(ordinal).to_dict()
+        evidence = cast(dict[str, object], value["evidence"])
+        evidence["result_semantic"] = {"attacker_controlled": True}
+        evidence["result_semantic_sha256"] = "d" * 64
+        with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+            decode_lifecycle_v2_progress_record(
+                canonical_v2_json_bytes(value, maximum_bytes=256 * 1_024)
+            )
+
+    terminal_value = scenario.result_record.to_dict()
+    terminal_evidence = cast(dict[str, object], terminal_value["evidence"])
+    receipt = cast(dict[str, object], terminal_evidence["wire_publication_receipt"])
+    receipt["attacker_controlled"] = {"semantic": "unbound"}
+    terminal_evidence["wire_publication_receipt_sha256"] = "c" * 64
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+        decode_lifecycle_v2_progress_record(
+            canonical_v2_json_bytes(terminal_value, maximum_bytes=256 * 1_024)
+        )
+
+    cleanup_intent = lineage.record_at(21).to_dict()
+    cleanup_intent_evidence = cast(dict[str, object], cleanup_intent["evidence"])
+    cleanup_intent_evidence["cleanup_deadline_boottime_ns"] = 0
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+        decode_lifecycle_v2_progress_record(
+            canonical_v2_json_bytes(cleanup_intent, maximum_bytes=256 * 1_024)
+        )
+
+    cleanup_result = lineage.record_at(22).to_dict()
+    cleanup_result_evidence = cast(dict[str, object], cleanup_result["evidence"])
+    cleanup_result_evidence["cleanup_intent_sha256"] = "b" * 64
+    cleanup_result_evidence["empty_mount_projection_sha256"] = "a" * 64
+    cleanup_result_evidence["native_owner_cleanup_receipt_sha256"] = "9" * 64
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+        decode_lifecycle_v2_progress_record(
+            canonical_v2_json_bytes(cleanup_result, maximum_bytes=256 * 1_024)
+        )

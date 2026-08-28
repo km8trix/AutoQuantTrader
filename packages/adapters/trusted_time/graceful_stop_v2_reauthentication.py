@@ -9,6 +9,7 @@ the process-local v2 seams.
 from __future__ import annotations
 
 import secrets
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import cast
@@ -177,10 +178,20 @@ _consume_exact_adr0109_observation = _build_exact_adr0109_observation_consumer()
 del _build_exact_adr0109_observation_consumer
 
 
-_PRODUCTION_BINDING_REALM = _claim_lifecycle_v2_production_reauthentication_binding_realm(
-    authenticate_observation=_consume_exact_adr0109_observation,
-    challenge_source=secrets.token_bytes,
+_PRODUCTION_REALM_BOOTSTRAP_PERMIT = globals().pop(
+    "_LIFECYCLE_V2_PRODUCTION_REALM_BOOTSTRAP_PERMIT",
+    None,
 )
+_PRODUCTION_BINDING_REALM = (
+    _claim_lifecycle_v2_production_reauthentication_binding_realm(
+        authenticate_observation=_consume_exact_adr0109_observation,
+        challenge_source=secrets.token_bytes,
+        _bootstrap_permit=_PRODUCTION_REALM_BOOTSTRAP_PERMIT,
+    )
+    if _PRODUCTION_REALM_BOOTSTRAP_PERMIT is not None
+    else None
+)
+del _PRODUCTION_REALM_BOOTSTRAP_PERMIT
 del _consume_exact_adr0109_observation
 del _claim_lifecycle_v2_production_reauthentication_binding_realm
 del _consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once
@@ -267,13 +278,35 @@ def _install_lifecycle_v2_production_reauthentication_endpoints(
     )
 
 
-(
-    _prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer,
-    _bind_lifecycle_v2_pre_effect_adr0109_observation_once,
-    _prepare_lifecycle_v2_post_teardown_adr0109_binding_issuer,
-    _bind_lifecycle_v2_post_teardown_adr0109_observation_once,
-) = _install_lifecycle_v2_production_reauthentication_endpoints(
-    _PRODUCTION_BINDING_REALM
-)
+if _PRODUCTION_BINDING_REALM is not None:
+    (
+        _prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer,
+        _bind_lifecycle_v2_pre_effect_adr0109_observation_once,
+        _prepare_lifecycle_v2_post_teardown_adr0109_binding_issuer,
+        _bind_lifecycle_v2_post_teardown_adr0109_observation_once,
+    ) = _install_lifecycle_v2_production_reauthentication_endpoints(
+        _PRODUCTION_BINDING_REALM
+    )
+else:
+    _trusted_module = sys.modules.get(__name__)
+    if _trusted_module is None or _trusted_module.__dict__ is globals():
+        raise TrustedTimeGracefulStopV2Rejected(
+            "production reauthentication adapter was not domain-bootstrapped"
+        )
+    _prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer = _trusted_module.__dict__[
+        "_prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer"
+    ]
+    _bind_lifecycle_v2_pre_effect_adr0109_observation_once = _trusted_module.__dict__[
+        "_bind_lifecycle_v2_pre_effect_adr0109_observation_once"
+    ]
+    _prepare_lifecycle_v2_post_teardown_adr0109_binding_issuer = (
+        _trusted_module.__dict__[
+            "_prepare_lifecycle_v2_post_teardown_adr0109_binding_issuer"
+        ]
+    )
+    _bind_lifecycle_v2_post_teardown_adr0109_observation_once = _trusted_module.__dict__[
+        "_bind_lifecycle_v2_post_teardown_adr0109_observation_once"
+    ]
+    del _trusted_module
 del _install_lifecycle_v2_production_reauthentication_endpoints
 del _PRODUCTION_BINDING_REALM

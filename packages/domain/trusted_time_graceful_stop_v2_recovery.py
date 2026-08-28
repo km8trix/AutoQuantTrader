@@ -13,9 +13,11 @@ import hashlib
 import importlib
 import os
 import re
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from types import CodeType
 from typing import Self, cast
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
@@ -113,6 +115,7 @@ class _LifecycleV2RecoveryIntentIssuanceSnapshot:
     root_sha256: str
     origin_pid: int
     origin_thread: threading.Thread
+    origin_fork_epoch: object
     capability: object
 
 
@@ -127,15 +130,56 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
 
     snapshots: dict[int, _LifecycleV2RecoveryIntentIssuanceSnapshot] = {}
     consumed: set[int] = set()
-    consumed_nonces: set[tuple[int, str, str]] = set()
+    consumed_nonces: set[tuple[str, str]] = set()
     production_capability = object()
     fake_capability = object()
     adapter_unwrap: Callable[[object], object] | None = None
     import_adapter = importlib.import_module
+    get_call_frame = sys._getframe
+    exact_getattr = getattr
+    exact_realpath = os.path.realpath
+    getpid = os.getpid
+    current_thread = threading.current_thread
+    register_at_fork = getattr(os, "register_at_fork", None)
+    adapter_module_name = _PRODUCTION_AUTHENTICATED_RECOVERY_TYPE[0]
+    adapter_source = os.path.realpath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "adapters",
+            "trusted_time",
+            "graceful_stop_v2_ed25519.py",
+        )
+    )
+    with open(adapter_source, "rb") as adapter_source_file:
+        expected_adapter_code = compile(
+            adapter_source_file.read(),
+            adapter_source,
+            "exec",
+        )
+    expected_adapter_names = frozenset(
+        {
+            "_authenticated_recovery_classification_issuance_registry",
+            "_consume_authenticated_lifecycle_v2_recovery_envelope_value",
+            "_install_authenticated_lifecycle_v2_recovery_adapter_endpoint",
+            "authenticate_lifecycle_v2_recovery_classification_envelope",
+        }
+    )
+    expected_endpoint_freevars = ("lookup",)
     canonicalize_inputs = _canonical_recovery_inputs
     build_intent_value = _build_recovery_intent_value
     validate_issuance = _require_lifecycle_v2_recovery_intent_issuance
     lock = threading.Lock()
+    fork_epoch = object()
+
+    def invalidate_after_fork() -> None:
+        nonlocal fork_epoch
+        nonlocal lock
+        fork_epoch = object()
+        lock = threading.Lock()
+
+    if callable(register_at_fork):
+        register_at_fork(after_in_child=invalidate_after_fork)
 
     def install_adapter_unwrap(endpoint: Callable[[object], object]) -> None:
         """Capture the exact verifier-owned endpoint once during adapter import."""
@@ -145,17 +189,66 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
             raise TrustedTimeGracefulStopV2Rejected(
                 "recovery adapter endpoint installation is invalid"
             )
+        caller = get_call_frame(1)
         try:
-            adapter = import_adapter(_PRODUCTION_AUTHENTICATED_RECOVERY_TYPE[0])
-            exact_endpoint = adapter._consume_authenticated_lifecycle_v2_recovery_envelope_value
-        except (AttributeError, ImportError) as error:
+            caller_code = caller.f_code
+            caller_globals = caller.f_globals
+            caller_codes: set[CodeType] = set()
+            pending_codes = [caller_code]
+            while pending_codes:
+                nested_code = pending_codes.pop()
+                caller_codes.add(nested_code)
+                pending_codes.extend(
+                    item for item in nested_code.co_consts if type(item) is CodeType
+                )
+            if (
+                caller_code.co_name != "<module>"
+                or caller_code != expected_adapter_code
+                or not expected_adapter_names.issubset(caller_code.co_names)
+                or exact_realpath(caller_code.co_filename) != adapter_source
+            ):
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "recovery adapter endpoint installation is invalid"
+                )
+            adapter = import_adapter(adapter_module_name)
+            adapter_globals = exact_getattr(adapter, "__dict__", None)
+            adapter_spec = exact_getattr(adapter, "__spec__", None)
+            exact_endpoint = exact_getattr(
+                adapter,
+                "_consume_authenticated_lifecycle_v2_recovery_envelope_value",
+            )
+            endpoint_code = exact_getattr(endpoint, "__code__", None)
+            if (
+                adapter_globals is not caller_globals
+                or exact_getattr(adapter, "__name__", None) != adapter_module_name
+                or exact_realpath(exact_getattr(adapter, "__file__", ""))
+                != adapter_source
+                or exact_getattr(adapter_spec, "name", None) != adapter_module_name
+                or exact_realpath(exact_getattr(adapter_spec, "origin", ""))
+                != adapter_source
+                or exact_getattr(adapter_spec, "_initializing", False) is not True
+                or endpoint is not exact_endpoint
+                or exact_getattr(endpoint, "__globals__", None) is not caller_globals
+                or exact_getattr(endpoint, "__module__", None) != adapter_module_name
+                or type(endpoint_code) is not CodeType
+                or endpoint_code not in caller_codes
+                or endpoint_code.co_name != "consume_value"
+                or endpoint_code.co_qualname
+                != (
+                    "_authenticated_recovery_classification_issuance_registry."
+                    "<locals>.consume_value"
+                )
+                or endpoint_code.co_freevars != expected_endpoint_freevars
+            ):
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "recovery adapter endpoint installation is invalid"
+                )
+        except (AttributeError, ImportError, TypeError, ValueError) as error:
             raise TrustedTimeGracefulStopV2Rejected(
                 "recovery adapter endpoint installation is invalid"
             ) from error
-        if endpoint is not exact_endpoint:
-            raise TrustedTimeGracefulStopV2Rejected(
-                "recovery adapter endpoint installation is invalid"
-            )
+        finally:
+            del caller
         adapter_unwrap = endpoint
 
     def issue(
@@ -181,6 +274,7 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
             root_sha256=value.root_sha256,
             origin_pid=value._origin_pid,
             origin_thread=value._origin_thread,
+            origin_fork_epoch=fork_epoch,
             capability=capability,
         )
         with lock:
@@ -196,6 +290,22 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
         consume: bool,
     ) -> _LifecycleV2RecoveryIntentIssuanceSnapshot:
         key = id(value)
+        owner_snapshot = snapshots.get(key)
+        if owner_snapshot is None:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated recovery intent has no exact issuance snapshot"
+            )
+        if getpid() != owner_snapshot.origin_pid:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated recovery intent owner is invalid"
+            )
+        if (
+            current_thread() is not owner_snapshot.origin_thread
+            or fork_epoch is not owner_snapshot.origin_fork_epoch
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated recovery intent owner is invalid"
+            )
         with lock:
             snapshot = snapshots.get(key)
             if snapshot is None or snapshot.value is not value:
@@ -203,13 +313,6 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
                     "authenticated recovery intent has no exact issuance snapshot"
                 )
             if consume:
-                if (
-                    os.getpid() != snapshot.origin_pid
-                    or threading.current_thread() is not snapshot.origin_thread
-                ):
-                    raise TrustedTimeGracefulStopV2Rejected(
-                        "authenticated recovery intent owner is invalid"
-                    )
                 if key in consumed:
                     raise TrustedTimeGracefulStopV2Rejected(
                         "authenticated recovery intent was already consumed"
@@ -266,7 +369,6 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
                 "authenticated recovery classification crossed its sealed bindings"
             )
         consumption_key = (
-            os.getpid(),
             exact_root.sha256,
             exact_envelope.operator_nonce_sha256,
         )
@@ -282,6 +384,8 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
             classified_transcript=exact_transcript,
             recorded_at_utc=recorded_at_utc,
             capability=production_capability,
+            origin_pid=getpid(),
+            origin_thread=current_thread(),
         )
         issue(
             result,
@@ -317,6 +421,8 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
             classified_transcript=exact_transcript,
             recorded_at_utc=recorded_at_utc,
             capability=fake_capability,
+            origin_pid=getpid(),
+            origin_thread=current_thread(),
         )
         issue(
             result,
@@ -708,6 +814,8 @@ def _build_recovery_intent_value(
     classified_transcript: LifecycleV2Transcript,
     recorded_at_utc: str,
     capability: object,
+    origin_pid: int,
+    origin_thread: threading.Thread,
     _canonicalize: Callable[
         ...,
         tuple[
@@ -743,8 +851,8 @@ def _build_recovery_intent_value(
     )
     object.__setattr__(result, "classified_transcript_sha256", exact_transcript.sha256)
     object.__setattr__(result, "root_sha256", exact_root.sha256)
-    object.__setattr__(result, "_origin_pid", os.getpid())
-    object.__setattr__(result, "_origin_thread", threading.current_thread())
+    object.__setattr__(result, "_origin_pid", origin_pid)
+    object.__setattr__(result, "_origin_thread", origin_thread)
     object.__setattr__(result, "_capability", capability)
     return result
 
@@ -801,8 +909,6 @@ def _require_lifecycle_v2_recovery_intent_issuance(
     if (
         snapshot.value is not value
         or value_capability is not snapshot.capability
-        or os.getpid() != snapshot.origin_pid
-        or threading.current_thread() is not snapshot.origin_thread
         or value_origin_pid != snapshot.origin_pid
         or value_origin_thread is not snapshot.origin_thread
         or exact_envelope.encoded != snapshot.envelope_encoded
