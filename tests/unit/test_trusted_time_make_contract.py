@@ -7089,14 +7089,15 @@ def test_clean_stop_terminal_reauthentication_is_exact_read_only_and_unconnected
             expected_importers.add(supervisor_bridge_path)
         if private_seam in lifecycle_v2_adapter_private_seams:
             expected_importers.add(lifecycle_v2_adapter_path)
-        assert _production_private_symbol_importers(
-            _CLEAN_STOP_TERMINAL_REAUTHENTICATION_MODULE,
-            private_seam,
-        ) == expected_importers
+        assert (
+            _production_private_symbol_importers(
+                _CLEAN_STOP_TERMINAL_REAUTHENTICATION_MODULE,
+                private_seam,
+            )
+            == expected_importers
+        )
 
-    lifecycle_v2_adapter_source = (ROOT / lifecycle_v2_adapter_path).read_text(
-        encoding="utf-8"
-    )
+    lifecycle_v2_adapter_source = (ROOT / lifecycle_v2_adapter_path).read_text(encoding="utf-8")
     lifecycle_v2_adapter_tree = ast.parse(
         lifecycle_v2_adapter_source,
         filename=lifecycle_v2_adapter_path.as_posix(),
@@ -7159,11 +7160,7 @@ def test_clean_stop_terminal_reauthentication_is_exact_read_only_and_unconnected
     )
     assert architecture_config[
         "clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256"
-    ] == {
-        lifecycle_v2_adapter_path.as_posix(): _canonical_ast_sha256(
-            lifecycle_v2_adapter_tree
-        )
-    }
+    ] == {lifecycle_v2_adapter_path.as_posix(): _canonical_ast_sha256(lifecycle_v2_adapter_tree)}
     assert set(
         architecture_config["clean_stop_terminal_reauthentication_provider_capabilities"]
     ) == {
@@ -7834,9 +7831,7 @@ def test_lifecycle_v2_architecture_source_seal_is_exact_and_hard_closed() -> Non
             "scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py"
         ),
     }
-    assert architecture_config["trusted_time_v2_isolated_module_paths"] == (
-        expected_module_paths
-    )
+    assert architecture_config["trusted_time_v2_isolated_module_paths"] == (expected_module_paths)
 
     module_digests = architecture_config["trusted_time_v2_module_ast_sha256"]
     assert set(module_digests) == set(expected_module_paths.values())
@@ -7915,9 +7910,7 @@ def test_lifecycle_v2_architecture_source_seal_is_exact_and_hard_closed() -> Non
         for relative_path in target_sources
     }
     assert (
-        _production_importers(
-            "packages.adapters.trusted_time.graceful_stop_v2_reauthentication"
-        )
+        _production_importers("packages.adapters.trusted_time.graceful_stop_v2_reauthentication")
         == set()
     )
     assert set(architecture_config["phase3h_dynamic_code_exception_module_ast_sha256"]).isdisjoint(
@@ -7939,16 +7932,12 @@ def test_lifecycle_v2_private_source_loader_seal_rejects_drift(
         _trusted_time_v2_private_source_loader_violations,
     )
 
-    runtime_owner = Path(
-        "packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"
-    )
+    runtime_owner = Path("packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py")
     reauthentication_owner = Path(
         "packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"
     )
     runtime_target = Path("packages/domain/trusted_time_graceful_stop_v2_runtime_seal.py")
-    adapter_target = Path(
-        "packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"
-    )
+    adapter_target = Path("packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py")
     adr0109_target = Path(
         "scripts/trusted_time_post_enrollment_clean_stop_terminal_reauthentication.py"
     )
@@ -7968,8 +7957,7 @@ def test_lifecycle_v2_private_source_loader_seal_rejects_drift(
             "    return None\n"
         ),
         reauthentication_owner: (
-            "def _install_lifecycle_v2_reauthentication_binding_realms():\n"
-            "    return None\n"
+            "def _install_lifecycle_v2_reauthentication_binding_realms():\n    return None\n"
         ),
     }
     for relative_path, payload in target_payloads.items():
@@ -8025,9 +8013,7 @@ def test_lifecycle_v2_private_source_loader_seal_rejects_drift(
     "relative_path",
     [
         Path("packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"),
-        Path(
-            "packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"
-        ),
+        Path("packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"),
         Path("packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"),
     ],
 )
@@ -8046,19 +8032,19 @@ def test_private_source_bootstrap_builtin_exception_requires_exact_module_ast(
             tree,
             relative_path=relative_path,
             allowed_imports=tuple(
-                architecture_config.get(
-                    "builtin_namespace_integrity_allowed_imports", {}
-                ).get(relative_path.as_posix(), ())
+                architecture_config.get("builtin_namespace_integrity_allowed_imports", {}).get(
+                    relative_path.as_posix(), ()
+                )
             ),
             allowed_reads=tuple(
-                architecture_config.get(
-                    "builtin_namespace_integrity_allowed_reads", {}
-                ).get(relative_path.as_posix(), ())
+                architecture_config.get("builtin_namespace_integrity_allowed_reads", {}).get(
+                    relative_path.as_posix(), ()
+                )
             ),
             allowed_sys_modules_callsites=tuple(
-                architecture_config[
-                    "builtin_namespace_integrity_sys_modules_callsites"
-                ][relative_path.as_posix()]
+                architecture_config["builtin_namespace_integrity_sys_modules_callsites"][
+                    relative_path.as_posix()
+                ]
             ),
         )
 
@@ -8080,12 +8066,8 @@ def test_adr0109_private_consumer_exception_rejects_broad_or_changed_admission(
 ) -> None:
     from scripts.check_architecture import _canonical_ast_sha256, check
 
-    relative_path = Path(
-        "packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"
-    )
-    private_seam = (
-        "_consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once"
-    )
+    relative_path = Path("packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py")
+    private_seam = "_consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once"
     source = (
         "from scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication "
         f"import {private_seam}\n"
@@ -8126,8 +8108,7 @@ graceful_stop_supervisor_bridge_dependency_private_symbols = ["{private_seam}"]
             enforce_exact_repository_contract=False,
         )
         assert not any(
-            "ADR 0109" in violation.message
-            or "unconnected production" in violation.message
+            "ADR 0109" in violation.message or "unconnected production" in violation.message
             for violation in baseline_violations
         )
     if mutation == "ast_drift":
@@ -11889,7 +11870,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
         "apps/web/node_modules"
     ]
     assert architecture_config["production_python_source_manifest_sha256"] == (
-        "b8c0d6c3f2e9438b86d83f8ebb34253131d252a5c934cda982bcccc51d02521f"
+        "dc1366b303cb2b1d8c87e3d0f865d8c3a2a3b6a85fb29ccb0b5c4c3846d6c0f3"
     )
     assert (
         _production_python_source_manifest_sha256(
@@ -11983,9 +11964,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
     assert architecture_config["builtin_namespace_integrity_allowed_imports"] == {
         "packages/adapters/market_data/recorded.py": ["builtins:*"],
         low_relative_path.as_posix(): ["builtins:*", "builtins:property"],
-        "packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py": [
-            "builtins:*"
-        ],
+        "packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py": ["builtins:*"],
         host_relative_path.as_posix(): ["builtins:*", "builtins:property"],
     }
     assert architecture_config["builtin_namespace_integrity_allowed_reads"] == {
@@ -12034,10 +12013,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
     ] = ["_load_canonical_lifecycle_v2_runtime_seal:exact-v2-private-source-loader"]
     expected_sys_modules_callsites[
         "packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"
-    ] = [
-        "_install_lifecycle_v2_reauthentication_binding_realms:"
-        "exact-v2-private-source-loader"
-    ]
+    ] = ["_install_lifecycle_v2_reauthentication_binding_realms:exact-v2-private-source-loader"]
     assert architecture_config["builtin_namespace_integrity_sys_modules_callsites"] == (
         expected_sys_modules_callsites
     )

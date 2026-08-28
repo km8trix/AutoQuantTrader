@@ -135,9 +135,7 @@ def _build_normal_stage_lookup(
     return lookup
 
 
-normal_lifecycle_v2_stage_for_ordinal = _build_normal_stage_lookup(
-    NORMAL_STAGE_BY_ORDINAL
-)
+normal_lifecycle_v2_stage_for_ordinal = _build_normal_stage_lookup(NORMAL_STAGE_BY_ORDINAL)
 del _build_normal_stage_lookup
 
 
@@ -571,9 +569,7 @@ _REAUTHENTICATION_RESULT_EXTRA_FIELDS = frozenset(
 _ADR0109_REAUTHENTICATION_CONTRACT_VERSION = (
     "phase6d-post-enrollment-clean-stop-terminal-reauthentication-v1"
 )
-_ADR0109_REAUTHENTICATION_STATUS = (
-    "provider_terminal_observed_under_stable_sql_authenticated"
-)
+_ADR0109_REAUTHENTICATION_STATUS = "provider_terminal_observed_under_stable_sql_authenticated"
 _ADR0109_OBSERVATION_BUDGET_NS = 120_000_000_000
 _REAUTHENTICATION_SEMANTIC_SERVICE = "trusted-time-graceful-stop-lifecycle-v2"
 _ADR0109_OBSERVATION_FIELDS = frozenset(
@@ -1116,6 +1112,8 @@ _REAUTHENTICATION_RESULT_STAGES = frozenset(
         LifecycleV2Stage.POST_TEARDOWN_TERMINAL_REAUTHENTICATION_BOUND,
     }
 )
+
+
 class _DockerResultRule(NamedTuple):
     contract: str
     status: str
@@ -1126,9 +1124,7 @@ class _DockerResultRule(NamedTuple):
     post_status: int
 
 
-_DOCKER_RESULT_RULE_BY_STAGE: tuple[
-    tuple[LifecycleV2Stage, _DockerResultRule], ...
-] = (
+_DOCKER_RESULT_RULE_BY_STAGE: tuple[tuple[LifecycleV2Stage, _DockerResultRule], ...] = (
     (
         LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_RESULT_RETAINED,
         _DockerResultRule(
@@ -1204,9 +1200,7 @@ def _build_docker_result_rule_lookup(
     return lookup
 
 
-_docker_result_rule_for_stage = _build_docker_result_rule_lookup(
-    _DOCKER_RESULT_RULE_BY_STAGE
-)
+_docker_result_rule_for_stage = _build_docker_result_rule_lookup(_DOCKER_RESULT_RULE_BY_STAGE)
 del _build_docker_result_rule_lookup
 
 
@@ -1227,9 +1221,7 @@ def _capture_lifecycle_v2_reauthentication_binding_evidence(
         raise TrustedTimeGracefulStopV2Rejected(
             "reauthentication binding evidence boundary is outside the closed set"
         )
-    frozen = FrozenJsonObject.capture(
-        value.to_dict() if type(value) is FrozenJsonObject else value
-    )
+    frozen = FrozenJsonObject.capture(value.to_dict() if type(value) is FrozenJsonObject else value)
     fields = frozen.to_dict()
     _require_fields(fields, expected_fields)
     expected_contract = (
@@ -1256,21 +1248,16 @@ def _capture_lifecycle_v2_reauthentication_binding_evidence(
 
     raw_observation = fields["adr0109_observation"]
     if type(raw_observation) is not dict:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "ADR-0109 observation must be one exact object"
-        )
+        raise TrustedTimeGracefulStopV2Rejected("ADR-0109 observation must be one exact object")
     observation = FrozenJsonObject.capture(raw_observation)
     observation_fields = observation.to_dict()
     _require_fields(observation_fields, _ADR0109_OBSERVATION_FIELDS)
     if (
-        observation_fields["contract_version"]
-        != _ADR0109_REAUTHENTICATION_CONTRACT_VERSION
+        observation_fields["contract_version"] != _ADR0109_REAUTHENTICATION_CONTRACT_VERSION
         or observation_fields["status"] != _ADR0109_REAUTHENTICATION_STATUS
         or observation_fields["checkpoint_reason"] != "clean_stop"
     ):
-        raise TrustedTimeGracefulStopV2Rejected(
-            "ADR-0109 observation discriminator is invalid"
-        )
+        raise TrustedTimeGracefulStopV2Rejected("ADR-0109 observation discriminator is invalid")
     anchor_sequence = _require_int(
         observation_fields["anchor_sequence"],
         "anchor_sequence",
@@ -1302,9 +1289,7 @@ def _capture_lifecycle_v2_reauthentication_binding_evidence(
         or confirmed_local_ordinal != local_transition_count
         or local_transition_count < anchor_sequence
     ):
-        raise TrustedTimeGracefulStopV2Rejected(
-            "ADR-0109 observation counts are inconsistent"
-        )
+        raise TrustedTimeGracefulStopV2Rejected("ADR-0109 observation counts are inconsistent")
     for name, item in observation_fields.items():
         if name.endswith("_sha256"):
             _require_sha256(item, name)
@@ -1344,10 +1329,8 @@ def _capture_lifecycle_v2_reauthentication_binding_evidence(
         "deadline_monotonic_ns",
     )
     if (
-        observation_started
-        > MAXIMUM_SIGNED_INTEGER - _ADR0109_OBSERVATION_BUDGET_NS
-        or observation_deadline
-        != observation_started + _ADR0109_OBSERVATION_BUDGET_NS
+        observation_started > MAXIMUM_SIGNED_INTEGER - _ADR0109_OBSERVATION_BUDGET_NS
+        or observation_deadline != observation_started + _ADR0109_OBSERVATION_BUDGET_NS
         or not observation_started <= observation_completed < observation_deadline
     ):
         raise TrustedTimeGracefulStopV2Rejected(
@@ -1380,13 +1363,11 @@ def _capture_lifecycle_v2_reauthentication_binding_evidence(
         "observation_deadline_monotonic_ns",
     )
     if (
-        fields["expected_clean_stop_head_sha256"]
-        != observation_fields["current_anchor_sha256"]
+        fields["expected_clean_stop_head_sha256"] != observation_fields["current_anchor_sha256"]
         or fields["adr0109_observation_sha256"] != _sha256(observation_encoded)
         or fields["provider_identity_sha256"] != provider_identity_sha256
         or fields["observation_semantic_sha256"] != observation_semantic_sha256
-        or fields["adr0109_issuer_binding_sha256"]
-        != observation_fields["issuer_binding_sha256"]
+        or fields["adr0109_issuer_binding_sha256"] != observation_fields["issuer_binding_sha256"]
         or fields["adr0109_read_only_configuration_sha256"]
         != observation_fields["read_only_configuration_sha256"]
         or binding_started != observation_started
@@ -1428,20 +1409,14 @@ def _validate_reauthentication_result_evidence(
     binding_fields = binding_evidence.to_dict()
     _require_sha256(value["channel_id"], "channel_id")
     if (
-        binding_fields["graceful_stop_operation_id"]
-        != graceful_stop_operation_id
+        binding_fields["graceful_stop_operation_id"] != graceful_stop_operation_id
         or binding_fields["lifecycle_root_sha256"] != root_sha256
         or value["disposition"] != f"{boundary}_reauthentication_bound"
-        or value["responder_identity_sha256"]
-        != binding_fields["adr0109_issuer_binding_sha256"]
-        or value["observation_semantic_sha256"]
-        != binding_fields["observation_semantic_sha256"]
-        or value["observed_head_sha256"]
-        != binding_fields["expected_clean_stop_head_sha256"]
-        or value["provider_identity_sha256"]
-        != binding_fields["provider_identity_sha256"]
-        or value["call_started_boottime_ns"]
-        != binding_fields["observation_started_monotonic_ns"]
+        or value["responder_identity_sha256"] != binding_fields["adr0109_issuer_binding_sha256"]
+        or value["observation_semantic_sha256"] != binding_fields["observation_semantic_sha256"]
+        or value["observed_head_sha256"] != binding_fields["expected_clean_stop_head_sha256"]
+        or value["provider_identity_sha256"] != binding_fields["provider_identity_sha256"]
+        or value["call_started_boottime_ns"] != binding_fields["observation_started_monotonic_ns"]
         or value["call_completed_boottime_ns"]
         != binding_fields["observation_completed_monotonic_ns"]
         or value["binding_semantic_sha256"] != value["result_semantic_sha256"]
@@ -1510,9 +1485,7 @@ def _require_exact_nested_object_list(
     result: list[dict[str, object]] = []
     for item in value:
         if type(item) is not dict:
-            raise TrustedTimeGracefulStopV2Rejected(
-                f"{label} contains a non-object value"
-            )
+            raise TrustedTimeGracefulStopV2Rejected(f"{label} contains a non-object value")
         result.append(item)
     return result
 
@@ -1613,9 +1586,7 @@ def _validate_docker_connection_identity(
     ]
     deadline = _require_int(fields["call_deadline_boottime_ns"], "call_deadline_boottime_ns")
     if checkpoints != sorted(checkpoints) or checkpoints[-1] >= deadline:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "Docker connection checkpoints are invalid"
-        )
+        raise TrustedTimeGracefulStopV2Rejected("Docker connection checkpoints are invalid")
     return fields, _nested_domain_sha256(
         "AutoQuantTrader/trusted-time/graceful-stop/docker-connection-identity/v2",
         fields,
@@ -1641,9 +1612,7 @@ def _validate_docker_exchange(
         or fields["target_identity"] != target_identity
         or fields["http_status"] != http_status
     ):
-        raise TrustedTimeGracefulStopV2Rejected(
-            "Docker HTTP exchange discriminator is invalid"
-        )
+        raise TrustedTimeGracefulStopV2Rejected("Docker HTTP exchange discriminator is invalid")
     for name in (
         "request_semantic_sha256",
         "connection_identity_sha256",
@@ -1696,9 +1665,7 @@ def _validate_docker_trace_entry(
         "call_completed_boottime_ns",
     )
     if completed < started:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "Docker trace completion precedes its start"
-        )
+        raise TrustedTimeGracefulStopV2Rejected("Docker trace completion precedes its start")
     return fields, _nested_domain_sha256(
         "autoquant.trusted-time.docker-trace-entry.v2",
         fields,
@@ -1791,13 +1758,11 @@ def _validate_docker_mutation_result_evidence(
         "post_inspect_exchange_sha256",
     ):
         _require_sha256(semantic[name], name)
-    primary_connection, primary_connection_sha256 = (
-        _validate_docker_connection_identity(
-            semantic["primary_connection_identity"],
-            expected_ordinal=primary_ordinal,
-            environment=semantic["environment"],
-            graceful_stop_operation_id=graceful_stop_operation_id,
-        )
+    primary_connection, primary_connection_sha256 = _validate_docker_connection_identity(
+        semantic["primary_connection_identity"],
+        expected_ordinal=primary_ordinal,
+        environment=semantic["environment"],
+        graceful_stop_operation_id=graceful_stop_operation_id,
     )
     post_connection, post_connection_sha256 = _validate_docker_connection_identity(
         semantic["post_inspect_connection_identity"],
@@ -1858,27 +1823,21 @@ def _validate_docker_mutation_result_evidence(
     )
     domain = {
         "container_stop": (
-            "AutoQuantTrader/trusted-time/graceful-stop/"
-            "docker-container-stop-result/v2"
+            "AutoQuantTrader/trusted-time/graceful-stop/docker-container-stop-result/v2"
         ),
         "container_remove": (
-            "AutoQuantTrader/trusted-time/graceful-stop/"
-            "docker-container-remove-result/v2"
+            "AutoQuantTrader/trusted-time/graceful-stop/docker-container-remove-result/v2"
         ),
         "network_remove": (
-            "AutoQuantTrader/trusted-time/graceful-stop/"
-            "docker-network-remove-result/v2"
+            "AutoQuantTrader/trusted-time/graceful-stop/docker-network-remove-result/v2"
         ),
     }[result_kind]
     semantic_sha256 = _nested_domain_sha256(domain, semantic)
     if (
         primary_connection["channel_id"] != post_connection["channel_id"]
-        or semantic["primary_connection_identity_sha256"]
-        != primary_connection_sha256
-        or semantic["post_inspect_connection_identity_sha256"]
-        != post_connection_sha256
-        or connection_digest_list
-        != [primary_connection_sha256, post_connection_sha256]
+        or semantic["primary_connection_identity_sha256"] != primary_connection_sha256
+        or semantic["post_inspect_connection_identity_sha256"] != post_connection_sha256
+        or connection_digest_list != [primary_connection_sha256, post_connection_sha256]
         or semantic["primary_exchange_sha256"] != primary_exchange_sha256
         or semantic["post_inspect_exchange_sha256"] != post_exchange_sha256
         or trace_digest_list != [primary_trace_sha256, post_trace_sha256]
@@ -1887,18 +1846,14 @@ def _validate_docker_mutation_result_evidence(
         != semantic["primary_request_semantic_sha256"]
         or post_exchange["request_semantic_sha256"]
         != semantic["post_inspect_request_semantic_sha256"]
-        or value["docker_request_semantic_sha256"]
-        != semantic["primary_request_semantic_sha256"]
+        or value["docker_request_semantic_sha256"] != semantic["primary_request_semantic_sha256"]
         or value["docker_post_inspect_request_semantic_sha256"]
         != semantic["post_inspect_request_semantic_sha256"]
         or value["docker_method_trace_entry_sha256_list"] != trace_digest_list
-        or value["responder_identity_sha256"]
-        != semantic["admitted_daemon_info_projection_sha256"]
+        or value["responder_identity_sha256"] != semantic["admitted_daemon_info_projection_sha256"]
         or value["disposition"] != semantic["outcome"]
-        or value["call_started_boottime_ns"]
-        != semantic["call_started_boottime_ns"]
-        or value["call_completed_boottime_ns"]
-        != semantic["call_completed_boottime_ns"]
+        or value["call_started_boottime_ns"] != semantic["call_started_boottime_ns"]
+        or value["call_completed_boottime_ns"] != semantic["call_completed_boottime_ns"]
         or value["result_semantic_sha256"] != semantic_sha256
     ):
         raise TrustedTimeGracefulStopV2Rejected(
@@ -1932,9 +1887,7 @@ def _install_docker_mutation_result_evidence_validator() -> Callable[..., None]:
     return validate
 
 
-_validate_docker_mutation_result_evidence = (
-    _install_docker_mutation_result_evidence_validator()
-)
+_validate_docker_mutation_result_evidence = _install_docker_mutation_result_evidence_validator()
 del _install_docker_mutation_result_evidence_validator
 
 
@@ -2058,8 +2011,7 @@ def _validate_docker_volume_result_evidence(
         traces.append(trace)
         trace_sha256s.append(trace_sha256)
     semantic_sha256 = _nested_domain_sha256(
-        "AutoQuantTrader/trusted-time/graceful-stop/"
-        "docker-volume-preservation-result/v2",
+        "AutoQuantTrader/trusted-time/graceful-stop/docker-volume-preservation-result/v2",
         semantic,
     )
     if (
@@ -2082,13 +2034,10 @@ def _validate_docker_volume_result_evidence(
         or value["docker_api_trace_sha256"] != trace_sha256s[-1]
         or value["docker_request_semantic_sha256_list"] != request_digests
         or value["docker_method_trace_entry_sha256_list"] != trace_sha256s
-        or value["responder_identity_sha256"]
-        != semantic["admitted_daemon_info_projection_sha256"]
+        or value["responder_identity_sha256"] != semantic["admitted_daemon_info_projection_sha256"]
         or value["disposition"] != semantic["outcome"]
-        or value["call_started_boottime_ns"]
-        != semantic["proof_started_boottime_ns"]
-        or value["call_completed_boottime_ns"]
-        != semantic["proof_completed_boottime_ns"]
+        or value["call_started_boottime_ns"] != semantic["proof_started_boottime_ns"]
+        or value["call_completed_boottime_ns"] != semantic["proof_completed_boottime_ns"]
         or value["volume_delete_call_count"] != 0
         or value["result_semantic_sha256"] != semantic_sha256
     ):
@@ -2116,8 +2065,7 @@ def _validate_wire_publication_receipt_evidence(
     if (
         receipt["contract_version"]
         != "phase6d-post-enrollment-graceful-stop-wire-envelope-publication-receipt-v2"
-        or receipt["service"]
-        != "trusted-time-post-enrollment-graceful-stop-lifecycle-v2"
+        or receipt["service"] != "trusted-time-post-enrollment-graceful-stop-lifecycle-v2"
         or receipt["status"] != "wire_envelope_published"
         or receipt["graceful_stop_operation_id"] != graceful_stop_operation_id
         or receipt["root_sha256"] != root_sha256
@@ -2127,9 +2075,7 @@ def _validate_wire_publication_receipt_evidence(
         or receipt["directory_fsync_completed"] is not True
         or receipt["stable_readback_completed"] is not True
     ):
-        raise TrustedTimeGracefulStopV2Rejected(
-            "wire publication receipt discriminator is invalid"
-        )
+        raise TrustedTimeGracefulStopV2Rejected("wire publication receipt discriminator is invalid")
     for name in (
         "artifact_directory_device",
         "artifact_directory_inode",
@@ -2173,14 +2119,12 @@ def _validate_wire_publication_receipt_evidence(
         or value["key_generation"] != receipt["key_generation"]
         or value["signing_key_id"] != receipt["signing_key_id"]
         or value["channel_id"] != receipt["channel_id"]
-        or value["lifecycle_dispatch_prefix_sha256"]
-        != receipt["lifecycle_dispatch_prefix_sha256"]
+        or value["lifecycle_dispatch_prefix_sha256"] != receipt["lifecycle_dispatch_prefix_sha256"]
         or value["message_counter"] != receipt["message_counter"]
         or value["deadline_boottime_ns"] != deadline
         or value["wire_publication_receipt_sha256"]
         != _nested_domain_sha256(
-            "AutoQuantTrader/trusted-time/graceful-stop/"
-            "wire-envelope-publication-receipt/v2",
+            "AutoQuantTrader/trusted-time/graceful-stop/wire-envelope-publication-receipt/v2",
             receipt,
         )
     ):
@@ -2242,14 +2186,11 @@ def _validate_terminal_cleanup_result_evidence(
             or observed > completed
             or value[digest_name]
             != _nested_domain_sha256(
-                "AutoQuantTrader/trusted-time/graceful-stop/"
-                f"{kind.replace('_', '-')}-absence/v2",
+                f"AutoQuantTrader/trusted-time/graceful-stop/{kind.replace('_', '-')}-absence/v2",
                 absence,
             )
         ):
-            raise TrustedTimeGracefulStopV2Rejected(
-                "terminal cleanup path absence is not exact"
-            )
+            raise TrustedTimeGracefulStopV2Rejected("terminal cleanup path absence is not exact")
         absence_times.append(observed)
     projection = _require_exact_nested_object(
         value["empty_mount_projection"],
@@ -2283,16 +2224,13 @@ def _validate_terminal_cleanup_result_evidence(
         if (
             rule is None
             or mount["mount_root"] != "/"
-            or mount["mount_options"]
-            != ["nodev", "noexec", "nosuid", "rw", "size=64K"]
+            or mount["mount_options"] != ["nodev", "noexec", "nosuid", "rw", "size=64K"]
             or mount["directory_uid"] != rule[0]
             or mount["directory_gid"] != rule[1]
             or mount["directory_mode"] != rule[2]
             or mount["entry_count"] != 0
         ):
-            raise TrustedTimeGracefulStopV2Rejected(
-                "empty mount projection identity is invalid"
-            )
+            raise TrustedTimeGracefulStopV2Rejected("empty mount projection identity is invalid")
         mount_ids[cast(str, path)] = mount_id
     if (
         projection["graceful_stop_operation_id"] != graceful_stop_operation_id
@@ -2301,14 +2239,11 @@ def _validate_terminal_cleanup_result_evidence(
         or len(set(mount_ids.values())) != 3
         or value["empty_mount_projection_sha256"]
         != _nested_domain_sha256(
-            "AutoQuantTrader/trusted-time/graceful-stop/"
-            "empty-secret-mount-projection/v2",
+            "AutoQuantTrader/trusted-time/graceful-stop/empty-secret-mount-projection/v2",
             projection,
         )
     ):
-        raise TrustedTimeGracefulStopV2Rejected(
-            "empty mount projection crossed terminal cleanup"
-        )
+        raise TrustedTimeGracefulStopV2Rejected("empty mount projection crossed terminal cleanup")
     unmount = _require_exact_nested_object(
         value["unmount_receipt"],
         _TERMINAL_UNMOUNT_RECEIPT_FIELDS,
@@ -2348,8 +2283,7 @@ def _validate_terminal_cleanup_result_evidence(
         or unmount_times[-1] > completed
         or value["unmount_receipt_sha256"]
         != _nested_domain_sha256(
-            "AutoQuantTrader/trusted-time/graceful-stop/"
-            "secret-mount-unmount-receipt/v2",
+            "AutoQuantTrader/trusted-time/graceful-stop/secret-mount-unmount-receipt/v2",
             unmount,
         )
     ):
@@ -2377,16 +2311,14 @@ def _validate_terminal_cleanup_result_evidence(
         native["environment"] != projection["environment"]
         or native["graceful_stop_operation_id"] != graceful_stop_operation_id
         or native["lifecycle_root_sha256"] != root_sha256
-        or _require_int(native["owner_count_before"], "owner_count_before", minimum=1)
-        < 1
+        or _require_int(native["owner_count_before"], "owner_count_before", minimum=1) < 1
         or native["owner_count_after"] != 0
         or native["every_owner_invalidated"] is not True
         or native["every_private_buffer_zeroized_or_process_destroyed"] is not True
         or native_completed > completed
         or value["native_owner_cleanup_receipt_sha256"]
         != _nested_domain_sha256(
-            "AutoQuantTrader/trusted-time/graceful-stop/"
-            "native-owner-cleanup-receipt/v2",
+            "AutoQuantTrader/trusted-time/graceful-stop/native-owner-cleanup-receipt/v2",
             native,
         )
         or completed < max(*absence_times, *unmount_times, native_completed)
@@ -2449,10 +2381,7 @@ def _validate_evidence(
                 raise TrustedTimeGracefulStopV2Rejected(f"{name} must be a nonempty list")
             for digest in item:
                 _require_sha256(digest, name)
-    if (
-        "intent_sha256" in value
-        and value["intent_sha256"] != predecessor_sha256
-    ):
+    if "intent_sha256" in value and value["intent_sha256"] != predecessor_sha256:
         raise TrustedTimeGracefulStopV2Rejected(
             "result evidence intent does not match its exact predecessor"
         )
@@ -3199,6 +3128,8 @@ _TRANSPORT_ENVELOPE_FIELDS = frozenset(
         "signature_ed25519_base64",
     }
 )
+
+
 class _FrameRule(NamedTuple):
     direction: str
     counter: int
@@ -3288,11 +3219,7 @@ class UnverifiedLifecycleV2TransportEnvelope:
         fields = frozen.to_dict()
         _require_fields(fields, _TRANSPORT_ENVELOPE_FIELDS)
         frame_type_value = fields["frame_type"]
-        rule = (
-            _rule_for_type(frame_type_value)
-            if type(frame_type_value) is str
-            else None
-        )
+        rule = _rule_for_type(frame_type_value) if type(frame_type_value) is str else None
         if (
             fields["contract_version"] != LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION
             or fields["service"] != LIFECYCLE_V2_TRANSPORT_SERVICE
@@ -3342,9 +3269,7 @@ class UnverifiedLifecycleV2TransportEnvelope:
             or post_fields["message_counter"] != rule.counter
             or post_fields["payload_contract_version"] != rule.payload_contract
         ):
-            raise TrustedTimeGracefulStopV2Rejected(
-                "transport frame rule changed under validation"
-            )
+            raise TrustedTimeGracefulStopV2Rejected("transport frame rule changed under validation")
         return result
 
     def to_dict(self) -> dict[str, object]:
@@ -3383,9 +3308,7 @@ def _install_transport_envelope_capture() -> None:
         /,
     ) -> UnverifiedLifecycleV2TransportEnvelope:
         if cls is not envelope_type:
-            raise TrustedTimeGracefulStopV2Rejected(
-                "transport envelope capture class is not exact"
-            )
+            raise TrustedTimeGracefulStopV2Rejected("transport envelope capture class is not exact")
         return original_capture(value, exact_rule_lookup)
 
     cast(Any, envelope_type).capture = classmethod(capture)

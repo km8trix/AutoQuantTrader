@@ -543,9 +543,7 @@ class _LifecycleV2Repository:
             except AttributeError:
                 pass
             else:
-                raise AttributeError(
-                    "repository authority dependencies are write-once"
-                )
+                raise AttributeError("repository authority dependencies are write-once")
         object.__setattr__(self, name, value)
 
     def __delattr__(self, name: str) -> None:
@@ -1248,13 +1246,10 @@ class _LifecycleV2Repository:
                 )
             evidence = record.evidence.to_dict()
             if (
-                evidence["transport_quiescence_record_sha256"]
-                != exact_records[3].sha256
-                or evidence["supervisor_remove_result_sha256"]
-                != exact_records[11].sha256
+                evidence["transport_quiescence_record_sha256"] != exact_records[3].sha256
+                or evidence["supervisor_remove_result_sha256"] != exact_records[11].sha256
                 or (
-                    record.stage
-                    is LifecycleV2Stage.TERMINAL_CLEANUP_INTENT_RETAINED
+                    record.stage is LifecycleV2Stage.TERMINAL_CLEANUP_INTENT_RETAINED
                     and evidence["cleanup_deadline_boottime_ns"]
                     != self._root.operation_deadline_boottime_ns
                 )
@@ -1437,9 +1432,7 @@ class _LifecycleV2Repository:
                 "recovery classification intent is not authenticated"
             ) from error
         if type(exact_intent_value) is not LifecycleV2AuthenticatedRecoveryIntent:
-            raise LifecycleV2RepositoryRejected(
-                "recovery classification intent type is not exact"
-            )
+            raise LifecycleV2RepositoryRejected("recovery classification intent type is not exact")
         exact_intent = exact_intent_value
         record = exact_intent.record
         if record.stage is not LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED:
@@ -1470,9 +1463,7 @@ class _LifecycleV2Repository:
                 "classified transcript retention is unconfirmed"
             ) from None
         try:
-            consumed_intent_value = self._consume_recovery_intent(
-                authenticated_intent
-            )
+            consumed_intent_value = self._consume_recovery_intent(authenticated_intent)
         except TrustedTimeGracefulStopV2Rejected as error:
             raise LifecycleV2RepositoryRejected(
                 "recovery classification intent is invalid or already consumed"
@@ -1781,10 +1772,7 @@ class _LifecycleV2Repository:
             raise LifecycleV2RepositoryRejected(
                 "an outcome candidate already exists; alternate success is forbidden"
             )
-        if (
-            self._root is None
-            or self._opened_with_existing_root
-        ):
+        if self._root is None or self._opened_with_existing_root:
             raise LifecycleV2RepositoryRejected(
                 "confirmed success requires one live newly reserved root"
             )
@@ -1815,14 +1803,11 @@ class _LifecycleV2Repository:
                     strict=True,
                 )
             )
-            or snapshot.record_encoded
-            != tuple(record.encoded for record in self._records[1:])
+            or snapshot.record_encoded != tuple(record.encoded for record in self._records[1:])
             or self._records[0].ordinal != 1
-            or self._records[0].stage
-            is not LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED
+            or self._records[0].stage is not LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED
             or snapshot.records[0].predecessor_sha256 != self._records[0].sha256
-            or snapshot.records[-1].stage
-            is not LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED
+            or snapshot.records[-1].stage is not LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED
         ):
             raise LifecycleV2RepositoryRejected(
                 "confirmed-success lineage and retained repository prefix disagree"
@@ -1876,10 +1861,7 @@ class _LifecycleV2Repository:
             }
         )
         try:
-            if (
-                self._consume_success_snapshot(self, snapshot)
-                is not snapshot
-            ):
+            if self._consume_success_snapshot(self, snapshot) is not snapshot:
                 raise TrustedTimeLifecycleV2SemanticsRejected(
                     "confirmed-success repository snapshot identity changed"
                 )
@@ -2144,8 +2126,7 @@ def _build_named_lifecycle_v2_retention_endpoints() -> tuple[Callable[..., None]
         if (
             envelope.frame_type != expected_frame
             or evidence[f"{expected_frame}_sha256"] != envelope.sha256
-            or evidence[f"{expected_frame}_artifact_name"]
-            != lifecycle_v2_wire_file_name(envelope)
+            or evidence[f"{expected_frame}_artifact_name"] != lifecycle_v2_wire_file_name(envelope)
         ):
             raise LifecycleV2RepositoryRejected("wire envelope and ordinal two disagree")
         retain_record(repository, record, envelope=envelope)
@@ -2280,25 +2261,15 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
     repository_type = _LifecycleV2Repository
     origin_getpid = os.getpid
     origin_current_thread = threading.current_thread
-    require_recovery_intent = (
-        require_authenticated_lifecycle_v2_recovery_intent  # noqa: F821
-    )
-    consume_recovery_intent = (
-        consume_authenticated_lifecycle_v2_recovery_intent  # noqa: F821
-    )
-    consume_success_lineage = (
-        consume_exact_lifecycle_v2_confirmed_success_lineage  # noqa: F821
-    )
-    consume_success_snapshot = (
-        consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository  # noqa: F821
-    )
+    require_recovery_intent = require_authenticated_lifecycle_v2_recovery_intent  # noqa: F821
+    consume_recovery_intent = consume_authenticated_lifecycle_v2_recovery_intent  # noqa: F821
+    consume_success_lineage = consume_exact_lifecycle_v2_confirmed_success_lineage  # noqa: F821
+    consume_success_snapshot = consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository  # noqa: F821
     success_snapshot_type = LifecycleV2ConfirmedSuccessLineageSnapshot  # noqa: F821
     import_module = importlib.import_module
     exact_getattr = getattr
     exact_realpath = os.path.realpath
-    lifecycle_module_name = (
-        "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics"
-    )
+    lifecycle_module_name = "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics"
     recovery_module_name = "packages.domain.trusted_time_graceful_stop_v2_recovery"
     lifecycle_source = os.path.realpath(
         os.path.join(
@@ -2383,12 +2354,9 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
     if (
         type(success_snapshot_type) is not type
         or success_snapshot_type.__module__ != lifecycle_module_name
-        or success_snapshot_type.__qualname__
-        != "LifecycleV2ConfirmedSuccessLineageSnapshot"
+        or success_snapshot_type.__qualname__ != "LifecycleV2ConfirmedSuccessLineageSnapshot"
     ):
-        raise LifecycleV2RepositoryRejected(
-            "repository success snapshot provenance is invalid"
-        )
+        raise LifecycleV2RepositoryRejected("repository success snapshot provenance is invalid")
 
     get_call_frame = sys._getframe
     register_at_fork = getattr(os, "register_at_fork", None)
@@ -2432,17 +2400,11 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
         fork_epoch: object
 
     recovery_authorizations: tuple[_RepositoryOperationAuthorization, ...] = ()
-    recovery_authorization_history: tuple[
-        _RepositoryOperationAuthorization, ...
-    ] = ()
+    recovery_authorization_history: tuple[_RepositoryOperationAuthorization, ...] = ()
     operation_authorizations: tuple[_RepositoryOperationAuthorization, ...] = ()
     candidate_authorizations: tuple[_RepositoryCandidateAuthorization, ...] = ()
-    candidate_publication_history: tuple[
-        _RepositoryCandidateAuthorization, ...
-    ] = ()
-    root_reservation_authorizations: tuple[
-        _RepositoryOperationAuthorization, ...
-    ] = ()
+    candidate_publication_history: tuple[_RepositoryCandidateAuthorization, ...] = ()
+    root_reservation_authorizations: tuple[_RepositoryOperationAuthorization, ...] = ()
     root_reservation_history: tuple[_RepositoryOperationAuthorization, ...] = ()
     reserve_root_code: CodeType | None = None
     retain_recovery_code: CodeType | None = None
@@ -2504,8 +2466,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
                     strict=True,
                 )
             )
-            and tuple(record.encoded for record in repository._records)
-            == value.record_encoded
+            and tuple(record.encoded for record in repository._records) == value.record_encoded
             and authorization_is_current(value)
         )
 
@@ -2522,11 +2483,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
         repository: _LifecycleV2Repository,
     ) -> _RepositoryCandidateAuthorization | None:
         return next(
-            (
-                value
-                for value in candidate_authorizations
-                if value.repository is repository
-            ),
+            (value for value in candidate_authorizations if value.repository is repository),
             None,
         )
 
@@ -2538,9 +2495,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
     ) -> _RepositoryOperationAuthorization:
         root = repository._root
         if type(root) is not LifecycleV2Root:
-            raise LifecycleV2RepositoryRejected(
-                "repository authorization requires one exact root"
-            )
+            raise LifecycleV2RepositoryRejected("repository authorization requires one exact root")
         records = repository._records
         return _RepositoryOperationAuthorization(
             repository=repository,
@@ -2572,9 +2527,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
         nonlocal root_reservation_authorizations
         nonlocal root_reservation_history
         if exact_caller_code(2) is not reserve_root_code:
-            raise LifecycleV2RepositoryRejected(
-                "root reservation authorization caller is invalid"
-            )
+            raise LifecycleV2RepositoryRejected("root reservation authorization caller is invalid")
         with registry_lock:
             authorization = new_operation_authorization(
                 repository,
@@ -2654,19 +2607,13 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
                 if value.repository is not repository
             )
             recovery_authorizations = tuple(
-                value
-                for value in recovery_authorizations
-                if value.repository is not repository
+                value for value in recovery_authorizations if value.repository is not repository
             )
             operation_authorizations = tuple(
-                value
-                for value in operation_authorizations
-                if value.repository is not repository
+                value for value in operation_authorizations if value.repository is not repository
             )
             candidate_authorizations = tuple(
-                value
-                for value in candidate_authorizations
-                if value.repository is not repository
+                value for value in candidate_authorizations if value.repository is not repository
             )
 
     def require_success_reservation(repository: object) -> None:
@@ -2690,17 +2637,12 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
                     "confirmed success requires one live newly reserved root"
                 )
         expected_record_names = tuple(
-            sorted(
-                lifecycle_v2_progress_file_name(record)
-                for record in repository._records
-            )
+            sorted(lifecycle_v2_progress_file_name(record) for record in repository._records)
         )
         retained_record_names = tuple(
             name
             for name in repository._inventory().names
-            if name.startswith(
-                "trusted-time-post-enrollment-graceful-stop-v2-record-"
-            )
+            if name.startswith("trusted-time-post-enrollment-graceful-stop-v2-record-")
         )
         if retained_record_names != expected_record_names:
             raise LifecycleV2RepositoryRejected(
@@ -2724,10 +2666,8 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
                 or not repository._records
                 or repository._records[-1] is not record
                 or record.stage is not recovery_stage
-                or operation_authorization(repository, recovery_authorizations)
-                is not None
-                or operation_authorization(repository, operation_authorizations)
-                is not None
+                or operation_authorization(repository, recovery_authorizations) is not None
+                or operation_authorization(repository, operation_authorizations) is not None
                 or candidate_authorization(repository) is not None
             ):
                 raise LifecycleV2RepositoryRejected(
@@ -2760,22 +2700,17 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
                 "recovery classification intent is not authenticated"
             ) from error
         if type(exact_intent_value) is not LifecycleV2AuthenticatedRecoveryIntent:
-            raise LifecycleV2RepositoryRejected(
-                "recovery classification intent type is not exact"
-            )
+            raise LifecycleV2RepositoryRejected("recovery classification intent type is not exact")
         exact_intent = exact_intent_value
         record = exact_intent.record
         if record.stage is not recovery_stage:
-            raise LifecycleV2RepositoryRejected(
-                "recovery-classification stage is wrong"
-            )
+            raise LifecycleV2RepositoryRejected("recovery-classification stage is wrong")
         self._require_record_binding(record)
         classified_transcript = self._transcript()
         if (
             self._root is None
             or exact_intent.root_sha256 != self._root.sha256
-            or exact_intent.classified_transcript_sha256
-            != classified_transcript.sha256
+            or exact_intent.classified_transcript_sha256 != classified_transcript.sha256
             or record.evidence.to_dict()["classified_transcript_sha256"]
             != classified_transcript.sha256
         ):
@@ -2827,9 +2762,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
             self._burn()
             if not isinstance(error, Exception):
                 raise
-            raise LifecycleV2RetentionUnconfirmed(
-                "progress retention may have begun"
-            ) from None
+            raise LifecycleV2RetentionUnconfirmed("progress retention may have begun") from None
         self._records = (*self._records, consumed_intent.record)
         register_recovery_authorization(self, consumed_intent.record)
         return consumed_intent.record
@@ -2899,9 +2832,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
                 ),
             )
             root_reservation_authorizations = tuple(
-                value
-                for value in root_reservation_authorizations
-                if value is not reservation
+                value for value in root_reservation_authorizations if value is not reservation
             )
         return consumed
 
@@ -2923,16 +2854,13 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
                 authorization is None
                 or authorization.kind != "recovery_required"
                 or not repository_matches_authorization(repository, authorization)
-                or operation_authorization(repository, operation_authorizations)
-                is not None
+                or operation_authorization(repository, operation_authorizations) is not None
             ):
                 raise LifecycleV2RepositoryRejected(
                     "recovery outcome requires one authenticated recovery intent"
                 )
             recovery_authorizations = tuple(
-                value
-                for value in recovery_authorizations
-                if value is not authorization
+                value for value in recovery_authorizations if value is not authorization
             )
             operation_authorizations = (*operation_authorizations, authorization)
 
@@ -2947,8 +2875,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
         if (
             fields["status"] != authorization.kind
             or fields["root_sha256"] != authorization.root.sha256
-            or fields["graceful_stop_operation_id"]
-            != authorization.root.graceful_stop_operation_id
+            or fields["graceful_stop_operation_id"] != authorization.root.graceful_stop_operation_id
             or fields["transcript_sha256"] != repository._transcript().sha256
             or not authorization.records
         ):
@@ -2959,8 +2886,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
                 last_record.stage is recovery_stage
                 and fields["predecessor_sha256"] == last_record.sha256
                 and fields["final_stage"] == recovery_stage.value
-                and fields["reason_code"]
-                == last_record.evidence.to_dict()["reason_code"]
+                and fields["reason_code"] == last_record.evidence.to_dict()["reason_code"]
             )
         return (
             authorization.kind == "confirmed_success"
@@ -2976,34 +2902,26 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
         outcome: LifecycleV2Outcome,
     ) -> _RepositoryOperationAuthorization:
         nonlocal operation_authorizations
-        if (
-            exact_caller_code(2) is not candidate_writer_code
-            or exact_caller_code(3)
-            not in (recovery_commit_code, success_commit_code)
+        if exact_caller_code(2) is not candidate_writer_code or exact_caller_code(3) not in (
+            recovery_commit_code,
+            success_commit_code,
         ):
-            raise LifecycleV2RepositoryRejected(
-                "outcome candidate authorization caller is invalid"
-            )
+            raise LifecycleV2RepositoryRejected("outcome candidate authorization caller is invalid")
         with registry_lock:
             authorization = operation_authorization(
                 repository,
                 operation_authorizations,
             )
-            if (
-                authorization is None
-                or not outcome_matches_operation(
-                    repository,
-                    outcome,
-                    authorization,
-                )
+            if authorization is None or not outcome_matches_operation(
+                repository,
+                outcome,
+                authorization,
             ):
                 raise LifecycleV2RepositoryRejected(
                     "outcome candidate lacks exact repository authorization"
                 )
             operation_authorizations = tuple(
-                value
-                for value in operation_authorizations
-                if value is not authorization
+                value for value in operation_authorizations if value is not authorization
             )
             return authorization
 
@@ -3017,9 +2935,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
         nonlocal recovery_authorizations
         authorization = consume_operation_for_candidate(self, outcome)
         if self._outcome is not None:
-            raise LifecycleV2RepositoryRejected(
-                "a different outcome candidate is already retained"
-            )
+            raise LifecycleV2RepositoryRejected("a different outcome candidate is already retained")
         publication_authorization = _RepositoryCandidateAuthorization(
             repository=self,
             store=authorization.store,
@@ -3075,9 +2991,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
                         if value.repository is not self
                     )
                     recovery_authorizations = tuple(
-                        value
-                        for value in recovery_authorizations
-                        if value.repository is not self
+                        value for value in recovery_authorizations if value.repository is not self
                     )
         except BaseException as error:
             self._burn()
@@ -3115,14 +3029,12 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
         outcome: LifecycleV2Outcome,
     ) -> _RepositoryCandidateAuthorization:
         nonlocal candidate_authorizations
-        if (
-            exact_caller_code(2) is not marker_writer_code
-            or exact_caller_code(3)
-            not in (recovery_commit_code, success_commit_code, finalizer_code)
+        if exact_caller_code(2) is not marker_writer_code or exact_caller_code(3) not in (
+            recovery_commit_code,
+            success_commit_code,
+            finalizer_code,
         ):
-            raise LifecycleV2RepositoryRejected(
-                "fixed-marker authorization caller is invalid"
-            )
+            raise LifecycleV2RepositoryRejected("fixed-marker authorization caller is invalid")
         with registry_lock:
             authorization = candidate_authorization(repository)
             if (
@@ -3135,9 +3047,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
                     "fixed marker requires one exact retained candidate"
                 )
             candidate_authorizations = tuple(
-                value
-                for value in candidate_authorizations
-                if value is not authorization
+                value for value in candidate_authorizations if value is not authorization
             )
             return authorization
 
@@ -3150,17 +3060,10 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
                 "candidate publication completion caller is invalid"
             )
         with registry_lock:
-            if not any(
-                value is authorization
-                for value in candidate_publication_history
-            ):
-                raise LifecycleV2RepositoryRejected(
-                    "candidate publication history is unavailable"
-                )
+            if not any(value is authorization for value in candidate_publication_history):
+                raise LifecycleV2RepositoryRejected("candidate publication history is unavailable")
             candidate_publication_history = tuple(
-                value
-                for value in candidate_publication_history
-                if value is not authorization
+                value for value in candidate_publication_history if value is not authorization
             )
 
     def publish_authorized_fixed_marker(
@@ -3220,11 +3123,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
             raise LifecycleV2RepositoryRejected(
                 "an outcome candidate already exists; use exact-candidate finalization"
             )
-        if (
-            self._root is None
-            or not self._records
-            or self._records[-1].stage is not recovery_stage
-        ):
+        if self._root is None or not self._records or self._records[-1].stage is not recovery_stage:
             raise LifecycleV2RepositoryRejected(
                 "recovery outcome requires a retained classification intent"
             )
@@ -3300,9 +3199,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
             )
             encoded = basis.materialize(authorized)
             if encoded != self._commit_staging.encoded:
-                raise LifecycleV2RetentionUnconfirmed(
-                    "confirmed-success marker preimage changed"
-                )
+                raise LifecycleV2RetentionUnconfirmed("confirmed-success marker preimage changed")
             return self._publish_fixed_marker(
                 outcome=self._outcome,
                 encoded=encoded,
@@ -3315,9 +3212,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
         encoded = basis.materialize(authorized)
         if self._commit_staging is not None:
             if encoded != self._commit_staging.encoded:
-                raise LifecycleV2RetentionUnconfirmed(
-                    "recovery marker preimage changed"
-                )
+                raise LifecycleV2RetentionUnconfirmed("recovery marker preimage changed")
             finalize_staging = True
         else:
             finalize_staging = False
@@ -3413,9 +3308,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
         nonlocal recovery_authorization_history
         nonlocal recovery_authorizations
         if exact_caller_code(2) is not repository_factory_code:
-            raise LifecycleV2RepositoryRejected(
-                "loaded recovery authorization caller is invalid"
-            )
+            raise LifecycleV2RepositoryRejected("loaded recovery authorization caller is invalid")
         if (
             not repository._opened_with_existing_root
             or repository._outcome is not None
@@ -3424,9 +3317,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
             or not repository._records
             or repository._records[-1].stage is not recovery_stage
         ):
-            raise LifecycleV2RepositoryRejected(
-                "loaded recovery authorization prefix is invalid"
-            )
+            raise LifecycleV2RepositoryRejected("loaded recovery authorization prefix is invalid")
         identity = (
             repository._store_identity.artifact_directory_path,
             repository._store_identity.directory_device,
@@ -3455,14 +3346,10 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
                     "loaded recovery prefix lacks authenticated recovery intent history"
                 )
             recovery_authorization_history = tuple(
-                value
-                for value in recovery_authorization_history
-                if value is not prior
+                value for value in recovery_authorization_history if value is not prior
             )
             recovery_authorizations = tuple(
-                value
-                for value in recovery_authorizations
-                if value is not prior
+                value for value in recovery_authorizations if value is not prior
             )
             authorization = new_operation_authorization(
                 repository,
@@ -3498,25 +3385,21 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
             self._closed = True
             if not isinstance(error, Exception):
                 raise
-            raise LifecycleV2RetentionUnconfirmed(
-                "repository disposal is unconfirmed"
-            ) from None
+            raise LifecycleV2RetentionUnconfirmed("repository disposal is unconfirmed") from None
         self._closed = True
 
     cast(Any, repository_type)._burn = burn_with_authorization_revocation
     cast(Any, repository_type).close = close_with_authorization_revocation
     cast(Any, repository_type).reserve_root = reserve_root_with_authorization
-    cast(Any, repository_type).retain_recovery_classification_intent = (
-        retain_recovery_intent_with_authorization
-    )
-    cast(Any, repository_type)._publish_outcome_candidate = (
-        publish_authorized_outcome_candidate
-    )
+    cast(
+        Any, repository_type
+    ).retain_recovery_classification_intent = retain_recovery_intent_with_authorization
+    cast(Any, repository_type)._publish_outcome_candidate = publish_authorized_outcome_candidate
     cast(Any, repository_type)._publish_fixed_marker = publish_authorized_fixed_marker
     cast(Any, repository_type).commit_recovery_outcome = commit_authorized_recovery_outcome
-    cast(Any, repository_type).finalize_retained_outcome_commit = (
-        finalize_authorized_retained_outcome_commit
-    )
+    cast(
+        Any, repository_type
+    ).finalize_retained_outcome_commit = finalize_authorized_retained_outcome_commit
 
     def open_injected_repository(
         store: LifecycleV2ArtifactStore,
@@ -3554,9 +3437,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
     return open_injected_repository
 
 
-_open_injected_lifecycle_v2_repository = (
-    _build_injected_lifecycle_v2_repository_factory()
-)
+_open_injected_lifecycle_v2_repository = _build_injected_lifecycle_v2_repository_factory()
 del _build_injected_lifecycle_v2_repository_factory
 del consume_exact_lifecycle_v2_confirmed_success_lineage
 del consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository

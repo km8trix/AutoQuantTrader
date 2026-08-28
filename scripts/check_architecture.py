@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "53e03b175a135c110d3261e50716ed9eb354906b30f18eb0d8e954b4ac8d15d3"
+    "667ffaa7d7efc01a958d571a54e98684f87b3ea744f1f89ecca6674a24ee8916"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -43,7 +43,7 @@ _EXACT_TRUSTED_TIME_V2_ISOLATED_MODULE_AST_SHA256 = {
         "50b5221322c20884689247b2b1788c5aa3e5f70ca0f73f5780c2e65caef01e5f"
     ),
     Path("packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"): (
-        "7ccafcba5f786bb7e69242058a52fdd3562dd0c329c8fdfd2f0d4239a9e1599a"
+        "f38e8c3367c91d36bfc2be712e1b6c584a02d96dc5d9379994eafd0bd3a2c326"
     ),
     Path("packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"): (
         "2256924935aeab0b7bf8934f6f7f6516c5fb69706d4f454663e0ae287358202e"
@@ -78,6 +78,7 @@ def _is_exact_trusted_time_v2_isolated_module(
 
     expected_digest = _EXACT_TRUSTED_TIME_V2_ISOLATED_MODULE_AST_SHA256.get(relative_path)
     return expected_digest is not None and _canonical_ast_sha256(tree) == expected_digest
+
 
 _NATIVE_BUILD_REQUIREMENTS = (
     "hatchling==1.32.0",
@@ -3945,7 +3946,7 @@ _EXACT_PRIVATE_SOURCE_BOOTSTRAP_MODULE_AST_SHA256 = {
         "11d1057c6b692f6ce5981d7362d3fedb7ca5c79a73ad8ddb8e80234d7bb331ca"
     ),
     Path("packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"): (
-        "7ccafcba5f786bb7e69242058a52fdd3562dd0c329c8fdfd2f0d4239a9e1599a"
+        "f38e8c3367c91d36bfc2be712e1b6c584a02d96dc5d9379994eafd0bd3a2c326"
     ),
     Path("packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"): (
         "2256924935aeab0b7bf8934f6f7f6516c5fb69706d4f454663e0ae287358202e"
@@ -3959,9 +3960,7 @@ _EXACT_PRIVATE_SOURCE_BOOTSTRAP_SYS_MODULES_CALLSITES = {
         "_load_canonical_lifecycle_v2_runtime_seal": "exact-v2-private-source-loader",
     },
     Path("packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"): {
-        "_install_lifecycle_v2_reauthentication_binding_realms": (
-            "exact-v2-private-source-loader"
-        ),
+        "_install_lifecycle_v2_reauthentication_binding_realms": ("exact-v2-private-source-loader"),
     },
 }
 
@@ -3984,10 +3983,9 @@ def _builtin_namespace_integrity_violations(
         for local_name, qualified_name in bindings.items()
         if qualified_name == "builtins"
     }
-    exact_private_source_bootstrap = (
-        _EXACT_PRIVATE_SOURCE_BOOTSTRAP_MODULE_AST_SHA256.get(relative_path)
-        == _canonical_ast_sha256(tree)
-    )
+    exact_private_source_bootstrap = _EXACT_PRIVATE_SOURCE_BOOTSTRAP_MODULE_AST_SHA256.get(
+        relative_path
+    ) == _canonical_ast_sha256(tree)
     private_source_bootstrap_sys_modules_callsites = (
         _EXACT_PRIVATE_SOURCE_BOOTSTRAP_SYS_MODULES_CALLSITES.get(relative_path, {})
         if exact_private_source_bootstrap
@@ -4041,6 +4039,7 @@ def _builtin_namespace_integrity_violations(
         return "unreviewed"
 
     observed_reads: list[str] = []
+
     def enclosing_callable(node: ast.AST) -> str:
         current = node
         while current in parents:
@@ -4184,13 +4183,9 @@ def _builtin_namespace_integrity_violations(
             continue
         parent = parents.get(node)
         callsite = enclosing_callable(node)
-        private_source_bootstrap_tag = private_source_bootstrap_sys_modules_callsites.get(
-            callsite
-        )
+        private_source_bootstrap_tag = private_source_bootstrap_sys_modules_callsites.get(callsite)
         if private_source_bootstrap_tag is not None:
-            observed_sys_modules_callsites.append(
-                f"{callsite}:{private_source_bootstrap_tag}"
-            )
+            observed_sys_modules_callsites.append(f"{callsite}:{private_source_bootstrap_tag}")
             continue
         if (
             exact_private_native_module_name
@@ -7040,12 +7035,8 @@ def _trusted_time_v2_private_source_loader_violations(
                 )
             )
 
-    runtime_owner = Path(
-        "packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"
-    )
-    runtime_target = Path(
-        "packages/domain/trusted_time_graceful_stop_v2_runtime_seal.py"
-    )
+    runtime_owner = Path("packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py")
+    runtime_target = Path("packages/domain/trusted_time_graceful_stop_v2_runtime_seal.py")
     runtime_tree = parsed_trees.get(runtime_owner)
     runtime_digest = target_source_sha256.get(runtime_target)
     if runtime_tree is not None and runtime_digest is not None:
@@ -8257,7 +8248,7 @@ def _nonblocking_flock_violations(
 
 _EXACT_TOPOLOGY_REFLECTION_EXCEPTION_MODULE_AST_SHA256 = {
     Path("packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"): (
-        "7ccafcba5f786bb7e69242058a52fdd3562dd0c329c8fdfd2f0d4239a9e1599a"
+        "f38e8c3367c91d36bfc2be712e1b6c584a02d96dc5d9379994eafd0bd3a2c326"
     ),
     Path("packages/domain/trusted_time_graceful_stop_v2_runtime_seal.py"): (
         "a8820623d19e82fabcd9bced99a7fd1150458b85003828c3792f6056bf6f78db"
@@ -9115,10 +9106,9 @@ def _trusted_time_topology_launch_lock_violations(
             Path("scripts/check_architecture.py"),
         }:
             continue
-        if (
-            _EXACT_TOPOLOGY_REFLECTION_EXCEPTION_MODULE_AST_SHA256.get(relative_path)
-            == _canonical_ast_sha256(tree)
-        ):
+        if _EXACT_TOPOLOGY_REFLECTION_EXCEPTION_MODULE_AST_SHA256.get(
+            relative_path
+        ) == _canonical_ast_sha256(tree):
             continue
         for node in ast.walk(tree):
             folded = (
@@ -9941,18 +9931,15 @@ def check(
     raw_trusted_time_v2_private_source_loader_function_ast_sha256 = scan.get(
         "trusted_time_v2_private_source_loader_function_ast_sha256", {}
     )
-    if (
-        not isinstance(raw_trusted_time_v2_private_source_loader_function_ast_sha256, dict)
+    if not isinstance(raw_trusted_time_v2_private_source_loader_function_ast_sha256, dict) or any(
+        type(path) is not str
+        or not isinstance(functions, dict)
         or any(
-            type(path) is not str
-            or not isinstance(functions, dict)
-            or any(
-                type(function) is not str or type(digest) is not str
-                for function, digest in functions.items()
-            )
-            for path, functions in (
-                raw_trusted_time_v2_private_source_loader_function_ast_sha256.items()
-            )
+            type(function) is not str or type(digest) is not str
+            for function, digest in functions.items()
+        )
+        for path, functions in (
+            raw_trusted_time_v2_private_source_loader_function_ast_sha256.items()
         )
     ):
         raise SystemExit(
@@ -9968,23 +9955,16 @@ def check(
     raw_trusted_time_v2_private_source_loader_target_source_sha256 = scan.get(
         "trusted_time_v2_private_source_loader_target_source_sha256", {}
     )
-    if not isinstance(
-        raw_trusted_time_v2_private_source_loader_target_source_sha256, dict
-    ) or any(
+    if not isinstance(raw_trusted_time_v2_private_source_loader_target_source_sha256, dict) or any(
         type(path) is not str or type(digest) is not str
-        for path, digest in (
-            raw_trusted_time_v2_private_source_loader_target_source_sha256.items()
-        )
+        for path, digest in (raw_trusted_time_v2_private_source_loader_target_source_sha256.items())
     ):
         raise SystemExit(
-            "trusted_time_v2_private_source_loader_target_source_sha256 must be a "
-            "string table"
+            "trusted_time_v2_private_source_loader_target_source_sha256 must be a string table"
         )
     trusted_time_v2_private_source_loader_target_source_sha256 = {
         Path(path): digest
-        for path, digest in (
-            raw_trusted_time_v2_private_source_loader_target_source_sha256.items()
-        )
+        for path, digest in (raw_trusted_time_v2_private_source_loader_target_source_sha256.items())
     }
     raw_trusted_time_v2_allowed_imports = scan.get("trusted_time_v2_allowed_imports", {})
     if not isinstance(raw_trusted_time_v2_allowed_imports, dict) or any(
@@ -10230,11 +10210,9 @@ def check(
     clean_stop_terminal_reauthentication_private_symbols = frozenset(
         scan.get("clean_stop_terminal_reauthentication_private_symbols", [])
     )
-    raw_clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256 = (
-        scan.get(
-            "clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256",
-            {},
-        )
+    raw_clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256 = scan.get(
+        "clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256",
+        {},
     )
     if not isinstance(
         raw_clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256,
@@ -11908,43 +11886,34 @@ def check(
     }
     expected_trusted_time_v2_private_source_loader_target_source_sha256 = {
         Path("packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"): (
-            "3609035c0c4ea910c4bebe6a3ff2c06f7759ef47770553513b0abe622483f54f"
+            "b2f233aed0e07f1105d34bf4fc85b74d90b4d38128987b2df987d44910a36890"
         ),
         Path("packages/domain/trusted_time_graceful_stop_v2_runtime_seal.py"): (
-            "48c1ff385128b4ac07e55e8a1e1ea42a9bd219241d2141b1fb3d205baffa91c3"
+            "e2ba1c540e29572ff9a99e0ea81cebdb22583e9d1e8b9f98fd3f84ea264d175c"
         ),
         Path("scripts/trusted_time_post_enrollment_clean_stop_terminal_reauthentication.py"): (
             "2748c642a2bb6f0f5093166dfd161b45d982a7f5095b662dcd58100c1d9107e7"
         ),
     }
+
     def reviewed_v2_bindings(module: str, *symbols: str) -> frozenset[str]:
         return frozenset(f"{module}:{symbol}" for symbol in symbols)
 
     trusted_time_v2_domain_module = "packages.domain.trusted_time_graceful_stop_v2"
-    trusted_time_v2_docker_module = (
-        "packages.domain.trusted_time_graceful_stop_v2_docker"
-    )
+    trusted_time_v2_docker_module = "packages.domain.trusted_time_graceful_stop_v2_docker"
     trusted_time_v2_lifecycle_module = (
         "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics"
     )
     trusted_time_v2_reauthentication_module = (
         "packages.domain.trusted_time_graceful_stop_v2_reauthentication"
     )
-    trusted_time_v2_recovery_module = (
-        "packages.domain.trusted_time_graceful_stop_v2_recovery"
-    )
+    trusted_time_v2_recovery_module = "packages.domain.trusted_time_graceful_stop_v2_recovery"
     trusted_time_v2_runtime_seal_module = (
         "packages.domain.trusted_time_graceful_stop_v2_runtime_seal"
     )
-    trusted_time_v2_terminal_module = (
-        "packages.domain.trusted_time_graceful_stop_v2_terminal"
-    )
-    trusted_time_v2_transport_module = (
-        "packages.domain.trusted_time_graceful_stop_v2_transport"
-    )
-    trusted_time_v2_persistence_module = (
-        "packages.persistence.trusted_time_graceful_stop_v2"
-    )
+    trusted_time_v2_terminal_module = "packages.domain.trusted_time_graceful_stop_v2_terminal"
+    trusted_time_v2_transport_module = "packages.domain.trusted_time_graceful_stop_v2_transport"
+    trusted_time_v2_persistence_module = "packages.persistence.trusted_time_graceful_stop_v2"
     trusted_time_v2_bridge_module = (
         "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts"
     )
@@ -12454,12 +12423,8 @@ def check(
         violations.extend(
             _trusted_time_v2_private_source_loader_violations(
                 repository,
-                function_ast_sha256=(
-                    trusted_time_v2_private_source_loader_function_ast_sha256
-                ),
-                target_source_sha256=(
-                    trusted_time_v2_private_source_loader_target_source_sha256
-                ),
+                function_ast_sha256=(trusted_time_v2_private_source_loader_function_ast_sha256),
+                target_source_sha256=(trusted_time_v2_private_source_loader_target_source_sha256),
             )
         )
     expected_clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256 = {
@@ -12469,9 +12434,7 @@ def check(
     }
     if exact_repository_contract_required and (
         clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256
-        != (
-            expected_clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256
-        )
+        != (expected_clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256)
     ):
         violations.append(
             Violation(
@@ -14034,12 +13997,9 @@ def check(
                     ),
                 )
             )
-        if (
-            not is_clean_stop_terminal_reauthentication_allowed_private_consumer
-            and not _is_below(
-                resolved_path,
-                graceful_stop_supervisor_bridge_dependency_private_owner_roots,
-            )
+        if not is_clean_stop_terminal_reauthentication_allowed_private_consumer and not _is_below(
+            resolved_path,
+            graceful_stop_supervisor_bridge_dependency_private_owner_roots,
         ):
             violations.extend(
                 _forbidden_seam_symbol_violations(

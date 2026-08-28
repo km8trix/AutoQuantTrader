@@ -61,6 +61,17 @@ from tests.unit import (
 )
 
 
+def _fresh_python_executable() -> Path:
+    candidate = Path(sys.executable).with_name("python")
+    base = (
+        Path(sys.base_prefix) / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    )
+    assert candidate.is_file()
+    assert base.is_file() and not base.is_symlink()
+    assert candidate.resolve(strict=True) == base.resolve(strict=True)
+    return candidate
+
+
 def _digest(label: str) -> str:
     return hashlib.sha256(label.encode("ascii")).hexdigest()
 
@@ -1867,7 +1878,7 @@ else:
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(repository)
     completed = subprocess.run(
-        [sys.executable, "-c", script],
+        [_fresh_python_executable(), "-B", "-c", script],
         cwd=repository,
         env=environment,
         check=False,
@@ -1923,7 +1934,7 @@ exec(compile(forged_source, str(adapter_path), "exec"), forged_module.__dict__)
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(repository)
     completed = subprocess.run(
-        [sys.executable, "-c", script],
+        [_fresh_python_executable(), "-B", "-c", script],
         cwd=repository,
         env=environment,
         check=False,
@@ -2039,7 +2050,7 @@ else:
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(repository)
     completed = subprocess.run(
-        [sys.executable, "-c", script],
+        [_fresh_python_executable(), "-B", "-c", script],
         cwd=repository,
         env=environment,
         check=False,
@@ -2124,7 +2135,7 @@ exec(compile(forged_realm_source, str(realm_path), "exec"), fake_realm.__dict__)
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(repository)
     completed = subprocess.run(
-        [sys.executable, "-c", script],
+        [_fresh_python_executable(), "-B", "-c", script],
         cwd=repository,
         env=environment,
         check=False,
@@ -2165,7 +2176,7 @@ for endpoint in (
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(repository)
     completed = subprocess.run(
-        [sys.executable, "-c", script],
+        [_fresh_python_executable(), "-B", "-c", script],
         cwd=repository,
         env=environment,
         check=False,
@@ -2205,7 +2216,7 @@ else:
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(repository)
     completed = subprocess.run(
-        [sys.executable, "-c", script],
+        [_fresh_python_executable(), "-B", "-c", script],
         cwd=repository,
         env=environment,
         check=False,

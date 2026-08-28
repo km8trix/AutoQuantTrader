@@ -2393,6 +2393,7 @@ _MUTATION_RESULT_FIELDS = frozenset(
     }
 )
 
+
 class _MutationResultRule(NamedTuple):
     contract: str
     status: str
@@ -2451,9 +2452,7 @@ def _build_mutation_result_rule_lookup(
     return lookup
 
 
-_mutation_result_rule_for_kind = _build_mutation_result_rule_lookup(
-    _MUTATION_RESULT_RULES
-)
+_mutation_result_rule_for_kind = _build_mutation_result_rule_lookup(_MUTATION_RESULT_RULES)
 del _build_mutation_result_rule_lookup
 
 
@@ -2651,11 +2650,7 @@ class DockerMutationResultSemantic:
         fields = frozen.to_dict()
         _require_fields(fields, _MUTATION_RESULT_FIELDS, "Docker mutation result")
         result_kind = fields["result_kind"]
-        rule = (
-            _rule_for_kind(result_kind)
-            if type(result_kind) is str
-            else None
-        )
+        rule = _rule_for_kind(result_kind) if type(result_kind) is str else None
         if rule is None:
             _reject("Docker mutation result kind is invalid")
         contract, status, target_kind, outcome, domain, ordinals = rule
@@ -3238,11 +3233,7 @@ def _install_docker_result_runtime_seals() -> tuple[
             _reject("Docker mutation result capture returned an inexact type")
         fields = result.fields.to_dict()
         raw_result_kind = fields["result_kind"]
-        rule = (
-            exact_mutation_rule_lookup(raw_result_kind)
-            if type(raw_result_kind) is str
-            else None
-        )
+        rule = exact_mutation_rule_lookup(raw_result_kind) if type(raw_result_kind) is str else None
         if (
             rule is None
             or fields["contract_version"] != rule.contract

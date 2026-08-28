@@ -71,8 +71,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
         replacement: _RuntimeSealEntry,
     ) -> tuple[tuple[int, _RuntimeSealEntry], ...]:
         return tuple(
-            (entry_key, replacement if entry_key == key else entry)
-            for entry_key, entry in entries
+            (entry_key, replacement if entry_key == key else entry) for entry_key, entry in entries
         )
 
     def registry_is_current(registry: Any) -> bool:
@@ -462,8 +461,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                         source_key,
                         replace_entry(
                             source_entry,
-                            actions=source_entry.actions
-                            | immutable_set_type((action,)),
+                            actions=source_entry.actions | immutable_set_type((action,)),
                         ),
                     ),
                     (

@@ -67,15 +67,9 @@ def _build_exact_adr0109_observation_consumer() -> Callable[
     observation_primitives_type = LifecycleV2ADR0109ObservationPrimitives
     pre_effect_issuer_type = _LifecycleV2PreEffectBindingIssuer
     post_teardown_issuer_type = _LifecycleV2PostTeardownBindingIssuer
-    adr0109_postcondition_type = (
-        TrustedTimePostEnrollmentCleanStopTerminalPostcondition
-    )
-    adr0109_issuer_type = (
-        TrustedTimePostEnrollmentCleanStopTerminalReauthenticationIssuer
-    )
-    consumed_snapshot_type = (
-        _ConsumedPostconditionRegistrySnapshot  # noqa: F821 - install-time capture
-    )
+    adr0109_postcondition_type = TrustedTimePostEnrollmentCleanStopTerminalPostcondition
+    adr0109_issuer_type = TrustedTimePostEnrollmentCleanStopTerminalReauthenticationIssuer
+    consumed_snapshot_type = _ConsumedPostconditionRegistrySnapshot  # noqa: F821 - install-time capture
     consume_postcondition_once = (
         _consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once  # noqa: F821
     )
@@ -99,9 +93,7 @@ def _build_exact_adr0109_observation_consumer() -> Callable[
             or snapshot.issuer_identity is not issuer
             or snapshot.bridge_identity is not bridge_identity
         ):
-            raise rejected_type(
-                "ADR-0109 consumed observation snapshot is not exact"
-            )
+            raise rejected_type("ADR-0109 consumed observation snapshot is not exact")
         revalidated = validate_consumed_postcondition(
             postcondition,
             issuer=issuer,
@@ -114,9 +106,7 @@ def _build_exact_adr0109_observation_consumer() -> Callable[
             or revalidated.issuer_identity is not issuer
             or revalidated.bridge_identity is not bridge_identity
         ):
-            raise rejected_type(
-                "ADR-0109 consumed observation changed during v2 binding"
-            )
+            raise rejected_type("ADR-0109 consumed observation changed during v2 binding")
         payload = postcondition_payload(snapshot.values)
         payload["semantic_sha256"] = snapshot.semantic_sha256
         primitives = observation_primitives_type.capture(payload)
@@ -144,14 +134,10 @@ def _build_exact_adr0109_observation_consumer() -> Callable[
         exact_input = observation
         exact_issuer = exact_input.issuer
         if type(exact_issuer) is not adr0109_issuer_type:
-            raise rejected_type(
-                "lifecycle-v2 binding requires an exact ADR-0109 issuer"
-            )
+            raise rejected_type("lifecycle-v2 binding requires an exact ADR-0109 issuer")
         postcondition = exact_input.postcondition
         if type(postcondition) is not adr0109_postcondition_type:
-            raise rejected_type(
-                "lifecycle-v2 binding requires an exact ADR-0109 postcondition"
-            )
+            raise rejected_type("lifecycle-v2 binding requires an exact ADR-0109 postcondition")
         try:
             snapshot = consume_postcondition_once(
                 postcondition,
@@ -234,9 +220,7 @@ def _install_lifecycle_v2_production_reauthentication_endpoints(
         adr0109_issuer: object,
     ) -> LifecycleV2PreEffectBinding:
         if type(binding_issuer) is not pre_effect_issuer_type:
-            raise rejected_type(
-                "pre-effect ADR-0109 binding issuer is invalid"
-            )
+            raise rejected_type("pre-effect ADR-0109 binding issuer is invalid")
         return production_binding_realm.bind_pre_effect(
             binding_issuer,
             observation=observation_input_type(postcondition, adr0109_issuer),
@@ -262,9 +246,7 @@ def _install_lifecycle_v2_production_reauthentication_endpoints(
         adr0109_issuer: object,
     ) -> LifecycleV2PostTeardownBinding:
         if type(binding_issuer) is not post_teardown_issuer_type:
-            raise rejected_type(
-                "post-teardown ADR-0109 binding issuer is invalid"
-            )
+            raise rejected_type("post-teardown ADR-0109 binding issuer is invalid")
         return production_binding_realm.bind_post_teardown(
             binding_issuer,
             observation=observation_input_type(postcondition, adr0109_issuer),
@@ -284,9 +266,7 @@ if _PRODUCTION_BINDING_REALM is not None:
         _bind_lifecycle_v2_pre_effect_adr0109_observation_once,
         _prepare_lifecycle_v2_post_teardown_adr0109_binding_issuer,
         _bind_lifecycle_v2_post_teardown_adr0109_observation_once,
-    ) = _install_lifecycle_v2_production_reauthentication_endpoints(
-        _PRODUCTION_BINDING_REALM
-    )
+    ) = _install_lifecycle_v2_production_reauthentication_endpoints(_PRODUCTION_BINDING_REALM)
 else:
     _trusted_module = sys.modules.get(__name__)
     if _trusted_module is None or _trusted_module.__dict__ is globals():
@@ -299,11 +279,9 @@ else:
     _bind_lifecycle_v2_pre_effect_adr0109_observation_once = _trusted_module.__dict__[
         "_bind_lifecycle_v2_pre_effect_adr0109_observation_once"
     ]
-    _prepare_lifecycle_v2_post_teardown_adr0109_binding_issuer = (
-        _trusted_module.__dict__[
-            "_prepare_lifecycle_v2_post_teardown_adr0109_binding_issuer"
-        ]
-    )
+    _prepare_lifecycle_v2_post_teardown_adr0109_binding_issuer = _trusted_module.__dict__[
+        "_prepare_lifecycle_v2_post_teardown_adr0109_binding_issuer"
+    ]
     _bind_lifecycle_v2_post_teardown_adr0109_observation_once = _trusted_module.__dict__[
         "_bind_lifecycle_v2_post_teardown_adr0109_observation_once"
     ]

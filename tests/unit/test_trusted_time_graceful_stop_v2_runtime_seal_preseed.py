@@ -9,6 +9,18 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[2]
 _RUNTIME_SEAL_MODULE = "packages.domain.trusted_time_graceful_stop_v2_runtime_seal"
 
+
+def _fresh_python_executable() -> Path:
+    candidate = Path(sys.executable).with_name("python")
+    base = (
+        Path(sys.base_prefix) / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    )
+    assert candidate.is_file()
+    assert base.is_file() and not base.is_symlink()
+    assert candidate.resolve(strict=True) == base.resolve(strict=True)
+    return candidate
+
+
 _FAKE_RUNTIME_SEAL_PRESEED = r"""
 import importlib.machinery
 import os
@@ -86,7 +98,7 @@ def _run_isolated(
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     environment["PYTHONPATH"] = os.fspath(pythonpath)
     return subprocess.run(
-        [sys.executable, "-c", source],
+        [_fresh_python_executable(), "-B", "-c", source],
         cwd=cwd,
         env=environment,
         check=False,

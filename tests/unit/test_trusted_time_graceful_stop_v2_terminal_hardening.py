@@ -53,6 +53,19 @@ ENVIRONMENT = "test"
 OPERATION_ID = "323e4567-e89b-42d3-a456-426614174099"
 SUPERVISOR_ID = "1" * 64
 SOURCE_ID = "2" * 64
+
+
+def _fresh_python_executable() -> Path:
+    candidate = Path(sys.executable).with_name("python")
+    base = (
+        Path(sys.base_prefix) / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    )
+    assert candidate.is_file()
+    assert base.is_file() and not base.is_symlink()
+    assert candidate.resolve(strict=True) == base.resolve(strict=True)
+    return candidate
+
+
 NETWORK_ID = "3" * 64
 UTC_TEXT = "2026-08-27T12:00:00.000000Z"
 
@@ -71,10 +84,7 @@ def _assert_no_mutable_module_closure_state(*roots: object, module_name: str) ->
         seen.add(id(value))
         assert not isinstance(value, (dict, list, set))
         if isinstance(value, FunctionType) and value.__module__ == module_name:
-            pending.extend(
-                cell.cell_contents
-                for cell in value.__closure__ or ()
-            )
+            pending.extend(cell.cell_contents for cell in value.__closure__ or ())
             pending.extend(value.__defaults__ or ())
             pending.extend((value.__kwdefaults__ or {}).values())
         elif isinstance(value, MethodType):
@@ -547,9 +557,7 @@ def test_terminal_proof_and_receipt_gc_introspection_cannot_forge_production_wir
         payload=result.encoded,
     )
     mint = terminal_module._mint_authenticated_lifecycle_v2_terminal_envelope_proof
-    closure = dict(
-        zip(mint.__code__.co_freevars, mint.__closure__ or (), strict=True)
-    )
+    closure = dict(zip(mint.__code__.co_freevars, mint.__closure__ or (), strict=True))
     register = closure["register_issued_proof"].cell_contents
     seal = closure["seal_proof"].cell_contents
     forged = seal(
@@ -584,12 +592,8 @@ def test_terminal_proof_and_receipt_gc_introspection_cannot_forge_production_wir
     )
     snapshot_state = require_closure["snapshot_state"].cell_contents
     assert type(snapshot_state) is tuple
-    snapshot = next(
-        candidate for candidate in snapshot_state if candidate.value is authentic
-    )
-    snapshot.__init__(
-        *snapshot._replace(provenance="production_authenticated_transport")
-    )
+    snapshot = next(candidate for candidate in snapshot_state if candidate.value is authentic)
+    snapshot.__init__(*snapshot._replace(provenance="production_authenticated_transport"))
     assert snapshot.provenance == "fake_test_transport"
     with pytest.raises(AttributeError):
         object.__setattr__(snapshot, "provenance", "production_authenticated_transport")
@@ -605,9 +609,7 @@ def test_terminal_proof_and_receipt_gc_introspection_cannot_forge_production_wir
             strict=True,
         )
     )
-    original_receipt_capture = receipt_capture_closure[
-        "original_receipt_capture"
-    ].cell_contents
+    original_receipt_capture = receipt_capture_closure["original_receipt_capture"].cell_contents
     original_receipt_function = original_receipt_capture.__func__
     require_context = original_receipt_function.__kwdefaults__["_require_context"]
     discovered_require = require_context.__kwdefaults__["_require_proof"]
@@ -631,9 +633,7 @@ def test_terminal_proof_and_receipt_gc_introspection_cannot_forge_production_wir
             strict=True,
         )
     )
-    original_terminal_capture = terminal_capture_closure[
-        "original_terminal_capture"
-    ].cell_contents
+    original_terminal_capture = terminal_capture_closure["original_terminal_capture"].cell_contents
     original_terminal_function = original_terminal_capture.__func__
     receipt_kwdefaults = original_receipt_function.__kwdefaults__
     terminal_kwdefaults = original_terminal_function.__kwdefaults__
@@ -684,7 +684,7 @@ def test_terminal_proof_and_receipt_gc_introspection_cannot_forge_production_wir
 
 def test_terminal_and_recovery_recursive_closure_authority_rejects_in_fresh_process() -> None:
     repository = Path(__file__).resolve().parents[2]
-    script = r'''
+    script = r"""
 import copy
 from types import FunctionType, MappingProxyType, MethodType
 
@@ -834,9 +834,9 @@ assert_no_mutable_state(
     recovery.consume_authenticated_lifecycle_v2_recovery_intent,
 )
 print("closure-authority-rejected")
-'''
+"""
     completed = subprocess.run(
-        [sys.executable, "-c", script],
+        [_fresh_python_executable(), "-B", "-c", script],
         cwd=repository,
         check=False,
         capture_output=True,

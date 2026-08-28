@@ -611,9 +611,7 @@ def _binding_observation(
 ) -> tuple[dict[str, object], str]:
     terminal = scenario.clean_stop_result.terminal_projection.to_dict()
     fields: dict[str, object] = {
-        "contract_version": (
-            "phase6d-post-enrollment-clean-stop-terminal-reauthentication-v1"
-        ),
+        "contract_version": ("phase6d-post-enrollment-clean-stop-terminal-reauthentication-v1"),
         "status": "provider_terminal_observed_under_stable_sql_authenticated",
         "anchor_sequence": terminal["anchor_sequence"],
         "checkpoint_reason": terminal["checkpoint_reason"],
@@ -627,12 +625,8 @@ def _binding_observation(
         "current_host_head_sha256": terminal["current_host_head_sha256"],
         "current_anchor_sha256": terminal["current_anchor_sha256"],
         "current_anchor_semantic_sha256": terminal["current_anchor_semantic_sha256"],
-        "anchor_intent_semantic_sha256": terminal[
-            "current_anchor_intent_semantic_sha256"
-        ],
-        "candidate_remote_readback_sha256": terminal[
-            "current_candidate_remote_readback_sha256"
-        ],
+        "anchor_intent_semantic_sha256": terminal["current_anchor_intent_semantic_sha256"],
+        "candidate_remote_readback_sha256": terminal["current_candidate_remote_readback_sha256"],
         "receipt_semantic_sha256": terminal["current_receipt_semantic_sha256"],
         "receipt_observed_at_utc": terminal["receipt_observed_at_utc"],
         "remote_observation_sha256": _digest(f"remote-{observation}"),
@@ -1564,9 +1558,7 @@ def test_post_reauthentication_binding_rejects_cross_prefix_durable_evidence() -
         completed=1_100_100,
     )
     binding_evidence = exact.binding_evidence.to_dict()
-    binding_evidence["pre_effect_binding_sha256"] = _digest(
-        "cross-prefix-pre-effect-binding"
-    )
+    binding_evidence["pre_effect_binding_sha256"] = _digest("cross-prefix-pre-effect-binding")
     binding_evidence_sha256 = hashlib.sha256(
         b"AutoQuantTrader/trusted-time/graceful-stop/"
         b"post-teardown-reauthentication-binding/v2\0"
@@ -2030,9 +2022,7 @@ def test_retained_semantic_mutation_invalidates_the_whole_lineage() -> None:
     lineage = _through_six(scenario)
     binding = cast(LifecycleV2AuthenticatedReauthenticationBinding, lineage.semantic_at(6))
     changed_evidence = binding.binding_evidence.to_dict()
-    changed_evidence["issuer_challenge_sha256"] = _digest(
-        "mutated-retained-evidence-challenge"
-    )
+    changed_evidence["issuer_challenge_sha256"] = _digest("mutated-retained-evidence-challenge")
     object.__setattr__(
         binding,
         "binding_evidence",
@@ -2248,9 +2238,7 @@ def test_gc_referents_cannot_mutate_closed_lifecycle_validation_tables() -> None
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
         capture_attacker_mount()
     original_mount_rules = lifecycle_module._MOUNT_RULES
-    lifecycle_module._MOUNT_RULES = (
-        ("/tmp/attacker-secret", (0, 0, 0o700)),
-    )
+    lifecycle_module._MOUNT_RULES = (("/tmp/attacker-secret", (0, 0, 0o700)),)
     try:
         with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
             capture_attacker_mount()
@@ -2412,9 +2400,7 @@ def test_docker_result_rule_tables_cannot_widen_runtime_sealed_outcome(
         if type(rules) is tuple:
             changed_items: list[tuple[object, tuple[object, ...]]] = []
             found = False
-            for candidate, rule in cast(
-                tuple[tuple[object, tuple[object, ...]], ...], rules
-            ):
+            for candidate, rule in cast(tuple[tuple[object, tuple[object, ...]], ...], rules):
                 if candidate == key:
                     rule = (*rule[:index], replacement, *rule[index + 1 :])
                     found = True
@@ -2463,6 +2449,7 @@ def test_docker_result_rule_tables_cannot_widen_runtime_sealed_outcome(
 
     def malicious_core_lookup(candidate: object) -> object | None:
         return malicious_core_rule if candidate is stage else None
+
     try:
         semantic = DockerMutationResultSemantic.from_pair(
             result_kind="container_stop",
@@ -2548,8 +2535,7 @@ def test_docker_result_rule_tables_cannot_widen_runtime_sealed_outcome(
         forged_semantic["outcome"] = "attacker_outcome"
         forged_evidence["disposition"] = "attacker_outcome"
         forged_evidence["result_semantic_sha256"] = core_module._nested_domain_sha256(
-            "AutoQuantTrader/trusted-time/graceful-stop/"
-            "docker-container-stop-result/v2",
+            "AutoQuantTrader/trusted-time/graceful-stop/docker-container-stop-result/v2",
             forged_semantic,
         )
         with pytest.raises(TrustedTimeGracefulStopV2Rejected):

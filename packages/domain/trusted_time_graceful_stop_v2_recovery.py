@@ -296,11 +296,9 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
             if (
                 adapter_globals is not caller_globals
                 or exact_getattr(adapter, "__name__", None) != adapter_module_name
-                or exact_realpath(exact_getattr(adapter, "__file__", ""))
-                != adapter_source
+                or exact_realpath(exact_getattr(adapter, "__file__", "")) != adapter_source
                 or exact_getattr(adapter_spec, "name", None) != adapter_module_name
-                or exact_realpath(exact_getattr(adapter_spec, "origin", ""))
-                != adapter_source
+                or exact_realpath(exact_getattr(adapter_spec, "origin", "")) != adapter_source
                 or exact_getattr(adapter_spec, "_initializing", False) is not True
                 or endpoint is not exact_endpoint
                 or exact_getattr(endpoint, "__globals__", None) is not caller_globals
@@ -382,11 +380,7 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
 
     def read_snapshot(value: object) -> _LifecycleV2RecoveryIntentIssuanceSnapshot:
         owner_snapshot = next(
-            (
-                candidate
-                for candidate in snapshot_state
-                if candidate.value is value
-            ),
+            (candidate for candidate in snapshot_state if candidate.value is value),
             None,
         )
         if owner_snapshot is None:
@@ -406,11 +400,7 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
             )
         with lock:
             snapshot = next(
-                (
-                    candidate
-                    for candidate in snapshot_state
-                    if candidate.value is value
-                ),
+                (candidate for candidate in snapshot_state if candidate.value is value),
                 None,
             )
             if snapshot is None:
@@ -580,6 +570,7 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
     consume_code = consume.__code__
 
     return install_adapter_unwrap, derive_production, mint_fake, require, consume
+
 
 def _require_fields(value: dict[str, object]) -> None:
     if frozenset(value) != _FIELDS:
@@ -866,9 +857,7 @@ def _canonical_recovery_inputs(
         [object], LifecycleV2RecoveryClassificationEnvelope
     ] = decode_lifecycle_v2_recovery_classification_envelope,
     _decode_root: Callable[[object], LifecycleV2Root] = decode_lifecycle_v2_root,
-    _decode_transcript: Callable[
-        [object], LifecycleV2Transcript
-    ] = decode_lifecycle_v2_transcript,
+    _decode_transcript: Callable[[object], LifecycleV2Transcript] = decode_lifecycle_v2_transcript,
 ) -> tuple[
     LifecycleV2RecoveryClassificationEnvelope,
     LifecycleV2Root,
@@ -1024,9 +1013,7 @@ def _require_lifecycle_v2_recovery_intent_issuance(
     value: object,
     snapshot: _LifecycleV2RecoveryIntentIssuanceSnapshot,
     *,
-    _decode_envelope: Callable[
-        [object], LifecycleV2RecoveryClassificationEnvelope
-    ],
+    _decode_envelope: Callable[[object], LifecycleV2RecoveryClassificationEnvelope],
     _decode_root: Callable[[object], LifecycleV2Root],
     _decode_transcript: Callable[[object], LifecycleV2Transcript],
     _record_builder: Callable[..., LifecycleV2ProgressRecord],

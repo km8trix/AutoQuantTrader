@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 _RUNTIME_SEAL_MODULE_NAME = "packages.domain.trusted_time_graceful_stop_v2_runtime_seal"
 _RUNTIME_SEAL_SOURCE_NAME = "trusted_time_graceful_stop_v2_runtime_seal.py"
-_RUNTIME_SEAL_SOURCE_SHA256 = "48c1ff385128b4ac07e55e8a1e1ea42a9bd219241d2141b1fb3d205baffa91c3"
+_RUNTIME_SEAL_SOURCE_SHA256 = "e2ba1c540e29572ff9a99e0ea81cebdb22583e9d1e8b9f98fd3f84ea264d175c"
 _RUNTIME_SEAL_BOOTSTRAP_CLAIM = "_claim_lifecycle_v2_runtime_seal_bootstrap"
 _RUNTIME_SEAL_LOADING = "_lifecycle_v2_runtime_seal_bootstrap_loading"
 _RUNTIME_SEAL_FAILED = "_lifecycle_v2_runtime_seal_bootstrap_failed"
@@ -1260,6 +1260,8 @@ _MOUNT_PATHS = tuple(sorted(path for path, _ in _MOUNT_RULES))
 
 def _mount_rule(path: str) -> tuple[int, int, int] | None:
     return next((rule for candidate, rule in _MOUNT_RULES if candidate == path), None)
+
+
 _MOUNT_FIELDS = frozenset(
     {
         "path",
@@ -2120,27 +2122,19 @@ class _DockerRule(NamedTuple):
 _DOCKER_RULES = (
     (
         "supervisor_stop",
-        _DockerRule(
-            7, 8, 6, "container_stop", "container", "supervisor_container_id"
-        ),
+        _DockerRule(7, 8, 6, "container_stop", "container", "supervisor_container_id"),
     ),
     (
         "source_stop",
-        _DockerRule(
-            9, 10, 8, "container_stop", "container", "source_container_id"
-        ),
+        _DockerRule(9, 10, 8, "container_stop", "container", "source_container_id"),
     ),
     (
         "supervisor_remove",
-        _DockerRule(
-            11, 12, 10, "container_remove", "container", "supervisor_container_id"
-        ),
+        _DockerRule(11, 12, 10, "container_remove", "container", "supervisor_container_id"),
     ),
     (
         "source_remove",
-        _DockerRule(
-            13, 14, 12, "container_remove", "container", "source_container_id"
-        ),
+        _DockerRule(13, 14, 12, "container_remove", "container", "source_container_id"),
     ),
     (
         "network_remove",
@@ -3255,8 +3249,7 @@ class LifecycleV2NormalProgressLineage:
             expected = by_ordinal.get(entry.ordinal)
             if (
                 expected is None
-                or entry.stage
-                is not normal_lifecycle_v2_stage_for_ordinal(entry.ordinal)
+                or entry.stage is not normal_lifecycle_v2_stage_for_ordinal(entry.ordinal)
                 or entry.stage is not expected.stage
                 or entry.record_artifact_kind != "progress"
                 or entry.record_contract_version != LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION
@@ -3767,6 +3760,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
 
     def exact_normal_stage(ordinal: int) -> LifecycleV2Stage | None:
         return exact_normal_stage_lookup(ordinal)
+
     reauthentication_issuance_consumer: Callable[..., object] | None = None
     reauthentication_issuance_snapshot_type: type[object] | None = None
     import_reauthentication_module = importlib.import_module
@@ -4754,8 +4748,10 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             exact = _exact_record(record)
             expected_stage = exact_normal_stage(exact.ordinal)
             spec = exact_stage_spec(exact.ordinal)
-            expected_effect = "clean_stop_result" if exact.ordinal == 2 else (
-                None if spec is None else spec.effect_kind
+            expected_effect = (
+                "clean_stop_result"
+                if exact.ordinal == 2
+                else (None if spec is None else spec.effect_kind)
             )
             if (
                 exact.root_sha256 != value.root.sha256
@@ -4894,8 +4890,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
                     != docker_rule.primary_connection_ordinal
                     or semantic_fields.get("post_inspect_connection_ordinal")
                     != docker_rule.primary_connection_ordinal + 1
-                    or record.evidence.to_dict().get("target_identity_sha256")
-                    != expected_target
+                    or record.evidence.to_dict().get("target_identity_sha256") != expected_target
                 ):
                     _reject("Docker intent crossed its immutable root or request rule")
             elif (
