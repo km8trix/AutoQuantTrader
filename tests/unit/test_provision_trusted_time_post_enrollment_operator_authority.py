@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import stat
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -792,9 +793,27 @@ def test_owned_descriptor_close_retries_async_interruption_after_retirement(
 
 
 def test_isolated_cli_attestation_rejects_an_ordinary_runtime() -> None:
-    with pytest.raises(RuntimeError, match="CLI runtime attestation failed"):
-        provisioning._require_isolated_cli_source_runtime(
-            expected_relative_path=Path(
-                "scripts/provision_trusted_time_post_enrollment_operator_authority.py"
-            )
-        )
+    script = Path(provisioning.__file__).resolve(strict=True)
+    base_python = (
+        Path(sys.base_prefix) / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    ).resolve(strict=True)
+    completed = subprocess.run(
+        (
+            os.fspath(base_python),
+            "-I",
+            "-B",
+            "-X",
+            "pycache_prefix=/dev/null",
+            os.fspath(script),
+        ),
+        cwd=script.parents[1],
+        check=False,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        env={"LANG": "C", "LC_ALL": "C", "PATH": os.defpath},
+    )
+
+    assert completed.returncode == 1
+    assert completed.stdout == ""
+    assert "RuntimeError: operator authority CLI runtime attestation failed" in completed.stderr

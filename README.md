@@ -168,8 +168,12 @@ canonical x86_64 seccomp manifests. Its packaging evidence builds six
 reproducible, uninstalled candidates, retains the candidate builders and native
 sources in the source distribution only, excludes them from wheels, and binds
 three immutable inert role import trees. Every candidate record states
-`activation_authorized=false`. The final branch-wide regression, independent
-security review, promotion, and remote CI verification are still pending.
+`activation_authorized=false`. All locally runnable Wave 7 gates are complete,
+including the branch-wide regression, architecture/source-seal reconciliation,
+and independent security review. Linux x86_64 candidate/seccomp qualification
+remains remote-CI-only because the local Linux VM returns `ENOSYS` for the
+required `close_range(..., CLOSE_RANGE_UNSHARE)` syscall. Promotion and
+exact-`main` remote CI verification remain pending.
 
 This milestone creates no production or default real lifecycle root, real
 Docker transport or effect, production controller/runtime caller, Compose

@@ -114,8 +114,12 @@ manifests are present. The packaging lane builds six reproducible, uninstalled
 candidate executables, retains its builders and native sources only in the
 source distribution, excludes them from wheels, and binds three immutable inert
 role import trees. Every candidate record states
-`activation_authorized=false`. Final branch-wide regression, independent
-security review, promotion, and remote CI verification remain pending.
+`activation_authorized=false`. All locally runnable Wave 7 gates are complete,
+including the branch-wide regression, architecture/source-seal reconciliation,
+and independent security review. Linux x86_64 candidate/seccomp qualification
+remains remote-CI-only because the local Linux VM returns `ENOSYS` for the
+required `close_range(..., CLOSE_RANGE_UNSHARE)` syscall. Promotion and
+exact-`main` remote CI verification remain pending.
 
 Wave 7 still creates no production or default real lifecycle root, real Docker
 transport or effect, production controller/runtime caller, Compose projection,
@@ -603,9 +607,13 @@ owners, fixed credential provisioners and tmpfs-only custody, source-only
 uninstalled units, four canonical x86_64 seccomp manifests, and six
 reproducible uninstalled candidates with inert role import trees. Candidate
 builders and native source evidence are source-distribution-only, and every
-candidate record states `activation_authorized=false`. Final branch-wide
-regression, architecture/source-seal reconciliation, independent security
-review, promotion, and remote CI verification remain pending.
+candidate record states `activation_authorized=false`. All locally runnable
+Wave 7 gates are complete, including the branch-wide regression,
+architecture/source-seal reconciliation, and independent security review.
+Linux x86_64 candidate/seccomp qualification remains remote-CI-only because the
+local Linux VM returns `ENOSYS` for the required
+`close_range(..., CLOSE_RANGE_UNSHARE)` syscall. Promotion
+and exact-`main` remote CI verification remain pending.
 
 No production/default real lifecycle root, real Docker transport/effect,
 production controller/runtime caller, Compose projection, unit installation or
@@ -4096,9 +4104,13 @@ and has no dynamic-extension load path. Its libpython built-ins are inventoried,
 not claimed absent, and remain unreachable from the no-input inert entry and
 effect-blocked by seccomp.
 
-Final branch-wide regression, reconciled architecture/native/production source
-seals, independent security review, promotion, and remote CI verification are
-pending. There is no production/default real lifecycle root, real Docker
+All locally runnable Wave 7 gates are complete, including the branch-wide
+regression, reconciled architecture/native/production source seals, and
+independent security review. Linux x86_64 candidate/seccomp qualification
+remains remote-CI-only because the local Linux VM returns `ENOSYS` for the
+required `close_range(..., CLOSE_RANGE_UNSHARE)` syscall. Promotion and
+exact-`main` remote CI verification remain pending. There is no
+production/default real lifecycle root, real Docker
 transport/effect, production controller/runtime caller, Compose projection,
 unit installation/activation, deployment, strategy/deployment promotion, stop
 effect, or operational authority. `trusted-time-stop` remains the exact exit-2
@@ -4610,9 +4622,13 @@ unavailable before any watchdog consumer is designed or qualified. See
   reproducible uninstalled role/provisioner candidates; source-only uninstalled
   systemd units; four canonical x86_64 seccomp manifests; source-distribution-
   only builders/native evidence; and immutable inert role import trees. Every
-  candidate record states `activation_authorized=false`. Wave 7's final full
-  regression, architecture/source-seal reconciliation, independent security
-  review, promotion, and remote CI verification remain pending. It has no
+  candidate record states `activation_authorized=false`. All locally runnable
+  Wave 7 gates are complete, including the full regression,
+  architecture/source-seal reconciliation, and independent security review.
+  Linux x86_64 candidate/seccomp qualification remains remote-CI-only because
+  the local Linux VM returns `ENOSYS` for the required
+  `close_range(..., CLOSE_RANGE_UNSHARE)` syscall.
+  Promotion and exact-`main` remote CI verification remain pending. It has no
   production/default real lifecycle root, real Docker transport/effect,
   production controller/runtime caller, Compose projection, installation or
   activation, deployment, strategy/deployment promotion, stop authority, or
@@ -4786,8 +4802,12 @@ systemd topology, four canonical x86_64 seccomp manifests, and the native fork,
 signer, endpoint/resource, provisioner, and tmpfs custody owners remain
 uninstalled packaging evidence with `activation_authorized=false`. Their
 builders and native sources are source-distribution-only, and their immutable
-role import trees are inert. Wave 7's final branch-wide regression, security
-review, promotion, and remote CI verification remain pending.
+role import trees are inert. All locally runnable Wave 7 gates are complete,
+including the branch-wide regression, architecture/source-seal reconciliation,
+and independent security review. Linux x86_64 candidate/seccomp qualification
+remains remote-CI-only because the local Linux VM returns `ENOSYS` for the
+required `close_range(..., CLOSE_RANGE_UNSHARE)` syscall. Promotion and
+exact-`main` remote CI verification remain pending.
 
 The gate remains open because there is no production/default real lifecycle
 root, real Docker transport/effect, production controller/runtime caller,

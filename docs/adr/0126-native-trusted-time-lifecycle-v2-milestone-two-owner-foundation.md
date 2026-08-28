@@ -1,7 +1,10 @@
 # ADR 0126: Native trusted-time lifecycle-v2 milestone-two owner foundation
 
-- Status: Implemented locally for Wave 7; final full regression, independent
-  security review, promotion, and remote CI verification remain pending, and
+- Status: Implemented locally for Wave 7; all locally runnable gates are
+  complete; Linux x86_64 candidate/seccomp qualification remains remote-CI-only
+  because the local Linux VM returns `ENOSYS` for the required
+  `close_range(..., CLOSE_RANGE_UNSHARE)` syscall; promotion and exact-`main`
+  remote CI verification remain pending;
   this decision grants no runtime, deployment, lifecycle-root, Docker-effect,
   recovery-effect, or stop authority
 - Date: 2026-08-28
@@ -387,8 +390,12 @@ canonical x86_64 seccomp manifests, and source-only systemd units. The
 candidates and units are not installed; candidate builders and native sources
 are retained in the source distribution only and excluded from wheels; the
 role import trees are immutable and inert; and every candidate record states
-`activation_authorized=false`. Final full regression, independent security
-review, promotion, and remote CI verification remain pending.
+`activation_authorized=false`. All locally runnable Wave 7 gates are complete,
+including the full regression, architecture/source-seal reconciliation, and
+independent security review. Linux x86_64 candidate/seccomp qualification
+remains remote-CI-only because the local Linux VM returns `ENOSYS` for the
+required `close_range(..., CLOSE_RANGE_UNSHARE)` syscall. Promotion and
+exact-`main` remote CI verification remain pending.
 
 No operational behavior changes merely because this milestone is implemented.
 There is still no production/default real lifecycle root, real Docker

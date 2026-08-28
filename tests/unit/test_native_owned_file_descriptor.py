@@ -2476,8 +2476,15 @@ def test_static_launcher_profiles_and_sdist_inputs_are_exact() -> None:
     assert fixed_launcher in dockerfile
     assert f'CMD ["{fixed_launcher}", "supervisor"]' in dockerfile
     assert dockerfile.count("SOURCE_DATE_EPOCH=0") == 1
-    assert "COPY native/trusted_time_python_launcher.c" in dockerfile
-    assert "COPY native/bounded_process.c" in dockerfile
+    native_copy = next(
+        instruction
+        for instruction in dockerfile.replace("\\\n", " ").splitlines()
+        if instruction.startswith("COPY native/")
+    ).split()
+    assert native_copy[0] == "COPY"
+    assert native_copy[-1] == "./native/"
+    assert "native/trusted_time_python_launcher.c" in native_copy[1:-1]
+    assert "native/bounded_process.c" in native_copy[1:-1]
     assert "/usr/local/bin/python -I -B -S" in dockerfile
     assert "native_owned_file_descriptor_launcher.json" in dockerfile
     assert "native/trusted_time_python_launcher.c" in dockerignore

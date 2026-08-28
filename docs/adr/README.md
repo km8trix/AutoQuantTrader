@@ -308,9 +308,14 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   argument-free encrypted-credential provisioning, tmpfs-only custody,
   source-only uninstalled systemd topology, four canonical x86_64 seccomp
   manifests, and six reproducible uninstalled candidates with immutable inert
-  import trees and `activation_authorized=false`; final full regression,
-  independent security review, promotion, and remote CI remain pending; grants
-  no production/default real lifecycle root, Docker effect, production caller,
-  deployment, activation, recovery effect, or stop authority)
+  import trees and `activation_authorized=false`; all locally runnable Wave 7
+  gates are complete, including the full regression, architecture/source-seal
+  reconciliation, and independent security review; Linux x86_64
+  candidate/seccomp qualification remains remote-CI-only because the local
+  Linux VM returns `ENOSYS` for the required
+  `close_range(..., CLOSE_RANGE_UNSHARE)` syscall; promotion and
+  exact-`main` remote CI verification remain pending; grants no production/default
+  real lifecycle root, Docker effect, production caller, deployment, activation,
+  recovery effect, or stop authority)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

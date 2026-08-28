@@ -9294,7 +9294,7 @@ def test_adr0111_architecture_checker_invocations_are_isolated_and_bytecode_free
         "          NATIVE_DIST_ROOT: "
         "${{ runner.temp }}/autoquant-native-${{ matrix.python-version }}"
     )
-    assert workflow_source.splitlines().count(native_dist_root) == 3
+    assert workflow_source.splitlines().count(native_dist_root) == 4
     assert (
         "      NATIVE_DIST_ROOT: ${{ runner.temp }}/autoquant-native-${{ matrix.python-version }}"
     ) not in workflow_source.splitlines()

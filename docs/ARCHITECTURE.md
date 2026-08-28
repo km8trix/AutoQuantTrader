@@ -258,9 +258,13 @@ secret custody, source-only systemd topology, and four canonical x86_64 seccomp
 manifests produce six reproducible, uninstalled candidates. Candidate builders
 and native source evidence are retained only in the source distribution, not
 wheels; three immutable role import trees are inert; and every candidate record
-states `activation_authorized=false`. Wave 7's final branch-wide regression,
-architecture/source-seal reconciliation, independent security review,
-promotion, and remote CI verification remain pending.
+states `activation_authorized=false`. All locally runnable Wave 7 gates are
+complete, including the branch-wide regression, architecture/source-seal
+reconciliation, and independent security review. Linux x86_64
+candidate/seccomp qualification remains remote-CI-only because the local Linux
+VM returns `ENOSYS` for the required
+`close_range(..., CLOSE_RANGE_UNSHARE)` syscall. Promotion and exact-`main`
+remote CI verification remain pending.
 
 This owner foundation creates no production/default real lifecycle root, real
 Docker transport/effect, production controller/runtime caller, Compose
@@ -5488,9 +5492,13 @@ them, and seccomp blocks effects. This is packaging and static isolation
 evidence, not arbitrary-Python-compromise safety or operational dependency
 composition.
 
-Wave 7's final branch-wide regression, architecture/source-seal reconciliation,
-independent security review, promotion, and remote CI verification remain
-pending. There is no production/default real lifecycle root, real Docker
+All locally runnable Wave 7 gates are complete, including the branch-wide
+regression, architecture/source-seal reconciliation, and independent security
+review. Linux x86_64 candidate/seccomp qualification remains remote-CI-only
+because the local Linux VM returns `ENOSYS` for the required
+`close_range(..., CLOSE_RANGE_UNSHARE)` syscall.
+Promotion and exact-`main` remote CI verification remain pending. There is no
+production/default real lifecycle root, real Docker
 transport/effect, production controller/runtime caller, Compose projection,
 unit installation/activation, deployment, strategy/deployment promotion, stop
 authority, or operational authority. `trusted-time-stop` remains the exact
