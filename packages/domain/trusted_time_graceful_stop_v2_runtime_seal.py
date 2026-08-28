@@ -12,8 +12,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
-from collections.abc import Callable, Mapping
-from types import MappingProxyType
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 _REGISTER_AT_FORK = getattr(os, "register_at_fork", None)
@@ -42,10 +41,8 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
     entry_type = _RuntimeSealEntry
     metadata_type = RuntimeSealMetadata
     attribute_error_type = AttributeError
-    copy_mapping = dict
     exact_type = type
     replace_entry = _RuntimeSealEntry._replace
-    freeze_mapping = MappingProxyType
     immutable_set_type = frozenset
     identity = id
     new_epoch = object
@@ -58,6 +55,25 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
     default_get_call_frame = sys._getframe
     default_rlock = threading.RLock
     default_register_at_fork = _REGISTER_AT_FORK
+
+    def find_entry(
+        entries: tuple[tuple[int, _RuntimeSealEntry], ...],
+        key: int,
+    ) -> _RuntimeSealEntry | None:
+        for entry_key, entry in entries:
+            if entry_key == key:
+                return entry
+        return None
+
+    def replace_stored_entry(
+        entries: tuple[tuple[int, _RuntimeSealEntry], ...],
+        key: int,
+        replacement: _RuntimeSealEntry,
+    ) -> tuple[tuple[int, _RuntimeSealEntry], ...]:
+        return tuple(
+            (entry_key, replacement if entry_key == key else entry)
+            for entry_key, entry in entries
+        )
 
     def registry_is_current(registry: Any) -> bool:
         return (
@@ -91,7 +107,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
         _consume_action_callers: frozenset[object]
         _consume_callers: frozenset[object]
         _current_thread: Callable[[], threading.Thread]
-        _entries: Mapping[int, _RuntimeSealEntry]
+        _entries: tuple[tuple[int, _RuntimeSealEntry], ...]
         _finalize_actions_callers: frozenset[object]
         _fork_epoch: object
         _fork_invalidated: bool
@@ -174,7 +190,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                         "lifecycle-v2 runtime-seal caller policy is not immutable"
                     )
             object_setattr(self, "_configuration_locked", False)
-            object_setattr(self, "_entries", freeze_mapping({}))
+            object_setattr(self, "_entries", ())
             object_setattr(self, "_getpid", _getpid)
             object_setattr(self, "_current_thread", _current_thread)
             object_setattr(self, "_get_call_frame", _get_call_frame)
@@ -221,22 +237,27 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                 return False
             key = identity(value)
             with self._lock:
-                if key in self._entries:
+                if find_entry(self._entries, key) is not None:
                     return False
-                entries = copy_mapping(self._entries)
-                entries[key] = entry_type(
-                    value=value,
-                    snapshot_sha256=snapshot_sha256,
-                    kind=kind,
-                    metadata=metadata_type(
-                        provenance=provenance,
-                        scope_sha256=scope_sha256,
-                        origin_pid=self._getpid(),
-                        origin_thread=self._current_thread(),
-                        fork_epoch=self._fork_epoch,
+                entries = (
+                    *self._entries,
+                    (
+                        key,
+                        entry_type(
+                            value=value,
+                            snapshot_sha256=snapshot_sha256,
+                            kind=kind,
+                            metadata=metadata_type(
+                                provenance=provenance,
+                                scope_sha256=scope_sha256,
+                                origin_pid=self._getpid(),
+                                origin_thread=self._current_thread(),
+                                fork_epoch=self._fork_epoch,
+                            ),
+                        ),
                     ),
                 )
-                object_setattr(self, "_entries", freeze_mapping(entries))
+                object_setattr(self, "_entries", entries)
             return True
 
         def require(
@@ -253,7 +274,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
             if not registry_is_current(self):
                 return None
             with self._lock:
-                entry = self._entries.get(identity(value))
+                entry = find_entry(self._entries, identity(value))
                 if (
                     entry is None
                     or entry.value is not value
@@ -284,7 +305,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                 return None
             with self._lock:
                 key = identity(value)
-                entry = self._entries.get(key)
+                entry = find_entry(self._entries, key)
                 if (
                     entry is None
                     or entry.value is not value
@@ -296,9 +317,12 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                     or (scope_sha256 is not None and entry.metadata.scope_sha256 != scope_sha256)
                 ):
                     return None
-                entries = copy_mapping(self._entries)
-                entries[key] = replace_entry(entry, consumed=True)
-                object_setattr(self, "_entries", freeze_mapping(entries))
+                entries = replace_stored_entry(
+                    self._entries,
+                    key,
+                    replace_entry(entry, consumed=True),
+                )
+                object_setattr(self, "_entries", entries)
                 return entry.metadata
 
         def transition(
@@ -320,7 +344,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
             with self._lock:
                 source_key = identity(source)
                 result_key = identity(result)
-                source_entry = self._entries.get(source_key)
+                source_entry = find_entry(self._entries, source_key)
                 if (
                     source_entry is None
                     or source_entry.value is not source
@@ -330,24 +354,32 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                     or not entry_is_current(self, source_entry)
                     or source_entry.metadata.provenance != provenance
                     or source_entry.metadata.scope_sha256 != scope_sha256
-                    or result_key in self._entries
+                    or find_entry(self._entries, result_key) is not None
                 ):
                     return False
-                entries = copy_mapping(self._entries)
-                entries[source_key] = replace_entry(source_entry, consumed=True)
-                entries[result_key] = entry_type(
-                    value=result,
-                    snapshot_sha256=result_snapshot_sha256,
-                    kind=kind,
-                    metadata=metadata_type(
-                        provenance=provenance,
-                        scope_sha256=scope_sha256,
-                        origin_pid=self._getpid(),
-                        origin_thread=self._current_thread(),
-                        fork_epoch=self._fork_epoch,
+                entries = (
+                    *replace_stored_entry(
+                        self._entries,
+                        source_key,
+                        replace_entry(source_entry, consumed=True),
+                    ),
+                    (
+                        result_key,
+                        entry_type(
+                            value=result,
+                            snapshot_sha256=result_snapshot_sha256,
+                            kind=kind,
+                            metadata=metadata_type(
+                                provenance=provenance,
+                                scope_sha256=scope_sha256,
+                                origin_pid=self._getpid(),
+                                origin_thread=self._current_thread(),
+                                fork_epoch=self._fork_epoch,
+                            ),
+                        ),
                     ),
                 )
-                object_setattr(self, "_entries", freeze_mapping(entries))
+                object_setattr(self, "_entries", entries)
                 return True
 
         def consume_action(
@@ -366,7 +398,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                 return None
             with self._lock:
                 key = identity(value)
-                entry = self._entries.get(key)
+                entry = find_entry(self._entries, key)
                 if (
                     entry is None
                     or entry.value is not value
@@ -378,12 +410,15 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                     or not entry_is_current(self, entry)
                 ):
                     return None
-                entries = copy_mapping(self._entries)
-                entries[key] = replace_entry(
-                    entry,
-                    actions=entry.actions | {action},
+                entries = replace_stored_entry(
+                    self._entries,
+                    key,
+                    replace_entry(
+                        entry,
+                        actions=entry.actions | immutable_set_type((action,)),
+                    ),
                 )
-                object_setattr(self, "_entries", freeze_mapping(entries))
+                object_setattr(self, "_entries", entries)
                 return entry.metadata
 
         def consume_action_and_transfer(
@@ -408,7 +443,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
             with self._lock:
                 source_key = identity(source)
                 result_key = identity(result)
-                source_entry = self._entries.get(source_key)
+                source_entry = find_entry(self._entries, source_key)
                 if (
                     source_entry is None
                     or source_entry.value is not source
@@ -418,27 +453,36 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                     or action in source_entry.actions
                     or not prerequisites.issubset(source_entry.actions)
                     or not entry_is_current(self, source_entry)
-                    or result_key in self._entries
+                    or find_entry(self._entries, result_key) is not None
                 ):
                     return None
-                entries = copy_mapping(self._entries)
-                entries[source_key] = replace_entry(
-                    source_entry,
-                    actions=source_entry.actions | {action},
-                )
-                entries[result_key] = entry_type(
-                    value=result,
-                    snapshot_sha256=result_snapshot_sha256,
-                    kind=result_kind,
-                    metadata=metadata_type(
-                        provenance=source_entry.metadata.provenance,
-                        scope_sha256=source_entry.metadata.scope_sha256,
-                        origin_pid=self._getpid(),
-                        origin_thread=self._current_thread(),
-                        fork_epoch=self._fork_epoch,
+                entries = (
+                    *replace_stored_entry(
+                        self._entries,
+                        source_key,
+                        replace_entry(
+                            source_entry,
+                            actions=source_entry.actions
+                            | immutable_set_type((action,)),
+                        ),
+                    ),
+                    (
+                        result_key,
+                        entry_type(
+                            value=result,
+                            snapshot_sha256=result_snapshot_sha256,
+                            kind=result_kind,
+                            metadata=metadata_type(
+                                provenance=source_entry.metadata.provenance,
+                                scope_sha256=source_entry.metadata.scope_sha256,
+                                origin_pid=self._getpid(),
+                                origin_thread=self._current_thread(),
+                                fork_epoch=self._fork_epoch,
+                            ),
+                        ),
                     ),
                 )
-                object_setattr(self, "_entries", freeze_mapping(entries))
+                object_setattr(self, "_entries", entries)
                 return source_entry.metadata
 
         def finalize_actions(
@@ -456,7 +500,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                 return None
             with self._lock:
                 key = identity(value)
-                entry = self._entries.get(key)
+                entry = find_entry(self._entries, key)
                 if (
                     entry is None
                     or entry.value is not value
@@ -467,9 +511,12 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                     or not entry_is_current(self, entry)
                 ):
                     return None
-                entries = copy_mapping(self._entries)
-                entries[key] = replace_entry(entry, consumed=True)
-                object_setattr(self, "_entries", freeze_mapping(entries))
+                entries = replace_stored_entry(
+                    self._entries,
+                    key,
+                    replace_entry(entry, consumed=True),
+                )
+                object_setattr(self, "_entries", entries)
                 return entry.metadata
 
     _LifecycleV2RuntimeSealRegistry.__name__ = "LifecycleV2RuntimeSealRegistry"
@@ -597,7 +644,6 @@ def _install_lifecycle_v2_runtime_seal_bootstrap_claim() -> Callable[..., object
 _claim_lifecycle_v2_runtime_seal_bootstrap = _install_lifecycle_v2_runtime_seal_bootstrap_claim()
 del _install_lifecycle_v2_runtime_seal_bootstrap_claim
 globals().pop("_REGISTER_AT_FORK", None)
-globals().pop("MappingProxyType", None)
 globals().pop("NamedTuple", None)
 globals().pop("replace", None)
 globals().pop("sys", None)

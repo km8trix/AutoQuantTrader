@@ -269,6 +269,7 @@ def test_recursive_authority_extraction_cannot_seal_or_commit_ordinal_22_clone()
     completed = _run_isolated(
         r"""
 import dataclasses
+import gc
 import runpy
 from types import FunctionType, MappingProxyType, MethodType
 
@@ -429,8 +430,20 @@ for path, endpoint in roots:
 
 assert not mutable_state, mutable_state
 assert registries
+
+def registry_entry(registry, value):
+    return next(
+        entry
+        for entry_key, entry in registry._entries
+        if entry_key == id(value)
+    )
+
 for registry in registries.values():
-    assert type(registry._entries) is MappingProxyType
+    assert type(registry._entries) is tuple
+    assert all(
+        type(referent) is not dict
+        for referent in gc.get_referents(registry._entries)
+    )
     for policy_name in (
         "_seal_callers",
         "_transition_callers",
@@ -460,14 +473,16 @@ for registry in registries.values():
         raise AssertionError("registry accepted ordinary reinitialization")
 
 lifecycle_registry = next(
-    registry for registry in registries.values() if id(lineage) in registry._entries
+    registry
+    for registry in registries.values()
+    if any(entry_key == id(lineage) for entry_key, _entry in registry._entries)
 )
-lineage_entry = lifecycle_registry._entries[id(lineage)]
+lineage_entry = registry_entry(lifecycle_registry, lineage)
 lineage_metadata = lineage_entry.metadata
 lineage_digest = semantics._lineage_snapshot(lineage)
 try:
-    lifecycle_registry._entries[id(clone)] = lineage_entry
-except TypeError:
+    lifecycle_registry._entries += ((id(clone), lineage_entry),)
+except AttributeError:
     pass
 else:
     raise AssertionError("registry entry snapshot accepted ordinary mutation")
@@ -605,6 +620,13 @@ import packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics as sema
 import packages.domain.trusted_time_graceful_stop_v2_runtime_seal as runtime_seal
 from tests.unit import test_trusted_time_graceful_stop_v2_lifecycle_semantics as fixtures
 
+def registry_entry(registry, value):
+    return next(
+        entry
+        for entry_key, entry in registry._entries
+        if entry_key == id(value)
+    )
+
 scenario = fixtures._scenario()
 lineage, mounts, owners = fixtures._through_twenty_one(scenario)
 authorization = lineage.terminal_cleanup_authorization
@@ -619,7 +641,7 @@ registry = next(
     and type(cell.cell_contents.__self__)
     is runtime_seal.LifecycleV2RuntimeSealRegistry
 )
-entry_before = registry._entries[id(authorization)]
+entry_before = registry_entry(registry, authorization)
 assert entry_before.actions == frozenset()
 assert entry_before.consumed is False
 
@@ -637,7 +659,7 @@ for endpoint in published_action_endpoints:
         assert "escaped its exact semantic call chain" in str(error)
     else:
         raise AssertionError("published action endpoint accepted a direct call")
-    assert registry._entries[id(authorization)] is entry_before
+    assert registry_entry(registry, authorization) is entry_before
 
 try:
     finalize_endpoint(authorization, snapshot)
@@ -645,7 +667,7 @@ except semantics.TrustedTimeLifecycleV2SemanticsRejected as error:
     assert "escaped its exact semantic call chain" in str(error)
 else:
     raise AssertionError("published finalizer accepted a direct call")
-assert registry._entries[id(authorization)] is entry_before
+assert registry_entry(registry, authorization) is entry_before
 
 def closure_value(endpoint, name):
     return next(
@@ -711,7 +733,7 @@ for operation in (
         assert "escaped its exact semantic call chain" in str(error)
     else:
         raise AssertionError("extracted original helper escaped its semantic wrapper")
-    assert registry._entries[id(authorization)] is entry_before
+    assert registry_entry(registry, authorization) is entry_before
 
 unmount = semantics.LifecycleV2SecretMountUnmountReceipt.completed(
     root=scenario.root,
@@ -753,7 +775,7 @@ completed_lineage = lineage.retain_terminal_cleanup_confirmed(
     recorded_at_utc=fixtures.UTC_TEXT,
 )
 assert completed_lineage.last_record.ordinal == 22
-final_entry = registry._entries[id(authorization)]
+final_entry = registry_entry(registry, authorization)
 assert final_entry.actions == semantics._TERMINAL_CLEANUP_AUTHORIZATION_ACTIONS
 assert final_entry.consumed is True
 print("direct action/finalizer calls rejected; authentic semantic chain accepted")
