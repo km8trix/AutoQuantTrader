@@ -3410,9 +3410,17 @@ def test_repository_verifier_rejects_cross_record_path_and_nested_payload() -> N
     verifier = ed25519_adapter._build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
         _authenticated_manifest(manifest)
     )
-    drifted_record = dataclasses.replace(
-        terminal_record,
-        predecessor_sha256=_digest("another-intent"),
+    drifted_record = object.__new__(LifecycleV2ProgressRecord)
+    for field in dataclasses.fields(terminal_record):
+        object.__setattr__(
+            drifted_record,
+            field.name,
+            getattr(terminal_record, field.name),
+        )
+    object.__setattr__(
+        drifted_record,
+        "predecessor_sha256",
+        _digest("another-intent"),
     )
     structurally_signed_but_untyped = _envelope(
         root,
@@ -3420,7 +3428,7 @@ def test_repository_verifier_rejects_cross_record_path_and_nested_payload() -> N
         frame_type="clean_stop_result",
     )
 
-    with pytest.raises(LifecycleV2TransportAuthenticationError, match="root, intent"):
+    with pytest.raises(LifecycleV2TransportAuthenticationError, match="not canonical"):
         verifier.reauthenticate_retained_terminal_wire(
             envelope=envelope,
             root=root,

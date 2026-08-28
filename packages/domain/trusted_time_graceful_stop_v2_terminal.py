@@ -261,12 +261,57 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
             "graceful_stop_v2_ed25519.py",
         )
     )
-    with open(adapter_source, "rb") as adapter_source_file:
-        expected_adapter_code = compile(
-            adapter_source_file.read(),
-            adapter_source,
-            "exec",
-        )
+    expected_adapter_code_sha256 = (
+        "713f396e7016f17c3aa421260f2370877a4cd28cf4367b88ebd99a1719bd020d"
+    )
+    digest_code = hashlib.sha256
+    exact_repr = repr
+
+    def code_sha256(value: CodeType) -> str:
+        def constant_material(constant: object) -> object:
+            if type(constant) is CodeType:
+                return ("code", code_material(constant))
+            if type(constant) is tuple:
+                return (
+                    "tuple",
+                    tuple(constant_material(item) for item in constant),
+                )
+            if type(constant) is frozenset:
+                return (
+                    "frozenset",
+                    tuple(
+                        sorted(
+                            (constant_material(item) for item in constant),
+                            key=exact_repr,
+                        )
+                    ),
+                )
+            if type(constant) is bytes:
+                return ("bytes", constant.hex())
+            return (type(constant).__name__, exact_repr(constant))
+
+        def code_material(code: CodeType) -> tuple[object, ...]:
+            return (
+                code.co_name,
+                code.co_qualname,
+                code.co_argcount,
+                code.co_posonlyargcount,
+                code.co_kwonlyargcount,
+                code.co_nlocals,
+                code.co_stacksize,
+                code.co_flags,
+                code.co_firstlineno,
+                code.co_code.hex(),
+                tuple(constant_material(item) for item in code.co_consts),
+                code.co_names,
+                code.co_varnames,
+                code.co_freevars,
+                code.co_cellvars,
+                code.co_linetable.hex(),
+                code.co_exceptiontable.hex(),
+            )
+
+        return digest_code(exact_repr(code_material(value)).encode("utf-8")).hexdigest()
     expected_adapter_names = frozenset(
         {
             "_build_authenticated_transport_envelope_unwrapper",
@@ -310,7 +355,7 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
                 )
             if (
                 caller_code.co_name != "<module>"
-                or caller_code != expected_adapter_code
+                or code_sha256(caller_code) != expected_adapter_code_sha256
                 or not expected_adapter_names.issubset(caller_code.co_names)
                 or exact_realpath(caller_code.co_filename) != adapter_source
             ):
