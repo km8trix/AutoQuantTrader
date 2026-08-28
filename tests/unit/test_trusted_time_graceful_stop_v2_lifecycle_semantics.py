@@ -16,7 +16,6 @@ import packages.domain.trusted_time_graceful_stop_v2_docker as docker_semantics_
 import packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics as lifecycle_module
 import packages.domain.trusted_time_graceful_stop_v2_terminal as terminal_semantics_module
 from packages.domain.trusted_time_graceful_stop_v2 import (
-    _FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY,
     LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION,
     LIFECYCLE_V2_ROOT_CONTRACT_VERSION,
     LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION,
@@ -31,8 +30,8 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     LifecycleV2TranscriptEntry,
     TrustedTimeGracefulStopV2Rejected,
     UnverifiedLifecycleV2TransportEnvelope,
-    _authenticate_lifecycle_v2_transport_envelope_for_fake,
     canonical_v2_json_bytes,
+    decode_lifecycle_v2_progress_record,
 )
 from packages.domain.trusted_time_graceful_stop_v2_docker import (
     DockerAdmissionCapture,
@@ -74,7 +73,6 @@ from packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics import (
     require_exact_lifecycle_v2_normal_lineage_through_ordinal_19,
 )
 from packages.domain.trusted_time_graceful_stop_v2_terminal import (
-    _FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
     CLEAN_STOP_RESULT_CONTRACT_VERSION,
     LISTENER_PATH,
     SUPERVISOR_CLEANUP_COMMITMENT_CONTRACT_VERSION,
@@ -85,7 +83,7 @@ from packages.domain.trusted_time_graceful_stop_v2_terminal import (
     LifecycleV2TerminalProjection,
     LifecycleV2TerminalWireEvidence,
     LifecycleV2WirePublicationReceipt,
-    _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof,
+    _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests,
 )
 from tests.unit.trusted_time_graceful_stop_v2_docker_fakes import (
     FakeDockerDaemon,
@@ -372,14 +370,9 @@ def _terminal_wire(
             "signature_ed25519_base64": base64.b64encode(bytes(64)).decode("ascii"),
         }
     )
-    authenticated = _authenticate_lifecycle_v2_transport_envelope_for_fake(
+    proof = _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests(
         envelope,
-        capability=_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY,
-    )
-    proof = _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof(
-        authenticated,
         root=root,
-        capability=_FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
     )
     file_name = f"trusted-time-post-enrollment-graceful-stop-v2-wire-result-{envelope.sha256}.json"
     receipt = LifecycleV2WirePublicationReceipt.capture(
@@ -606,8 +599,84 @@ def _transport_quiescence(
     )
 
 
+def _binding_observation(
+    scenario: _Scenario,
+    *,
+    issuer: str,
+    observation: str,
+    started: int,
+    completed: int,
+) -> tuple[dict[str, object], str]:
+    terminal = scenario.clean_stop_result.terminal_projection.to_dict()
+    fields: dict[str, object] = {
+        "contract_version": (
+            "phase6d-post-enrollment-clean-stop-terminal-reauthentication-v1"
+        ),
+        "status": "provider_terminal_observed_under_stable_sql_authenticated",
+        "anchor_sequence": terminal["anchor_sequence"],
+        "checkpoint_reason": terminal["checkpoint_reason"],
+        "confirmed_anchor_count": terminal["confirmed_anchor_count"],
+        "local_transition_count": terminal["local_transition_count"],
+        "confirmed_anchor_local_transition_ordinal": terminal[
+            "confirmed_anchor_local_transition_ordinal"
+        ],
+        "remote_object_count": terminal["anchor_sequence"],
+        "predecessor_anchor_sha256": terminal["predecessor_anchor_sha256"],
+        "current_host_head_sha256": terminal["current_host_head_sha256"],
+        "current_anchor_sha256": terminal["current_anchor_sha256"],
+        "current_anchor_semantic_sha256": terminal["current_anchor_semantic_sha256"],
+        "anchor_intent_semantic_sha256": terminal[
+            "current_anchor_intent_semantic_sha256"
+        ],
+        "candidate_remote_readback_sha256": terminal[
+            "current_candidate_remote_readback_sha256"
+        ],
+        "receipt_semantic_sha256": terminal["current_receipt_semantic_sha256"],
+        "receipt_observed_at_utc": terminal["receipt_observed_at_utc"],
+        "remote_observation_sha256": _digest(f"remote-{observation}"),
+        "anchor_authority_sha256": _digest("reauth-anchor-authority"),
+        "deployment_identity_sha256": _digest("reauth-deployment"),
+        "runtime_database_identity_sha256": _digest("reauth-database"),
+        "anchor_project_identity_sha256": _digest("reauth-project"),
+        "source_authority_sha256": _digest("reauth-source-authority"),
+        "signing_public_key_sha256": _digest("reauth-signing-key"),
+        "host_identity_sha256": _digest("reauth-host"),
+        "principal_identity_sha256": _digest("reauth-principal"),
+        "bucket_identity_sha256": _digest("reauth-bucket"),
+        "observation_started_monotonic_ns": started,
+        "observation_completed_monotonic_ns": completed,
+        "deadline_monotonic_ns": started + 120_000_000_000,
+        "issuer_binding_sha256": _digest(issuer),
+        "read_only_configuration_sha256": _digest("reauth-read-only-configuration"),
+    }
+    fields["semantic_sha256"] = hashlib.sha256(
+        canonical_v2_json_bytes(fields, maximum_bytes=256 * 1_024)
+    ).hexdigest()
+    provider_projection = {
+        name: fields[name]
+        for name in (
+            "anchor_authority_sha256",
+            "deployment_identity_sha256",
+            "runtime_database_identity_sha256",
+            "anchor_project_identity_sha256",
+            "source_authority_sha256",
+            "signing_public_key_sha256",
+            "host_identity_sha256",
+            "principal_identity_sha256",
+            "bucket_identity_sha256",
+            "read_only_configuration_sha256",
+        )
+    }
+    provider_sha256 = hashlib.sha256(
+        b"AutoQuantTrader/trusted-time/graceful-stop/adr0109-provider-identity/v2\0"
+        + canonical_v2_json_bytes(provider_projection, maximum_bytes=256 * 1_024)
+    ).hexdigest()
+    return fields, provider_sha256
+
+
 def _binding(
-    root: LifecycleV2Root,
+    scenario: _Scenario,
+    lineage: LifecycleV2NormalProgressLineage,
     intent: LifecycleV2ReauthenticationIntent,
     *,
     issuer: str,
@@ -616,7 +685,90 @@ def _binding(
     started: int,
     completed: int,
 ) -> LifecycleV2AuthenticatedReauthenticationBinding:
+    root = scenario.root
     boundary = intent.boundary
+    observation_fields, provider_sha256 = _binding_observation(
+        scenario,
+        issuer=issuer,
+        observation=observation,
+        started=started,
+        completed=completed,
+    )
+    terminal = scenario.clean_stop_result.terminal_projection.to_dict()
+    binding_evidence: dict[str, object] = {
+        "contract_version": (
+            "phase6d-trusted-time-graceful-stop-"
+            f"{boundary.replace('_', '-')}-reauthentication-binding-v2"
+        ),
+        "service": "trusted-time-post-enrollment-graceful-stop-lifecycle-v2",
+        "status": (
+            "fresh_pre_effect_adr0109_observation_bound"
+            if boundary == "pre_effect"
+            else "distinct_post_teardown_adr0109_observation_bound"
+        ),
+        "environment": root.environment,
+        "graceful_stop_operation_id": root.graceful_stop_operation_id,
+        "lifecycle_root_sha256": root.sha256,
+        "expected_checkpoint_reason": "clean_stop",
+        "expected_clean_stop_head_sha256": terminal["current_anchor_sha256"],
+        "expected_clean_stop_terminal_result_semantic_sha256": terminal[
+            "clean_stop_terminal_result_semantic_sha256"
+        ],
+        "adr0109_observation": observation_fields,
+        "adr0109_observation_sha256": hashlib.sha256(
+            canonical_v2_json_bytes(observation_fields, maximum_bytes=256 * 1_024)
+        ).hexdigest(),
+        "provider_identity_sha256": provider_sha256,
+        "observation_semantic_sha256": observation_fields["semantic_sha256"],
+        "adr0109_issuer_binding_sha256": observation_fields["issuer_binding_sha256"],
+        "adr0109_read_only_configuration_sha256": observation_fields[
+            "read_only_configuration_sha256"
+        ],
+        "issuer_challenge_sha256": _digest(challenge),
+        "observation_started_monotonic_ns": started,
+        "observation_completed_monotonic_ns": completed,
+        "observation_deadline_monotonic_ns": observation_fields["deadline_monotonic_ns"],
+    }
+    if boundary == "pre_effect":
+        binding_evidence.update(
+            {
+                "clean_stop_request_sha256": scenario.clean_stop_result.request.sha256,
+                "clean_stop_result_sha256": scenario.clean_stop_result.sha256,
+                "channel_id": root.channel_id,
+                "topology_sha256": root.topology_sha256,
+                "topology_lease_sha256": root.topology_lease_sha256,
+                "transport_quiescence_record_sha256": lineage.record_at(4).sha256,
+                "pre_effect_intent_sha256": lineage.last_record.sha256,
+            }
+        )
+    else:
+        assert lineage.prefix_through_eighteen is not None
+        assert lineage.pre_effect_binding is not None
+        binding_evidence.update(
+            {
+                "published_prefix_through_ordinal_18_sha256": (
+                    lineage.prefix_through_eighteen.sha256
+                ),
+                "pre_effect_binding_sha256": lineage.pre_effect_binding.to_dict()[
+                    "binding_evidence_sha256"
+                ],
+                "supervisor_stop_result_sha256": lineage.record_at(8).sha256,
+                "source_stop_result_sha256": lineage.record_at(10).sha256,
+                "supervisor_remove_result_sha256": lineage.record_at(12).sha256,
+                "source_remove_result_sha256": lineage.record_at(14).sha256,
+                "project_network_remove_result_sha256": lineage.record_at(16).sha256,
+                "volume_proof_sha256": lineage.record_at(18).sha256,
+                "post_teardown_intent_sha256": lineage.last_record.sha256,
+            }
+        )
+    binding_evidence_sha256 = hashlib.sha256(
+        (
+            "AutoQuantTrader/trusted-time/graceful-stop/"
+            f"{boundary.replace('_', '-')}-reauthentication-binding/v2"
+        ).encode("ascii")
+        + b"\0"
+        + canonical_v2_json_bytes(binding_evidence, maximum_bytes=256 * 1_024)
+    ).hexdigest()
     return _mint_fake_lifecycle_v2_reauthentication_binding(
         {
             "contract_version": (
@@ -631,14 +783,16 @@ def _binding(
             "channel_id": root.channel_id,
             "boundary": boundary,
             "intent_semantic_sha256": intent.sha256,
+            "binding_evidence_sha256": binding_evidence_sha256,
             "issuer_identity_sha256": _digest(issuer),
             "challenge_sha256": _digest(challenge),
-            "observation_semantic_sha256": _digest(observation),
+            "observation_semantic_sha256": observation_fields["semantic_sha256"],
             "observed_head_sha256": intent.to_dict()["expected_head_sha256"],
-            "provider_identity_sha256": intent.to_dict()["provider_identity_sha256"],
+            "provider_identity_sha256": provider_sha256,
             "observation_started_boottime_ns": started,
             "observation_completed_boottime_ns": completed,
         },
+        binding_evidence=binding_evidence,
         root=root,
         intent=intent,
     )
@@ -777,14 +931,22 @@ def _through_six(scenario: _Scenario) -> LifecycleV2NormalProgressLineage:
     lineage = lineage.confirm_transport_channel_quiesced(
         quiescence=quiescence, recorded_at_utc=UTC_TEXT
     )
+    _observation, provider_sha256 = _binding_observation(
+        scenario,
+        issuer="pre-issuer",
+        observation="pre-observation",
+        started=100,
+        completed=200,
+    )
     lineage = lineage.retain_pre_effect_reauthentication_intent(
-        provider_identity_sha256=_digest("provider"),
+        provider_identity_sha256=provider_sha256,
         call_deadline_boottime_ns=PRE_EFFECT_REAUTHENTICATION_DEADLINE_NS,
         recorded_at_utc=UTC_TEXT,
     )
     intent = cast(LifecycleV2ReauthenticationIntent, lineage.semantic_at(5))
     binding = _binding(
-        scenario.root,
+        scenario,
+        lineage,
         intent,
         issuer="pre-issuer",
         challenge="pre-challenge",
@@ -898,15 +1060,23 @@ def _through_twenty_one(
 ]:
     lineage = _through_eighteen(scenario)
     transcript = _prefix_transcript(scenario, lineage)
+    _observation, provider_sha256 = _binding_observation(
+        scenario,
+        issuer="post-issuer",
+        observation="post-observation",
+        started=1_100_000,
+        completed=1_100_100,
+    )
     lineage = lineage.retain_post_teardown_reauthentication_intent(
         prefix_transcript=transcript,
-        provider_identity_sha256=_digest("provider"),
+        provider_identity_sha256=provider_sha256,
         call_deadline_boottime_ns=POST_TEARDOWN_REAUTHENTICATION_DEADLINE_NS,
         recorded_at_utc=UTC_TEXT,
     )
     intent = cast(LifecycleV2ReauthenticationIntent, lineage.semantic_at(19))
     binding = _binding(
-        scenario.root,
+        scenario,
+        lineage,
         intent,
         issuer="post-issuer",
         challenge="post-challenge",
@@ -1324,9 +1494,16 @@ def test_reauthentication_binding_is_sealed_distinct_and_strictly_post_teardown(
     scenario = _scenario()
     lineage = _through_eighteen(scenario)
     transcript = _prefix_transcript(scenario, lineage)
+    _observation, provider_sha256 = _binding_observation(
+        scenario,
+        issuer="pre-issuer",
+        observation="post-observation",
+        started=1_100_000,
+        completed=1_100_100,
+    )
     lineage = lineage.retain_post_teardown_reauthentication_intent(
         prefix_transcript=transcript,
-        provider_identity_sha256=_digest("provider"),
+        provider_identity_sha256=provider_sha256,
         call_deadline_boottime_ns=POST_TEARDOWN_REAUTHENTICATION_DEADLINE_NS,
         recorded_at_utc=UTC_TEXT,
     )
@@ -1334,40 +1511,77 @@ def test_reauthentication_binding_is_sealed_distinct_and_strictly_post_teardown(
     with pytest.raises(TypeError):
         LifecycleV2AuthenticatedReauthenticationBinding(issuer_identity_sha256=_digest("forged"))
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
-        _mint_fake_lifecycle_v2_reauthentication_binding({}, root=scenario.root, intent=intent)
-    pre = cast(
-        LifecycleV2AuthenticatedReauthenticationBinding,
-        lineage.pre_effect_binding,
+        _mint_fake_lifecycle_v2_reauthentication_binding(
+            {},
+            binding_evidence={},
+            root=scenario.root,
+            intent=intent,
+        )
+    binding = _binding(
+        scenario,
+        lineage,
+        intent,
+        issuer="pre-issuer",
+        challenge="pre-challenge",
+        observation="post-observation",
+        started=1_100_000,
+        completed=1_100_100,
     )
-    pre_fields = pre.to_dict()
-    value = {
-        "contract_version": (
-            "phase6d-trusted-time-graceful-stop-post-teardown-reauthentication-binding-v2"
-        ),
-        "service": LIFECYCLE_V2_CLEANUP_SERVICE,
-        "status": "post_teardown_reauthentication_bound",
-        "environment": scenario.root.environment,
-        "graceful_stop_operation_id": scenario.root.graceful_stop_operation_id,
-        "lifecycle_root_sha256": scenario.root.sha256,
-        "channel_id": scenario.root.channel_id,
-        "boundary": "post_teardown",
-        "intent_semantic_sha256": intent.sha256,
-        "issuer_identity_sha256": pre_fields["issuer_identity_sha256"],
-        "challenge_sha256": pre_fields["challenge_sha256"],
-        "observation_semantic_sha256": _digest("post-observation"),
-        "observed_head_sha256": intent.to_dict()["expected_head_sha256"],
-        "provider_identity_sha256": intent.to_dict()["provider_identity_sha256"],
-        "observation_started_boottime_ns": 1_100_000,
-        "observation_completed_boottime_ns": 1_100_100,
-    }
-    binding = _mint_fake_lifecycle_v2_reauthentication_binding(
-        value,
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        lineage.retain_post_teardown_reauthentication_binding(
+            binding=binding, recorded_at_utc=UTC_TEXT
+        )
+
+
+def test_post_reauthentication_binding_rejects_cross_prefix_durable_evidence() -> None:
+    scenario = _scenario()
+    lineage = _through_eighteen(scenario)
+    transcript = _prefix_transcript(scenario, lineage)
+    _observation, provider_sha256 = _binding_observation(
+        scenario,
+        issuer="post-issuer",
+        observation="post-observation",
+        started=1_100_000,
+        completed=1_100_100,
+    )
+    lineage = lineage.retain_post_teardown_reauthentication_intent(
+        prefix_transcript=transcript,
+        provider_identity_sha256=provider_sha256,
+        call_deadline_boottime_ns=POST_TEARDOWN_REAUTHENTICATION_DEADLINE_NS,
+        recorded_at_utc=UTC_TEXT,
+    )
+    intent = cast(LifecycleV2ReauthenticationIntent, lineage.semantic_at(19))
+    exact = _binding(
+        scenario,
+        lineage,
+        intent,
+        issuer="post-issuer",
+        challenge="post-challenge",
+        observation="post-observation",
+        started=1_100_000,
+        completed=1_100_100,
+    )
+    binding_evidence = exact.binding_evidence.to_dict()
+    binding_evidence["pre_effect_binding_sha256"] = _digest(
+        "cross-prefix-pre-effect-binding"
+    )
+    binding_evidence_sha256 = hashlib.sha256(
+        b"AutoQuantTrader/trusted-time/graceful-stop/"
+        b"post-teardown-reauthentication-binding/v2\0"
+        + canonical_v2_json_bytes(binding_evidence, maximum_bytes=256 * 1_024)
+    ).hexdigest()
+    semantic_fields = exact.to_dict()
+    semantic_fields["binding_evidence_sha256"] = binding_evidence_sha256
+    forged = _mint_fake_lifecycle_v2_reauthentication_binding(
+        semantic_fields,
+        binding_evidence=binding_evidence,
         root=scenario.root,
         intent=intent,
     )
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
         lineage.retain_post_teardown_reauthentication_binding(
-            binding=binding, recorded_at_utc=UTC_TEXT
+            binding=forged,
+            recorded_at_utc=UTC_TEXT,
         )
 
 
@@ -1398,15 +1612,23 @@ def test_terminal_cleanup_rejects_cross_root_absence_and_stale_final_observation
     scenario = _scenario()
     lineage = _through_eighteen(scenario)
     transcript = _prefix_transcript(scenario, lineage)
+    _observation, provider_sha256 = _binding_observation(
+        scenario,
+        issuer="post-issuer",
+        observation="post-observation",
+        started=1_100_000,
+        completed=1_100_100,
+    )
     lineage = lineage.retain_post_teardown_reauthentication_intent(
         prefix_transcript=transcript,
-        provider_identity_sha256=_digest("provider"),
+        provider_identity_sha256=provider_sha256,
         call_deadline_boottime_ns=POST_TEARDOWN_REAUTHENTICATION_DEADLINE_NS,
         recorded_at_utc=UTC_TEXT,
     )
     intent = cast(LifecycleV2ReauthenticationIntent, lineage.semantic_at(19))
     binding = _binding(
-        scenario.root,
+        scenario,
+        lineage,
         intent,
         issuer="post-issuer",
         challenge="post-challenge",
@@ -1637,7 +1859,12 @@ def test_unregistered_reauthentication_primitive_builder_is_inert() -> None:
     intent = cast(LifecycleV2ReauthenticationIntent, lineage.semantic_at(5))
     sealed = cast(LifecycleV2AuthenticatedReauthenticationBinding, lineage.semantic_at(6))
     raw_builder = lifecycle_module._build_unregistered_authenticated_reauthentication_binding
-    raw = raw_builder(sealed.to_dict(), root=lineage.root, intent=intent)
+    raw = raw_builder(
+        sealed.to_dict(),
+        binding_evidence=sealed.binding_evidence,
+        root=lineage.root,
+        intent=intent,
+    )
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected, match="sealed"):
         raw.to_dict()
 
@@ -1798,6 +2025,21 @@ def test_retained_semantic_mutation_invalidates_the_whole_lineage() -> None:
         _ = lineage.last_record
 
     scenario = _scenario()
+    lineage = _through_six(scenario)
+    binding = cast(LifecycleV2AuthenticatedReauthenticationBinding, lineage.semantic_at(6))
+    changed_evidence = binding.binding_evidence.to_dict()
+    changed_evidence["issuer_challenge_sha256"] = _digest(
+        "mutated-retained-evidence-challenge"
+    )
+    object.__setattr__(
+        binding,
+        "binding_evidence",
+        FrozenJsonObject.capture(changed_evidence),
+    )
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        _ = lineage.last_record
+
+    scenario = _scenario()
     lineage = _through_eighteen(scenario)
     docker_result = cast(DockerMutationResultSemantic, lineage.semantic_at(8))
     changed_result = docker_result.fields.to_dict()
@@ -1807,6 +2049,20 @@ def test_retained_semantic_mutation_invalidates_the_whole_lineage() -> None:
     object.__setattr__(docker_result, "fields", FrozenJsonObject.capture(changed_result))
     with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
         _ = lineage.last_record
+
+
+def test_reauthentication_record_decode_rejects_nested_evidence_substitution() -> None:
+    lineage = _through_six(_scenario())
+    record = lineage.record_at(6)
+    assert decode_lifecycle_v2_progress_record(record.encoded) == record
+    value = record.to_dict()
+    evidence = cast(dict[str, object], value["evidence"])
+    binding_evidence = cast(dict[str, object], evidence["binding_evidence"])
+    observation = cast(dict[str, object], binding_evidence["adr0109_observation"])
+    observation["current_anchor_sha256"] = _digest("substituted-observation-anchor")
+    encoded = canonical_v2_json_bytes(value, maximum_bytes=256 * 1_024)
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+        decode_lifecycle_v2_progress_record(encoded)
 
 
 def test_lineage_and_success_snapshot_are_thread_bound() -> None:
@@ -1890,14 +2146,22 @@ def test_literal_prefix_validators_reject_consumed_or_wrong_ordinal_lineages() -
         quiescence=_transport_quiescence(scenario, plan, lineage.last_record),
         recorded_at_utc=UTC_TEXT,
     )
+    _observation, provider_sha256 = _binding_observation(
+        scenario,
+        issuer="pre-issuer",
+        observation="pre-observation",
+        started=40,
+        completed=50,
+    )
     lineage_five = lineage.retain_pre_effect_reauthentication_intent(
-        provider_identity_sha256=_digest("provider"),
+        provider_identity_sha256=provider_sha256,
         call_deadline_boottime_ns=PRE_EFFECT_REAUTHENTICATION_DEADLINE_NS,
         recorded_at_utc=UTC_TEXT,
     )
     assert require_exact_lifecycle_v2_normal_lineage_through_ordinal_5(lineage_five) is lineage_five
     binding = _binding(
-        scenario.root,
+        scenario,
+        lineage_five,
         cast(LifecycleV2ReauthenticationIntent, lineage_five.semantic_at(5)),
         issuer="pre-issuer",
         challenge="pre-challenge",

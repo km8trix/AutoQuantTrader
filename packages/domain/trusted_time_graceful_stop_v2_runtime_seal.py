@@ -11,18 +11,10 @@ from __future__ import annotations
 
 import os
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-_FORK_EPOCH = object()
-
-
-def _after_fork_in_child() -> None:
-    global _FORK_EPOCH
-    _FORK_EPOCH = object()
-
-
-if hasattr(os, "register_at_fork"):
-    os.register_at_fork(after_in_child=_after_fork_in_child)
+_REGISTER_AT_FORK = getattr(os, "register_at_fork", None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,24 +39,55 @@ class _RuntimeSealEntry:
 class LifecycleV2RuntimeSealRegistry:
     """Strong-reference registry for one injected lifecycle-v2 trust domain."""
 
-    __slots__ = ("_entries", "_fork_epoch", "_lock", "_origin_pid")
+    __slots__ = (
+        "_current_thread",
+        "_entries",
+        "_fork_epoch",
+        "_fork_invalidated",
+        "_getpid",
+        "_lock",
+        "_origin_fork_epoch",
+        "_origin_pid",
+    )
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        _getpid: Callable[[], int] = os.getpid,
+        _current_thread: Callable[[], threading.Thread] = threading.current_thread,
+        _rlock: Callable[[], threading.RLock] = threading.RLock,
+        _register_at_fork: Callable[..., None] | None = _REGISTER_AT_FORK,
+    ) -> None:
         self._entries: dict[int, _RuntimeSealEntry] = {}
-        self._lock = threading.RLock()
-        self._origin_pid = os.getpid()
-        self._fork_epoch = _FORK_EPOCH
+        self._getpid = _getpid
+        self._current_thread = _current_thread
+        self._lock = _rlock()
+        self._origin_pid = _getpid()
+        self._fork_epoch = object()
+        self._origin_fork_epoch = self._fork_epoch
+        self._fork_invalidated = False
+        if _register_at_fork is not None:
+            registry = self
+
+            def invalidate_in_child() -> None:
+                registry._fork_invalidated = True
+                registry._fork_epoch = object()
+
+            _register_at_fork(after_in_child=invalidate_in_child)
 
     def _registry_is_current(self) -> bool:
-        return self._origin_pid == os.getpid() and self._fork_epoch is _FORK_EPOCH
+        return (
+            not self._fork_invalidated
+            and self._origin_pid == self._getpid()
+            and self._fork_epoch is self._origin_fork_epoch
+        )
 
-    @staticmethod
-    def _entry_is_current(entry: _RuntimeSealEntry) -> bool:
+    def _entry_is_current(self, entry: _RuntimeSealEntry) -> bool:
         metadata = entry.metadata
         return (
-            metadata.origin_pid == os.getpid()
-            and metadata.origin_thread is threading.current_thread()
-            and metadata.fork_epoch is _FORK_EPOCH
+            metadata.origin_pid == self._getpid()
+            and metadata.origin_thread is self._current_thread()
+            and metadata.fork_epoch is self._fork_epoch
         )
 
     def seal(
@@ -89,9 +112,9 @@ class LifecycleV2RuntimeSealRegistry:
                 metadata=RuntimeSealMetadata(
                     provenance=provenance,
                     scope_sha256=scope_sha256,
-                    origin_pid=os.getpid(),
-                    origin_thread=threading.current_thread(),
-                    fork_epoch=_FORK_EPOCH,
+                    origin_pid=self._getpid(),
+                    origin_thread=self._current_thread(),
+                    fork_epoch=self._fork_epoch,
                 ),
             )
         return True
@@ -185,9 +208,9 @@ class LifecycleV2RuntimeSealRegistry:
                 metadata=RuntimeSealMetadata(
                     provenance=provenance,
                     scope_sha256=scope_sha256,
-                    origin_pid=os.getpid(),
-                    origin_thread=threading.current_thread(),
-                    fork_epoch=_FORK_EPOCH,
+                    origin_pid=self._getpid(),
+                    origin_thread=self._current_thread(),
+                    fork_epoch=self._fork_epoch,
                 ),
             )
             return True

@@ -26,7 +26,6 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     LifecycleV2Root,
     TrustedTimeGracefulStopV2Rejected,
     UnverifiedLifecycleV2TransportEnvelope,
-    _require_fake_authenticated_lifecycle_v2_transport_envelope,
     canonical_v2_json_bytes,
     decode_canonical_v2_json_object,
     decode_lifecycle_v2_clean_stop_request,
@@ -70,10 +69,27 @@ def _domain_digest(domain: str, value: object, *, maximum_bytes: int = 256 * 1_0
 def _terminal_wire_evidence_snapshot(
     fields: FrozenJsonObject,
     receipt: LifecycleV2WirePublicationReceipt,
+    *,
+    _digest_value: Callable[..., str] = _domain_digest,
 ) -> str:
-    return _domain_digest(
+    return _digest_value(
         "AutoQuantTrader/trusted-time/graceful-stop/runtime-terminal-wire-evidence-seal/v2",
-        {"fields": fields.to_dict(), "receipt": receipt.to_dict()},
+        {
+            "fields": fields.to_dict(),
+            "receipt": receipt.fields.to_dict(),
+            "receipt_identity": id(receipt),
+        },
+    )
+
+
+def _wire_publication_receipt_snapshot(
+    fields: FrozenJsonObject,
+    *,
+    _digest_value: Callable[..., str] = _domain_digest,
+) -> str:
+    return _digest_value(
+        "AutoQuantTrader/trusted-time/graceful-stop/runtime-wire-publication-receipt-seal/v2",
+        fields.to_dict(),
     )
 
 
@@ -151,7 +167,6 @@ class _CanonicalValue:
         raise NotImplementedError
 
 
-_FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY = object()
 _PRODUCTION_AUTHENTICATED_ENVELOPE_TYPE = (
     "packages.adapters.trusted_time.graceful_stop_v2_ed25519",
     "AuthenticatedLifecycleV2TransportEnvelope",
@@ -228,9 +243,19 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
 
     snapshots: dict[int, _AuthenticatedTerminalProofIssuanceSnapshot] = {}
     production_capability = object()
+    fake_capability = object()
     adapter_unwrap: Callable[[object], object] | None = None
     import_adapter = importlib.import_module
+    getpid = os.getpid
+    current_thread = threading.current_thread
     lock = threading.Lock()
+    decode_envelope = decode_unverified_lifecycle_v2_transport_envelope
+    decode_root = decode_lifecycle_v2_root
+    seal_proof = _seal_terminal_envelope_proof
+    proof_type = LifecycleV2AuthenticatedTerminalEnvelopeProof
+    envelope_type = UnverifiedLifecycleV2TransportEnvelope
+    root_type = LifecycleV2Root
+    snapshot_type = _AuthenticatedTerminalProofIssuanceSnapshot
 
     def install_adapter_unwrap(endpoint: Callable[[object], object]) -> None:
         """Capture the exact verifier-owned endpoint once during adapter import."""
@@ -258,14 +283,14 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
         *,
         capability: object,
     ) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
-        snapshot = _AuthenticatedTerminalProofIssuanceSnapshot(
+        snapshot = snapshot_type(
             value=value,
             envelope_encoded=value.envelope.encoded,
             authority_manifest_sha256=value.authority_manifest_sha256,
             signer_role=value.signer_role,
             capability=capability,
-            origin_pid=os.getpid(),
-            origin_thread=threading.current_thread(),
+            origin_pid=getpid(),
+            origin_thread=current_thread(),
         )
         with lock:
             if id(value) in snapshots:
@@ -309,7 +334,7 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
                 "production terminal proof adapter returned an invalid value"
             )
         envelope, manifest_sha256, signer_role = unwrapped
-        proof = _seal_terminal_envelope_proof(
+        proof = seal_proof(
             envelope,
             authority_manifest_sha256=manifest_sha256,
             signer_role=signer_role,
@@ -317,37 +342,56 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
         )
         return issue(proof, capability=production_capability)
 
-    def mint_fake(
-        authenticated_envelope: object,
+    def mint_fake_for_tests(
+        envelope: object,
         *,
         root: LifecycleV2Root,
-        capability: object,
     ) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
-        if capability is not _FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY:
+        if type(root) is not root_type or type(envelope) is not envelope_type:
             raise TrustedTimeGracefulStopV2Rejected(
-                "fake terminal proof mint capability is invalid"
+                "fake terminal proof requires an exact test root"
             )
-        exact_root = _require_exact_root(root)
-        envelope = _require_fake_authenticated_lifecycle_v2_transport_envelope(
-            authenticated_envelope
-        )
-        proof = _seal_terminal_envelope_proof(
-            envelope,
+        try:
+            exact_root = decode_root(root.encoded)
+            exact_envelope = decode_envelope(envelope.encoded)
+            envelope_fields = exact_envelope.to_dict()
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected) as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "fake terminal proof requires exact test-root terminal wire"
+            ) from error
+        expected = {
+            "environment": "test",
+            "key_generation": exact_root.transport_key_generation,
+            "signing_key_id": exact_root.supervisor_transport_key_id,
+            "boot_epoch_sha256": exact_root.boot_epoch_sha256,
+            "host_process_epoch_sha256": exact_root.host_process_epoch_sha256,
+            "supervisor_process_epoch_sha256": exact_root.supervisor_process_epoch_sha256,
+            "channel_id": exact_root.channel_id,
+            "deadline_boottime_ns": exact_root.clean_stop_result_deadline_boottime_ns,
+        }
+        if (
+            exact_root != root
+            or exact_root.environment != "test"
+            or exact_envelope != envelope
+            or exact_envelope.frame_type not in {"clean_stop_result", "clean_stop_error"}
+            or any(envelope_fields[name] != value for name, value in expected.items())
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "fake terminal proof requires exact test-root terminal wire"
+            )
+        proof = seal_proof(
+            exact_envelope,
             authority_manifest_sha256=exact_root.transport_authority_manifest_sha256,
             signer_role="supervisor",
-            capability=capability,
+            capability=fake_capability,
         )
-        return issue(proof, capability=capability)
+        return issue(proof, capability=fake_capability)
 
     def require(value: object) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
         key = id(value)
         with lock:
             snapshot = snapshots.get(key)
-        if (
-            snapshot is None
-            or snapshot.value is not value
-            or type(value) is not LifecycleV2AuthenticatedTerminalEnvelopeProof
-        ):
+        if snapshot is None or snapshot.value is not value or type(value) is not proof_type:
             raise TrustedTimeGracefulStopV2Rejected(
                 "terminal wire lacks an authenticated-envelope proof"
             )
@@ -362,10 +406,10 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
                 "authenticated terminal wire changed under validation"
             ) from error
         if (
-            os.getpid() != snapshot.origin_pid
-            or threading.current_thread() is not snapshot.origin_thread
+            getpid() != snapshot.origin_pid
+            or current_thread() is not snapshot.origin_thread
             or value_capability is not snapshot.capability
-            or type(value_envelope) is not UnverifiedLifecycleV2TransportEnvelope
+            or type(value_envelope) is not envelope_type
             or canonical.encoded != snapshot.envelope_encoded
             or value_envelope != canonical
             or value_envelope.encoded != snapshot.envelope_encoded
@@ -379,13 +423,13 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
         _require_sha256(value_manifest_sha256, "authority_manifest_sha256")
         return value
 
-    return install_adapter_unwrap, mint_production, mint_fake, require
+    return install_adapter_unwrap, mint_production, mint_fake_for_tests, require
 
 
 (
     _install_authenticated_terminal_envelope_adapter_endpoint,
     _mint_authenticated_lifecycle_v2_terminal_envelope_proof,
-    _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof,
+    _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests,
     _require_authenticated_terminal_envelope_proof,
 ) = _build_authenticated_terminal_proof_endpoints()
 
@@ -954,13 +998,16 @@ def _require_authenticated_terminal_context(
     *,
     root: LifecycleV2Root,
     request: LifecycleV2CleanStopRequest,
+    _require_proof: Callable[
+        [object], LifecycleV2AuthenticatedTerminalEnvelopeProof
+    ] = _require_authenticated_terminal_envelope_proof,
 ) -> tuple[
     LifecycleV2AuthenticatedTerminalEnvelopeProof,
     UnverifiedLifecycleV2TransportEnvelope,
     LifecycleV2CleanStopResult | LifecycleV2CleanStopError,
     dict[str, object],
 ]:
-    authenticated = _require_authenticated_terminal_envelope_proof(proof)
+    authenticated = _require_proof(proof)
     exact_root, exact_request, request_fields = _require_root_request_correlators(
         root,
         request,
@@ -1118,8 +1165,9 @@ class LifecycleV2WirePublicationReceipt(_CanonicalValue):
         proof: LifecycleV2AuthenticatedTerminalEnvelopeProof,
         request: LifecycleV2CleanStopRequest,
         root: LifecycleV2Root,
+        _require_context: Callable[..., Any] = (_require_authenticated_terminal_context),
     ) -> Self:
-        _, envelope, terminal, request_fields = _require_authenticated_terminal_context(
+        _, envelope, terminal, request_fields = _require_context(
             proof,
             root=root,
             request=request,
@@ -1315,8 +1363,10 @@ class LifecycleV2TerminalWireEvidence(_CanonicalValue):
         request: LifecycleV2CleanStopRequest,
         root: LifecycleV2Root,
         responder_identity_sha256: str,
+        _require_context: Callable[..., Any] = (_require_authenticated_terminal_context),
+        _capture_receipt: Callable[..., LifecycleV2WirePublicationReceipt] | None = None,
     ) -> Self:
-        _, envelope, terminal, _ = _require_authenticated_terminal_context(
+        _, envelope, terminal, _ = _require_context(
             proof,
             root=root,
             request=request,
@@ -1332,7 +1382,12 @@ class LifecycleV2TerminalWireEvidence(_CanonicalValue):
         expected_disposition = "authenticated_result" if is_result else "authenticated_error"
         envelope_fields = envelope.to_dict()
         artifact_name = lifecycle_v2_wire_file_name(envelope)
-        receipt = LifecycleV2WirePublicationReceipt.capture(
+        receipt_capture = (
+            LifecycleV2WirePublicationReceipt.capture
+            if _capture_receipt is None
+            else _capture_receipt
+        )
+        receipt = receipt_capture(
             fields["wire_publication_receipt"],
             proof=proof,
             request=request,
@@ -1459,62 +1514,183 @@ def terminal_non_authority_facts() -> dict[str, bool]:
     }
 
 
-def _install_terminal_wire_runtime_seal() -> Callable[[object, str], RuntimeSealMetadata | None]:
-    """Install exact capture closure without exporting a registration capability."""
+def _install_terminal_wire_runtime_seals() -> Callable[[object, str], RuntimeSealMetadata | None]:
+    """Closure-bind authenticated receipt/wire construction and validation."""
 
     registry = LifecycleV2RuntimeSealRegistry()
-    original_capture = cast(
+    seal_runtime = registry.seal
+    require_runtime = registry.require
+    receipt_snapshot = _wire_publication_receipt_snapshot
+    terminal_snapshot = _terminal_wire_evidence_snapshot
+    receipt_type = LifecycleV2WirePublicationReceipt
+    terminal_type = LifecycleV2TerminalWireEvidence
+    root_type = LifecycleV2Root
+    require_sha256 = _require_sha256
+    original_receipt_capture = cast(
+        Callable[..., LifecycleV2WirePublicationReceipt],
+        receipt_type.capture,
+    )
+    original_terminal_capture = cast(
         Callable[..., LifecycleV2TerminalWireEvidence],
-        LifecycleV2TerminalWireEvidence.capture,
+        terminal_type.capture,
     )
 
+    def capture_receipt(
+        cls: type[LifecycleV2WirePublicationReceipt],
+        value: object,
+        *,
+        proof: LifecycleV2AuthenticatedTerminalEnvelopeProof,
+        request: LifecycleV2CleanStopRequest,
+        root: LifecycleV2Root,
+    ) -> LifecycleV2WirePublicationReceipt:
+        if cls is not receipt_type or type(root) is not root_type:
+            raise TrustedTimeGracefulStopV2Rejected("wire publication receipt capture is not exact")
+        result = original_receipt_capture(
+            value,
+            proof=proof,
+            request=request,
+            root=root,
+        )
+        if type(result) is not receipt_type or not seal_runtime(
+            result,
+            snapshot_sha256=receipt_snapshot(result.fields),
+            kind="wire_publication_receipt",
+            provenance="authenticated_injected_wire_publication",
+            scope_sha256=root.sha256,
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "wire publication receipt runtime seal could not be created"
+            )
+        return result
+
+    def receipt_to_dict(self: LifecycleV2WirePublicationReceipt) -> dict[str, object]:
+        try:
+            fields = self.fields
+            body = fields.to_dict()
+            snapshot_sha256 = receipt_snapshot(fields)
+            scope_sha256 = require_sha256(body["root_sha256"], "root_sha256")
+        except (AttributeError, TypeError, KeyError, TrustedTimeGracefulStopV2Rejected):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "wire publication receipt is not sealed"
+            ) from None
+        if (
+            type(self) is not receipt_type
+            or require_runtime(
+                self,
+                snapshot_sha256=snapshot_sha256,
+                kind="wire_publication_receipt",
+                provenance="authenticated_injected_wire_publication",
+                scope_sha256=scope_sha256,
+            )
+            is None
+        ):
+            raise TrustedTimeGracefulStopV2Rejected("wire publication receipt is not sealed")
+        return body
+
+    def capture_bound_receipt(
+        value: object,
+        *,
+        proof: LifecycleV2AuthenticatedTerminalEnvelopeProof,
+        request: LifecycleV2CleanStopRequest,
+        root: LifecycleV2Root,
+    ) -> LifecycleV2WirePublicationReceipt:
+        return capture_receipt(
+            receipt_type,
+            value,
+            proof=proof,
+            request=request,
+            root=root,
+        )
+
     def capture_terminal_wire(
-        cls: type[LifecycleV2TerminalWireEvidence], /, *args: object, **kwargs: object
+        cls: type[LifecycleV2TerminalWireEvidence],
+        value: object,
+        *,
+        proof: LifecycleV2AuthenticatedTerminalEnvelopeProof,
+        request: LifecycleV2CleanStopRequest,
+        root: LifecycleV2Root,
+        responder_identity_sha256: str,
     ) -> LifecycleV2TerminalWireEvidence:
-        if cls is not LifecycleV2TerminalWireEvidence:
+        if cls is not terminal_type or type(root) is not root_type:
             raise TrustedTimeGracefulStopV2Rejected(
                 "terminal wire evidence capture class is not exact"
             )
-        result = original_capture(*args, **kwargs)
-        if type(result) is not LifecycleV2TerminalWireEvidence:
+        result = original_terminal_capture(
+            value,
+            proof=proof,
+            request=request,
+            root=root,
+            responder_identity_sha256=responder_identity_sha256,
+            _capture_receipt=capture_bound_receipt,
+        )
+        if type(result) is not terminal_type:
             raise TrustedTimeGracefulStopV2Rejected(
                 "terminal wire evidence capture returned an inexact type"
             )
-        exact_root = kwargs.get("root")
-        if type(exact_root) is not LifecycleV2Root:
-            raise TrustedTimeGracefulStopV2Rejected(
-                "terminal wire evidence capture omitted its exact root"
-            )
-        if not registry.seal(
+        if not seal_runtime(
             result,
-            snapshot_sha256=_terminal_wire_evidence_snapshot(result.fields, result.receipt),
+            snapshot_sha256=terminal_snapshot(result.fields, result.receipt),
             kind="terminal_wire_evidence",
             provenance="authenticated_injected_terminal_wire",
-            scope_sha256=exact_root.sha256,
+            scope_sha256=root.sha256,
         ):
             raise TrustedTimeGracefulStopV2Rejected(
                 "terminal wire evidence runtime seal could not be created"
             )
         return result
 
+    def terminal_wire_to_dict(
+        self: LifecycleV2TerminalWireEvidence,
+    ) -> dict[str, object]:
+        try:
+            fields = self.fields
+            receipt = self.receipt
+            snapshot_sha256 = terminal_snapshot(fields, receipt)
+            receipt_body = receipt_to_dict(receipt)
+            scope_sha256 = require_sha256(
+                receipt_body["root_sha256"],
+                "root_sha256",
+            )
+        except (AttributeError, TypeError, KeyError, TrustedTimeGracefulStopV2Rejected):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal wire evidence is not sealed"
+            ) from None
+        if (
+            type(self) is not terminal_type
+            or type(receipt) is not receipt_type
+            or require_runtime(
+                self,
+                snapshot_sha256=snapshot_sha256,
+                kind="terminal_wire_evidence",
+                provenance="authenticated_injected_terminal_wire",
+                scope_sha256=scope_sha256,
+            )
+            is None
+        ):
+            raise TrustedTimeGracefulStopV2Rejected("terminal wire evidence is not sealed")
+        return fields.to_dict()
+
     def require_terminal_wire(
         value: object,
         snapshot_sha256: str,
     ) -> RuntimeSealMetadata | None:
-        if type(value) is not LifecycleV2TerminalWireEvidence:
+        if type(value) is not terminal_type:
             return None
-        return registry.require(
+        return require_runtime(
             value,
             snapshot_sha256=snapshot_sha256,
             kind="terminal_wire_evidence",
         )
 
-    cast(Any, LifecycleV2TerminalWireEvidence).capture = classmethod(capture_terminal_wire)
+    cast(Any, receipt_type).capture = classmethod(capture_receipt)
+    cast(Any, receipt_type).to_dict = receipt_to_dict
+    cast(Any, terminal_type).capture = classmethod(capture_terminal_wire)
+    cast(Any, terminal_type).to_dict = terminal_wire_to_dict
     return require_terminal_wire
 
 
-_require_exact_terminal_wire_evidence = _install_terminal_wire_runtime_seal()
-del _install_terminal_wire_runtime_seal
+_require_exact_terminal_wire_evidence = _install_terminal_wire_runtime_seals()
+del _install_terminal_wire_runtime_seals
 
 
 __all__ = [

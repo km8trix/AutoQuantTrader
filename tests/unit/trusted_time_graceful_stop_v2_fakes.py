@@ -11,12 +11,11 @@ from dataclasses import dataclass
 from typing import Never
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
-    _FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY,
     LifecycleV2CleanStopRequest,
     LifecycleV2ProgressRecord,
     LifecycleV2Root,
     UnverifiedLifecycleV2TransportEnvelope,
-    _authenticate_lifecycle_v2_transport_envelope_for_fake,
+    _authenticate_lifecycle_v2_transport_envelope_for_tests,
     _FakeAuthenticatedLifecycleV2TransportEnvelope,
     canonical_v2_json_bytes,
     decode_unverified_lifecycle_v2_transport_envelope,
@@ -453,14 +452,17 @@ class FakeLifecycleV2RetainedWireVerifier:
 class FakeLifecycleV2Transport:
     """One-request/one-terminal-frame transport with no real I/O or signing."""
 
-    __slots__ = ("_response", "_used", "events", "fail_at")
+    __slots__ = ("_response", "_root", "_used", "events", "fail_at")
 
     def __init__(
         self,
+        root: LifecycleV2Root,
         response: UnverifiedLifecycleV2TransportEnvelope,
         *,
         fail_at: str | None = None,
     ) -> None:
+        if type(root) is not LifecycleV2Root or root.environment != "test":
+            raise ValueError("fake transport requires one exact test root")
         if type(
             response
         ) is not UnverifiedLifecycleV2TransportEnvelope or response.frame_type not in {
@@ -470,6 +472,7 @@ class FakeLifecycleV2Transport:
             raise ValueError("fake transport requires one exact terminal envelope")
         if fail_at not in {None, "before_send", "after_send", "before_receive", "after_receive"}:
             raise ValueError("fake transport fault boundary is invalid")
+        self._root = root
         self._response = response
         self._used = False
         self.events: list[str] = []
@@ -508,9 +511,9 @@ class FakeLifecycleV2Transport:
             self.events.append(boundary)
             if self.fail_at == boundary:
                 raise FakeLifecycleV2Fault(boundary)
-        return _authenticate_lifecycle_v2_transport_envelope_for_fake(
+        return _authenticate_lifecycle_v2_transport_envelope_for_tests(
             self._response,
-            capability=_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY,
+            root=self._root,
         )
 
 

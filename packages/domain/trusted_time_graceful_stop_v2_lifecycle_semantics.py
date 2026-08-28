@@ -28,6 +28,7 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     LifecycleV2Stage,
     LifecycleV2Transcript,
     TrustedTimeGracefulStopV2Rejected,
+    _capture_lifecycle_v2_reauthentication_binding_evidence,
     canonical_v2_json_bytes,
     decode_canonical_v2_json_object,
     decode_lifecycle_v2_progress_record,
@@ -166,6 +167,11 @@ def _canonical_evidence_snapshot(value: Any) -> str:
     ):
         if hasattr(value, name):
             sidecars[name] = getattr(value, name)
+    if hasattr(value, "binding_evidence"):
+        binding_evidence = value.binding_evidence
+        if type(binding_evidence) is not FrozenJsonObject:
+            _reject("reauthentication binding evidence sidecar is not frozen")
+        sidecars["binding_evidence"] = binding_evidence.to_dict()
     if hasattr(value, "mounts"):
         mounts = value.mounts
         if type(mounts) is not tuple:
@@ -848,6 +854,7 @@ _REAUTHENTICATION_BINDING_FIELDS = frozenset(
         "channel_id",
         "boundary",
         "intent_semantic_sha256",
+        "binding_evidence_sha256",
         "issuer_identity_sha256",
         "challenge_sha256",
         "observation_semantic_sha256",
@@ -864,6 +871,7 @@ class LifecycleV2AuthenticatedReauthenticationBinding(_CanonicalEvidence):
     """Sealed primitive evidence returned by a distinct ADR-0109 v2 seam."""
 
     fields: FrozenJsonObject
+    binding_evidence: FrozenJsonObject
     boundary: str
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
@@ -874,6 +882,7 @@ class LifecycleV2AuthenticatedReauthenticationBinding(_CanonicalEvidence):
         cls,
         value: object,
         *,
+        binding_evidence: object,
         root: LifecycleV2Root,
         intent: LifecycleV2ReauthenticationIntent,
     ) -> Self:
@@ -884,6 +893,7 @@ class LifecycleV2AuthenticatedReauthenticationBinding(_CanonicalEvidence):
             Self,
             _build_unregistered_authenticated_reauthentication_binding(
                 value,
+                binding_evidence=binding_evidence,
                 root=exact_root,
                 intent=intent,
             ),
@@ -909,6 +919,7 @@ class LifecycleV2AuthenticatedReauthenticationBinding(_CanonicalEvidence):
 def _build_unregistered_authenticated_reauthentication_binding(
     value: object,
     *,
+    binding_evidence: object,
     root: LifecycleV2Root,
     intent: LifecycleV2ReauthenticationIntent,
 ) -> LifecycleV2AuthenticatedReauthenticationBinding:
@@ -921,6 +932,13 @@ def _build_unregistered_authenticated_reauthentication_binding(
     fields = frozen.to_dict()
     _require_fields(fields, _REAUTHENTICATION_BINDING_FIELDS, "reauthentication binding")
     boundary = intent.boundary
+    frozen_binding_evidence, binding_evidence_sha256 = (
+        _capture_lifecycle_v2_reauthentication_binding_evidence(
+            binding_evidence,
+            boundary=boundary,
+        )
+    )
+    evidence_fields = frozen_binding_evidence.to_dict()
     expected_contract = (
         "phase6d-trusted-time-graceful-stop-"
         f"{boundary.replace('_', '-')}-reauthentication-binding-v2"
@@ -935,8 +953,26 @@ def _build_unregistered_authenticated_reauthentication_binding(
         or fields["lifecycle_root_sha256"] != exact_root.sha256
         or fields["channel_id"] != exact_root.channel_id
         or fields["intent_semantic_sha256"] != intent.sha256
+        or fields["binding_evidence_sha256"] != binding_evidence_sha256
+        or evidence_fields["environment"] != exact_root.environment
+        or evidence_fields["graceful_stop_operation_id"]
+        != exact_root.graceful_stop_operation_id
+        or evidence_fields["lifecycle_root_sha256"] != exact_root.sha256
         or fields["observed_head_sha256"] != intent.to_dict()["expected_head_sha256"]
         or fields["provider_identity_sha256"] != intent.to_dict()["provider_identity_sha256"]
+        or fields["issuer_identity_sha256"]
+        != evidence_fields["adr0109_issuer_binding_sha256"]
+        or fields["challenge_sha256"] != evidence_fields["issuer_challenge_sha256"]
+        or fields["observation_semantic_sha256"]
+        != evidence_fields["observation_semantic_sha256"]
+        or fields["observed_head_sha256"]
+        != evidence_fields["expected_clean_stop_head_sha256"]
+        or fields["provider_identity_sha256"]
+        != evidence_fields["provider_identity_sha256"]
+        or fields["observation_started_boottime_ns"]
+        != evidence_fields["observation_started_monotonic_ns"]
+        or fields["observation_completed_boottime_ns"]
+        != evidence_fields["observation_completed_monotonic_ns"]
     ):
         _reject("reauthentication binding crossed its exact intent")
     for name in (
@@ -965,6 +1001,7 @@ def _build_unregistered_authenticated_reauthentication_binding(
         _reject("reauthentication observation is reversed or equality-expired")
     result = object.__new__(LifecycleV2AuthenticatedReauthenticationBinding)
     object.__setattr__(result, "fields", frozen)
+    object.__setattr__(result, "binding_evidence", frozen_binding_evidence)
     object.__setattr__(result, "boundary", boundary)
     return result
 
@@ -972,6 +1009,7 @@ def _build_unregistered_authenticated_reauthentication_binding(
 def _mint_fake_lifecycle_v2_reauthentication_binding(
     value: object,
     *,
+    binding_evidence: object,
     root: LifecycleV2Root,
     intent: LifecycleV2ReauthenticationIntent,
 ) -> LifecycleV2AuthenticatedReauthenticationBinding:
@@ -979,6 +1017,7 @@ def _mint_fake_lifecycle_v2_reauthentication_binding(
 
     return LifecycleV2AuthenticatedReauthenticationBinding._capture_fake_for_tests(
         value,
+        binding_evidence=binding_evidence,
         root=root,
         intent=intent,
     )
@@ -2274,6 +2313,28 @@ class LifecycleV2NormalProgressLineage:
         ):
             _reject("pre-effect binding crossed its exact ordinal-five intent")
         fields = binding.to_dict()
+        intent_fields = intent.to_dict()
+        binding_evidence = binding.binding_evidence.to_dict()
+        terminal_projection = self.clean_stop_result.terminal_projection.to_dict()
+        if (
+            binding_evidence["clean_stop_request_sha256"]
+            != self.clean_stop_result.request.sha256
+            or binding_evidence["clean_stop_result_sha256"]
+            != self.clean_stop_result.sha256
+            or binding_evidence["channel_id"] != self.root.channel_id
+            or binding_evidence["expected_clean_stop_head_sha256"]
+            != intent_fields["expected_head_sha256"]
+            or binding_evidence["expected_clean_stop_terminal_result_semantic_sha256"]
+            != terminal_projection["clean_stop_terminal_result_semantic_sha256"]
+            or binding_evidence["topology_sha256"] != self.root.topology_sha256
+            or binding_evidence["topology_lease_sha256"]
+            != self.root.topology_lease_sha256
+            or binding_evidence["transport_quiescence_record_sha256"]
+            != self.record_at(4).sha256
+            or binding_evidence["pre_effect_intent_sha256"]
+            != self.last_record.sha256
+        ):
+            _reject("pre-effect binding evidence crossed its exact lifecycle prefix")
         evidence = FrozenJsonObject.capture(
             {
                 "intent_sha256": self.last_record.sha256,
@@ -2286,6 +2347,7 @@ class LifecycleV2NormalProgressLineage:
                 "binding_semantic_sha256": binding.sha256,
                 "observed_head_sha256": fields["observed_head_sha256"],
                 "provider_identity_sha256": fields["provider_identity_sha256"],
+                "binding_evidence": binding_evidence,
             }
         )
         return self._build_unregistered_stage_state(
@@ -2979,6 +3041,14 @@ class LifecycleV2NormalProgressLineage:
             _reject("post-teardown binding lacks its typed intent")
         fields = binding.to_dict()
         pre_fields = self.pre_effect_binding.to_dict()
+        binding_evidence = binding.binding_evidence.to_dict()
+        pre_evidence, pre_evidence_sha256 = (
+            _capture_lifecycle_v2_reauthentication_binding_evidence(
+                self.pre_effect_binding.binding_evidence,
+                boundary="pre_effect",
+            )
+        )
+        terminal_projection = self.clean_stop_result.terminal_projection.to_dict()
         if not (
             binding.boundary == "post_teardown"
             and fields["intent_semantic_sha256"] == intent.sha256
@@ -2990,6 +3060,32 @@ class LifecycleV2NormalProgressLineage:
             > cast(int, self.record_at(18).evidence.to_dict()["call_completed_boottime_ns"])
         ):
             _reject("post-teardown binding reused or preceded pre-effect/teardown evidence")
+        if (
+            binding_evidence["published_prefix_through_ordinal_18_sha256"]
+            != intent.to_dict()["prefix_transcript_sha256"]
+            or binding_evidence["expected_clean_stop_head_sha256"]
+            != intent.to_dict()["expected_head_sha256"]
+            or binding_evidence["expected_clean_stop_terminal_result_semantic_sha256"]
+            != terminal_projection["clean_stop_terminal_result_semantic_sha256"]
+            or binding_evidence["pre_effect_binding_sha256"]
+            != pre_evidence_sha256
+            or binding_evidence["supervisor_stop_result_sha256"]
+            != self.record_at(8).sha256
+            or binding_evidence["source_stop_result_sha256"]
+            != self.record_at(10).sha256
+            or binding_evidence["supervisor_remove_result_sha256"]
+            != self.record_at(12).sha256
+            or binding_evidence["source_remove_result_sha256"]
+            != self.record_at(14).sha256
+            or binding_evidence["project_network_remove_result_sha256"]
+            != self.record_at(16).sha256
+            or binding_evidence["volume_proof_sha256"] != self.record_at(18).sha256
+            or binding_evidence["post_teardown_intent_sha256"]
+            != self.last_record.sha256
+            or binding_evidence["provider_identity_sha256"]
+            != pre_evidence.to_dict()["provider_identity_sha256"]
+        ):
+            _reject("post-teardown binding evidence crossed its exact lifecycle prefix")
         evidence = FrozenJsonObject.capture(
             {
                 "intent_sha256": self.last_record.sha256,
@@ -3002,6 +3098,7 @@ class LifecycleV2NormalProgressLineage:
                 "binding_semantic_sha256": binding.sha256,
                 "observed_head_sha256": fields["observed_head_sha256"],
                 "provider_identity_sha256": fields["provider_identity_sha256"],
+                "binding_evidence": binding_evidence,
             }
         )
         return self._build_unregistered_stage_state(
@@ -3698,9 +3795,14 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             _reject("reauthentication semantic issuance snapshot type is not exact")
         exact_snapshot = cast(Any, snapshot)
         encoded = exact_snapshot.semantic_binding_encoded
+        binding_evidence_encoded = exact_snapshot.binding_evidence_encoded
+        binding_evidence_sha256 = exact_snapshot.binding_evidence_sha256
         provenance = exact_snapshot.provenance
         if (
             type(encoded) is not bytes
+            or type(binding_evidence_encoded) is not bytes
+            or type(binding_evidence_sha256) is not str
+            or _SHA256.fullmatch(binding_evidence_sha256) is None
             or provenance
             not in {
                 "fake_reauthentication_binding",
@@ -3719,8 +3821,21 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             encoded,
             maximum_bytes=256 * 1_024,
         )
+        binding_evidence_fields = decode_reauthentication_snapshot(
+            binding_evidence_encoded,
+            maximum_bytes=256 * 1_024,
+        )
+        _captured_evidence, exact_binding_evidence_sha256 = (
+            _capture_lifecycle_v2_reauthentication_binding_evidence(
+                binding_evidence_fields,
+                boundary=intent.boundary,
+            )
+        )
+        if exact_binding_evidence_sha256 != binding_evidence_sha256:
+            _reject("reauthentication semantic issuance evidence digest changed")
         result = original_reauth_binding_builder(
             fields,
+            binding_evidence=binding_evidence_fields,
             root=exact_root,
             intent=intent,
         )

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
+import os
+import threading
 
 import pytest
 
+import packages.domain.trusted_time_graceful_stop_v2 as lifecycle_core
+import packages.domain.trusted_time_graceful_stop_v2_runtime_seal as runtime_seal_module
+import packages.domain.trusted_time_graceful_stop_v2_terminal as terminal_module
 from packages.domain.trusted_time_graceful_stop_v2 import (
-    _FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY,
     LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION,
     LIFECYCLE_V2_TRANSPORT_SERVICE,
     FrozenJsonObject,
@@ -17,12 +22,10 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     LifecycleV2Stage,
     TrustedTimeGracefulStopV2Rejected,
     UnverifiedLifecycleV2TransportEnvelope,
-    _authenticate_lifecycle_v2_transport_envelope_for_fake,
     canonical_v2_json_bytes,
     decode_lifecycle_v2_root,
 )
 from packages.domain.trusted_time_graceful_stop_v2_terminal import (
-    _FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
     CLEAN_STOP_ERROR_CONTRACT_VERSION,
     CLEAN_STOP_RESULT_CONTRACT_VERSION,
     LISTENER_PATH,
@@ -37,7 +40,7 @@ from packages.domain.trusted_time_graceful_stop_v2_terminal import (
     LifecycleV2TerminalWireEvidence,
     LifecycleV2WirePublicationReceipt,
     _mint_authenticated_lifecycle_v2_terminal_envelope_proof,
-    _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof,
+    _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests,
     validate_terminal_envelope_payload,
 )
 
@@ -53,10 +56,10 @@ def _digest(label: str) -> str:
     return hashlib.sha256(label.encode("ascii")).hexdigest()
 
 
-def _root() -> LifecycleV2Root:
+def _root(*, environment: str = ENVIRONMENT) -> LifecycleV2Root:
     start = 1_000_000_000
     return LifecycleV2Root(
-        environment=ENVIRONMENT,
+        environment=environment,
         graceful_stop_operation_id=OPERATION_ID,
         graceful_stop_target_sha256=_digest("target"),
         graceful_stop_decision_v1_sha256=_digest("decision"),
@@ -87,8 +90,11 @@ def _root() -> LifecycleV2Root:
     )
 
 
-def _request() -> tuple[LifecycleV2Root, LifecycleV2CleanStopRequest]:
-    root = _root()
+def _request(
+    *,
+    environment: str = ENVIRONMENT,
+) -> tuple[LifecycleV2Root, LifecycleV2CleanStopRequest]:
+    root = _root(environment=environment)
     basis = LifecycleV2CleanStopRequestBasis.from_root(root)
     intent = LifecycleV2ProgressRecord(
         graceful_stop_operation_id=root.graceful_stop_operation_id,
@@ -209,8 +215,11 @@ def _cleanup(
     )
 
 
-def _result() -> tuple[LifecycleV2Root, LifecycleV2CleanStopRequest, LifecycleV2CleanStopResult]:
-    root, request = _request()
+def _result(
+    *,
+    environment: str = ENVIRONMENT,
+) -> tuple[LifecycleV2Root, LifecycleV2CleanStopRequest, LifecycleV2CleanStopResult]:
+    root, request = _request(environment=environment)
     projection = _terminal_projection()
     cleanup = _cleanup(root, request)
     request_fields = request.to_dict()
@@ -378,14 +387,9 @@ def _proof(
     envelope: UnverifiedLifecycleV2TransportEnvelope,
     root: LifecycleV2Root,
 ) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
-    authenticated = _authenticate_lifecycle_v2_transport_envelope_for_fake(
+    return _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests(
         envelope,
-        capability=_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY,
-    )
-    return _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof(
-        authenticated,
         root=root,
-        capability=_FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
     )
 
 
@@ -442,7 +446,34 @@ def _result_evidence_value(
     }
 
 
-def test_terminal_proof_is_sealed_and_raw_wire_cannot_cross_either_mint() -> None:
+def _sealed_result_wire() -> tuple[
+    LifecycleV2Root,
+    LifecycleV2CleanStopRequest,
+    UnverifiedLifecycleV2TransportEnvelope,
+    LifecycleV2AuthenticatedTerminalEnvelopeProof,
+    LifecycleV2WirePublicationReceipt,
+    LifecycleV2TerminalWireEvidence,
+]:
+    root, request, result = _result()
+    envelope = _envelope(
+        root,
+        request,
+        frame_type="clean_stop_result",
+        payload=result.encoded,
+    )
+    proof = _proof(envelope, root)
+    receipt = _receipt(root, request, envelope, proof)
+    evidence = LifecycleV2TerminalWireEvidence.capture(
+        _result_evidence_value(root, request, result, envelope, receipt),
+        proof=proof,
+        request=request,
+        root=root,
+        responder_identity_sha256=root.supervisor_process_epoch_sha256,
+    )
+    return root, request, envelope, proof, receipt, evidence
+
+
+def test_terminal_proof_is_sealed_and_raw_wire_cannot_cross_production_mint() -> None:
     root, request, result = _result()
     envelope = _envelope(root, request, frame_type="clean_stop_result", payload=result.encoded)
     receipt_value = _publication_receipt_value(
@@ -453,12 +484,6 @@ def test_terminal_proof_is_sealed_and_raw_wire_cannot_cross_either_mint() -> Non
     )
     with pytest.raises(TypeError):
         LifecycleV2AuthenticatedTerminalEnvelopeProof()
-    with pytest.raises(TrustedTimeGracefulStopV2Rejected):
-        _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof(
-            envelope,
-            root=root,
-            capability=_FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
-        )
 
     def unwrap_raw(
         value: object,
@@ -482,25 +507,202 @@ def test_terminal_proof_is_sealed_and_raw_wire_cannot_cross_either_mint() -> Non
         )
 
 
-def test_fake_terminal_proof_requires_its_private_capability() -> None:
+def test_fake_terminal_proof_has_one_test_only_token_free_issuance_path() -> None:
     root, request, result = _result()
     envelope = _envelope(root, request, frame_type="clean_stop_result", payload=result.encoded)
-    authenticated = _authenticate_lifecycle_v2_transport_envelope_for_fake(
+    proof = _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests(
         envelope,
-        capability=_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY,
-    )
-    with pytest.raises(TrustedTimeGracefulStopV2Rejected):
-        _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof(
-            authenticated,
-            root=root,
-            capability=object(),
-        )
-    proof = _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof(
-        authenticated,
         root=root,
-        capability=_FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
     )
     assert proof.envelope == envelope
+
+
+def test_fake_transport_and_terminal_proof_reject_production_roots_without_tokens() -> None:
+    root, request, result = _result(environment="production")
+    envelope = _envelope(
+        root,
+        request,
+        frame_type="clean_stop_result",
+        payload=result.encoded,
+    )
+    for name in (
+        "_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY",
+        "_authenticate_lifecycle_v2_transport_envelope_for_fake",
+    ):
+        assert not hasattr(lifecycle_core, name)
+    for name in (
+        "_FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY",
+        "_mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof",
+    ):
+        assert not hasattr(terminal_module, name)
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="test root"):
+        lifecycle_core._authenticate_lifecycle_v2_transport_envelope_for_tests(
+            envelope,
+            root=root,
+        )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match=r"test.?root"):
+        _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests(
+            envelope,
+            root=root,
+        )
+
+
+def test_terminal_capture_ignores_replaced_module_validators_and_rejects_forged_proof(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, request, result = _result()
+    envelope = _envelope(
+        root,
+        request,
+        frame_type="clean_stop_result",
+        payload=result.encoded,
+    )
+    forged = object.__new__(LifecycleV2AuthenticatedTerminalEnvelopeProof)
+    object.__setattr__(forged, "envelope", envelope)
+    object.__setattr__(
+        forged,
+        "authority_manifest_sha256",
+        root.transport_authority_manifest_sha256,
+    )
+    object.__setattr__(forged, "signer_role", "supervisor")
+    object.__setattr__(forged, "_capability", object())
+    monkeypatch.setattr(
+        terminal_module,
+        "_require_authenticated_terminal_envelope_proof",
+        lambda value: value,
+    )
+    monkeypatch.setattr(
+        terminal_module,
+        "_require_authenticated_terminal_context",
+        lambda *_args, **_kwargs: (forged, envelope, result, request.to_dict()),
+    )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="lacks"):
+        LifecycleV2WirePublicationReceipt.capture(
+            _publication_receipt_value(
+                root,
+                request,
+                envelope,
+                publication_authorized_boottime_ns=(root.admission_started_boottime_ns + 3),
+            ),
+            proof=forged,
+            request=request,
+            root=root,
+        )
+
+
+def test_terminal_runtime_seals_ignore_replaced_globals_and_reject_mutation_and_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, _, _, receipt, evidence = _sealed_result_wire()
+    monkeypatch.setattr(
+        terminal_module,
+        "_terminal_wire_evidence_snapshot",
+        lambda *_args, **_kwargs: "0" * 64,
+    )
+    monkeypatch.setattr(
+        terminal_module,
+        "_require_exact_terminal_wire_evidence",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        terminal_module.LifecycleV2RuntimeSealRegistry,
+        "require",
+        lambda *_args, **_kwargs: object(),
+    )
+    assert evidence.to_dict()["disposition"] == "authenticated_result"
+
+    forged = object.__new__(LifecycleV2TerminalWireEvidence)
+    object.__setattr__(forged, "fields", evidence.fields)
+    object.__setattr__(forged, "receipt", receipt)
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="not sealed"):
+        forged.to_dict()
+
+    copied_receipt = copy.copy(receipt)
+    object.__setattr__(evidence, "receipt", copied_receipt)
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="not sealed"):
+        evidence.to_dict()
+
+
+def test_terminal_proof_fake_transport_and_wire_are_not_thread_spoofable() -> None:
+    root, _, envelope, proof, _, evidence = _sealed_result_wire()
+    authenticated = lifecycle_core._authenticate_lifecycle_v2_transport_envelope_for_tests(
+        envelope,
+        root=root,
+    )
+    owner_pid = os.getpid()
+    owner_thread = threading.current_thread()
+    original_getpid = runtime_seal_module.os.getpid
+    original_current_thread = runtime_seal_module.threading.current_thread
+    accepted: list[str] = []
+
+    def cross_thread() -> None:
+        runtime_seal_module.os.getpid = lambda: owner_pid
+        runtime_seal_module.threading.current_thread = lambda: owner_thread
+        try:
+            operations = (
+                lambda: evidence.to_dict(),
+                lambda: lifecycle_core._require_fake_authenticated_lifecycle_v2_transport_envelope(
+                    authenticated,
+                    root=root,
+                ),
+                lambda: terminal_module._require_authenticated_terminal_envelope_proof(proof),
+            )
+            for operation in operations:
+                try:
+                    operation()
+                except TrustedTimeGracefulStopV2Rejected:
+                    accepted.append("rejected")
+                else:
+                    accepted.append("accepted")
+        finally:
+            runtime_seal_module.os.getpid = original_getpid
+            runtime_seal_module.threading.current_thread = original_current_thread
+
+    worker = threading.Thread(target=cross_thread)
+    worker.start()
+    worker.join()
+    assert accepted == ["rejected", "rejected", "rejected"]
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires POSIX fork")
+def test_terminal_proof_fake_transport_and_wire_are_not_fork_spoofable() -> None:
+    root, _, envelope, proof, _, evidence = _sealed_result_wire()
+    authenticated = lifecycle_core._authenticate_lifecycle_v2_transport_envelope_for_tests(
+        envelope,
+        root=root,
+    )
+    parent_pid = os.getpid()
+    parent_thread = threading.current_thread()
+    read_fd, write_fd = os.pipe()
+    child_pid = os.fork()
+    if child_pid == 0:
+        os.close(read_fd)
+        runtime_seal_module.os.getpid = lambda: parent_pid
+        runtime_seal_module.threading.current_thread = lambda: parent_thread
+        outcomes: list[str] = []
+        for operation in (
+            lambda: evidence.to_dict(),
+            lambda: lifecycle_core._require_fake_authenticated_lifecycle_v2_transport_envelope(
+                authenticated,
+                root=root,
+            ),
+            lambda: terminal_module._require_authenticated_terminal_envelope_proof(proof),
+        ):
+            try:
+                operation()
+            except TrustedTimeGracefulStopV2Rejected:
+                outcomes.append("rejected")
+            else:
+                outcomes.append("accepted")
+        os.write(write_fd, ",".join(outcomes).encode("ascii"))
+        os.close(write_fd)
+        os._exit(0)
+    os.close(write_fd)
+    outcome = os.read(read_fd, 128)
+    os.close(read_fd)
+    _, status = os.waitpid(child_pid, 0)
+    assert status == 0
+    assert outcome == b"rejected,rejected,rejected"
 
 
 @pytest.mark.parametrize(
@@ -530,8 +732,8 @@ def test_receipt_rejects_every_cross_root_envelope_correlator(
     ).to_dict()
     envelope_value[name] = replacement
     envelope = UnverifiedLifecycleV2TransportEnvelope.capture(envelope_value)
-    proof = _proof(envelope, root)
     with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+        proof = _proof(envelope, root)
         _receipt(root, request, envelope, proof)
 
 

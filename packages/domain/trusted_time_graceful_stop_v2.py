@@ -13,9 +13,14 @@ import binascii
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Never, Self, cast
+
+from packages.domain.trusted_time_graceful_stop_v2_runtime_seal import (
+    LifecycleV2RuntimeSealRegistry,
+)
 
 LIFECYCLE_V2_ROOT_CONTRACT_VERSION = "phase6d-post-enrollment-graceful-stop-lifecycle-root-v2"
 LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION = "phase6d-post-enrollment-graceful-stop-lifecycle-record-v2"
@@ -56,7 +61,6 @@ MAXIMUM_SIGNED_INTEGER = 2**63 - 1
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\Z")
 _ASCII_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
-_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY = object()
 
 
 class TrustedTimeGracefulStopV2Rejected(ValueError):
@@ -541,6 +545,125 @@ _REAUTHENTICATION_RESULT_EXTRA_FIELDS = frozenset(
         "binding_semantic_sha256",
         "observed_head_sha256",
         "provider_identity_sha256",
+        "binding_evidence",
+    }
+)
+
+_ADR0109_REAUTHENTICATION_CONTRACT_VERSION = (
+    "phase6d-post-enrollment-clean-stop-terminal-reauthentication-v1"
+)
+_ADR0109_REAUTHENTICATION_STATUS = (
+    "provider_terminal_observed_under_stable_sql_authenticated"
+)
+_ADR0109_OBSERVATION_BUDGET_NS = 120_000_000_000
+_ADR0109_OBSERVATION_FIELDS = frozenset(
+    {
+        "contract_version",
+        "status",
+        "anchor_sequence",
+        "checkpoint_reason",
+        "confirmed_anchor_count",
+        "local_transition_count",
+        "confirmed_anchor_local_transition_ordinal",
+        "remote_object_count",
+        "predecessor_anchor_sha256",
+        "current_host_head_sha256",
+        "current_anchor_sha256",
+        "current_anchor_semantic_sha256",
+        "anchor_intent_semantic_sha256",
+        "candidate_remote_readback_sha256",
+        "receipt_semantic_sha256",
+        "receipt_observed_at_utc",
+        "remote_observation_sha256",
+        "anchor_authority_sha256",
+        "deployment_identity_sha256",
+        "runtime_database_identity_sha256",
+        "anchor_project_identity_sha256",
+        "source_authority_sha256",
+        "signing_public_key_sha256",
+        "host_identity_sha256",
+        "principal_identity_sha256",
+        "bucket_identity_sha256",
+        "observation_started_monotonic_ns",
+        "observation_completed_monotonic_ns",
+        "deadline_monotonic_ns",
+        "issuer_binding_sha256",
+        "read_only_configuration_sha256",
+        "semantic_sha256",
+    }
+)
+_ADR0109_PROVIDER_IDENTITY_FIELDS = (
+    "anchor_authority_sha256",
+    "deployment_identity_sha256",
+    "runtime_database_identity_sha256",
+    "anchor_project_identity_sha256",
+    "source_authority_sha256",
+    "signing_public_key_sha256",
+    "host_identity_sha256",
+    "principal_identity_sha256",
+    "bucket_identity_sha256",
+    "read_only_configuration_sha256",
+)
+_PRE_EFFECT_REAUTHENTICATION_BINDING_EVIDENCE_FIELDS = frozenset(
+    {
+        "contract_version",
+        "service",
+        "status",
+        "environment",
+        "graceful_stop_operation_id",
+        "lifecycle_root_sha256",
+        "clean_stop_request_sha256",
+        "clean_stop_result_sha256",
+        "channel_id",
+        "expected_checkpoint_reason",
+        "expected_clean_stop_head_sha256",
+        "expected_clean_stop_terminal_result_semantic_sha256",
+        "topology_sha256",
+        "topology_lease_sha256",
+        "transport_quiescence_record_sha256",
+        "pre_effect_intent_sha256",
+        "adr0109_observation",
+        "adr0109_observation_sha256",
+        "provider_identity_sha256",
+        "observation_semantic_sha256",
+        "adr0109_issuer_binding_sha256",
+        "adr0109_read_only_configuration_sha256",
+        "issuer_challenge_sha256",
+        "observation_started_monotonic_ns",
+        "observation_completed_monotonic_ns",
+        "observation_deadline_monotonic_ns",
+    }
+)
+_POST_TEARDOWN_REAUTHENTICATION_BINDING_EVIDENCE_FIELDS = frozenset(
+    {
+        "contract_version",
+        "service",
+        "status",
+        "environment",
+        "graceful_stop_operation_id",
+        "lifecycle_root_sha256",
+        "published_prefix_through_ordinal_18_sha256",
+        "expected_checkpoint_reason",
+        "expected_clean_stop_head_sha256",
+        "expected_clean_stop_terminal_result_semantic_sha256",
+        "pre_effect_binding_sha256",
+        "supervisor_stop_result_sha256",
+        "source_stop_result_sha256",
+        "supervisor_remove_result_sha256",
+        "source_remove_result_sha256",
+        "project_network_remove_result_sha256",
+        "volume_proof_sha256",
+        "post_teardown_intent_sha256",
+        "adr0109_observation",
+        "adr0109_observation_sha256",
+        "provider_identity_sha256",
+        "observation_semantic_sha256",
+        "adr0109_issuer_binding_sha256",
+        "adr0109_read_only_configuration_sha256",
+        "issuer_challenge_sha256",
+        "observation_started_monotonic_ns",
+        "observation_completed_monotonic_ns",
+        "observation_deadline_monotonic_ns",
     }
 )
 _DOCKER_INTENT_EXTRA_FIELDS = frozenset(
@@ -731,6 +854,255 @@ _REAUTHENTICATION_RESULT_STAGES = frozenset(
 )
 
 
+def _capture_lifecycle_v2_reauthentication_binding_evidence(
+    value: object,
+    *,
+    boundary: str,
+) -> tuple[FrozenJsonObject, str]:
+    """Canonicalize and independently authenticate retained ADR-0109 primitives."""
+
+    if boundary == "pre_effect":
+        expected_fields = _PRE_EFFECT_REAUTHENTICATION_BINDING_EVIDENCE_FIELDS
+        expected_status = "fresh_pre_effect_adr0109_observation_bound"
+    elif boundary == "post_teardown":
+        expected_fields = _POST_TEARDOWN_REAUTHENTICATION_BINDING_EVIDENCE_FIELDS
+        expected_status = "distinct_post_teardown_adr0109_observation_bound"
+    else:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "reauthentication binding evidence boundary is outside the closed set"
+        )
+    frozen = FrozenJsonObject.capture(
+        value.to_dict() if type(value) is FrozenJsonObject else value
+    )
+    fields = frozen.to_dict()
+    _require_fields(fields, expected_fields)
+    expected_contract = (
+        "phase6d-trusted-time-graceful-stop-"
+        f"{boundary.replace('_', '-')}-reauthentication-binding-v2"
+    )
+    if (
+        fields["contract_version"] != expected_contract
+        or fields["service"] != LIFECYCLE_V2_SERVICE
+        or fields["status"] != expected_status
+        or fields["expected_checkpoint_reason"] != "clean_stop"
+    ):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "reauthentication binding evidence discriminator is invalid"
+        )
+    _require_identifier(fields["environment"], "environment")
+    _require_identifier(
+        fields["graceful_stop_operation_id"],
+        "graceful_stop_operation_id",
+    )
+    for name, item in fields.items():
+        if name.endswith("_sha256"):
+            _require_sha256(item, name)
+
+    raw_observation = fields["adr0109_observation"]
+    if type(raw_observation) is not dict:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "ADR-0109 observation must be one exact object"
+        )
+    observation = FrozenJsonObject.capture(raw_observation)
+    observation_fields = observation.to_dict()
+    _require_fields(observation_fields, _ADR0109_OBSERVATION_FIELDS)
+    if (
+        observation_fields["contract_version"]
+        != _ADR0109_REAUTHENTICATION_CONTRACT_VERSION
+        or observation_fields["status"] != _ADR0109_REAUTHENTICATION_STATUS
+        or observation_fields["checkpoint_reason"] != "clean_stop"
+    ):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "ADR-0109 observation discriminator is invalid"
+        )
+    anchor_sequence = _require_int(
+        observation_fields["anchor_sequence"],
+        "anchor_sequence",
+        minimum=3,
+    )
+    confirmed_anchor_count = _require_int(
+        observation_fields["confirmed_anchor_count"],
+        "confirmed_anchor_count",
+        minimum=3,
+    )
+    remote_object_count = _require_int(
+        observation_fields["remote_object_count"],
+        "remote_object_count",
+        minimum=3,
+    )
+    local_transition_count = _require_int(
+        observation_fields["local_transition_count"],
+        "local_transition_count",
+        minimum=3,
+    )
+    confirmed_local_ordinal = _require_int(
+        observation_fields["confirmed_anchor_local_transition_ordinal"],
+        "confirmed_anchor_local_transition_ordinal",
+        minimum=3,
+    )
+    if (
+        confirmed_anchor_count != anchor_sequence
+        or remote_object_count != anchor_sequence
+        or confirmed_local_ordinal != local_transition_count
+        or local_transition_count < anchor_sequence
+    ):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "ADR-0109 observation counts are inconsistent"
+        )
+    for name, item in observation_fields.items():
+        if name.endswith("_sha256"):
+            _require_sha256(item, name)
+    semantic_payload = dict(observation_fields)
+    observation_semantic_sha256 = cast(
+        str,
+        semantic_payload.pop("semantic_sha256"),
+    )
+    if (
+        _sha256(
+            canonical_v2_json_bytes(
+                semantic_payload,
+                maximum_bytes=LIFECYCLE_V2_RECORD_MAXIMUM_BYTES,
+            )
+        )
+        != observation_semantic_sha256
+        or observation_fields["candidate_remote_readback_sha256"]
+        != observation_fields["current_anchor_sha256"]
+    ):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "ADR-0109 observation semantic binding is not canonical"
+        )
+    _require_utc(
+        observation_fields["receipt_observed_at_utc"],
+        "receipt_observed_at_utc",
+    )
+    observation_started = _require_int(
+        observation_fields["observation_started_monotonic_ns"],
+        "observation_started_monotonic_ns",
+    )
+    observation_completed = _require_int(
+        observation_fields["observation_completed_monotonic_ns"],
+        "observation_completed_monotonic_ns",
+    )
+    observation_deadline = _require_int(
+        observation_fields["deadline_monotonic_ns"],
+        "deadline_monotonic_ns",
+    )
+    if (
+        observation_started
+        > MAXIMUM_SIGNED_INTEGER - _ADR0109_OBSERVATION_BUDGET_NS
+        or observation_deadline
+        != observation_started + _ADR0109_OBSERVATION_BUDGET_NS
+        or not observation_started <= observation_completed < observation_deadline
+    ):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "ADR-0109 observation interval is not the exact 120-second interval"
+        )
+    provider_projection = {
+        name: observation_fields[name] for name in _ADR0109_PROVIDER_IDENTITY_FIELDS
+    }
+    provider_identity_sha256 = _domain_sha256(
+        "AutoQuantTrader/trusted-time/graceful-stop/adr0109-provider-identity/v2",
+        canonical_v2_json_bytes(
+            provider_projection,
+            maximum_bytes=LIFECYCLE_V2_RECORD_MAXIMUM_BYTES,
+        ),
+    )
+    observation_encoded = canonical_v2_json_bytes(
+        observation_fields,
+        maximum_bytes=LIFECYCLE_V2_RECORD_MAXIMUM_BYTES,
+    )
+    binding_started = _require_int(
+        fields["observation_started_monotonic_ns"],
+        "observation_started_monotonic_ns",
+    )
+    binding_completed = _require_int(
+        fields["observation_completed_monotonic_ns"],
+        "observation_completed_monotonic_ns",
+    )
+    binding_deadline = _require_int(
+        fields["observation_deadline_monotonic_ns"],
+        "observation_deadline_monotonic_ns",
+    )
+    if (
+        fields["expected_clean_stop_head_sha256"]
+        != observation_fields["current_anchor_sha256"]
+        or fields["adr0109_observation_sha256"] != _sha256(observation_encoded)
+        or fields["provider_identity_sha256"] != provider_identity_sha256
+        or fields["observation_semantic_sha256"] != observation_semantic_sha256
+        or fields["adr0109_issuer_binding_sha256"]
+        != observation_fields["issuer_binding_sha256"]
+        or fields["adr0109_read_only_configuration_sha256"]
+        != observation_fields["read_only_configuration_sha256"]
+        or binding_started != observation_started
+        or binding_completed != observation_completed
+        or binding_deadline != observation_deadline
+    ):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "reauthentication binding did not retain its exact ADR-0109 primitives"
+        )
+    binding_evidence_sha256 = _domain_sha256(
+        "AutoQuantTrader/trusted-time/graceful-stop/"
+        f"{boundary.replace('_', '-')}-reauthentication-binding/v2",
+        canonical_v2_json_bytes(
+            fields,
+            maximum_bytes=LIFECYCLE_V2_RECORD_MAXIMUM_BYTES,
+        ),
+    )
+    return frozen, binding_evidence_sha256
+
+
+def _validate_reauthentication_result_evidence(
+    stage: LifecycleV2Stage,
+    value: dict[str, object],
+    *,
+    graceful_stop_operation_id: str,
+    root_sha256: str,
+) -> None:
+    boundary = (
+        "pre_effect"
+        if stage is LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_BOUND
+        else "post_teardown"
+    )
+    binding_evidence, binding_evidence_sha256 = (
+        _capture_lifecycle_v2_reauthentication_binding_evidence(
+            value["binding_evidence"],
+            boundary=boundary,
+        )
+    )
+    binding_fields = binding_evidence.to_dict()
+    if (
+        binding_fields["graceful_stop_operation_id"]
+        != graceful_stop_operation_id
+        or binding_fields["lifecycle_root_sha256"] != root_sha256
+        or value["disposition"] != f"{boundary}_reauthentication_bound"
+        or value["responder_identity_sha256"]
+        != binding_fields["adr0109_issuer_binding_sha256"]
+        or value["observation_semantic_sha256"]
+        != binding_fields["observation_semantic_sha256"]
+        or value["observed_head_sha256"]
+        != binding_fields["expected_clean_stop_head_sha256"]
+        or value["provider_identity_sha256"]
+        != binding_fields["provider_identity_sha256"]
+        or value["call_started_boottime_ns"]
+        != binding_fields["observation_started_monotonic_ns"]
+        or value["call_completed_boottime_ns"]
+        != binding_fields["observation_completed_monotonic_ns"]
+        or value["binding_semantic_sha256"] != value["result_semantic_sha256"]
+    ):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "reauthentication result crossed its exact primitive binding evidence"
+        )
+    # The typed lineage transition revalidates the semantic digest over this
+    # exact evidence digest plus its retained root/channel/intent.  A standalone
+    # record decode can still authenticate every nested primitive and all outer
+    # projections without pretending the root's channel is recoverable from a
+    # digest-only progress record.
+    if type(binding_evidence_sha256) is not str:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "reauthentication binding evidence digest is invalid"
+        )
+
+
 def _expected_evidence_fields(stage: LifecycleV2Stage) -> frozenset[str]:
     if stage is LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED:
         return _REQUEST_INTENT_EVIDENCE_FIELDS
@@ -763,7 +1135,13 @@ def _expected_evidence_fields(stage: LifecycleV2Stage) -> frozenset[str]:
     raise TrustedTimeGracefulStopV2Rejected("stage has no milestone-one evidence schema")
 
 
-def _validate_evidence(stage: LifecycleV2Stage, evidence: FrozenJsonObject) -> None:
+def _validate_evidence(
+    stage: LifecycleV2Stage,
+    evidence: FrozenJsonObject,
+    *,
+    graceful_stop_operation_id: str,
+    root_sha256: str,
+) -> None:
     value = evidence.to_dict()
     if FrozenJsonObject.capture(value) != evidence:
         raise TrustedTimeGracefulStopV2Rejected("progress evidence is not canonically frozen")
@@ -803,6 +1181,13 @@ def _validate_evidence(stage: LifecycleV2Stage, evidence: FrozenJsonObject) -> N
         completed = _require_int(value["call_completed_boottime_ns"], "call_completed_boottime_ns")
         if completed < started:
             raise TrustedTimeGracefulStopV2Rejected("result completion precedes call start")
+    if stage in _REAUTHENTICATION_RESULT_STAGES:
+        _validate_reauthentication_result_evidence(
+            stage,
+            value,
+            graceful_stop_operation_id=graceful_stop_operation_id,
+            root_sha256=root_sha256,
+        )
     if stage is LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED:
         _require_exact_deadline(
             value["admission_started_boottime_ns"],
@@ -871,7 +1256,12 @@ class LifecycleV2ProgressRecord:
         _require_int(self.deadline_boottime_ns, "deadline_boottime_ns")
         if type(self.evidence) is not FrozenJsonObject:
             raise TrustedTimeGracefulStopV2Rejected("progress evidence is not frozen")
-        _validate_evidence(self.stage, self.evidence)
+        _validate_evidence(
+            self.stage,
+            self.evidence,
+            graceful_stop_operation_id=self.graceful_stop_operation_id,
+            root_sha256=self.root_sha256,
+        )
         _require_utc(self.recorded_at_utc, "recorded_at_utc")
 
     def to_dict(self) -> dict[str, object]:
@@ -1031,8 +1421,7 @@ class LifecycleV2TranscriptEntry:
             wire_type = "result" if result_stage else "error"
             expected_kind = f"signed_{wire_type}_envelope"
             expected_name = (
-                "trusted-time-post-enrollment-graceful-stop-v2-wire-"
-                f"{wire_type}-{wire_sha256}.json"
+                f"trusted-time-post-enrollment-graceful-stop-v2-wire-{wire_type}-{wire_sha256}.json"
             )
             if self.wire_artifact_kind != expected_kind:
                 raise TrustedTimeGracefulStopV2Rejected(
@@ -1053,9 +1442,7 @@ class LifecycleV2TranscriptEntry:
                 or "\0" in path
                 or len(path.encode("utf-8")) > 4_096
             ):
-                raise TrustedTimeGracefulStopV2Rejected(
-                    "wire artifact path is not exact"
-                )
+                raise TrustedTimeGracefulStopV2Rejected("wire artifact path is not exact")
         elif any(value is not None for value in wire_values):
             raise TrustedTimeGracefulStopV2Rejected("only terminal wire stages bind artifacts")
 
@@ -1594,43 +1981,15 @@ class UnverifiedLifecycleV2TransportEnvelope:
         return _sha256(self.signature)
 
 
-@dataclass(frozen=True, slots=True, eq=False)
+@dataclass(frozen=True, slots=True, eq=False, init=False)
 class _FakeAuthenticatedLifecycleV2TransportEnvelope:
-    """Test-only authentication receipt; no production verifier can construct it."""
+    """Registry-issued test-only authentication receipt."""
 
     envelope: UnverifiedLifecycleV2TransportEnvelope
-    _capability: object
+    root_sha256: str
 
-
-def _authenticate_lifecycle_v2_transport_envelope_for_fake(
-    envelope: UnverifiedLifecycleV2TransportEnvelope,
-    *,
-    capability: object,
-) -> _FakeAuthenticatedLifecycleV2TransportEnvelope:
-    if (
-        type(envelope) is not UnverifiedLifecycleV2TransportEnvelope
-        or capability is not _FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY
-    ):
-        raise TrustedTimeGracefulStopV2Rejected("fake transport authentication is invalid")
-    verified = decode_unverified_lifecycle_v2_transport_envelope(envelope.encoded)
-    if verified != envelope:
-        raise TrustedTimeGracefulStopV2Rejected("fake transport envelope is not canonical")
-    return _FakeAuthenticatedLifecycleV2TransportEnvelope(verified, capability)
-
-
-def _require_fake_authenticated_lifecycle_v2_transport_envelope(
-    value: object,
-) -> UnverifiedLifecycleV2TransportEnvelope:
-    if (
-        type(value) is not _FakeAuthenticatedLifecycleV2TransportEnvelope
-        or value._capability is not _FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY
-        or type(value.envelope) is not UnverifiedLifecycleV2TransportEnvelope
-    ):
-        raise TrustedTimeGracefulStopV2Rejected("terminal wire is not fake-authenticated")
-    verified = decode_unverified_lifecycle_v2_transport_envelope(value.envelope.encoded)
-    if verified != value.envelope:
-        raise TrustedTimeGracefulStopV2Rejected("terminal wire changed under validation")
-    return verified
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("fake transport authentication requires test-only issuance")
 
 
 def decode_unverified_lifecycle_v2_transport_envelope(
@@ -1639,6 +1998,151 @@ def decode_unverified_lifecycle_v2_transport_envelope(
     return UnverifiedLifecycleV2TransportEnvelope.capture(
         decode_canonical_v2_json_object(encoded, maximum_bytes=LIFECYCLE_V2_WIRE_MAXIMUM_BYTES)
     )
+
+
+def _build_fake_lifecycle_v2_transport_authentication_endpoints() -> tuple[
+    Callable[..., _FakeAuthenticatedLifecycleV2TransportEnvelope],
+    Callable[..., UnverifiedLifecycleV2TransportEnvelope],
+]:
+    """Keep fake issuance test-only, root-bound, and free of caller-held tokens."""
+
+    registry = LifecycleV2RuntimeSealRegistry()
+    seal_runtime = registry.seal
+    require_runtime = registry.require
+    decode_envelope = decode_unverified_lifecycle_v2_transport_envelope
+    decode_root = decode_lifecycle_v2_root
+    fake_type = _FakeAuthenticatedLifecycleV2TransportEnvelope
+    envelope_type = UnverifiedLifecycleV2TransportEnvelope
+    root_type = LifecycleV2Root
+
+    def require_test_root(root: object) -> LifecycleV2Root:
+        if type(root) is not root_type:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "fake transport authentication requires an exact test root"
+            )
+        try:
+            exact_root = decode_root(root.encoded)
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected) as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "fake transport authentication requires an exact test root"
+            ) from error
+        if exact_root != root or exact_root.environment != "test":
+            raise TrustedTimeGracefulStopV2Rejected(
+                "fake transport authentication requires an exact test root"
+            )
+        return exact_root
+
+    def require_root_bound_envelope(
+        envelope: object,
+        root: LifecycleV2Root,
+    ) -> UnverifiedLifecycleV2TransportEnvelope:
+        if type(envelope) is not envelope_type:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "fake transport authentication requires an exact terminal envelope"
+            )
+        try:
+            exact_envelope = decode_envelope(envelope.encoded)
+            fields = exact_envelope.to_dict()
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected) as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "fake transport authentication requires an exact terminal envelope"
+            ) from error
+        expected = {
+            "environment": "test",
+            "key_generation": root.transport_key_generation,
+            "signing_key_id": root.supervisor_transport_key_id,
+            "boot_epoch_sha256": root.boot_epoch_sha256,
+            "host_process_epoch_sha256": root.host_process_epoch_sha256,
+            "supervisor_process_epoch_sha256": root.supervisor_process_epoch_sha256,
+            "channel_id": root.channel_id,
+            "deadline_boottime_ns": root.clean_stop_result_deadline_boottime_ns,
+        }
+        if (
+            exact_envelope != envelope
+            or exact_envelope.frame_type not in {"clean_stop_result", "clean_stop_error"}
+            or any(fields[name] != value for name, value in expected.items())
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "fake terminal envelope crossed its exact test root"
+            )
+        return exact_envelope
+
+    def snapshot(
+        envelope: UnverifiedLifecycleV2TransportEnvelope,
+        root_sha256: str,
+    ) -> str:
+        return _domain_sha256(
+            "AutoQuantTrader/trusted-time/graceful-stop/fake-transport-authentication/v2",
+            canonical_v2_json_bytes(
+                {
+                    "envelope": envelope.to_dict(),
+                    "root_sha256": root_sha256,
+                },
+                maximum_bytes=LIFECYCLE_V2_WIRE_MAXIMUM_BYTES,
+            ),
+        )
+
+    def issue(
+        envelope: UnverifiedLifecycleV2TransportEnvelope,
+        *,
+        root: LifecycleV2Root,
+    ) -> _FakeAuthenticatedLifecycleV2TransportEnvelope:
+        exact_root = require_test_root(root)
+        exact_envelope = require_root_bound_envelope(envelope, exact_root)
+        result = object.__new__(fake_type)
+        object.__setattr__(result, "envelope", exact_envelope)
+        object.__setattr__(result, "root_sha256", exact_root.sha256)
+        if not seal_runtime(
+            result,
+            snapshot_sha256=snapshot(exact_envelope, exact_root.sha256),
+            kind="fake_authenticated_terminal_envelope",
+            provenance="test_only_fake_transport",
+            scope_sha256=exact_root.sha256,
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "fake transport authentication could not be sealed"
+            )
+        return result
+
+    def require(
+        value: object,
+        *,
+        root: LifecycleV2Root,
+    ) -> UnverifiedLifecycleV2TransportEnvelope:
+        exact_root = require_test_root(root)
+        if type(value) is not fake_type:
+            raise TrustedTimeGracefulStopV2Rejected("terminal wire is not fake-authenticated")
+        try:
+            envelope = value.envelope
+            root_sha256 = value.root_sha256
+            exact_envelope = require_root_bound_envelope(envelope, exact_root)
+            exact_snapshot = snapshot(exact_envelope, root_sha256)
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected) as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal wire is not fake-authenticated"
+            ) from error
+        if (
+            root_sha256 != exact_root.sha256
+            or require_runtime(
+                value,
+                snapshot_sha256=exact_snapshot,
+                kind="fake_authenticated_terminal_envelope",
+                provenance="test_only_fake_transport",
+                scope_sha256=exact_root.sha256,
+            )
+            is None
+        ):
+            raise TrustedTimeGracefulStopV2Rejected("terminal wire is not fake-authenticated")
+        return exact_envelope
+
+    return issue, require
+
+
+(
+    _authenticate_lifecycle_v2_transport_envelope_for_tests,
+    _require_fake_authenticated_lifecycle_v2_transport_envelope,
+) = _build_fake_lifecycle_v2_transport_authentication_endpoints()
+del _build_fake_lifecycle_v2_transport_authentication_endpoints
 
 
 def lifecycle_v2_wire_file_name(envelope: UnverifiedLifecycleV2TransportEnvelope) -> str:

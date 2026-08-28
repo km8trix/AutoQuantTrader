@@ -320,7 +320,7 @@ def _fake_authenticated_result(
     request_envelope = _envelope(
         root, intent, frame_type="clean_stop_request", payload=request.encoded
     )
-    return FakeLifecycleV2Transport(envelope).exchange(request, request_envelope)
+    return FakeLifecycleV2Transport(root, envelope).exchange(request, request_envelope)
 
 
 def _repository(
@@ -1430,7 +1430,7 @@ def test_fake_transport_is_one_shot_and_binds_channel_prefix_and_counter() -> No
         root, intent, frame_type="clean_stop_request", payload=request.encoded
     )
     response = _result_envelope(root, intent)
-    transport = FakeLifecycleV2Transport(response)
+    transport = FakeLifecycleV2Transport(root, response)
     assert transport.exchange(request, request_envelope).envelope == response
     with pytest.raises(FakeLifecycleV2Fault, match="replay"):
         transport.exchange(request, request_envelope)
@@ -1447,7 +1447,11 @@ def test_fake_transport_faults_never_become_retry_evidence(boundary: str) -> Non
     request_envelope = _envelope(
         root, intent, frame_type="clean_stop_request", payload=request.encoded
     )
-    transport = FakeLifecycleV2Transport(_result_envelope(root, intent), fail_at=boundary)
+    transport = FakeLifecycleV2Transport(
+        root,
+        _result_envelope(root, intent),
+        fail_at=boundary,
+    )
     with pytest.raises(FakeLifecycleV2Fault, match=boundary):
         transport.exchange(request, request_envelope)
     with pytest.raises(FakeLifecycleV2Fault, match="replay"):

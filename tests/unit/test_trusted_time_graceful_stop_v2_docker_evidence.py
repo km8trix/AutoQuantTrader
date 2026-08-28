@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
-    _FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY,
     LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION,
     LIFECYCLE_V2_TRANSPORT_SERVICE,
     FrozenJsonObject,
@@ -20,7 +19,6 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     LifecycleV2Stage,
     TrustedTimeGracefulStopV2Rejected,
     UnverifiedLifecycleV2TransportEnvelope,
-    _authenticate_lifecycle_v2_transport_envelope_for_fake,
     canonical_v2_json_bytes,
 )
 from packages.domain.trusted_time_graceful_stop_v2_docker import (
@@ -42,7 +40,6 @@ from packages.domain.trusted_time_graceful_stop_v2_docker import (
     validate_docker_request_bytes,
 )
 from packages.domain.trusted_time_graceful_stop_v2_terminal import (
-    _FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
     CLEAN_STOP_ERROR_CONTRACT_VERSION,
     CLEAN_STOP_RESULT_CONTRACT_VERSION,
     LISTENER_PATH,
@@ -56,7 +53,7 @@ from packages.domain.trusted_time_graceful_stop_v2_terminal import (
     LifecycleV2TerminalProjection,
     LifecycleV2TerminalWireEvidence,
     LifecycleV2WirePublicationReceipt,
-    _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof,
+    _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests,
     decode_lifecycle_v2_clean_stop_error,
     decode_lifecycle_v2_clean_stop_result,
     terminal_non_authority_facts,
@@ -757,9 +754,7 @@ def test_daemon_executable_size_boundary(size: int, accepted: bool) -> None:
     value = entries[0].connection.to_dict()
     value["daemon_executable_size"] = size
     if accepted:
-        assert DockerConnectionIdentity.capture(value).to_dict()[
-            "daemon_executable_size"
-        ] == size
+        assert DockerConnectionIdentity.capture(value).to_dict()["daemon_executable_size"] == size
     else:
         with pytest.raises(TrustedTimeDockerEvidenceRejected):
             DockerConnectionIdentity.capture(value)
@@ -1269,14 +1264,9 @@ def _terminal_proof(
     root: LifecycleV2Root,
     envelope: UnverifiedLifecycleV2TransportEnvelope,
 ) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
-    authenticated = _authenticate_lifecycle_v2_transport_envelope_for_fake(
+    return _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests(
         envelope,
-        capability=_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY,
-    )
-    return _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof(
-        authenticated,
         root=root,
-        capability=_FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY,
     )
 
 
