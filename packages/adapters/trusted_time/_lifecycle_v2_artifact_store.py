@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 import stat
 import threading
+from collections.abc import Callable
+from typing import Any
 
 from packages.adapters.trusted_time._owned_file_descriptor import (
     _create_child_regular_exclusive,
@@ -53,6 +55,20 @@ _RECORD_MAXIMUM_BYTES = 256 * 1_024
 _WIRE_MAXIMUM_BYTES = 262_144
 _FIXED_MARKER_STAGING_NAME = ".post-enrollment-graceful-stop-v2-outcome-commit-staging"
 _Stat9 = tuple[int, int, int, int, int, int, int, int, int]
+_OwnerFactory = Callable[[], Any]
+_ChildOwnerFactory = Callable[[Any, str | bytes], Any]
+_OwnerStat = Callable[[Any], _Stat9]
+_OwnerSync = Callable[[Any], None]
+_OwnerWrite = Callable[[Any, bytes], None]
+_OwnerRead = Callable[[Any, int], tuple[bytes, _Stat9, _Stat9]]
+_OwnerList = Callable[[Any], tuple[tuple[str, ...], _Stat9, _Stat9]]
+_NamedStat = Callable[[Any, str | bytes], _Stat9]
+_GetPid = Callable[[], int]
+_CurrentThread = Callable[[], threading.Thread]
+_NoReplace = Callable[
+    [Any, Any, str | bytes, str | bytes],
+    None,
+]
 
 
 def _exact_nonnegative_int(value: object, name: str) -> int:
@@ -122,19 +138,6 @@ def _maximum_bytes_for_name(file_name: str) -> int:
     return _RECORD_MAXIMUM_BYTES
 
 
-def _open_directory_path(path: str) -> _OwnedFileDescriptor:
-    owner = _open_root_directory()
-    try:
-        for component in path.split("/")[1:]:
-            next_owner = _open_child_directory(owner, component)
-            owner.close()
-            owner = next_owner
-    except BaseException:
-        owner.close()
-        raise
-    return owner
-
-
 class _LifecycleV2PhysicalArtifactStore:
     """One process/thread-bound physical implementation of the store seam."""
 
@@ -158,6 +161,11 @@ class _LifecycleV2PhysicalArtifactStore:
         expected_directory_inode: int,
         expected_owner_uid: int,
         expected_owner_gid: int,
+        _open_root_exact: _OwnerFactory = _open_root_directory,
+        _open_directory_exact: _ChildOwnerFactory = _open_child_directory,
+        _fstat_exact: _OwnerStat = _fstat,
+        _getpid_exact: _GetPid = os.getpid,
+        _current_thread_exact: _CurrentThread = threading.current_thread,
     ) -> None:
         exact_path = _exact_artifact_directory_path(artifact_directory_path)
         exact_device = _exact_nonnegative_int(
@@ -173,9 +181,13 @@ class _LifecycleV2PhysicalArtifactStore:
         if exact_device == 0 or exact_inode == 0:
             raise ValueError("artifact directory device and inode must be positive")
 
-        directory_owner = _open_directory_path(exact_path)
+        directory_owner = _open_root_exact()
         try:
-            identity = _exact_stat9(_fstat(directory_owner))
+            for component in exact_path.split("/")[1:]:
+                next_owner = _open_directory_exact(directory_owner, component)
+                directory_owner.close()
+                directory_owner = next_owner
+            identity = _exact_stat9(_fstat_exact(directory_owner))
             if (
                 not stat.S_ISDIR(identity[2])
                 or stat.S_IMODE(identity[2]) != _DIRECTORY_MODE
@@ -205,8 +217,8 @@ class _LifecycleV2PhysicalArtifactStore:
             owner_gid=identity[4],
             directory_mode=stat.S_IMODE(identity[2]),
         )
-        self._origin_pid = os.getpid()
-        self._origin_thread = threading.current_thread()
+        self._origin_pid = _getpid_exact()
+        self._origin_thread = _current_thread_exact()
         self._closed = False
 
     @property
@@ -229,22 +241,37 @@ class _LifecycleV2PhysicalArtifactStore:
     def closed(self) -> bool:
         return self._closed or self._directory_owner.closed
 
-    def _require_owner(self) -> None:
-        if self._closed or os.getpid() != self._origin_pid or self._directory_owner.closed:
+    def _require_owner(
+        self,
+        *,
+        _getpid_exact: _GetPid = os.getpid,
+        _current_thread_exact: _CurrentThread = threading.current_thread,
+    ) -> None:
+        if self._closed or _getpid_exact() != self._origin_pid or self._directory_owner.closed:
             self._closed = True
             raise LifecycleV2ArtifactPublicationUncertain(
                 "physical artifact-store owner is invalid, closed, or forked"
             )
-        if threading.current_thread() is not self._origin_thread:
+        if _current_thread_exact() is not self._origin_thread:
             raise LifecycleV2ArtifactPublicationUncertain(
                 "physical artifact-store owner thread is invalid"
             )
 
-    def _directory_identity(self) -> _Stat9:
-        held_identity = _exact_stat9(_fstat(self._directory_owner))
-        rebound_owner = _open_directory_path(self._artifact_directory_path)
+    def _directory_identity(
+        self,
+        *,
+        _open_root_exact: _OwnerFactory = _open_root_directory,
+        _open_directory_exact: _ChildOwnerFactory = _open_child_directory,
+        _fstat_exact: _OwnerStat = _fstat,
+    ) -> _Stat9:
+        held_identity = _exact_stat9(_fstat_exact(self._directory_owner))
+        rebound_owner = _open_root_exact()
         try:
-            rebound_identity = _exact_stat9(_fstat(rebound_owner))
+            for component in self._artifact_directory_path.split("/")[1:]:
+                next_owner = _open_directory_exact(rebound_owner, component)
+                rebound_owner.close()
+                rebound_owner = next_owner
+            rebound_identity = _exact_stat9(_fstat_exact(rebound_owner))
         finally:
             rebound_owner.close()
         if held_identity != rebound_identity:
@@ -285,28 +312,41 @@ class _LifecycleV2PhysicalArtifactStore:
             )
         return exact
 
-    def _close_after_failure(self) -> None:
+    def _close_after_failure(
+        self,
+        *,
+        _getpid_exact: _GetPid = os.getpid,
+    ) -> None:
         self._closed = True
-        if os.getpid() == self._origin_pid and not self._directory_owner.closed:
+        if _getpid_exact() == self._origin_pid and not self._directory_owner.closed:
             self._directory_owner.close()
 
-    def close(self) -> None:
+    def close(
+        self,
+        *,
+        _getpid_exact: _GetPid = os.getpid,
+        _current_thread_exact: _CurrentThread = threading.current_thread,
+    ) -> None:
         if self._closed:
             return
-        if os.getpid() != self._origin_pid:
+        if _getpid_exact() != self._origin_pid:
             self._closed = True
             return
-        if threading.current_thread() is not self._origin_thread:
+        if _current_thread_exact() is not self._origin_thread:
             raise LifecycleV2ArtifactPublicationUncertain(
                 "physical artifact-store cleanup thread is invalid"
             )
         self._directory_owner.close()
         self._closed = True
 
-    def inventory(self) -> LifecycleV2ArtifactInventorySnapshot:
+    def inventory(
+        self,
+        *,
+        _list_exact: _OwnerList = _list_snapshot,
+    ) -> LifecycleV2ArtifactInventorySnapshot:
         self._require_owner()
         try:
-            names, before, after = _list_snapshot(self._directory_owner)
+            names, before, after = _list_exact(self._directory_owner)
             exact_before = _exact_stat9(before)
             exact_after = _exact_stat9(after)
             current_identity = self._directory_identity()
@@ -340,13 +380,21 @@ class _LifecycleV2PhysicalArtifactStore:
                 "artifact directory inventory is unconfirmed"
             ) from None
 
-    def _read_existing(self, file_name: str) -> LifecycleV2ArtifactReadback:
+    def _read_existing(
+        self,
+        file_name: str,
+        *,
+        _open_regular_exact: _ChildOwnerFactory = _open_child_regular,
+        _fstat_exact: _OwnerStat = _fstat,
+        _read_exact: _OwnerRead = _read_snapshot,
+        _statat_exact: _NamedStat = _statat,
+    ) -> LifecycleV2ArtifactReadback:
         maximum_bytes = _maximum_bytes_for_name(file_name)
         directory_before = self._directory_identity()
-        owner = _open_child_regular(self._directory_owner, file_name)
+        owner = _open_regular_exact(self._directory_owner, file_name)
         try:
-            held_before = self._validate_file_identity(_fstat(owner))
-            payload, read_before, read_after = _read_snapshot(owner, maximum_bytes)
+            held_before = self._validate_file_identity(_fstat_exact(owner))
+            payload, read_before, read_after = _read_exact(owner, maximum_bytes)
             exact_read_before = self._validate_file_identity(
                 read_before,
                 expected_size=len(payload),
@@ -356,11 +404,11 @@ class _LifecycleV2PhysicalArtifactStore:
                 expected_size=len(payload),
             )
             held_after = self._validate_file_identity(
-                _fstat(owner),
+                _fstat_exact(owner),
                 expected_size=len(payload),
             )
             named_after = self._validate_file_identity(
-                _statat(self._directory_owner, file_name),
+                _statat_exact(self._directory_owner, file_name),
                 expected_size=len(payload),
             )
             directory_after = self._directory_identity()
@@ -403,6 +451,11 @@ class _LifecycleV2PhysicalArtifactStore:
         final_name: str,
         encoded: bytes,
         initial_readback: LifecycleV2ArtifactReadback,
+        _open_regular_exact: _ChildOwnerFactory = _open_child_regular,
+        _fstat_exact: _OwnerStat = _fstat,
+        _read_exact: _OwnerRead = _read_snapshot,
+        _statat_exact: _NamedStat = _statat,
+        _fsync_exact: _OwnerSync = _fsync,
     ) -> LifecycleV2ArtifactReadback:
         """Fsync and revalidate one byte-identical final without replacing it."""
 
@@ -411,10 +464,10 @@ class _LifecycleV2PhysicalArtifactStore:
                 "existing final bytes disagree before durability revalidation"
             )
         directory_before = self._directory_identity()
-        owner = _open_child_regular(self._directory_owner, final_name)
+        owner = _open_regular_exact(self._directory_owner, final_name)
         try:
             held = self._validate_file_identity(
-                _fstat(owner),
+                _fstat_exact(owner),
                 expected_size=len(encoded),
             )
             if (
@@ -426,9 +479,9 @@ class _LifecycleV2PhysicalArtifactStore:
                 raise LifecycleV2ArtifactPublicationUncertain(
                     "existing final identity changed before durability revalidation"
                 )
-            payload, read_before, read_after = _read_snapshot(owner, len(encoded))
+            payload, read_before, read_after = _read_exact(owner, len(encoded))
             named = self._validate_file_identity(
-                _statat(self._directory_owner, final_name),
+                _statat_exact(self._directory_owner, final_name),
                 expected_size=len(encoded),
             )
             if (
@@ -450,16 +503,16 @@ class _LifecycleV2PhysicalArtifactStore:
                     "existing final bytes or identity changed before durability fsync"
                 )
 
-            _fsync(owner)
-            _fsync(self._directory_owner)
+            _fsync_exact(owner)
+            _fsync_exact(self._directory_owner)
 
-            payload, read_before, read_after = _read_snapshot(owner, len(encoded))
+            payload, read_before, read_after = _read_exact(owner, len(encoded))
             held_after = self._validate_file_identity(
-                _fstat(owner),
+                _fstat_exact(owner),
                 expected_size=len(encoded),
             )
             named_after = self._validate_file_identity(
-                _statat(self._directory_owner, final_name),
+                _statat_exact(self._directory_owner, final_name),
                 expected_size=len(encoded),
             )
             if (
@@ -506,42 +559,6 @@ class _LifecycleV2PhysicalArtifactStore:
                 "artifact stable readback is unconfirmed"
             ) from None
 
-    def _write_staging(
-        self,
-        *,
-        staging_name: str,
-        encoded: bytes,
-    ) -> _OwnedFileDescriptor:
-        if type(encoded) is not bytes or len(encoded) > _maximum_bytes_for_name(staging_name):
-            raise LifecycleV2ArtifactPublicationUncertain(
-                "artifact bytes are not exact or exceed their bound"
-            )
-        owner = _create_child_regular_exclusive(self._directory_owner, staging_name)
-        try:
-            _fchmod_0600(owner)
-            _write_all(owner, encoded)
-            self._validate_file_identity(_fstat(owner), expected_size=len(encoded))
-            _fsync(owner)
-            payload, before, after = _read_snapshot(owner, len(encoded))
-            held = self._validate_file_identity(_fstat(owner), expected_size=len(encoded))
-            named = self._validate_file_identity(
-                _statat(self._directory_owner, staging_name),
-                expected_size=len(encoded),
-            )
-            if (
-                payload != encoded
-                or self._validate_file_identity(before, expected_size=len(encoded)) != held
-                or self._validate_file_identity(after, expected_size=len(encoded)) != held
-                or named != held
-            ):
-                raise LifecycleV2ArtifactPublicationUncertain(
-                    "staging artifact write or identity is unstable"
-                )
-            return owner
-        except BaseException:
-            owner.close()
-            raise
-
     @staticmethod
     def _publication_receipt(
         *,
@@ -569,6 +586,14 @@ class _LifecycleV2PhysicalArtifactStore:
         self,
         file_name: str,
         encoded: bytes,
+        *,
+        _create_exact: _ChildOwnerFactory = _create_child_regular_exclusive,
+        _chmod_exact: _OwnerSync = _fchmod_0600,
+        _write_exact: _OwnerWrite = _write_all,
+        _fstat_exact: _OwnerStat = _fstat,
+        _fsync_exact: _OwnerSync = _fsync,
+        _read_exact: _OwnerRead = _read_snapshot,
+        _statat_exact: _NamedStat = _statat,
     ) -> LifecycleV2ArtifactPublicationReceipt:
         self._require_owner()
         exact_name = _exact_component(file_name)
@@ -577,8 +602,34 @@ class _LifecycleV2PhysicalArtifactStore:
         owner: _OwnedFileDescriptor | None = None
         try:
             self._directory_identity()
-            owner = self._write_staging(staging_name=exact_name, encoded=encoded)
-            _fsync(self._directory_owner)
+            if type(encoded) is not bytes or len(encoded) > _maximum_bytes_for_name(exact_name):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "artifact bytes are not exact or exceed their bound"
+                )
+            owner = _create_exact(self._directory_owner, exact_name)
+            _chmod_exact(owner)
+            _write_exact(owner, encoded)
+            self._validate_file_identity(_fstat_exact(owner), expected_size=len(encoded))
+            _fsync_exact(owner)
+            payload, before, after = _read_exact(owner, len(encoded))
+            held = self._validate_file_identity(
+                _fstat_exact(owner),
+                expected_size=len(encoded),
+            )
+            named = self._validate_file_identity(
+                _statat_exact(self._directory_owner, exact_name),
+                expected_size=len(encoded),
+            )
+            if (
+                payload != encoded
+                or self._validate_file_identity(before, expected_size=len(encoded)) != held
+                or self._validate_file_identity(after, expected_size=len(encoded)) != held
+                or named != held
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "root artifact write or identity is unstable"
+                )
+            _fsync_exact(self._directory_owner)
             owner.close()
             owner = None
             readback = self._read_existing(exact_name)
@@ -615,6 +666,14 @@ class _LifecycleV2PhysicalArtifactStore:
         staging_name: str,
         final_name: str,
         encoded: bytes,
+        _create_exact: _ChildOwnerFactory = _create_child_regular_exclusive,
+        _chmod_exact: _OwnerSync = _fchmod_0600,
+        _write_exact: _OwnerWrite = _write_all,
+        _fstat_exact: _OwnerStat = _fstat,
+        _fsync_exact: _OwnerSync = _fsync,
+        _read_exact: _OwnerRead = _read_snapshot,
+        _statat_exact: _NamedStat = _statat,
+        _rename_exact: _NoReplace = _rename_child_noreplace,
     ) -> LifecycleV2ArtifactPublicationReceipt:
         self._require_owner()
         exact_staging = _exact_component(staging_name)
@@ -653,9 +712,33 @@ class _LifecycleV2PhysicalArtifactStore:
                     )
                 raise LifecycleV2ArtifactAlreadyExists(exact_final)
 
-            owner = self._write_staging(staging_name=exact_staging, encoded=encoded)
+            if len(encoded) > _maximum_bytes_for_name(exact_staging):
+                raise LifecycleV2ArtifactPublicationUncertain("artifact bytes exceed their bound")
+            owner = _create_exact(self._directory_owner, exact_staging)
+            _chmod_exact(owner)
+            _write_exact(owner, encoded)
+            self._validate_file_identity(_fstat_exact(owner), expected_size=len(encoded))
+            _fsync_exact(owner)
+            payload, before, after = _read_exact(owner, len(encoded))
+            held = self._validate_file_identity(
+                _fstat_exact(owner),
+                expected_size=len(encoded),
+            )
+            named = self._validate_file_identity(
+                _statat_exact(self._directory_owner, exact_staging),
+                expected_size=len(encoded),
+            )
+            if (
+                payload != encoded
+                or self._validate_file_identity(before, expected_size=len(encoded)) != held
+                or self._validate_file_identity(after, expected_size=len(encoded)) != held
+                or named != held
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "staging artifact write or identity is unstable"
+                )
             try:
-                _rename_child_noreplace(
+                _rename_exact(
                     self._directory_owner,
                     owner,
                     exact_staging,
@@ -665,11 +748,14 @@ class _LifecycleV2PhysicalArtifactStore:
                 raise LifecycleV2ArtifactPublicationUncertain(
                     "no-replace publication raced with an existing final artifact"
                 ) from error
-            _fsync(self._directory_owner)
-            payload, before, after = _read_snapshot(owner, len(encoded))
-            held = self._validate_file_identity(_fstat(owner), expected_size=len(encoded))
+            _fsync_exact(self._directory_owner)
+            payload, before, after = _read_exact(owner, len(encoded))
+            held = self._validate_file_identity(
+                _fstat_exact(owner),
+                expected_size=len(encoded),
+            )
             named = self._validate_file_identity(
-                _statat(self._directory_owner, exact_final),
+                _statat_exact(self._directory_owner, exact_final),
                 expected_size=len(encoded),
             )
             if (
@@ -717,6 +803,12 @@ class _LifecycleV2PhysicalArtifactStore:
         staging_name: str,
         final_name: str,
         encoded: bytes,
+        _open_regular_exact: _ChildOwnerFactory = _open_child_regular,
+        _fstat_exact: _OwnerStat = _fstat,
+        _fsync_exact: _OwnerSync = _fsync,
+        _read_exact: _OwnerRead = _read_snapshot,
+        _statat_exact: _NamedStat = _statat,
+        _finalize_exact: _NoReplace = _finalize_read_child_noreplace,
     ) -> LifecycleV2ArtifactPublicationReceipt:
         """Revalidate and finish only one exact pre-existing staging preimage."""
 
@@ -773,19 +865,19 @@ class _LifecycleV2PhysicalArtifactStore:
                 raise LifecycleV2ArtifactPublicationUncertain(
                     "exact preallocated staging bytes are absent"
                 )
-            owner = _open_child_regular(self._directory_owner, exact_staging)
+            owner = _open_regular_exact(self._directory_owner, exact_staging)
             held = self._validate_file_identity(
-                _fstat(owner),
+                _fstat_exact(owner),
                 expected_size=len(encoded),
             )
             if held[0] != existing_staging.file_device or held[1] != existing_staging.file_inode:
                 raise LifecycleV2ArtifactPublicationUncertain(
                     "preallocated staging identity changed"
                 )
-            _fsync(owner)
-            payload, before, after = _read_snapshot(owner, len(encoded))
+            _fsync_exact(owner)
+            payload, before, after = _read_exact(owner, len(encoded))
             named = self._validate_file_identity(
-                _statat(self._directory_owner, exact_staging),
+                _statat_exact(self._directory_owner, exact_staging),
                 expected_size=len(encoded),
             )
             if (
@@ -798,7 +890,7 @@ class _LifecycleV2PhysicalArtifactStore:
                     "preallocated staging bytes or identity changed"
                 )
             try:
-                _finalize_read_child_noreplace(
+                _finalize_exact(
                     self._directory_owner,
                     owner,
                     exact_staging,
@@ -808,14 +900,14 @@ class _LifecycleV2PhysicalArtifactStore:
                 raise LifecycleV2ArtifactPublicationUncertain(
                     "preallocated finalization raced with an existing marker"
                 ) from error
-            _fsync(self._directory_owner)
-            payload, before, after = _read_snapshot(owner, len(encoded))
+            _fsync_exact(self._directory_owner)
+            payload, before, after = _read_exact(owner, len(encoded))
             held = self._validate_file_identity(
-                _fstat(owner),
+                _fstat_exact(owner),
                 expected_size=len(encoded),
             )
             named = self._validate_file_identity(
-                _statat(self._directory_owner, exact_final),
+                _statat_exact(self._directory_owner, exact_final),
                 expected_size=len(encoded),
             )
             if (

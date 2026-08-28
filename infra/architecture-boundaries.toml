@@ -3,7 +3,7 @@ source_roots = ["apps", "packages"]
 package_roots = ["packages"]
 production_python_source_manifest_roots = ["apps", "packages", "scripts", "migrations"]
 production_python_source_manifest_pruned_subtrees = ["apps/web/node_modules"]
-production_python_source_manifest_sha256 = "7ebe502346de8ced2a4a9d32627c254b43f299336153fc95ccd7d25ac654e903"
+production_python_source_manifest_sha256 = "b8c0d6c3f2e9438b86d83f8ebb34253131d252a5c934cda982bcccc51d02521f"
 phase3h_proof_module = "packages.domain.fixture_segment_economics"
 phase3h_proof_module_path = "packages/domain/fixture_segment_economics.py"
 phase3h_execution_module = "packages.application.fixture_segment_economics"
@@ -37,7 +37,7 @@ phase3h_dynamic_code_exception_module_ast_sha256."scripts/migrate_phase6_trusted
 phase3h_dynamic_code_exception_module_ast_sha256."scripts/migrate_phase6_trusted_time_uncertainty.py" = "a1d6f39be3585af028cc7905e14057d13626f4f92603e3365b16745f39bc2d6d"
 phase3h_dynamic_code_exception_module_ast_sha256."packages/application/trusted_time_head_anchor_worker.py" = "0e544e036ffe41bcfcaa0422a7273bd0936f760748c539c440ccc7bec319e4eb"
 phase3h_dynamic_code_exception_module_ast_sha256."scripts/capture_sharadar_sfp.py" = "a0708b4ce8599da754548a6c2e348f1accee7c8ecaa19c3b7348b45e54805ab8"
-phase3h_dynamic_code_exception_module_ast_sha256."packages/adapters/trusted_time/_owned_file_descriptor.py" = "c67feb33d4f02b548c74bcea58a96c0890ab4da6afd38d1d10f8107789a411a7"
+phase3h_dynamic_code_exception_module_ast_sha256."packages/adapters/trusted_time/_owned_file_descriptor.py" = "cbfed75858e36e0895f2a7e14e7610f5194aeb88a3195481b2c255260b7de65a"
 phase3h_dynamic_code_exception_module_ast_sha256."packages/adapters/trusted_time/_bounded_process.py" = "738691659c41a7478a71ac7af94e7d43b60a6dafc196b276304b0e64d6794e3a"
 phase3h_dynamic_code_exception_module_ast_sha256."packages/adapters/broker/alpaca_paper_account_runtime.py" = "51ac4ac9fb8b452c6d3e6c7039c3b008af0a1b9f2e808ff9a93825cb243835c9"
 phase3h_dynamic_code_exception_module_ast_sha256."packages/application/trusted_time_head_anchor_clean_stop.py" = "e6a03d4855ad9025be0b1135f6f18915bf4c07451da24f13439bc924a1926a08"
@@ -98,7 +98,6 @@ phase3h_dynamic_code_exception_module_ast_sha256."packages/domain/fixture_segmen
 phase3h_dynamic_code_exception_module_ast_sha256."packages/domain/models.py" = "be8bb5a1cea5b88ffe5b590ba77d23c6b14f5e502f10af3a21e68e398b9e1f35"
 phase3h_dynamic_code_exception_module_ast_sha256."packages/domain/risk.py" = "5be5ad5f59f22abeae6b81a8172db7206a6b9dae6bd0505a37d453af83deea20"
 phase3h_dynamic_code_exception_module_ast_sha256."packages/domain/trusted_time_enrollment_evidence.py" = "0d4191922d91390728e442784aa1291665f007516c82d202a443194857e26c84"
-phase3h_dynamic_code_exception_module_ast_sha256."packages/domain/trusted_time_graceful_stop_v2.py" = "9e53f33c3655803171ae965ef27393234da1989ba93ef5e25bcfbf33b2980344"
 phase3h_dynamic_code_exception_module_ast_sha256."packages/persistence/alpaca_paper_account_activity.py" = "9a39473e425ec84fc7d47402733d5cdbd42806f90fc52f4a0eb02554b3c77e27"
 phase3h_dynamic_code_exception_module_ast_sha256."packages/persistence/alpaca_paper_account_binding.py" = "0e673b372864394181bb729becc3d70c60b1049500f8717f2a62108a16d16fdb"
 phase3h_dynamic_code_exception_module_ast_sha256."packages/persistence/alpaca_paper_asset_binding.py" = "1a76fa2bb54eccdea8cdc2730a9b829af5275d2e6bfffe98ad9a67b9b59ee4e4"
@@ -121,20 +120,229 @@ exact_private_attribute_callsites."packages.domain.fixture_segment_economics.Fix
   "packages/application/fixture_segment_economics.py:execute_fixture_segment_economics",
 ]
 exact_private_attribute_owner_function_ast_sha256."packages/application/fixture_segment_economics.py:execute_fixture_segment_economics" = "2949180a4df9d000fd97f4bfb254e5810ab90df7e88c033f35d413815d3457a7"
-trusted_time_v2_isolated_module_paths."packages.domain.trusted_time_graceful_stop_v2" = "packages/domain/trusted_time_graceful_stop_v2.py"
-trusted_time_v2_isolated_module_paths."packages.persistence.trusted_time_graceful_stop_v2" = "packages/persistence/trusted_time_graceful_stop_v2.py"
+trusted_time_v2_isolated_module_paths."packages.adapters.trusted_time._lifecycle_v2_artifact_store" = "packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"
+trusted_time_v2_isolated_module_paths."packages.adapters.trusted_time.graceful_stop_v2_ed25519" = "packages/adapters/trusted_time/graceful_stop_v2_ed25519.py"
+trusted_time_v2_isolated_module_paths."packages.adapters.trusted_time.graceful_stop_v2_reauthentication" = "packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"
 trusted_time_v2_isolated_module_paths."packages.application.trusted_time_graceful_stop_v2_admission" = "packages/application/trusted_time_graceful_stop_v2_admission.py"
+trusted_time_v2_isolated_module_paths."packages.domain.trusted_time_graceful_stop_v2" = "packages/domain/trusted_time_graceful_stop_v2.py"
+trusted_time_v2_isolated_module_paths."packages.domain.trusted_time_graceful_stop_v2_docker" = "packages/domain/trusted_time_graceful_stop_v2_docker.py"
+trusted_time_v2_isolated_module_paths."packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics" = "packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"
+trusted_time_v2_isolated_module_paths."packages.domain.trusted_time_graceful_stop_v2_reauthentication" = "packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"
+trusted_time_v2_isolated_module_paths."packages.domain.trusted_time_graceful_stop_v2_recovery" = "packages/domain/trusted_time_graceful_stop_v2_recovery.py"
+trusted_time_v2_isolated_module_paths."packages.domain.trusted_time_graceful_stop_v2_runtime_seal" = "packages/domain/trusted_time_graceful_stop_v2_runtime_seal.py"
+trusted_time_v2_isolated_module_paths."packages.domain.trusted_time_graceful_stop_v2_terminal" = "packages/domain/trusted_time_graceful_stop_v2_terminal.py"
+trusted_time_v2_isolated_module_paths."packages.domain.trusted_time_graceful_stop_v2_transport" = "packages/domain/trusted_time_graceful_stop_v2_transport.py"
+trusted_time_v2_isolated_module_paths."packages.persistence.trusted_time_graceful_stop_v2" = "packages/persistence/trusted_time_graceful_stop_v2.py"
 trusted_time_v2_isolated_module_paths."scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts" = "scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py"
-trusted_time_v2_module_ast_sha256."packages/domain/trusted_time_graceful_stop_v2.py" = "9e53f33c3655803171ae965ef27393234da1989ba93ef5e25bcfbf33b2980344"
-trusted_time_v2_module_ast_sha256."packages/persistence/trusted_time_graceful_stop_v2.py" = "8ae95ad12303fb60958392aa9cf58c5d4f609473544af51334e51a685a9bac4b"
+trusted_time_v2_module_ast_sha256."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py" = "7c50a1bfc384e33fa94ce27e0daf473d8341f5ddce583ac0b3161fd70c228b22"
+trusted_time_v2_module_ast_sha256."packages/adapters/trusted_time/graceful_stop_v2_ed25519.py" = "f3edcf51c90a142b3c05c90bbcf49daa14e9e3c1409d28f970c72b5c36b8e867"
+trusted_time_v2_module_ast_sha256."packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py" = "11d1057c6b692f6ce5981d7362d3fedb7ca5c79a73ad8ddb8e80234d7bb331ca"
 trusted_time_v2_module_ast_sha256."packages/application/trusted_time_graceful_stop_v2_admission.py" = "50f2b6207fbb0b449e1d3cbcdc40258f74d2fc35ced0cb0a3a9918213019b4b1"
+trusted_time_v2_module_ast_sha256."packages/domain/trusted_time_graceful_stop_v2.py" = "99750a73c9f77b98eafc91c2a89cd3ab635f1f0a9ca64b2771ccaaaf00227d16"
+trusted_time_v2_module_ast_sha256."packages/domain/trusted_time_graceful_stop_v2_docker.py" = "50b5221322c20884689247b2b1788c5aa3e5f70ca0f73f5780c2e65caef01e5f"
+trusted_time_v2_module_ast_sha256."packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py" = "7ccafcba5f786bb7e69242058a52fdd3562dd0c329c8fdfd2f0d4239a9e1599a"
+trusted_time_v2_module_ast_sha256."packages/domain/trusted_time_graceful_stop_v2_reauthentication.py" = "2256924935aeab0b7bf8934f6f7f6516c5fb69706d4f454663e0ae287358202e"
+trusted_time_v2_module_ast_sha256."packages/domain/trusted_time_graceful_stop_v2_recovery.py" = "c601e6fa5d8f27b45e26096958e67cea88cdd0048fc56c982d2f2f500974f4ce"
+trusted_time_v2_module_ast_sha256."packages/domain/trusted_time_graceful_stop_v2_runtime_seal.py" = "a8820623d19e82fabcd9bced99a7fd1150458b85003828c3792f6056bf6f78db"
+trusted_time_v2_module_ast_sha256."packages/domain/trusted_time_graceful_stop_v2_terminal.py" = "c225ce863d7a16d352d0008b4c96ec8212ace9ed04da83a5d9ee88d0ed2a2fb8"
+trusted_time_v2_module_ast_sha256."packages/domain/trusted_time_graceful_stop_v2_transport.py" = "ab0541ef077c905a606dccbf76865f3dabef5575deba50398303bc0df19adca5"
+trusted_time_v2_module_ast_sha256."packages/persistence/trusted_time_graceful_stop_v2.py" = "2b15da8ced7a031d9b90efffd0ef3cdacc314e521e4aa5549e6398a1d9861248"
 trusted_time_v2_module_ast_sha256."scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py" = "5625b64548122370b3822cc796cc88cbcfb192dcc92fa6ae99496222c66c17ee"
-trusted_time_v2_allowed_imports."packages/persistence/trusted_time_graceful_stop_v2.py" = [
+trusted_time_v2_private_source_loader_function_ast_sha256."packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"._load_canonical_lifecycle_v2_runtime_seal = "6c23a4396acd8a4c11499507ea1e36e7f3e69759f5ac58e3ceeef316c2325f9f"
+trusted_time_v2_private_source_loader_function_ast_sha256."packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"._install_lifecycle_v2_reauthentication_binding_realms = "a87ed6add3ae1bb0b711f640752f9cf18ae85f78e1c9ca71efa8976ff819489f"
+trusted_time_v2_private_source_loader_target_source_sha256."packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py" = "3609035c0c4ea910c4bebe6a3ff2c06f7759ef47770553513b0abe622483f54f"
+trusted_time_v2_private_source_loader_target_source_sha256."packages/domain/trusted_time_graceful_stop_v2_runtime_seal.py" = "48c1ff385128b4ac07e55e8a1e1ea42a9bd219241d2141b1fb3d205baffa91c3"
+trusted_time_v2_private_source_loader_target_source_sha256."scripts/trusted_time_post_enrollment_clean_stop_terminal_reauthentication.py" = "2748c642a2bb6f0f5093166dfd161b45d982a7f5095b662dcd58100c1d9107e7"
+trusted_time_v2_allowed_imports."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py" = [
   "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_ROOT_FILE_NAME",
   "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME",
+  "packages.persistence.trusted_time_graceful_stop_v2:LifecycleV2ArtifactAlreadyExists",
+  "packages.persistence.trusted_time_graceful_stop_v2:LifecycleV2ArtifactInventorySnapshot",
+  "packages.persistence.trusted_time_graceful_stop_v2:LifecycleV2ArtifactPublicationReceipt",
+  "packages.persistence.trusted_time_graceful_stop_v2:LifecycleV2ArtifactPublicationUncertain",
+  "packages.persistence.trusted_time_graceful_stop_v2:LifecycleV2ArtifactReadback",
+  "packages.persistence.trusted_time_graceful_stop_v2:LifecycleV2ArtifactStoreIdentity",
+]
+trusted_time_v2_allowed_imports."packages/adapters/trusted_time/graceful_stop_v2_ed25519.py" = [
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_WIRE_MAXIMUM_BYTES",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2CleanStopRequest",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2CleanStopRequestBasis",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2ProgressRecord",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Root",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Stage",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Transcript",
+  "packages.domain.trusted_time_graceful_stop_v2:NORMAL_STAGE_BY_ORDINAL",
+  "packages.domain.trusted_time_graceful_stop_v2:TrustedTimeGracefulStopV2Rejected",
+  "packages.domain.trusted_time_graceful_stop_v2:UnverifiedLifecycleV2TransportEnvelope",
+  "packages.domain.trusted_time_graceful_stop_v2:canonical_v2_json_bytes",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_progress_record",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_root",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_transcript",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_unverified_lifecycle_v2_transport_envelope",
+  "packages.domain.trusted_time_graceful_stop_v2:lifecycle_v2_dispatch_prefix_sha256",
+  "packages.domain.trusted_time_graceful_stop_v2:lifecycle_v2_wire_file_name",
+  "packages.domain.trusted_time_graceful_stop_v2_recovery:LifecycleV2AuthenticatedRecoveryIntent",
+  "packages.domain.trusted_time_graceful_stop_v2_recovery:LifecycleV2RecoveryClassificationEnvelope",
+  "packages.domain.trusted_time_graceful_stop_v2_recovery:_consume_authenticated_lifecycle_v2_recovery_classification_envelope",
+  "packages.domain.trusted_time_graceful_stop_v2_recovery:_install_authenticated_lifecycle_v2_recovery_adapter_endpoint",
+  "packages.domain.trusted_time_graceful_stop_v2_recovery:decode_lifecycle_v2_recovery_classification_envelope",
+  "packages.domain.trusted_time_graceful_stop_v2_terminal:LifecycleV2AuthenticatedTerminalEnvelopeProof",
+  "packages.domain.trusted_time_graceful_stop_v2_terminal:LifecycleV2TerminalWireEvidence",
+  "packages.domain.trusted_time_graceful_stop_v2_terminal:_install_authenticated_terminal_envelope_adapter_endpoint",
+  "packages.domain.trusted_time_graceful_stop_v2_terminal:_mint_authenticated_lifecycle_v2_terminal_envelope_proof",
+  "packages.domain.trusted_time_graceful_stop_v2_transport:LifecycleV2Handshake",
+  "packages.domain.trusted_time_graceful_stop_v2_transport:LifecycleV2TransportAuthorityManifest",
+  "packages.domain.trusted_time_graceful_stop_v2_transport:LifecycleV2TransportAuthorityResolution",
+  "packages.domain.trusted_time_graceful_stop_v2_transport:LifecycleV2TransportAuthoritySelection",
+  "packages.domain.trusted_time_graceful_stop_v2_transport:bind_lifecycle_v2_handshake",
+  "packages.domain.trusted_time_graceful_stop_v2_transport:decode_lifecycle_v2_host_channel_confirmation",
+  "packages.domain.trusted_time_graceful_stop_v2_transport:decode_lifecycle_v2_host_hello",
+  "packages.domain.trusted_time_graceful_stop_v2_transport:decode_lifecycle_v2_supervisor_hello",
+  "packages.domain.trusted_time_graceful_stop_v2_transport:decode_lifecycle_v2_transport_authority_manifest",
+  "packages.domain.trusted_time_graceful_stop_v2_transport:decode_lifecycle_v2_transport_authority_selection",
+  "packages.domain.trusted_time_graceful_stop_v2_transport:lifecycle_v2_recovery_manifest_for_root",
+  "packages.domain.trusted_time_graceful_stop_v2_transport:resolve_lifecycle_v2_transport_authority",
+]
+trusted_time_v2_allowed_imports."packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py" = [
+  "packages.domain.trusted_time_graceful_stop_v2:TrustedTimeGracefulStopV2Rejected",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:LifecycleV2NormalProgressLineage",
+  "packages.domain.trusted_time_graceful_stop_v2_reauthentication:LifecycleV2ADR0109ObservationPrimitives",
+  "packages.domain.trusted_time_graceful_stop_v2_reauthentication:LifecycleV2PostTeardownBinding",
+  "packages.domain.trusted_time_graceful_stop_v2_reauthentication:LifecycleV2PreEffectBinding",
+  "packages.domain.trusted_time_graceful_stop_v2_reauthentication:_LifecycleV2ADR0109ObservationCandidate",
+  "packages.domain.trusted_time_graceful_stop_v2_reauthentication:_LifecycleV2PostTeardownBindingIssuer",
+  "packages.domain.trusted_time_graceful_stop_v2_reauthentication:_LifecycleV2PreEffectBindingIssuer",
+  "packages.domain.trusted_time_graceful_stop_v2_reauthentication:_LifecycleV2ReauthenticationBindingRealm",
+  "packages.domain.trusted_time_graceful_stop_v2_reauthentication:_claim_lifecycle_v2_production_reauthentication_binding_realm",
+]
+trusted_time_v2_allowed_imports."packages/domain/trusted_time_graceful_stop_v2.py" = [
+  "packages.domain.trusted_time_graceful_stop_v2_runtime_seal:LifecycleV2RuntimeSealRegistry",
+]
+trusted_time_v2_allowed_imports."packages/domain/trusted_time_graceful_stop_v2_docker.py" = [
+  "packages.domain.trusted_time_graceful_stop_v2:FrozenJsonObject",
+  "packages.domain.trusted_time_graceful_stop_v2:MAXIMUM_SIGNED_INTEGER",
+  "packages.domain.trusted_time_graceful_stop_v2:TrustedTimeGracefulStopV2Rejected",
+  "packages.domain.trusted_time_graceful_stop_v2:canonical_v2_json_bytes",
+  "packages.domain.trusted_time_graceful_stop_v2_runtime_seal:LifecycleV2RuntimeSealRegistry",
+  "packages.domain.trusted_time_graceful_stop_v2_runtime_seal:RuntimeSealMetadata",
+]
+trusted_time_v2_allowed_imports."packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py" = [
+  "packages.domain.trusted_time_graceful_stop_v2:FrozenJsonObject",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_OPERATION_BUDGET_NS",
   "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION",
   "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_ROOT_CONTRACT_VERSION",
-  "packages.domain.trusted_time_graceful_stop_v2:NORMAL_STAGE_BY_ORDINAL",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2ProgressRecord",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Root",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Stage",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Transcript",
+  "packages.domain.trusted_time_graceful_stop_v2:MAXIMUM_SIGNED_INTEGER",
+  "packages.domain.trusted_time_graceful_stop_v2:TrustedTimeGracefulStopV2Rejected",
+  "packages.domain.trusted_time_graceful_stop_v2:_capture_lifecycle_v2_reauthentication_binding_evidence",
+  "packages.domain.trusted_time_graceful_stop_v2:canonical_v2_json_bytes",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_canonical_v2_json_object",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_progress_record",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_root",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_transcript",
+  "packages.domain.trusted_time_graceful_stop_v2:normal_lifecycle_v2_stage_for_ordinal",
+  "packages.domain.trusted_time_graceful_stop_v2_docker:COMMAND_SOCKET_VOLUME",
+  "packages.domain.trusted_time_graceful_stop_v2_docker:STATE_VOLUME",
+  "packages.domain.trusted_time_graceful_stop_v2_docker:DockerAdmissionCapture",
+  "packages.domain.trusted_time_graceful_stop_v2_docker:DockerAdmissionRootedTracePrefix",
+  "packages.domain.trusted_time_graceful_stop_v2_docker:DockerMutationResultSemantic",
+  "packages.domain.trusted_time_graceful_stop_v2_docker:DockerOrdinalEvidence",
+  "packages.domain.trusted_time_graceful_stop_v2_docker:DockerPlanIdentity",
+  "packages.domain.trusted_time_graceful_stop_v2_docker:DockerRequestSemantic",
+  "packages.domain.trusted_time_graceful_stop_v2_docker:DockerVolumePreservationResult",
+  "packages.domain.trusted_time_graceful_stop_v2_docker:docker_call_spec",
+  "packages.domain.trusted_time_graceful_stop_v2_runtime_seal:LifecycleV2RuntimeSealRegistry",
+  "packages.domain.trusted_time_graceful_stop_v2_runtime_seal:RuntimeSealMetadata",
+  "packages.domain.trusted_time_graceful_stop_v2_terminal:LISTENER_PATH",
+  "packages.domain.trusted_time_graceful_stop_v2_terminal:SUPERVISOR_RAW_KEY_PATH",
+  "packages.domain.trusted_time_graceful_stop_v2_terminal:LifecycleV2CleanStopResult",
+  "packages.domain.trusted_time_graceful_stop_v2_terminal:LifecycleV2SupervisorCleanupCommitment",
+  "packages.domain.trusted_time_graceful_stop_v2_terminal:LifecycleV2TerminalWireEvidence",
+  "packages.domain.trusted_time_graceful_stop_v2_terminal:decode_lifecycle_v2_clean_stop_result",
+]
+trusted_time_v2_allowed_imports."packages/domain/trusted_time_graceful_stop_v2_reauthentication.py" = [
+  "packages.domain.trusted_time_graceful_stop_v2:FrozenJsonObject",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_SERVICE",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2CleanStopRequest",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2ProgressRecord",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Root",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Stage",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Transcript",
+  "packages.domain.trusted_time_graceful_stop_v2:MAXIMUM_SIGNED_INTEGER",
+  "packages.domain.trusted_time_graceful_stop_v2:TrustedTimeGracefulStopV2Rejected",
+  "packages.domain.trusted_time_graceful_stop_v2:canonical_v2_json_bytes",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_canonical_v2_json_object",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_clean_stop_request",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_progress_record",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_root",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_transcript",
+  "packages.domain.trusted_time_graceful_stop_v2:normal_lifecycle_v2_stage_for_ordinal",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:LIFECYCLE_V2_CLEANUP_SERVICE",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:LifecycleV2AuthenticatedReauthenticationBinding",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:LifecycleV2NormalProgressLineage",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:LifecycleV2ReauthenticationIntent",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:_capture_lifecycle_v2_authenticated_reauthentication_binding_from_realm",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:_install_lifecycle_v2_reauthentication_semantic_binding_issuance_consumer",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:require_exact_lifecycle_v2_normal_lineage_through_ordinal_19",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:require_exact_lifecycle_v2_normal_lineage_through_ordinal_5",
+  "packages.domain.trusted_time_graceful_stop_v2_terminal:LifecycleV2CleanStopResult",
+]
+trusted_time_v2_allowed_imports."packages/domain/trusted_time_graceful_stop_v2_recovery.py" = [
+  "packages.domain.trusted_time_graceful_stop_v2:FrozenJsonObject",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_MAXIMUM_ENTRIES",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_OPERATION_BUDGET_NS",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_SERVICE",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2ProgressRecord",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Root",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Stage",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Transcript",
+  "packages.domain.trusted_time_graceful_stop_v2:MAXIMUM_SIGNED_INTEGER",
+  "packages.domain.trusted_time_graceful_stop_v2:TrustedTimeGracefulStopV2Rejected",
+  "packages.domain.trusted_time_graceful_stop_v2:canonical_v2_json_bytes",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_canonical_v2_json_object",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_progress_record",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_root",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_transcript",
+  "packages.domain.trusted_time_graceful_stop_v2:normal_lifecycle_v2_stage_for_ordinal",
+]
+trusted_time_v2_allowed_imports."packages/domain/trusted_time_graceful_stop_v2_terminal.py" = [
+  "packages.domain.trusted_time_graceful_stop_v2:FrozenJsonObject",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_CLEAN_STOP_SERVICE",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_TRANSPORT_SERVICE",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_WIRE_MAXIMUM_BYTES",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2CleanStopRequest",
+  "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Root",
+  "packages.domain.trusted_time_graceful_stop_v2:MAXIMUM_SIGNED_INTEGER",
+  "packages.domain.trusted_time_graceful_stop_v2:TrustedTimeGracefulStopV2Rejected",
+  "packages.domain.trusted_time_graceful_stop_v2:UnverifiedLifecycleV2TransportEnvelope",
+  "packages.domain.trusted_time_graceful_stop_v2:canonical_v2_json_bytes",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_canonical_v2_json_object",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_clean_stop_request",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_root",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_unverified_lifecycle_v2_transport_envelope",
+  "packages.domain.trusted_time_graceful_stop_v2:lifecycle_v2_wire_file_name",
+  "packages.domain.trusted_time_graceful_stop_v2_runtime_seal:LifecycleV2RuntimeSealRegistry",
+  "packages.domain.trusted_time_graceful_stop_v2_runtime_seal:RuntimeSealMetadata",
+]
+trusted_time_v2_allowed_imports."packages/domain/trusted_time_graceful_stop_v2_transport.py" = [
+  "packages.domain.trusted_time_graceful_stop_v2:FrozenJsonObject",
+  "packages.domain.trusted_time_graceful_stop_v2:TrustedTimeGracefulStopV2Rejected",
+  "packages.domain.trusted_time_graceful_stop_v2:canonical_v2_json_bytes",
+  "packages.domain.trusted_time_graceful_stop_v2:decode_canonical_v2_json_object",
+]
+trusted_time_v2_allowed_imports."packages/persistence/trusted_time_graceful_stop_v2.py" = [
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_ROOT_FILE_NAME",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_COMMIT_BUDGET_NS",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_OUTCOME_COMMIT_CONTRACT_VERSION",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_OUTCOME_CONTRACT_VERSION",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_ROOT_CONTRACT_VERSION",
+  "packages.domain.trusted_time_graceful_stop_v2:LIFECYCLE_V2_SERVICE",
   "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2CleanStopRequestBasis",
   "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Outcome",
   "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2OutcomeCommit",
@@ -143,6 +351,7 @@ trusted_time_v2_allowed_imports."packages/persistence/trusted_time_graceful_stop
   "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Stage",
   "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2Transcript",
   "packages.domain.trusted_time_graceful_stop_v2:LifecycleV2TranscriptEntry",
+  "packages.domain.trusted_time_graceful_stop_v2:MAXIMUM_SIGNED_INTEGER",
   "packages.domain.trusted_time_graceful_stop_v2:TrustedTimeGracefulStopV2Rejected",
   "packages.domain.trusted_time_graceful_stop_v2:UnverifiedLifecycleV2TransportEnvelope",
   "packages.domain.trusted_time_graceful_stop_v2:_FakeAuthenticatedLifecycleV2TransportEnvelope",
@@ -154,8 +363,18 @@ trusted_time_v2_allowed_imports."packages/persistence/trusted_time_graceful_stop
   "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_root",
   "packages.domain.trusted_time_graceful_stop_v2:decode_lifecycle_v2_transcript",
   "packages.domain.trusted_time_graceful_stop_v2:decode_unverified_lifecycle_v2_transport_envelope",
+  "packages.domain.trusted_time_graceful_stop_v2:lifecycle_v2_dispatch_prefix_sha256",
   "packages.domain.trusted_time_graceful_stop_v2:lifecycle_v2_progress_file_name",
   "packages.domain.trusted_time_graceful_stop_v2:lifecycle_v2_wire_file_name",
+  "packages.domain.trusted_time_graceful_stop_v2:normal_lifecycle_v2_stage_for_ordinal",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:LifecycleV2ConfirmedSuccessLineageSnapshot",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:LifecycleV2NormalProgressLineage",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:TrustedTimeLifecycleV2SemanticsRejected",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:consume_exact_lifecycle_v2_confirmed_success_lineage",
+  "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics:consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository",
+  "packages.domain.trusted_time_graceful_stop_v2_recovery:LifecycleV2AuthenticatedRecoveryIntent",
+  "packages.domain.trusted_time_graceful_stop_v2_recovery:consume_authenticated_lifecycle_v2_recovery_intent",
+  "packages.domain.trusted_time_graceful_stop_v2_recovery:require_authenticated_lifecycle_v2_recovery_intent",
 ]
 trusted_time_v2_allowed_imports."packages/application/trusted_time_graceful_stop_v2_admission.py" = [
   "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts:LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt",
@@ -177,22 +396,161 @@ trusted_time_v2_allowed_imports."scripts/trusted_time_post_enrollment_graceful_s
 ]
 trusted_time_v2_reserved_symbols = [
   "_ADMISSION_IDENTITY_CAPABILITY",
+  "_ADMISSION_ROOTED_TRACE_PREFIX_CAPABILITY",
+  "_AUTHENTICATED_VALUE_CAPABILITY",
+  "_AuthenticatedTerminalProofIssuanceSnapshot",
+  "_BindingRegistrySnapshot",
+  "_CALL_SPEC_CAPABILITY",
   "_ConsumedLoadedDecisionArtifactReceiptV2Snapshot",
   "_CONSUMED_LOADED_RECEIPT_V2_SNAPSHOT_CAPABILITY",
+  "_DOCKER_RESULT_RULE_BY_STAGE",
+  "_DOCKER_RESULT_SEALS",
+  "_DockerResultRule",
+  "_FAKE_OBSERVATION_CAPABILITY",
+  "_FAKE_REAUTHENTICATION_BINDING_PROVENANCE",
+  "_FAKE_RECOVERY_INTENT_CAPABILITY",
+  "_FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY",
   "_consume_historical_receipt_for_injected_lifecycle_v2_admission",
   "_consume_loaded_decision_receipt_for_v2",
   "_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY",
+  "_FRAME_RULES",
   "_FakeAuthenticatedLifecycleV2TransportEnvelope",
+  "_FrameRule",
+  "_LIFECYCLE_VALUE_SEALS",
+  "_LIFECYCLE_V2_PRODUCTION_REALM_BOOTSTRAP_PERMIT",
   "_LifecycleV2Repository",
   "_LifecycleV2AdmissionIdentity",
+  "_LifecycleV2ADR0109ObservationCandidate",
+  "_LifecycleV2PhysicalArtifactStore",
+  "_LifecycleV2PostTeardownBindingIssuer",
+  "_LifecycleV2PreEffectBindingIssuer",
+  "_LifecycleV2ReauthenticationBindingRealm",
+  "_LifecycleV2ReauthenticationSemanticBindingIssuance",
+  "_LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot",
   "_LIFECYCLE_V2_BRIDGE_CAPABILITY",
+  "_LINEAGE_CAPABILITY",
+  "_MUTATION_RESULT_RULES",
+  "_MutationResultRule",
+  "_PRODUCTION_ADAPTER_AUTHENTICATOR",
+  "_PRODUCTION_ADAPTER_MODULE",
+  "_PRODUCTION_BINDING_REALM",
+  "_PRODUCTION_OBSERVATION_CAPABILITY",
+  "_PRODUCTION_REAUTHENTICATION_BINDING_PROVENANCE",
+  "_PRODUCTION_RECOVERY_INTENT_CAPABILITY",
+  "_PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY",
+  "_REAUTHENTICATION_BINDING_PROVENANCES",
+  "_RESPONSE_CAPTURE_CAPABILITY",
+  "_RUNTIME_SEAL_BOOTSTRAP_CLAIM",
+  "_RUNTIME_SEAL_FAILED",
+  "_RUNTIME_SEAL_LOADING",
+  "_RUNTIME_SEAL_MODULE_NAME",
+  "_RUNTIME_SEAL_SOURCE_NAME",
+  "_RUNTIME_SEAL_SOURCE_SHA256",
+  "_TERMINAL_WIRE_EVIDENCE_CAPABILITY",
+  "_TERMINAL_WIRE_EVIDENCE_SEALS",
+  "_TYPED_STAGE_CAPABILITY",
+  "_authenticate_lifecycle_v2_transport_envelope_for_fake",
+  "_authenticate_lifecycle_v2_transport_envelope_for_tests",
+  "_authenticated_recovery_classification_issuance_registry",
+  "_bind_lifecycle_v2_post_teardown_adr0109_observation_once",
+  "_bind_lifecycle_v2_post_teardown_observation_once",
+  "_bind_lifecycle_v2_pre_effect_adr0109_observation_once",
+  "_bind_lifecycle_v2_pre_effect_observation_once",
+  "_bootstrap_lifecycle_v2_production_reauthentication_adapter",
+  "_build_authenticated_terminal_proof_endpoints",
+  "_build_binding_registries",
+  "_build_docker_result_rule_lookup",
+  "_build_exact_adr0109_observation_consumer",
+  "_build_fake_lifecycle_v2_reauthentication_binding_realm",
+  "_build_fake_lifecycle_v2_transport_authentication_endpoints",
+  "_build_frame_rule_lookup",
+  "_build_injected_fake_lifecycle_v2_cleanup_observer",
+  "_build_injected_fake_lifecycle_v2_recovery_intent",
+  "_build_injected_lifecycle_v2_repository_factory",
+  "_build_mutation_result_rule_lookup",
+  "_build_named_lifecycle_v2_retention_endpoints",
+  "_build_normal_stage_lookup",
+  "_build_observation_candidate_validator",
+  "_build_unregistered_authenticated_reauthentication_binding",
+  "_capture_lifecycle_v2_authenticated_reauthentication_binding_from_realm",
+  "_capture_lifecycle_v2_reauthentication_binding_evidence",
+  "_claim_lifecycle_v2_production_reauthentication_binding_realm",
+  "_claim_lifecycle_v2_runtime_seal_bootstrap",
+  "_consume_authenticated_lifecycle_v2_recovery_classification_envelope",
+  "_consume_exact_adr0109_observation",
+  "_consume_exact_lifecycle_v2_reauthentication_semantic_binding_issuance_once",
+  "_consume_terminal_cleanup_final_credential_absence_authorization",
+  "_consume_terminal_cleanup_final_recovery_absence_authorization",
+  "_consume_terminal_cleanup_final_socket_absence_authorization",
+  "_consume_terminal_cleanup_native_owner_authorization",
+  "_consume_terminal_cleanup_unmount_authorization",
+  "_derive_authenticated_lifecycle_v2_recovery_intent",
+  "_finalize_exact_terminal_cleanup_authorization_runtime",
+  "_finalize_terminal_cleanup_authorization",
+  "_frame_rule_for_type",
+  "_initialize_issuer",
+  "_install_authenticated_lifecycle_v2_recovery_adapter_endpoint",
+  "_install_authenticated_terminal_envelope_adapter_endpoint",
+  "_install_docker_mutation_result_evidence_validator",
+  "_install_docker_result_runtime_seals",
+  "_install_lifecycle_v2_production_reauthentication_endpoints",
+  "_install_lifecycle_v2_reauthentication_binding_realms",
+  "_install_lifecycle_v2_reauthentication_semantic_binding_issuance_consumer",
+  "_install_lifecycle_v2_runtime_seal_bootstrap_claim",
+  "_install_lifecycle_v2_runtime_seal_registry",
+  "_install_lifecycle_v2_runtime_seals",
+  "_install_prefix_stage_validator",
+  "_install_stage_transition_validator",
+  "_install_terminal_wire_runtime_seals",
+  "_install_transport_envelope_capture",
+  "_issue_binding",
+  "_lifecycle_v2_recovery_intent_issuance_registry",
+  "_load_canonical_lifecycle_v2_runtime_seal",
+  "_materialize_validated_stage",
+  "_mint_authenticated_lifecycle_v2_terminal_envelope_proof",
+  "_mint_fake_authenticated_adr0109_observation",
+  "_mint_fake_authenticated_lifecycle_v2_recovery_intent",
+  "_mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof",
+  "_mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests",
+  "_mint_fake_lifecycle_v2_reauthentication_binding",
+  "_mint_production_authenticated_adr0109_observation",
+  "_mint_terminal_cleanup_authorization",
+  "_mutation_result_rule_for_kind",
+  "_open_injected_lifecycle_v2_physical_artifact_store",
   "_open_injected_lifecycle_v2_repository",
+  "_prepare_lifecycle_v2_post_teardown_adr0109_binding_issuer",
+  "_prepare_lifecycle_v2_post_teardown_binding_issuer",
+  "_prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer",
+  "_prepare_lifecycle_v2_pre_effect_binding_issuer",
+  "_register_authenticated_recovery_classification_issuance",
+  "_register_lifecycle_v2_recovery_intent_issuance",
   "_reject_loaded_decision_receipt_for_v2_admission_identity",
   "_require_consumed_loaded_decision_artifact_receipt_v2_snapshot",
+  "_require_exact_cleanup_observer_runtime",
+  "_require_exact_compound_value",
+  "_require_exact_normal_progress_lineage_runtime",
+  "_require_exact_terminal_wire_evidence",
   "_require_fake_authenticated_lifecycle_v2_transport_envelope",
+  "_require_live_binding",
+  "_require_observation_candidate",
+  "_require_prefix_stage",
+  "_require_terminal_cleanup_authorization",
+  "_retain_lifecycle_v2_authenticated_terminal_wire",
+  "_retain_lifecycle_v2_effect_intent",
+  "_retain_lifecycle_v2_effect_result",
+  "_retain_lifecycle_v2_reauthentication_intent",
+  "_retain_lifecycle_v2_reauthentication_result",
+  "_retain_lifecycle_v2_request_intent",
+  "_retain_lifecycle_v2_terminal_cleanup_intent",
+  "_retain_lifecycle_v2_terminal_cleanup_result",
+  "_retain_lifecycle_v2_transport_cleanup_commitment",
+  "_retain_lifecycle_v2_transport_quiescence",
   "_retain_progress",
-  "_authenticate_lifecycle_v2_transport_envelope_for_fake",
+  "_seal_terminal_envelope_proof",
   "_build_injected_lifecycle_v2_admission_identity",
+  "authenticate_lifecycle_v2_handshake",
+  "authenticate_lifecycle_v2_transport_frame",
+  "LifecycleV2TransportFrameExpectation",
 ]
 phase4an_isolated_module_paths."packages.application.etrade_oauth_token_runtime" = "packages/application/etrade_oauth_token_runtime.py"
 phase4an_module_ast_sha256."packages/adapters/broker/etrade_oauth.py" = "621fa2911f57b354969ab1787843475334bd3a352e678bfb6f52af59594b0275"
@@ -297,7 +655,7 @@ project_build_bootstrap_manifest_paths = [
   "native/owned_file_descriptor.c",
   "native/trusted_time_python_launcher.c",
 ]
-project_build_bootstrap_manifest_sha256 = "9dc238cb5c8a82751b19ba05a44211c605ddd23373f4721b0a7a578530b417d6"
+project_build_bootstrap_manifest_sha256 = "bb8cee13ff3df9d073911d5b68a2846641c556e17d1e1be1e482fa14173343a4"
 project_build_bootstrap_forbidden_paths = [
   "MANIFEST.in",
   "hatch.toml",
@@ -316,6 +674,9 @@ builtin_namespace_integrity_allowed_imports."packages/application/trusted_time_h
   "builtins:*",
   "builtins:property",
 ]
+builtin_namespace_integrity_allowed_imports."packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py" = [
+  "builtins:*",
+]
 builtin_namespace_integrity_allowed_imports."scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py" = [
   "builtins:*",
   "builtins:property",
@@ -325,6 +686,11 @@ builtin_namespace_integrity_allowed_reads."packages/adapters/market_data/recorde
 ]
 builtin_namespace_integrity_allowed_reads."packages/application/trusted_time_head_anchor_clean_stop_supervisor_bridge.py" = [
   "builtins.property@identity",
+]
+builtin_namespace_integrity_allowed_reads."packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py" = [
+  "builtins.__dict__@unreviewed",
+  "builtins.compile@unreviewed",
+  "builtins.exec@unreviewed",
 ]
 builtin_namespace_integrity_allowed_reads."scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py" = [
   "builtins.property@identity",
@@ -370,6 +736,15 @@ builtin_namespace_integrity_sys_modules_callsites."packages/domain/_trusted_time
 builtin_namespace_integrity_sys_modules_callsites."scripts/trusted_time_post_enrollment_topology_reader.py" = [
   "_build_observation_sealer:capture-private-module-map",
 ]
+builtin_namespace_integrity_sys_modules_callsites."packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py" = [
+  "<module>:exact-v2-private-source-bootstrap",
+]
+builtin_namespace_integrity_sys_modules_callsites."packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py" = [
+  "_load_canonical_lifecycle_v2_runtime_seal:exact-v2-private-source-loader",
+]
+builtin_namespace_integrity_sys_modules_callsites."packages/domain/trusted_time_graceful_stop_v2_reauthentication.py" = [
+  "_install_lifecycle_v2_reauthentication_binding_realms:exact-v2-private-source-loader",
+]
 
 # Each private native module is admitted only through its fully pinned wrapper.
 # Consumers receive exact private builtins by from-import; namespace imports,
@@ -379,7 +754,7 @@ native_owned_file_descriptor_wrapper_roots = [
   "packages/adapters/trusted_time/_owned_file_descriptor.py",
 ]
 native_owned_file_descriptor_wrapper_module = "packages.adapters.trusted_time._owned_file_descriptor"
-native_owned_file_descriptor_wrapper_module_ast_sha256 = "c67feb33d4f02b548c74bcea58a96c0890ab4da6afd38d1d10f8107789a411a7"
+native_owned_file_descriptor_wrapper_module_ast_sha256 = "cbfed75858e36e0895f2a7e14e7610f5194aeb88a3195481b2c255260b7de65a"
 
 # This is a dedicated opaque-launch-lease policy.  The topology reader is not
 # admitted as a generic owned-descriptor consumer: it alone imports the exact
@@ -460,7 +835,7 @@ trusted_time_topology_launch_lock_documentation_paths = [
 trusted_time_topology_launch_lock_reader_module_ast_sha256 = "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
 trusted_time_topology_launch_lock_issuer_class_ast_sha256 = "b64f79e1679e2bdefe40f6b36c82142fa367f6e6981c1b2e8fee1366a7d39bcd"
 trusted_time_topology_launch_lock_host_module_ast_sha256 = "15c3e62437dc070d223038e21097ce85cbbb68de71ced3a6574f506236ebf56c"
-trusted_time_topology_launch_lock_production_ast_sha256 = "a21cda2e3824875e285eda92f732a22183db627322c10cdac021fdab8facafb7"
+trusted_time_topology_launch_lock_production_ast_sha256 = "53e03b175a135c110d3261e50716ed9eb354906b30f18eb0d8e954b4ac8d15d3"
 trusted_time_topology_launch_lock_lifecycle_tag = "trusted-time-issuer-lifecycle-v3"
 trusted_time_topology_launch_lock_lifecycle_tag_count = 13
 trusted_time_topology_launch_lock_launch_lock_binding_tag = "trusted-time-launch-lock-binding-v1"
@@ -604,10 +979,10 @@ trusted_time_topology_launch_lock_operation_call_counts = [
   "scripts/trusted_time_post_enrollment_host_orchestrator.py|_run_operator_attested_post_enrollment_start_once_with_dependencies|close_issuer|1",
   "scripts/trusted_time_post_enrollment_host_orchestrator.py|_run_operator_attested_post_enrollment_start_once_with_dependencies|abort_issuer_activation|1",
 ]
-trusted_time_topology_launch_lock_frozen_source_sha256."build_support/build_native_admission_launcher.py" = "6839e818a41bd3f7d3bc03c77d9d99e6eb6d96acf76bff9e1f58ddc953fa8b00"
-trusted_time_topology_launch_lock_frozen_source_sha256."build_support/build_native_test_launcher.py" = "b93fe6ce179bfdd549752bd964cd5177010d7b5a22adce5c56ef5aebb27acdd6"
-trusted_time_topology_launch_lock_frozen_source_sha256."build_support/install_native_admission_launcher.py" = "66aaafeb8e1f3abeeff02a250723f3395f9eedd97a89a5118bb59647081138a9"
-trusted_time_topology_launch_lock_frozen_source_sha256."build_support/native_owned_file_descriptor_hook.py" = "e975f63b3d9720cb0d66cb09e57acb71c4150d939361ca675be94503f45b81ae"
+trusted_time_topology_launch_lock_frozen_source_sha256."build_support/build_native_admission_launcher.py" = "f00c7032284da5d06785f265a13c3209f4fa279f0d71b828e823a9ffa75283b3"
+trusted_time_topology_launch_lock_frozen_source_sha256."build_support/build_native_test_launcher.py" = "3df9856443020d862da78993466cd7839c689b85f44c7c1daba91cacc279d7d7"
+trusted_time_topology_launch_lock_frozen_source_sha256."build_support/install_native_admission_launcher.py" = "7e30e28f4277500a72d9519b3b06f8845ba06de87f2b28687f5b673a607a0886"
+trusted_time_topology_launch_lock_frozen_source_sha256."build_support/native_owned_file_descriptor_hook.py" = "0ce45e4e1c52f992e248bb8efb3bf6dcae40988019eb483dac03d4d41bb349e0"
 trusted_time_topology_launch_lock_frozen_source_sha256."native/bounded_process.c" = "be08d5c95a2a5ce6aa9b06a4434c09473ee74ad941a417b8022885a7ef1f5cbd"
 trusted_time_topology_launch_lock_frozen_source_sha256."native/owned_file_descriptor.c" = "adc6312bc4ff313e22888f4601804f43bd1ca9ea18a72b1e6a6a329c61d59865"
 trusted_time_topology_launch_lock_frozen_source_sha256."native/trusted_time_python_launcher.c" = "8f21c008571b4ed04166ae120cea9be2da73955c891a7c026833779dca3381f8"
@@ -693,6 +1068,22 @@ native_owned_file_descriptor_allowed_imports."apps/trusted_time_supervisor/post_
   "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot",
   "packages.adapters.trusted_time._owned_file_descriptor:_statat",
 ]
+native_owned_file_descriptor_allowed_imports."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py" = [
+  "packages.adapters.trusted_time._owned_file_descriptor:_OwnedFileDescriptor",
+  "packages.adapters.trusted_time._owned_file_descriptor:_create_child_regular_exclusive",
+  "packages.adapters.trusted_time._owned_file_descriptor:_fchmod_0600",
+  "packages.adapters.trusted_time._owned_file_descriptor:_finalize_read_child_noreplace",
+  "packages.adapters.trusted_time._owned_file_descriptor:_fstat",
+  "packages.adapters.trusted_time._owned_file_descriptor:_fsync",
+  "packages.adapters.trusted_time._owned_file_descriptor:_list_snapshot",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_child_regular",
+  "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory",
+  "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot",
+  "packages.adapters.trusted_time._owned_file_descriptor:_rename_child_noreplace",
+  "packages.adapters.trusted_time._owned_file_descriptor:_statat",
+  "packages.adapters.trusted_time._owned_file_descriptor:_write_all",
+]
 native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._require_absences._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
 native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._require_absences._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
 native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._read_marker._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
@@ -729,8 +1120,53 @@ native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/pos
 native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_boot_id_snapshot._open_directory = "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory"
 native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_boot_id_snapshot._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
 native_owned_file_descriptor_captured_defaults."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_boot_id_snapshot._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.__init__"._open_root_exact = "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.__init__"._open_directory_exact = "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.__init__"._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._directory_identity"._open_root_exact = "packages.adapters.trusted_time._owned_file_descriptor:_open_root_directory"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._directory_identity"._open_directory_exact = "packages.adapters.trusted_time._owned_file_descriptor:_open_child_directory"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._directory_identity"._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.inventory"._list_exact = "packages.adapters.trusted_time._owned_file_descriptor:_list_snapshot"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._read_existing"._open_regular_exact = "packages.adapters.trusted_time._owned_file_descriptor:_open_child_regular"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._read_existing"._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._read_existing"._read_exact = "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._read_existing"._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._durably_revalidate_existing"._open_regular_exact = "packages.adapters.trusted_time._owned_file_descriptor:_open_child_regular"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._durably_revalidate_existing"._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._durably_revalidate_existing"._read_exact = "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._durably_revalidate_existing"._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._durably_revalidate_existing"._fsync_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fsync"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.create_root_exclusive"._create_exact = "packages.adapters.trusted_time._owned_file_descriptor:_create_child_regular_exclusive"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.create_root_exclusive"._chmod_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fchmod_0600"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.create_root_exclusive"._write_exact = "packages.adapters.trusted_time._owned_file_descriptor:_write_all"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.create_root_exclusive"._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.create_root_exclusive"._fsync_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fsync"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.create_root_exclusive"._read_exact = "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.create_root_exclusive"._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.publish_immutable"._create_exact = "packages.adapters.trusted_time._owned_file_descriptor:_create_child_regular_exclusive"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.publish_immutable"._chmod_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fchmod_0600"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.publish_immutable"._write_exact = "packages.adapters.trusted_time._owned_file_descriptor:_write_all"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.publish_immutable"._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.publish_immutable"._fsync_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fsync"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.publish_immutable"._read_exact = "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.publish_immutable"._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.publish_immutable"._rename_exact = "packages.adapters.trusted_time._owned_file_descriptor:_rename_child_noreplace"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.finalize_preallocated_immutable"._open_regular_exact = "packages.adapters.trusted_time._owned_file_descriptor:_open_child_regular"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.finalize_preallocated_immutable"._fstat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fstat"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.finalize_preallocated_immutable"._fsync_exact = "packages.adapters.trusted_time._owned_file_descriptor:_fsync"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.finalize_preallocated_immutable"._read_exact = "packages.adapters.trusted_time._owned_file_descriptor:_read_snapshot"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.finalize_preallocated_immutable"._statat_exact = "packages.adapters.trusted_time._owned_file_descriptor:_statat"
+native_owned_file_descriptor_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.finalize_preallocated_immutable"._finalize_exact = "packages.adapters.trusted_time._owned_file_descriptor:_finalize_read_child_noreplace"
+native_owned_file_descriptor_runtime_identity_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.__init__"._getpid_exact = "os:getpid"
+native_owned_file_descriptor_runtime_identity_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.__init__"._current_thread_exact = "threading:current_thread"
+native_owned_file_descriptor_runtime_identity_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._require_owner"._getpid_exact = "os:getpid"
+native_owned_file_descriptor_runtime_identity_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._require_owner"._current_thread_exact = "threading:current_thread"
+native_owned_file_descriptor_runtime_identity_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._close_after_failure"._getpid_exact = "os:getpid"
+native_owned_file_descriptor_runtime_identity_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.close"._getpid_exact = "os:getpid"
+native_owned_file_descriptor_runtime_identity_captured_defaults."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.close"._current_thread_exact = "threading:current_thread"
 native_owned_file_descriptor_captured_consumer_module_ast_sha256."apps/trusted_time_supervisor/post_enrollment_read_probes.py" = "39bd2c7e349b023f9cd217e6b15271fcd3cb03454dfa863634bf2931259f316b"
 native_owned_file_descriptor_captured_consumer_module_ast_sha256."apps/trusted_time_supervisor/post_enrollment_runtime_state.py" = "809a5a33362206ada58314b11e2a21c243d8a135411eaaf3ba248324e301f273"
+native_owned_file_descriptor_captured_consumer_module_ast_sha256."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py" = "7c50a1bfc384e33fa94ce27e0daf473d8341f5ddce583ac0b3161fd70c228b22"
 native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._cleanup_native_owners = "a1246ac594a9f3b5dff96915cfe5c2ea731fc5d4891cb02995abdc5bd52c95fc"
 native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._require_absences = "e38bcca69cebe5f34761a83a7a8ab369bea297ddaa86741a377c3bfcc0760dde"
 native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_read_probes.py"._read_marker = "ba510dc74678007ecfcae2b030e5cd931f422828821f7d596cd4b89c3a7ccc5f"
@@ -744,6 +1180,15 @@ native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_ti
 native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._require_tmp_context = "33028ce86b554dd742f78c8ce6eca8c394a082298fb50e2005a387ff07516437"
 native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_tmp_snapshot = "b0e17314b203d2ae08e5a60fbf533b1b77fa9b2692a50ccefb2cc12dc1d0ff9c"
 native_owned_file_descriptor_owner_consumer_function_ast_sha256."apps/trusted_time_supervisor/post_enrollment_runtime_state.py"._read_boot_id_snapshot = "167e5b35dc2c251d9ff3fd71d4eb9a31a56fc49eb6521ccc94519f79cb592bcc"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.__init__" = "0912d18ace41c68e2978880c3fe4ee339a6eac17fc829a032165b308316c3fd7"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._directory_identity" = "aa934f01af580614c71e3a07224b26f230932df0b19695d17816be361ef5929e"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.inventory" = "f85549de98aec157a0228e11145d50560a2e9d91d93c0e94397cbc995a330a19"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._read_existing" = "2d7518762e2f3d2b6ef9d34aed0ef0f342aa30291ef7e38c2ce2ae5307bf3424"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore._durably_revalidate_existing" = "c600a96e00f25d132b69296092e8d8e3cfad1aa982b4e54b34c05671d51853ee"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.create_root_exclusive" = "528dabef90ccbf1543bee8b847bd0db5c5d64d2927dcdacc2c79254051bdee61"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.publish_immutable" = "219f5c8a37717df982cb1b8bfae8a0edcb5de3bad6265e0f835470f5c6f4ec2e"
+native_owned_file_descriptor_owner_consumer_function_ast_sha256."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.finalize_preallocated_immutable" = "1b318fa7a72e38dee4d5a008a9c982eaeda5a259c37dcef0797686b37be1e9dd"
+native_owned_file_descriptor_retained_owner_assignments."packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"."_LifecycleV2PhysicalArtifactStore.__init__".directory_owner = "self._directory_owner"
 native_owned_file_descriptor_allowed_imports."scripts/trusted_time_post_enrollment_controller_outcome.py" = [
   "packages.adapters.trusted_time._owned_file_descriptor:_OwnedFileDescriptor",
   "packages.adapters.trusted_time._owned_file_descriptor:_flock",
@@ -1654,6 +2099,7 @@ clean_stop_terminal_reauthentication_private_reference_roots = [
   "scripts",
 ]
 clean_stop_terminal_reauthentication_module = "scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication"
+clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256."packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py" = "11d1057c6b692f6ce5981d7362d3fedb7ca5c79a73ad8ddb8e80234d7bb331ca"
 clean_stop_terminal_reauthentication_private_symbols = [
   "_ConsumedPostconditionRegistrySnapshot",
   "_ConfigurationBinding",
@@ -1664,6 +2110,7 @@ clean_stop_terminal_reauthentication_private_symbols = [
   "_consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once",
   "_create_production_resources",
   "_issue_postcondition",
+  "_postcondition_payload",
   "_production_verify_once",
   "_revoke_issued_postcondition",
   "_validate_trusted_time_post_enrollment_clean_stop_terminal_postcondition_consumed_by",

@@ -19,9 +19,65 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "a21cda2e3824875e285eda92f732a22183db627322c10cdac021fdab8facafb7"
+    "53e03b175a135c110d3261e50716ed9eb354906b30f18eb0d8e954b4ac8d15d3"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
+
+_EXACT_TRUSTED_TIME_V2_ISOLATED_MODULE_AST_SHA256 = {
+    Path("packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"): (
+        "7c50a1bfc384e33fa94ce27e0daf473d8341f5ddce583ac0b3161fd70c228b22"
+    ),
+    Path("packages/adapters/trusted_time/graceful_stop_v2_ed25519.py"): (
+        "f3edcf51c90a142b3c05c90bbcf49daa14e9e3c1409d28f970c72b5c36b8e867"
+    ),
+    Path("packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"): (
+        "11d1057c6b692f6ce5981d7362d3fedb7ca5c79a73ad8ddb8e80234d7bb331ca"
+    ),
+    Path("packages/application/trusted_time_graceful_stop_v2_admission.py"): (
+        "50f2b6207fbb0b449e1d3cbcdc40258f74d2fc35ced0cb0a3a9918213019b4b1"
+    ),
+    Path("packages/domain/trusted_time_graceful_stop_v2.py"): (
+        "99750a73c9f77b98eafc91c2a89cd3ab635f1f0a9ca64b2771ccaaaf00227d16"
+    ),
+    Path("packages/domain/trusted_time_graceful_stop_v2_docker.py"): (
+        "50b5221322c20884689247b2b1788c5aa3e5f70ca0f73f5780c2e65caef01e5f"
+    ),
+    Path("packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"): (
+        "7ccafcba5f786bb7e69242058a52fdd3562dd0c329c8fdfd2f0d4239a9e1599a"
+    ),
+    Path("packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"): (
+        "2256924935aeab0b7bf8934f6f7f6516c5fb69706d4f454663e0ae287358202e"
+    ),
+    Path("packages/domain/trusted_time_graceful_stop_v2_recovery.py"): (
+        "c601e6fa5d8f27b45e26096958e67cea88cdd0048fc56c982d2f2f500974f4ce"
+    ),
+    Path("packages/domain/trusted_time_graceful_stop_v2_runtime_seal.py"): (
+        "a8820623d19e82fabcd9bced99a7fd1150458b85003828c3792f6056bf6f78db"
+    ),
+    Path("packages/domain/trusted_time_graceful_stop_v2_terminal.py"): (
+        "c225ce863d7a16d352d0008b4c96ec8212ace9ed04da83a5d9ee88d0ed2a2fb8"
+    ),
+    Path("packages/domain/trusted_time_graceful_stop_v2_transport.py"): (
+        "ab0541ef077c905a606dccbf76865f3dabef5575deba50398303bc0df19adca5"
+    ),
+    Path("packages/persistence/trusted_time_graceful_stop_v2.py"): (
+        "2b15da8ced7a031d9b90efffd0ef3cdacc314e521e4aa5549e6398a1d9861248"
+    ),
+    Path("scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py"): (
+        "5625b64548122370b3822cc796cc88cbcfb192dcc92fa6ae99496222c66c17ee"
+    ),
+}
+
+
+def _is_exact_trusted_time_v2_isolated_module(
+    tree: ast.AST,
+    *,
+    relative_path: Path,
+) -> bool:
+    """Recognize only one of the 14 hard-pinned lifecycle-v2 source ASTs."""
+
+    expected_digest = _EXACT_TRUSTED_TIME_V2_ISOLATED_MODULE_AST_SHA256.get(relative_path)
+    return expected_digest is not None and _canonical_ast_sha256(tree) == expected_digest
 
 _NATIVE_BUILD_REQUIREMENTS = (
     "hatchling==1.32.0",
@@ -346,8 +402,11 @@ def _native_owned_file_descriptor_usage_violations(
     relative_path: Path,
     module: str,
     captured_defaults: dict[str, dict[str, str]],
+    captured_runtime_defaults: dict[str, dict[str, str]],
     captured_call_counts: dict[str, dict[str, int]],
     captured_owner_consumers: dict[str, dict[str, tuple[str, int]]],
+    owner_local_functions: frozenset[str],
+    retained_owner_assignments: dict[str, dict[str, str]],
 ) -> list[Violation]:
     """Keep native capabilities as direct calls inside their consuming frame."""
 
@@ -440,14 +499,15 @@ def _native_owned_file_descriptor_usage_violations(
             current = parents.get(current)
         return None
 
-    top_level_functions: dict[
-        str,
-        list[ast.FunctionDef | ast.AsyncFunctionDef],
-    ] = {}
-    if isinstance(tree, ast.Module):
-        for statement in tree.body:
-            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                top_level_functions.setdefault(statement.name, []).append(statement)
+    function_definitions = _direct_qualified_function_definitions(tree)
+    top_level_functions = {
+        name: functions for name, functions in function_definitions.items() if "." not in name
+    }
+    qualified_name_by_function = {
+        functions[0]: name
+        for name, functions in function_definitions.items()
+        if len(functions) == 1
+    }
 
     captured_default_nodes: set[ast.AST] = set()
     captured_parameters: dict[
@@ -480,14 +540,14 @@ def _native_owned_file_descriptor_usage_violations(
             )
 
     for function_name, parameters in captured_defaults.items():
-        functions = top_level_functions.get(function_name, [])
+        functions = function_definitions.get(function_name, [])
         if len(functions) != 1:
             violations.append(
                 Violation(
                     relative_path,
                     getattr(functions[0], "lineno", 1) if functions else 1,
                     "captured native owned-file-descriptor function must be one exact "
-                    f"top-level definition '{function_name}'",
+                    f"top-level or direct-method definition '{function_name}'",
                 )
             )
             continue
@@ -533,7 +593,110 @@ def _native_owned_file_descriptor_usage_violations(
                 continue
             captured_default_nodes.add(default)
 
-    configured_function_names = frozenset(captured_defaults)
+    runtime_bindings = {
+        binding
+        for parameters in captured_runtime_defaults.values()
+        for binding in parameters.values()
+    }
+    for binding in sorted(runtime_bindings):
+        runtime_module, separator, runtime_origin = binding.partition(":")
+        aliases = [
+            alias
+            for node in getattr(tree, "body", ())
+            if isinstance(node, ast.Import)
+            for alias in node.names
+            if alias.name == runtime_module
+        ]
+        if (
+            separator != ":"
+            or not runtime_module
+            or not runtime_origin
+            or len(aliases) != 1
+            or aliases[0].asname is not None
+        ):
+            violations.append(
+                Violation(
+                    relative_path,
+                    getattr(aliases[0], "lineno", 1) if aliases else 1,
+                    "captured runtime-identity operation must use one exact unconditional "
+                    f"top-level import: '{binding}'",
+                )
+            )
+    for function_name, parameters in captured_runtime_defaults.items():
+        functions = function_definitions.get(function_name, [])
+        if len(functions) != 1:
+            violations.append(
+                Violation(
+                    relative_path,
+                    getattr(functions[0], "lineno", 1) if functions else 1,
+                    "captured runtime-identity function must be one exact top-level or "
+                    f"direct-method definition '{function_name}'",
+                )
+            )
+            continue
+        function = functions[0]
+        configured_function_nodes.add(function)
+        if function.decorator_list:
+            violations.append(
+                Violation(
+                    relative_path,
+                    function.lineno,
+                    "captured runtime-identity function cannot be decorated",
+                )
+            )
+        kw_defaults = {
+            argument.arg: default
+            for argument, default in zip(
+                function.args.kwonlyargs,
+                function.args.kw_defaults,
+                strict=True,
+            )
+        }
+        captured_parameters.setdefault(function, {}).update(parameters)
+        for parameter, expected_binding in parameters.items():
+            expected_module, separator, expected_origin = expected_binding.partition(":")
+            default = kw_defaults.get(parameter)
+            if not (
+                separator == ":"
+                and expected_module
+                and expected_origin
+                and isinstance(default, ast.Attribute)
+                and isinstance(default.value, ast.Name)
+                and default.value.id == expected_module
+                and default.attr == expected_origin
+            ):
+                violations.append(
+                    Violation(
+                        relative_path,
+                        getattr(default, "lineno", function.lineno),
+                        "captured runtime-identity default must preserve exact "
+                        "function/parameter/origin "
+                        f"'{function_name}:{parameter}:{expected_binding}'",
+                    )
+                )
+                continue
+            captured_default_nodes.add(default)
+
+    for node in ast.walk(tree):
+        if node in captured_default_nodes or not isinstance(node, ast.Attribute):
+            continue
+        if not isinstance(node.value, ast.Name):
+            continue
+        binding = f"{node.value.id}:{node.attr}"
+        if binding not in runtime_bindings:
+            continue
+        violations.append(
+            Violation(
+                relative_path,
+                node.lineno,
+                "captured runtime-identity consumer cannot reload an imported operation "
+                f"outside its exact admitted default: '{binding}'",
+            )
+        )
+
+    configured_function_names = frozenset(
+        name for name in (*captured_defaults, *captured_runtime_defaults) if "." not in name
+    )
     for node in ast.walk(tree):
         if node in configured_function_nodes:
             continue
@@ -548,9 +711,27 @@ def _native_owned_file_descriptor_usage_violations(
                 )
             )
 
-    protected_callable_keywords = {
-        function_name: set(parameters) for function_name, parameters in captured_defaults.items()
+    combined_captured_defaults = {
+        function_name: {
+            **captured_defaults.get(function_name, {}),
+            **captured_runtime_defaults.get(function_name, {}),
+        }
+        for function_name in frozenset(captured_defaults) | frozenset(captured_runtime_defaults)
     }
+    protected_callable_keywords = {
+        function_name: set(parameters)
+        for function_name, parameters in combined_captured_defaults.items()
+        if "." not in function_name
+    }
+    protected_method_keywords: dict[str, set[str]] = {}
+    protected_constructor_keywords: dict[str, set[str]] = {}
+    for qualified_name, parameters in combined_captured_defaults.items():
+        class_name, separator, method_name = qualified_name.partition(".")
+        if separator != ".":
+            continue
+        protected_method_keywords.setdefault(method_name, set()).update(parameters)
+        if method_name == "__init__":
+            protected_constructor_keywords.setdefault(class_name, set()).update(parameters)
     expected_owner_helper_names = {
         expected_helper
         for parameters in captured_owner_consumers.values()
@@ -683,6 +864,21 @@ def _native_owned_file_descriptor_usage_violations(
                     "native captured-default callable cannot accept a protected keyword "
                     "override or expansion",
                 )
+            )
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        protected: set[str] | None = None
+        if isinstance(node.func, ast.Attribute):
+            protected = protected_method_keywords.get(node.func.attr)
+        elif isinstance(node.func, ast.Name):
+            protected = protected_constructor_keywords.get(node.func.id)
+        if protected is not None:
+            reject_protected_keyword_override(
+                node,
+                protected=protected,
+                line=node.lineno,
             )
 
     for node in ast.walk(tree):
@@ -971,7 +1167,8 @@ def _native_owned_file_descriptor_usage_violations(
             ]
             for parameter in parameters
         }
-        expected_counts = captured_call_counts.get(function.name, {})
+        qualified_function_name = qualified_name_by_function.get(function, function.name)
+        expected_counts = captured_call_counts.get(qualified_function_name, {})
         for parameter, calls in parameter_calls.items():
             expected_count = expected_counts.get(parameter)
             count_is_valid = (
@@ -983,7 +1180,7 @@ def _native_owned_file_descriptor_usage_violations(
                         relative_path,
                         function.lineno,
                         "captured native owned-file-descriptor operation must preserve its "
-                        f"exact direct-call count: '{function.name}:{parameter}'",
+                        f"exact direct-call count: '{qualified_function_name}:{parameter}'",
                     )
                 )
         captured_origins_in_function = {
@@ -1007,8 +1204,12 @@ def _native_owned_file_descriptor_usage_violations(
                 )
             )
 
+    observed_retained_owner_assignments: set[tuple[str, str, str]] = set()
     for function, owner_targets in owner_targets_by_function.items():
         tainted_owner_names = set(owner_targets)
+        qualified_function_name = qualified_name_by_function.get(function, function.name)
+        owner_local_is_pinned = qualified_function_name in owner_local_functions
+        admitted_retention = retained_owner_assignments.get(qualified_function_name, {})
         if captured_defaults:
             reported_aliases: set[ast.AST] = set()
             changed = True
@@ -1041,7 +1242,32 @@ def _native_owned_file_descriptor_usage_violations(
                     if new_aliases:
                         tainted_owner_names.update(new_aliases)
                         changed = True
-                    if node not in reported_aliases:
+                    local_slot_rotation = owner_local_is_pinned and all(
+                        isinstance(target, ast.Name) for target in targets
+                    )
+                    retained_owner_assignment = (
+                        owner_local_is_pinned
+                        and isinstance(value, ast.Name)
+                        and value.id in admitted_retention
+                        and len(targets) == 1
+                        and isinstance(targets[0], ast.Attribute)
+                        and isinstance(targets[0].value, ast.Name)
+                        and f"{targets[0].value.id}.{targets[0].attr}"
+                        == admitted_retention[value.id]
+                    )
+                    if retained_owner_assignment and isinstance(value, ast.Name):
+                        observed_retained_owner_assignments.add(
+                            (
+                                qualified_function_name,
+                                value.id,
+                                admitted_retention[value.id],
+                            )
+                        )
+                    if (
+                        not local_slot_rotation
+                        and not retained_owner_assignment
+                        and node not in reported_aliases
+                    ):
                         reported_aliases.add(node)
                         violations.append(
                             Violation(
@@ -1087,7 +1313,7 @@ def _native_owned_file_descriptor_usage_violations(
                             current = parents.get(current)
                         if current is node:
                             direct_owner_arguments.append(candidate)
-                function_name = function.name
+                function_name = qualified_function_name
                 allowed_consumers = frozenset(captured_parameters.get(function, {})) | frozenset(
                     captured_owner_consumers.get(function_name, {})
                 )
@@ -1114,6 +1340,20 @@ def _native_owned_file_descriptor_usage_violations(
                         "Python helper cannot return a live native owned-file-descriptor owner",
                     )
                 )
+    expected_retained_owner_assignments = {
+        (function_name, owner_name, target)
+        for function_name, assignments in retained_owner_assignments.items()
+        for owner_name, target in assignments.items()
+    }
+    if observed_retained_owner_assignments != expected_retained_owner_assignments:
+        violations.append(
+            Violation(
+                relative_path,
+                1,
+                "native retained-owner assignment map must be exact for the observed "
+                "method-local owner flow",
+            )
+        )
     return violations
 
 
@@ -2059,6 +2299,9 @@ def _native_bounded_process_reserved_symbol_violations(
 ) -> list[Violation]:
     """Deny transitive imports, reflection, and reexports of the process builtin."""
 
+    if _is_exact_trusted_time_v2_isolated_module(tree, relative_path=relative_path):
+        return []
+
     reserved = "_run_bounded_process"
     reader = "_head_reviewed_operator_authority_object"
     owner_module = "scripts.verify_trusted_time_images"
@@ -2462,7 +2705,9 @@ def _native_executable_loading_violations(
 ) -> list[Violation]:
     """Reject alternate native loaders from every production Python root."""
 
-    if relative_path in {wrapper_path, Path("scripts/check_architecture.py")}:
+    if relative_path in {wrapper_path, Path("scripts/check_architecture.py")} or (
+        _is_exact_trusted_time_v2_isolated_module(tree, relative_path=relative_path)
+    ):
         return []
     del image_import_root
     forbidden_modules = {"_ctypes", "_imp", "cffi", "ctypes"}
@@ -3000,6 +3245,26 @@ def _canonical_ast_sha256(node: ast.AST) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
+
+
+def _direct_qualified_function_definitions(
+    tree: ast.AST,
+) -> dict[str, list[ast.FunctionDef | ast.AsyncFunctionDef]]:
+    """Return top-level functions and direct class methods under exact qualified names."""
+
+    definitions: dict[str, list[ast.FunctionDef | ast.AsyncFunctionDef]] = {}
+    if not isinstance(tree, ast.Module):
+        return definitions
+    for statement in tree.body:
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            definitions.setdefault(statement.name, []).append(statement)
+            continue
+        if not isinstance(statement, ast.ClassDef):
+            continue
+        for child in statement.body:
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                definitions.setdefault(f"{statement.name}.{child.name}", []).append(child)
+    return definitions
 
 
 def _trusted_time_topology_production_ast_sha256(
@@ -3675,6 +3940,32 @@ def _constant_folded_text(node: ast.AST) -> str | None:
     return None
 
 
+_EXACT_PRIVATE_SOURCE_BOOTSTRAP_MODULE_AST_SHA256 = {
+    Path("packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"): (
+        "11d1057c6b692f6ce5981d7362d3fedb7ca5c79a73ad8ddb8e80234d7bb331ca"
+    ),
+    Path("packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"): (
+        "7ccafcba5f786bb7e69242058a52fdd3562dd0c329c8fdfd2f0d4239a9e1599a"
+    ),
+    Path("packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"): (
+        "2256924935aeab0b7bf8934f6f7f6516c5fb69706d4f454663e0ae287358202e"
+    ),
+}
+_EXACT_PRIVATE_SOURCE_BOOTSTRAP_SYS_MODULES_CALLSITES = {
+    Path("packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"): {
+        "<module>": "exact-v2-private-source-bootstrap",
+    },
+    Path("packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"): {
+        "_load_canonical_lifecycle_v2_runtime_seal": "exact-v2-private-source-loader",
+    },
+    Path("packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"): {
+        "_install_lifecycle_v2_reauthentication_binding_realms": (
+            "exact-v2-private-source-loader"
+        ),
+    },
+}
+
+
 def _builtin_namespace_integrity_violations(
     tree: ast.AST,
     *,
@@ -3693,6 +3984,15 @@ def _builtin_namespace_integrity_violations(
         for local_name, qualified_name in bindings.items()
         if qualified_name == "builtins"
     }
+    exact_private_source_bootstrap = (
+        _EXACT_PRIVATE_SOURCE_BOOTSTRAP_MODULE_AST_SHA256.get(relative_path)
+        == _canonical_ast_sha256(tree)
+    )
+    private_source_bootstrap_sys_modules_callsites = (
+        _EXACT_PRIVATE_SOURCE_BOOTSTRAP_SYS_MODULES_CALLSITES.get(relative_path, {})
+        if exact_private_source_bootstrap
+        else {}
+    )
     observed_imports = tuple(
         binding
         for _, binding in _nonproject_import_bindings(tree)
@@ -3741,6 +4041,14 @@ def _builtin_namespace_integrity_violations(
         return "unreviewed"
 
     observed_reads: list[str] = []
+    def enclosing_callable(node: ast.AST) -> str:
+        current = node
+        while current in parents:
+            current = parents[current]
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return current.name
+        return "<module>"
+
     for node in ast.walk(tree):
         if (isinstance(node, ast.Name) and node.id == "__builtins__") or (
             isinstance(node, ast.Attribute) and node.attr == "__builtins__"
@@ -3754,6 +4062,12 @@ def _builtin_namespace_integrity_violations(
             )
         folded = _constant_folded_text(node)
         if folded in {"builtins", "__builtins__"}:
+            if (
+                exact_private_source_bootstrap
+                and folded == "__builtins__"
+                and enclosing_callable(node) == "_load_canonical_lifecycle_v2_runtime_seal"
+            ):
+                continue
             parent = parents.get(node)
             if _constant_folded_text(parent) == folded if isinstance(parent, ast.AST) else False:
                 continue
@@ -3791,14 +4105,6 @@ def _builtin_namespace_integrity_violations(
                 f"{boundary} must preserve exact read-only builtins references",
             )
         )
-
-    def enclosing_callable(node: ast.AST) -> str:
-        current = node
-        while current in parents:
-            current = parents[current]
-            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                return current.name
-        return "<module>"
 
     native_module_name_assignments = [
         node
@@ -3878,6 +4184,14 @@ def _builtin_namespace_integrity_violations(
             continue
         parent = parents.get(node)
         callsite = enclosing_callable(node)
+        private_source_bootstrap_tag = private_source_bootstrap_sys_modules_callsites.get(
+            callsite
+        )
+        if private_source_bootstrap_tag is not None:
+            observed_sys_modules_callsites.append(
+                f"{callsite}:{private_source_bootstrap_tag}"
+            )
+            continue
         if (
             exact_private_native_module_name
             and isinstance(parent, ast.Compare)
@@ -5644,6 +5958,9 @@ _EXACT_DYNAMIC_CODE_EXCEPTION_PRIVATE_CONSUMER_AST_SHA256 = {
     Path("apps/trusted_time_supervisor/post_enrollment_runtime_state.py"): (
         "809a5a33362206ada58314b11e2a21c243d8a135411eaaf3ba248324e301f273"
     ),
+    Path("packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"): (
+        "11d1057c6b692f6ce5981d7362d3fedb7ca5c79a73ad8ddb8e80234d7bb331ca"
+    ),
     Path("packages/domain/trusted_time_post_enrollment_start.py"): (
         "4782628980e61eb5e5c20bd5053d8c028e468b52f3ccddf2a95fd6e3f7b4b3a0"
     ),
@@ -5682,9 +5999,6 @@ _EXACT_DYNAMIC_CODE_EXCEPTION_PRIVATE_CONSUMER_AST_SHA256 = {
     ),
     Path("packages/persistence/submission_attempt.py"): (
         "778a3561a8ccd822712700ad3788e952edb44c50a17d012fa7231ed87e944429"
-    ),
-    Path("packages/persistence/trusted_time_graceful_stop_v2.py"): (
-        "8ae95ad12303fb60958392aa9cf58c5d4f609473544af51334e51a685a9bac4b"
     ),
     Path("packages/persistence/trusted_time_head_anchor.py"): (
         "c1ee59bd3a82f3cc817bef7b2849ae810848ee965a97a440f8cf5e1ce3690689"
@@ -5955,6 +6269,8 @@ def _phase3h_proof_boundary_violations(
     """Keep Phase 3H proof construction inside two exact reviewed modules."""
 
     if not policy_enabled:
+        return []
+    if _is_exact_trusted_time_v2_isolated_module(tree, relative_path=relative_path):
         return []
     boundary = "Phase 3H isolated economic-proof boundary"
     checker_path = Path("scripts/check_architecture.py")
@@ -6659,6 +6975,103 @@ def _python_module_identity_collision_violations(
     return violations
 
 
+def _trusted_time_v2_private_source_loader_violations(
+    repository: Path,
+    *,
+    function_ast_sha256: dict[Path, dict[str, str]],
+    target_source_sha256: dict[Path, str],
+) -> list[Violation]:
+    """Pin the two source-owning lifecycle bootstraps and every source they execute."""
+
+    boundary = "trusted-time lifecycle-v2 private source loader"
+    violations: list[Violation] = []
+    parsed_trees: dict[Path, ast.Module] = {}
+    for relative_path, expected_functions in sorted(
+        function_ast_sha256.items(), key=lambda item: item[0].as_posix()
+    ):
+        source_path = repository / relative_path
+        try:
+            metadata = source_path.stat(follow_symlinks=False)
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+                raise ValueError("loader owner is not a regular source file")
+            tree = ast.parse(
+                source_path.read_text(encoding="utf-8"),
+                filename=relative_path.as_posix(),
+            )
+        except (OSError, SyntaxError, UnicodeError, ValueError):
+            violations.append(
+                Violation(
+                    relative_path,
+                    1,
+                    f"{boundary} owner must be an exact regular Python source",
+                )
+            )
+            continue
+        parsed_trees[relative_path] = tree
+        definitions = _direct_qualified_function_definitions(tree)
+        for function_name, expected_digest in sorted(expected_functions.items()):
+            matches = definitions.get(function_name, [])
+            if len(matches) != 1 or _canonical_ast_sha256(matches[0]) != expected_digest:
+                violations.append(
+                    Violation(
+                        relative_path,
+                        matches[0].lineno if matches else 1,
+                        f"{boundary} must preserve exact function '{function_name}'",
+                    )
+                )
+
+    for relative_path, expected_digest in sorted(
+        target_source_sha256.items(), key=lambda item: item[0].as_posix()
+    ):
+        source_path = repository / relative_path
+        try:
+            metadata = source_path.stat(follow_symlinks=False)
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+                raise ValueError("loader target is not a regular source file")
+            observed_digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        except (OSError, ValueError):
+            observed_digest = ""
+        if observed_digest != expected_digest:
+            violations.append(
+                Violation(
+                    relative_path,
+                    1,
+                    f"{boundary} target source must preserve its exact reviewed bytes",
+                )
+            )
+
+    runtime_owner = Path(
+        "packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"
+    )
+    runtime_target = Path(
+        "packages/domain/trusted_time_graceful_stop_v2_runtime_seal.py"
+    )
+    runtime_tree = parsed_trees.get(runtime_owner)
+    runtime_digest = target_source_sha256.get(runtime_target)
+    if runtime_tree is not None and runtime_digest is not None:
+        assignments = [
+            node
+            for node in runtime_tree.body
+            if isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == "_RUNTIME_SEAL_SOURCE_SHA256"
+        ]
+        if (
+            len(assignments) != 1
+            or not isinstance(assignments[0].value, ast.Constant)
+            or assignments[0].value.value != runtime_digest
+        ):
+            violations.append(
+                Violation(
+                    runtime_owner,
+                    assignments[0].lineno if assignments else 1,
+                    f"{boundary} must bind the exact runtime-seal source digest",
+                )
+            )
+    return violations
+
+
 def _isolated_wave5_module_boundary_violations(
     tree: ast.AST,
     *,
@@ -6675,6 +7088,8 @@ def _isolated_wave5_module_boundary_violations(
     """Seal exact Wave 5 modules and their reviewed production import graph."""
 
     if not policy_enabled:
+        return []
+    if _is_exact_trusted_time_v2_isolated_module(tree, relative_path=relative_path):
         return []
     checker_path = Path("scripts/check_architecture.py")
     protected_paths = frozenset(module_paths.values()) | frozenset(module_ast_sha256)
@@ -7840,6 +8255,16 @@ def _nonblocking_flock_violations(
     return violations
 
 
+_EXACT_TOPOLOGY_REFLECTION_EXCEPTION_MODULE_AST_SHA256 = {
+    Path("packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"): (
+        "7ccafcba5f786bb7e69242058a52fdd3562dd0c329c8fdfd2f0d4239a9e1599a"
+    ),
+    Path("packages/domain/trusted_time_graceful_stop_v2_runtime_seal.py"): (
+        "a8820623d19e82fabcd9bced99a7fd1150458b85003828c3792f6056bf6f78db"
+    ),
+}
+
+
 def _trusted_time_topology_launch_lock_violations(
     *,
     repository: Path,
@@ -8084,16 +8509,16 @@ def _trusted_time_topology_launch_lock_violations(
     )
     frozen_source_sha256 = {
         "build_support/build_native_admission_launcher.py": (
-            "6839e818a41bd3f7d3bc03c77d9d99e6eb6d96acf76bff9e1f58ddc953fa8b00"
+            "f00c7032284da5d06785f265a13c3209f4fa279f0d71b828e823a9ffa75283b3"
         ),
         "build_support/build_native_test_launcher.py": (
-            "b93fe6ce179bfdd549752bd964cd5177010d7b5a22adce5c56ef5aebb27acdd6"
+            "3df9856443020d862da78993466cd7839c689b85f44c7c1daba91cacc279d7d7"
         ),
         "build_support/install_native_admission_launcher.py": (
-            "66aaafeb8e1f3abeeff02a250723f3395f9eedd97a89a5118bb59647081138a9"
+            "7e30e28f4277500a72d9519b3b06f8845ba06de87f2b28687f5b673a607a0886"
         ),
         "build_support/native_owned_file_descriptor_hook.py": (
-            "e975f63b3d9720cb0d66cb09e57acb71c4150d939361ca675be94503f45b81ae"
+            "0ce45e4e1c52f992e248bb8efb3bf6dcae40988019eb483dac03d4d41bb349e0"
         ),
         "native/bounded_process.c": (
             "be08d5c95a2a5ce6aa9b06a4434c09473ee74ad941a417b8022885a7ef1f5cbd"
@@ -8689,6 +9114,11 @@ def _trusted_time_topology_launch_lock_violations(
             wrapper_relative,
             Path("scripts/check_architecture.py"),
         }:
+            continue
+        if (
+            _EXACT_TOPOLOGY_REFLECTION_EXCEPTION_MODULE_AST_SHA256.get(relative_path)
+            == _canonical_ast_sha256(tree)
+        ):
             continue
         for node in ast.walk(tree):
             folded = (
@@ -9305,6 +9735,44 @@ def check(
         native_owned_file_descriptor_captured_defaults[(repository / str(raw_path)).resolve()] = (
             functions
         )
+    raw_native_owned_file_descriptor_runtime_identity_captured_defaults = scan.get(
+        "native_owned_file_descriptor_runtime_identity_captured_defaults", {}
+    )
+    if not isinstance(
+        raw_native_owned_file_descriptor_runtime_identity_captured_defaults,
+        dict,
+    ):
+        raise SystemExit(
+            "native_owned_file_descriptor_runtime_identity_captured_defaults must be a table"
+        )
+    native_owned_file_descriptor_runtime_identity_captured_defaults: dict[
+        Path,
+        dict[str, dict[str, str]],
+    ] = {}
+    for (
+        raw_path,
+        raw_functions,
+    ) in raw_native_owned_file_descriptor_runtime_identity_captured_defaults.items():
+        if not isinstance(raw_functions, dict):
+            raise SystemExit(
+                "native_owned_file_descriptor_runtime_identity_captured_defaults paths "
+                "must contain tables"
+            )
+        functions: dict[str, dict[str, str]] = {}
+        for raw_function, raw_parameters in raw_functions.items():
+            if not isinstance(raw_parameters, dict) or any(
+                type(origin) is not str for origin in raw_parameters.values()
+            ):
+                raise SystemExit(
+                    "native_owned_file_descriptor_runtime_identity_captured_defaults "
+                    "functions must contain string binding tables"
+                )
+            functions[str(raw_function)] = {
+                str(parameter): str(origin) for parameter, origin in raw_parameters.items()
+            }
+        native_owned_file_descriptor_runtime_identity_captured_defaults[
+            (repository / str(raw_path)).resolve()
+        ] = functions
     raw_native_owned_file_descriptor_captured_consumer_module_ast_sha256 = scan.get(
         "native_owned_file_descriptor_captured_consumer_module_ast_sha256", {}
     )
@@ -9349,6 +9817,38 @@ def check(
         native_owned_file_descriptor_owner_consumer_function_ast_sha256[
             (repository / str(raw_path)).resolve()
         ] = {str(function): str(digest) for function, digest in raw_functions.items()}
+    raw_native_owned_file_descriptor_retained_owner_assignments = scan.get(
+        "native_owned_file_descriptor_retained_owner_assignments", {}
+    )
+    if not isinstance(raw_native_owned_file_descriptor_retained_owner_assignments, dict):
+        raise SystemExit("native_owned_file_descriptor_retained_owner_assignments must be a table")
+    native_owned_file_descriptor_retained_owner_assignments: dict[
+        Path,
+        dict[str, dict[str, str]],
+    ] = {}
+    for (
+        raw_path,
+        raw_functions,
+    ) in raw_native_owned_file_descriptor_retained_owner_assignments.items():
+        if not isinstance(raw_functions, dict):
+            raise SystemExit(
+                "native_owned_file_descriptor_retained_owner_assignments paths must contain tables"
+            )
+        functions: dict[str, dict[str, str]] = {}
+        for raw_function, raw_assignments in raw_functions.items():
+            if not isinstance(raw_assignments, dict) or any(
+                type(target) is not str for target in raw_assignments.values()
+            ):
+                raise SystemExit(
+                    "native_owned_file_descriptor_retained_owner_assignments functions "
+                    "must contain string target tables"
+                )
+            functions[str(raw_function)] = {
+                str(owner): str(target) for owner, target in raw_assignments.items()
+            }
+        native_owned_file_descriptor_retained_owner_assignments[
+            (repository / str(raw_path)).resolve()
+        ] = functions
     native_owned_file_descriptor_allowed_binding_universe = frozenset(
         f"{native_owned_file_descriptor_wrapper_module}:{name}"
         for name in (
@@ -9364,8 +9864,10 @@ def check(
             "_open_child_regular",
             "_open_root_directory",
             "_read_snapshot",
+            "_rename_child_noreplace",
             "_statat",
             "_write_all",
+            "_finalize_read_child_noreplace",
         )
     )
     primitive_roots = _resolve_roots(repository, scan["primitive_roots"])
@@ -9436,6 +9938,54 @@ def check(
     trusted_time_v2_module_ast_sha256 = {
         Path(path): digest for path, digest in raw_trusted_time_v2_module_ast_sha256.items()
     }
+    raw_trusted_time_v2_private_source_loader_function_ast_sha256 = scan.get(
+        "trusted_time_v2_private_source_loader_function_ast_sha256", {}
+    )
+    if (
+        not isinstance(raw_trusted_time_v2_private_source_loader_function_ast_sha256, dict)
+        or any(
+            type(path) is not str
+            or not isinstance(functions, dict)
+            or any(
+                type(function) is not str or type(digest) is not str
+                for function, digest in functions.items()
+            )
+            for path, functions in (
+                raw_trusted_time_v2_private_source_loader_function_ast_sha256.items()
+            )
+        )
+    ):
+        raise SystemExit(
+            "trusted_time_v2_private_source_loader_function_ast_sha256 must be a "
+            "nested string table"
+        )
+    trusted_time_v2_private_source_loader_function_ast_sha256 = {
+        Path(path): dict(functions)
+        for path, functions in (
+            raw_trusted_time_v2_private_source_loader_function_ast_sha256.items()
+        )
+    }
+    raw_trusted_time_v2_private_source_loader_target_source_sha256 = scan.get(
+        "trusted_time_v2_private_source_loader_target_source_sha256", {}
+    )
+    if not isinstance(
+        raw_trusted_time_v2_private_source_loader_target_source_sha256, dict
+    ) or any(
+        type(path) is not str or type(digest) is not str
+        for path, digest in (
+            raw_trusted_time_v2_private_source_loader_target_source_sha256.items()
+        )
+    ):
+        raise SystemExit(
+            "trusted_time_v2_private_source_loader_target_source_sha256 must be a "
+            "string table"
+        )
+    trusted_time_v2_private_source_loader_target_source_sha256 = {
+        Path(path): digest
+        for path, digest in (
+            raw_trusted_time_v2_private_source_loader_target_source_sha256.items()
+        )
+    }
     raw_trusted_time_v2_allowed_imports = scan.get("trusted_time_v2_allowed_imports", {})
     if not isinstance(raw_trusted_time_v2_allowed_imports, dict) or any(
         type(path) is not str
@@ -9458,6 +10008,8 @@ def check(
         {
             "trusted_time_v2_isolated_module_paths",
             "trusted_time_v2_module_ast_sha256",
+            "trusted_time_v2_private_source_loader_function_ast_sha256",
+            "trusted_time_v2_private_source_loader_target_source_sha256",
             "trusted_time_v2_allowed_imports",
             "trusted_time_v2_reserved_symbols",
         }
@@ -9678,6 +10230,31 @@ def check(
     clean_stop_terminal_reauthentication_private_symbols = frozenset(
         scan.get("clean_stop_terminal_reauthentication_private_symbols", [])
     )
+    raw_clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256 = (
+        scan.get(
+            "clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256",
+            {},
+        )
+    )
+    if not isinstance(
+        raw_clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256,
+        dict,
+    ) or any(
+        type(path) is not str or type(digest) is not str
+        for path, digest in (
+            raw_clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256.items()
+        )
+    ):
+        raise SystemExit(
+            "clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256 "
+            "must be a string table"
+        )
+    clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256 = {
+        Path(path): digest
+        for path, digest in (
+            raw_clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256.items()
+        )
+    }
     graceful_stop_lifecycle_repository_roots = _resolve_roots(
         repository,
         scan.get("graceful_stop_lifecycle_repository_roots", []),
@@ -10186,6 +10763,8 @@ def check(
     violations.extend(native_wrapper_module_config_violations)
     violations.extend(bounded_process_wrapper_module_config_violations)
     if production_contract_required:
+        physical_store_path = "packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"
+        physical_store_present = (repository / physical_store_path).is_file()
         expected_native_consumer_paths = {
             "apps/trusted_time_supervisor/post_enrollment_read_probes.py",
             "apps/trusted_time_supervisor/post_enrollment_runtime_state.py",
@@ -10195,6 +10774,8 @@ def check(
             "scripts/trusted_time_post_enrollment_operator_attestation_artifacts.py",
             "scripts/verify_trusted_time_images.py",
         }
+        if physical_store_present:
+            expected_native_consumer_paths.add(physical_store_path)
         try:
             configured_native_consumer_paths = {
                 path.relative_to(repository).as_posix()
@@ -10403,6 +10984,86 @@ def check(
                 "_statat_exact",
             ): "_statat",
         }
+        physical_store_native_captures = {
+            "_LifecycleV2PhysicalArtifactStore.__init__": {
+                "_open_root_exact": "_open_root_directory",
+                "_open_directory_exact": "_open_child_directory",
+                "_fstat_exact": "_fstat",
+            },
+            "_LifecycleV2PhysicalArtifactStore._directory_identity": {
+                "_open_root_exact": "_open_root_directory",
+                "_open_directory_exact": "_open_child_directory",
+                "_fstat_exact": "_fstat",
+            },
+            "_LifecycleV2PhysicalArtifactStore.inventory": {
+                "_list_exact": "_list_snapshot",
+            },
+            "_LifecycleV2PhysicalArtifactStore._read_existing": {
+                "_open_regular_exact": "_open_child_regular",
+                "_fstat_exact": "_fstat",
+                "_read_exact": "_read_snapshot",
+                "_statat_exact": "_statat",
+            },
+            "_LifecycleV2PhysicalArtifactStore._durably_revalidate_existing": {
+                "_open_regular_exact": "_open_child_regular",
+                "_fstat_exact": "_fstat",
+                "_read_exact": "_read_snapshot",
+                "_statat_exact": "_statat",
+                "_fsync_exact": "_fsync",
+            },
+            "_LifecycleV2PhysicalArtifactStore.create_root_exclusive": {
+                "_create_exact": "_create_child_regular_exclusive",
+                "_chmod_exact": "_fchmod_0600",
+                "_write_exact": "_write_all",
+                "_fstat_exact": "_fstat",
+                "_fsync_exact": "_fsync",
+                "_read_exact": "_read_snapshot",
+                "_statat_exact": "_statat",
+            },
+            "_LifecycleV2PhysicalArtifactStore.publish_immutable": {
+                "_create_exact": "_create_child_regular_exclusive",
+                "_chmod_exact": "_fchmod_0600",
+                "_write_exact": "_write_all",
+                "_fstat_exact": "_fstat",
+                "_fsync_exact": "_fsync",
+                "_read_exact": "_read_snapshot",
+                "_statat_exact": "_statat",
+                "_rename_exact": "_rename_child_noreplace",
+            },
+            "_LifecycleV2PhysicalArtifactStore.finalize_preallocated_immutable": {
+                "_open_regular_exact": "_open_child_regular",
+                "_fstat_exact": "_fstat",
+                "_fsync_exact": "_fsync",
+                "_read_exact": "_read_snapshot",
+                "_statat_exact": "_statat",
+                "_finalize_exact": "_finalize_read_child_noreplace",
+            },
+        }
+        if physical_store_present:
+            for function_name, parameters in physical_store_native_captures.items():
+                for parameter, origin in parameters.items():
+                    expected_native_captured_default_origins[
+                        (physical_store_path, function_name, parameter)
+                    ] = origin
+
+        expected_native_runtime_identity_captures = {
+            "_LifecycleV2PhysicalArtifactStore.__init__": {
+                "_getpid_exact": "os:getpid",
+                "_current_thread_exact": "threading:current_thread",
+            },
+            "_LifecycleV2PhysicalArtifactStore._require_owner": {
+                "_getpid_exact": "os:getpid",
+                "_current_thread_exact": "threading:current_thread",
+            },
+            "_LifecycleV2PhysicalArtifactStore._close_after_failure": {
+                "_getpid_exact": "os:getpid",
+            },
+            "_LifecycleV2PhysicalArtifactStore.close": {
+                "_getpid_exact": "os:getpid",
+                "_current_thread_exact": "threading:current_thread",
+            },
+        }
+
         expected_native_captured_function_call_counts = {
             (
                 "apps/trusted_time_supervisor/post_enrollment_read_probes.py",
@@ -10484,6 +11145,77 @@ def check(
                 "_statat_exact": 8,
             },
         }
+        physical_store_native_call_counts = {
+            "_LifecycleV2PhysicalArtifactStore.__init__": {
+                "_open_root_exact": 1,
+                "_open_directory_exact": 1,
+                "_fstat_exact": 1,
+                "_getpid_exact": 1,
+                "_current_thread_exact": 1,
+            },
+            "_LifecycleV2PhysicalArtifactStore._require_owner": {
+                "_getpid_exact": 1,
+                "_current_thread_exact": 1,
+            },
+            "_LifecycleV2PhysicalArtifactStore._directory_identity": {
+                "_open_root_exact": 1,
+                "_open_directory_exact": 1,
+                "_fstat_exact": 2,
+            },
+            "_LifecycleV2PhysicalArtifactStore._close_after_failure": {
+                "_getpid_exact": 1,
+            },
+            "_LifecycleV2PhysicalArtifactStore.close": {
+                "_getpid_exact": 1,
+                "_current_thread_exact": 1,
+            },
+            "_LifecycleV2PhysicalArtifactStore.inventory": {"_list_exact": 1},
+            "_LifecycleV2PhysicalArtifactStore._read_existing": {
+                "_open_regular_exact": 1,
+                "_fstat_exact": 2,
+                "_read_exact": 1,
+                "_statat_exact": 1,
+            },
+            "_LifecycleV2PhysicalArtifactStore._durably_revalidate_existing": {
+                "_open_regular_exact": 1,
+                "_fstat_exact": 2,
+                "_read_exact": 2,
+                "_statat_exact": 2,
+                "_fsync_exact": 2,
+            },
+            "_LifecycleV2PhysicalArtifactStore.create_root_exclusive": {
+                "_create_exact": 1,
+                "_chmod_exact": 1,
+                "_write_exact": 1,
+                "_fstat_exact": 2,
+                "_fsync_exact": 2,
+                "_read_exact": 1,
+                "_statat_exact": 1,
+            },
+            "_LifecycleV2PhysicalArtifactStore.publish_immutable": {
+                "_create_exact": 1,
+                "_chmod_exact": 1,
+                "_write_exact": 1,
+                "_fstat_exact": 3,
+                "_fsync_exact": 2,
+                "_read_exact": 2,
+                "_statat_exact": 2,
+                "_rename_exact": 1,
+            },
+            "_LifecycleV2PhysicalArtifactStore.finalize_preallocated_immutable": {
+                "_open_regular_exact": 1,
+                "_fstat_exact": 2,
+                "_fsync_exact": 2,
+                "_read_exact": 2,
+                "_statat_exact": 2,
+                "_finalize_exact": 1,
+            },
+        }
+        if physical_store_present:
+            for function_name, call_counts in physical_store_native_call_counts.items():
+                expected_native_captured_function_call_counts[
+                    (physical_store_path, function_name)
+                ] = call_counts
         for (
             relative,
             function,
@@ -10574,10 +11306,46 @@ def check(
                     "private native owned-file-descriptor captured-default map must be exact",
                 )
             )
+        configured_native_runtime_identity_captures: dict[tuple[str, str, str], str] = {}
+        try:
+            for (
+                path,
+                functions,
+            ) in native_owned_file_descriptor_runtime_identity_captured_defaults.items():
+                relative = path.relative_to(repository).as_posix()
+                for function, parameters in functions.items():
+                    for parameter, binding in parameters.items():
+                        configured_native_runtime_identity_captures[
+                            (relative, function, parameter)
+                        ] = binding
+        except ValueError:
+            configured_native_runtime_identity_captures = {}
+        expected_native_runtime_identity_capture_map = (
+            {
+                (physical_store_path, function, parameter): binding
+                for function, parameters in expected_native_runtime_identity_captures.items()
+                for parameter, binding in parameters.items()
+            }
+            if physical_store_present
+            else {}
+        )
+        if (
+            configured_native_runtime_identity_captures
+            != expected_native_runtime_identity_capture_map
+        ):
+            violations.append(
+                Violation(
+                    config_path,
+                    1,
+                    "private native owner runtime-identity captured-default map must be exact",
+                )
+            )
         expected_native_captured_consumer_modules = {
             "apps/trusted_time_supervisor/post_enrollment_read_probes.py",
             "apps/trusted_time_supervisor/post_enrollment_runtime_state.py",
         }
+        if physical_store_present:
+            expected_native_captured_consumer_modules.add(physical_store_path)
         try:
             configured_native_captured_consumer_modules = {
                 path.relative_to(repository).as_posix(): digest
@@ -10619,6 +11387,10 @@ def check(
                 "_read_boot_id_snapshot",
             },
         }
+        if physical_store_present:
+            expected_native_owner_consumer_functions[physical_store_path] = set(
+                physical_store_native_captures
+            )
         try:
             configured_native_owner_consumer_functions = {
                 path.relative_to(repository).as_posix(): set(functions)
@@ -10647,6 +11419,34 @@ def check(
                     config_path,
                     1,
                     "private native owner-consumer function AST map must be exact",
+                )
+            )
+        expected_retained_owner_assignments = (
+            {
+                physical_store_path: {
+                    "_LifecycleV2PhysicalArtifactStore.__init__": {
+                        "directory_owner": "self._directory_owner",
+                    }
+                }
+            }
+            if physical_store_present
+            else {}
+        )
+        try:
+            configured_retained_owner_assignments = {
+                path.relative_to(repository).as_posix(): functions
+                for path, functions in (
+                    native_owned_file_descriptor_retained_owner_assignments.items()
+                )
+            }
+        except ValueError:
+            configured_retained_owner_assignments = {}
+        if configured_retained_owner_assignments != expected_retained_owner_assignments:
+            violations.append(
+                Violation(
+                    config_path,
+                    1,
+                    "private native retained-owner assignment map must be exact",
                 )
             )
         expected_bounded_process_consumer_paths = {"scripts/verify_trusted_time_images.py"}
@@ -10802,7 +11602,7 @@ def check(
             "a0708b4ce8599da754548a6c2e348f1accee7c8ecaa19c3b7348b45e54805ab8"
         ),
         Path("packages/adapters/trusted_time/_owned_file_descriptor.py"): (
-            "c67feb33d4f02b548c74bcea58a96c0890ab4da6afd38d1d10f8107789a411a7"
+            "cbfed75858e36e0895f2a7e14e7610f5194aeb88a3195481b2c255260b7de65a"
         ),
         Path("packages/adapters/trusted_time/_bounded_process.py"): (
             "738691659c41a7478a71ac7af94e7d43b60a6dafc196b276304b0e64d6794e3a"
@@ -10984,9 +11784,6 @@ def check(
         Path("packages/domain/trusted_time_enrollment_evidence.py"): (
             "0d4191922d91390728e442784aa1291665f007516c82d202a443194857e26c84"
         ),
-        Path("packages/domain/trusted_time_graceful_stop_v2.py"): (
-            "9e53f33c3655803171ae965ef27393234da1989ba93ef5e25bcfbf33b2980344"
-        ),
         Path("packages/persistence/alpaca_paper_account_activity.py"): (
             "9a39473e425ec84fc7d47402733d5cdbd42806f90fc52f4a0eb02554b3c77e27"
         ),
@@ -11051,46 +11848,377 @@ def check(
             )
         )
     expected_trusted_time_v2_isolated_module_paths = {
-        "packages.domain.trusted_time_graceful_stop_v2": Path(
-            "packages/domain/trusted_time_graceful_stop_v2.py"
+        "packages.adapters.trusted_time._lifecycle_v2_artifact_store": Path(
+            "packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"
         ),
-        "packages.persistence.trusted_time_graceful_stop_v2": Path(
-            "packages/persistence/trusted_time_graceful_stop_v2.py"
+        "packages.adapters.trusted_time.graceful_stop_v2_ed25519": Path(
+            "packages/adapters/trusted_time/graceful_stop_v2_ed25519.py"
+        ),
+        "packages.adapters.trusted_time.graceful_stop_v2_reauthentication": Path(
+            "packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"
         ),
         "packages.application.trusted_time_graceful_stop_v2_admission": Path(
             "packages/application/trusted_time_graceful_stop_v2_admission.py"
+        ),
+        "packages.domain.trusted_time_graceful_stop_v2": Path(
+            "packages/domain/trusted_time_graceful_stop_v2.py"
+        ),
+        "packages.domain.trusted_time_graceful_stop_v2_docker": Path(
+            "packages/domain/trusted_time_graceful_stop_v2_docker.py"
+        ),
+        "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics": Path(
+            "packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"
+        ),
+        "packages.domain.trusted_time_graceful_stop_v2_reauthentication": Path(
+            "packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"
+        ),
+        "packages.domain.trusted_time_graceful_stop_v2_recovery": Path(
+            "packages/domain/trusted_time_graceful_stop_v2_recovery.py"
+        ),
+        "packages.domain.trusted_time_graceful_stop_v2_runtime_seal": Path(
+            "packages/domain/trusted_time_graceful_stop_v2_runtime_seal.py"
+        ),
+        "packages.domain.trusted_time_graceful_stop_v2_terminal": Path(
+            "packages/domain/trusted_time_graceful_stop_v2_terminal.py"
+        ),
+        "packages.domain.trusted_time_graceful_stop_v2_transport": Path(
+            "packages/domain/trusted_time_graceful_stop_v2_transport.py"
+        ),
+        "packages.persistence.trusted_time_graceful_stop_v2": Path(
+            "packages/persistence/trusted_time_graceful_stop_v2.py"
         ),
         "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts": Path(
             "scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py"
         ),
     }
-    expected_trusted_time_v2_module_ast_sha256 = {
-        Path("packages/domain/trusted_time_graceful_stop_v2.py"): (
-            "9e53f33c3655803171ae965ef27393234da1989ba93ef5e25bcfbf33b2980344"
+    expected_trusted_time_v2_module_ast_sha256 = dict(
+        _EXACT_TRUSTED_TIME_V2_ISOLATED_MODULE_AST_SHA256
+    )
+    expected_trusted_time_v2_private_source_loader_function_ast_sha256 = {
+        Path("packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"): {
+            "_load_canonical_lifecycle_v2_runtime_seal": (
+                "6c23a4396acd8a4c11499507ea1e36e7f3e69759f5ac58e3ceeef316c2325f9f"
+            )
+        },
+        Path("packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"): {
+            "_install_lifecycle_v2_reauthentication_binding_realms": (
+                "a87ed6add3ae1bb0b711f640752f9cf18ae85f78e1c9ca71efa8976ff819489f"
+            )
+        },
+    }
+    expected_trusted_time_v2_private_source_loader_target_source_sha256 = {
+        Path("packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"): (
+            "3609035c0c4ea910c4bebe6a3ff2c06f7759ef47770553513b0abe622483f54f"
         ),
-        Path("packages/persistence/trusted_time_graceful_stop_v2.py"): (
-            "8ae95ad12303fb60958392aa9cf58c5d4f609473544af51334e51a685a9bac4b"
+        Path("packages/domain/trusted_time_graceful_stop_v2_runtime_seal.py"): (
+            "48c1ff385128b4ac07e55e8a1e1ea42a9bd219241d2141b1fb3d205baffa91c3"
         ),
-        Path("packages/application/trusted_time_graceful_stop_v2_admission.py"): (
-            "50f2b6207fbb0b449e1d3cbcdc40258f74d2fc35ced0cb0a3a9918213019b4b1"
-        ),
-        Path("scripts/trusted_time_post_enrollment_graceful_stop_decision_artifacts.py"): (
-            "5625b64548122370b3822cc796cc88cbcfb192dcc92fa6ae99496222c66c17ee"
+        Path("scripts/trusted_time_post_enrollment_clean_stop_terminal_reauthentication.py"): (
+            "2748c642a2bb6f0f5093166dfd161b45d982a7f5095b662dcd58100c1d9107e7"
         ),
     }
+    def reviewed_v2_bindings(module: str, *symbols: str) -> frozenset[str]:
+        return frozenset(f"{module}:{symbol}" for symbol in symbols)
+
     trusted_time_v2_domain_module = "packages.domain.trusted_time_graceful_stop_v2"
+    trusted_time_v2_docker_module = (
+        "packages.domain.trusted_time_graceful_stop_v2_docker"
+    )
+    trusted_time_v2_lifecycle_module = (
+        "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics"
+    )
+    trusted_time_v2_reauthentication_module = (
+        "packages.domain.trusted_time_graceful_stop_v2_reauthentication"
+    )
+    trusted_time_v2_recovery_module = (
+        "packages.domain.trusted_time_graceful_stop_v2_recovery"
+    )
+    trusted_time_v2_runtime_seal_module = (
+        "packages.domain.trusted_time_graceful_stop_v2_runtime_seal"
+    )
+    trusted_time_v2_terminal_module = (
+        "packages.domain.trusted_time_graceful_stop_v2_terminal"
+    )
+    trusted_time_v2_transport_module = (
+        "packages.domain.trusted_time_graceful_stop_v2_transport"
+    )
+    trusted_time_v2_persistence_module = (
+        "packages.persistence.trusted_time_graceful_stop_v2"
+    )
     trusted_time_v2_bridge_module = (
         "scripts.trusted_time_post_enrollment_graceful_stop_decision_artifacts"
     )
     expected_trusted_time_v2_allowed_imports = {
-        Path("packages/persistence/trusted_time_graceful_stop_v2.py"): frozenset(
-            f"{trusted_time_v2_domain_module}:{symbol}"
-            for symbol in {
+        Path("packages/adapters/trusted_time/_lifecycle_v2_artifact_store.py"): (
+            reviewed_v2_bindings(
+                trusted_time_v2_domain_module,
                 "LIFECYCLE_ROOT_FILE_NAME",
                 "LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_persistence_module,
+                "LifecycleV2ArtifactAlreadyExists",
+                "LifecycleV2ArtifactInventorySnapshot",
+                "LifecycleV2ArtifactPublicationReceipt",
+                "LifecycleV2ArtifactPublicationUncertain",
+                "LifecycleV2ArtifactReadback",
+                "LifecycleV2ArtifactStoreIdentity",
+            )
+        ),
+        Path("packages/adapters/trusted_time/graceful_stop_v2_ed25519.py"): (
+            reviewed_v2_bindings(
+                trusted_time_v2_domain_module,
+                "LIFECYCLE_V2_WIRE_MAXIMUM_BYTES",
+                "LifecycleV2CleanStopRequest",
+                "LifecycleV2CleanStopRequestBasis",
+                "LifecycleV2ProgressRecord",
+                "LifecycleV2Root",
+                "LifecycleV2Stage",
+                "LifecycleV2Transcript",
+                "NORMAL_STAGE_BY_ORDINAL",
+                "TrustedTimeGracefulStopV2Rejected",
+                "UnverifiedLifecycleV2TransportEnvelope",
+                "canonical_v2_json_bytes",
+                "decode_lifecycle_v2_progress_record",
+                "decode_lifecycle_v2_root",
+                "decode_lifecycle_v2_transcript",
+                "decode_unverified_lifecycle_v2_transport_envelope",
+                "lifecycle_v2_dispatch_prefix_sha256",
+                "lifecycle_v2_wire_file_name",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_recovery_module,
+                "LifecycleV2AuthenticatedRecoveryIntent",
+                "LifecycleV2RecoveryClassificationEnvelope",
+                "_consume_authenticated_lifecycle_v2_recovery_classification_envelope",
+                "_install_authenticated_lifecycle_v2_recovery_adapter_endpoint",
+                "decode_lifecycle_v2_recovery_classification_envelope",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_terminal_module,
+                "LifecycleV2AuthenticatedTerminalEnvelopeProof",
+                "LifecycleV2TerminalWireEvidence",
+                "_install_authenticated_terminal_envelope_adapter_endpoint",
+                "_mint_authenticated_lifecycle_v2_terminal_envelope_proof",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_transport_module,
+                "LifecycleV2Handshake",
+                "LifecycleV2TransportAuthorityManifest",
+                "LifecycleV2TransportAuthorityResolution",
+                "LifecycleV2TransportAuthoritySelection",
+                "bind_lifecycle_v2_handshake",
+                "decode_lifecycle_v2_host_channel_confirmation",
+                "decode_lifecycle_v2_host_hello",
+                "decode_lifecycle_v2_supervisor_hello",
+                "decode_lifecycle_v2_transport_authority_manifest",
+                "decode_lifecycle_v2_transport_authority_selection",
+                "lifecycle_v2_recovery_manifest_for_root",
+                "resolve_lifecycle_v2_transport_authority",
+            )
+        ),
+        Path("packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"): (
+            reviewed_v2_bindings(
+                trusted_time_v2_domain_module,
+                "TrustedTimeGracefulStopV2Rejected",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_lifecycle_module,
+                "LifecycleV2NormalProgressLineage",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_reauthentication_module,
+                "LifecycleV2ADR0109ObservationPrimitives",
+                "LifecycleV2PostTeardownBinding",
+                "LifecycleV2PreEffectBinding",
+                "_LifecycleV2ADR0109ObservationCandidate",
+                "_LifecycleV2PostTeardownBindingIssuer",
+                "_LifecycleV2PreEffectBindingIssuer",
+                "_LifecycleV2ReauthenticationBindingRealm",
+                "_claim_lifecycle_v2_production_reauthentication_binding_realm",
+            )
+        ),
+        Path("packages/application/trusted_time_graceful_stop_v2_admission.py"): (
+            reviewed_v2_bindings(
+                trusted_time_v2_bridge_module,
+                "LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt",
+                "_ConsumedLoadedDecisionArtifactReceiptV2Snapshot",
+                "_LIFECYCLE_V2_BRIDGE_CAPABILITY",
+                "_consume_loaded_decision_receipt_for_v2",
+                "_reject_loaded_decision_receipt_for_v2_admission_identity",
+                "_require_consumed_loaded_decision_artifact_receipt_v2_snapshot",
+            )
+        ),
+        Path("packages/domain/trusted_time_graceful_stop_v2.py"): reviewed_v2_bindings(
+            trusted_time_v2_runtime_seal_module,
+            "LifecycleV2RuntimeSealRegistry",
+        ),
+        Path("packages/domain/trusted_time_graceful_stop_v2_docker.py"): (
+            reviewed_v2_bindings(
+                trusted_time_v2_domain_module,
+                "FrozenJsonObject",
+                "MAXIMUM_SIGNED_INTEGER",
+                "TrustedTimeGracefulStopV2Rejected",
+                "canonical_v2_json_bytes",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_runtime_seal_module,
+                "LifecycleV2RuntimeSealRegistry",
+                "RuntimeSealMetadata",
+            )
+        ),
+        Path("packages/domain/trusted_time_graceful_stop_v2_lifecycle_semantics.py"): (
+            reviewed_v2_bindings(
+                trusted_time_v2_domain_module,
+                "FrozenJsonObject",
+                "LIFECYCLE_V2_OPERATION_BUDGET_NS",
                 "LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION",
                 "LIFECYCLE_V2_ROOT_CONTRACT_VERSION",
-                "NORMAL_STAGE_BY_ORDINAL",
+                "LifecycleV2ProgressRecord",
+                "LifecycleV2Root",
+                "LifecycleV2Stage",
+                "LifecycleV2Transcript",
+                "MAXIMUM_SIGNED_INTEGER",
+                "TrustedTimeGracefulStopV2Rejected",
+                "_capture_lifecycle_v2_reauthentication_binding_evidence",
+                "canonical_v2_json_bytes",
+                "decode_canonical_v2_json_object",
+                "decode_lifecycle_v2_progress_record",
+                "decode_lifecycle_v2_root",
+                "decode_lifecycle_v2_transcript",
+                "normal_lifecycle_v2_stage_for_ordinal",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_docker_module,
+                "COMMAND_SOCKET_VOLUME",
+                "STATE_VOLUME",
+                "DockerAdmissionCapture",
+                "DockerAdmissionRootedTracePrefix",
+                "DockerMutationResultSemantic",
+                "DockerOrdinalEvidence",
+                "DockerPlanIdentity",
+                "DockerRequestSemantic",
+                "DockerVolumePreservationResult",
+                "docker_call_spec",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_runtime_seal_module,
+                "LifecycleV2RuntimeSealRegistry",
+                "RuntimeSealMetadata",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_terminal_module,
+                "LISTENER_PATH",
+                "SUPERVISOR_RAW_KEY_PATH",
+                "LifecycleV2CleanStopResult",
+                "LifecycleV2SupervisorCleanupCommitment",
+                "LifecycleV2TerminalWireEvidence",
+                "decode_lifecycle_v2_clean_stop_result",
+            )
+        ),
+        Path("packages/domain/trusted_time_graceful_stop_v2_reauthentication.py"): (
+            reviewed_v2_bindings(
+                trusted_time_v2_domain_module,
+                "FrozenJsonObject",
+                "LIFECYCLE_V2_SERVICE",
+                "LifecycleV2CleanStopRequest",
+                "LifecycleV2ProgressRecord",
+                "LifecycleV2Root",
+                "LifecycleV2Stage",
+                "LifecycleV2Transcript",
+                "MAXIMUM_SIGNED_INTEGER",
+                "TrustedTimeGracefulStopV2Rejected",
+                "canonical_v2_json_bytes",
+                "decode_canonical_v2_json_object",
+                "decode_lifecycle_v2_clean_stop_request",
+                "decode_lifecycle_v2_progress_record",
+                "decode_lifecycle_v2_root",
+                "decode_lifecycle_v2_transcript",
+                "normal_lifecycle_v2_stage_for_ordinal",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_lifecycle_module,
+                "LIFECYCLE_V2_CLEANUP_SERVICE",
+                "LifecycleV2AuthenticatedReauthenticationBinding",
+                "LifecycleV2NormalProgressLineage",
+                "LifecycleV2ReauthenticationIntent",
+                "_capture_lifecycle_v2_authenticated_reauthentication_binding_from_realm",
+                "_install_lifecycle_v2_reauthentication_semantic_binding_issuance_consumer",
+                "require_exact_lifecycle_v2_normal_lineage_through_ordinal_19",
+                "require_exact_lifecycle_v2_normal_lineage_through_ordinal_5",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_terminal_module,
+                "LifecycleV2CleanStopResult",
+            )
+        ),
+        Path("packages/domain/trusted_time_graceful_stop_v2_recovery.py"): (
+            reviewed_v2_bindings(
+                trusted_time_v2_domain_module,
+                "FrozenJsonObject",
+                "LIFECYCLE_V2_MAXIMUM_ENTRIES",
+                "LIFECYCLE_V2_OPERATION_BUDGET_NS",
+                "LIFECYCLE_V2_SERVICE",
+                "LifecycleV2ProgressRecord",
+                "LifecycleV2Root",
+                "LifecycleV2Stage",
+                "LifecycleV2Transcript",
+                "MAXIMUM_SIGNED_INTEGER",
+                "TrustedTimeGracefulStopV2Rejected",
+                "canonical_v2_json_bytes",
+                "decode_canonical_v2_json_object",
+                "decode_lifecycle_v2_progress_record",
+                "decode_lifecycle_v2_root",
+                "decode_lifecycle_v2_transcript",
+                "normal_lifecycle_v2_stage_for_ordinal",
+            )
+        ),
+        Path("packages/domain/trusted_time_graceful_stop_v2_terminal.py"): (
+            reviewed_v2_bindings(
+                trusted_time_v2_domain_module,
+                "FrozenJsonObject",
+                "LIFECYCLE_V2_CLEAN_STOP_SERVICE",
+                "LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION",
+                "LIFECYCLE_V2_TRANSPORT_SERVICE",
+                "LIFECYCLE_V2_WIRE_MAXIMUM_BYTES",
+                "LifecycleV2CleanStopRequest",
+                "LifecycleV2Root",
+                "MAXIMUM_SIGNED_INTEGER",
+                "TrustedTimeGracefulStopV2Rejected",
+                "UnverifiedLifecycleV2TransportEnvelope",
+                "canonical_v2_json_bytes",
+                "decode_canonical_v2_json_object",
+                "decode_lifecycle_v2_clean_stop_request",
+                "decode_lifecycle_v2_root",
+                "decode_unverified_lifecycle_v2_transport_envelope",
+                "lifecycle_v2_wire_file_name",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_runtime_seal_module,
+                "LifecycleV2RuntimeSealRegistry",
+                "RuntimeSealMetadata",
+            )
+        ),
+        Path("packages/domain/trusted_time_graceful_stop_v2_transport.py"): (
+            reviewed_v2_bindings(
+                trusted_time_v2_domain_module,
+                "FrozenJsonObject",
+                "TrustedTimeGracefulStopV2Rejected",
+                "canonical_v2_json_bytes",
+                "decode_canonical_v2_json_object",
+            )
+        ),
+        Path("packages/persistence/trusted_time_graceful_stop_v2.py"): (
+            reviewed_v2_bindings(
+                trusted_time_v2_domain_module,
+                "LIFECYCLE_ROOT_FILE_NAME",
+                "LIFECYCLE_V2_COMMIT_BUDGET_NS",
+                "LIFECYCLE_V2_OUTCOME_COMMIT_CONTRACT_VERSION",
+                "LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME",
+                "LIFECYCLE_V2_OUTCOME_CONTRACT_VERSION",
+                "LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION",
+                "LIFECYCLE_V2_ROOT_CONTRACT_VERSION",
+                "LIFECYCLE_V2_SERVICE",
                 "LifecycleV2CleanStopRequestBasis",
                 "LifecycleV2Outcome",
                 "LifecycleV2OutcomeCommit",
@@ -11099,6 +12227,7 @@ def check(
                 "LifecycleV2Stage",
                 "LifecycleV2Transcript",
                 "LifecycleV2TranscriptEntry",
+                "MAXIMUM_SIGNED_INTEGER",
                 "TrustedTimeGracefulStopV2Rejected",
                 "UnverifiedLifecycleV2TransportEnvelope",
                 "_FakeAuthenticatedLifecycleV2TransportEnvelope",
@@ -11110,61 +12239,207 @@ def check(
                 "decode_lifecycle_v2_root",
                 "decode_lifecycle_v2_transcript",
                 "decode_unverified_lifecycle_v2_transport_envelope",
+                "lifecycle_v2_dispatch_prefix_sha256",
                 "lifecycle_v2_progress_file_name",
                 "lifecycle_v2_wire_file_name",
-            }
-        ),
-        Path("packages/application/trusted_time_graceful_stop_v2_admission.py"): frozenset(
-            f"{trusted_time_v2_bridge_module}:{symbol}"
-            for symbol in {
-                "LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt",
-                "_ConsumedLoadedDecisionArtifactReceiptV2Snapshot",
-                "_LIFECYCLE_V2_BRIDGE_CAPABILITY",
-                "_consume_loaded_decision_receipt_for_v2",
-                "_reject_loaded_decision_receipt_for_v2_admission_identity",
-                "_require_consumed_loaded_decision_artifact_receipt_v2_snapshot",
-            }
+                "normal_lifecycle_v2_stage_for_ordinal",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_lifecycle_module,
+                "LifecycleV2ConfirmedSuccessLineageSnapshot",
+                "LifecycleV2NormalProgressLineage",
+                "TrustedTimeLifecycleV2SemanticsRejected",
+                "consume_exact_lifecycle_v2_confirmed_success_lineage",
+                "consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository",
+            )
+            | reviewed_v2_bindings(
+                trusted_time_v2_recovery_module,
+                "LifecycleV2AuthenticatedRecoveryIntent",
+                "consume_authenticated_lifecycle_v2_recovery_intent",
+                "require_authenticated_lifecycle_v2_recovery_intent",
+            )
         ),
         Path("scripts/trusted_time_post_enrollment_graceful_stop_supervisor_bridge.py"): (
-            frozenset(
-                f"{trusted_time_v2_bridge_module}:{symbol}"
-                for symbol in {
-                    "ARTIFACT_RECEIPT_CONTRACT_VERSION",
-                    "ARTIFACT_WORKFLOW_SERVICE",
-                    "DECISION_CANDIDATE_PREPARED_STATUS",
-                    "LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt",
-                    "POST_ENROLLMENT_GRACEFUL_STOP_DECISION_ARTIFACT_RECEIPT_FIELDS",
-                    "_ConsumedLoadedDecisionArtifactReceiptSnapshot",
-                    "_authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge",
-                    "_require_consumed_loaded_decision_artifact_receipt_snapshot",
-                }
+            reviewed_v2_bindings(
+                trusted_time_v2_bridge_module,
+                "ARTIFACT_RECEIPT_CONTRACT_VERSION",
+                "ARTIFACT_WORKFLOW_SERVICE",
+                "DECISION_CANDIDATE_PREPARED_STATUS",
+                "LoadedTrustedTimePostEnrollmentGracefulStopDecisionArtifactReceipt",
+                "POST_ENROLLMENT_GRACEFUL_STOP_DECISION_ARTIFACT_RECEIPT_FIELDS",
+                "_ConsumedLoadedDecisionArtifactReceiptSnapshot",
+                "_authenticate_and_consume_loaded_post_enrollment_graceful_stop_decision_artifact_receipt_for_supervisor_bridge",
+                "_require_consumed_loaded_decision_artifact_receipt_snapshot",
             )
         ),
     }
     expected_trusted_time_v2_reserved_symbols = frozenset(
         {
             "_ADMISSION_IDENTITY_CAPABILITY",
+            "_ADMISSION_ROOTED_TRACE_PREFIX_CAPABILITY",
+            "_AUTHENTICATED_VALUE_CAPABILITY",
+            "_AuthenticatedTerminalProofIssuanceSnapshot",
+            "_BindingRegistrySnapshot",
+            "_CALL_SPEC_CAPABILITY",
             "_ConsumedLoadedDecisionArtifactReceiptV2Snapshot",
             "_CONSUMED_LOADED_RECEIPT_V2_SNAPSHOT_CAPABILITY",
+            "_DOCKER_RESULT_RULE_BY_STAGE",
+            "_DOCKER_RESULT_SEALS",
+            "_DockerResultRule",
+            "_FAKE_OBSERVATION_CAPABILITY",
+            "_FAKE_REAUTHENTICATION_BINDING_PROVENANCE",
+            "_FAKE_RECOVERY_INTENT_CAPABILITY",
+            "_FAKE_TERMINAL_ENVELOPE_PROOF_CAPABILITY",
             "_consume_historical_receipt_for_injected_lifecycle_v2_admission",
             "_consume_loaded_decision_receipt_for_v2",
             "_FAKE_TRANSPORT_AUTHENTICATION_CAPABILITY",
+            "_FRAME_RULES",
             "_FakeAuthenticatedLifecycleV2TransportEnvelope",
+            "_FrameRule",
+            "_LIFECYCLE_VALUE_SEALS",
+            "_LIFECYCLE_V2_PRODUCTION_REALM_BOOTSTRAP_PERMIT",
             "_LifecycleV2Repository",
             "_LifecycleV2AdmissionIdentity",
+            "_LifecycleV2ADR0109ObservationCandidate",
+            "_LifecycleV2PhysicalArtifactStore",
+            "_LifecycleV2PostTeardownBindingIssuer",
+            "_LifecycleV2PreEffectBindingIssuer",
+            "_LifecycleV2ReauthenticationBindingRealm",
+            "_LifecycleV2ReauthenticationSemanticBindingIssuance",
+            "_LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot",
             "_LIFECYCLE_V2_BRIDGE_CAPABILITY",
-            "_open_injected_lifecycle_v2_repository",
-            "_reject_loaded_decision_receipt_for_v2_admission_identity",
-            "_require_consumed_loaded_decision_artifact_receipt_v2_snapshot",
-            "_require_fake_authenticated_lifecycle_v2_transport_envelope",
-            "_retain_progress",
+            "_LINEAGE_CAPABILITY",
+            "_MUTATION_RESULT_RULES",
+            "_MutationResultRule",
+            "_PRODUCTION_ADAPTER_AUTHENTICATOR",
+            "_PRODUCTION_ADAPTER_MODULE",
+            "_PRODUCTION_BINDING_REALM",
+            "_PRODUCTION_OBSERVATION_CAPABILITY",
+            "_PRODUCTION_REAUTHENTICATION_BINDING_PROVENANCE",
+            "_PRODUCTION_RECOVERY_INTENT_CAPABILITY",
+            "_PRODUCTION_TERMINAL_ENVELOPE_PROOF_CAPABILITY",
+            "_REAUTHENTICATION_BINDING_PROVENANCES",
+            "_RESPONSE_CAPTURE_CAPABILITY",
+            "_RUNTIME_SEAL_BOOTSTRAP_CLAIM",
+            "_RUNTIME_SEAL_FAILED",
+            "_RUNTIME_SEAL_LOADING",
+            "_RUNTIME_SEAL_MODULE_NAME",
+            "_RUNTIME_SEAL_SOURCE_NAME",
+            "_RUNTIME_SEAL_SOURCE_SHA256",
+            "_TERMINAL_WIRE_EVIDENCE_CAPABILITY",
+            "_TERMINAL_WIRE_EVIDENCE_SEALS",
+            "_TYPED_STAGE_CAPABILITY",
             "_authenticate_lifecycle_v2_transport_envelope_for_fake",
+            "_authenticate_lifecycle_v2_transport_envelope_for_tests",
+            "_bind_lifecycle_v2_post_teardown_observation_once",
+            "_bind_lifecycle_v2_pre_effect_observation_once",
+            "_bind_lifecycle_v2_post_teardown_adr0109_observation_once",
+            "_bind_lifecycle_v2_pre_effect_adr0109_observation_once",
+            "_bootstrap_lifecycle_v2_production_reauthentication_adapter",
+            "_authenticated_recovery_classification_issuance_registry",
+            "_build_authenticated_terminal_proof_endpoints",
+            "_build_binding_registries",
+            "_build_docker_result_rule_lookup",
+            "_build_exact_adr0109_observation_consumer",
+            "_build_fake_lifecycle_v2_reauthentication_binding_realm",
+            "_build_fake_lifecycle_v2_transport_authentication_endpoints",
+            "_build_frame_rule_lookup",
+            "_open_injected_lifecycle_v2_repository",
+            "_build_injected_fake_lifecycle_v2_cleanup_observer",
+            "_build_injected_fake_lifecycle_v2_recovery_intent",
+            "_reject_loaded_decision_receipt_for_v2_admission_identity",
+            "_build_injected_lifecycle_v2_repository_factory",
+            "_build_mutation_result_rule_lookup",
+            "_build_named_lifecycle_v2_retention_endpoints",
+            "_build_normal_stage_lookup",
+            "_build_observation_candidate_validator",
+            "_build_unregistered_authenticated_reauthentication_binding",
+            "_capture_lifecycle_v2_authenticated_reauthentication_binding_from_realm",
+            "_capture_lifecycle_v2_reauthentication_binding_evidence",
+            "_claim_lifecycle_v2_production_reauthentication_binding_realm",
+            "_claim_lifecycle_v2_runtime_seal_bootstrap",
+            "_consume_authenticated_lifecycle_v2_recovery_classification_envelope",
+            "_consume_exact_adr0109_observation",
+            "_consume_exact_lifecycle_v2_reauthentication_semantic_binding_issuance_once",
+            "_consume_terminal_cleanup_final_credential_absence_authorization",
+            "_consume_terminal_cleanup_final_recovery_absence_authorization",
+            "_consume_terminal_cleanup_final_socket_absence_authorization",
+            "_consume_terminal_cleanup_native_owner_authorization",
+            "_consume_terminal_cleanup_unmount_authorization",
+            "_derive_authenticated_lifecycle_v2_recovery_intent",
+            "_finalize_exact_terminal_cleanup_authorization_runtime",
+            "_finalize_terminal_cleanup_authorization",
+            "_frame_rule_for_type",
+            "_initialize_issuer",
+            "_install_authenticated_lifecycle_v2_recovery_adapter_endpoint",
+            "_install_authenticated_terminal_envelope_adapter_endpoint",
+            "_install_docker_mutation_result_evidence_validator",
+            "_install_docker_result_runtime_seals",
+            "_install_lifecycle_v2_production_reauthentication_endpoints",
+            "_install_lifecycle_v2_reauthentication_binding_realms",
+            "_install_lifecycle_v2_reauthentication_semantic_binding_issuance_consumer",
+            "_install_lifecycle_v2_runtime_seal_bootstrap_claim",
+            "_install_lifecycle_v2_runtime_seal_registry",
+            "_install_lifecycle_v2_runtime_seals",
+            "_install_prefix_stage_validator",
+            "_install_stage_transition_validator",
+            "_install_terminal_wire_runtime_seals",
+            "_install_transport_envelope_capture",
+            "_issue_binding",
+            "_lifecycle_v2_recovery_intent_issuance_registry",
+            "_load_canonical_lifecycle_v2_runtime_seal",
+            "_materialize_validated_stage",
+            "_mint_fake_authenticated_lifecycle_v2_recovery_intent",
+            "_mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof",
+            "_mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests",
+            "_mint_fake_lifecycle_v2_reauthentication_binding",
+            "_mint_production_authenticated_adr0109_observation",
+            "_mint_fake_authenticated_adr0109_observation",
+            "_mint_terminal_cleanup_authorization",
+            "_mint_authenticated_lifecycle_v2_terminal_envelope_proof",
+            "_mutation_result_rule_for_kind",
+            "_open_injected_lifecycle_v2_physical_artifact_store",
+            "_prepare_lifecycle_v2_post_teardown_adr0109_binding_issuer",
+            "_prepare_lifecycle_v2_post_teardown_binding_issuer",
+            "_prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer",
+            "_prepare_lifecycle_v2_pre_effect_binding_issuer",
+            "_register_authenticated_recovery_classification_issuance",
+            "_register_lifecycle_v2_recovery_intent_issuance",
+            "_require_consumed_loaded_decision_artifact_receipt_v2_snapshot",
+            "_require_exact_cleanup_observer_runtime",
+            "_require_exact_compound_value",
+            "_require_exact_normal_progress_lineage_runtime",
+            "_require_exact_terminal_wire_evidence",
+            "_require_fake_authenticated_lifecycle_v2_transport_envelope",
+            "_require_live_binding",
+            "_require_observation_candidate",
+            "_require_prefix_stage",
+            "_require_terminal_cleanup_authorization",
+            "_retain_lifecycle_v2_authenticated_terminal_wire",
+            "_retain_lifecycle_v2_effect_intent",
+            "_retain_lifecycle_v2_effect_result",
+            "_retain_lifecycle_v2_reauthentication_intent",
+            "_retain_lifecycle_v2_reauthentication_result",
+            "_retain_lifecycle_v2_request_intent",
+            "_retain_lifecycle_v2_terminal_cleanup_intent",
+            "_retain_lifecycle_v2_terminal_cleanup_result",
+            "_retain_lifecycle_v2_transport_cleanup_commitment",
+            "_retain_lifecycle_v2_transport_quiescence",
+            "_retain_progress",
+            "_seal_terminal_envelope_proof",
             "_build_injected_lifecycle_v2_admission_identity",
+            "authenticate_lifecycle_v2_handshake",
+            "authenticate_lifecycle_v2_transport_frame",
+            "LifecycleV2TransportFrameExpectation",
         }
     )
     if exact_repository_contract_required and (
         trusted_time_v2_isolated_module_paths != expected_trusted_time_v2_isolated_module_paths
         or trusted_time_v2_module_ast_sha256 != expected_trusted_time_v2_module_ast_sha256
+        or trusted_time_v2_private_source_loader_function_ast_sha256
+        != expected_trusted_time_v2_private_source_loader_function_ast_sha256
+        or trusted_time_v2_private_source_loader_target_source_sha256
+        != expected_trusted_time_v2_private_source_loader_target_source_sha256
         or trusted_time_v2_allowed_imports != expected_trusted_time_v2_allowed_imports
         or trusted_time_v2_reserved_symbols != expected_trusted_time_v2_reserved_symbols
     ):
@@ -11173,6 +12448,36 @@ def check(
                 config_path,
                 1,
                 "trusted-time lifecycle-v2 milestone isolation policy must be exact",
+            )
+        )
+    if trusted_time_v2_policy_keys_present == trusted_time_v2_policy_keys:
+        violations.extend(
+            _trusted_time_v2_private_source_loader_violations(
+                repository,
+                function_ast_sha256=(
+                    trusted_time_v2_private_source_loader_function_ast_sha256
+                ),
+                target_source_sha256=(
+                    trusted_time_v2_private_source_loader_target_source_sha256
+                ),
+            )
+        )
+    expected_clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256 = {
+        Path("packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"): (
+            "11d1057c6b692f6ce5981d7362d3fedb7ca5c79a73ad8ddb8e80234d7bb331ca"
+        )
+    }
+    if exact_repository_contract_required and (
+        clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256
+        != (
+            expected_clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256
+        )
+    ):
+        violations.append(
+            Violation(
+                config_path,
+                1,
+                "clean-stop terminal reauthentication private consumer policy must be exact",
             )
         )
     expected_phase4an_isolated_module_paths = {
@@ -11463,6 +12768,17 @@ def check(
                 "reviewed consumers",
             )
         )
+    if not frozenset(native_owned_file_descriptor_runtime_identity_captured_defaults).issubset(
+        frozenset(native_owned_file_descriptor_captured_defaults)
+    ):
+        violations.append(
+            Violation(
+                config_path,
+                1,
+                "private native runtime-identity captured-default config must name native "
+                "captured consumers",
+            )
+        )
     if frozenset(native_owned_file_descriptor_captured_consumer_module_ast_sha256) != frozenset(
         native_owned_file_descriptor_captured_defaults
     ):
@@ -11482,6 +12798,17 @@ def check(
                 config_path,
                 1,
                 "private native owner-consumer function AST config must name captured consumers",
+            )
+        )
+    if not frozenset(native_owned_file_descriptor_retained_owner_assignments).issubset(
+        frozenset(native_owned_file_descriptor_owner_consumer_function_ast_sha256)
+    ):
+        violations.append(
+            Violation(
+                config_path,
+                1,
+                "private native retained-owner assignment config must name AST-pinned owner "
+                "consumers",
             )
         )
     if not frozenset(native_bounded_process_allowed_imports).issubset(native_capability_files):
@@ -11633,13 +12960,12 @@ def check(
                     "native captured-default consumer must preserve its exact module AST",
                 )
             )
-        top_level_functions = {
-            node.name: node
-            for node in getattr(tree, "body", ())
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        }
+        qualified_functions = _direct_qualified_function_definitions(tree)
         for function_name, expected_digest in expected_owner_consumer_digests.items():
-            owner_function_node = top_level_functions.get(function_name)
+            owner_function_nodes = qualified_functions.get(function_name, [])
+            owner_function_node = (
+                owner_function_nodes[0] if len(owner_function_nodes) == 1 else None
+            )
             if (
                 owner_function_node is None
                 or _canonical_ast_sha256(owner_function_node) != expected_digest
@@ -11668,11 +12994,20 @@ def check(
                     relative_path=relative_path,
                     module=native_owned_file_descriptor_wrapper_module,
                     captured_defaults=native_owned_file_descriptor_captured_defaults.get(path, {}),
+                    captured_runtime_defaults=(
+                        native_owned_file_descriptor_runtime_identity_captured_defaults.get(
+                            path, {}
+                        )
+                    ),
                     captured_call_counts=(
                         native_owned_file_descriptor_captured_call_counts.get(path, {})
                     ),
                     captured_owner_consumers=(
                         native_owned_file_descriptor_captured_owner_consumers.get(path, {})
+                    ),
+                    owner_local_functions=frozenset(expected_owner_consumer_digests),
+                    retained_owner_assignments=(
+                        native_owned_file_descriptor_retained_owner_assignments.get(path, {})
                     ),
                 )
             )
@@ -12252,6 +13587,16 @@ def check(
             resolved_path,
             clean_stop_terminal_reauthentication_roots,
         )
+        clean_stop_terminal_reauthentication_private_consumer_digest = (
+            clean_stop_terminal_reauthentication_allowed_private_consumer_ast_sha256.get(
+                relative_path
+            )
+        )
+        is_clean_stop_terminal_reauthentication_allowed_private_consumer = (
+            clean_stop_terminal_reauthentication_private_consumer_digest is not None
+            and _canonical_ast_sha256(tree)
+            == clean_stop_terminal_reauthentication_private_consumer_digest
+        )
         if is_clean_stop_terminal_reauthentication_root:
             violations.extend(
                 _exact_project_import_violations(
@@ -12532,6 +13877,7 @@ def check(
             clean_stop_terminal_reauthentication_module
             and not is_clean_stop_terminal_reauthentication_root
             and not is_graceful_stop_supervisor_bridge_root
+            and not is_clean_stop_terminal_reauthentication_allowed_private_consumer
             and _is_below(
                 resolved_path,
                 clean_stop_terminal_reauthentication_private_reference_roots,
@@ -12688,9 +14034,12 @@ def check(
                     ),
                 )
             )
-        if not _is_below(
-            resolved_path,
-            graceful_stop_supervisor_bridge_dependency_private_owner_roots,
+        if (
+            not is_clean_stop_terminal_reauthentication_allowed_private_consumer
+            and not _is_below(
+                resolved_path,
+                graceful_stop_supervisor_bridge_dependency_private_owner_roots,
+            )
         ):
             violations.extend(
                 _forbidden_seam_symbol_violations(

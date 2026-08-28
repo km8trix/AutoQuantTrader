@@ -5,6 +5,7 @@ import os
 import stat
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -56,6 +57,18 @@ def _write_owner_only(path: Path, payload: bytes) -> None:
     path.chmod(0o600)
 
 
+def _patch_method_capture(
+    monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
+    parameter: str,
+    replacement: object,
+) -> None:
+    store_type = cast(Any, physical)._LifecycleV2PhysicalArtifactStore
+    defaults = cast(dict[str, object], getattr(store_type, method_name).__kwdefaults__)
+    assert parameter in defaults
+    monkeypatch.setitem(defaults, parameter, replacement)
+
+
 def test_physical_store_publishes_root_and_immutable_artifact_with_exact_identity(
     tmp_path: Path,
 ) -> None:
@@ -101,6 +114,65 @@ def test_physical_store_publishes_root_and_immutable_artifact_with_exact_identit
             assert identity.st_nlink == 1
             assert identity.st_uid == directory_identity.st_uid
             assert identity.st_gid == directory_identity.st_gid
+    finally:
+        store.close()
+
+
+def test_physical_store_uses_definition_time_native_and_runtime_bindings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact_directory = _artifact_directory(tmp_path)
+
+    def replaced_global(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("a replaced module-global authority was reached")
+
+    for name in (
+        "_create_child_regular_exclusive",
+        "_fchmod_0600",
+        "_finalize_read_child_noreplace",
+        "_fstat",
+        "_fsync",
+        "_list_snapshot",
+        "_open_child_directory",
+        "_open_child_regular",
+        "_open_root_directory",
+        "_read_snapshot",
+        "_rename_child_noreplace",
+        "_statat",
+        "_write_all",
+    ):
+        monkeypatch.setattr(physical, name, replaced_global)
+    monkeypatch.setattr(physical, "os", SimpleNamespace(getpid=replaced_global))
+    monkeypatch.setattr(
+        physical,
+        "threading",
+        SimpleNamespace(current_thread=replaced_global),
+    )
+
+    store = _store(artifact_directory)
+    root_bytes = b'{"root":"captured"}\n'
+    artifact_bytes = b'{"record":"captured"}\n'
+    marker_bytes = b'{"marker":"captured"}\n'
+    _write_owner_only(artifact_directory / _COMMIT_STAGING, marker_bytes)
+    try:
+        store.create_root_exclusive(LIFECYCLE_ROOT_FILE_NAME, root_bytes)
+        store.publish_immutable(
+            staging_name=_STAGING,
+            final_name=_FINAL,
+            encoded=artifact_bytes,
+        )
+        store.finalize_preallocated_immutable(
+            staging_name=_COMMIT_STAGING,
+            final_name=LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+            encoded=marker_bytes,
+        )
+        assert store.inventory().names == (
+            LIFECYCLE_ROOT_FILE_NAME,
+            LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
+            _FINAL,
+        )
+        assert store.read_stable(_FINAL).encoded == artifact_bytes
     finally:
         store.close()
     assert store.closed is True
@@ -222,10 +294,11 @@ def test_every_physical_root_publication_fault_is_ambiguous_and_closes_all_owner
             return b"drift" + payload, before, after
         return result
 
-    monkeypatch.setattr(physical, "_create_child_regular_exclusive", create)
-    monkeypatch.setattr(physical, "_write_all", write)
-    monkeypatch.setattr(physical, "_fsync", fsync)
-    monkeypatch.setattr(physical, "_read_snapshot", read)
+    _patch_method_capture(monkeypatch, "create_root_exclusive", "_create_exact", create)
+    _patch_method_capture(monkeypatch, "create_root_exclusive", "_write_exact", write)
+    _patch_method_capture(monkeypatch, "create_root_exclusive", "_fsync_exact", fsync)
+    _patch_method_capture(monkeypatch, "create_root_exclusive", "_read_exact", read)
+    _patch_method_capture(monkeypatch, "_read_existing", "_read_exact", read)
 
     with pytest.raises(LifecycleV2ArtifactPublicationUncertain):
         store.create_root_exclusive(LIFECYCLE_ROOT_FILE_NAME, b'{"root":"v2"}\n')
@@ -298,11 +371,12 @@ def test_every_physical_publication_fault_is_ambiguous_and_closes_all_owners(
             return b"drift" + payload, before, after
         return result
 
-    monkeypatch.setattr(physical, "_create_child_regular_exclusive", create)
-    monkeypatch.setattr(physical, "_write_all", write)
-    monkeypatch.setattr(physical, "_fsync", fsync)
-    monkeypatch.setattr(physical, "_rename_child_noreplace", rename)
-    monkeypatch.setattr(physical, "_read_snapshot", read)
+    _patch_method_capture(monkeypatch, "publish_immutable", "_create_exact", create)
+    _patch_method_capture(monkeypatch, "publish_immutable", "_write_exact", write)
+    _patch_method_capture(monkeypatch, "publish_immutable", "_fsync_exact", fsync)
+    _patch_method_capture(monkeypatch, "publish_immutable", "_rename_exact", rename)
+    _patch_method_capture(monkeypatch, "publish_immutable", "_read_exact", read)
+    _patch_method_capture(monkeypatch, "_read_existing", "_read_exact", read)
 
     with pytest.raises(LifecycleV2ArtifactPublicationUncertain):
         store.publish_immutable(
@@ -330,7 +404,7 @@ def test_rename_eexist_race_preserves_staging_even_for_a_byte_identical_winner(
         _write_owner_only(artifact_directory / _FINAL, winner)
         real_rename(*args)
 
-    monkeypatch.setattr(physical, "_rename_child_noreplace", race)
+    _patch_method_capture(monkeypatch, "publish_immutable", "_rename_exact", race)
     with pytest.raises(LifecycleV2ArtifactPublicationUncertain, match="raced"):
         store.publish_immutable(
             staging_name=_STAGING,
@@ -450,7 +524,7 @@ def test_inventory_rejects_a_namespace_mutation_after_the_native_snapshot(
         _write_owner_only(artifact_directory / "racing-artifact", b"x")
         return snapshot
 
-    monkeypatch.setattr(physical, "_list_snapshot", mutate_after_snapshot)
+    _patch_method_capture(monkeypatch, "inventory", "_list_exact", mutate_after_snapshot)
 
     with pytest.raises(LifecycleV2ArtifactPublicationUncertain, match="changed"):
         store.inventory()
@@ -609,8 +683,19 @@ def test_existing_fixed_marker_durability_uncertainty_closes_the_physical_store(
             return b"drift" + payload, before, after
         return result
 
-    monkeypatch.setattr(physical, "_fsync", fsync)
-    monkeypatch.setattr(physical, "_read_snapshot", read)
+    _patch_method_capture(
+        monkeypatch,
+        "_durably_revalidate_existing",
+        "_fsync_exact",
+        fsync,
+    )
+    _patch_method_capture(monkeypatch, "_read_existing", "_read_exact", read)
+    _patch_method_capture(
+        monkeypatch,
+        "_durably_revalidate_existing",
+        "_read_exact",
+        read,
+    )
 
     with pytest.raises(LifecycleV2ArtifactPublicationUncertain):
         store.finalize_preallocated_immutable(

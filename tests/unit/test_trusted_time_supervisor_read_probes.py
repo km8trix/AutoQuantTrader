@@ -1036,8 +1036,11 @@ def test_marker_probe_native_calls_satisfy_direct_owner_policy() -> None:
             relative_path=relative,
             module="packages.adapters.trusted_time._owned_file_descriptor",
             captured_defaults=captured_defaults_by_path[relative.as_posix()],
+            captured_runtime_defaults={},
             captured_call_counts=captured_call_counts,
             captured_owner_consumers=captured_owner_consumers,
+            owner_local_functions=frozenset(),
+            retained_owner_assignments={},
         )
         == []
     )
