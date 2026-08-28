@@ -1973,8 +1973,11 @@ def _build_named_lifecycle_v2_retention_endpoints() -> tuple[Callable[..., None]
         }:
             raise LifecycleV2RepositoryRejected("terminal-wire method received another stage")
         try:
+            if repository._root is None:
+                raise LifecycleV2RepositoryRejected("progress requires a lifecycle root")
             envelope = _require_fake_authenticated_lifecycle_v2_transport_envelope(
-                authenticated_envelope
+                authenticated_envelope,
+                root=repository._root,
             )
         except TrustedTimeGracefulStopV2Rejected as error:
             raise LifecycleV2RepositoryRejected(

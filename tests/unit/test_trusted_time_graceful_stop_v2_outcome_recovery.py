@@ -261,7 +261,7 @@ def _fake_authenticated_terminal(
             "payload_base64": base64.b64encode(request.encoded).decode("ascii"),
         }
     )
-    return FakeLifecycleV2Transport(envelope).exchange(request, request_envelope)
+    return FakeLifecycleV2Transport(root, envelope).exchange(request, request_envelope)
 
 
 def _intent_evidence(root: LifecycleV2Root, ordinal: int) -> dict[str, object]:
