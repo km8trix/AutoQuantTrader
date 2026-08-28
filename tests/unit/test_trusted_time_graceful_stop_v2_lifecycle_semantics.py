@@ -2202,6 +2202,67 @@ def test_fake_cleanup_observer_is_test_only_and_raw_assertions_are_unsealed() ->
         forged.to_dict()
 
 
+def test_gc_referents_cannot_mutate_closed_lifecycle_validation_tables() -> None:
+    for value in (
+        lifecycle_module._MOUNT_RULES,
+        lifecycle_module._ABSENCE_PATHS,
+        lifecycle_module._SPECS,
+        lifecycle_module._DOCKER_RULES,
+    ):
+        assert type(value) is tuple
+        pending: list[object] = [value]
+        visited: set[int] = set()
+        while pending:
+            current = pending.pop()
+            if id(current) in visited:
+                continue
+            visited.add(id(current))
+            for referent in gc.get_referents(current):
+                assert type(referent) not in {dict, list, set}
+                if isinstance(referent, (tuple, frozenset)):
+                    pending.append(referent)
+
+    scenario = _scenario()
+    attacker_mount = {
+        "path": "/tmp/attacker-secret",
+        "mount_id": 99,
+        "mount_parent_id": 1,
+        "mount_major_minor": "0:99",
+        "mount_root": "/",
+        "mount_options": ["nodev", "noexec", "nosuid", "rw", "size=64K"],
+        "directory_device": 199,
+        "directory_inode": 299,
+        "directory_uid": 0,
+        "directory_gid": 0,
+        "directory_mode": 0o700,
+        "entry_count": 0,
+    }
+
+    def capture_attacker_mount() -> None:
+        LifecycleV2EmptySecretMountIdentity.capture(
+            attacker_mount,
+            observer=scenario.cleanup_observer,
+            observed_boottime_ns=1_100_210,
+        )
+
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        capture_attacker_mount()
+    original_mount_rules = lifecycle_module._MOUNT_RULES
+    lifecycle_module._MOUNT_RULES = (
+        ("/tmp/attacker-secret", (0, 0, 0o700)),
+    )
+    try:
+        with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+            capture_attacker_mount()
+    finally:
+        lifecycle_module._MOUNT_RULES = original_mount_rules
+    with pytest.raises(TrustedTimeLifecycleV2SemanticsRejected):
+        capture_attacker_mount()
+    assert _mount(scenario, HOST_SECRET_MOUNT_PATH, 10).to_dict()["path"] == (
+        HOST_SECRET_MOUNT_PATH
+    )
+
+
 def test_cleanup_authorization_actions_are_one_shot_and_receipts_cannot_predate_intent() -> None:
     scenario = _scenario()
     lineage, mounts, owners = _through_twenty_one(scenario)
@@ -2402,7 +2463,6 @@ def test_docker_result_rule_tables_cannot_widen_runtime_sealed_outcome(
 
     def malicious_core_lookup(candidate: object) -> object | None:
         return malicious_core_rule if candidate is stage else None
-
     try:
         semantic = DockerMutationResultSemantic.from_pair(
             result_kind="container_stop",

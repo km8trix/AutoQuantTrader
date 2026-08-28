@@ -5,7 +5,11 @@ import copy
 import gc
 import hashlib
 import os
+import subprocess
+import sys
 import threading
+from pathlib import Path
+from types import FunctionType, MappingProxyType, MethodType
 
 import pytest
 
@@ -55,6 +59,32 @@ UTC_TEXT = "2026-08-27T12:00:00.000000Z"
 
 def _digest(label: str) -> str:
     return hashlib.sha256(label.encode("ascii")).hexdigest()
+
+
+def _assert_no_mutable_module_closure_state(*roots: object, module_name: str) -> None:
+    pending = list(roots)
+    seen: set[int] = set()
+    while pending:
+        value = pending.pop()
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        assert not isinstance(value, (dict, list, set))
+        if isinstance(value, FunctionType) and value.__module__ == module_name:
+            pending.extend(
+                cell.cell_contents
+                for cell in value.__closure__ or ()
+            )
+            pending.extend(value.__defaults__ or ())
+            pending.extend((value.__kwdefaults__ or {}).values())
+        elif isinstance(value, MethodType):
+            pending.extend((value.__func__, value.__self__))
+        elif isinstance(value, (tuple, frozenset, MappingProxyType)):
+            if isinstance(value, MappingProxyType):
+                pending.extend(value.keys())
+                pending.extend(value.values())
+            else:
+                pending.extend(value)
 
 
 def _root(*, environment: str = ENVIRONMENT) -> LifecycleV2Root:
@@ -506,6 +536,314 @@ def test_terminal_proof_is_sealed_and_raw_wire_cannot_cross_production_mint() ->
             request=request,
             root=root,
         )
+
+
+def test_terminal_proof_and_receipt_gc_introspection_cannot_forge_production_wire() -> None:
+    root, request, result = _result(environment="production")
+    envelope = _envelope(
+        root,
+        request,
+        frame_type="clean_stop_result",
+        payload=result.encoded,
+    )
+    mint = terminal_module._mint_authenticated_lifecycle_v2_terminal_envelope_proof
+    closure = dict(
+        zip(mint.__code__.co_freevars, mint.__closure__ or (), strict=True)
+    )
+    register = closure["register_issued_proof"].cell_contents
+    seal = closure["seal_proof"].cell_contents
+    forged = seal(
+        envelope,
+        authority_manifest_sha256=root.transport_authority_manifest_sha256,
+        signer_role="supervisor",
+        capability="production_authenticated_transport",
+    )
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="caller"):
+        register(
+            forged,
+            provenance="production_authenticated_transport",
+        )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="lacks"):
+        terminal_module._require_authenticated_terminal_envelope_proof(forged)
+
+    require = terminal_module._require_authenticated_terminal_envelope_proof
+    require_closure = dict(
+        zip(require.__code__.co_freevars, require.__closure__ or (), strict=True)
+    )
+    test_root, test_request, test_result = _result()
+    test_envelope = _envelope(
+        test_root,
+        test_request,
+        frame_type="clean_stop_result",
+        payload=test_result.encoded,
+    )
+    authentic = _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests(
+        test_envelope,
+        root=test_root,
+    )
+    snapshot_state = require_closure["snapshot_state"].cell_contents
+    assert type(snapshot_state) is tuple
+    snapshot = next(
+        candidate for candidate in snapshot_state if candidate.value is authentic
+    )
+    snapshot.__init__(
+        *snapshot._replace(provenance="production_authenticated_transport")
+    )
+    assert snapshot.provenance == "fake_test_transport"
+    with pytest.raises(AttributeError):
+        object.__setattr__(snapshot, "provenance", "production_authenticated_transport")
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="lacks"):
+        require(copy.copy(authentic))
+    assert require(authentic) is authentic
+
+    receipt_capture = terminal_module.LifecycleV2WirePublicationReceipt.capture
+    receipt_capture_closure = dict(
+        zip(
+            receipt_capture.__func__.__code__.co_freevars,
+            receipt_capture.__func__.__closure__ or (),
+            strict=True,
+        )
+    )
+    original_receipt_capture = receipt_capture_closure[
+        "original_receipt_capture"
+    ].cell_contents
+    original_receipt_function = original_receipt_capture.__func__
+    require_context = original_receipt_function.__kwdefaults__["_require_context"]
+    discovered_require = require_context.__kwdefaults__["_require_proof"]
+    assert discovered_require is require
+    discovered_closure = dict(
+        zip(
+            discovered_require.__code__.co_freevars,
+            discovered_require.__closure__ or (),
+            strict=True,
+        )
+    )
+    discovered_state = discovered_closure["snapshot_state"].cell_contents
+    assert discovered_state is snapshot_state
+    assert not any(type(referent) is dict for referent in gc.get_referents(discovered_state))
+
+    terminal_capture = terminal_module.LifecycleV2TerminalWireEvidence.capture
+    terminal_capture_closure = dict(
+        zip(
+            terminal_capture.__func__.__code__.co_freevars,
+            terminal_capture.__func__.__closure__ or (),
+            strict=True,
+        )
+    )
+    original_terminal_capture = terminal_capture_closure[
+        "original_terminal_capture"
+    ].cell_contents
+    original_terminal_function = original_terminal_capture.__func__
+    receipt_kwdefaults = original_receipt_function.__kwdefaults__
+    terminal_kwdefaults = original_terminal_function.__kwdefaults__
+    context_kwdefaults = require_context.__kwdefaults__
+    assert receipt_kwdefaults is not None
+    assert terminal_kwdefaults is not None
+    assert context_kwdefaults is not None
+    original_receipt_context = receipt_kwdefaults["_require_context"]
+    original_terminal_context = terminal_kwdefaults["_require_context"]
+    original_require_proof = context_kwdefaults["_require_proof"]
+
+    def bypass_context(
+        proof: object,
+        *,
+        root: LifecycleV2Root,
+        request: LifecycleV2CleanStopRequest,
+    ) -> tuple[object, object, object, dict[str, object]]:
+        return proof, envelope, result, request.to_dict()
+
+    try:
+        receipt_kwdefaults["_require_context"] = bypass_context
+        terminal_kwdefaults["_require_context"] = bypass_context
+        context_kwdefaults["_require_proof"] = lambda proof: proof
+        with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="lacks"):
+            _receipt(root, request, envelope, forged)
+        with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="lacks"):
+            LifecycleV2TerminalWireEvidence.capture(
+                {},
+                proof=forged,
+                request=request,
+                root=root,
+                responder_identity_sha256=root.supervisor_process_epoch_sha256,
+            )
+    finally:
+        receipt_kwdefaults["_require_context"] = original_receipt_context
+        terminal_kwdefaults["_require_context"] = original_terminal_context
+        context_kwdefaults["_require_proof"] = original_require_proof
+
+    _assert_no_mutable_module_closure_state(
+        mint,
+        terminal_module._mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests,
+        require,
+        terminal_module.LifecycleV2WirePublicationReceipt.capture,
+        terminal_module.LifecycleV2TerminalWireEvidence.capture,
+        module_name=terminal_module.__name__,
+    )
+
+
+def test_terminal_and_recovery_recursive_closure_authority_rejects_in_fresh_process() -> None:
+    repository = Path(__file__).resolve().parents[2]
+    script = r'''
+import copy
+from types import FunctionType, MappingProxyType, MethodType
+
+from packages.domain import trusted_time_graceful_stop_v2_recovery as recovery
+from packages.domain import trusted_time_graceful_stop_v2_terminal as terminal
+from packages.domain.trusted_time_graceful_stop_v2 import TrustedTimeGracefulStopV2Rejected
+from tests.unit import test_trusted_time_graceful_stop_v2_outcome_recovery as recovery_fx
+from tests.unit import test_trusted_time_graceful_stop_v2_terminal_hardening as terminal_fx
+
+def assert_no_mutable_state(module_name, *roots):
+    pending = list(roots)
+    seen = set()
+    while pending:
+        value = pending.pop()
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        if isinstance(value, (dict, list, set)):
+            raise SystemExit("mutable closure authority remained reachable")
+        if isinstance(value, FunctionType) and value.__module__ == module_name:
+            pending.extend(cell.cell_contents for cell in value.__closure__ or ())
+            pending.extend(value.__defaults__ or ())
+            pending.extend((value.__kwdefaults__ or {}).values())
+        elif isinstance(value, MethodType):
+            pending.extend((value.__func__, value.__self__))
+        elif isinstance(value, (tuple, frozenset, MappingProxyType)):
+            if isinstance(value, MappingProxyType):
+                pending.extend(value.keys())
+                pending.extend(value.values())
+            else:
+                pending.extend(value)
+
+root, request, result = terminal_fx._result(environment="production")
+envelope = terminal_fx._envelope(
+    root,
+    request,
+    frame_type="clean_stop_result",
+    payload=result.encoded,
+)
+mint = terminal._mint_authenticated_lifecycle_v2_terminal_envelope_proof
+mint_cells = dict(zip(mint.__code__.co_freevars, mint.__closure__ or ()))
+register = mint_cells["register_issued_proof"].cell_contents
+seal = mint_cells["seal_proof"].cell_contents
+forged = seal(
+    envelope,
+    authority_manifest_sha256=root.transport_authority_manifest_sha256,
+    signer_role="supervisor",
+    capability="production_authenticated_transport",
+)
+try:
+    register(forged, provenance="production_authenticated_transport")
+except TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("extracted terminal writer minted production proof")
+try:
+    terminal._require_authenticated_terminal_envelope_proof(forged)
+except TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("forged terminal proof was accepted")
+
+test_root, test_request, test_result = terminal_fx._result()
+test_envelope = terminal_fx._envelope(
+    test_root,
+    test_request,
+    frame_type="clean_stop_result",
+    payload=test_result.encoded,
+)
+authentic_proof = terminal._mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests(
+    test_envelope,
+    root=test_root,
+)
+cloned_proof = copy.copy(authentic_proof)
+try:
+    terminal._require_authenticated_terminal_envelope_proof(cloned_proof)
+except TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("cloned terminal proof was accepted")
+assert terminal._require_authenticated_terminal_envelope_proof(authentic_proof) is authentic_proof
+
+recovery_root, transcript = recovery_fx._classified_recovery_inputs()
+recovery_envelope = recovery_fx._recovery_envelope(recovery_root, transcript)
+authentic_intent = recovery_fx._fake_recovery_intent(recovery_root, transcript)
+cloned_intent = copy.copy(authentic_intent)
+builder = recovery._build_injected_fake_lifecycle_v2_recovery_intent
+builder_cells = dict(zip(builder.__code__.co_freevars, builder.__closure__ or ()))
+register_intent = builder_cells["register_issued_intent"].cell_contents
+try:
+    register_intent(
+        cloned_intent,
+        envelope_encoded=recovery_envelope.encoded,
+        root_encoded=recovery_root.encoded,
+        classified_transcript_encoded=transcript.encoded,
+        recorded_at_utc=recovery_fx.UTC_TEXT,
+        provenance="fake_test_recovery",
+    )
+except TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("extracted recovery writer registered a clone")
+
+consume = recovery.consume_authenticated_lifecycle_v2_recovery_intent
+consume_cells = dict(zip(consume.__code__.co_freevars, consume.__closure__ or ()))
+try:
+    consume_cells["consume_snapshot"].cell_contents(authentic_intent)
+except TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("extracted recovery consumer burned an issuance")
+derive = recovery._derive_authenticated_lifecycle_v2_recovery_intent
+derive_cells = dict(zip(derive.__code__.co_freevars, derive.__closure__ or ()))
+try:
+    derive_cells["reserve_production_nonce"].cell_contents(
+        recovery_root.sha256,
+        recovery_envelope.operator_nonce_sha256,
+    )
+except TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("extracted nonce writer reserved an arbitrary nonce")
+assert (
+    recovery.consume_authenticated_lifecycle_v2_recovery_intent(authentic_intent)
+    is authentic_intent
+)
+try:
+    recovery.require_authenticated_lifecycle_v2_recovery_intent(cloned_intent)
+except TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("cloned recovery intent was accepted")
+
+assert_no_mutable_state(
+    terminal.__name__,
+    mint,
+    terminal._mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests,
+    terminal._require_authenticated_terminal_envelope_proof,
+    terminal.LifecycleV2WirePublicationReceipt.capture,
+    terminal.LifecycleV2TerminalWireEvidence.capture,
+)
+assert_no_mutable_state(
+    recovery.__name__,
+    builder,
+    derive,
+    recovery.require_authenticated_lifecycle_v2_recovery_intent,
+    recovery.consume_authenticated_lifecycle_v2_recovery_intent,
+)
+print("closure-authority-rejected")
+'''
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repository,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    assert completed.stdout.strip() == "closure-authority-rejected"
 
 
 def test_fake_terminal_proof_has_one_test_only_token_free_issuance_path() -> None:

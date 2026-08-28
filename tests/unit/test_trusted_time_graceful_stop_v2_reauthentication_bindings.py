@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import gc
 import hashlib
 import inspect
 import os
@@ -11,10 +12,11 @@ import subprocess
 import sys
 import threading
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
+from types import FunctionType, MappingProxyType, MethodType, SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -606,13 +608,16 @@ def test_registry_snapshots_revoke_mutated_issuers_and_bindings() -> None:
     )
     nested_context = nested_issuer._context
     original_root = nested_context.root
-    object.__setattr__(nested_context, "root", object())
+    with pytest.raises(AttributeError):
+        object.__setattr__(nested_context, "root", object())
+    original_environment = original_root.environment
+    object.__setattr__(original_root, "environment", "tampered")
     with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="seal changed"):
         nested_realm.bind_pre_effect(
             nested_issuer,
             observation=_ObservationInput(primitives, observation_issuer, object()),
         )
-    object.__setattr__(nested_context, "root", original_root)
+    object.__setattr__(original_root, "environment", original_environment)
     with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="replayed"):
         nested_realm.bind_pre_effect(
             nested_issuer,
@@ -1167,6 +1172,680 @@ def test_production_realm_claim_is_one_shot_and_not_a_generic_mint() -> None:
             authenticate_observation=lookalike,
             challenge_source=secrets.token_bytes,
         )
+
+
+def test_fake_realm_closure_cannot_mint_or_register_production_realm() -> None:
+    fake_builder = reauthentication._build_fake_lifecycle_v2_reauthentication_binding_realm
+    fake_closure = dict(
+        zip(
+            fake_builder.__code__.co_freevars,
+            fake_builder.__closure__ or (),
+            strict=True,
+        )
+    )
+    create_realm = fake_closure["create_realm"].cell_contents
+
+    def authenticate(
+        _binding_issuer: object,
+        _observation: object,
+    ) -> _LifecycleV2ADR0109ObservationCandidate:
+        raise AssertionError("forged production authenticator was reached")
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="realm caller"):
+        create_realm(
+            authenticate_observation=authenticate,
+            challenge_source=lambda size: b"x" * size,
+            semantic_binding_provenance="production_reauthentication_binding",
+        )
+
+    create_closure = dict(
+        zip(
+            create_realm.__code__.co_freevars,
+            create_realm.__closure__ or (),
+            strict=True,
+        )
+    )
+    register_realm = create_closure["register_realm"].cell_contents
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="realm caller"):
+        register_realm(
+            object(),
+            realm_identity=object(),
+            semantic_binding_provenance="production_reauthentication_binding",
+        )
+
+    claim = reauthentication._claim_lifecycle_v2_production_reauthentication_binding_realm
+    claim_closure = dict(
+        zip(claim.__code__.co_freevars, claim.__closure__ or (), strict=True)
+    )
+    with pytest.raises(ValueError):
+        _ = claim_closure["production_bootstrap_permit"].cell_contents
+
+    setup = _pre_setup(challenges=[b"z" * 32])
+    assert callable(setup.realm.prepare_pre_effect)
+
+    pending: list[object] = [
+        fake_builder,
+        claim,
+        reauthentication._require_live_binding,
+        reauthentication._consume_exact_lifecycle_v2_reauthentication_semantic_binding_issuance_once,
+        setup.realm.prepare_pre_effect,
+        setup.realm.bind_pre_effect,
+        setup.realm.prepare_post_teardown,
+        setup.realm.bind_post_teardown,
+    ]
+    seen: set[int] = set()
+    authority_records: list[object] = []
+    while pending:
+        value = pending.pop()
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        assert not isinstance(value, (dict, list, set, bytearray))
+        if type(value).__name__ in {
+            "_IssuerRegistration",
+            "_BindingRegistration",
+            "_SemanticBindingIssuanceRegistration",
+        }:
+            authority_records.append(value)
+        if isinstance(value, FunctionType) and value.__module__ == reauthentication.__name__:
+            for cell in value.__closure__ or ():
+                with suppress(ValueError):
+                    pending.append(cell.cell_contents)
+            pending.extend(value.__defaults__ or ())
+            pending.extend((value.__kwdefaults__ or {}).values())
+        elif isinstance(value, MethodType):
+            pending.extend((value.__func__, value.__self__))
+        elif isinstance(value, (tuple, frozenset, MappingProxyType)):
+            if isinstance(value, MappingProxyType):
+                pending.extend(value.keys())
+                pending.extend(value.values())
+            else:
+                pending.extend(value)
+
+    issuer_registration = next(
+        value
+        for value in authority_records
+        if type(value).__name__ == "_IssuerRegistration"
+        and cast(Any, value).reference() is setup.binding_issuer
+    )
+    binding_registration = next(
+        value
+        for value in authority_records
+        if type(value).__name__ == "_BindingRegistration"
+        and cast(Any, value).reference() is setup.binding
+    )
+    assert cast(Any, issuer_registration).status == "consumed"
+    cast(Any, issuer_registration).__init__(
+        *cast(Any, issuer_registration)._replace(status="prepared")
+    )
+    assert cast(Any, issuer_registration).status == "consumed"
+    with pytest.raises(AttributeError):
+        object.__setattr__(issuer_registration, "status", "prepared")
+    cast(Any, binding_registration).__init__(
+        *cast(Any, binding_registration)._replace(
+            semantic_binding_provenance="production_reauthentication_binding"
+        )
+    )
+    assert (
+        cast(Any, binding_registration).semantic_binding_provenance
+        == "fake_reauthentication_binding"
+    )
+    with pytest.raises(AttributeError):
+        object.__setattr__(
+            binding_registration,
+            "semantic_binding_provenance",
+            "production_reauthentication_binding",
+        )
+
+    object.__setattr__(setup.binding_issuer, "_status", "prepared")
+    object.__setattr__(
+        setup.binding_issuer,
+        "_challenge",
+        bytearray(cast(Any, issuer_registration).challenge_encoded),
+    )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="replayed"):
+        setup.realm.bind_pre_effect(
+            setup.binding_issuer,
+            observation=setup.observation,
+        )
+
+
+def test_gc_referents_cannot_mutate_fake_realm_provenance_into_production() -> None:
+    realm, _ = _test_realm([b"g" * 32])
+    prepare_closure = dict(
+        zip(
+            realm.prepare_pre_effect.__code__.co_freevars,
+            realm.prepare_pre_effect.__closure__ or (),
+            strict=True,
+        )
+    )
+    register_closure = dict(
+        zip(
+            prepare_closure["register_issuer"].cell_contents.__code__.co_freevars,
+            prepare_closure["register_issuer"].cell_contents.__closure__ or (),
+            strict=True,
+        )
+    )
+    require_realm = register_closure["require_realm_permit"].cell_contents
+    realm_state = dict(
+        zip(
+            require_realm.__code__.co_freevars,
+            require_realm.__closure__ or (),
+            strict=True,
+        )
+    )["realm_permit_state"].cell_contents
+    assert type(realm_state) is tuple
+    realm_permit = prepare_closure["realm_permit"].cell_contents
+    registration = next(
+        item for _, item in realm_state if item[0] is realm_permit
+    )
+    assert registration[2] == "fake_reauthentication_binding"
+    pending = [realm_state]
+    seen: set[int] = set()
+    while pending:
+        value = pending.pop()
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        referents = gc.get_referents(value)
+        assert not any(type(item) is dict for item in referents)
+        pending.extend(item for item in referents if type(item) is tuple)
+
+    scenario = semantics_fixtures._scenario()
+    primitives = _observation_primitives(
+        scenario.clean_stop_result,
+        label="gc-provenance",
+        started=100,
+    )
+    lineage_five = _through_five(
+        scenario,
+        provider_identity_sha256=primitives.provider_identity_sha256,
+    )
+    observation_issuer = object()
+    issuer = realm.prepare_pre_effect(
+        lineage_through_ordinal_5=lineage_five,
+        observation_issuer_identity=observation_issuer,
+    )
+    binding = realm.bind_pre_effect(
+        issuer,
+        observation=_ObservationInput(primitives, observation_issuer, object()),
+    )
+    metadata = lifecycle_semantics._require_canonical_evidence(
+        binding.lifecycle_semantic_binding
+    )
+    assert metadata.provenance == "fake_reauthentication_binding"
+
+
+def test_production_realm_helpers_require_one_exact_wrapper_operation_chain() -> None:
+    adapter_bind_closure = dict(
+        zip(
+            adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__code__.co_freevars,
+            adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__closure__
+            or (),
+            strict=True,
+        )
+    )
+    production_realm = adapter_bind_closure["production_binding_realm"].cell_contents
+    prepare_closure = dict(
+        zip(
+            production_realm.prepare_pre_effect.__code__.co_freevars,
+            production_realm.prepare_pre_effect.__closure__ or (),
+            strict=True,
+        )
+    )
+    bind_closure = dict(
+        zip(
+            production_realm.bind_pre_effect.__code__.co_freevars,
+            production_realm.bind_pre_effect.__closure__ or (),
+            strict=True,
+        )
+    )
+
+    scenario = semantics_fixtures._scenario()
+    observation_issuer, postcondition, _, primitives = _exact_adr0109_observation(
+        scenario,
+        started=100,
+        label="operation-chain",
+    )
+    lineage_five = _through_five(
+        scenario,
+        provider_identity_sha256=primitives.provider_identity_sha256,
+    )
+    attacker_challenge_calls: list[int] = []
+
+    def attacker_challenge_source(size: int) -> bytes:
+        attacker_challenge_calls.append(size)
+        return b"x" * size
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match=r"call chain|operation token"):
+        prepare_closure["prepare_pre_effect_issuer"].cell_contents(
+            operation_token=object(),
+            lineage_through_ordinal_5=lineage_five,
+            observation_issuer_identity=object(),
+            challenge_source=attacker_challenge_source,
+            realm_identity=prepare_closure["realm_identity"].cell_contents,
+            realm_permit=prepare_closure["realm_permit"].cell_contents,
+            authorize_issuer_initialization=prepare_closure[
+                "authorize_issuer_initialization"
+            ].cell_contents,
+            register_issuer=prepare_closure["register_issuer"].cell_contents,
+            initialize_issuer=prepare_closure["initialize_issuer"].cell_contents,
+            getpid=prepare_closure["getpid"].cell_contents,
+            current_thread=prepare_closure["current_thread"].cell_contents,
+        )
+    assert attacker_challenge_calls == []
+
+    binding_issuer = adapter._prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer(
+        lineage_through_ordinal_5=lineage_five,
+        adr0109_issuer=observation_issuer,
+    )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="operation caller"):
+        bind_closure["begin_realm_operation"].cell_contents(
+            realm_permit=bind_closure["realm_permit"].cell_contents,
+            realm_identity=bind_closure["realm_identity"].cell_contents,
+            operation="bind",
+            boundary="pre_effect",
+            subject=binding_issuer,
+        )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="operation closer"):
+        bind_closure["close_realm_operation"].cell_contents(
+            object(),
+            realm_permit=bind_closure["realm_permit"].cell_contents,
+            realm_identity=bind_closure["realm_identity"].cell_contents,
+            operation="bind",
+            boundary="pre_effect",
+            subject=binding_issuer,
+            succeeded=False,
+        )
+    assert binding_issuer._status == "prepared"
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match=r"call chain|operation token"):
+        bind_closure["bind_pre_effect_observation"].cell_contents(
+            binding_issuer,
+            operation_token=object(),
+            observation=object(),
+            realm_identity=bind_closure["realm_identity"].cell_contents,
+            realm_permit=bind_closure["realm_permit"].cell_contents,
+            authenticate_observation=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("injected authenticator was reached")
+            ),
+            require_observation_candidate=bind_closure[
+                "require_observation_candidate"
+            ].cell_contents,
+            begin_issuer=bind_closure["begin_issuer"].cell_contents,
+            register_binding=bind_closure["register_binding"].cell_contents,
+            semantic_binding_builder=bind_closure[
+                "build_semantic_binding"
+            ].cell_contents,
+            issue_binding=bind_closure["issue_binding"].cell_contents,
+            getpid=bind_closure["getpid"].cell_contents,
+            current_thread=bind_closure["current_thread"].cell_contents,
+        )
+    assert binding_issuer._status == "prepared"
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match=r"call chain|operation token"):
+        bind_closure["authenticate_once"].cell_contents(
+            binding_issuer,
+            object(),
+            operation_token=object(),
+            boundary="pre_effect",
+        )
+    assert binding_issuer._status == "prepared"
+
+    binding = adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once(
+        binding_issuer,
+        postcondition=postcondition,
+        adr0109_issuer=observation_issuer,
+    )
+    binding.lifecycle_semantic_binding._require_sealed()
+    live = reauthentication._require_live_binding(
+        binding,
+        expected_type=LifecycleV2PreEffectBinding,
+    )
+    attempt = reauthentication._IssuerAttempt(
+        issuer=binding_issuer,
+        context=live.context,
+        expected_observation_issuer=live.observation_issuer_identity,
+        challenge_sha256=cast(
+            str,
+            binding.durable_evidence.to_dict()["issuer_challenge_sha256"],
+        ),
+        realm_identity=live.realm_identity,
+        semantic_binding_provenance="production_reauthentication_binding",
+    )
+    candidate = _LifecycleV2ADR0109ObservationCandidate(
+        primitives=primitives,
+        issuer_identity=live.observation_issuer_identity,
+        observation_identity=live.observation_identity,
+    )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match=r"call chain|operation token"):
+        bind_closure["build_semantic_binding"].cell_contents(
+            operation_token=object(),
+            boundary="pre_effect",
+            context=live.context,
+            attempt=attempt,
+            authenticated=candidate,
+            binding_evidence=binding.durable_evidence,
+        )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match=r"call chain|operation token"):
+        bind_closure["issue_binding"].cell_contents(
+            LifecycleV2PreEffectBinding,
+            operation_token=object(),
+            evidence=binding.durable_evidence,
+            semantic_binding=binding.lifecycle_semantic_binding,
+            attempt=attempt,
+            observation=candidate,
+            realm_permit=bind_closure["realm_permit"].cell_contents,
+            register_binding=bind_closure["register_binding"].cell_contents,
+            getpid=bind_closure["getpid"].cell_contents,
+            current_thread=bind_closure["current_thread"].cell_contents,
+        )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="binding caller"):
+        bind_closure["register_binding"].cell_contents(
+            binding,
+            operation_token=object(),
+            realm_permit=bind_closure["realm_permit"].cell_contents,
+            binding_type=LifecycleV2PreEffectBinding,
+            evidence=binding.durable_evidence,
+            semantic_binding=binding.lifecycle_semantic_binding,
+            context=live.context,
+            issuer_identity=binding_issuer,
+            observation_identity=live.observation_identity,
+            observation_issuer_identity=live.observation_issuer_identity,
+            realm_identity=live.realm_identity,
+        )
+    binding.lifecycle_semantic_binding._require_sealed()
+
+
+def test_live_weakref_callback_and_initializer_cannot_reissue_consumed_issuer() -> None:
+    setup = _pre_setup(challenges=[b"a" * 32, b"b" * 32])
+    prepare_closure = dict(
+        zip(
+            setup.realm.prepare_pre_effect.__code__.co_freevars,
+            setup.realm.prepare_pre_effect.__closure__ or (),
+            strict=True,
+        )
+    )
+    register_issuer = prepare_closure["register_issuer"].cell_contents
+    register_closure = dict(
+        zip(
+            register_issuer.__code__.co_freevars,
+            register_issuer.__closure__ or (),
+            strict=True,
+        )
+    )
+    issuer_state = dict(register_closure["issuer_state"].cell_contents)
+    registration = issuer_state[id(setup.binding_issuer)]
+    callback = registration.reference.__callback__
+    assert callback is not None
+    callback(registration.reference)
+    assert dict(register_closure["issuer_state"].cell_contents)[id(setup.binding_issuer)] is (
+        registration
+    )
+
+    attacker_challenge_calls: list[int] = []
+
+    def attacker_challenge_source(size: int) -> bytes:
+        attacker_challenge_calls.append(size)
+        return b"z" * size
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match=r"call chain|operation token"):
+        prepare_closure["initialize_issuer"].cell_contents(
+            setup.binding_issuer,
+            operation_token=object(),
+            issuer_type=_LifecycleV2PreEffectBindingIssuer,
+            context=registration.exposed_context,
+            observation_issuer_identity=registration.expected_observation_issuer,
+            challenge_source=attacker_challenge_source,
+            realm_identity=prepare_closure["realm_identity"].cell_contents,
+            realm_permit=prepare_closure["realm_permit"].cell_contents,
+            authorize_issuer_initialization=prepare_closure[
+                "authorize_issuer_initialization"
+            ].cell_contents,
+            register_issuer=register_issuer,
+            getpid=prepare_closure["getpid"].cell_contents,
+            current_thread=prepare_closure["current_thread"].cell_contents,
+        )
+    assert attacker_challenge_calls == []
+    assert setup.binding_issuer._status == "consumed"
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="replayed"):
+        setup.realm.bind_pre_effect(
+            setup.binding_issuer,
+            observation=setup.observation,
+        )
+
+    fresh_scenario = semantics_fixtures._scenario()
+    fresh_primitives = _observation_primitives(
+        fresh_scenario.clean_stop_result,
+        label="callback-continuation",
+        started=100,
+    )
+    fresh_lineage_five = _through_five(
+        fresh_scenario,
+        provider_identity_sha256=fresh_primitives.provider_identity_sha256,
+    )
+    fresh_observation_issuer = object()
+    fresh_issuer = setup.realm.prepare_pre_effect(
+        lineage_through_ordinal_5=fresh_lineage_five,
+        observation_issuer_identity=fresh_observation_issuer,
+    )
+    fresh_binding = setup.realm.bind_pre_effect(
+        fresh_issuer,
+        observation=_ObservationInput(
+            fresh_primitives,
+            fresh_observation_issuer,
+            object(),
+        ),
+    )
+    fresh_binding.lifecycle_semantic_binding._require_sealed()
+
+
+def test_traced_live_operation_token_cannot_reenter_production_prepare() -> None:
+    adapter_closure = dict(
+        zip(
+            adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__code__.co_freevars,
+            adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__closure__
+            or (),
+            strict=True,
+        )
+    )
+    realm = adapter_closure["production_binding_realm"].cell_contents
+    prepare = dict(
+        zip(
+            realm.prepare_pre_effect.__code__.co_freevars,
+            realm.prepare_pre_effect.__closure__ or (),
+            strict=True,
+        )
+    )
+    operation_state_cell = dict(
+        zip(
+            prepare["begin_realm_operation"].cell_contents.__code__.co_freevars,
+            prepare["begin_realm_operation"].cell_contents.__closure__ or (),
+            strict=True,
+        )
+    )["operation_state"]
+    scenario = semantics_fixtures._scenario()
+    observation_issuer, postcondition, _, primitives = _exact_adr0109_observation(
+        scenario,
+        started=100,
+        label="trace-prepare",
+    )
+    lineage_five = _through_five(
+        scenario,
+        provider_identity_sha256=primitives.provider_identity_sha256,
+    )
+    captured: dict[str, object] = {}
+    inside = False
+
+    def tracer(frame: Any, _event: str, _arg: object) -> Callable[..., object]:
+        nonlocal inside
+        if inside or captured or frame.f_code is not realm.prepare_pre_effect.__code__:
+            return tracer
+        registrations = [
+            registration
+            for _, registration in operation_state_cell.cell_contents
+            if registration.operation == "prepare"
+            and registration.boundary == "pre_effect"
+            and not registration.issuer_registered
+        ]
+        if not registrations:
+            return tracer
+        operation = registrations[0]
+        inside = True
+        try:
+            try:
+                captured["hidden"] = prepare[
+                    "prepare_pre_effect_issuer"
+                ].cell_contents(
+                    operation_token=operation.token,
+                    lineage_through_ordinal_5=lineage_five,
+                    observation_issuer_identity=observation_issuer,
+                    challenge_source=prepare["challenge_source"].cell_contents,
+                    realm_identity=prepare["realm_identity"].cell_contents,
+                    realm_permit=prepare["realm_permit"].cell_contents,
+                    authorize_issuer_initialization=prepare[
+                        "authorize_issuer_initialization"
+                    ].cell_contents,
+                    register_issuer=prepare["register_issuer"].cell_contents,
+                    initialize_issuer=prepare["initialize_issuer"].cell_contents,
+                    getpid=prepare["getpid"].cell_contents,
+                    current_thread=prepare["current_thread"].cell_contents,
+                )
+            except TrustedTimeGracefulStopV2Rejected as error:
+                captured["direct_error"] = str(error)
+        finally:
+            inside = False
+        return tracer
+
+    sys.settrace(tracer)
+    try:
+        issuer = adapter._prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer(
+            lineage_through_ordinal_5=lineage_five,
+            adr0109_issuer=observation_issuer,
+        )
+    finally:
+        sys.settrace(None)
+    assert captured == {
+        "direct_error": "lifecycle-v2 reauthentication call chain is invalid"
+    }
+    assert issuer._status == "prepared"
+    binding = adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once(
+        issuer,
+        postcondition=postcondition,
+        adr0109_issuer=observation_issuer,
+    )
+    binding.lifecycle_semantic_binding._require_sealed()
+
+
+def test_traced_live_bind_token_cannot_burn_issuer_or_adr0109_observation() -> None:
+    adapter_closure = dict(
+        zip(
+            adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__code__.co_freevars,
+            adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once.__closure__
+            or (),
+            strict=True,
+        )
+    )
+    realm = adapter_closure["production_binding_realm"].cell_contents
+    bind = dict(
+        zip(
+            realm.bind_pre_effect.__code__.co_freevars,
+            realm.bind_pre_effect.__closure__ or (),
+            strict=True,
+        )
+    )
+    operation_state_cell = dict(
+        zip(
+            bind["begin_realm_operation"].cell_contents.__code__.co_freevars,
+            bind["begin_realm_operation"].cell_contents.__closure__ or (),
+            strict=True,
+        )
+    )["operation_state"]
+    scenario = semantics_fixtures._scenario()
+    observation_issuer, postcondition, _, primitives = _exact_adr0109_observation(
+        scenario,
+        started=100,
+        label="trace-bind",
+    )
+    lineage_five = _through_five(
+        scenario,
+        provider_identity_sha256=primitives.provider_identity_sha256,
+    )
+    victim = adapter._prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer(
+        lineage_through_ordinal_5=lineage_five,
+        adr0109_issuer=observation_issuer,
+    )
+    continuation = adapter._prepare_lifecycle_v2_pre_effect_adr0109_binding_issuer(
+        lineage_through_ordinal_5=lineage_five,
+        adr0109_issuer=observation_issuer,
+    )
+    captured: dict[str, str] = {}
+    inside = False
+
+    def tracer(frame: Any, _event: str, _arg: object) -> Callable[..., object]:
+        nonlocal inside
+        if inside or captured or frame.f_code is not realm.bind_pre_effect.__code__:
+            return tracer
+        registrations = [
+            registration
+            for _, registration in operation_state_cell.cell_contents
+            if registration.operation == "bind"
+            and registration.boundary == "pre_effect"
+            and registration.subject is victim
+            and registration.candidate_status == "absent"
+        ]
+        if not registrations:
+            return tracer
+        operation = registrations[0]
+        inside = True
+        try:
+            try:
+                bind["bind_pre_effect_observation"].cell_contents(
+                    victim,
+                    operation_token=operation.token,
+                    observation=frame.f_locals["observation"],
+                    realm_identity=bind["realm_identity"].cell_contents,
+                    realm_permit=bind["realm_permit"].cell_contents,
+                    authenticate_observation=bind["authenticate_once"].cell_contents,
+                    require_observation_candidate=bind[
+                        "require_observation_candidate"
+                    ].cell_contents,
+                    begin_issuer=bind["begin_issuer"].cell_contents,
+                    register_binding=bind["register_binding"].cell_contents,
+                    semantic_binding_builder=lambda **_kwargs: (_ for _ in ()).throw(
+                        AssertionError("semantic builder was reached")
+                    ),
+                    issue_binding=bind["issue_binding"].cell_contents,
+                    getpid=bind["getpid"].cell_contents,
+                    current_thread=bind["current_thread"].cell_contents,
+                )
+            except TrustedTimeGracefulStopV2Rejected as error:
+                captured["direct_error"] = str(error)
+                raise
+        finally:
+            inside = False
+        return tracer
+
+    sys.settrace(tracer)
+    try:
+        with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="call chain"):
+            adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once(
+                victim,
+                postcondition=postcondition,
+                adr0109_issuer=observation_issuer,
+            )
+    finally:
+        sys.settrace(None)
+    assert captured == {
+        "direct_error": "lifecycle-v2 reauthentication call chain is invalid"
+    }
+    assert victim._status == "prepared"
+    binding = adapter._bind_lifecycle_v2_pre_effect_adr0109_observation_once(
+        victim,
+        postcondition=postcondition,
+        adr0109_issuer=observation_issuer,
+    )
+    binding.lifecycle_semantic_binding._require_sealed()
+    assert continuation._status == "prepared"
 
 
 def test_domain_first_metadata_spoof_cannot_preempt_production_adapter_claim() -> None:

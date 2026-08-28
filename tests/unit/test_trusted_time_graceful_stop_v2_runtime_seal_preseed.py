@@ -406,8 +406,6 @@ def walk(path, value):
             value.__closure__ or (),
             strict=True,
         ):
-            if name.startswith("original_"):
-                continue
             try:
                 item = cell.cell_contents
             except ValueError:

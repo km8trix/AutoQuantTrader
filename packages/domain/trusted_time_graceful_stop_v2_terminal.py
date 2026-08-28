@@ -15,7 +15,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import CodeType
-from typing import Any, Self, cast
+from typing import Any, NamedTuple, Self, cast
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_V2_CLEAN_STOP_SERVICE,
@@ -224,13 +224,12 @@ def _seal_terminal_envelope_proof(
     return result
 
 
-@dataclass(frozen=True, slots=True)
-class _AuthenticatedTerminalProofIssuanceSnapshot:
+class _AuthenticatedTerminalProofIssuanceSnapshot(NamedTuple):
     value: LifecycleV2AuthenticatedTerminalEnvelopeProof
     envelope_encoded: bytes
     authority_manifest_sha256: str
     signer_role: str
-    capability: object
+    provenance: str
     origin_pid: int
     origin_thread: threading.Thread
 
@@ -243,9 +242,7 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
 ]:
     """Keep proof issuance behind exact adapter/fake authentication registries."""
 
-    snapshots: dict[int, _AuthenticatedTerminalProofIssuanceSnapshot] = {}
-    production_capability = object()
-    fake_capability = object()
+    snapshot_state: tuple[_AuthenticatedTerminalProofIssuanceSnapshot, ...] = ()
     adapter_unwrap: Callable[[object], object] | None = None
     import_adapter = importlib.import_module
     get_call_frame = sys._getframe
@@ -327,7 +324,7 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
     lock = threading.Lock()
     decode_envelope = decode_unverified_lifecycle_v2_transport_envelope
     decode_root = decode_lifecycle_v2_root
-    seal_proof = _seal_terminal_envelope_proof
+    seal_proof = _seal_terminal_envelope_proof  # noqa: F821 - install-time capture
     proof_type = LifecycleV2AuthenticatedTerminalEnvelopeProof
     envelope_type = UnverifiedLifecycleV2TransportEnvelope
     root_type = LifecycleV2Root
@@ -400,26 +397,69 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
             del caller
         adapter_unwrap = endpoint
 
-    def issue(
+    production_mint_code: CodeType | None = None
+    fake_mint_code: CodeType | None = None
+
+    def register_issued_proof(
         value: LifecycleV2AuthenticatedTerminalEnvelopeProof,
         *,
-        capability: object,
+        provenance: str,
     ) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
+        nonlocal snapshot_state
+        caller = get_call_frame(1)
+        try:
+            caller_code = caller.f_code
+        finally:
+            del caller
+        expected_provenance = (
+            "production_authenticated_transport"
+            if caller_code is production_mint_code
+            else "fake_test_transport"
+            if caller_code is fake_mint_code
+            else None
+        )
+        if provenance != expected_provenance:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal proof issuance caller is not authorized"
+            )
+        try:
+            canonical = decode_envelope(value.envelope.encoded)
+            manifest_sha256 = _require_sha256(
+                value.authority_manifest_sha256,
+                "authority_manifest_sha256",
+            )
+            signer_role = value.signer_role
+            value_provenance = value._capability
+        except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal proof issuance is not canonical"
+            ) from error
+        if (
+            type(value) is not proof_type
+            or type(value.envelope) is not envelope_type
+            or canonical != value.envelope
+            or canonical.frame_type not in {"clean_stop_result", "clean_stop_error"}
+            or signer_role != "supervisor"
+            or value_provenance != provenance
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "terminal proof issuance is not canonical"
+            )
         snapshot = snapshot_type(
             value=value,
-            envelope_encoded=value.envelope.encoded,
-            authority_manifest_sha256=value.authority_manifest_sha256,
-            signer_role=value.signer_role,
-            capability=capability,
+            envelope_encoded=canonical.encoded,
+            authority_manifest_sha256=manifest_sha256,
+            signer_role=signer_role,
+            provenance=provenance,
             origin_pid=getpid(),
             origin_thread=current_thread(),
         )
         with lock:
-            if id(value) in snapshots:
+            if any(snapshot.value is value for snapshot in snapshot_state):
                 raise TrustedTimeGracefulStopV2Rejected(
                     "terminal proof identity was already issued"
                 )
-            snapshots[id(value)] = snapshot
+            snapshot_state = (*snapshot_state, snapshot)
         return require(value)
 
     def mint_production(
@@ -460,9 +500,12 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
             envelope,
             authority_manifest_sha256=manifest_sha256,
             signer_role=signer_role,
-            capability=production_capability,
+            capability="production_authenticated_transport",
         )
-        return issue(proof, capability=production_capability)
+        return register_issued_proof(
+            proof,
+            provenance="production_authenticated_transport",
+        )
 
     def mint_fake_for_tests(
         envelope: object,
@@ -505,14 +548,23 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
             exact_envelope,
             authority_manifest_sha256=exact_root.transport_authority_manifest_sha256,
             signer_role="supervisor",
-            capability=fake_capability,
+            capability="fake_test_transport",
         )
-        return issue(proof, capability=fake_capability)
+        return register_issued_proof(
+            proof,
+            provenance="fake_test_transport",
+        )
 
     def require(value: object) -> LifecycleV2AuthenticatedTerminalEnvelopeProof:
-        key = id(value)
         with lock:
-            snapshot = snapshots.get(key)
+            snapshot = next(
+                (
+                    candidate
+                    for candidate in snapshot_state
+                    if candidate.value is value
+                ),
+                None,
+            )
         if snapshot is None or snapshot.value is not value or type(value) is not proof_type:
             raise TrustedTimeGracefulStopV2Rejected(
                 "terminal wire lacks an authenticated-envelope proof"
@@ -530,7 +582,7 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
         if (
             getpid() != snapshot.origin_pid
             or current_thread() is not snapshot.origin_thread
-            or value_capability is not snapshot.capability
+            or value_capability != snapshot.provenance
             or type(value_envelope) is not envelope_type
             or canonical.encoded != snapshot.envelope_encoded
             or value_envelope != canonical
@@ -545,6 +597,9 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
         _require_sha256(value_manifest_sha256, "authority_manifest_sha256")
         return value
 
+    production_mint_code = mint_production.__code__
+    fake_mint_code = mint_fake_for_tests.__code__
+
     return install_adapter_unwrap, mint_production, mint_fake_for_tests, require
 
 
@@ -554,6 +609,8 @@ def _build_authenticated_terminal_proof_endpoints() -> tuple[
     _mint_fake_authenticated_lifecycle_v2_terminal_envelope_proof_for_tests,
     _require_authenticated_terminal_envelope_proof,
 ) = _build_authenticated_terminal_proof_endpoints()
+del _build_authenticated_terminal_proof_endpoints
+del _seal_terminal_envelope_proof
 
 
 _TERMINAL_PROJECTION_FIELDS = frozenset(
@@ -1647,6 +1704,8 @@ def _install_terminal_wire_runtime_seals() -> Callable[[object, str], RuntimeSea
     terminal_type = LifecycleV2TerminalWireEvidence
     root_type = LifecycleV2Root
     require_sha256 = _require_sha256
+    exact_require_proof = _require_authenticated_terminal_envelope_proof
+    original_require_context = _require_authenticated_terminal_context
     original_receipt_capture = cast(
         Callable[..., LifecycleV2WirePublicationReceipt],
         receipt_type.capture,
@@ -1655,6 +1714,24 @@ def _install_terminal_wire_runtime_seals() -> Callable[[object, str], RuntimeSea
         Callable[..., LifecycleV2TerminalWireEvidence],
         terminal_type.capture,
     )
+
+    def require_context(
+        proof: object,
+        *,
+        root: LifecycleV2Root,
+        request: LifecycleV2CleanStopRequest,
+    ) -> tuple[
+        LifecycleV2AuthenticatedTerminalEnvelopeProof,
+        UnverifiedLifecycleV2TransportEnvelope,
+        LifecycleV2CleanStopResult | LifecycleV2CleanStopError,
+        dict[str, object],
+    ]:
+        return original_require_context(
+            proof,
+            root=root,
+            request=request,
+            _require_proof=exact_require_proof,
+        )
 
     def capture_receipt(
         cls: type[LifecycleV2WirePublicationReceipt],
@@ -1671,6 +1748,7 @@ def _install_terminal_wire_runtime_seals() -> Callable[[object, str], RuntimeSea
             proof=proof,
             request=request,
             root=root,
+            _require_context=require_context,
         )
         if type(result) is not receipt_type or not seal_runtime(
             result,
@@ -1742,6 +1820,7 @@ def _install_terminal_wire_runtime_seals() -> Callable[[object, str], RuntimeSea
             request=request,
             root=root,
             responder_identity_sha256=responder_identity_sha256,
+            _require_context=require_context,
             _capture_receipt=capture_bound_receipt,
         )
         if type(result) is not terminal_type:

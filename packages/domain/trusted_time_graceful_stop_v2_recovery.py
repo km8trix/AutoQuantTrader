@@ -18,7 +18,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import CodeType
-from typing import Self, cast
+from typing import NamedTuple, Self, cast
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_V2_MAXIMUM_ENTRIES,
@@ -99,8 +99,7 @@ _PRODUCTION_AUTHENTICATED_RECOVERY_TYPE = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class _LifecycleV2RecoveryIntentIssuanceSnapshot:
+class _LifecycleV2RecoveryIntentIssuanceSnapshot(NamedTuple):
     """Closure-owned immutable facts captured at authenticated issuance."""
 
     value: LifecycleV2AuthenticatedRecoveryIntent
@@ -116,7 +115,7 @@ class _LifecycleV2RecoveryIntentIssuanceSnapshot:
     origin_pid: int
     origin_thread: threading.Thread
     origin_fork_epoch: object
-    capability: object
+    provenance: str
 
 
 def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
@@ -128,11 +127,9 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
 ]:
     """Own issuance snapshots and one-use state outside caller-held values."""
 
-    snapshots: dict[int, _LifecycleV2RecoveryIntentIssuanceSnapshot] = {}
-    consumed: set[int] = set()
-    consumed_nonces: set[tuple[str, str]] = set()
-    production_capability = object()
-    fake_capability = object()
+    snapshot_state: tuple[_LifecycleV2RecoveryIntentIssuanceSnapshot, ...] = ()
+    consumed_state: frozenset[int] = frozenset()
+    nonce_state: frozenset[tuple[str, str]] = frozenset()
     adapter_unwrap: Callable[[object], object] | None = None
     import_adapter = importlib.import_module
     get_call_frame = sys._getframe
@@ -171,11 +168,84 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
         "require_issuance",
         "set_attribute",
     )
-    canonicalize_inputs = _canonical_recovery_inputs
-    build_intent_value = _build_recovery_intent_value
-    validate_issuance = _require_lifecycle_v2_recovery_intent_issuance
+    decode_envelope = decode_lifecycle_v2_recovery_classification_envelope
+    decode_root = decode_lifecycle_v2_root
+    decode_transcript = decode_lifecycle_v2_transcript
+    original_canonicalize_inputs = _canonical_recovery_inputs
+    original_record_builder = _recovery_intent_record
+    original_build_intent_value = _build_recovery_intent_value
+    original_validate_issuance = _require_lifecycle_v2_recovery_intent_issuance
     lock = threading.Lock()
     fork_epoch = object()
+
+    def canonicalize_inputs(
+        *,
+        envelope: LifecycleV2RecoveryClassificationEnvelope,
+        root: LifecycleV2Root,
+        classified_transcript: LifecycleV2Transcript,
+    ) -> tuple[
+        LifecycleV2RecoveryClassificationEnvelope,
+        LifecycleV2Root,
+        LifecycleV2Transcript,
+    ]:
+        return original_canonicalize_inputs(
+            envelope=envelope,
+            root=root,
+            classified_transcript=classified_transcript,
+            _decode_envelope=decode_envelope,
+            _decode_root=decode_root,
+            _decode_transcript=decode_transcript,
+        )
+
+    def build_record(
+        *,
+        envelope: LifecycleV2RecoveryClassificationEnvelope,
+        root: LifecycleV2Root,
+        classified_transcript: LifecycleV2Transcript,
+        recorded_at_utc: str,
+    ) -> LifecycleV2ProgressRecord:
+        return original_record_builder(
+            envelope=envelope,
+            root=root,
+            classified_transcript=classified_transcript,
+            recorded_at_utc=recorded_at_utc,
+            _canonicalize=canonicalize_inputs,
+        )
+
+    def build_intent_value(
+        *,
+        envelope: LifecycleV2RecoveryClassificationEnvelope,
+        root: LifecycleV2Root,
+        classified_transcript: LifecycleV2Transcript,
+        recorded_at_utc: str,
+        capability: object,
+        origin_pid: int,
+        origin_thread: threading.Thread,
+    ) -> LifecycleV2AuthenticatedRecoveryIntent:
+        return original_build_intent_value(
+            envelope=envelope,
+            root=root,
+            classified_transcript=classified_transcript,
+            recorded_at_utc=recorded_at_utc,
+            capability=capability,
+            origin_pid=origin_pid,
+            origin_thread=origin_thread,
+            _canonicalize=canonicalize_inputs,
+            _record_builder=build_record,
+        )
+
+    def validate_issuance(
+        value: object,
+        snapshot: _LifecycleV2RecoveryIntentIssuanceSnapshot,
+    ) -> LifecycleV2AuthenticatedRecoveryIntent:
+        return original_validate_issuance(
+            value,
+            snapshot,
+            _decode_envelope=decode_envelope,
+            _decode_root=decode_root,
+            _decode_transcript=decode_transcript,
+            _record_builder=build_record,
+        )
 
     def invalidate_after_fork() -> None:
         nonlocal fork_epoch
@@ -256,16 +326,36 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
             del caller
         adapter_unwrap = endpoint
 
-    def issue(
+    production_derive_code: CodeType | None = None
+    fake_mint_code: CodeType | None = None
+    consume_code: CodeType | None = None
+
+    def register_issued_intent(
         value: LifecycleV2AuthenticatedRecoveryIntent,
         *,
         envelope_encoded: bytes,
         root_encoded: bytes,
         classified_transcript_encoded: bytes,
         recorded_at_utc: str,
-        capability: object,
+        provenance: str,
     ) -> None:
-        key = id(value)
+        nonlocal snapshot_state
+        caller = get_call_frame(1)
+        try:
+            caller_code = caller.f_code
+        finally:
+            del caller
+        expected_provenance = (
+            "production_authenticated_recovery"
+            if caller_code is production_derive_code
+            else "fake_test_recovery"
+            if caller_code is fake_mint_code
+            else None
+        )
+        if provenance != expected_provenance:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery intent issuance caller is not authorized"
+            )
         snapshot = _LifecycleV2RecoveryIntentIssuanceSnapshot(
             value=value,
             envelope_encoded=envelope_encoded,
@@ -280,22 +370,25 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
             origin_pid=value._origin_pid,
             origin_thread=value._origin_thread,
             origin_fork_epoch=fork_epoch,
-            capability=capability,
+            provenance=provenance,
         )
+        validate_issuance(value, snapshot)
         with lock:
-            if key in snapshots:
+            if any(candidate.value is value for candidate in snapshot_state):
                 raise TrustedTimeGracefulStopV2Rejected(
                     "recovery intent identity was already issued"
                 )
-            snapshots[key] = snapshot
+            snapshot_state = (*snapshot_state, snapshot)
 
-    def lookup(
-        value: object,
-        *,
-        consume: bool,
-    ) -> _LifecycleV2RecoveryIntentIssuanceSnapshot:
-        key = id(value)
-        owner_snapshot = snapshots.get(key)
+    def read_snapshot(value: object) -> _LifecycleV2RecoveryIntentIssuanceSnapshot:
+        owner_snapshot = next(
+            (
+                candidate
+                for candidate in snapshot_state
+                if candidate.value is value
+            ),
+            None,
+        )
         if owner_snapshot is None:
             raise TrustedTimeGracefulStopV2Rejected(
                 "authenticated recovery intent has no exact issuance snapshot"
@@ -312,18 +405,59 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
                 "authenticated recovery intent owner is invalid"
             )
         with lock:
-            snapshot = snapshots.get(key)
-            if snapshot is None or snapshot.value is not value:
+            snapshot = next(
+                (
+                    candidate
+                    for candidate in snapshot_state
+                    if candidate.value is value
+                ),
+                None,
+            )
+            if snapshot is None:
                 raise TrustedTimeGracefulStopV2Rejected(
                     "authenticated recovery intent has no exact issuance snapshot"
                 )
-            if consume:
-                if key in consumed:
-                    raise TrustedTimeGracefulStopV2Rejected(
-                        "authenticated recovery intent was already consumed"
-                    )
-                consumed.add(key)
             return snapshot
+
+    def consume_snapshot(
+        value: object,
+    ) -> _LifecycleV2RecoveryIntentIssuanceSnapshot:
+        nonlocal consumed_state
+        caller = get_call_frame(1)
+        try:
+            if caller.f_code is not consume_code:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "recovery intent consumption caller is not authorized"
+                )
+        finally:
+            del caller
+        snapshot = read_snapshot(value)
+        key = id(value)
+        with lock:
+            if key in consumed_state:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "authenticated recovery intent was already consumed"
+                )
+            consumed_state = consumed_state | {key}
+        return snapshot
+
+    def reserve_production_nonce(root_sha256: str, nonce_sha256: str) -> None:
+        nonlocal nonce_state
+        caller = get_call_frame(1)
+        try:
+            if caller.f_code is not production_derive_code:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "recovery classification nonce caller is not authorized"
+                )
+        finally:
+            del caller
+        consumption_key = (root_sha256, nonce_sha256)
+        with lock:
+            if consumption_key in nonce_state:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "recovery classification nonce was already consumed"
+                )
+            nonce_state = nonce_state | {consumption_key}
 
     def derive_production(
         authenticated_envelope: object,
@@ -373,32 +507,26 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
             raise TrustedTimeGracefulStopV2Rejected(
                 "authenticated recovery classification crossed its sealed bindings"
             )
-        consumption_key = (
+        reserve_production_nonce(
             exact_root.sha256,
             exact_envelope.operator_nonce_sha256,
         )
-        with lock:
-            if consumption_key in consumed_nonces:
-                raise TrustedTimeGracefulStopV2Rejected(
-                    "recovery classification nonce was already consumed"
-                )
-            consumed_nonces.add(consumption_key)
         result = build_intent_value(
             envelope=exact_envelope,
             root=exact_root,
             classified_transcript=exact_transcript,
             recorded_at_utc=recorded_at_utc,
-            capability=production_capability,
+            capability="production_authenticated_recovery",
             origin_pid=getpid(),
             origin_thread=current_thread(),
         )
-        issue(
+        register_issued_intent(
             result,
             envelope_encoded=exact_envelope.encoded,
             root_encoded=exact_root.encoded,
             classified_transcript_encoded=exact_transcript.encoded,
             recorded_at_utc=recorded_at_utc,
-            capability=production_capability,
+            provenance="production_authenticated_recovery",
         )
         return require(result)
 
@@ -425,27 +553,31 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
             root=exact_root,
             classified_transcript=exact_transcript,
             recorded_at_utc=recorded_at_utc,
-            capability=fake_capability,
+            capability="fake_test_recovery",
             origin_pid=getpid(),
             origin_thread=current_thread(),
         )
-        issue(
+        register_issued_intent(
             result,
             envelope_encoded=exact_envelope.encoded,
             root_encoded=exact_root.encoded,
             classified_transcript_encoded=exact_transcript.encoded,
             recorded_at_utc=recorded_at_utc,
-            capability=fake_capability,
+            provenance="fake_test_recovery",
         )
         return require(result)
 
     def require(value: object) -> LifecycleV2AuthenticatedRecoveryIntent:
-        snapshot = lookup(value, consume=False)
+        snapshot = read_snapshot(value)
         return validate_issuance(value, snapshot)
 
     def consume(value: object) -> LifecycleV2AuthenticatedRecoveryIntent:
-        snapshot = lookup(value, consume=True)
+        snapshot = consume_snapshot(value)
         return validate_issuance(value, snapshot)
+
+    production_derive_code = derive_production.__code__
+    fake_mint_code = mint_fake.__code__
+    consume_code = consume.__code__
 
     return install_adapter_unwrap, derive_production, mint_fake, require, consume
 
@@ -891,18 +1023,23 @@ def _consume_authenticated_lifecycle_v2_recovery_classification_envelope(
 def _require_lifecycle_v2_recovery_intent_issuance(
     value: object,
     snapshot: _LifecycleV2RecoveryIntentIssuanceSnapshot,
+    *,
+    _decode_envelope: Callable[
+        [object], LifecycleV2RecoveryClassificationEnvelope
+    ],
+    _decode_root: Callable[[object], LifecycleV2Root],
+    _decode_transcript: Callable[[object], LifecycleV2Transcript],
+    _record_builder: Callable[..., LifecycleV2ProgressRecord],
 ) -> LifecycleV2AuthenticatedRecoveryIntent:
     if type(value) is not LifecycleV2AuthenticatedRecoveryIntent:
         raise TrustedTimeGracefulStopV2Rejected(
             "authenticated recovery intent owner or capability is invalid"
         )
     try:
-        exact_envelope = decode_lifecycle_v2_recovery_classification_envelope(
-            snapshot.envelope_encoded
-        )
-        exact_root = decode_lifecycle_v2_root(snapshot.root_encoded)
-        exact_transcript = decode_lifecycle_v2_transcript(snapshot.classified_transcript_encoded)
-        expected_record = _recovery_intent_record(
+        exact_envelope = _decode_envelope(snapshot.envelope_encoded)
+        exact_root = _decode_root(snapshot.root_encoded)
+        exact_transcript = _decode_transcript(snapshot.classified_transcript_encoded)
+        expected_record = _record_builder(
             envelope=exact_envelope,
             root=exact_root,
             classified_transcript=exact_transcript,
@@ -922,7 +1059,7 @@ def _require_lifecycle_v2_recovery_intent_issuance(
         ) from error
     if (
         snapshot.value is not value
-        or value_capability is not snapshot.capability
+        or value_capability != snapshot.provenance
         or value_origin_pid != snapshot.origin_pid
         or value_origin_thread is not snapshot.origin_thread
         or exact_envelope.encoded != snapshot.envelope_encoded

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import base64
 import copy
+import gc
 import hashlib
 import os
 import threading
+from contextlib import suppress
 from dataclasses import dataclass
-from types import SimpleNamespace
+from types import FunctionType, MappingProxyType, MethodType, SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -14,6 +16,7 @@ import pytest
 from packages.domain import trusted_time_graceful_stop_v2 as core_module
 from packages.domain import trusted_time_graceful_stop_v2_recovery as recovery
 from packages.domain.trusted_time_graceful_stop_v2 import (
+    LIFECYCLE_ROOT_FILE_NAME,
     LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
     LIFECYCLE_V2_SERVICE,
     LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION,
@@ -60,6 +63,32 @@ ARTIFACT_DIRECTORY = "/injected/adr0121/trusted-time"
 
 def _digest(label: str) -> str:
     return hashlib.sha256(label.encode("ascii")).hexdigest()
+
+
+def _assert_no_mutable_module_closure_state(*roots: object, module_name: str) -> None:
+    pending = list(roots)
+    seen: set[int] = set()
+    while pending:
+        value = pending.pop()
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        assert not isinstance(value, (dict, list, set))
+        if isinstance(value, FunctionType) and value.__module__ == module_name:
+            pending.extend(
+                cell.cell_contents
+                for cell in value.__closure__ or ()
+            )
+            pending.extend(value.__defaults__ or ())
+            pending.extend((value.__kwdefaults__ or {}).values())
+        elif isinstance(value, MethodType):
+            pending.extend((value.__func__, value.__self__))
+        elif isinstance(value, (tuple, frozenset, MappingProxyType)):
+            if isinstance(value, MappingProxyType):
+                pending.extend(value.keys())
+                pending.extend(value.values())
+            else:
+                pending.extend(value)
 
 
 def _root(*, environment: str = "test") -> LifecycleV2Root:
@@ -732,9 +761,16 @@ def test_unbound_docker_or_volume_semantic_is_rejected_live_and_on_restart(
     ):
         repository.retain_effect_result(changed)
 
+    valid_scenario = _scenario()
+    valid_lineage = _complete_lineage(valid_scenario)
+    valid_original = valid_lineage.record_at(ordinal)
+    valid_evidence = valid_original.evidence.to_dict()
+    valid_evidence["result_semantic"] = {"attacker_controlled": True}
+    valid_evidence["result_semantic_sha256"] = "f" * 64
+    valid_changed = _unsafe_record_with_evidence(valid_original, valid_evidence)
     valid_store = _SealedLineageArtifactStore()
-    _retain_sealed_success_prefix(valid_store, scenario, lineage)
-    initial = _replace_record_artifact(valid_store, original, changed)
+    _retain_sealed_success_prefix(valid_store, valid_scenario, valid_lineage)
+    initial = _replace_record_artifact(valid_store, valid_original, valid_changed)
     with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
         _repository(_SealedLineageArtifactStore(initial=initial))
 
@@ -763,9 +799,19 @@ def test_unbound_terminal_cleanup_intent_is_rejected_live_and_on_restart() -> No
     ):
         repository.retain_terminal_cleanup_intent(changed)
 
+    valid_scenario = _scenario()
+    valid_lineage = _complete_lineage(valid_scenario)
+    valid_original = valid_lineage.record_at(21)
+    valid_value = valid_original.to_dict()
+    valid_evidence = cast(dict[str, object], valid_value["evidence"])
+    valid_evidence["transport_quiescence_record_sha256"] = "f" * 64
+    valid_evidence["supervisor_remove_result_sha256"] = "e" * 64
+    valid_changed = decode_lifecycle_v2_progress_record(
+        canonical_v2_json_bytes(valid_value, maximum_bytes=256 * 1_024)
+    )
     valid_store = _SealedLineageArtifactStore()
-    _retain_sealed_success_prefix(valid_store, scenario, lineage)
-    initial = _replace_record_artifact(valid_store, original, changed)
+    _retain_sealed_success_prefix(valid_store, valid_scenario, valid_lineage)
+    initial = _replace_record_artifact(valid_store, valid_original, valid_changed)
     with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
         _repository(_SealedLineageArtifactStore(initial=initial))
 
@@ -792,9 +838,17 @@ def test_unbound_terminal_cleanup_result_is_rejected_live_and_on_restart() -> No
     ):
         repository.retain_terminal_cleanup_result(changed)
 
+    valid_scenario = _scenario()
+    valid_lineage = _complete_lineage(valid_scenario)
+    valid_original = valid_lineage.record_at(22)
+    valid_evidence = valid_original.evidence.to_dict()
+    valid_evidence["cleanup_intent_sha256"] = "e" * 64
+    valid_evidence["empty_mount_projection_sha256"] = "d" * 64
+    valid_evidence["native_owner_cleanup_receipt_sha256"] = "c" * 64
+    valid_changed = _unsafe_record_with_evidence(valid_original, valid_evidence)
     valid_store = _SealedLineageArtifactStore()
-    _retain_sealed_success_prefix(valid_store, scenario, lineage)
-    initial = _replace_record_artifact(valid_store, original, changed)
+    _retain_sealed_success_prefix(valid_store, valid_scenario, valid_lineage)
+    initial = _replace_record_artifact(valid_store, valid_original, valid_changed)
     with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
         _repository(_SealedLineageArtifactStore(initial=initial))
 
@@ -1168,6 +1222,509 @@ def test_replacing_fake_recovery_builder_cannot_register_a_forged_intent(
     assert recovery.require_authenticated_lifecycle_v2_recovery_intent(issued) is issued
 
 
+def test_recovery_gc_introspection_cannot_forge_intent_consume_or_nonce_state() -> None:
+    root, transcript = _classified_recovery_inputs()
+    envelope = _recovery_envelope(root, transcript)
+    authentic = _fake_recovery_intent(root, transcript)
+    forged = copy.copy(authentic)
+
+    fake_builder = recovery._build_injected_fake_lifecycle_v2_recovery_intent
+    fake_closure = dict(
+        zip(
+            fake_builder.__code__.co_freevars,
+            fake_builder.__closure__ or (),
+            strict=True,
+        )
+    )
+    register = fake_closure["register_issued_intent"].cell_contents
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="caller"):
+        register(
+            forged,
+            envelope_encoded=envelope.encoded,
+            root_encoded=root.encoded,
+            classified_transcript_encoded=transcript.encoded,
+            recorded_at_utc=UTC_TEXT,
+            provenance="fake_test_recovery",
+        )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="issuance snapshot"):
+        recovery.require_authenticated_lifecycle_v2_recovery_intent(forged)
+
+    require = recovery.require_authenticated_lifecycle_v2_recovery_intent
+    require_closure = dict(
+        zip(require.__code__.co_freevars, require.__closure__ or (), strict=True)
+    )
+    read_snapshot = require_closure["read_snapshot"].cell_contents
+    read_closure = dict(
+        zip(
+            read_snapshot.__code__.co_freevars,
+            read_snapshot.__closure__ or (),
+            strict=True,
+        )
+    )
+    snapshot_state = read_closure["snapshot_state"].cell_contents
+    assert type(snapshot_state) is tuple
+    assert not any(type(referent) is dict for referent in gc.get_referents(snapshot_state))
+    snapshot = next(
+        candidate for candidate in snapshot_state if candidate.value is authentic
+    )
+    snapshot.__init__(
+        *snapshot._replace(provenance="production_authenticated_recovery")
+    )
+    assert snapshot.provenance == "fake_test_recovery"
+    with pytest.raises(AttributeError):
+        object.__setattr__(snapshot, "provenance", "production_authenticated_recovery")
+
+    consume = recovery.consume_authenticated_lifecycle_v2_recovery_intent
+    consume_closure = dict(
+        zip(consume.__code__.co_freevars, consume.__closure__ or (), strict=True)
+    )
+    consume_snapshot = consume_closure["consume_snapshot"].cell_contents
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="caller"):
+        consume_snapshot(authentic)
+    assert recovery.consume_authenticated_lifecycle_v2_recovery_intent(authentic) is authentic
+    consume_snapshot_closure = dict(
+        zip(
+            consume_snapshot.__code__.co_freevars,
+            consume_snapshot.__closure__ or (),
+            strict=True,
+        )
+    )
+    consumed_state = consume_snapshot_closure["consumed_state"].cell_contents
+    assert type(consumed_state) is frozenset
+    assert id(authentic) in consumed_state
+    assert not any(
+        type(referent) in {dict, list, set, bytearray}
+        for referent in gc.get_referents(consumed_state)
+    )
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="already consumed"):
+        recovery.consume_authenticated_lifecycle_v2_recovery_intent(authentic)
+
+    derive = recovery._derive_authenticated_lifecycle_v2_recovery_intent
+    derive_closure = dict(
+        zip(derive.__code__.co_freevars, derive.__closure__ or (), strict=True)
+    )
+    reserve_nonce = derive_closure["reserve_production_nonce"].cell_contents
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="caller"):
+        reserve_nonce(root.sha256, envelope.operator_nonce_sha256)
+    reserve_closure = dict(
+        zip(
+            reserve_nonce.__code__.co_freevars,
+            reserve_nonce.__closure__ or (),
+            strict=True,
+        )
+    )
+    nonce_state = reserve_closure["nonce_state"].cell_contents
+    assert type(nonce_state) is frozenset
+    assert not any(
+        type(referent) in {dict, list, set, bytearray}
+        for referent in gc.get_referents(nonce_state)
+    )
+
+    _assert_no_mutable_module_closure_state(
+        fake_builder,
+        derive,
+        require,
+        recovery.consume_authenticated_lifecycle_v2_recovery_intent,
+        module_name=recovery.__name__,
+    )
+
+
+def test_recovery_builder_defaults_cannot_substitute_authenticated_classification() -> None:
+    store = FakeLifecycleV2ArtifactStore()
+    root = _root()
+    basis = LifecycleV2CleanStopRequestBasis.from_root(root)
+    repository = _repository(store)
+    repository.reserve_root(root)
+    repository.retain_request_intent(_request_intent(root, basis), basis)
+    transcript = repository.publish_transcript()
+    authenticated = _recovery_envelope(
+        root,
+        transcript,
+        reason="deadline_expired",
+    )
+    substituted = _recovery_envelope(
+        root,
+        transcript,
+        reason="lock_lost",
+        nonce=b"Z" * 32,
+    )
+
+    fake_builder = recovery._build_injected_fake_lifecycle_v2_recovery_intent
+    fake_closure = dict(
+        zip(
+            fake_builder.__code__.co_freevars,
+            fake_builder.__closure__ or (),
+            strict=True,
+        )
+    )
+    build_intent = fake_closure["build_intent_value"].cell_contents
+    build_closure = dict(
+        zip(
+            build_intent.__code__.co_freevars,
+            build_intent.__closure__ or (),
+            strict=True,
+        )
+    )
+    original_build_intent = build_closure["original_build_intent_value"].cell_contents
+    build_defaults = original_build_intent.__kwdefaults__
+    assert build_defaults is not None
+    record_builder = build_defaults["_record_builder"]
+    record_defaults = record_builder.__kwdefaults__
+    assert record_defaults is not None
+    original_canonicalizer = record_defaults["_canonicalize"]
+
+    def substitute_classification(
+        *,
+        envelope: LifecycleV2RecoveryClassificationEnvelope,
+        root: LifecycleV2Root,
+        classified_transcript: Any,
+    ) -> tuple[LifecycleV2RecoveryClassificationEnvelope, LifecycleV2Root, Any]:
+        del envelope
+        return substituted, root, classified_transcript
+
+    try:
+        record_defaults["_canonicalize"] = substitute_classification
+        intent = recovery._build_injected_fake_lifecycle_v2_recovery_intent(
+            envelope=authenticated,
+            root=root,
+            classified_transcript=transcript,
+            recorded_at_utc=UTC_TEXT,
+        )
+        assert recovery.require_authenticated_lifecycle_v2_recovery_intent(intent) is intent
+        repository.retain_recovery_classification_intent(intent)
+        repository.publish_transcript()
+        outcome, _commit = repository.commit_recovery_outcome(
+            clock=_Clock([root.admission_started_boottime_ns]),
+            created_at_utc=UTC_TEXT,
+        )
+    finally:
+        record_defaults["_canonicalize"] = original_canonicalizer
+
+    assert intent.recovery_classification_envelope_sha256 == authenticated.sha256
+    assert (
+        intent.record.evidence.to_dict()["recovery_classification_envelope_sha256"]
+        == authenticated.sha256
+    )
+    assert intent.record.evidence.to_dict()["reason_code"] == "deadline_expired"
+    assert outcome.to_dict()["reason_code"] == "deadline_expired"
+
+
+def test_recovery_builder_defaults_cannot_cross_fake_intent_into_production_record() -> None:
+    test_root, test_transcript = _classified_recovery_inputs()
+    production_root, production_transcript = _classified_recovery_inputs(
+        environment="production"
+    )
+    production_envelope = _recovery_envelope(
+        production_root,
+        production_transcript,
+        reason="source_stop_unconfirmed",
+        nonce=b"P" * 32,
+    )
+    fake_builder = recovery._build_injected_fake_lifecycle_v2_recovery_intent
+    fake_closure = dict(
+        zip(
+            fake_builder.__code__.co_freevars,
+            fake_builder.__closure__ or (),
+            strict=True,
+        )
+    )
+    build_intent = fake_closure["build_intent_value"].cell_contents
+    build_closure = dict(
+        zip(
+            build_intent.__code__.co_freevars,
+            build_intent.__closure__ or (),
+            strict=True,
+        )
+    )
+    original_build_intent = build_closure["original_build_intent_value"].cell_contents
+    build_defaults = original_build_intent.__kwdefaults__
+    assert build_defaults is not None
+    record_builder = build_defaults["_record_builder"]
+    record_defaults = record_builder.__kwdefaults__
+    assert record_defaults is not None
+    original_canonicalizer = record_defaults["_canonicalize"]
+
+    def substitute_production_inputs(
+        **_kwargs: object,
+    ) -> tuple[
+        LifecycleV2RecoveryClassificationEnvelope,
+        LifecycleV2Root,
+        Any,
+    ]:
+        return production_envelope, production_root, production_transcript
+
+    try:
+        record_defaults["_canonicalize"] = substitute_production_inputs
+        intent = _fake_recovery_intent(test_root, test_transcript)
+        assert recovery.require_authenticated_lifecycle_v2_recovery_intent(intent) is intent
+        with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="exact test root"):
+            fake_builder(
+                envelope=production_envelope,
+                root=production_root,
+                classified_transcript=production_transcript,
+                recorded_at_utc=UTC_TEXT,
+            )
+    finally:
+        record_defaults["_canonicalize"] = original_canonicalizer
+
+    evidence = intent.record.evidence.to_dict()
+    assert intent.root_sha256 == test_root.sha256
+    assert intent.record.root_sha256 == test_root.sha256
+    assert evidence["recovery_classification_envelope_sha256"] != production_envelope.sha256
+    assert evidence["reason_code"] == "call_or_result_ambiguous"
+
+
+def test_recovery_commit_rejects_direct_repository_record_state_injection() -> None:
+    root = _root()
+    basis = LifecycleV2CleanStopRequestBasis.from_root(root)
+    repository = _repository(FakeLifecycleV2ArtifactStore())
+    repository.reserve_root(root)
+    repository.retain_request_intent(_request_intent(root, basis), basis)
+    transcript = repository.publish_transcript()
+    unauthenticated_record = recovery._recovery_intent_record(
+        envelope=_recovery_envelope(root, transcript, reason="lock_lost"),
+        root=root,
+        classified_transcript=transcript,
+        recorded_at_utc=UTC_TEXT,
+    )
+
+    repository._records = (*repository._records, unauthenticated_record)
+    repository.publish_transcript()
+
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="authenticated recovery intent",
+    ):
+        repository.commit_recovery_outcome(
+            clock=_Clock([root.admission_started_boottime_ns]),
+            created_at_utc=UTC_TEXT,
+        )
+
+
+def test_recovery_finalization_rejects_direct_outcome_state_injection() -> None:
+    root = _root()
+    basis = LifecycleV2CleanStopRequestBasis.from_root(root)
+    request = _request_intent(root, basis)
+
+    source = _repository(FakeLifecycleV2ArtifactStore())
+    source.reserve_root(root)
+    source.retain_request_intent(request, basis)
+    source_transcript = source.publish_transcript()
+    source.retain_recovery_classification_intent(
+        _fake_recovery_intent(root, source_transcript, reason="deadline_expired")
+    )
+    source.publish_transcript()
+    outcome, _commit = source.commit_recovery_outcome(
+        clock=_Clock([root.admission_started_boottime_ns]),
+        created_at_utc=UTC_TEXT,
+    )
+
+    target_root = core_module.decode_lifecycle_v2_root(root.encoded)
+    assert target_root == root
+    assert target_root is not root
+    target_basis = LifecycleV2CleanStopRequestBasis.from_root(target_root)
+    target_store = FakeLifecycleV2ArtifactStore()
+    target = _repository(target_store)
+    target.reserve_root(target_root)
+    target.retain_request_intent(_request_intent(target_root, target_basis), target_basis)
+    target.publish_transcript()
+    target._outcome = outcome
+
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="retained candidate",
+    ):
+        target.finalize_retained_outcome_commit()
+    assert LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME not in target_store.inventory().names
+
+
+def test_recovery_consumer_slot_replacement_cannot_replay_consumed_intent() -> None:
+    root = _root()
+    basis = LifecycleV2CleanStopRequestBasis.from_root(root)
+    request = _request_intent(root, basis)
+
+    first = _repository(FakeLifecycleV2ArtifactStore())
+    first.reserve_root(root)
+    first.retain_request_intent(request, basis)
+    classified = first.publish_transcript()
+    intent = _fake_recovery_intent(root, classified)
+    first.retain_recovery_classification_intent(intent)
+
+    second_root = core_module.decode_lifecycle_v2_root(root.encoded)
+    assert second_root == root
+    assert second_root is not root
+    second = _repository(FakeLifecycleV2ArtifactStore())
+    second.reserve_root(second_root)
+    second.retain_request_intent(
+        request,
+        LifecycleV2CleanStopRequestBasis.from_root(second_root),
+    )
+    assert second.publish_transcript() == classified
+    with suppress(AttributeError):
+        second._consume_recovery_intent = lambda value: value
+
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="invalid or already consumed",
+    ):
+        second.retain_recovery_classification_intent(intent)
+
+
+def test_recovery_authorization_cannot_be_redirected_to_an_empty_store() -> None:
+    root = _root()
+    basis = LifecycleV2CleanStopRequestBasis.from_root(root)
+    request = _request_intent(root, basis)
+    source_store = FakeLifecycleV2ArtifactStore()
+    repository = _repository(source_store)
+    repository.reserve_root(root)
+    repository.retain_request_intent(request, basis)
+    classified = repository.publish_transcript()
+    repository.retain_recovery_classification_intent(
+        _fake_recovery_intent(root, classified)
+    )
+
+    target_store = FakeLifecycleV2ArtifactStore()
+    assert target_store.identity == repository.artifact_store_identity
+    try:
+        repository._store = target_store
+    except AttributeError:
+        assert target_store.inventory().names == ()
+        return
+    repository.publish_transcript()
+    with pytest.raises(
+        (
+            persistence.LifecycleV2RepositoryRejected,
+            persistence.LifecycleV2RetentionUnconfirmed,
+        )
+    ):
+        repository.commit_recovery_outcome(
+            clock=_Clock([root.admission_started_boottime_ns]),
+            created_at_utc=UTC_TEXT,
+        )
+    assert LIFECYCLE_ROOT_FILE_NAME not in target_store.inventory().names
+    assert not any("-record-" in name for name in target_store.inventory().names)
+    assert LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME not in target_store.inventory().names
+
+
+def test_reopened_state_transfer_cannot_authorize_confirmed_success() -> None:
+    store = _SealedLineageArtifactStore()
+    live, root, lineage = _complete_sealed_success_prefix(store)
+    initial = {
+        name: store.read_stable(name).encoded for name in store.inventory().names
+    }
+    reopened = _repository(_SealedLineageArtifactStore(initial=initial))
+    assert reopened._opened_with_existing_root is True
+    assert reopened._root == live._root
+    assert reopened._root is not live._root
+    assert reopened._records == live._records
+    assert any(
+        decoded is not retained
+        for decoded, retained in zip(
+            reopened._records,
+            live._records,
+            strict=True,
+        )
+    )
+
+    reopened._opened_with_existing_root = False
+    reopened._root = live._root
+    reopened._records = live._records
+
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="live newly reserved root",
+    ):
+        reopened.commit_confirmed_success(
+            lineage=lineage,
+            clock=_Clock(
+                [
+                    root.admission_started_boottime_ns + 100,
+                    root.admission_started_boottime_ns + 101,
+                ]
+            ),
+            precommit_disposer=_Disposer(),
+            created_at_utc=UTC_TEXT,
+        )
+
+
+def test_unpoisoning_repository_flags_cannot_restore_marker_authority() -> None:
+    store = FakeLifecycleV2ArtifactStore(
+        fault=FakePublicationFault(operation="commit", phase="before")
+    )
+    repository, root = _recovery_prefix(store)
+    with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
+        repository.commit_recovery_outcome(
+            clock=_Clock([root.admission_started_boottime_ns]),
+            created_at_utc=UTC_TEXT,
+        )
+    assert repository._poisoned is True
+    assert repository._outcome is not None
+    assert repository._commit is None
+    repository.close()
+    assert repository._closed is True
+
+    repository._poisoned = False
+    repository._closed = False
+    repository._store_disposed = False
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="one exact retained candidate",
+    ):
+        repository.finalize_retained_outcome_commit()
+
+
+def test_loaded_candidate_cannot_gain_marker_authority_in_another_store() -> None:
+    source_store = FakeLifecycleV2ArtifactStore()
+    source, root = _recovery_prefix(source_store)
+    outcome, _commit = source.commit_recovery_outcome(
+        clock=_Clock([root.admission_started_boottime_ns]),
+        created_at_utc=UTC_TEXT,
+    )
+    initial = {
+        name: source_store.read_stable(name).encoded
+        for name in source_store.inventory().names
+        if name != LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME
+    }
+    assert outcome.file_name in initial
+
+    target_store = FakeLifecycleV2ArtifactStore(initial=initial)
+    assert target_store is not source_store
+    assert target_store.identity == source_store.identity
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="publication history",
+    ):
+        _repository(target_store)
+    assert LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME not in target_store.inventory().names
+
+
+def test_completed_candidate_history_cannot_be_restored_by_repository_flags() -> None:
+    store = FakeLifecycleV2ArtifactStore()
+    repository, root = _recovery_prefix(store)
+    outcome, commit = repository.commit_recovery_outcome(
+        clock=_Clock([root.admission_started_boottime_ns]),
+        created_at_utc=UTC_TEXT,
+    )
+    marker_encoded = store.read_stable(
+        LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME
+    ).encoded
+    assert commit.to_dict()["outcome_sha256"] == outcome.sha256
+
+    repository._commit = None
+    repository._poisoned = False
+    repository._closed = False
+    repository._store_disposed = False
+    with pytest.raises(
+        persistence.LifecycleV2RepositoryRejected,
+        match="one exact retained candidate",
+    ):
+        repository.finalize_retained_outcome_commit()
+    assert (
+        store.read_stable(LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME).encoded
+        == marker_encoded
+    )
+
+
 def test_docker_result_rule_replacement_cannot_authorize_durable_recovery_prefix() -> None:
     scenario = _scenario()
     lineage = _complete_lineage(scenario)
@@ -1352,7 +1909,10 @@ def test_normal_stage_rule_mutation_cannot_authorize_durable_recovery_prefix(
 def test_repository_ignores_replaced_recovery_consumer_globals(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    root, transcript = _classified_recovery_inputs()
+    classified_root, transcript = _classified_recovery_inputs()
+    root = core_module.decode_lifecycle_v2_root(classified_root.encoded)
+    assert root == classified_root
+    assert root is not classified_root
     repository = _repository(FakeLifecycleV2ArtifactStore())
     basis = LifecycleV2CleanStopRequestBasis.from_root(root)
     repository.reserve_root(root)
@@ -1584,6 +2144,29 @@ def test_production_recovery_nonce_replay_is_independent_of_pid_globals() -> Non
         )
     )
     first_repository.retain_recovery_classification_intent(first_recovery)
+    derive_closure = dict(
+        zip(
+            recovery._derive_authenticated_lifecycle_v2_recovery_intent.__code__.co_freevars,
+            recovery._derive_authenticated_lifecycle_v2_recovery_intent.__closure__
+            or (),
+            strict=True,
+        )
+    )
+    reserve_nonce = derive_closure["reserve_production_nonce"].cell_contents
+    reserve_closure = dict(
+        zip(
+            reserve_nonce.__code__.co_freevars,
+            reserve_nonce.__closure__ or (),
+            strict=True,
+        )
+    )
+    nonce_state = reserve_closure["nonce_state"].cell_contents
+    expected_nonce_key = (root.sha256, hashlib.sha256(nonce).hexdigest())
+    assert expected_nonce_key in nonce_state
+    assert not any(
+        type(referent) in {dict, list, set, bytearray}
+        for referent in gc.get_referents(nonce_state)
+    )
 
     second, second_root, second_transcript, _ = (
         transport_fx._authenticated_recovery_for_consumption(nonce=nonce)
@@ -1815,15 +2398,24 @@ def test_mutated_sealed_lineage_cannot_authorize_success() -> None:
     assert not any("outcome-" in name for name in store.inventory().names)
 
 
-def test_first_success_store_attempt_burns_lineage_across_cloned_repositories() -> None:
+def test_first_success_store_attempt_cannot_transfer_to_equal_root_repository() -> None:
     scenario = _scenario()
     lineage = _complete_lineage(scenario)
     first_store = _SealedLineageArtifactStore(
         fault=FakePublicationFault(operation="outcome", phase="before")
     )
+    second_scenario = _scenario()
+    second_lineage = _complete_lineage(second_scenario)
+    assert second_scenario.root == scenario.root
+    assert second_scenario.root is not scenario.root
     second_store = _SealedLineageArtifactStore()
     first = _retain_sealed_success_prefix(first_store, scenario, lineage)
-    second = _retain_sealed_success_prefix(second_store, scenario, lineage)
+    second = _retain_sealed_success_prefix(
+        second_store,
+        second_scenario,
+        second_lineage,
+    )
+    second_records = second._records
     sample = scenario.root.admission_started_boottime_ns + 100
 
     with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
@@ -1833,6 +2425,7 @@ def test_first_success_store_attempt_burns_lineage_across_cloned_repositories() 
             precommit_disposer=_Disposer(),
             created_at_utc=UTC_TEXT,
         )
+    second._records = first._records
     with pytest.raises(
         persistence.LifecycleV2RepositoryRejected,
         match="sealed exact ordinal-22 lineage",
@@ -1844,7 +2437,14 @@ def test_first_success_store_attempt_burns_lineage_across_cloned_repositories() 
             created_at_utc=UTC_TEXT,
         )
 
-    assert not any("outcome-" in name for name in second_store.inventory().names)
+    second._records = second_records
+    outcome, _commit = second.commit_confirmed_success(
+        lineage=second_lineage,
+        clock=_Clock([sample, sample + 1]),
+        precommit_disposer=_Disposer(),
+        created_at_utc=UTC_TEXT,
+    )
+    assert outcome.status == "confirmed_success"
 
 
 def test_confirmed_success_orders_readback_disposal_final_sample_then_marker() -> None:

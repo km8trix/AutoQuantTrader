@@ -9,13 +9,14 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import sys
 import threading
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from types import CodeType
-from typing import Any, Protocol, cast
+from typing import Any, NamedTuple, Protocol, cast
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_ROOT_FILE_NAME,
@@ -510,6 +511,7 @@ class _LifecycleV2Repository:
         "_poisoned",
         "_records",
         "_require_recovery_intent",
+        "_require_success_reservation",
         "_retained_wire_verifier",
         "_root",
         "_store",
@@ -518,6 +520,53 @@ class _LifecycleV2Repository:
         "_success_snapshot_type",
         "_wire",
     )
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if name in (
+            "_artifact_directory_path",
+            "_consume_recovery_intent",
+            "_consume_success_lineage",
+            "_consume_success_snapshot",
+            "_origin_current_thread",
+            "_origin_getpid",
+            "_origin_pid",
+            "_origin_thread",
+            "_require_recovery_intent",
+            "_require_success_reservation",
+            "_retained_wire_verifier",
+            "_store",
+            "_store_identity",
+            "_success_snapshot_type",
+        ):
+            try:
+                object.__getattribute__(self, name)
+            except AttributeError:
+                pass
+            else:
+                raise AttributeError(
+                    "repository authority dependencies are write-once"
+                )
+        object.__setattr__(self, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        if name in (
+            "_artifact_directory_path",
+            "_consume_recovery_intent",
+            "_consume_success_lineage",
+            "_consume_success_snapshot",
+            "_origin_current_thread",
+            "_origin_getpid",
+            "_origin_pid",
+            "_origin_thread",
+            "_require_recovery_intent",
+            "_require_success_reservation",
+            "_retained_wire_verifier",
+            "_store",
+            "_store_identity",
+            "_success_snapshot_type",
+        ):
+            raise AttributeError("repository authority dependencies cannot be deleted")
+        object.__delattr__(self, name)
 
     def __init__(
         self,
@@ -528,9 +577,10 @@ class _LifecycleV2Repository:
         _origin_getpid: Callable[[], int],
         _origin_current_thread: Callable[[], threading.Thread],
         _require_recovery_intent: Callable[[object], object],
+        _require_success_reservation: Callable[[object], None],
         _consume_recovery_intent: Callable[[object], object],
         _consume_success_lineage: Callable[[object], object],
-        _consume_success_snapshot: Callable[[object], object],
+        _consume_success_snapshot: Callable[[object, object], object],
         _success_snapshot_type: type[object],
     ) -> None:
         self._store = store
@@ -540,6 +590,7 @@ class _LifecycleV2Repository:
         self._origin_pid = _origin_getpid()
         self._origin_thread = _origin_current_thread()
         self._require_recovery_intent = _require_recovery_intent
+        self._require_success_reservation = _require_success_reservation
         self._consume_recovery_intent = _consume_recovery_intent
         self._consume_success_lineage = _consume_success_lineage
         self._consume_success_snapshot = _consume_success_snapshot
@@ -1737,6 +1788,7 @@ class _LifecycleV2Repository:
             raise LifecycleV2RepositoryRejected(
                 "confirmed success requires one live newly reserved root"
             )
+        self._require_success_reservation(self)
         try:
             snapshot_value = self._consume_success_lineage(lineage)
         except (AttributeError, TypeError, TrustedTimeLifecycleV2SemanticsRejected) as error:
@@ -1825,7 +1877,7 @@ class _LifecycleV2Repository:
         )
         try:
             if (
-                self._consume_success_snapshot(snapshot)
+                self._consume_success_snapshot(self, snapshot)
                 is not snapshot
             ):
                 raise TrustedTimeLifecycleV2SemanticsRejected(
@@ -2296,7 +2348,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
             recovery_source,
             "require",
             "_lifecycle_v2_recovery_intent_issuance_registry.<locals>.require",
-            ("lookup", "validate_issuance"),
+            ("read_snapshot", "validate_issuance"),
         ),
         (
             consume_recovery_intent,
@@ -2304,7 +2356,7 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
             recovery_source,
             "consume",
             "_lifecycle_v2_recovery_intent_issuance_registry.<locals>.consume",
-            ("lookup", "validate_issuance"),
+            ("consume_snapshot", "validate_issuance"),
         ),
     )
     for endpoint, module_name, source, code_name, code_qualname, freevars in endpoint_specs:
@@ -2338,24 +2390,1166 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
             "repository success snapshot provenance is invalid"
         )
 
+    get_call_frame = sys._getframe
+    register_at_fork = getattr(os, "register_at_fork", None)
+    registry_lock = threading.RLock()
+    registry_fork_epoch = object()
+    success_commit_code = repository_type.commit_confirmed_success.__code__
+    outcome_type = LifecycleV2Outcome
+    recovery_stage = LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED
+    success_stage = LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED
+    request_stage = LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED
+    prepare_marker_basis = _LifecycleV2OutcomeCommitMarkerBasis.prepare
+    decode_commit = decode_lifecycle_v2_outcome_commit
+    marker_file_name = LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME
+    commit_budget_ns = LIFECYCLE_V2_COMMIT_BUDGET_NS
+    maximum_signed_integer = MAXIMUM_SIGNED_INTEGER
+
+    class _RepositoryOperationAuthorization(NamedTuple):
+        repository: _LifecycleV2Repository
+        store: LifecycleV2ArtifactStore
+        store_identity: tuple[str, int, int, int, int, int]
+        root: LifecycleV2Root
+        source_root: LifecycleV2Root
+        records: tuple[LifecycleV2ProgressRecord, ...]
+        record_encoded: tuple[bytes, ...]
+        kind: str
+        origin_pid: int
+        origin_thread: threading.Thread
+        fork_epoch: object
+
+    class _RepositoryCandidateAuthorization(NamedTuple):
+        repository: _LifecycleV2Repository
+        store: LifecycleV2ArtifactStore
+        store_identity: tuple[str, int, int, int, int, int]
+        root: LifecycleV2Root
+        records: tuple[LifecycleV2ProgressRecord, ...]
+        record_encoded: tuple[bytes, ...]
+        outcome: LifecycleV2Outcome
+        outcome_encoded: bytes
+        origin_pid: int
+        origin_thread: threading.Thread
+        fork_epoch: object
+
+    recovery_authorizations: tuple[_RepositoryOperationAuthorization, ...] = ()
+    recovery_authorization_history: tuple[
+        _RepositoryOperationAuthorization, ...
+    ] = ()
+    operation_authorizations: tuple[_RepositoryOperationAuthorization, ...] = ()
+    candidate_authorizations: tuple[_RepositoryCandidateAuthorization, ...] = ()
+    candidate_publication_history: tuple[
+        _RepositoryCandidateAuthorization, ...
+    ] = ()
+    root_reservation_authorizations: tuple[
+        _RepositoryOperationAuthorization, ...
+    ] = ()
+    root_reservation_history: tuple[_RepositoryOperationAuthorization, ...] = ()
+    reserve_root_code: CodeType | None = None
+    retain_recovery_code: CodeType | None = None
+    recovery_commit_code: CodeType | None = None
+    candidate_writer_code: CodeType | None = None
+    marker_writer_code: CodeType | None = None
+    finalizer_code: CodeType | None = None
+    repository_factory_code: CodeType | None = None
+
+    def invalidate_repository_authorizations_after_fork() -> None:
+        nonlocal registry_fork_epoch
+        nonlocal registry_lock
+        registry_fork_epoch = object()
+        registry_lock = threading.RLock()
+
+    if callable(register_at_fork):
+        register_at_fork(after_in_child=invalidate_repository_authorizations_after_fork)
+
+    def exact_caller_code(depth: int = 1) -> CodeType:
+        frame = get_call_frame(depth)
+        try:
+            return frame.f_code
+        finally:
+            del frame
+
+    def authorization_is_current(
+        value: _RepositoryOperationAuthorization | _RepositoryCandidateAuthorization,
+    ) -> bool:
+        return (
+            origin_getpid() == value.origin_pid
+            and origin_current_thread() is value.origin_thread
+            and value.fork_epoch is registry_fork_epoch
+        )
+
+    def repository_matches_authorization(
+        repository: _LifecycleV2Repository,
+        value: _RepositoryOperationAuthorization | _RepositoryCandidateAuthorization,
+    ) -> bool:
+        return (
+            value.repository is repository
+            and value.store is repository._store
+            and value.store_identity
+            == (
+                repository._store_identity.artifact_directory_path,
+                repository._store_identity.directory_device,
+                repository._store_identity.directory_inode,
+                repository._store_identity.owner_uid,
+                repository._store_identity.owner_gid,
+                repository._store_identity.directory_mode,
+            )
+            and repository._root is value.root
+            and repository._records == value.records
+            and len(repository._records) == len(value.records)
+            and all(
+                current is retained
+                for current, retained in zip(
+                    repository._records,
+                    value.records,
+                    strict=True,
+                )
+            )
+            and tuple(record.encoded for record in repository._records)
+            == value.record_encoded
+            and authorization_is_current(value)
+        )
+
+    def operation_authorization(
+        repository: _LifecycleV2Repository,
+        values: tuple[_RepositoryOperationAuthorization, ...],
+    ) -> _RepositoryOperationAuthorization | None:
+        return next(
+            (value for value in values if value.repository is repository),
+            None,
+        )
+
+    def candidate_authorization(
+        repository: _LifecycleV2Repository,
+    ) -> _RepositoryCandidateAuthorization | None:
+        return next(
+            (
+                value
+                for value in candidate_authorizations
+                if value.repository is repository
+            ),
+            None,
+        )
+
+    def new_operation_authorization(
+        repository: _LifecycleV2Repository,
+        *,
+        kind: str,
+        source_root: LifecycleV2Root | None = None,
+    ) -> _RepositoryOperationAuthorization:
+        root = repository._root
+        if type(root) is not LifecycleV2Root:
+            raise LifecycleV2RepositoryRejected(
+                "repository authorization requires one exact root"
+            )
+        records = repository._records
+        return _RepositoryOperationAuthorization(
+            repository=repository,
+            store=repository._store,
+            store_identity=(
+                repository._store_identity.artifact_directory_path,
+                repository._store_identity.directory_device,
+                repository._store_identity.directory_inode,
+                repository._store_identity.owner_uid,
+                repository._store_identity.owner_gid,
+                repository._store_identity.directory_mode,
+            ),
+            root=root,
+            source_root=root if source_root is None else source_root,
+            records=records,
+            record_encoded=tuple(record.encoded for record in records),
+            kind=kind,
+            origin_pid=origin_getpid(),
+            origin_thread=origin_current_thread(),
+            fork_epoch=registry_fork_epoch,
+        )
+
+    original_reserve_root = repository_type.reserve_root
+
+    def register_root_reservation(
+        repository: _LifecycleV2Repository,
+        source_root: LifecycleV2Root,
+    ) -> None:
+        nonlocal root_reservation_authorizations
+        nonlocal root_reservation_history
+        if exact_caller_code(2) is not reserve_root_code:
+            raise LifecycleV2RepositoryRejected(
+                "root reservation authorization caller is invalid"
+            )
+        with registry_lock:
+            authorization = new_operation_authorization(
+                repository,
+                kind="live_root_reservation",
+                source_root=source_root,
+            )
+            if (
+                repository._opened_with_existing_root
+                or authorization.records
+                or operation_authorization(
+                    repository,
+                    root_reservation_authorizations,
+                )
+                is not None
+                or any(
+                    value.source_root is authorization.source_root
+                    or (
+                        value.store is authorization.store
+                        and value.store_identity == authorization.store_identity
+                        and value.root == authorization.root
+                        and value.root.encoded == authorization.root.encoded
+                    )
+                    for value in root_reservation_history
+                )
+            ):
+                raise LifecycleV2RepositoryRejected(
+                    "live root reservation authorization is not unique"
+                )
+            root_reservation_authorizations = (
+                *root_reservation_authorizations,
+                authorization,
+            )
+            root_reservation_history = (*root_reservation_history, authorization)
+
+    def reserve_root_with_authorization(
+        self: _LifecycleV2Repository,
+        root: LifecycleV2Root,
+    ) -> None:
+        original_reserve_root(self, root)
+        register_root_reservation(self, root)
+
+    reserve_root_code = reserve_root_with_authorization.__code__
+
+    def reservation_matches_repository(
+        repository: _LifecycleV2Repository,
+        authorization: _RepositoryOperationAuthorization,
+    ) -> bool:
+        return (
+            authorization.kind == "live_root_reservation"
+            and authorization.repository is repository
+            and authorization.store is repository._store
+            and authorization.store_identity
+            == (
+                repository._store_identity.artifact_directory_path,
+                repository._store_identity.directory_device,
+                repository._store_identity.directory_inode,
+                repository._store_identity.owner_uid,
+                repository._store_identity.owner_gid,
+                repository._store_identity.directory_mode,
+            )
+            and repository._root is authorization.root
+            and repository._root.encoded == authorization.root.encoded
+            and authorization_is_current(authorization)
+        )
+
+    def revoke_repository_authorizations(
+        repository: _LifecycleV2Repository,
+    ) -> None:
+        nonlocal candidate_authorizations
+        nonlocal operation_authorizations
+        nonlocal recovery_authorizations
+        nonlocal root_reservation_authorizations
+        with registry_lock:
+            root_reservation_authorizations = tuple(
+                value
+                for value in root_reservation_authorizations
+                if value.repository is not repository
+            )
+            recovery_authorizations = tuple(
+                value
+                for value in recovery_authorizations
+                if value.repository is not repository
+            )
+            operation_authorizations = tuple(
+                value
+                for value in operation_authorizations
+                if value.repository is not repository
+            )
+            candidate_authorizations = tuple(
+                value
+                for value in candidate_authorizations
+                if value.repository is not repository
+            )
+
+    def require_success_reservation(repository: object) -> None:
+        if (
+            exact_caller_code(2) is not success_commit_code
+            or type(repository) is not repository_type
+        ):
+            raise LifecycleV2RepositoryRejected(
+                "confirmed success requires one live newly reserved root"
+            )
+        with registry_lock:
+            authorization = operation_authorization(
+                repository,
+                root_reservation_authorizations,
+            )
+            if authorization is None or not reservation_matches_repository(
+                repository,
+                authorization,
+            ):
+                raise LifecycleV2RepositoryRejected(
+                    "confirmed success requires one live newly reserved root"
+                )
+        expected_record_names = tuple(
+            sorted(
+                lifecycle_v2_progress_file_name(record)
+                for record in repository._records
+            )
+        )
+        retained_record_names = tuple(
+            name
+            for name in repository._inventory().names
+            if name.startswith(
+                "trusted-time-post-enrollment-graceful-stop-v2-record-"
+            )
+        )
+        if retained_record_names != expected_record_names:
+            raise LifecycleV2RepositoryRejected(
+                "confirmed success requires one live newly reserved root"
+            )
+
+    def register_recovery_authorization(
+        repository: _LifecycleV2Repository,
+        record: LifecycleV2ProgressRecord,
+    ) -> None:
+        nonlocal recovery_authorizations
+        nonlocal recovery_authorization_history
+        nonlocal root_reservation_authorizations
+        if exact_caller_code(2) is not retain_recovery_code:
+            raise LifecycleV2RepositoryRejected(
+                "recovery authorization registration caller is invalid"
+            )
+        with registry_lock:
+            if (
+                type(repository) is not repository_type
+                or not repository._records
+                or repository._records[-1] is not record
+                or record.stage is not recovery_stage
+                or operation_authorization(repository, recovery_authorizations)
+                is not None
+                or operation_authorization(repository, operation_authorizations)
+                is not None
+                or candidate_authorization(repository) is not None
+            ):
+                raise LifecycleV2RepositoryRejected(
+                    "authenticated recovery intent authorization is invalid"
+                )
+            authorization = new_operation_authorization(
+                repository,
+                kind="recovery_required",
+            )
+            recovery_authorizations = (*recovery_authorizations, authorization)
+            root_reservation_authorizations = tuple(
+                value
+                for value in root_reservation_authorizations
+                if value.repository is not repository
+            )
+            recovery_authorization_history = (
+                *recovery_authorization_history,
+                authorization,
+            )
+
+    def retain_recovery_intent_with_authorization(
+        self: _LifecycleV2Repository,
+        authenticated_intent: LifecycleV2AuthenticatedRecoveryIntent,
+    ) -> LifecycleV2ProgressRecord:
+        self._require_owner()
+        try:
+            exact_intent_value = require_recovery_intent(authenticated_intent)
+        except TrustedTimeGracefulStopV2Rejected as error:
+            raise LifecycleV2RepositoryRejected(
+                "recovery classification intent is not authenticated"
+            ) from error
+        if type(exact_intent_value) is not LifecycleV2AuthenticatedRecoveryIntent:
+            raise LifecycleV2RepositoryRejected(
+                "recovery classification intent type is not exact"
+            )
+        exact_intent = exact_intent_value
+        record = exact_intent.record
+        if record.stage is not recovery_stage:
+            raise LifecycleV2RepositoryRejected(
+                "recovery-classification stage is wrong"
+            )
+        self._require_record_binding(record)
+        classified_transcript = self._transcript()
+        if (
+            self._root is None
+            or exact_intent.root_sha256 != self._root.sha256
+            or exact_intent.classified_transcript_sha256
+            != classified_transcript.sha256
+            or record.evidence.to_dict()["classified_transcript_sha256"]
+            != classified_transcript.sha256
+        ):
+            raise LifecycleV2RepositoryRejected(
+                "recovery intent does not bind the classified prefix"
+            )
+        try:
+            if (
+                self._read_artifact(classified_transcript.file_name).encoded
+                != classified_transcript.encoded
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain
+        except BaseException as error:
+            self._burn()
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2RetentionUnconfirmed(
+                "classified transcript retention is unconfirmed"
+            ) from None
+        try:
+            consumed_intent_value = consume_recovery_intent(authenticated_intent)
+        except TrustedTimeGracefulStopV2Rejected as error:
+            raise LifecycleV2RepositoryRejected(
+                "recovery classification intent is invalid or already consumed"
+            ) from error
+        if type(consumed_intent_value) is not LifecycleV2AuthenticatedRecoveryIntent:
+            raise LifecycleV2RepositoryRejected(
+                "consumed recovery classification intent type is not exact"
+            )
+        consumed_intent = consumed_intent_value
+        if consumed_intent is not exact_intent or consumed_intent.record != record:
+            raise LifecycleV2RepositoryRejected(
+                "recovery classification intent changed before retention"
+            )
+        try:
+            record_name = lifecycle_v2_progress_file_name(consumed_intent.record)
+            self._publication_receipt(
+                self._store.publish_immutable(
+                    staging_name=_RECORD_STAGING_NAME,
+                    final_name=record_name,
+                    encoded=consumed_intent.record.encoded,
+                ),
+                final_name=record_name,
+                encoded=consumed_intent.record.encoded,
+            )
+            if self._read_artifact(record_name).encoded != consumed_intent.record.encoded:
+                raise LifecycleV2ArtifactPublicationUncertain
+        except BaseException as error:
+            self._burn()
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2RetentionUnconfirmed(
+                "progress retention may have begun"
+            ) from None
+        self._records = (*self._records, consumed_intent.record)
+        register_recovery_authorization(self, consumed_intent.record)
+        return consumed_intent.record
+
+    retain_recovery_code = retain_recovery_intent_with_authorization.__code__
+
+    def consume_success_snapshot_with_authorization(
+        repository: object,
+        value: object,
+    ) -> object:
+        nonlocal operation_authorizations
+        nonlocal root_reservation_authorizations
+        if (
+            exact_caller_code(2) is not success_commit_code
+            or type(repository) is not repository_type
+        ):
+            raise TrustedTimeLifecycleV2SemanticsRejected(
+                "confirmed-success repository snapshot caller is invalid"
+            )
+        exact_repository = repository
+        consumed = consume_success_snapshot(value)
+        if type(consumed) is not success_snapshot_type:
+            raise TrustedTimeLifecycleV2SemanticsRejected(
+                "confirmed-success repository snapshot type is not exact"
+            )
+        snapshot = cast(Any, consumed)
+        with registry_lock:
+            reservation = operation_authorization(
+                exact_repository,
+                root_reservation_authorizations,
+            )
+            if (
+                exact_repository._root is None
+                or reservation is None
+                or not reservation_matches_repository(
+                    exact_repository,
+                    reservation,
+                )
+                or snapshot.root is not reservation.source_root
+                or snapshot.root != exact_repository._root
+                or snapshot.root_encoded != exact_repository._root.encoded
+                or snapshot.records != exact_repository._records[1:]
+                or len(snapshot.records) != len(exact_repository._records) - 1
+                or any(
+                    current is not retained
+                    for current, retained in zip(
+                        snapshot.records,
+                        exact_repository._records[1:],
+                        strict=True,
+                    )
+                )
+                or operation_authorization(
+                    exact_repository,
+                    operation_authorizations,
+                )
+                is not None
+                or candidate_authorization(exact_repository) is not None
+            ):
+                raise TrustedTimeLifecycleV2SemanticsRejected(
+                    "confirmed-success repository snapshot crossed its exact prefix"
+                )
+            operation_authorizations = (
+                *operation_authorizations,
+                new_operation_authorization(
+                    exact_repository,
+                    kind="confirmed_success",
+                ),
+            )
+            root_reservation_authorizations = tuple(
+                value
+                for value in root_reservation_authorizations
+                if value is not reservation
+            )
+        return consumed
+
+    def consume_recovery_authorization(
+        repository: _LifecycleV2Repository,
+    ) -> None:
+        nonlocal recovery_authorizations
+        nonlocal operation_authorizations
+        if exact_caller_code(2) is not recovery_commit_code:
+            raise LifecycleV2RepositoryRejected(
+                "authenticated recovery intent authorization caller is invalid"
+            )
+        with registry_lock:
+            authorization = operation_authorization(
+                repository,
+                recovery_authorizations,
+            )
+            if (
+                authorization is None
+                or authorization.kind != "recovery_required"
+                or not repository_matches_authorization(repository, authorization)
+                or operation_authorization(repository, operation_authorizations)
+                is not None
+            ):
+                raise LifecycleV2RepositoryRejected(
+                    "recovery outcome requires one authenticated recovery intent"
+                )
+            recovery_authorizations = tuple(
+                value
+                for value in recovery_authorizations
+                if value is not authorization
+            )
+            operation_authorizations = (*operation_authorizations, authorization)
+
+    def outcome_matches_operation(
+        repository: _LifecycleV2Repository,
+        outcome: LifecycleV2Outcome,
+        authorization: _RepositoryOperationAuthorization,
+    ) -> bool:
+        if not repository_matches_authorization(repository, authorization):
+            return False
+        fields = outcome.to_dict()
+        if (
+            fields["status"] != authorization.kind
+            or fields["root_sha256"] != authorization.root.sha256
+            or fields["graceful_stop_operation_id"]
+            != authorization.root.graceful_stop_operation_id
+            or fields["transcript_sha256"] != repository._transcript().sha256
+            or not authorization.records
+        ):
+            return False
+        last_record = authorization.records[-1]
+        if authorization.kind == "recovery_required":
+            return (
+                last_record.stage is recovery_stage
+                and fields["predecessor_sha256"] == last_record.sha256
+                and fields["final_stage"] == recovery_stage.value
+                and fields["reason_code"]
+                == last_record.evidence.to_dict()["reason_code"]
+            )
+        return (
+            authorization.kind == "confirmed_success"
+            and len(authorization.records) == 22
+            and authorization.records[0].stage is request_stage
+            and last_record.stage is success_stage
+            and fields["predecessor_sha256"] == last_record.sha256
+            and fields["final_stage"] == success_stage.value
+        )
+
+    def consume_operation_for_candidate(
+        repository: _LifecycleV2Repository,
+        outcome: LifecycleV2Outcome,
+    ) -> _RepositoryOperationAuthorization:
+        nonlocal operation_authorizations
+        if (
+            exact_caller_code(2) is not candidate_writer_code
+            or exact_caller_code(3)
+            not in (recovery_commit_code, success_commit_code)
+        ):
+            raise LifecycleV2RepositoryRejected(
+                "outcome candidate authorization caller is invalid"
+            )
+        with registry_lock:
+            authorization = operation_authorization(
+                repository,
+                operation_authorizations,
+            )
+            if (
+                authorization is None
+                or not outcome_matches_operation(
+                    repository,
+                    outcome,
+                    authorization,
+                )
+            ):
+                raise LifecycleV2RepositoryRejected(
+                    "outcome candidate lacks exact repository authorization"
+                )
+            operation_authorizations = tuple(
+                value
+                for value in operation_authorizations
+                if value is not authorization
+            )
+            return authorization
+
+    def publish_authorized_outcome_candidate(
+        self: _LifecycleV2Repository,
+        outcome: LifecycleV2Outcome,
+    ) -> None:
+        nonlocal candidate_authorizations
+        nonlocal candidate_publication_history
+        nonlocal recovery_authorization_history
+        nonlocal recovery_authorizations
+        authorization = consume_operation_for_candidate(self, outcome)
+        if self._outcome is not None:
+            raise LifecycleV2RepositoryRejected(
+                "a different outcome candidate is already retained"
+            )
+        publication_authorization = _RepositoryCandidateAuthorization(
+            repository=self,
+            store=authorization.store,
+            store_identity=authorization.store_identity,
+            root=authorization.root,
+            records=authorization.records,
+            record_encoded=authorization.record_encoded,
+            outcome=outcome,
+            outcome_encoded=outcome.encoded,
+            origin_pid=authorization.origin_pid,
+            origin_thread=authorization.origin_thread,
+            fork_epoch=authorization.fork_epoch,
+        )
+        with registry_lock:
+            candidate_publication_history = (
+                *candidate_publication_history,
+                publication_authorization,
+            )
+        try:
+            receipt = self._publication_receipt(
+                self._store.publish_immutable(
+                    staging_name=_OUTCOME_STAGING_NAME,
+                    final_name=outcome.file_name,
+                    encoded=outcome.encoded,
+                ),
+                final_name=outcome.file_name,
+                encoded=outcome.encoded,
+            )
+            readback = self._read_artifact(outcome.file_name)
+            if (
+                readback.encoded != outcome.encoded
+                or readback.file_device != receipt.final_device
+                or readback.file_inode != receipt.final_inode
+                or readback.file_mode != receipt.final_mode
+                or readback.file_size != receipt.final_size
+            ):
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "outcome candidate stable readback disagrees"
+                )
+            with registry_lock:
+                if candidate_authorization(self) is not None:
+                    raise LifecycleV2ArtifactPublicationUncertain(
+                        "outcome candidate authorization slot is not unique"
+                    )
+                candidate_authorizations = (
+                    *candidate_authorizations,
+                    publication_authorization,
+                )
+                if authorization.kind == "recovery_required":
+                    recovery_authorization_history = tuple(
+                        value
+                        for value in recovery_authorization_history
+                        if value.repository is not self
+                    )
+                    recovery_authorizations = tuple(
+                        value
+                        for value in recovery_authorizations
+                        if value.repository is not self
+                    )
+        except BaseException as error:
+            self._burn()
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2RetentionUnconfirmed(
+                "outcome candidate publication may have begun"
+            ) from None
+        self._outcome = outcome
+
+    candidate_writer_code = publish_authorized_outcome_candidate.__code__
+
+    def require_candidate_authorization(
+        repository: _LifecycleV2Repository,
+    ) -> _RepositoryCandidateAuthorization:
+        if exact_caller_code(2) is not finalizer_code:
+            raise LifecycleV2RepositoryRejected(
+                "retained candidate authorization caller is invalid"
+            )
+        with registry_lock:
+            authorization = candidate_authorization(repository)
+            if (
+                authorization is None
+                or not repository_matches_authorization(repository, authorization)
+                or repository._outcome is not authorization.outcome
+                or authorization.outcome.encoded != authorization.outcome_encoded
+            ):
+                raise LifecycleV2RepositoryRejected(
+                    "outcome finalization requires one exact retained candidate"
+                )
+            return authorization
+
+    def consume_candidate_authorization(
+        repository: _LifecycleV2Repository,
+        outcome: LifecycleV2Outcome,
+    ) -> _RepositoryCandidateAuthorization:
+        nonlocal candidate_authorizations
+        if (
+            exact_caller_code(2) is not marker_writer_code
+            or exact_caller_code(3)
+            not in (recovery_commit_code, success_commit_code, finalizer_code)
+        ):
+            raise LifecycleV2RepositoryRejected(
+                "fixed-marker authorization caller is invalid"
+            )
+        with registry_lock:
+            authorization = candidate_authorization(repository)
+            if (
+                authorization is None
+                or not repository_matches_authorization(repository, authorization)
+                or authorization.outcome is not outcome
+                or authorization.outcome_encoded != outcome.encoded
+            ):
+                raise LifecycleV2RepositoryRejected(
+                    "fixed marker requires one exact retained candidate"
+                )
+            candidate_authorizations = tuple(
+                value
+                for value in candidate_authorizations
+                if value is not authorization
+            )
+            return authorization
+
+    def complete_candidate_publication(
+        authorization: _RepositoryCandidateAuthorization,
+    ) -> None:
+        nonlocal candidate_publication_history
+        if exact_caller_code(2) is not marker_writer_code:
+            raise LifecycleV2RepositoryRejected(
+                "candidate publication completion caller is invalid"
+            )
+        with registry_lock:
+            if not any(
+                value is authorization
+                for value in candidate_publication_history
+            ):
+                raise LifecycleV2RepositoryRejected(
+                    "candidate publication history is unavailable"
+                )
+            candidate_publication_history = tuple(
+                value
+                for value in candidate_publication_history
+                if value is not authorization
+            )
+
+    def publish_authorized_fixed_marker(
+        self: _LifecycleV2Repository,
+        *,
+        outcome: LifecycleV2Outcome,
+        encoded: bytes,
+        finalize_staging: bool,
+    ) -> LifecycleV2OutcomeCommit:
+        candidate_authorization_value = consume_candidate_authorization(self, outcome)
+        try:
+            if finalize_staging:
+                publication = self._store.finalize_preallocated_immutable(
+                    staging_name=_COMMIT_STAGING_NAME,
+                    final_name=marker_file_name,
+                    encoded=encoded,
+                )
+            else:
+                publication = self._store.publish_immutable(
+                    staging_name=_COMMIT_STAGING_NAME,
+                    final_name=marker_file_name,
+                    encoded=encoded,
+                )
+            self._publication_receipt(
+                publication,
+                final_name=marker_file_name,
+                encoded=encoded,
+            )
+            if self._read_artifact(marker_file_name).encoded != encoded:
+                raise LifecycleV2ArtifactPublicationUncertain(
+                    "fixed marker stable readback disagrees"
+                )
+            commit = decode_commit(encoded, outcome=outcome)
+            complete_candidate_publication(candidate_authorization_value)
+        except BaseException as error:
+            self._burn()
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2RetentionUnconfirmed(
+                "fixed-marker publication may have begun"
+            ) from None
+        self._commit = commit
+        return commit
+
+    marker_writer_code = publish_authorized_fixed_marker.__code__
+
+    def commit_authorized_recovery_outcome(
+        self: _LifecycleV2Repository,
+        *,
+        clock: LifecycleV2BoottimeClock,
+        created_at_utc: str,
+    ) -> tuple[LifecycleV2Outcome, LifecycleV2OutcomeCommit]:
+        self._require_owner()
+        if self._commit is not None:
+            raise LifecycleV2RepositoryRejected("terminal outcome already committed")
+        if self._outcome is not None:
+            raise LifecycleV2RepositoryRejected(
+                "an outcome candidate already exists; use exact-candidate finalization"
+            )
+        if (
+            self._root is None
+            or not self._records
+            or self._records[-1].stage is not recovery_stage
+        ):
+            raise LifecycleV2RepositoryRejected(
+                "recovery outcome requires a retained classification intent"
+            )
+        transcript = self._require_published_final_transcript()
+        authorized = self._sample_boottime(clock)
+        if authorized > maximum_signed_integer - commit_budget_ns:
+            raise LifecycleV2RepositoryRejected("recovery commit deadline overflows")
+        recovery_record = self._records[-1]
+        recovery_evidence = recovery_record.evidence.to_dict()
+        outcome = outcome_type.capture(
+            {
+                "contract_version": LIFECYCLE_V2_OUTCOME_CONTRACT_VERSION,
+                "service": LIFECYCLE_V2_SERVICE,
+                "status": "recovery_required",
+                "lifecycle_version": 2,
+                "graceful_stop_operation_id": self._root.graceful_stop_operation_id,
+                "root_sha256": self._root.sha256,
+                "ordinal": recovery_record.ordinal + 1,
+                "predecessor_sha256": recovery_record.sha256,
+                "final_stage": recovery_record.stage.value,
+                "transcript_sha256": transcript.sha256,
+                "reason_code": recovery_evidence["reason_code"],
+                "pre_effect_binding_sha256": None,
+                "post_teardown_binding_sha256": None,
+                "volume_proof_sha256": None,
+                "terminal_cleanup_sha256": None,
+                "stop_effects_confirmed": False,
+                "teardown_confirmed": False,
+                "terminal_cleanup_confirmed": False,
+                "admission_started_boottime_ns": self._root.admission_started_boottime_ns,
+                "operation_deadline_boottime_ns": self._root.operation_deadline_boottime_ns,
+                "commit_protocol_started_boottime_ns": authorized,
+                "commit_publication_authorization_deadline_boottime_ns": (
+                    authorized + commit_budget_ns
+                ),
+                "commit_authorized_boottime_ns": authorized,
+                "created_at_utc": created_at_utc,
+            }
+        )
+        marker_basis = prepare_marker_basis(outcome)
+        marker_encoded = marker_basis.materialize(authorized)
+        consume_recovery_authorization(self)
+        self._publish_outcome_candidate(outcome)
+        commit = self._publish_fixed_marker(
+            outcome=outcome,
+            encoded=marker_encoded,
+            finalize_staging=False,
+        )
+        return outcome, commit
+
+    recovery_commit_code = commit_authorized_recovery_outcome.__code__
+
+    def finalize_authorized_retained_outcome_commit(
+        self: _LifecycleV2Repository,
+    ) -> LifecycleV2OutcomeCommit:
+        self._require_owner()
+        if self._commit is not None:
+            return self._commit
+        if self._outcome is None:
+            raise LifecycleV2RepositoryRejected(
+                "outcome finalization requires one exact retained candidate"
+            )
+        require_candidate_authorization(self)
+        basis = prepare_marker_basis(self._outcome)
+        if self._outcome.status == "confirmed_success":
+            if self._commit_staging is None:
+                raise LifecycleV2RepositoryRejected(
+                    "confirmed-success candidate lacks an authenticated marker preimage"
+                )
+            authorized = cast(
+                int,
+                self._commit_staging.to_dict()["commit_authorized_boottime_ns"],
+            )
+            encoded = basis.materialize(authorized)
+            if encoded != self._commit_staging.encoded:
+                raise LifecycleV2RetentionUnconfirmed(
+                    "confirmed-success marker preimage changed"
+                )
+            return self._publish_fixed_marker(
+                outcome=self._outcome,
+                encoded=encoded,
+                finalize_staging=True,
+            )
+        authorized = cast(
+            int,
+            self._outcome.to_dict()["commit_authorized_boottime_ns"],
+        )
+        encoded = basis.materialize(authorized)
+        if self._commit_staging is not None:
+            if encoded != self._commit_staging.encoded:
+                raise LifecycleV2RetentionUnconfirmed(
+                    "recovery marker preimage changed"
+                )
+            finalize_staging = True
+        else:
+            finalize_staging = False
+        return self._publish_fixed_marker(
+            outcome=self._outcome,
+            encoded=encoded,
+            finalize_staging=finalize_staging,
+        )
+
+    finalizer_code = finalize_authorized_retained_outcome_commit.__code__
+
+    def register_loaded_candidate(repository: _LifecycleV2Repository) -> None:
+        nonlocal candidate_authorizations
+        nonlocal candidate_publication_history
+        if exact_caller_code(2) is not repository_factory_code:
+            raise LifecycleV2RepositoryRejected(
+                "loaded outcome candidate authorization caller is invalid"
+            )
+        outcome = repository._outcome
+        if (
+            not repository._opened_with_existing_root
+            or type(outcome) is not outcome_type
+            or repository._commit is not None
+            or repository._root is None
+            or not repository._records
+            or repository._read_artifact(outcome.file_name).encoded != outcome.encoded
+            or repository._require_published_final_transcript().sha256
+            != outcome.to_dict()["transcript_sha256"]
+        ):
+            raise LifecycleV2RepositoryRejected(
+                "loaded outcome candidate is not durably authenticated"
+            )
+        store_identity = (
+            repository._store_identity.artifact_directory_path,
+            repository._store_identity.directory_device,
+            repository._store_identity.directory_inode,
+            repository._store_identity.owner_uid,
+            repository._store_identity.owner_gid,
+            repository._store_identity.directory_mode,
+        )
+        record_encoded = tuple(record.encoded for record in repository._records)
+        with registry_lock:
+            matching_history = tuple(
+                value
+                for value in candidate_publication_history
+                if value.store is repository._store
+                and value.store_identity == store_identity
+                and value.root == repository._root
+                and value.root.encoded == repository._root.encoded
+                and value.record_encoded == record_encoded
+                and value.outcome == outcome
+                and value.outcome_encoded == outcome.encoded
+                and authorization_is_current(value)
+            )
+            if (
+                candidate_authorization(repository) is not None
+                or len(matching_history) != 1
+                or candidate_authorization(matching_history[0].repository) is not None
+            ):
+                raise LifecycleV2RepositoryRejected(
+                    "loaded outcome candidate lacks exact publication history"
+                )
+            publication_history = matching_history[0]
+            transferred_authorization = _RepositoryCandidateAuthorization(
+                repository=repository,
+                store=repository._store,
+                store_identity=store_identity,
+                root=repository._root,
+                records=repository._records,
+                record_encoded=record_encoded,
+                outcome=outcome,
+                outcome_encoded=outcome.encoded,
+                origin_pid=publication_history.origin_pid,
+                origin_thread=publication_history.origin_thread,
+                fork_epoch=publication_history.fork_epoch,
+            )
+            candidate_authorizations = (
+                *candidate_authorizations,
+                transferred_authorization,
+            )
+            candidate_publication_history = (
+                *tuple(
+                    value
+                    for value in candidate_publication_history
+                    if value is not publication_history
+                ),
+                transferred_authorization,
+            )
+
+    def transfer_loaded_recovery_authorization(
+        repository: _LifecycleV2Repository,
+    ) -> None:
+        nonlocal recovery_authorization_history
+        nonlocal recovery_authorizations
+        if exact_caller_code(2) is not repository_factory_code:
+            raise LifecycleV2RepositoryRejected(
+                "loaded recovery authorization caller is invalid"
+            )
+        if (
+            not repository._opened_with_existing_root
+            or repository._outcome is not None
+            or repository._commit is not None
+            or repository._root is None
+            or not repository._records
+            or repository._records[-1].stage is not recovery_stage
+        ):
+            raise LifecycleV2RepositoryRejected(
+                "loaded recovery authorization prefix is invalid"
+            )
+        identity = (
+            repository._store_identity.artifact_directory_path,
+            repository._store_identity.directory_device,
+            repository._store_identity.directory_inode,
+            repository._store_identity.owner_uid,
+            repository._store_identity.owner_gid,
+            repository._store_identity.directory_mode,
+        )
+        with registry_lock:
+            prior = next(
+                (
+                    value
+                    for value in recovery_authorization_history
+                    if value.store is repository._store
+                    and value.store_identity == identity
+                    and value.root == repository._root
+                    and value.root.encoded == repository._root.encoded
+                    and value.record_encoded
+                    == tuple(record.encoded for record in repository._records)
+                    and authorization_is_current(value)
+                ),
+                None,
+            )
+            if prior is None:
+                raise LifecycleV2RepositoryRejected(
+                    "loaded recovery prefix lacks authenticated recovery intent history"
+                )
+            recovery_authorization_history = tuple(
+                value
+                for value in recovery_authorization_history
+                if value is not prior
+            )
+            recovery_authorizations = tuple(
+                value
+                for value in recovery_authorizations
+                if value is not prior
+            )
+            authorization = new_operation_authorization(
+                repository,
+                kind="recovery_required",
+            )
+            recovery_authorizations = (*recovery_authorizations, authorization)
+            recovery_authorization_history = (
+                *recovery_authorization_history,
+                authorization,
+            )
+
+    def burn_with_authorization_revocation(self: _LifecycleV2Repository) -> None:
+        revoke_repository_authorizations(self)
+        self._poisoned = True
+        if not self._store_disposed:
+            self._store_disposed = True
+            with suppress(Exception):
+                self._store.close()
+
+    def close_with_authorization_revocation(self: _LifecycleV2Repository) -> None:
+        self._require_origin()
+        if self._closed:
+            return
+        revoke_repository_authorizations(self)
+        if self._store_disposed:
+            self._closed = True
+            return
+        self._store_disposed = True
+        try:
+            self._store.close()
+        except BaseException as error:
+            self._poisoned = True
+            self._closed = True
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2RetentionUnconfirmed(
+                "repository disposal is unconfirmed"
+            ) from None
+        self._closed = True
+
+    cast(Any, repository_type)._burn = burn_with_authorization_revocation
+    cast(Any, repository_type).close = close_with_authorization_revocation
+    cast(Any, repository_type).reserve_root = reserve_root_with_authorization
+    cast(Any, repository_type).retain_recovery_classification_intent = (
+        retain_recovery_intent_with_authorization
+    )
+    cast(Any, repository_type)._publish_outcome_candidate = (
+        publish_authorized_outcome_candidate
+    )
+    cast(Any, repository_type)._publish_fixed_marker = publish_authorized_fixed_marker
+    cast(Any, repository_type).commit_recovery_outcome = commit_authorized_recovery_outcome
+    cast(Any, repository_type).finalize_retained_outcome_commit = (
+        finalize_authorized_retained_outcome_commit
+    )
+
     def open_injected_repository(
         store: LifecycleV2ArtifactStore,
         *,
         artifact_directory_path: str | None = None,
         retained_wire_verifier: LifecycleV2RetainedWireVerifier | None = None,
     ) -> _LifecycleV2Repository:
-        return repository_type(
+        repository = repository_type(
             store,
             artifact_directory_path=artifact_directory_path,
             retained_wire_verifier=retained_wire_verifier,
             _origin_getpid=origin_getpid,
             _origin_current_thread=origin_current_thread,
             _require_recovery_intent=require_recovery_intent,
+            _require_success_reservation=require_success_reservation,
             _consume_recovery_intent=consume_recovery_intent,
             _consume_success_lineage=consume_success_lineage,
-            _consume_success_snapshot=consume_success_snapshot,
+            _consume_success_snapshot=consume_success_snapshot_with_authorization,
             _success_snapshot_type=success_snapshot_type,
         )
+        if repository._outcome is not None and repository._commit is None:
+            register_loaded_candidate(repository)
+        elif (
+            repository._opened_with_existing_root
+            and repository._outcome is None
+            and repository._commit is None
+            and repository._records
+            and repository._records[-1].stage is recovery_stage
+        ):
+            transfer_loaded_recovery_authorization(repository)
+        return repository
+
+    repository_factory_code = open_injected_repository.__code__
 
     return open_injected_repository
 

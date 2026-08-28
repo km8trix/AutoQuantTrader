@@ -17,8 +17,8 @@ import stat
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from types import CodeType, MappingProxyType, ModuleType
-from typing import TYPE_CHECKING, Any, Never, Self, cast
+from types import CodeType, ModuleType
+from typing import TYPE_CHECKING, Any, NamedTuple, Never, Self, cast
 
 if TYPE_CHECKING:
     from packages.domain.trusted_time_graceful_stop_v2_runtime_seal import (
@@ -257,7 +257,6 @@ from packages.domain.trusted_time_graceful_stop_v2 import (  # noqa: E402
     LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION,
     LIFECYCLE_V2_ROOT_CONTRACT_VERSION,
     MAXIMUM_SIGNED_INTEGER,
-    NORMAL_STAGE_BY_ORDINAL,
     FrozenJsonObject,
     LifecycleV2ProgressRecord,
     LifecycleV2Root,
@@ -270,6 +269,7 @@ from packages.domain.trusted_time_graceful_stop_v2 import (  # noqa: E402
     decode_lifecycle_v2_progress_record,
     decode_lifecycle_v2_root,
     decode_lifecycle_v2_transcript,
+    normal_lifecycle_v2_stage_for_ordinal,
 )
 from packages.domain.trusted_time_graceful_stop_v2_docker import (  # noqa: E402
     COMMAND_SOCKET_VOLUME,
@@ -1250,13 +1250,16 @@ def _mint_fake_lifecycle_v2_reauthentication_binding(
     )
 
 
-_MOUNT_RULES = MappingProxyType(
-    {
-        HOST_SECRET_MOUNT_PATH: (0, 0, 0o700),
-        SUPERVISOR_SECRET_MOUNT_PATH: (0, 10_001, 0o730),
-        TRANSPORT_MOUNT_PATH: (0, 10_001, 0o770),
-    }
+_MOUNT_RULES = (
+    (HOST_SECRET_MOUNT_PATH, (0, 0, 0o700)),
+    (SUPERVISOR_SECRET_MOUNT_PATH, (0, 10_001, 0o730)),
+    (TRANSPORT_MOUNT_PATH, (0, 10_001, 0o770)),
 )
+_MOUNT_PATHS = tuple(sorted(path for path, _ in _MOUNT_RULES))
+
+
+def _mount_rule(path: str) -> tuple[int, int, int] | None:
+    return next((rule for candidate, rule in _MOUNT_RULES if candidate == path), None)
 _MOUNT_FIELDS = frozenset(
     {
         "path",
@@ -1303,7 +1306,7 @@ class LifecycleV2EmptySecretMountIdentity(_CanonicalEvidence):
         fields = frozen.to_dict()
         _require_fields(fields, _MOUNT_FIELDS, "secret mount identity")
         path = _require_path(fields["path"], "path")
-        rule = _MOUNT_RULES.get(path)
+        rule = _mount_rule(path)
         if rule is None:
             _reject("secret mount path is outside the exact normal-path set")
         _require_int(fields["mount_id"], "mount_id", minimum=1)
@@ -1376,7 +1379,7 @@ class LifecycleV2EmptySecretMountProjection(_CanonicalEvidence):
             )
         ):
             _reject("empty mount projection crossed its injected observer")
-        expected_paths = tuple(sorted(_MOUNT_RULES))
+        expected_paths = _MOUNT_PATHS
         if tuple(item.to_dict()["path"] for item in typed) != expected_paths:
             _reject("empty mount projection is not the path-sorted three-mount set")
         ids = [item.to_dict()["mount_id"] for item in typed]
@@ -1400,13 +1403,15 @@ class LifecycleV2EmptySecretMountProjection(_CanonicalEvidence):
         return "AutoQuantTrader/trusted-time/graceful-stop/empty-secret-mount-projection/v2"
 
 
-_ABSENCE_PATHS = MappingProxyType(
-    {
-        "recovery_secret_mount": (RECOVERY_SECRET_MOUNT_PATH,),
-        "transport_socket": (LISTENER_PATH,),
-        "credential_paths": (HOST_RAW_KEY_PATH, SUPERVISOR_RAW_KEY_PATH),
-    }
+_ABSENCE_PATHS = (
+    ("recovery_secret_mount", (RECOVERY_SECRET_MOUNT_PATH,)),
+    ("transport_socket", (LISTENER_PATH,)),
+    ("credential_paths", (HOST_RAW_KEY_PATH, SUPERVISOR_RAW_KEY_PATH)),
 )
+
+
+def _absence_paths(kind: str) -> tuple[str, ...] | None:
+    return next((paths for candidate, paths in _ABSENCE_PATHS if candidate == kind), None)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -1430,7 +1435,9 @@ class LifecycleV2PathAbsence(_CanonicalEvidence):
     ) -> Self:
         exact_root = _exact_root(root)
         observer_metadata = _require_cleanup_observer(observer, root=exact_root)
-        paths = _ABSENCE_PATHS[kind]
+        paths = _absence_paths(kind)
+        if paths is None:
+            _reject("path absence kind is outside the closed normal-path set")
         observed = _require_int(observed_boottime_ns, "observed_boottime_ns")
         if not (
             exact_root.admission_started_boottime_ns
@@ -1948,91 +1955,160 @@ def _confirmed_success_snapshot(value: Any) -> str:
     )
 
 
-@dataclass(frozen=True, slots=True)
-class _StageSpec:
+class _StageSpec(NamedTuple):
     ordinal: int
     stage: LifecycleV2Stage
     effect_kind: str
 
 
-_SPECS = MappingProxyType(
-    {
-        3: _StageSpec(
+_SPECS = (
+    (
+        3,
+        _StageSpec(
             3,
             LifecycleV2Stage.TRANSPORT_CLEANUP_COMMITMENT_RETAINED,
             "transport_cleanup_commitment",
         ),
-        4: _StageSpec(4, LifecycleV2Stage.TRANSPORT_CHANNEL_QUIESCED, "transport_cleanup"),
-        5: _StageSpec(
+    ),
+    (4, _StageSpec(4, LifecycleV2Stage.TRANSPORT_CHANNEL_QUIESCED, "transport_cleanup")),
+    (
+        5,
+        _StageSpec(
             5,
             LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_INTENT_RETAINED,
             "pre_effect_reauthentication",
         ),
-        6: _StageSpec(
+    ),
+    (
+        6,
+        _StageSpec(
             6, LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_BOUND, "pre_effect_reauthentication"
         ),
-        7: _StageSpec(
+    ),
+    (
+        7,
+        _StageSpec(
             7,
             LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_INTENT_RETAINED,
             "supervisor_container_stop",
         ),
-        8: _StageSpec(
+    ),
+    (
+        8,
+        _StageSpec(
             8,
             LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_RESULT_RETAINED,
             "supervisor_container_stop",
         ),
-        9: _StageSpec(
+    ),
+    (
+        9,
+        _StageSpec(
             9, LifecycleV2Stage.SOURCE_CONTAINER_STOP_INTENT_RETAINED, "source_container_stop"
         ),
-        10: _StageSpec(
+    ),
+    (
+        10,
+        _StageSpec(
             10, LifecycleV2Stage.SOURCE_CONTAINER_STOP_RESULT_RETAINED, "source_container_stop"
         ),
-        11: _StageSpec(
+    ),
+    (
+        11,
+        _StageSpec(
             11,
             LifecycleV2Stage.SUPERVISOR_CONTAINER_REMOVE_INTENT_RETAINED,
             "supervisor_container_remove",
         ),
-        12: _StageSpec(
+    ),
+    (
+        12,
+        _StageSpec(
             12,
             LifecycleV2Stage.SUPERVISOR_CONTAINER_REMOVE_RESULT_RETAINED,
             "supervisor_container_remove",
         ),
-        13: _StageSpec(
+    ),
+    (
+        13,
+        _StageSpec(
             13, LifecycleV2Stage.SOURCE_CONTAINER_REMOVE_INTENT_RETAINED, "source_container_remove"
         ),
-        14: _StageSpec(
+    ),
+    (
+        14,
+        _StageSpec(
             14, LifecycleV2Stage.SOURCE_CONTAINER_REMOVE_RESULT_RETAINED, "source_container_remove"
         ),
-        15: _StageSpec(
+    ),
+    (
+        15,
+        _StageSpec(
             15, LifecycleV2Stage.PROJECT_NETWORK_REMOVE_INTENT_RETAINED, "project_network_remove"
         ),
-        16: _StageSpec(
+    ),
+    (
+        16,
+        _StageSpec(
             16, LifecycleV2Stage.PROJECT_NETWORK_REMOVE_RESULT_RETAINED, "project_network_remove"
         ),
-        17: _StageSpec(
+    ),
+    (
+        17,
+        _StageSpec(
             17,
             LifecycleV2Stage.NAMED_VOLUME_PRESERVATION_INTENT_RETAINED,
             "named_volume_preservation",
         ),
-        18: _StageSpec(18, LifecycleV2Stage.NAMED_VOLUMES_PRESERVED, "named_volume_preservation"),
-        19: _StageSpec(
+    ),
+    (
+        18,
+        _StageSpec(
+            18,
+            LifecycleV2Stage.NAMED_VOLUMES_PRESERVED,
+            "named_volume_preservation",
+        ),
+    ),
+    (
+        19,
+        _StageSpec(
             19,
             LifecycleV2Stage.POST_TEARDOWN_REAUTHENTICATION_INTENT_RETAINED,
             "post_teardown_reauthentication",
         ),
-        20: _StageSpec(
+    ),
+    (
+        20,
+        _StageSpec(
             20,
             LifecycleV2Stage.POST_TEARDOWN_TERMINAL_REAUTHENTICATION_BOUND,
             "post_teardown_reauthentication",
         ),
-        21: _StageSpec(21, LifecycleV2Stage.TERMINAL_CLEANUP_INTENT_RETAINED, "terminal_cleanup"),
-        22: _StageSpec(22, LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED, "terminal_cleanup"),
-    }
+    ),
+    (
+        21,
+        _StageSpec(
+            21,
+            LifecycleV2Stage.TERMINAL_CLEANUP_INTENT_RETAINED,
+            "terminal_cleanup",
+        ),
+    ),
+    (
+        22,
+        _StageSpec(
+            22,
+            LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED,
+            "terminal_cleanup",
+        ),
+    ),
 )
 
 
-@dataclass(frozen=True, slots=True)
-class _DockerRule:
+def _stage_spec(ordinal: int) -> _StageSpec | None:
+    return next((spec for candidate, spec in _SPECS if candidate == ordinal), None)
+
+
+class _DockerRule(NamedTuple):
     intent_ordinal: int
     result_ordinal: int
     primary_connection_ordinal: int
@@ -2041,23 +2117,43 @@ class _DockerRule:
     target_id_attribute: str
 
 
-_DOCKER_RULES = MappingProxyType(
-    {
-        "supervisor_stop": _DockerRule(
+_DOCKER_RULES = (
+    (
+        "supervisor_stop",
+        _DockerRule(
             7, 8, 6, "container_stop", "container", "supervisor_container_id"
         ),
-        "source_stop": _DockerRule(9, 10, 8, "container_stop", "container", "source_container_id"),
-        "supervisor_remove": _DockerRule(
+    ),
+    (
+        "source_stop",
+        _DockerRule(
+            9, 10, 8, "container_stop", "container", "source_container_id"
+        ),
+    ),
+    (
+        "supervisor_remove",
+        _DockerRule(
             11, 12, 10, "container_remove", "container", "supervisor_container_id"
         ),
-        "source_remove": _DockerRule(
+    ),
+    (
+        "source_remove",
+        _DockerRule(
             13, 14, 12, "container_remove", "container", "source_container_id"
         ),
-        "network_remove": _DockerRule(
-            15, 16, 14, "network_remove", "network", "project_network_id"
-        ),
-    }
+    ),
+    (
+        "network_remove",
+        _DockerRule(15, 16, 14, "network_remove", "network", "project_network_id"),
+    ),
 )
+
+
+def _docker_rule(name: str) -> _DockerRule:
+    rule = next((rule for candidate, rule in _DOCKER_RULES if candidate == name), None)
+    if rule is None:
+        _reject("Docker rule is outside the closed lifecycle set")
+    return rule
 
 
 def _docker_trace_runtime_snapshot(value: object) -> str:
@@ -2376,7 +2472,7 @@ class LifecycleV2NormalProgressLineage:
 
         self._require_sealed()
         previous = self.last_record
-        spec = _SPECS.get(previous.ordinal + 1)
+        spec = _stage_spec(previous.ordinal + 1)
         if spec is None:
             _reject("normal lifecycle has no further progress stage")
         _require_utc(recorded_at_utc, "recorded_at_utc")
@@ -2623,7 +2719,7 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         if (
-            not any(rule is fixed_rule for fixed_rule in _DOCKER_RULES.values())
+            not any(rule is fixed_rule for _, fixed_rule in _DOCKER_RULES)
             or self.last_record.ordinal + 1 != rule.intent_ordinal
         ):
             _reject("Docker intent is not the one fixed next lifecycle stage")
@@ -2708,7 +2804,7 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         if (
-            not any(rule is fixed_rule for fixed_rule in _DOCKER_RULES.values())
+            not any(rule is fixed_rule for _, fixed_rule in _DOCKER_RULES)
             or self.last_record.ordinal != rule.intent_ordinal
             or type(result_semantic) is not DockerMutationResultSemantic
             or self.docker_admission is None
@@ -2795,7 +2891,7 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_intent(
-            rule=_DOCKER_RULES["supervisor_stop"],
+            rule=_docker_rule("supervisor_stop"),
             admission=admission,
             trace_prefix=trace_prefix,
             call_deadline_boottime_ns=call_deadline_boottime_ns,
@@ -2810,7 +2906,7 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_result(
-            rule=_DOCKER_RULES["supervisor_stop"],
+            rule=_docker_rule("supervisor_stop"),
             result_semantic=result_semantic,
             trace_prefix=trace_prefix,
             recorded_at_utc=recorded_at_utc,
@@ -2825,7 +2921,7 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_intent(
-            rule=_DOCKER_RULES["source_stop"],
+            rule=_docker_rule("source_stop"),
             admission=admission,
             trace_prefix=trace_prefix,
             call_deadline_boottime_ns=call_deadline_boottime_ns,
@@ -2840,7 +2936,7 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_result(
-            rule=_DOCKER_RULES["source_stop"],
+            rule=_docker_rule("source_stop"),
             result_semantic=result_semantic,
             trace_prefix=trace_prefix,
             recorded_at_utc=recorded_at_utc,
@@ -2855,7 +2951,7 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_intent(
-            rule=_DOCKER_RULES["supervisor_remove"],
+            rule=_docker_rule("supervisor_remove"),
             admission=admission,
             trace_prefix=trace_prefix,
             call_deadline_boottime_ns=call_deadline_boottime_ns,
@@ -2870,7 +2966,7 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_result(
-            rule=_DOCKER_RULES["supervisor_remove"],
+            rule=_docker_rule("supervisor_remove"),
             result_semantic=result_semantic,
             trace_prefix=trace_prefix,
             recorded_at_utc=recorded_at_utc,
@@ -2885,7 +2981,7 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_intent(
-            rule=_DOCKER_RULES["source_remove"],
+            rule=_docker_rule("source_remove"),
             admission=admission,
             trace_prefix=trace_prefix,
             call_deadline_boottime_ns=call_deadline_boottime_ns,
@@ -2900,7 +2996,7 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_result(
-            rule=_DOCKER_RULES["source_remove"],
+            rule=_docker_rule("source_remove"),
             result_semantic=result_semantic,
             trace_prefix=trace_prefix,
             recorded_at_utc=recorded_at_utc,
@@ -2915,7 +3011,7 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_intent(
-            rule=_DOCKER_RULES["network_remove"],
+            rule=_docker_rule("network_remove"),
             admission=admission,
             trace_prefix=trace_prefix,
             call_deadline_boottime_ns=call_deadline_boottime_ns,
@@ -2930,7 +3026,7 @@ class LifecycleV2NormalProgressLineage:
         recorded_at_utc: str,
     ) -> Self:
         return self._retain_docker_result(
-            rule=_DOCKER_RULES["network_remove"],
+            rule=_docker_rule("network_remove"),
             result_semantic=result_semantic,
             trace_prefix=trace_prefix,
             recorded_at_utc=recorded_at_utc,
@@ -3159,7 +3255,8 @@ class LifecycleV2NormalProgressLineage:
             expected = by_ordinal.get(entry.ordinal)
             if (
                 expected is None
-                or entry.stage is not NORMAL_STAGE_BY_ORDINAL[entry.ordinal]
+                or entry.stage
+                is not normal_lifecycle_v2_stage_for_ordinal(entry.ordinal)
                 or entry.stage is not expected.stage
                 or entry.record_artifact_kind != "progress"
                 or entry.record_contract_version != LIFECYCLE_V2_PROGRESS_CONTRACT_VERSION
@@ -3628,6 +3725,48 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
     native_owner_action_call_chain: tuple[CodeType, CodeType]
     transition_validation_callers: frozenset[CodeType]
     unmount_action_call_chain: tuple[CodeType, CodeType]
+    mount_rules = _MOUNT_RULES
+    mount_paths = _MOUNT_PATHS
+    mount_fields = _MOUNT_FIELDS
+    absence_paths_by_kind = _ABSENCE_PATHS
+    stage_specs = _SPECS
+    docker_rules = _DOCKER_RULES
+    exact_normal_stage_lookup = normal_lifecycle_v2_stage_for_ordinal
+
+    def exact_mount_rule(path: object) -> tuple[int, int, int] | None:
+        if type(path) is not str:
+            return None
+        return next(
+            (rule for candidate, rule in mount_rules if candidate == path),
+            None,
+        )
+
+    def exact_absence_paths(kind: object) -> tuple[str, ...] | None:
+        if type(kind) is not str:
+            return None
+        return next(
+            (paths for candidate, paths in absence_paths_by_kind if candidate == kind),
+            None,
+        )
+
+    def exact_stage_spec(ordinal: int) -> _StageSpec | None:
+        return next(
+            (spec for candidate, spec in stage_specs if candidate == ordinal),
+            None,
+        )
+
+    def exact_docker_rule(ordinal: int) -> _DockerRule | None:
+        return next(
+            (
+                rule
+                for _, rule in docker_rules
+                if ordinal in (rule.intent_ordinal, rule.result_ordinal)
+            ),
+            None,
+        )
+
+    def exact_normal_stage(ordinal: int) -> LifecycleV2Stage | None:
+        return exact_normal_stage_lookup(ordinal)
     reauthentication_issuance_consumer: Callable[..., object] | None = None
     reauthentication_issuance_snapshot_type: type[object] | None = None
     import_reauthentication_module = importlib.import_module
@@ -3658,13 +3797,22 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
     )
     expected_consumer_freevars = (
         "current_thread",
+        "expected_bind_helper",
+        "expected_operation_wrapper",
         "fake_semantic_binding_provenance",
+        "get_call_frame",
         "getpid",
         "origin_pid",
         "registry_lock",
+        "require_exact_call_chain",
+        "semantic_consumer_code",
         "semantic_issuance_snapshot_type",
+        "semantic_issuance_state",
         "semantic_issuance_type",
-        "semantic_issuances",
+        "semantic_registration_code",
+        "semantic_wrapper_code",
+        "state_get",
+        "state_store",
     )
     decode_reauthentication_snapshot = decode_canonical_v2_json_object
 
@@ -3682,15 +3830,19 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         LifecycleV2NativeOwnerCleanupReceipt,
         _FixedSemantic,
     )
-    compound_kind_by_type = MappingProxyType(
-        {
-            LifecycleV2TransportCleanupPlan: "transport_cleanup_plan",
-            LifecycleV2TransportQuiescence: "transport_quiescence",
-            LifecycleV2TerminalCleanupAuthorization: "terminal_cleanup_authorization",
-            LifecycleV2TerminalCleanupPlan: "terminal_cleanup_plan",
-            LifecycleV2TerminalCleanupResult: "terminal_cleanup_result",
-        }
+    compound_kind_by_type = (
+        (LifecycleV2TransportCleanupPlan, "transport_cleanup_plan"),
+        (LifecycleV2TransportQuiescence, "transport_quiescence"),
+        (LifecycleV2TerminalCleanupAuthorization, "terminal_cleanup_authorization"),
+        (LifecycleV2TerminalCleanupPlan, "terminal_cleanup_plan"),
+        (LifecycleV2TerminalCleanupResult, "terminal_cleanup_result"),
     )
+
+    def compound_kind(value_type: type[object]) -> str | None:
+        return next(
+            (kind for candidate, kind in compound_kind_by_type if candidate is value_type),
+            None,
+        )
 
     def require_authority_caller(
         allowed_callers: frozenset[CodeType],
@@ -3762,7 +3914,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             compound_registration_callers,
             "compound runtime-seal registration",
         )
-        kind = compound_kind_by_type.get(type(value))
+        kind = compound_kind(type(value))
         if kind is None or not registry_seal(
             value,
             snapshot_sha256=_compound_value_snapshot(value),
@@ -3773,7 +3925,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             _reject("typed lifecycle compound runtime seal could not be created")
 
     def require_compound(value: object) -> RuntimeSealMetadata:
-        kind = compound_kind_by_type.get(type(value))
+        kind = compound_kind(type(value))
         if kind is None:
             _reject("typed lifecycle compound value is not sealed")
         try:
@@ -4221,6 +4373,17 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         if cls is not LifecycleV2EmptySecretMountIdentity:
             _reject("empty mount capture class is not exact")
         result = original_empty_mount(*args, **kwargs)
+        fields = object.__getattribute__(result, "fields").to_dict()
+        rule = exact_mount_rule(fields.get("path"))
+        if (
+            frozenset(fields) != mount_fields
+            or rule is None
+            or fields.get("directory_uid") != rule[0]
+            or fields.get("directory_gid") != rule[1]
+            or fields.get("directory_mode") != rule[2]
+            or fields.get("entry_count") != 0
+        ):
+            _reject("empty mount capture crossed the immutable mount rules")
         observer = kwargs.get("observer")
         if type(observer) is not LifecycleV2InjectedCleanupObserver:
             _reject("empty mount capture omitted its injected observer")
@@ -4241,7 +4404,15 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         if cls is not LifecycleV2EmptySecretMountProjection:
             _reject("empty mount projection capture class is not exact")
         result = original_mount_projection(*args, **kwargs)
-        if type(result) is not LifecycleV2EmptySecretMountProjection or not result.mounts:
+        if (
+            type(result) is not LifecycleV2EmptySecretMountProjection
+            or len(result.mounts) != len(mount_paths)
+            or tuple(
+                object.__getattribute__(item, "fields").to_dict().get("path")
+                for item in result.mounts
+            )
+            != mount_paths
+        ):
             _reject("empty mount projection capture returned an inexact value")
         metadata = require_canonical(result.mounts[0])
         register_canonical(
@@ -4260,6 +4431,15 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         if cls is not LifecycleV2PathAbsence:
             _reject("path absence capture class is not exact")
         result = original_path_absence(*args, **kwargs)
+        fields = object.__getattribute__(result, "fields").to_dict()
+        expected_paths = exact_absence_paths(fields.get("absence_kind"))
+        if (
+            expected_paths is None
+            or fields.get("paths") != list(expected_paths)
+            or fields.get("all_absent") is not True
+            or result.absence_kind != fields.get("absence_kind")
+        ):
+            _reject("path absence crossed the immutable absence rules")
         observer = kwargs.get("observer")
         root = kwargs.get("root")
         if (
@@ -4572,9 +4752,10 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         previous_sha256 = value.records[0].predecessor_sha256
         for record in value.records:
             exact = _exact_record(record)
-            expected_stage = NORMAL_STAGE_BY_ORDINAL[exact.ordinal]
-            expected_effect = (
-                "clean_stop_result" if exact.ordinal == 2 else _SPECS[exact.ordinal].effect_kind
+            expected_stage = exact_normal_stage(exact.ordinal)
+            spec = exact_stage_spec(exact.ordinal)
+            expected_effect = "clean_stop_result" if exact.ordinal == 2 else (
+                None if spec is None else spec.effect_kind
             )
             if (
                 exact.root_sha256 != value.root.sha256
@@ -4611,30 +4792,38 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         capture_initial_lineage
     )
 
-    semantic_type_by_ordinal = MappingProxyType(
-        {
-            3: LifecycleV2TransportCleanupPlan,
-            4: LifecycleV2TransportQuiescence,
-            5: LifecycleV2ReauthenticationIntent,
-            6: LifecycleV2AuthenticatedReauthenticationBinding,
-            7: _FixedSemantic,
-            8: DockerMutationResultSemantic,
-            9: _FixedSemantic,
-            10: DockerMutationResultSemantic,
-            11: _FixedSemantic,
-            12: DockerMutationResultSemantic,
-            13: _FixedSemantic,
-            14: DockerMutationResultSemantic,
-            15: _FixedSemantic,
-            16: DockerMutationResultSemantic,
-            17: _FixedSemantic,
-            18: DockerVolumePreservationResult,
-            19: LifecycleV2ReauthenticationIntent,
-            20: LifecycleV2AuthenticatedReauthenticationBinding,
-            21: LifecycleV2TerminalCleanupPlan,
-            22: LifecycleV2TerminalCleanupResult,
-        }
+    semantic_type_by_ordinal = (
+        (3, LifecycleV2TransportCleanupPlan),
+        (4, LifecycleV2TransportQuiescence),
+        (5, LifecycleV2ReauthenticationIntent),
+        (6, LifecycleV2AuthenticatedReauthenticationBinding),
+        (7, _FixedSemantic),
+        (8, DockerMutationResultSemantic),
+        (9, _FixedSemantic),
+        (10, DockerMutationResultSemantic),
+        (11, _FixedSemantic),
+        (12, DockerMutationResultSemantic),
+        (13, _FixedSemantic),
+        (14, DockerMutationResultSemantic),
+        (15, _FixedSemantic),
+        (16, DockerMutationResultSemantic),
+        (17, _FixedSemantic),
+        (18, DockerVolumePreservationResult),
+        (19, LifecycleV2ReauthenticationIntent),
+        (20, LifecycleV2AuthenticatedReauthenticationBinding),
+        (21, LifecycleV2TerminalCleanupPlan),
+        (22, LifecycleV2TerminalCleanupResult),
     )
+
+    def semantic_type(expected_ordinal: int) -> type[object] | None:
+        return next(
+            (
+                value_type
+                for ordinal, value_type in semantic_type_by_ordinal
+                if ordinal == expected_ordinal
+            ),
+            None,
+        )
 
     def validate_transition(
         source: LifecycleV2NormalProgressLineage,
@@ -4667,11 +4856,13 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
                     exact_result.semantics[:-1], source.semantics, strict=True
                 )
             )
-            or type(exact_result.semantics[-1]) is not semantic_type_by_ordinal[expected_ordinal]
+            or type(exact_result.semantics[-1]) is not semantic_type(expected_ordinal)
         ):
             _reject("named lifecycle transition substituted retained identity")
         record = _exact_record(exact_result.records[-1])
-        spec = _SPECS[expected_ordinal]
+        spec = exact_stage_spec(expected_ordinal)
+        if spec is None:
+            _reject("named lifecycle transition ordinal is outside the closed stage set")
         if (
             record.ordinal != expected_ordinal
             or record.stage is not spec.stage
@@ -4682,6 +4873,38 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             or record.deadline_boottime_ns != source.root.operation_deadline_boottime_ns
         ):
             _reject("named lifecycle transition changed ordinal, stage, effect, or deadline")
+        docker_rule = exact_docker_rule(expected_ordinal)
+        if docker_rule is not None:
+            semantic_fields = cast(Any, exact_result.semantics[-1]).to_dict()
+            expected_target = getattr(source.root, docker_rule.target_id_attribute)
+            if (
+                semantic_fields.get("result_kind") != docker_rule.result_kind
+                or semantic_fields.get("target_kind") != docker_rule.target_kind
+                or semantic_fields.get("target_id") != expected_target
+                or semantic_fields.get("environment") != source.root.environment
+                or semantic_fields.get("graceful_stop_operation_id")
+                != source.root.graceful_stop_operation_id
+            ):
+                _reject("Docker transition crossed its immutable ordinal rule")
+            if expected_ordinal == docker_rule.intent_ordinal:
+                if (
+                    semantic_fields.get("lifecycle_root_sha256") != source.root.sha256
+                    or semantic_fields.get("admission_sha256") != source.root.admission_sha256
+                    or semantic_fields.get("primary_connection_ordinal")
+                    != docker_rule.primary_connection_ordinal
+                    or semantic_fields.get("post_inspect_connection_ordinal")
+                    != docker_rule.primary_connection_ordinal + 1
+                    or record.evidence.to_dict().get("target_identity_sha256")
+                    != expected_target
+                ):
+                    _reject("Docker intent crossed its immutable root or request rule")
+            elif (
+                semantic_fields.get("root_sha256") != source.root.sha256
+                or exact_result.docker_admission is None
+                or semantic_fields.get("docker_admission_capture_sha256")
+                != exact_result.docker_admission.sha256
+            ):
+                _reject("Docker result crossed its immutable root or admission rule")
         trace_changes = frozenset({7, 8, 10, 12, 14, 16, 18})
         if expected_ordinal == 7:
             if (
@@ -4786,6 +5009,8 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         ) -> LifecycleV2NormalProgressLineage:
             if type(self) is not LifecycleV2NormalProgressLineage:
                 _reject("normal lifecycle transition requires an exact lineage")
+            if any(name.startswith("_") for name in kwargs):
+                _reject("normal lifecycle transition received a reserved argument")
             source_snapshot = _lineage_snapshot(self)
             source_metadata = registry_require(
                 self,
