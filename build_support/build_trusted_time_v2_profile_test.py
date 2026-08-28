@@ -22,10 +22,14 @@ from typing import Never
 
 _ROOT = Path(__file__).resolve(strict=True).parents[1]
 _NATIVE = _ROOT / "native"
+_MONOCYPHER = _ROOT / "third_party/monocypher/4.0.3/src"
+_MONOCYPHER_OPTIONAL = _MONOCYPHER / "optional"
 _STUBS = _ROOT / "tests/fixtures/native/trusted-time-v2"
 _ROLE_SOURCE = _NATIVE / "trusted_time_v2_role_launcher.c"
 _PROVISIONER_SOURCE = _NATIVE / "trusted_time_v2_provisioner.c"
 _SECCOMP_SOURCE = _NATIVE / "trusted_time_v2_seccomp.c"
+_MONOCYPHER_SOURCE = _MONOCYPHER / "monocypher.c"
+_MONOCYPHER_ED25519_SOURCE = _MONOCYPHER_OPTIONAL / "monocypher-ed25519.c"
 _STUB_SOURCE = _STUBS / "profile_stubs.c"
 _HARNESS_SOURCE = _STUBS / "provisioner_contract_harness.c"
 _FORBIDDEN_RECOVERY_STRINGS = (
@@ -75,6 +79,7 @@ class ProfileBuildError(RuntimeError):
 class _Role:
     name: str
     macro: str
+    signer_macro: str
     executable: str
     provisioner_macro: str
     provisioner: str
@@ -84,6 +89,7 @@ _ROLES = (
     _Role(
         "host",
         "AQT_TRUSTED_TIME_V2_HOST_PROFILE",
+        "AQT_TRUSTED_TIME_V2_SIGNER_HOST_PROFILE",
         "autoquant-trusted-time-graceful-stop-v2-host",
         "AQT_TRUSTED_TIME_V2_HOST_PROVISIONER_PROFILE",
         "autoquant-trusted-time-graceful-stop-v2-host-provision",
@@ -91,6 +97,7 @@ _ROLES = (
     _Role(
         "supervisor",
         "AQT_TRUSTED_TIME_V2_SUPERVISOR_PROFILE",
+        "AQT_TRUSTED_TIME_V2_SIGNER_SUPERVISOR_PROFILE",
         "autoquant-trusted-time-graceful-stop-v2-supervisor",
         "AQT_TRUSTED_TIME_V2_SUPERVISOR_PROVISIONER_PROFILE",
         "autoquant-trusted-time-graceful-stop-v2-supervisor-provision",
@@ -98,6 +105,7 @@ _ROLES = (
     _Role(
         "recovery",
         "AQT_TRUSTED_TIME_V2_RECOVERY_PROFILE",
+        "AQT_TRUSTED_TIME_V2_SIGNER_RECOVERY_PROFILE",
         "autoquant-trusted-time-graceful-stop-v2-recovery",
         "AQT_TRUSTED_TIME_V2_RECOVERY_PROVISIONER_PROFILE",
         "autoquant-trusted-time-graceful-stop-v2-recovery-provision",
@@ -198,6 +206,8 @@ def _common(compiler: Path) -> tuple[str, ...]:
         "-Werror",
         f"-I{_STUBS}",
         f"-I{_NATIVE}",
+        f"-I{_MONOCYPHER}",
+        f"-I{_MONOCYPHER_OPTIONAL}",
     )
 
 
@@ -229,9 +239,7 @@ def _python_build_flags() -> tuple[tuple[str, ...], tuple[str, ...]]:
                 library_name = library_name.split(marker, 1)[0]
                 break
         library_root = Path(configured_libdir).resolve(strict=True)
-        link_flags.extend(
-            (f"-L{library_root}", f"-Wl,-rpath,{library_root}", f"-l{library_name}")
-        )
+        link_flags.extend((f"-L{library_root}", f"-Wl,-rpath,{library_root}", f"-l{library_name}"))
     link_variables = ("LIBS", "SYSLIBS")
     if not (type(configured_framework) is str and configured_framework):
         link_variables += ("LINKFORSHARED",)
@@ -290,6 +298,7 @@ def _build_role(
             *_common(compiler),
             *python_compile_flags,
             f"-D{role.macro}=1",
+            f"-D{role.signer_macro}=1",
             "-DAQT_TRUSTED_TIME_V2_PORTABLE_TEST_PROFILE=1",
             *_role_python_definitions(role),
             str(_ROLE_SOURCE),
@@ -327,6 +336,8 @@ def _build_provisioner(
             *_provisioner_definitions(role, child, child_sha256),
             str(_PROVISIONER_SOURCE),
             str(_SECCOMP_SOURCE),
+            str(_MONOCYPHER_SOURCE),
+            str(_MONOCYPHER_ED25519_SOURCE),
             str(_STUB_SOURCE),
             "-o",
             str(output),
@@ -352,6 +363,8 @@ def _build_harness(
             "-DAQT_TRUSTED_TIME_V2_NO_MAIN=1",
             str(_PROVISIONER_SOURCE),
             str(_SECCOMP_SOURCE),
+            str(_MONOCYPHER_SOURCE),
+            str(_MONOCYPHER_ED25519_SOURCE),
             str(_STUB_SOURCE),
             str(_HARNESS_SOURCE),
             "-o",
@@ -374,6 +387,7 @@ def _preprocess_recovery(
             *_common(compiler),
             *python_compile_flags,
             f"-D{macro}=1",
+            "-DAQT_TRUSTED_TIME_V2_SIGNER_RECOVERY_PROFILE=1",
             "-DAQT_TRUSTED_TIME_V2_PORTABLE_TEST_PROFILE=1",
             "-DAQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD=1",
             '-DAQT_TRUSTED_TIME_V2_SYSTEMD_CREDS_SHA256="' + ("0" * 64) + '"',

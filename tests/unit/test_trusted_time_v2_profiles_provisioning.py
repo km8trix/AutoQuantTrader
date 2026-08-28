@@ -72,8 +72,7 @@ def test_launcher_performs_native_guard_and_seccomp_before_real_python_bootstrap
 
 def test_recovery_fixture_and_profile_source_have_no_normal_authority() -> None:
     recovery_fixture = (
-        _ROOT
-        / "tests/fixtures/native/trusted-time-v2/import-roots/recovery/"
+        _ROOT / "tests/fixtures/native/trusted-time-v2/import-roots/recovery/"
         "autoquant_trusted_time_v2_recovery_entry.py"
     ).read_text(encoding="utf-8")
     launcher = _ROLE_SOURCE.read_text(encoding="utf-8")

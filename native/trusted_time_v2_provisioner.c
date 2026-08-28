@@ -6,9 +6,11 @@
 
 #include "trusted_time_v2_provisioner.h"
 
-#include "trusted_time_graceful_stop_v2_signer.h"
 #include "trusted_time_v2_fork_guard.h"
 #include "trusted_time_v2_seccomp.h"
+
+#include "monocypher-ed25519.h"
+#include "monocypher.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -308,7 +310,7 @@ aqt_sha256_finish(AqtSha256Context *context, unsigned char digest[AQT_SHA256_BYT
 static void
 aqt_wipe(void *payload, size_t size)
 {
-    aqt_trusted_time_graceful_stop_v2_signer_explicit_wipe(payload, size);
+    crypto_wipe(payload, size);
 }
 
 static void
@@ -1105,6 +1107,7 @@ aqt_read_and_verify_seed(
 {
     typedef struct {
         unsigned char detected[AQT_READ_DETECTION_BYTES];
+        unsigned char derived_secret_key[64];
         unsigned char derived_public_key[AQT_PUBLIC_KEY_BYTES];
     } AqtProvisioningSecretBuffer;
     AqtProvisioningSecretBuffer *secret = NULL;
@@ -1186,12 +1189,15 @@ aqt_read_and_verify_seed(
         ) != 0
         || !aqt_metadata_equal(&before, &after)
         || !aqt_metadata_equal(&before, &path_now)
-        || after.st_size != (off_t)AQT_SEED_BYTES
-        || aqt_trusted_time_graceful_stop_v2_signer_derive_public_key_for_provisioning(
-            secret->detected,
-            secret->derived_public_key
-        ) != 0
-        || memcmp(
+        || after.st_size != (off_t)AQT_SEED_BYTES) {
+        goto cleanup;
+    }
+    crypto_ed25519_key_pair(
+        secret->derived_secret_key,
+        secret->derived_public_key,
+        secret->detected
+    );
+    if (memcmp(
             secret->derived_public_key,
             expected_public_key,
             AQT_PUBLIC_KEY_BYTES
