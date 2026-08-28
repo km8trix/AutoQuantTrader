@@ -13,7 +13,7 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Never, Self, cast
+from typing import Any, NamedTuple, Never, Self, cast
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
     MAXIMUM_SIGNED_INTEGER,
@@ -2393,32 +2393,68 @@ _MUTATION_RESULT_FIELDS = frozenset(
     }
 )
 
-_MUTATION_RESULT_RULES = {
-    "container_stop": (
-        "phase6d-trusted-time-graceful-stop-docker-container-stop-result-v2",
-        "container_stop_confirmed",
-        "container",
-        "stopped",
-        "AutoQuantTrader/trusted-time/graceful-stop/docker-container-stop-result/v2",
-        frozenset({6, 8}),
+class _MutationResultRule(NamedTuple):
+    contract: str
+    status: str
+    target_kind: str
+    outcome: str
+    domain: str
+    primary_ordinals: frozenset[int]
+
+
+_MUTATION_RESULT_RULES: tuple[tuple[str, _MutationResultRule], ...] = (
+    (
+        "container_stop",
+        _MutationResultRule(
+            "phase6d-trusted-time-graceful-stop-docker-container-stop-result-v2",
+            "container_stop_confirmed",
+            "container",
+            "stopped",
+            "AutoQuantTrader/trusted-time/graceful-stop/docker-container-stop-result/v2",
+            frozenset({6, 8}),
+        ),
     ),
-    "container_remove": (
-        "phase6d-trusted-time-graceful-stop-docker-container-remove-result-v2",
-        "container_removal_confirmed",
-        "container",
-        "absent",
-        "AutoQuantTrader/trusted-time/graceful-stop/docker-container-remove-result/v2",
-        frozenset({10, 12}),
+    (
+        "container_remove",
+        _MutationResultRule(
+            "phase6d-trusted-time-graceful-stop-docker-container-remove-result-v2",
+            "container_removal_confirmed",
+            "container",
+            "absent",
+            "AutoQuantTrader/trusted-time/graceful-stop/docker-container-remove-result/v2",
+            frozenset({10, 12}),
+        ),
     ),
-    "network_remove": (
-        "phase6d-trusted-time-graceful-stop-docker-network-remove-result-v2",
-        "network_removal_confirmed",
-        "network",
-        "absent",
-        "AutoQuantTrader/trusted-time/graceful-stop/docker-network-remove-result/v2",
-        frozenset({14}),
+    (
+        "network_remove",
+        _MutationResultRule(
+            "phase6d-trusted-time-graceful-stop-docker-network-remove-result-v2",
+            "network_removal_confirmed",
+            "network",
+            "absent",
+            "AutoQuantTrader/trusted-time/graceful-stop/docker-network-remove-result/v2",
+            frozenset({14}),
+        ),
     ),
-}
+)
+
+
+def _build_mutation_result_rule_lookup(
+    rules: tuple[tuple[str, _MutationResultRule], ...],
+) -> Callable[[str], _MutationResultRule | None]:
+    def lookup(result_kind: str) -> _MutationResultRule | None:
+        for candidate, rule in rules:
+            if result_kind == candidate:
+                return rule
+        return None
+
+    return lookup
+
+
+_mutation_result_rule_for_kind = _build_mutation_result_rule_lookup(
+    _MUTATION_RESULT_RULES
+)
+del _build_mutation_result_rule_lookup
 
 
 def _trace_matches_exchange(
@@ -2470,6 +2506,9 @@ class DockerMutationResultSemantic:
     @classmethod
     def from_pair(
         cls,
+        _rule_for_kind: Callable[[str], _MutationResultRule | None] = (
+            _mutation_result_rule_for_kind
+        ),
         *,
         result_kind: str,
         environment: str,
@@ -2482,11 +2521,10 @@ class DockerMutationResultSemantic:
         primary: DockerOrdinalEvidence,
         post_inspect: DockerOrdinalEvidence,
     ) -> Self:
-        if result_kind not in _MUTATION_RESULT_RULES:
+        rule = _rule_for_kind(result_kind)
+        if rule is None:
             _reject("Docker mutation result kind is outside the closed set")
-        contract, status, target_kind, outcome, _domain, primary_ordinals = _MUTATION_RESULT_RULES[
-            result_kind
-        ]
+        contract, status, target_kind, outcome, _domain, primary_ordinals = rule
         if (
             type(admission) is not DockerAdmissionCapture
             or type(trace_prefix) is not DockerAdmissionRootedTracePrefix
@@ -2560,7 +2598,7 @@ class DockerMutationResultSemantic:
             ],
             "outcome": outcome,
         }
-        return cls.capture(
+        result = cls.capture(
             value,
             admission=admission,
             trace_prefix=trace_prefix,
@@ -2569,11 +2607,25 @@ class DockerMutationResultSemantic:
             primary=primary,
             post_inspect=post_inspect,
         )
+        result_fields = result.fields.to_dict()
+        if (
+            _rule_for_kind(result_kind) != rule
+            or result_fields["contract_version"] != rule.contract
+            or result_fields["status"] != rule.status
+            or result_fields["target_kind"] != rule.target_kind
+            or result_fields["outcome"] != rule.outcome
+            or result.digest_domain != rule.domain
+        ):
+            _reject("Docker mutation result rule changed under construction")
+        return result
 
     @classmethod
     def capture(
         cls,
         value: object,
+        _rule_for_kind: Callable[[str], _MutationResultRule | None] = (
+            _mutation_result_rule_for_kind
+        ),
         *,
         admission: DockerAdmissionCapture,
         trace_prefix: DockerAdmissionRootedTracePrefix,
@@ -2599,11 +2651,14 @@ class DockerMutationResultSemantic:
         fields = frozen.to_dict()
         _require_fields(fields, _MUTATION_RESULT_FIELDS, "Docker mutation result")
         result_kind = fields["result_kind"]
-        if type(result_kind) is not str or result_kind not in _MUTATION_RESULT_RULES:
+        rule = (
+            _rule_for_kind(result_kind)
+            if type(result_kind) is str
+            else None
+        )
+        if rule is None:
             _reject("Docker mutation result kind is invalid")
-        contract, status, target_kind, outcome, domain, ordinals = _MUTATION_RESULT_RULES[
-            result_kind
-        ]
+        contract, status, target_kind, outcome, domain, ordinals = rule
         if (
             fields["contract_version"] != contract
             or fields["service"] != DOCKER_SERVICE
@@ -2776,6 +2831,15 @@ class DockerMutationResultSemantic:
         result = object.__new__(cls)
         object.__setattr__(result, "fields", frozen)
         object.__setattr__(result, "digest_domain", domain)
+        if (
+            _rule_for_kind(cast(str, result_kind)) != rule
+            or fields["contract_version"] != rule.contract
+            or fields["status"] != rule.status
+            or fields["target_kind"] != rule.target_kind
+            or fields["outcome"] != rule.outcome
+            or result.digest_domain != rule.domain
+        ):
+            _reject("Docker mutation result rule changed under validation")
         return result
 
     def to_dict(self) -> dict[str, object]:
@@ -3136,20 +3200,58 @@ def _install_docker_result_runtime_seals() -> tuple[
         Callable[..., DockerMutationResultSemantic],
         DockerMutationResultSemantic.capture,
     )
+    mutation_from_pair = cast(
+        Callable[..., DockerMutationResultSemantic],
+        DockerMutationResultSemantic.from_pair,
+    )
+    exact_mutation_rule_lookup = _mutation_result_rule_for_kind
     volume_capture = cast(
         Callable[..., DockerVolumePreservationResult],
         DockerVolumePreservationResult.capture,
     )
 
     def capture_mutation(
-        cls: type[DockerMutationResultSemantic], /, *args: object, **kwargs: object
+        cls: type[DockerMutationResultSemantic],
+        value: object,
+        /,
+        *,
+        admission: DockerAdmissionCapture,
+        trace_prefix: DockerAdmissionRootedTracePrefix,
+        admitted_target: DockerOrdinalEvidence,
+        previous: DockerOrdinalEvidence,
+        primary: DockerOrdinalEvidence,
+        post_inspect: DockerOrdinalEvidence,
     ) -> DockerMutationResultSemantic:
         if cls is not DockerMutationResultSemantic:
             _reject("Docker mutation result capture class is not exact")
-        result = mutation_capture(*args, **kwargs)
+        result = mutation_capture(
+            value,
+            exact_mutation_rule_lookup,
+            admission=admission,
+            trace_prefix=trace_prefix,
+            admitted_target=admitted_target,
+            previous=previous,
+            primary=primary,
+            post_inspect=post_inspect,
+        )
         if type(result) is not DockerMutationResultSemantic:
             _reject("Docker mutation result capture returned an inexact type")
         fields = result.fields.to_dict()
+        raw_result_kind = fields["result_kind"]
+        rule = (
+            exact_mutation_rule_lookup(raw_result_kind)
+            if type(raw_result_kind) is str
+            else None
+        )
+        if (
+            rule is None
+            or fields["contract_version"] != rule.contract
+            or fields["status"] != rule.status
+            or fields["target_kind"] != rule.target_kind
+            or fields["outcome"] != rule.outcome
+            or result.digest_domain != rule.domain
+        ):
+            _reject("Docker mutation result changed before runtime sealing")
         if not registry.seal(
             result,
             snapshot_sha256=_docker_result_snapshot(result.fields, result.digest_domain),
@@ -3159,6 +3261,37 @@ def _install_docker_result_runtime_seals() -> tuple[
         ):
             _reject("Docker mutation result runtime seal could not be created")
         return result
+
+    def from_pair(
+        cls: type[DockerMutationResultSemantic],
+        /,
+        *,
+        result_kind: str,
+        environment: str,
+        graceful_stop_operation_id: str,
+        root_sha256: str,
+        admission: DockerAdmissionCapture,
+        trace_prefix: DockerAdmissionRootedTracePrefix,
+        admitted_target: DockerOrdinalEvidence,
+        previous: DockerOrdinalEvidence,
+        primary: DockerOrdinalEvidence,
+        post_inspect: DockerOrdinalEvidence,
+    ) -> DockerMutationResultSemantic:
+        if cls is not DockerMutationResultSemantic:
+            _reject("Docker mutation result construction class is not exact")
+        return mutation_from_pair(
+            exact_mutation_rule_lookup,
+            result_kind=result_kind,
+            environment=environment,
+            graceful_stop_operation_id=graceful_stop_operation_id,
+            root_sha256=root_sha256,
+            admission=admission,
+            trace_prefix=trace_prefix,
+            admitted_target=admitted_target,
+            previous=previous,
+            primary=primary,
+            post_inspect=post_inspect,
+        )
 
     def capture_volume(
         cls: type[DockerVolumePreservationResult], /, *args: object, **kwargs: object
@@ -3209,6 +3342,7 @@ def _install_docker_result_runtime_seals() -> tuple[
         )
     )
     cast(Any, DockerMutationResultSemantic).capture = classmethod(capture_mutation)
+    cast(Any, DockerMutationResultSemantic).from_pair = classmethod(from_pair)
     cast(Any, DockerVolumePreservationResult).capture = classmethod(capture_volume)
     return require_mutation, require_volume
 

@@ -27,7 +27,6 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_V2_ROOT_CONTRACT_VERSION,
     LIFECYCLE_V2_SERVICE,
     MAXIMUM_SIGNED_INTEGER,
-    NORMAL_STAGE_BY_ORDINAL,
     LifecycleV2CleanStopRequestBasis,
     LifecycleV2Outcome,
     LifecycleV2OutcomeCommit,
@@ -50,6 +49,7 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     lifecycle_v2_dispatch_prefix_sha256,
     lifecycle_v2_progress_file_name,
     lifecycle_v2_wire_file_name,
+    normal_lifecycle_v2_stage_for_ordinal,
 )
 from packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics import (
     LifecycleV2ConfirmedSuccessLineageSnapshot,
@@ -1149,6 +1149,9 @@ class _LifecycleV2Repository:
     def _require_stage_transition(
         self,
         record: LifecycleV2ProgressRecord,
+        _normal_stage_for_ordinal: Callable[[int], LifecycleV2Stage | None] = (
+            normal_lifecycle_v2_stage_for_ordinal
+        ),
         *,
         records: tuple[LifecycleV2ProgressRecord, ...] | None = None,
     ) -> None:
@@ -1179,7 +1182,7 @@ class _LifecycleV2Repository:
             for item in exact_records
         ):
             raise LifecycleV2RepositoryRejected("normal continuation after failure is forbidden")
-        expected = NORMAL_STAGE_BY_ORDINAL.get(record.ordinal)
+        expected = _normal_stage_for_ordinal(record.ordinal)
         if record.ordinal == 2 and record.stage is LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED:
             return
         if record.stage is not expected:
@@ -1230,7 +1233,7 @@ class _LifecycleV2Repository:
             or record.deadline_boottime_ns != self._root.operation_deadline_boottime_ns
         ):
             raise LifecycleV2RepositoryRejected("progress record does not bind this lifecycle")
-        self._require_stage_transition(record)
+        self._require_stage_transition(record, records=None)
 
     def _require_derived_request_intent(
         self,
@@ -1943,6 +1946,31 @@ class _LifecycleV2Repository:
             encoded=encoded,
             finalize_staging=finalize_staging,
         )
+
+
+def _install_stage_transition_validator() -> None:
+    repository_type = _LifecycleV2Repository
+    original_validator = repository_type._require_stage_transition
+    exact_normal_stage_lookup = normal_lifecycle_v2_stage_for_ordinal
+
+    def require_stage_transition(
+        self: _LifecycleV2Repository,
+        record: LifecycleV2ProgressRecord,
+        *,
+        records: tuple[LifecycleV2ProgressRecord, ...] | None,
+    ) -> None:
+        original_validator(
+            self,
+            record,
+            exact_normal_stage_lookup,
+            records=records,
+        )
+
+    cast(Any, repository_type)._require_stage_transition = require_stage_transition
+
+
+_install_stage_transition_validator()
+del _install_stage_transition_validator
 
 
 def _build_named_lifecycle_v2_retention_endpoints() -> tuple[Callable[..., None], ...]:

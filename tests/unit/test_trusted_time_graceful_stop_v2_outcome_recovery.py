@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import pytest
 
+from packages.domain import trusted_time_graceful_stop_v2 as core_module
 from packages.domain import trusted_time_graceful_stop_v2_recovery as recovery
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_V2_OUTCOME_COMMIT_FILE_NAME,
@@ -1165,6 +1166,187 @@ def test_replacing_fake_recovery_builder_cannot_register_a_forged_intent(
     )
     assert issued is not forged
     assert recovery.require_authenticated_lifecycle_v2_recovery_intent(issued) is issued
+
+
+def test_docker_result_rule_replacement_cannot_authorize_durable_recovery_prefix() -> None:
+    scenario = _scenario()
+    lineage = _complete_lineage(scenario)
+    original = lineage.record_at(8)
+    evidence = original.evidence.to_dict()
+    semantic = cast(dict[str, object], evidence["result_semantic"])
+    semantic["outcome"] = "attacker_outcome"
+    evidence["disposition"] = "attacker_outcome"
+    evidence["result_semantic_sha256"] = core_module._nested_domain_sha256(
+        "AutoQuantTrader/trusted-time/graceful-stop/"
+        "docker-container-stop-result/v2",
+        semantic,
+    )
+    original_rules = core_module._DOCKER_RESULT_RULE_BY_STAGE
+    if type(original_rules) is dict:
+        malicious_rules: object = dict(original_rules)
+        original_rule = malicious_rules[original.stage]  # type: ignore[index]
+        malicious_rules[original.stage] = (  # type: ignore[index]
+            *original_rule[:4],
+            "attacker_outcome",
+            *original_rule[5:],
+        )
+    else:
+        malicious_items: list[tuple[object, object]] = []
+        for stage, rule in cast(tuple[tuple[object, object], ...], original_rules):
+            if stage is original.stage:
+                if hasattr(rule, "_replace"):
+                    rule = rule._replace(outcome="attacker_outcome")
+                else:
+                    rule = (*rule[:4], "attacker_outcome", *rule[5:])
+            malicious_items.append((stage, rule))
+        malicious_rules = tuple(malicious_items)
+
+    core_module._DOCKER_RESULT_RULE_BY_STAGE = malicious_rules
+    try:
+        try:
+            forged = LifecycleV2ProgressRecord(
+                graceful_stop_operation_id=original.graceful_stop_operation_id,
+                root_sha256=original.root_sha256,
+                ordinal=original.ordinal,
+                stage=original.stage,
+                predecessor_sha256=original.predecessor_sha256,
+                effect_kind=original.effect_kind,
+                deadline_boottime_ns=original.deadline_boottime_ns,
+                evidence=FrozenJsonObject.capture(evidence),
+                recorded_at_utc=original.recorded_at_utc,
+            )
+        except TrustedTimeGracefulStopV2Rejected:
+            return
+
+        store = _SealedLineageArtifactStore()
+        repository = _retain_sealed_success_prefix(
+            store,
+            scenario,
+            lineage,
+            through_ordinal=7,
+        )
+        try:
+            repository.retain_effect_result(forged)
+        except persistence.LifecycleV2RepositoryRejected:
+            return
+        classified = repository.publish_transcript()
+        try:
+            repository.retain_recovery_classification_intent(
+                _fake_recovery_intent(scenario.root, classified)
+            )
+        except persistence.LifecycleV2RepositoryRejected:
+            return
+        repository.publish_transcript()
+        with pytest.raises(
+            (
+                persistence.LifecycleV2RepositoryRejected,
+                persistence.LifecycleV2RetentionUnconfirmed,
+            )
+        ):
+            repository.commit_recovery_outcome(
+                clock=_Clock([scenario.root.admission_started_boottime_ns]),
+                created_at_utc=UTC_TEXT,
+            )
+    finally:
+        core_module._DOCKER_RESULT_RULE_BY_STAGE = original_rules
+
+
+def test_normal_stage_rule_mutation_cannot_authorize_durable_recovery_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenario = _scenario()
+    lineage = _complete_lineage(scenario)
+    authentic = lineage.record_at(3)
+    reordered = LifecycleV2ProgressRecord(
+        graceful_stop_operation_id=authentic.graceful_stop_operation_id,
+        root_sha256=authentic.root_sha256,
+        ordinal=2,
+        stage=authentic.stage,
+        predecessor_sha256=scenario.request_intent.sha256,
+        effect_kind=authentic.effect_kind,
+        deadline_boottime_ns=authentic.deadline_boottime_ns,
+        evidence=authentic.evidence,
+        recorded_at_utc=authentic.recorded_at_utc,
+    )
+    rules = core_module.NORMAL_STAGE_BY_ORDINAL
+    if type(rules) is dict:
+        malicious_rules: object = dict(rules)
+        cast(dict[int, LifecycleV2Stage], malicious_rules)[2] = (
+            LifecycleV2Stage.TRANSPORT_CLEANUP_COMMITMENT_RETAINED
+        )
+    else:
+        assert type(rules) is tuple
+        malicious_rules = (
+            *rules[:2],
+            LifecycleV2Stage.TRANSPORT_CLEANUP_COMMITMENT_RETAINED,
+            *rules[3:],
+        )
+
+    def malicious_lookup(ordinal: int) -> LifecycleV2Stage | None:
+        if ordinal == 2:
+            return LifecycleV2Stage.TRANSPORT_CLEANUP_COMMITMENT_RETAINED
+        if type(rules) is dict:
+            return cast(dict[int, LifecycleV2Stage], rules).get(ordinal)
+        if 0 <= ordinal < len(rules):
+            return rules[ordinal]
+        return None
+
+    monkeypatch.setattr(core_module, "NORMAL_STAGE_BY_ORDINAL", malicious_rules)
+    monkeypatch.setattr(
+        persistence,
+        "normal_lifecycle_v2_stage_for_ordinal",
+        malicious_lookup,
+    )
+    monkeypatch.setattr(
+        recovery,
+        "normal_lifecycle_v2_stage_for_ordinal",
+        malicious_lookup,
+    )
+    transition_validator = persistence._LifecycleV2Repository._require_stage_transition
+    monkeypatch.setattr(
+        transition_validator,
+        "__defaults__",
+        (malicious_lookup,),
+    )
+    monkeypatch.setattr(
+        transition_validator,
+        "__kwdefaults__",
+        {"records": None, "_normal_stage_for_ordinal": malicious_lookup},
+    )
+    prefix_validator = recovery._require_prefix_stage
+    monkeypatch.setattr(prefix_validator, "__defaults__", (malicious_lookup,))
+    monkeypatch.setattr(
+        prefix_validator,
+        "__kwdefaults__",
+        {"_normal_stage_for_ordinal": malicious_lookup},
+    )
+
+    repository = _repository(FakeLifecycleV2ArtifactStore())
+    basis = LifecycleV2CleanStopRequestBasis.from_root(scenario.root)
+    repository.reserve_root(scenario.root)
+    repository.retain_request_intent(scenario.request_intent, basis)
+    try:
+        repository.retain_transport_cleanup_commitment(reordered)
+    except persistence.LifecycleV2RepositoryRejected:
+        return
+    classified = repository.publish_transcript()
+    try:
+        repository.retain_recovery_classification_intent(
+            _fake_recovery_intent(scenario.root, classified)
+        )
+    except persistence.LifecycleV2RepositoryRejected:
+        return
+    repository.publish_transcript()
+    with pytest.raises(
+        (
+            persistence.LifecycleV2RepositoryRejected,
+            persistence.LifecycleV2RetentionUnconfirmed,
+        )
+    ):
+        repository.commit_recovery_outcome(
+            clock=_Clock([scenario.root.admission_started_boottime_ns]),
+            created_at_utc=UTC_TEXT,
+        )
 
 
 def test_repository_ignores_replaced_recovery_consumer_globals(

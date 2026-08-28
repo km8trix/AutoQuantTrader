@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import gc
 import hashlib
 import os
 import threading
@@ -588,6 +589,86 @@ def test_terminal_capture_ignores_replaced_module_validators_and_rejects_forged_
             request=request,
             root=root,
         )
+
+
+def test_frame_rule_replacement_cannot_mint_wrong_direction_terminal_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, request, result = _result()
+    valid_envelope = _envelope(
+        root,
+        request,
+        frame_type="clean_stop_result",
+        payload=result.encoded,
+    )
+    fields = valid_envelope.to_dict()
+    fields["direction"] = "attacker_to_host"
+    original_rules = lifecycle_core._FRAME_RULES
+    if type(original_rules) is dict:
+        malicious_rules: object = dict(original_rules)
+        original_rule = malicious_rules["clean_stop_result"]  # type: ignore[index]
+        malicious_rule = (  # type: ignore[index]
+            "attacker_to_host",
+            *original_rule[1:],
+        )
+        malicious_rules["clean_stop_result"] = malicious_rule  # type: ignore[index]
+    else:
+        malicious_items: list[tuple[object, object]] = []
+        malicious_rule = None
+        for frame_type, rule in original_rules:
+            if frame_type == "clean_stop_result":
+                if hasattr(rule, "_replace"):
+                    rule = rule._replace(direction="attacker_to_host")
+                else:
+                    rule = ("attacker_to_host", *rule[1:])
+                malicious_rule = rule
+            malicious_items.append((frame_type, rule))
+        assert malicious_rule is not None
+        malicious_rules = tuple(malicious_items)
+
+    def malicious_lookup(frame_type: str) -> object | None:
+        return malicious_rule if frame_type == "clean_stop_result" else None
+
+    monkeypatch.setattr(lifecycle_core, "_FRAME_RULES", malicious_rules)
+    capture_endpoint = UnverifiedLifecycleV2TransportEnvelope.capture.__func__
+    monkeypatch.setattr(capture_endpoint, "__defaults__", (malicious_lookup,))
+    monkeypatch.setattr(
+        capture_endpoint,
+        "__kwdefaults__",
+        {"_rule_for_type": malicious_lookup},
+    )
+
+    with pytest.raises(TypeError):
+        UnverifiedLifecycleV2TransportEnvelope.capture(fields, malicious_lookup)
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+        envelope = UnverifiedLifecycleV2TransportEnvelope.capture(fields)
+        proof = _proof(envelope, root)
+        receipt = _receipt(root, request, envelope, proof)
+        LifecycleV2TerminalWireEvidence.capture(
+            _result_evidence_value(root, request, result, envelope, receipt),
+            proof=proof,
+            request=request,
+            root=root,
+            responder_identity_sha256=root.supervisor_process_epoch_sha256,
+        )
+
+    for rules in (original_rules, lifecycle_core.NORMAL_STAGE_BY_ORDINAL):
+        assert type(rules) is tuple
+        before = tuple(rules)
+        rules.__init__(("attacker",))
+        assert rules == before
+        pending: list[object] = [rules]
+        visited: set[int] = set()
+        while pending:
+            current = pending.pop()
+            if id(current) in visited:
+                continue
+            visited.add(id(current))
+            for referent in gc.get_referents(current):
+                assert type(referent) not in {dict, list, set, bytearray}
+                if isinstance(referent, tuple | frozenset):
+                    pending.append(referent)
 
 
 def test_terminal_runtime_seals_ignore_replaced_globals_and_reject_mutation_and_copy(

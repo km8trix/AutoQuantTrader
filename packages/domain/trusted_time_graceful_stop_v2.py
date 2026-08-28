@@ -16,7 +16,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Never, Self, cast
+from typing import Any, NamedTuple, Never, Self, cast
 
 from packages.domain.trusted_time_graceful_stop_v2_runtime_seal import (
     LifecycleV2RuntimeSealRegistry,
@@ -97,31 +97,48 @@ class LifecycleV2Stage(StrEnum):
     RECOVERY_CLASSIFICATION_INTENT_RETAINED = "recovery_classification_intent_retained"
 
 
-NORMAL_STAGE_BY_ORDINAL: dict[int, LifecycleV2Stage] = {
-    0: LifecycleV2Stage.ROOT_RESERVED,
-    1: LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED,
-    2: LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED,
-    3: LifecycleV2Stage.TRANSPORT_CLEANUP_COMMITMENT_RETAINED,
-    4: LifecycleV2Stage.TRANSPORT_CHANNEL_QUIESCED,
-    5: LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_INTENT_RETAINED,
-    6: LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_BOUND,
-    7: LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_INTENT_RETAINED,
-    8: LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_RESULT_RETAINED,
-    9: LifecycleV2Stage.SOURCE_CONTAINER_STOP_INTENT_RETAINED,
-    10: LifecycleV2Stage.SOURCE_CONTAINER_STOP_RESULT_RETAINED,
-    11: LifecycleV2Stage.SUPERVISOR_CONTAINER_REMOVE_INTENT_RETAINED,
-    12: LifecycleV2Stage.SUPERVISOR_CONTAINER_REMOVE_RESULT_RETAINED,
-    13: LifecycleV2Stage.SOURCE_CONTAINER_REMOVE_INTENT_RETAINED,
-    14: LifecycleV2Stage.SOURCE_CONTAINER_REMOVE_RESULT_RETAINED,
-    15: LifecycleV2Stage.PROJECT_NETWORK_REMOVE_INTENT_RETAINED,
-    16: LifecycleV2Stage.PROJECT_NETWORK_REMOVE_RESULT_RETAINED,
-    17: LifecycleV2Stage.NAMED_VOLUME_PRESERVATION_INTENT_RETAINED,
-    18: LifecycleV2Stage.NAMED_VOLUMES_PRESERVED,
-    19: LifecycleV2Stage.POST_TEARDOWN_REAUTHENTICATION_INTENT_RETAINED,
-    20: LifecycleV2Stage.POST_TEARDOWN_TERMINAL_REAUTHENTICATION_BOUND,
-    21: LifecycleV2Stage.TERMINAL_CLEANUP_INTENT_RETAINED,
-    22: LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED,
-}
+NORMAL_STAGE_BY_ORDINAL: tuple[LifecycleV2Stage, ...] = (
+    LifecycleV2Stage.ROOT_RESERVED,
+    LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED,
+    LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED,
+    LifecycleV2Stage.TRANSPORT_CLEANUP_COMMITMENT_RETAINED,
+    LifecycleV2Stage.TRANSPORT_CHANNEL_QUIESCED,
+    LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_INTENT_RETAINED,
+    LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_BOUND,
+    LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_INTENT_RETAINED,
+    LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_RESULT_RETAINED,
+    LifecycleV2Stage.SOURCE_CONTAINER_STOP_INTENT_RETAINED,
+    LifecycleV2Stage.SOURCE_CONTAINER_STOP_RESULT_RETAINED,
+    LifecycleV2Stage.SUPERVISOR_CONTAINER_REMOVE_INTENT_RETAINED,
+    LifecycleV2Stage.SUPERVISOR_CONTAINER_REMOVE_RESULT_RETAINED,
+    LifecycleV2Stage.SOURCE_CONTAINER_REMOVE_INTENT_RETAINED,
+    LifecycleV2Stage.SOURCE_CONTAINER_REMOVE_RESULT_RETAINED,
+    LifecycleV2Stage.PROJECT_NETWORK_REMOVE_INTENT_RETAINED,
+    LifecycleV2Stage.PROJECT_NETWORK_REMOVE_RESULT_RETAINED,
+    LifecycleV2Stage.NAMED_VOLUME_PRESERVATION_INTENT_RETAINED,
+    LifecycleV2Stage.NAMED_VOLUMES_PRESERVED,
+    LifecycleV2Stage.POST_TEARDOWN_REAUTHENTICATION_INTENT_RETAINED,
+    LifecycleV2Stage.POST_TEARDOWN_TERMINAL_REAUTHENTICATION_BOUND,
+    LifecycleV2Stage.TERMINAL_CLEANUP_INTENT_RETAINED,
+    LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED,
+)
+
+
+def _build_normal_stage_lookup(
+    stages: tuple[LifecycleV2Stage, ...],
+) -> Callable[[int], LifecycleV2Stage | None]:
+    def lookup(ordinal: int) -> LifecycleV2Stage | None:
+        if type(ordinal) is not int or ordinal < 0 or ordinal >= len(stages):
+            return None
+        return stages[ordinal]
+
+    return lookup
+
+
+normal_lifecycle_v2_stage_for_ordinal = _build_normal_stage_lookup(
+    NORMAL_STAGE_BY_ORDINAL
+)
+del _build_normal_stage_lookup
 
 
 def _reject_float(_: str) -> Never:
@@ -1099,56 +1116,98 @@ _REAUTHENTICATION_RESULT_STAGES = frozenset(
         LifecycleV2Stage.POST_TEARDOWN_TERMINAL_REAUTHENTICATION_BOUND,
     }
 )
-_DOCKER_RESULT_RULE_BY_STAGE: dict[
-    LifecycleV2Stage,
-    tuple[str, str, str, str, str, int, int],
-] = {
-    LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_RESULT_RETAINED: (
-        "phase6d-trusted-time-graceful-stop-docker-container-stop-result-v2",
-        "container_stop_confirmed",
-        "container_stop",
-        "container",
-        "stopped",
-        6,
-        200,
+class _DockerResultRule(NamedTuple):
+    contract: str
+    status: str
+    result_kind: str
+    target_kind: str
+    outcome: str
+    primary_ordinal: int
+    post_status: int
+
+
+_DOCKER_RESULT_RULE_BY_STAGE: tuple[
+    tuple[LifecycleV2Stage, _DockerResultRule], ...
+] = (
+    (
+        LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_RESULT_RETAINED,
+        _DockerResultRule(
+            "phase6d-trusted-time-graceful-stop-docker-container-stop-result-v2",
+            "container_stop_confirmed",
+            "container_stop",
+            "container",
+            "stopped",
+            6,
+            200,
+        ),
     ),
-    LifecycleV2Stage.SOURCE_CONTAINER_STOP_RESULT_RETAINED: (
-        "phase6d-trusted-time-graceful-stop-docker-container-stop-result-v2",
-        "container_stop_confirmed",
-        "container_stop",
-        "container",
-        "stopped",
-        8,
-        200,
+    (
+        LifecycleV2Stage.SOURCE_CONTAINER_STOP_RESULT_RETAINED,
+        _DockerResultRule(
+            "phase6d-trusted-time-graceful-stop-docker-container-stop-result-v2",
+            "container_stop_confirmed",
+            "container_stop",
+            "container",
+            "stopped",
+            8,
+            200,
+        ),
     ),
-    LifecycleV2Stage.SUPERVISOR_CONTAINER_REMOVE_RESULT_RETAINED: (
-        "phase6d-trusted-time-graceful-stop-docker-container-remove-result-v2",
-        "container_removal_confirmed",
-        "container_remove",
-        "container",
-        "absent",
-        10,
-        404,
+    (
+        LifecycleV2Stage.SUPERVISOR_CONTAINER_REMOVE_RESULT_RETAINED,
+        _DockerResultRule(
+            "phase6d-trusted-time-graceful-stop-docker-container-remove-result-v2",
+            "container_removal_confirmed",
+            "container_remove",
+            "container",
+            "absent",
+            10,
+            404,
+        ),
     ),
-    LifecycleV2Stage.SOURCE_CONTAINER_REMOVE_RESULT_RETAINED: (
-        "phase6d-trusted-time-graceful-stop-docker-container-remove-result-v2",
-        "container_removal_confirmed",
-        "container_remove",
-        "container",
-        "absent",
-        12,
-        404,
+    (
+        LifecycleV2Stage.SOURCE_CONTAINER_REMOVE_RESULT_RETAINED,
+        _DockerResultRule(
+            "phase6d-trusted-time-graceful-stop-docker-container-remove-result-v2",
+            "container_removal_confirmed",
+            "container_remove",
+            "container",
+            "absent",
+            12,
+            404,
+        ),
     ),
-    LifecycleV2Stage.PROJECT_NETWORK_REMOVE_RESULT_RETAINED: (
-        "phase6d-trusted-time-graceful-stop-docker-network-remove-result-v2",
-        "network_removal_confirmed",
-        "network_remove",
-        "network",
-        "absent",
-        14,
-        404,
+    (
+        LifecycleV2Stage.PROJECT_NETWORK_REMOVE_RESULT_RETAINED,
+        _DockerResultRule(
+            "phase6d-trusted-time-graceful-stop-docker-network-remove-result-v2",
+            "network_removal_confirmed",
+            "network_remove",
+            "network",
+            "absent",
+            14,
+            404,
+        ),
     ),
-}
+)
+
+
+def _build_docker_result_rule_lookup(
+    rules: tuple[tuple[LifecycleV2Stage, _DockerResultRule], ...],
+) -> Callable[[LifecycleV2Stage], _DockerResultRule | None]:
+    def lookup(stage: LifecycleV2Stage) -> _DockerResultRule | None:
+        for candidate, rule in rules:
+            if stage is candidate:
+                return rule
+        return None
+
+    return lookup
+
+
+_docker_result_rule_for_stage = _build_docker_result_rule_lookup(
+    _DOCKER_RESULT_RULE_BY_STAGE
+)
+del _build_docker_result_rule_lookup
 
 
 def _capture_lifecycle_v2_reauthentication_binding_evidence(
@@ -1681,6 +1740,9 @@ def _require_docker_exchange_trace_binding(
 def _validate_docker_mutation_result_evidence(
     stage: LifecycleV2Stage,
     value: dict[str, object],
+    _rule_for_stage: Callable[[LifecycleV2Stage], _DockerResultRule | None] = (
+        _docker_result_rule_for_stage
+    ),
     *,
     graceful_stop_operation_id: str,
     root_sha256: str,
@@ -1690,6 +1752,11 @@ def _validate_docker_mutation_result_evidence(
         _DOCKER_MUTATION_SEMANTIC_FIELDS,
         "Docker mutation result semantic",
     )
+    rule = _rule_for_stage(stage)
+    if rule is None:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "Docker mutation result stage is outside the closed set"
+        )
     (
         contract,
         status,
@@ -1698,7 +1765,7 @@ def _validate_docker_mutation_result_evidence(
         outcome,
         primary_ordinal,
         post_status,
-    ) = _DOCKER_RESULT_RULE_BY_STAGE[stage]
+    ) = rule
     if (
         semantic["contract_version"] != contract
         or semantic["service"] != "trusted-time-graceful-stop-docker-v2"
@@ -1837,6 +1904,38 @@ def _validate_docker_mutation_result_evidence(
         raise TrustedTimeGracefulStopV2Rejected(
             "Docker mutation result crossed its exact nested semantic"
         )
+    if _rule_for_stage(stage) != rule:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "Docker mutation result rule changed under validation"
+        )
+
+
+def _install_docker_mutation_result_evidence_validator() -> Callable[..., None]:
+    original_validator = _validate_docker_mutation_result_evidence
+    exact_rule_lookup = _docker_result_rule_for_stage
+
+    def validate(
+        stage: LifecycleV2Stage,
+        value: dict[str, object],
+        *,
+        graceful_stop_operation_id: str,
+        root_sha256: str,
+    ) -> None:
+        original_validator(
+            stage,
+            value,
+            exact_rule_lookup,
+            graceful_stop_operation_id=graceful_stop_operation_id,
+            root_sha256=root_sha256,
+        )
+
+    return validate
+
+
+_validate_docker_mutation_result_evidence = (
+    _install_docker_mutation_result_evidence_validator()
+)
+del _install_docker_mutation_result_evidence_validator
 
 
 def _validate_docker_volume_result_evidence(
@@ -3100,26 +3199,58 @@ _TRANSPORT_ENVELOPE_FIELDS = frozenset(
         "signature_ed25519_base64",
     }
 )
-_FRAME_RULES = {
-    "clean_stop_request": (
-        "host_to_supervisor",
-        2,
-        LIFECYCLE_V2_CLEAN_STOP_REQUEST_CONTRACT_VERSION,
-        65_536,
+class _FrameRule(NamedTuple):
+    direction: str
+    counter: int
+    payload_contract: str
+    payload_limit: int
+
+
+_FRAME_RULES: tuple[tuple[str, _FrameRule], ...] = (
+    (
+        "clean_stop_request",
+        _FrameRule(
+            "host_to_supervisor",
+            2,
+            LIFECYCLE_V2_CLEAN_STOP_REQUEST_CONTRACT_VERSION,
+            65_536,
+        ),
     ),
-    "clean_stop_result": (
-        "supervisor_to_host",
-        1,
-        "phase6d-trusted-time-head-anchor-clean-stop-result-v2",
-        180_224,
+    (
+        "clean_stop_result",
+        _FrameRule(
+            "supervisor_to_host",
+            1,
+            "phase6d-trusted-time-head-anchor-clean-stop-result-v2",
+            180_224,
+        ),
     ),
-    "clean_stop_error": (
-        "supervisor_to_host",
-        1,
-        "phase6d-trusted-time-head-anchor-clean-stop-error-v2",
-        32_768,
+    (
+        "clean_stop_error",
+        _FrameRule(
+            "supervisor_to_host",
+            1,
+            "phase6d-trusted-time-head-anchor-clean-stop-error-v2",
+            32_768,
+        ),
     ),
-}
+)
+
+
+def _build_frame_rule_lookup(
+    rules: tuple[tuple[str, _FrameRule], ...],
+) -> Callable[[str], _FrameRule | None]:
+    def lookup(frame_type: str) -> _FrameRule | None:
+        for candidate, rule in rules:
+            if frame_type == candidate:
+                return rule
+        return None
+
+    return lookup
+
+
+_frame_rule_for_type = _build_frame_rule_lookup(_FRAME_RULES)
+del _build_frame_rule_lookup
 
 
 def _canonical_base64(value: object, *, exact_length: int | None = None) -> bytes:
@@ -3148,20 +3279,29 @@ class UnverifiedLifecycleV2TransportEnvelope:
         raise TypeError("transport envelopes require canonical capture")
 
     @classmethod
-    def capture(cls, value: object) -> Self:
+    def capture(
+        cls,
+        value: object,
+        _rule_for_type: Callable[[str], _FrameRule | None] = _frame_rule_for_type,
+    ) -> Self:
         frozen = FrozenJsonObject.capture(value)
         fields = frozen.to_dict()
         _require_fields(fields, _TRANSPORT_ENVELOPE_FIELDS)
+        frame_type_value = fields["frame_type"]
+        rule = (
+            _rule_for_type(frame_type_value)
+            if type(frame_type_value) is str
+            else None
+        )
         if (
             fields["contract_version"] != LIFECYCLE_V2_TRANSPORT_ENVELOPE_CONTRACT_VERSION
             or fields["service"] != LIFECYCLE_V2_TRANSPORT_SERVICE
             or fields["protocol_version"] != 2
-            or type(fields["frame_type"]) is not str
-            or fields["frame_type"] not in _FRAME_RULES
+            or rule is None
         ):
             raise TrustedTimeGracefulStopV2Rejected("transport envelope discriminator is invalid")
-        frame_type = fields["frame_type"]
-        direction, counter, payload_contract, payload_limit = _FRAME_RULES[frame_type]
+        frame_type = cast(str, frame_type_value)
+        direction, counter, payload_contract, payload_limit = rule
         if (
             fields["direction"] != direction
             or fields["message_counter"] != counter
@@ -3195,6 +3335,16 @@ class UnverifiedLifecycleV2TransportEnvelope:
         object.__setattr__(result, "signature", signature)
         if len(result.encoded) > LIFECYCLE_V2_WIRE_MAXIMUM_BYTES:
             raise TrustedTimeGracefulStopV2Rejected("signed envelope exceeds seqpacket bound")
+        post_fields = result.fields.to_dict()
+        if (
+            _rule_for_type(frame_type) != rule
+            or post_fields["direction"] != rule.direction
+            or post_fields["message_counter"] != rule.counter
+            or post_fields["payload_contract_version"] != rule.payload_contract
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "transport frame rule changed under validation"
+            )
         return result
 
     def to_dict(self) -> dict[str, object]:
@@ -3217,6 +3367,32 @@ class UnverifiedLifecycleV2TransportEnvelope:
     @property
     def signature_sha256(self) -> str:
         return _sha256(self.signature)
+
+
+def _install_transport_envelope_capture() -> None:
+    envelope_type = UnverifiedLifecycleV2TransportEnvelope
+    original_capture = cast(
+        Callable[..., UnverifiedLifecycleV2TransportEnvelope],
+        envelope_type.capture,
+    )
+    exact_rule_lookup = _frame_rule_for_type
+
+    def capture(
+        cls: type[UnverifiedLifecycleV2TransportEnvelope],
+        value: object,
+        /,
+    ) -> UnverifiedLifecycleV2TransportEnvelope:
+        if cls is not envelope_type:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "transport envelope capture class is not exact"
+            )
+        return original_capture(value, exact_rule_lookup)
+
+    cast(Any, envelope_type).capture = classmethod(capture)
+
+
+_install_transport_envelope_capture()
+del _install_transport_envelope_capture
 
 
 @dataclass(frozen=True, slots=True, eq=False, init=False)

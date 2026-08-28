@@ -888,7 +888,7 @@ def _build_recovery_classification_validation_endpoints() -> tuple[
     decode_transcript = decode_lifecycle_v2_transcript
     recovery_manifest_for_root = authenticated_lifecycle_v2_recovery_manifest_for_root
     verify_signature = _verify
-    normal_stages = dict(NORMAL_STAGE_BY_ORDINAL)
+    normal_stages = dict(enumerate(NORMAL_STAGE_BY_ORDINAL))
     error_retained_stage = LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED
     authentication_error_type = LifecycleV2TransportAuthenticationError
     rejected_type = TrustedTimeGracefulStopV2Rejected

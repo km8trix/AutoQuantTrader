@@ -1606,9 +1606,15 @@ def test_docker_and_terminal_modules_remain_non_authoritative_and_transport_free
         "packages/domain/trusted_time_graceful_stop_v2_terminal.py",
     ):
         source = (ROOT / relative).read_text(encoding="utf-8")
+        admitted_provenance_read = (
+            'with open(adapter_source, "rb") as adapter_source_file:'
+        )
+        expected_provenance_reads = 1 if relative.endswith("_terminal.py") else 0
+        assert source.count(admitted_provenance_read) == expected_provenance_reads
+        source_without_admitted_read = source.replace(admitted_provenance_read, "")
         assert "import socket" not in source
         assert "import httpx" not in source
         assert "import requests" not in source
         assert "import docker" not in source
         assert "import subprocess" not in source
-        assert "open(" not in source
+        assert "open(" not in source_without_admitted_read

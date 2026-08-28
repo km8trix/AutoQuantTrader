@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import gc
 import hashlib
 import os
 import pickle
@@ -12,6 +13,7 @@ from typing import Any, cast
 
 import pytest
 
+import packages.domain.trusted_time_graceful_stop_v2 as core_module
 import packages.domain.trusted_time_graceful_stop_v2_docker as docker_semantics_module
 import packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics as lifecycle_module
 import packages.domain.trusted_time_graceful_stop_v2_terminal as terminal_semantics_module
@@ -2315,3 +2317,199 @@ def test_progress_decoder_rejects_unbound_nested_durable_semantics() -> None:
         decode_lifecycle_v2_progress_record(
             canonical_v2_json_bytes(cleanup_result, maximum_bytes=256 * 1_024)
         )
+
+
+def test_docker_result_rule_tables_cannot_widen_runtime_sealed_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenario = _scenario()
+    lineage = _through_six(scenario)
+    prior = _trace_prefix(scenario.admission, scenario.entries, 5)
+    lineage = lineage.retain_supervisor_container_stop_intent(
+        admission=scenario.admission,
+        trace_prefix=prior,
+        call_deadline_boottime_ns=2_000_000,
+        recorded_at_utc=UTC_TEXT,
+    )
+    result_prefix = _trace_prefix(scenario.admission, scenario.entries, 7)
+    stage = LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_RESULT_RETAINED
+    original_docker_rules = docker_semantics_module._MUTATION_RESULT_RULES
+    original_core_rules = core_module._DOCKER_RESULT_RULE_BY_STAGE
+
+    def replace_rule(
+        rules: object,
+        key: object,
+        *,
+        index: int,
+        replacement: str,
+    ) -> object:
+        if type(rules) is dict:
+            changed = dict(cast(dict[object, tuple[object, ...]], rules))
+            rule = changed[key]
+            changed[key] = (*rule[:index], replacement, *rule[index + 1 :])
+            return changed
+        if type(rules) is tuple:
+            changed_items: list[tuple[object, tuple[object, ...]]] = []
+            found = False
+            for candidate, rule in cast(
+                tuple[tuple[object, tuple[object, ...]], ...], rules
+            ):
+                if candidate == key:
+                    rule = (*rule[:index], replacement, *rule[index + 1 :])
+                    found = True
+                changed_items.append((candidate, rule))
+            assert found
+            return tuple(changed_items)
+        raise AssertionError("Docker result rules are not an immutable exact lookup")
+
+    malicious_docker_rules = replace_rule(
+        original_docker_rules,
+        "container_stop",
+        index=3,
+        replacement="attacker_outcome",
+    )
+    malicious_core_rules = replace_rule(
+        original_core_rules,
+        stage,
+        index=4,
+        replacement="attacker_outcome",
+    )
+    docker_semantics_module._MUTATION_RESULT_RULES = malicious_docker_rules
+    core_module._DOCKER_RESULT_RULE_BY_STAGE = malicious_core_rules
+
+    def lookup_replacement(rules: object, key: object) -> object | None:
+        if type(rules) is dict:
+            return cast(dict[object, object], rules).get(key)
+        return next(
+            (
+                rule
+                for candidate, rule in cast(tuple[tuple[object, object], ...], rules)
+                if candidate == key
+            ),
+            None,
+        )
+
+    malicious_docker_rule = lookup_replacement(
+        malicious_docker_rules,
+        "container_stop",
+    )
+    malicious_core_rule = lookup_replacement(malicious_core_rules, stage)
+    assert malicious_docker_rule is not None
+    assert malicious_core_rule is not None
+
+    def malicious_docker_lookup(result_kind: str) -> object | None:
+        return malicious_docker_rule if result_kind == "container_stop" else None
+
+    def malicious_core_lookup(candidate: object) -> object | None:
+        return malicious_core_rule if candidate is stage else None
+
+    try:
+        semantic = DockerMutationResultSemantic.from_pair(
+            result_kind="container_stop",
+            environment=ENVIRONMENT,
+            graceful_stop_operation_id=OPERATION_ID,
+            root_sha256=scenario.root.sha256,
+            admission=scenario.admission,
+            trace_prefix=result_prefix,
+            admitted_target=scenario.entries[1],
+            previous=scenario.entries[5],
+            primary=scenario.entries[6],
+            post_inspect=scenario.entries[7],
+        )
+        assert semantic.to_dict()["outcome"] == "stopped"
+        from_pair_endpoint = DockerMutationResultSemantic.from_pair.__func__
+        monkeypatch.setattr(
+            from_pair_endpoint,
+            "__defaults__",
+            (malicious_docker_lookup,),
+        )
+        monkeypatch.setattr(
+            from_pair_endpoint,
+            "__kwdefaults__",
+            {"_rule_for_kind": malicious_docker_lookup},
+        )
+        with pytest.raises(TypeError):
+            DockerMutationResultSemantic.from_pair(
+                malicious_docker_lookup,
+                result_kind="container_stop",
+                environment=ENVIRONMENT,
+                graceful_stop_operation_id=OPERATION_ID,
+                root_sha256=scenario.root.sha256,
+                admission=scenario.admission,
+                trace_prefix=result_prefix,
+                admitted_target=scenario.entries[1],
+                previous=scenario.entries[5],
+                primary=scenario.entries[6],
+                post_inspect=scenario.entries[7],
+            )
+        attacker_value = semantic.to_dict()
+        attacker_value["outcome"] = "attacker_outcome"
+        capture_endpoint = DockerMutationResultSemantic.capture.__func__
+        monkeypatch.setattr(
+            capture_endpoint,
+            "__defaults__",
+            (malicious_docker_lookup,),
+        )
+        monkeypatch.setattr(
+            capture_endpoint,
+            "__kwdefaults__",
+            {"_rule_for_kind": malicious_docker_lookup},
+        )
+        with pytest.raises(TypeError):
+            DockerMutationResultSemantic.capture(
+                attacker_value,
+                malicious_docker_lookup,
+                admission=scenario.admission,
+                trace_prefix=result_prefix,
+                admitted_target=scenario.entries[1],
+                previous=scenario.entries[5],
+                primary=scenario.entries[6],
+                post_inspect=scenario.entries[7],
+            )
+
+        changed = lineage.retain_supervisor_container_stop_result(
+            result_semantic=semantic,
+            trace_prefix=result_prefix,
+            recorded_at_utc=UTC_TEXT,
+        )
+        assert changed.semantic_at(8).to_dict()["outcome"] == "stopped"
+        assert changed.last_record.evidence.to_dict()["disposition"] == "stopped"
+
+        validator = core_module._validate_docker_mutation_result_evidence
+        monkeypatch.setattr(validator, "__defaults__", (malicious_core_lookup,))
+        monkeypatch.setattr(
+            validator,
+            "__kwdefaults__",
+            {"_rule_for_stage": malicious_core_lookup},
+        )
+        forged_value = changed.last_record.to_dict()
+        forged_evidence = cast(dict[str, object], forged_value["evidence"])
+        forged_semantic = cast(dict[str, object], forged_evidence["result_semantic"])
+        forged_semantic["outcome"] = "attacker_outcome"
+        forged_evidence["disposition"] = "attacker_outcome"
+        forged_evidence["result_semantic_sha256"] = core_module._nested_domain_sha256(
+            "AutoQuantTrader/trusted-time/graceful-stop/"
+            "docker-container-stop-result/v2",
+            forged_semantic,
+        )
+        with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+            decode_lifecycle_v2_progress_record(
+                canonical_v2_json_bytes(forged_value, maximum_bytes=256 * 1_024)
+            )
+    finally:
+        docker_semantics_module._MUTATION_RESULT_RULES = original_docker_rules
+        core_module._DOCKER_RESULT_RULE_BY_STAGE = original_core_rules
+
+    for rules in (original_docker_rules, original_core_rules):
+        assert type(rules) is tuple
+        pending: list[object] = [rules]
+        visited: set[int] = set()
+        while pending:
+            current = pending.pop()
+            if id(current) in visited:
+                continue
+            visited.add(id(current))
+            for referent in gc.get_referents(current):
+                assert type(referent) not in {dict, list, set, bytearray}
+                if isinstance(referent, tuple | frozenset):
+                    pending.append(referent)

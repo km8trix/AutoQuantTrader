@@ -25,7 +25,6 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_V2_OPERATION_BUDGET_NS,
     LIFECYCLE_V2_SERVICE,
     MAXIMUM_SIGNED_INTEGER,
-    NORMAL_STAGE_BY_ORDINAL,
     FrozenJsonObject,
     LifecycleV2ProgressRecord,
     LifecycleV2Root,
@@ -37,6 +36,7 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     decode_lifecycle_v2_progress_record,
     decode_lifecycle_v2_root,
     decode_lifecycle_v2_transcript,
+    normal_lifecycle_v2_stage_for_ordinal,
 )
 
 RECOVERY_CLASSIFICATION_CONTRACT_VERSION = (
@@ -490,21 +490,30 @@ def _require_base64(value: object, name: str, *, exact_length: int) -> bytes:
     return decoded
 
 
-def _require_prefix_stage(ordinal: int, stage_value: object) -> LifecycleV2Stage:
-    try:
-        stage = LifecycleV2Stage(stage_value)  # type: ignore[arg-type]
-    except (TypeError, ValueError) as error:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "recovery classification last stage is unknown"
-        ) from error
-    expected = NORMAL_STAGE_BY_ORDINAL.get(ordinal)
-    if ordinal == 2 and stage is LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED:
+def _install_prefix_stage_validator() -> Callable[[int, object], LifecycleV2Stage]:
+    exact_normal_stage_lookup = normal_lifecycle_v2_stage_for_ordinal
+
+    def require_prefix_stage(ordinal: int, stage_value: object) -> LifecycleV2Stage:
+        try:
+            stage = LifecycleV2Stage(stage_value)  # type: ignore[arg-type]
+        except (TypeError, ValueError) as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery classification last stage is unknown"
+            ) from error
+        expected = exact_normal_stage_lookup(ordinal)
+        if ordinal == 2 and stage is LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED:
+            return stage
+        if expected is None or stage is not expected:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery classification last stage does not match its ordinal"
+            )
         return stage
-    if expected is None or stage is not expected:
-        raise TrustedTimeGracefulStopV2Rejected(
-            "recovery classification last stage does not match its ordinal"
-        )
-    return stage
+
+    return require_prefix_stage
+
+
+_require_prefix_stage = _install_prefix_stage_validator()
+del _install_prefix_stage_validator
 
 
 @dataclass(frozen=True, slots=True, init=False)
