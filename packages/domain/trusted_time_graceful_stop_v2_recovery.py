@@ -91,7 +91,6 @@ _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\Z")
 
-_FAKE_RECOVERY_INTENT_CAPABILITY = object()
 _PRODUCTION_AUTHENTICATED_RECOVERY_TYPE = (
     "packages.adapters.trusted_time.graceful_stop_v2_ed25519",
     "AuthenticatedLifecycleV2RecoveryClassificationEnvelope",
@@ -130,8 +129,12 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
     consumed: set[int] = set()
     consumed_nonces: set[tuple[int, str, str]] = set()
     production_capability = object()
+    fake_capability = object()
     adapter_unwrap: Callable[[object], object] | None = None
     import_adapter = importlib.import_module
+    canonicalize_inputs = _canonical_recovery_inputs
+    build_intent_value = _build_recovery_intent_value
+    validate_issuance = _require_lifecycle_v2_recovery_intent_issuance
     lock = threading.Lock()
 
     def install_adapter_unwrap(endpoint: Callable[[object], object]) -> None:
@@ -249,7 +252,7 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
         envelope, wrapped_root_sha256, wrapped_transcript_sha256, wrapped_manifest_sha256 = (
             unwrapped
         )
-        exact_envelope, exact_root, exact_transcript = _canonical_recovery_inputs(
+        exact_envelope, exact_root, exact_transcript = canonicalize_inputs(
             envelope=envelope,
             root=root,
             classified_transcript=classified_transcript,
@@ -273,7 +276,7 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
                     "recovery classification nonce was already consumed"
                 )
             consumed_nonces.add(consumption_key)
-        result = _build_recovery_intent_value(
+        result = build_intent_value(
             envelope=exact_envelope,
             root=exact_root,
             classified_transcript=exact_transcript,
@@ -296,23 +299,24 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
         root: LifecycleV2Root,
         classified_transcript: LifecycleV2Transcript,
         recorded_at_utc: str,
-        capability: object,
     ) -> LifecycleV2AuthenticatedRecoveryIntent:
-        """Private fake seam; capability-separated from production auth."""
+        """Registry-issued fake intent for an exact injected test root only."""
 
-        if capability is not _FAKE_RECOVERY_INTENT_CAPABILITY:
-            raise TrustedTimeGracefulStopV2Rejected("fake recovery-intent capability is invalid")
-        exact_envelope, exact_root, exact_transcript = _canonical_recovery_inputs(
+        exact_envelope, exact_root, exact_transcript = canonicalize_inputs(
             envelope=envelope,
             root=root,
             classified_transcript=classified_transcript,
         )
-        result = _build_recovery_intent_value(
+        if exact_root.environment != "test":
+            raise TrustedTimeGracefulStopV2Rejected(
+                "fake recovery intent requires one exact test root"
+            )
+        result = build_intent_value(
             envelope=exact_envelope,
             root=exact_root,
             classified_transcript=exact_transcript,
             recorded_at_utc=recorded_at_utc,
-            capability=capability,
+            capability=fake_capability,
         )
         issue(
             result,
@@ -320,29 +324,19 @@ def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
             root_encoded=exact_root.encoded,
             classified_transcript_encoded=exact_transcript.encoded,
             recorded_at_utc=recorded_at_utc,
-            capability=capability,
+            capability=fake_capability,
         )
         return require(result)
 
     def require(value: object) -> LifecycleV2AuthenticatedRecoveryIntent:
         snapshot = lookup(value, consume=False)
-        return _require_lifecycle_v2_recovery_intent_issuance(value, snapshot)
+        return validate_issuance(value, snapshot)
 
     def consume(value: object) -> LifecycleV2AuthenticatedRecoveryIntent:
         snapshot = lookup(value, consume=True)
-        return _require_lifecycle_v2_recovery_intent_issuance(value, snapshot)
+        return validate_issuance(value, snapshot)
 
     return install_adapter_unwrap, derive_production, mint_fake, require, consume
-
-
-(
-    _install_authenticated_lifecycle_v2_recovery_adapter_endpoint,
-    _derive_authenticated_lifecycle_v2_recovery_intent,
-    _mint_fake_authenticated_lifecycle_v2_recovery_intent,
-    require_authenticated_lifecycle_v2_recovery_intent,
-    consume_authenticated_lifecycle_v2_recovery_intent,
-) = _lifecycle_v2_recovery_intent_issuance_registry()
-
 
 def _require_fields(value: dict[str, object]) -> None:
     if frozenset(value) != _FIELDS:
@@ -616,15 +610,22 @@ def _canonical_recovery_inputs(
     envelope: LifecycleV2RecoveryClassificationEnvelope,
     root: LifecycleV2Root,
     classified_transcript: LifecycleV2Transcript,
+    _decode_envelope: Callable[
+        [object], LifecycleV2RecoveryClassificationEnvelope
+    ] = decode_lifecycle_v2_recovery_classification_envelope,
+    _decode_root: Callable[[object], LifecycleV2Root] = decode_lifecycle_v2_root,
+    _decode_transcript: Callable[
+        [object], LifecycleV2Transcript
+    ] = decode_lifecycle_v2_transcript,
 ) -> tuple[
     LifecycleV2RecoveryClassificationEnvelope,
     LifecycleV2Root,
     LifecycleV2Transcript,
 ]:
     try:
-        exact_envelope = decode_lifecycle_v2_recovery_classification_envelope(envelope.encoded)
-        exact_root = decode_lifecycle_v2_root(root.encoded)
-        exact_transcript = decode_lifecycle_v2_transcript(classified_transcript.encoded)
+        exact_envelope = _decode_envelope(envelope.encoded)
+        exact_root = _decode_root(root.encoded)
+        exact_transcript = _decode_transcript(classified_transcript.encoded)
     except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
         raise TrustedTimeGracefulStopV2Rejected(
             "recovery intent inputs are not canonical"
@@ -659,8 +660,16 @@ def _recovery_intent_record(
     root: LifecycleV2Root,
     classified_transcript: LifecycleV2Transcript,
     recorded_at_utc: str,
+    _canonicalize: Callable[
+        ...,
+        tuple[
+            LifecycleV2RecoveryClassificationEnvelope,
+            LifecycleV2Root,
+            LifecycleV2Transcript,
+        ],
+    ] = _canonical_recovery_inputs,
 ) -> LifecycleV2ProgressRecord:
-    exact_envelope, exact_root, exact_transcript = _canonical_recovery_inputs(
+    exact_envelope, exact_root, exact_transcript = _canonicalize(
         envelope=envelope,
         root=root,
         classified_transcript=classified_transcript,
@@ -699,13 +708,22 @@ def _build_recovery_intent_value(
     classified_transcript: LifecycleV2Transcript,
     recorded_at_utc: str,
     capability: object,
+    _canonicalize: Callable[
+        ...,
+        tuple[
+            LifecycleV2RecoveryClassificationEnvelope,
+            LifecycleV2Root,
+            LifecycleV2Transcript,
+        ],
+    ] = _canonical_recovery_inputs,
+    _record_builder: Callable[..., LifecycleV2ProgressRecord] = _recovery_intent_record,
 ) -> LifecycleV2AuthenticatedRecoveryIntent:
-    exact_envelope, exact_root, exact_transcript = _canonical_recovery_inputs(
+    exact_envelope, exact_root, exact_transcript = _canonicalize(
         envelope=envelope,
         root=root,
         classified_transcript=classified_transcript,
     )
-    record = _recovery_intent_record(
+    record = _record_builder(
         envelope=exact_envelope,
         root=exact_root,
         classified_transcript=exact_transcript,
@@ -807,6 +825,16 @@ def _require_lifecycle_v2_recovery_intent_issuance(
             "authenticated recovery intent changed under validation"
         )
     return value
+
+
+(
+    _install_authenticated_lifecycle_v2_recovery_adapter_endpoint,
+    _derive_authenticated_lifecycle_v2_recovery_intent,
+    _build_injected_fake_lifecycle_v2_recovery_intent,
+    require_authenticated_lifecycle_v2_recovery_intent,
+    consume_authenticated_lifecycle_v2_recovery_intent,
+) = _lifecycle_v2_recovery_intent_issuance_registry()
+del _lifecycle_v2_recovery_intent_issuance_registry
 
 
 def lifecycle_v2_recovery_non_authority_facts() -> dict[str, bool]:

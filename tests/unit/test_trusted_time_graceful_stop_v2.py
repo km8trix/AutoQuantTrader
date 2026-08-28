@@ -472,12 +472,11 @@ def _authenticated_recovery_intent(
             "signature_ed25519_base64": base64.b64encode(bytes(64)).decode("ascii"),
         }
     )
-    return recovery_v2._mint_fake_authenticated_lifecycle_v2_recovery_intent(
+    return recovery_v2._build_injected_fake_lifecycle_v2_recovery_intent(
         envelope=envelope,
         root=root,
         classified_transcript=classified_transcript,
         recorded_at_utc=UTC_TEXT,
-        capability=recovery_v2._FAKE_RECOVERY_INTENT_CAPABILITY,
     )
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
@@ -47,6 +48,13 @@ from packages.domain.trusted_time_graceful_stop_v2 import (
     lifecycle_v2_dispatch_prefix_sha256,
     lifecycle_v2_progress_file_name,
     lifecycle_v2_wire_file_name,
+)
+from packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics import (
+    LifecycleV2ConfirmedSuccessLineageSnapshot,
+    LifecycleV2NormalProgressLineage,
+    TrustedTimeLifecycleV2SemanticsRejected,
+    consume_exact_lifecycle_v2_confirmed_success_lineage,
+    consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository,
 )
 from packages.domain.trusted_time_graceful_stop_v2_recovery import (
     LifecycleV2AuthenticatedRecoveryIntent,
@@ -1271,192 +1279,47 @@ class _LifecycleV2Repository:
             raise LifecycleV2RetentionUnconfirmed("root creation may have begun") from None
         self._root = root
 
-    def _retain_progress(
-        self,
-        record: LifecycleV2ProgressRecord,
-        *,
-        authenticated_envelope: _FakeAuthenticatedLifecycleV2TransportEnvelope | None = None,
-    ) -> None:
-        self._require_owner()
-        self._require_record_binding(record)
-        envelope: UnverifiedLifecycleV2TransportEnvelope | None = None
-        if record.stage in {
-            LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED,
-            LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED,
-        }:
-            try:
-                envelope = _require_fake_authenticated_lifecycle_v2_transport_envelope(
-                    authenticated_envelope
-                )
-            except TrustedTimeGracefulStopV2Rejected as error:
-                raise LifecycleV2RepositoryRejected(
-                    "ordinal two requires fake-authenticated signed wire bytes"
-                ) from error
-            expected_frame = (
-                "clean_stop_result"
-                if record.stage is LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED
-                else "clean_stop_error"
-            )
-            evidence = record.evidence.to_dict()
-            if (
-                envelope.frame_type != expected_frame
-                or evidence[f"{expected_frame}_sha256"] != envelope.sha256
-                or evidence[f"{expected_frame}_artifact_name"]
-                != lifecycle_v2_wire_file_name(envelope)
-            ):
-                raise LifecycleV2RepositoryRejected("wire envelope and ordinal two disagree")
-        elif authenticated_envelope is not None:
-            raise LifecycleV2RepositoryRejected("only ordinal two may retain wire bytes")
-        try:
-            wire_receipt: LifecycleV2ArtifactPublicationReceipt | None = None
-            if envelope is not None:
-                wire_name = lifecycle_v2_wire_file_name(envelope)
-                wire_receipt = self._publication_receipt(
-                    self._store.publish_immutable(
-                        staging_name=(
-                            _WIRE_RESULT_STAGING_NAME
-                            if envelope.frame_type == "clean_stop_result"
-                            else _WIRE_ERROR_STAGING_NAME
-                        ),
-                        final_name=wire_name,
-                        encoded=envelope.encoded,
-                    ),
-                    final_name=wire_name,
-                    encoded=envelope.encoded,
-                )
-                wire_readback = self._read_artifact(wire_name)
-                if (
-                    wire_readback.encoded != envelope.encoded
-                    or wire_readback.file_device != wire_receipt.final_device
-                    or wire_readback.file_inode != wire_receipt.final_inode
-                    or wire_readback.file_mode != wire_receipt.final_mode
-                    or wire_readback.file_size != wire_receipt.final_size
-                ):
-                    raise LifecycleV2ArtifactPublicationUncertain(
-                        "wire publication receipt and retained-file readback disagree"
-                    )
-                self._require_wire_publication_binding(
-                    evidence=record.evidence.to_dict(),
-                    envelope=envelope,
-                    file_name=wire_name,
-                    file_device=wire_readback.file_device,
-                    file_inode=wire_readback.file_inode,
-                    file_mode=wire_readback.file_mode,
-                    file_size=wire_readback.file_size,
-                    live_receipt=wire_receipt,
-                )
-            record_name = lifecycle_v2_progress_file_name(record)
-            self._publication_receipt(
-                self._store.publish_immutable(
-                    staging_name=_RECORD_STAGING_NAME,
-                    final_name=record_name,
-                    encoded=record.encoded,
-                ),
-                final_name=record_name,
-                encoded=record.encoded,
-            )
-            if self._read_artifact(record_name).encoded != record.encoded:
-                raise LifecycleV2ArtifactPublicationUncertain
-        except BaseException as error:
-            self._burn()
-            if not isinstance(error, Exception):
-                raise
-            raise LifecycleV2RetentionUnconfirmed("progress retention may have begun") from None
-        self._records = (*self._records, record)
-        if envelope is not None:
-            self._wire = envelope
-
     def retain_request_intent(
         self,
         record: LifecycleV2ProgressRecord,
         basis: LifecycleV2CleanStopRequestBasis,
     ) -> None:
-        self._require_owner()
-        if record.stage is not LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED:
-            raise LifecycleV2RepositoryRejected("request-intent method received another stage")
-        self._require_derived_request_intent(record, basis=basis)
-        self._retain_progress(record)
+        _retain_lifecycle_v2_request_intent(self, record, basis)
 
     def retain_authenticated_terminal_wire(
         self,
         record: LifecycleV2ProgressRecord,
         authenticated_envelope: _FakeAuthenticatedLifecycleV2TransportEnvelope,
     ) -> None:
-        self._require_owner()
-        if record.stage not in {
-            LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED,
-            LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED,
-        }:
-            raise LifecycleV2RepositoryRejected("terminal-wire method received another stage")
-        self._retain_progress(record, authenticated_envelope=authenticated_envelope)
+        _retain_lifecycle_v2_authenticated_terminal_wire(
+            self,
+            record,
+            authenticated_envelope,
+        )
 
     def retain_transport_cleanup_commitment(self, record: LifecycleV2ProgressRecord) -> None:
-        self._require_owner()
-        if record.stage is not LifecycleV2Stage.TRANSPORT_CLEANUP_COMMITMENT_RETAINED:
-            raise LifecycleV2RepositoryRejected("cleanup-commitment stage is wrong")
-        self._retain_progress(record)
+        _retain_lifecycle_v2_transport_cleanup_commitment(self, record)
 
     def retain_transport_quiescence(self, record: LifecycleV2ProgressRecord) -> None:
-        self._require_owner()
-        if record.stage is not LifecycleV2Stage.TRANSPORT_CHANNEL_QUIESCED:
-            raise LifecycleV2RepositoryRejected("transport-quiescence stage is wrong")
-        self._retain_progress(record)
+        _retain_lifecycle_v2_transport_quiescence(self, record)
 
     def retain_reauthentication_intent(self, record: LifecycleV2ProgressRecord) -> None:
-        self._require_owner()
-        if record.stage not in {
-            LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_INTENT_RETAINED,
-            LifecycleV2Stage.POST_TEARDOWN_REAUTHENTICATION_INTENT_RETAINED,
-        }:
-            raise LifecycleV2RepositoryRejected("reauthentication-intent stage is wrong")
-        self._retain_progress(record)
+        _retain_lifecycle_v2_reauthentication_intent(self, record)
 
     def retain_reauthentication_result(self, record: LifecycleV2ProgressRecord) -> None:
-        self._require_owner()
-        if record.stage not in {
-            LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_BOUND,
-            LifecycleV2Stage.POST_TEARDOWN_TERMINAL_REAUTHENTICATION_BOUND,
-        }:
-            raise LifecycleV2RepositoryRejected("reauthentication-result stage is wrong")
-        self._retain_progress(record)
+        _retain_lifecycle_v2_reauthentication_result(self, record)
 
     def retain_effect_intent(self, record: LifecycleV2ProgressRecord) -> None:
-        self._require_owner()
-        if record.stage not in {
-            LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_INTENT_RETAINED,
-            LifecycleV2Stage.SOURCE_CONTAINER_STOP_INTENT_RETAINED,
-            LifecycleV2Stage.SUPERVISOR_CONTAINER_REMOVE_INTENT_RETAINED,
-            LifecycleV2Stage.SOURCE_CONTAINER_REMOVE_INTENT_RETAINED,
-            LifecycleV2Stage.PROJECT_NETWORK_REMOVE_INTENT_RETAINED,
-            LifecycleV2Stage.NAMED_VOLUME_PRESERVATION_INTENT_RETAINED,
-        }:
-            raise LifecycleV2RepositoryRejected("effect-intent stage is wrong")
-        self._retain_progress(record)
+        _retain_lifecycle_v2_effect_intent(self, record)
 
     def retain_effect_result(self, record: LifecycleV2ProgressRecord) -> None:
-        self._require_owner()
-        if record.stage not in {
-            LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_RESULT_RETAINED,
-            LifecycleV2Stage.SOURCE_CONTAINER_STOP_RESULT_RETAINED,
-            LifecycleV2Stage.SUPERVISOR_CONTAINER_REMOVE_RESULT_RETAINED,
-            LifecycleV2Stage.SOURCE_CONTAINER_REMOVE_RESULT_RETAINED,
-            LifecycleV2Stage.PROJECT_NETWORK_REMOVE_RESULT_RETAINED,
-            LifecycleV2Stage.NAMED_VOLUMES_PRESERVED,
-        }:
-            raise LifecycleV2RepositoryRejected("effect-result stage is wrong")
-        self._retain_progress(record)
+        _retain_lifecycle_v2_effect_result(self, record)
 
     def retain_terminal_cleanup_intent(self, record: LifecycleV2ProgressRecord) -> None:
-        self._require_owner()
-        if record.stage is not LifecycleV2Stage.TERMINAL_CLEANUP_INTENT_RETAINED:
-            raise LifecycleV2RepositoryRejected("terminal-cleanup intent stage is wrong")
-        self._retain_progress(record)
+        _retain_lifecycle_v2_terminal_cleanup_intent(self, record)
 
     def retain_terminal_cleanup_result(self, record: LifecycleV2ProgressRecord) -> None:
-        self._require_owner()
-        if record.stage is not LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED:
-            raise LifecycleV2RepositoryRejected("terminal-cleanup result stage is wrong")
-        self._retain_progress(record)
+        _retain_lifecycle_v2_terminal_cleanup_result(self, record)
 
     def retain_recovery_classification_intent(
         self,
@@ -1509,7 +1372,25 @@ class _LifecycleV2Repository:
             raise LifecycleV2RepositoryRejected(
                 "recovery classification intent changed before retention"
             )
-        self._retain_progress(consumed_intent.record)
+        try:
+            record_name = lifecycle_v2_progress_file_name(consumed_intent.record)
+            self._publication_receipt(
+                self._store.publish_immutable(
+                    staging_name=_RECORD_STAGING_NAME,
+                    final_name=record_name,
+                    encoded=consumed_intent.record.encoded,
+                ),
+                final_name=record_name,
+                encoded=consumed_intent.record.encoded,
+            )
+            if self._read_artifact(record_name).encoded != consumed_intent.record.encoded:
+                raise LifecycleV2ArtifactPublicationUncertain
+        except BaseException as error:
+            self._burn()
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2RetentionUnconfirmed("progress retention may have begun") from None
+        self._records = (*self._records, consumed_intent.record)
         return consumed_intent.record
 
     def _transcript(self, *, last_ordinal: int | None = None) -> LifecycleV2Transcript:
@@ -1772,6 +1653,7 @@ class _LifecycleV2Repository:
     def commit_confirmed_success(
         self,
         *,
+        lineage: LifecycleV2NormalProgressLineage,
         clock: LifecycleV2BoottimeClock,
         precommit_disposer: LifecycleV2SuccessPrecommitDisposer,
         created_at_utc: str,
@@ -1788,11 +1670,43 @@ class _LifecycleV2Repository:
         if (
             self._root is None
             or self._opened_with_existing_root
-            or len(self._records) != 22
-            or self._records[-1].stage is not LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED
         ):
             raise LifecycleV2RepositoryRejected(
-                "confirmed success requires the exact ordinal-22 prefix"
+                "confirmed success requires one live newly reserved root"
+            )
+        try:
+            snapshot = consume_exact_lifecycle_v2_confirmed_success_lineage(lineage)
+        except (AttributeError, TypeError, TrustedTimeLifecycleV2SemanticsRejected) as error:
+            raise LifecycleV2RepositoryRejected(
+                "confirmed success requires one sealed exact ordinal-22 lineage"
+            ) from error
+        if (
+            type(snapshot) is not LifecycleV2ConfirmedSuccessLineageSnapshot
+            or snapshot.root != self._root
+            or snapshot.root_encoded != self._root.encoded
+            or snapshot.lineage_provenance != "authenticated_injected_lineage"
+            or len(self._records) != 22
+            or len(snapshot.records) != 21
+            or snapshot.records != self._records[1:]
+            or any(
+                sealed_record is not retained_record
+                for sealed_record, retained_record in zip(
+                    snapshot.records,
+                    self._records[1:],
+                    strict=True,
+                )
+            )
+            or snapshot.record_encoded
+            != tuple(record.encoded for record in self._records[1:])
+            or self._records[0].ordinal != 1
+            or self._records[0].stage
+            is not LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED
+            or snapshot.records[0].predecessor_sha256 != self._records[0].sha256
+            or snapshot.records[-1].stage
+            is not LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED
+        ):
+            raise LifecycleV2RepositoryRejected(
+                "confirmed-success lineage and retained repository prefix disagree"
             )
         transcript = self._require_published_final_transcript()
         protocol_start = self._sample_boottime(clock)
@@ -1803,10 +1717,10 @@ class _LifecycleV2Repository:
             raise LifecycleV2RepositoryRejected(
                 "confirmed-success protocol entry reached its authorization cutoff"
             )
-        pre_effect = self._records[5]
-        post_teardown = self._records[19]
-        volume_proof = self._records[17]
-        terminal_cleanup = self._records[21]
+        pre_effect = snapshot.records[4]
+        post_teardown = snapshot.records[18]
+        volume_proof = snapshot.records[16]
+        terminal_cleanup = snapshot.records[20]
         outcome = LifecycleV2Outcome.capture(
             {
                 "contract_version": LIFECYCLE_V2_OUTCOME_CONTRACT_VERSION,
@@ -1842,6 +1756,21 @@ class _LifecycleV2Repository:
                 "created_at_utc": created_at_utc,
             }
         )
+        try:
+            if (
+                consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository(snapshot)
+                is not snapshot
+            ):
+                raise TrustedTimeLifecycleV2SemanticsRejected(
+                    "confirmed-success repository snapshot identity changed"
+                )
+        except BaseException as error:
+            self._burn()
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2RetentionUnconfirmed(
+                "confirmed-success repository authorization was not consumed"
+            ) from None
         self._publish_outcome_candidate(outcome)
         try:
             marker_basis = _LifecycleV2OutcomeCommitMarkerBasis.prepare(outcome)
@@ -1950,6 +1879,241 @@ class _LifecycleV2Repository:
             encoded=encoded,
             finalize_staging=finalize_staging,
         )
+
+
+def _build_named_lifecycle_v2_retention_endpoints() -> tuple[Callable[..., None], ...]:
+    """Keep the shared append primitive unreachable behind exact named stages."""
+
+    def retain_record(
+        repository: _LifecycleV2Repository,
+        record: LifecycleV2ProgressRecord,
+        *,
+        envelope: UnverifiedLifecycleV2TransportEnvelope | None = None,
+    ) -> None:
+        repository._require_owner()
+        repository._require_record_binding(record)
+        try:
+            if envelope is not None:
+                wire_name = lifecycle_v2_wire_file_name(envelope)
+                wire_receipt = repository._publication_receipt(
+                    repository._store.publish_immutable(
+                        staging_name=(
+                            _WIRE_RESULT_STAGING_NAME
+                            if envelope.frame_type == "clean_stop_result"
+                            else _WIRE_ERROR_STAGING_NAME
+                        ),
+                        final_name=wire_name,
+                        encoded=envelope.encoded,
+                    ),
+                    final_name=wire_name,
+                    encoded=envelope.encoded,
+                )
+                wire_readback = repository._read_artifact(wire_name)
+                if (
+                    wire_readback.encoded != envelope.encoded
+                    or wire_readback.file_device != wire_receipt.final_device
+                    or wire_readback.file_inode != wire_receipt.final_inode
+                    or wire_readback.file_mode != wire_receipt.final_mode
+                    or wire_readback.file_size != wire_receipt.final_size
+                ):
+                    raise LifecycleV2ArtifactPublicationUncertain(
+                        "wire publication receipt and retained-file readback disagree"
+                    )
+                repository._require_wire_publication_binding(
+                    evidence=record.evidence.to_dict(),
+                    envelope=envelope,
+                    file_name=wire_name,
+                    file_device=wire_readback.file_device,
+                    file_inode=wire_readback.file_inode,
+                    file_mode=wire_readback.file_mode,
+                    file_size=wire_readback.file_size,
+                    live_receipt=wire_receipt,
+                )
+            record_name = lifecycle_v2_progress_file_name(record)
+            repository._publication_receipt(
+                repository._store.publish_immutable(
+                    staging_name=_RECORD_STAGING_NAME,
+                    final_name=record_name,
+                    encoded=record.encoded,
+                ),
+                final_name=record_name,
+                encoded=record.encoded,
+            )
+            if repository._read_artifact(record_name).encoded != record.encoded:
+                raise LifecycleV2ArtifactPublicationUncertain
+        except BaseException as error:
+            repository._burn()
+            if not isinstance(error, Exception):
+                raise
+            raise LifecycleV2RetentionUnconfirmed("progress retention may have begun") from None
+        repository._records = (*repository._records, record)
+        if envelope is not None:
+            repository._wire = envelope
+
+    def retain_request_intent(
+        repository: _LifecycleV2Repository,
+        record: LifecycleV2ProgressRecord,
+        basis: LifecycleV2CleanStopRequestBasis,
+    ) -> None:
+        repository._require_owner()
+        if record.stage is not LifecycleV2Stage.CLEAN_STOP_REQUEST_INTENT_RETAINED:
+            raise LifecycleV2RepositoryRejected("request-intent method received another stage")
+        repository._require_derived_request_intent(record, basis=basis)
+        retain_record(repository, record)
+
+    def retain_authenticated_terminal_wire(
+        repository: _LifecycleV2Repository,
+        record: LifecycleV2ProgressRecord,
+        authenticated_envelope: _FakeAuthenticatedLifecycleV2TransportEnvelope,
+    ) -> None:
+        repository._require_owner()
+        if record.stage not in {
+            LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED,
+            LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED,
+        }:
+            raise LifecycleV2RepositoryRejected("terminal-wire method received another stage")
+        try:
+            envelope = _require_fake_authenticated_lifecycle_v2_transport_envelope(
+                authenticated_envelope
+            )
+        except TrustedTimeGracefulStopV2Rejected as error:
+            raise LifecycleV2RepositoryRejected(
+                "ordinal two requires fake-authenticated signed wire bytes"
+            ) from error
+        expected_frame = (
+            "clean_stop_result"
+            if record.stage is LifecycleV2Stage.CLEAN_STOP_RESULT_RETAINED
+            else "clean_stop_error"
+        )
+        evidence = record.evidence.to_dict()
+        if (
+            envelope.frame_type != expected_frame
+            or evidence[f"{expected_frame}_sha256"] != envelope.sha256
+            or evidence[f"{expected_frame}_artifact_name"]
+            != lifecycle_v2_wire_file_name(envelope)
+        ):
+            raise LifecycleV2RepositoryRejected("wire envelope and ordinal two disagree")
+        retain_record(repository, record, envelope=envelope)
+
+    def retain_transport_cleanup_commitment(
+        repository: _LifecycleV2Repository,
+        record: LifecycleV2ProgressRecord,
+    ) -> None:
+        repository._require_owner()
+        if record.stage is not LifecycleV2Stage.TRANSPORT_CLEANUP_COMMITMENT_RETAINED:
+            raise LifecycleV2RepositoryRejected("cleanup-commitment stage is wrong")
+        retain_record(repository, record)
+
+    def retain_transport_quiescence(
+        repository: _LifecycleV2Repository,
+        record: LifecycleV2ProgressRecord,
+    ) -> None:
+        repository._require_owner()
+        if record.stage is not LifecycleV2Stage.TRANSPORT_CHANNEL_QUIESCED:
+            raise LifecycleV2RepositoryRejected("transport-quiescence stage is wrong")
+        retain_record(repository, record)
+
+    def retain_reauthentication_intent(
+        repository: _LifecycleV2Repository,
+        record: LifecycleV2ProgressRecord,
+    ) -> None:
+        repository._require_owner()
+        if record.stage not in {
+            LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_INTENT_RETAINED,
+            LifecycleV2Stage.POST_TEARDOWN_REAUTHENTICATION_INTENT_RETAINED,
+        }:
+            raise LifecycleV2RepositoryRejected("reauthentication-intent stage is wrong")
+        retain_record(repository, record)
+
+    def retain_reauthentication_result(
+        repository: _LifecycleV2Repository,
+        record: LifecycleV2ProgressRecord,
+    ) -> None:
+        repository._require_owner()
+        if record.stage not in {
+            LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_BOUND,
+            LifecycleV2Stage.POST_TEARDOWN_TERMINAL_REAUTHENTICATION_BOUND,
+        }:
+            raise LifecycleV2RepositoryRejected("reauthentication-result stage is wrong")
+        retain_record(repository, record)
+
+    def retain_effect_intent(
+        repository: _LifecycleV2Repository,
+        record: LifecycleV2ProgressRecord,
+    ) -> None:
+        repository._require_owner()
+        if record.stage not in {
+            LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_INTENT_RETAINED,
+            LifecycleV2Stage.SOURCE_CONTAINER_STOP_INTENT_RETAINED,
+            LifecycleV2Stage.SUPERVISOR_CONTAINER_REMOVE_INTENT_RETAINED,
+            LifecycleV2Stage.SOURCE_CONTAINER_REMOVE_INTENT_RETAINED,
+            LifecycleV2Stage.PROJECT_NETWORK_REMOVE_INTENT_RETAINED,
+            LifecycleV2Stage.NAMED_VOLUME_PRESERVATION_INTENT_RETAINED,
+        }:
+            raise LifecycleV2RepositoryRejected("effect-intent stage is wrong")
+        retain_record(repository, record)
+
+    def retain_effect_result(
+        repository: _LifecycleV2Repository,
+        record: LifecycleV2ProgressRecord,
+    ) -> None:
+        repository._require_owner()
+        if record.stage not in {
+            LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_RESULT_RETAINED,
+            LifecycleV2Stage.SOURCE_CONTAINER_STOP_RESULT_RETAINED,
+            LifecycleV2Stage.SUPERVISOR_CONTAINER_REMOVE_RESULT_RETAINED,
+            LifecycleV2Stage.SOURCE_CONTAINER_REMOVE_RESULT_RETAINED,
+            LifecycleV2Stage.PROJECT_NETWORK_REMOVE_RESULT_RETAINED,
+            LifecycleV2Stage.NAMED_VOLUMES_PRESERVED,
+        }:
+            raise LifecycleV2RepositoryRejected("effect-result stage is wrong")
+        retain_record(repository, record)
+
+    def retain_terminal_cleanup_intent(
+        repository: _LifecycleV2Repository,
+        record: LifecycleV2ProgressRecord,
+    ) -> None:
+        repository._require_owner()
+        if record.stage is not LifecycleV2Stage.TERMINAL_CLEANUP_INTENT_RETAINED:
+            raise LifecycleV2RepositoryRejected("terminal-cleanup intent stage is wrong")
+        retain_record(repository, record)
+
+    def retain_terminal_cleanup_result(
+        repository: _LifecycleV2Repository,
+        record: LifecycleV2ProgressRecord,
+    ) -> None:
+        repository._require_owner()
+        if record.stage is not LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED:
+            raise LifecycleV2RepositoryRejected("terminal-cleanup result stage is wrong")
+        retain_record(repository, record)
+
+    return (
+        retain_request_intent,
+        retain_authenticated_terminal_wire,
+        retain_transport_cleanup_commitment,
+        retain_transport_quiescence,
+        retain_reauthentication_intent,
+        retain_reauthentication_result,
+        retain_effect_intent,
+        retain_effect_result,
+        retain_terminal_cleanup_intent,
+        retain_terminal_cleanup_result,
+    )
+
+
+(
+    _retain_lifecycle_v2_request_intent,
+    _retain_lifecycle_v2_authenticated_terminal_wire,
+    _retain_lifecycle_v2_transport_cleanup_commitment,
+    _retain_lifecycle_v2_transport_quiescence,
+    _retain_lifecycle_v2_reauthentication_intent,
+    _retain_lifecycle_v2_reauthentication_result,
+    _retain_lifecycle_v2_effect_intent,
+    _retain_lifecycle_v2_effect_result,
+    _retain_lifecycle_v2_terminal_cleanup_intent,
+    _retain_lifecycle_v2_terminal_cleanup_result,
+) = _build_named_lifecycle_v2_retention_endpoints()
+del _build_named_lifecycle_v2_retention_endpoints
 
 
 def _open_injected_lifecycle_v2_repository(

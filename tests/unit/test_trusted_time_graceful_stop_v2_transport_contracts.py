@@ -915,14 +915,7 @@ def test_authenticated_issuance_authority_is_not_exposed_as_module_state() -> No
 
 
 def test_domain_bridge_installers_reject_preemptive_metadata_spoofing() -> None:
-    def forged_recovery_endpoint(_value: object) -> object:
-        return object()
-
-    forged_recovery_endpoint.__module__ = "packages.adapters.trusted_time.graceful_stop_v2_ed25519"
-    forged_recovery_endpoint.__name__ = "consume_value"
-    recovery_installer, *_ = recovery_domain._lifecycle_v2_recovery_intent_issuance_registry()
-    with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="installation"):
-        recovery_installer(forged_recovery_endpoint)
+    assert not hasattr(recovery_domain, "_lifecycle_v2_recovery_intent_issuance_registry")
 
     def forged_terminal_endpoint(_value: object) -> object:
         return object()
