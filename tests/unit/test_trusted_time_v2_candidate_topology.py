@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import configparser
+import hashlib
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SYSTEMD_DIRECTORY = (
@@ -68,6 +73,39 @@ EXPECTED_EXECUTABLES = {
     ),
 }
 
+EXPECTED_UNIT_SHA256 = {
+    "autoquant-trusted-time-graceful-stop-v2-host-provision.service": (
+        "5673456a79d6e826e1e47058c53116c62fb571d344fb236c1b142fa7d9f8e7a1"
+    ),
+    "autoquant-trusted-time-graceful-stop-v2-host.service": (
+        "b330091fce151ff3c26930eb21fc14118e6452cdaadaf6ecf56111b30360c9fb"
+    ),
+    "autoquant-trusted-time-graceful-stop-v2-recovery-provision.service": (
+        "f3a24160b9daff40a7bfc9719c099c9489df2069a4fc3f283d0b343dc745ca0f"
+    ),
+    "autoquant-trusted-time-graceful-stop-v2-recovery.service": (
+        "644d0aa26152828ff187b044079993fff0f2f091b530356e9f6ec81080142e24"
+    ),
+    "autoquant-trusted-time-graceful-stop-v2-supervisor-provision.service": (
+        "c7017103231e49387a1bb55035fce722558ba9bc3a953190130ad83af68fb82e"
+    ),
+    "autoquant-trusted-time-graceful-stop-v2-supervisor.service": (
+        "a8425ba8e66d82c9cba7536d98061b9a2c3409d681b0d93641f16aedbe25ec0d"
+    ),
+    HOST_SECRET_MOUNT: (
+        "0fd219ec43c6dd68eec70e1c3ff6066f18661e800d405731326aa0942ce08ecd"
+    ),
+    RECOVERY_SECRET_MOUNT: (
+        "b58614a9fc175f24f0503f19d8e0ad73ca56cef09f5ac69e4b2ca60e66c1b6fd"
+    ),
+    SUPERVISOR_SECRET_MOUNT: (
+        "374194dc36000573bb98a897811b0c238375c46100767ce3ede5b00d044e9a6d"
+    ),
+    TRANSPORT_MOUNT: (
+        "34a419c7614574186f4b4419c1cf42a75015a0d85378d1d4e4c33f4b7ad4fd18"
+    ),
+}
+
 
 def _read_unit(path: Path) -> configparser.ConfigParser:
     parser = configparser.ConfigParser(
@@ -88,6 +126,7 @@ def test_source_only_unit_set_and_mount_contracts_are_exact() -> None:
         *EXPECTED_MOUNTS,
         *EXPECTED_EXECUTABLES,
     }
+    assert set(EXPECTED_UNIT_SHA256) == {path.name for path in unit_paths}
 
     for unit_path in unit_paths:
         assert unit_path.is_file()
@@ -100,6 +139,9 @@ def test_source_only_unit_set_and_mount_contracts_are_exact() -> None:
         assert "Alias=" not in text
         assert "systemctl" not in text
         assert "daemon-reload" not in text
+        assert hashlib.sha256(unit_path.read_bytes()).hexdigest() == EXPECTED_UNIT_SHA256[
+            unit_path.name
+        ]
 
     for file_name, (where, options) in EXPECTED_MOUNTS.items():
         unit = _read_unit(SYSTEMD_DIRECTORY / file_name)
@@ -131,13 +173,17 @@ def test_recovery_is_source_isolated_from_normal_transport() -> None:
     )
     recovery_unit = recovery["Unit"]
     conflicts = set(recovery_unit["Conflicts"].split())
-    assert {
+    normal_owners = {
         TRANSPORT_MOUNT,
         HOST_SECRET_MOUNT,
         SUPERVISOR_SECRET_MOUNT,
+        "autoquant-trusted-time-graceful-stop-v2-host-provision.service",
+        "autoquant-trusted-time-graceful-stop-v2-supervisor-provision.service",
         "autoquant-trusted-time-graceful-stop-v2-host.service",
         "autoquant-trusted-time-graceful-stop-v2-supervisor.service",
-    } <= conflicts
+    }
+    assert normal_owners <= conflicts
+    assert normal_owners <= set(recovery_unit["After"].split())
     assert recovery["Service"]["PrivateNetwork"] == "yes"
     assert recovery["Service"]["RestrictAddressFamilies"] == "none"
     assert "transport" not in recovery["Service"]["ReadWritePaths"]
@@ -152,3 +198,77 @@ def test_recovery_is_source_isolated_from_normal_transport() -> None:
             == "!/run/autoquant/trusted-time/graceful-stop-v2/recovery-secrets"
         )
         assert RECOVERY_SECRET_MOUNT in normal["Unit"]["Conflicts"].split()
+        assert (
+            "autoquant-trusted-time-graceful-stop-v2-recovery-provision.service"
+            in normal["Unit"]["Conflicts"].split()
+        )
+
+    recovery_mount = _read_unit(SYSTEMD_DIRECTORY / RECOVERY_SECRET_MOUNT)
+    recovery_provisioner = _read_unit(
+        SYSTEMD_DIRECTORY
+        / "autoquant-trusted-time-graceful-stop-v2-recovery-provision.service"
+    )
+    for unit in (recovery_mount, recovery_provisioner):
+        assert normal_owners <= set(unit["Unit"]["Conflicts"].split())
+        assert normal_owners <= set(unit["Unit"]["After"].split())
+
+
+def test_no_deployment_or_activation_surface_names_wave_7_resources() -> None:
+    forbidden = (
+        "/run/autoquant/trusted-time/graceful-stop-v2",
+        "/opt/autoquant/trusted-time-graceful-stop-v2",
+        "autoquant-trusted-time-graceful-stop-v2-",
+        "infra/trusted-time/graceful-stop-v2/systemd",
+        "/etc/systemd/system",
+        "/usr/lib/systemd/system",
+        "systemctl",
+        "daemon-reload",
+    )
+    surfaces = [REPOSITORY_ROOT / "Makefile"]
+    for root in (
+        REPOSITORY_ROOT / "infra/compose",
+        REPOSITORY_ROOT / "infra/docker",
+        REPOSITORY_ROOT / "scripts",
+    ):
+        surfaces.extend(
+            path
+            for path in root.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        )
+    for path in surfaces:
+        try:
+            source = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        assert not any(token in source for token in forbidden), path
+
+
+@pytest.mark.skipif(
+    shutil.which("systemd-analyze") is None,
+    reason="systemd-analyze is a Linux CI parse gate",
+)
+def test_systemd_accepts_every_source_unit(tmp_path: Path) -> None:
+    root = tmp_path / "systemd-root"
+    unit_directory = root / "etc/systemd/system"
+    unit_directory.mkdir(parents=True)
+    for source in SYSTEMD_DIRECTORY.iterdir():
+        shutil.copyfile(source, unit_directory / source.name)
+    for executable in EXPECTED_EXECUTABLES.values():
+        staged = root / executable.removeprefix("/")
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_bytes(b"#!/bin/sh\nexit 191\n")
+        staged.chmod(0o555)
+    result = subprocess.run(
+        [
+            "systemd-analyze",
+            "--man=no",
+            f"--root={root}",
+            "verify",
+            *EXPECTED_UNIT_SHA256,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={"LANG": "C", "LC_ALL": "C", "PATH": os.environ["PATH"]},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
