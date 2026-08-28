@@ -1594,9 +1594,8 @@ def terminal_non_authority_facts() -> dict[str, bool]:
 def _install_terminal_wire_runtime_seals() -> Callable[[object, str], RuntimeSealMetadata | None]:
     """Closure-bind authenticated receipt/wire construction and validation."""
 
-    registry = LifecycleV2RuntimeSealRegistry()
-    seal_runtime = registry.seal
-    require_runtime = registry.require
+    seal_runtime: Callable[..., bool]
+    require_runtime: Callable[..., RuntimeSealMetadata | None]
     receipt_snapshot = _wire_publication_receipt_snapshot
     terminal_snapshot = _terminal_wire_evidence_snapshot
     receipt_type = LifecycleV2WirePublicationReceipt
@@ -1759,6 +1758,16 @@ def _install_terminal_wire_runtime_seals() -> Callable[[object, str], RuntimeSea
             kind="terminal_wire_evidence",
         )
 
+    registry = LifecycleV2RuntimeSealRegistry(
+        _seal_callers=frozenset(
+            {
+                capture_receipt.__code__,
+                capture_terminal_wire.__code__,
+            }
+        )
+    )
+    seal_runtime = registry.seal
+    require_runtime = registry.require
     cast(Any, receipt_type).capture = classmethod(capture_receipt)
     cast(Any, receipt_type).to_dict = receipt_to_dict
     cast(Any, terminal_type).capture = classmethod(capture_terminal_wire)

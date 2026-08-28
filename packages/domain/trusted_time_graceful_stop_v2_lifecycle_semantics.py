@@ -26,16 +26,10 @@ if TYPE_CHECKING:
         RuntimeSealMetadata,
     )
 
-_RUNTIME_SEAL_MODULE_NAME = (
-    "packages.domain.trusted_time_graceful_stop_v2_runtime_seal"
-)
+_RUNTIME_SEAL_MODULE_NAME = "packages.domain.trusted_time_graceful_stop_v2_runtime_seal"
 _RUNTIME_SEAL_SOURCE_NAME = "trusted_time_graceful_stop_v2_runtime_seal.py"
-_RUNTIME_SEAL_SOURCE_SHA256 = (
-    "2f18c334567ba19c627c13b219896d70bebca185b7c63fd7ac54c0ea7506d726"
-)
-_RUNTIME_SEAL_BOOTSTRAP_CLAIM = (
-    "_claim_lifecycle_v2_runtime_seal_bootstrap"
-)
+_RUNTIME_SEAL_SOURCE_SHA256 = "7d2e3b821ef596df44aa35c962e5c9819c0f4806dc21d2e44c53e2b23cd5d78c"
+_RUNTIME_SEAL_BOOTSTRAP_CLAIM = "_claim_lifecycle_v2_runtime_seal_bootstrap"
 _RUNTIME_SEAL_LOADING = "_lifecycle_v2_runtime_seal_bootstrap_loading"
 _RUNTIME_SEAL_FAILED = "_lifecycle_v2_runtime_seal_bootstrap_failed"
 
@@ -52,16 +46,14 @@ def _load_canonical_lifecycle_v2_runtime_seal() -> tuple[type[object], type[obje
     modules = sys.modules
     current = modules.get(module_name)
     if type(current) is ModuleType and (
-        current.__dict__.get(loading_name) is not None
-        or current.__dict__.get(failed_name) is True
+        current.__dict__.get(loading_name) is not None or current.__dict__.get(failed_name) is True
     ):
         raise ImportError("lifecycle-v2 runtime-seal bootstrap was reentered or failed")
 
     semantics_path = os.path.realpath(__file__)
     domain_directory = os.path.dirname(semantics_path)
     if (
-        os.path.basename(semantics_path)
-        != "trusted_time_graceful_stop_v2_lifecycle_semantics.py"
+        os.path.basename(semantics_path) != "trusted_time_graceful_stop_v2_lifecycle_semantics.py"
         or os.path.basename(domain_directory) != "domain"
         or os.path.basename(os.path.dirname(domain_directory)) != "packages"
     ):
@@ -138,7 +130,8 @@ def _load_canonical_lifecycle_v2_runtime_seal() -> tuple[type[object], type[obje
             or type(metadata_type) is not type
             or metadata_type.__module__ != module_name
             or metadata_type.__qualname__ != "RuntimeSealMetadata"
-            or vars(metadata_type).get("__slots__")
+            or vars(metadata_type).get("__slots__") != ()
+            or vars(metadata_type).get("_fields")
             != (
                 "provenance",
                 "scope_sha256",
@@ -151,15 +144,22 @@ def _load_canonical_lifecycle_v2_runtime_seal() -> tuple[type[object], type[obje
             or registry_type.__qualname__ != "LifecycleV2RuntimeSealRegistry"
             or vars(registry_type).get("__slots__")
             != (
-                "__dict__",
+                "_configuration_locked",
+                "_consume_action_callers",
+                "_consume_callers",
                 "_current_thread",
                 "_entries",
+                "_finalize_actions_callers",
                 "_fork_epoch",
                 "_fork_invalidated",
+                "_get_call_frame",
                 "_getpid",
                 "_lock",
                 "_origin_fork_epoch",
                 "_origin_pid",
+                "_seal_callers",
+                "_transfer_callers",
+                "_transition_callers",
             )
         ):
             claim_state = "failed"
@@ -167,15 +167,20 @@ def _load_canonical_lifecycle_v2_runtime_seal() -> tuple[type[object], type[obje
         forbidden_globals = frozenset(
             {
                 "RuntimeSealMetadata",
+                "MappingProxyType",
+                "NamedTuple",
                 "_RuntimeSealEntry",
                 "_REGISTER_AT_FORK",
                 "id",
                 "os",
                 "replace",
+                "sys",
                 "threading",
             }
         )
         for method_name in (
+            "__delattr__",
+            "__setattr__",
             "__init__",
             "_registry_is_current",
             "_entry_is_current",
@@ -184,6 +189,7 @@ def _load_canonical_lifecycle_v2_runtime_seal() -> tuple[type[object], type[obje
             "consume",
             "transition",
             "consume_action",
+            "consume_action_and_transfer",
             "finalize_actions",
         ):
             method = vars(registry_type).get(method_name)
@@ -219,8 +225,7 @@ def _load_canonical_lifecycle_v2_runtime_seal() -> tuple[type[object], type[obje
             or exact_endpoint(permit, claim_runtime_seal_exports) is not receipt
             or claim_state != "consumed"
             or claimed is None
-            or namespace.get("__all__")
-            != ["LifecycleV2RuntimeSealRegistry", "RuntimeSealMetadata"]
+            or namespace.get("__all__") != ["LifecycleV2RuntimeSealRegistry", "RuntimeSealMetadata"]
         ):
             raise ImportError("lifecycle-v2 runtime-seal bootstrap claim is invalid")
         namespace.pop(loading_name, None)
@@ -1182,20 +1187,15 @@ def _build_unregistered_authenticated_reauthentication_binding(
         or fields["intent_semantic_sha256"] != intent.sha256
         or fields["binding_evidence_sha256"] != binding_evidence_sha256
         or evidence_fields["environment"] != exact_root.environment
-        or evidence_fields["graceful_stop_operation_id"]
-        != exact_root.graceful_stop_operation_id
+        or evidence_fields["graceful_stop_operation_id"] != exact_root.graceful_stop_operation_id
         or evidence_fields["lifecycle_root_sha256"] != exact_root.sha256
         or fields["observed_head_sha256"] != intent.to_dict()["expected_head_sha256"]
         or fields["provider_identity_sha256"] != intent.to_dict()["provider_identity_sha256"]
-        or fields["issuer_identity_sha256"]
-        != evidence_fields["adr0109_issuer_binding_sha256"]
+        or fields["issuer_identity_sha256"] != evidence_fields["adr0109_issuer_binding_sha256"]
         or fields["challenge_sha256"] != evidence_fields["issuer_challenge_sha256"]
-        or fields["observation_semantic_sha256"]
-        != evidence_fields["observation_semantic_sha256"]
-        or fields["observed_head_sha256"]
-        != evidence_fields["expected_clean_stop_head_sha256"]
-        or fields["provider_identity_sha256"]
-        != evidence_fields["provider_identity_sha256"]
+        or fields["observation_semantic_sha256"] != evidence_fields["observation_semantic_sha256"]
+        or fields["observed_head_sha256"] != evidence_fields["expected_clean_stop_head_sha256"]
+        or fields["provider_identity_sha256"] != evidence_fields["provider_identity_sha256"]
         or fields["observation_started_boottime_ns"]
         != evidence_fields["observation_started_monotonic_ns"]
         or fields["observation_completed_boottime_ns"]
@@ -2544,22 +2544,17 @@ class LifecycleV2NormalProgressLineage:
         binding_evidence = binding.binding_evidence.to_dict()
         terminal_projection = self.clean_stop_result.terminal_projection.to_dict()
         if (
-            binding_evidence["clean_stop_request_sha256"]
-            != self.clean_stop_result.request.sha256
-            or binding_evidence["clean_stop_result_sha256"]
-            != self.clean_stop_result.sha256
+            binding_evidence["clean_stop_request_sha256"] != self.clean_stop_result.request.sha256
+            or binding_evidence["clean_stop_result_sha256"] != self.clean_stop_result.sha256
             or binding_evidence["channel_id"] != self.root.channel_id
             or binding_evidence["expected_clean_stop_head_sha256"]
             != intent_fields["expected_head_sha256"]
             or binding_evidence["expected_clean_stop_terminal_result_semantic_sha256"]
             != terminal_projection["clean_stop_terminal_result_semantic_sha256"]
             or binding_evidence["topology_sha256"] != self.root.topology_sha256
-            or binding_evidence["topology_lease_sha256"]
-            != self.root.topology_lease_sha256
-            or binding_evidence["transport_quiescence_record_sha256"]
-            != self.record_at(4).sha256
-            or binding_evidence["pre_effect_intent_sha256"]
-            != self.last_record.sha256
+            or binding_evidence["topology_lease_sha256"] != self.root.topology_lease_sha256
+            or binding_evidence["transport_quiescence_record_sha256"] != self.record_at(4).sha256
+            or binding_evidence["pre_effect_intent_sha256"] != self.last_record.sha256
         ):
             _reject("pre-effect binding evidence crossed its exact lifecycle prefix")
         evidence = FrozenJsonObject.capture(
@@ -3271,11 +3266,9 @@ class LifecycleV2NormalProgressLineage:
         fields = binding.to_dict()
         pre_fields = self.pre_effect_binding.to_dict()
         binding_evidence = binding.binding_evidence.to_dict()
-        pre_evidence, pre_evidence_sha256 = (
-            _capture_lifecycle_v2_reauthentication_binding_evidence(
-                self.pre_effect_binding.binding_evidence,
-                boundary="pre_effect",
-            )
+        pre_evidence, pre_evidence_sha256 = _capture_lifecycle_v2_reauthentication_binding_evidence(
+            self.pre_effect_binding.binding_evidence,
+            boundary="pre_effect",
         )
         terminal_projection = self.clean_stop_result.terminal_projection.to_dict()
         if not (
@@ -3296,21 +3289,14 @@ class LifecycleV2NormalProgressLineage:
             != intent.to_dict()["expected_head_sha256"]
             or binding_evidence["expected_clean_stop_terminal_result_semantic_sha256"]
             != terminal_projection["clean_stop_terminal_result_semantic_sha256"]
-            or binding_evidence["pre_effect_binding_sha256"]
-            != pre_evidence_sha256
-            or binding_evidence["supervisor_stop_result_sha256"]
-            != self.record_at(8).sha256
-            or binding_evidence["source_stop_result_sha256"]
-            != self.record_at(10).sha256
-            or binding_evidence["supervisor_remove_result_sha256"]
-            != self.record_at(12).sha256
-            or binding_evidence["source_remove_result_sha256"]
-            != self.record_at(14).sha256
-            or binding_evidence["project_network_remove_result_sha256"]
-            != self.record_at(16).sha256
+            or binding_evidence["pre_effect_binding_sha256"] != pre_evidence_sha256
+            or binding_evidence["supervisor_stop_result_sha256"] != self.record_at(8).sha256
+            or binding_evidence["source_stop_result_sha256"] != self.record_at(10).sha256
+            or binding_evidence["supervisor_remove_result_sha256"] != self.record_at(12).sha256
+            or binding_evidence["source_remove_result_sha256"] != self.record_at(14).sha256
+            or binding_evidence["project_network_remove_result_sha256"] != self.record_at(16).sha256
             or binding_evidence["volume_proof_sha256"] != self.record_at(18).sha256
-            or binding_evidence["post_teardown_intent_sha256"]
-            != self.last_record.sha256
+            or binding_evidence["post_teardown_intent_sha256"] != self.last_record.sha256
             or binding_evidence["provider_identity_sha256"]
             != pre_evidence.to_dict()["provider_identity_sha256"]
         ):
@@ -3622,18 +3608,31 @@ class _FixedSemantic(_CanonicalEvidence):
 def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
     """Install exact construction/transition closures around a closure-owned registry."""
 
-    registry = LifecycleV2RuntimeSealRegistry()
-    registry_seal = registry.seal
-    registry_require = registry.require
-    registry_consume = registry.consume
-    registry_transition = registry.transition
-    registry_consume_action = registry.consume_action
-    registry_finalize_actions = registry.finalize_actions
-    finalized_authorizations: set[int] = set()
+    global _finalize_terminal_cleanup_authorization
+
+    registry_seal: Callable[..., bool]
+    registry_require: Callable[..., RuntimeSealMetadata | None]
+    registry_consume: Callable[..., RuntimeSealMetadata | None]
+    registry_transition: Callable[..., bool]
+    registry_consume_action: Callable[..., RuntimeSealMetadata | None]
+    registry_consume_action_and_transfer: Callable[..., RuntimeSealMetadata | None]
+    registry_finalize_actions: Callable[..., RuntimeSealMetadata | None]
+    canonical_registration_callers: frozenset[CodeType]
+    compound_registration_callers: frozenset[CodeType]
+    authorization_action_callers: frozenset[CodeType]
+    authorization_mint_callers: frozenset[CodeType]
+    final_credential_action_call_chain: tuple[CodeType, CodeType]
+    final_recovery_action_call_chain: tuple[CodeType, CodeType]
+    final_socket_action_call_chain: tuple[CodeType, CodeType]
+    finalization_call_chain: tuple[CodeType, CodeType, CodeType]
+    native_owner_action_call_chain: tuple[CodeType, CodeType]
+    transition_validation_callers: frozenset[CodeType]
+    unmount_action_call_chain: tuple[CodeType, CodeType]
     reauthentication_issuance_consumer: Callable[..., object] | None = None
     reauthentication_issuance_snapshot_type: type[object] | None = None
     import_reauthentication_module = importlib.import_module
     get_call_frame = sys._getframe
+    exact_len = len
     exact_getattr = getattr
     exact_realpath = os.path.realpath
     reauthentication_module_name = _REAUTHENTICATION_REALM_MODULE
@@ -3683,15 +3682,56 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         LifecycleV2NativeOwnerCleanupReceipt,
         _FixedSemantic,
     )
-    compound_kind_by_type = {
-        LifecycleV2TransportCleanupPlan: "transport_cleanup_plan",
-        LifecycleV2TransportQuiescence: "transport_quiescence",
-        LifecycleV2TerminalCleanupAuthorization: "terminal_cleanup_authorization",
-        LifecycleV2TerminalCleanupPlan: "terminal_cleanup_plan",
-        LifecycleV2TerminalCleanupResult: "terminal_cleanup_result",
-    }
+    compound_kind_by_type = MappingProxyType(
+        {
+            LifecycleV2TransportCleanupPlan: "transport_cleanup_plan",
+            LifecycleV2TransportQuiescence: "transport_quiescence",
+            LifecycleV2TerminalCleanupAuthorization: "terminal_cleanup_authorization",
+            LifecycleV2TerminalCleanupPlan: "terminal_cleanup_plan",
+            LifecycleV2TerminalCleanupResult: "terminal_cleanup_result",
+        }
+    )
+
+    def require_authority_caller(
+        allowed_callers: frozenset[CodeType],
+        operation: str,
+    ) -> None:
+        caller = get_call_frame(2)
+        try:
+            if caller.f_code not in allowed_callers:
+                _reject(f"{operation} escaped its exact construction topology")
+        finally:
+            del caller
+
+    def require_authority_call_chain(
+        expected_callers: tuple[CodeType, ...],
+        operation: str,
+    ) -> None:
+        expected_length = exact_len(expected_callers)
+        first: Any = None
+        second: Any = None
+        third: Any = None
+        try:
+            first = get_call_frame(2)
+            second = get_call_frame(3)
+            third = get_call_frame(4) if expected_length == 3 else None
+            actual_callers = (
+                first.f_code,
+                second.f_code,
+                *((third.f_code,) if third is not None else ()),
+            )
+            if actual_callers != expected_callers:
+                _reject(f"{operation} escaped its exact semantic call chain")
+        except ValueError:
+            _reject(f"{operation} escaped its exact semantic call chain")
+        finally:
+            del first, second, third
 
     def register_canonical(value: object, *, provenance: str, scope_sha256: str) -> None:
+        require_authority_caller(
+            canonical_registration_callers,
+            "canonical runtime-seal registration",
+        )
         if type(value) not in canonical_types or not registry_seal(
             value,
             snapshot_sha256=_canonical_evidence_snapshot(value),
@@ -3718,6 +3758,10 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         return metadata
 
     def register_compound(value: object, *, provenance: str, scope_sha256: str) -> None:
+        require_authority_caller(
+            compound_registration_callers,
+            "compound runtime-seal registration",
+        )
         kind = compound_kind_by_type.get(type(value))
         if kind is None or not registry_seal(
             value,
@@ -3768,8 +3812,7 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
                 caller_code.co_name != "<module>"
                 or caller_code != expected_reauthentication_module_code
                 or not expected_reauthentication_names.issubset(caller_code.co_names)
-                or exact_realpath(caller_code.co_filename)
-                != reauthentication_module_source
+                or exact_realpath(caller_code.co_filename) != reauthentication_module_source
             ):
                 _reject("reauthentication semantic issuance consumer installation is invalid")
             realm_module = import_reauthentication_module(reauthentication_module_name)
@@ -3784,23 +3827,19 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             endpoint_code = exact_getattr(endpoint, "__code__", None)
             if (
                 realm_globals is not caller_globals
-                or exact_getattr(realm_module, "__name__", None)
-                != reauthentication_module_name
+                or exact_getattr(realm_module, "__name__", None) != reauthentication_module_name
                 or exact_realpath(exact_getattr(realm_module, "__file__", ""))
                 != reauthentication_module_source
-                or exact_getattr(realm_spec, "name", None)
-                != reauthentication_module_name
+                or exact_getattr(realm_spec, "name", None) != reauthentication_module_name
                 or exact_realpath(exact_getattr(realm_spec, "origin", ""))
                 != reauthentication_module_source
                 or exact_getattr(realm_spec, "_initializing", False) is not True
                 or endpoint is not exact_endpoint
                 or exact_getattr(endpoint, "__globals__", None) is not caller_globals
-                or exact_getattr(endpoint, "__module__", None)
-                != reauthentication_module_name
+                or exact_getattr(endpoint, "__module__", None) != reauthentication_module_name
                 or type(endpoint_code) is not CodeType
                 or endpoint_code not in caller_codes
-                or endpoint_code.co_name
-                != "consume_semantic_binding_issuance_once"
+                or endpoint_code.co_name != "consume_semantic_binding_issuance_once"
                 or endpoint_code.co_qualname
                 != "_build_binding_registries.<locals>.consume_semantic_binding_issuance_once"
                 or endpoint_code.co_freevars != expected_consumer_freevars
@@ -4268,6 +4307,10 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         authorized_boottime_ns: int,
         not_before_boottime_ns: int,
     ) -> LifecycleV2TerminalCleanupAuthorization:
+        require_authority_caller(
+            authorization_mint_callers,
+            "terminal cleanup authorization mint",
+        )
         result = original_authorization_mint(
             root=root,
             cleanup_intent=cleanup_intent,
@@ -4290,6 +4333,10 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         action: str,
         prerequisites: frozenset[str] = frozenset(),
     ) -> RuntimeSealMetadata | None:
+        require_authority_caller(
+            authorization_action_callers,
+            "terminal cleanup authorization action",
+        )
         if type(value) is not LifecycleV2TerminalCleanupAuthorization:
             return None
         return registry_consume_action(
@@ -4304,6 +4351,10 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         value: object,
         snapshot_sha256: str,
     ) -> RuntimeSealMetadata | None:
+        require_authority_call_chain(
+            unmount_action_call_chain,
+            "terminal cleanup unmount authorization",
+        )
         return consume_authorization_action(
             value,
             snapshot_sha256,
@@ -4314,6 +4365,10 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         value: object,
         snapshot_sha256: str,
     ) -> RuntimeSealMetadata | None:
+        require_authority_call_chain(
+            native_owner_action_call_chain,
+            "terminal native-owner cleanup authorization",
+        )
         return consume_authorization_action(
             value,
             snapshot_sha256,
@@ -4324,6 +4379,10 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         value: object,
         snapshot_sha256: str,
     ) -> RuntimeSealMetadata | None:
+        require_authority_call_chain(
+            final_recovery_action_call_chain,
+            "terminal recovery-absence authorization",
+        )
         return consume_authorization_action(
             value,
             snapshot_sha256,
@@ -4335,6 +4394,10 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         value: object,
         snapshot_sha256: str,
     ) -> RuntimeSealMetadata | None:
+        require_authority_call_chain(
+            final_socket_action_call_chain,
+            "terminal socket-absence authorization",
+        )
         return consume_authorization_action(
             value,
             snapshot_sha256,
@@ -4346,6 +4409,10 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         value: object,
         snapshot_sha256: str,
     ) -> RuntimeSealMetadata | None:
+        require_authority_call_chain(
+            final_credential_action_call_chain,
+            "terminal credential-absence authorization",
+        )
         return consume_authorization_action(
             value,
             snapshot_sha256,
@@ -4357,6 +4424,10 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         value: object,
         snapshot_sha256: str,
     ) -> RuntimeSealMetadata | None:
+        require_authority_call_chain(
+            finalization_call_chain,
+            "terminal cleanup authorization finalization",
+        )
         if type(value) is not LifecycleV2TerminalCleanupAuthorization:
             return None
         metadata = registry_finalize_actions(
@@ -4365,8 +4436,41 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             kind="terminal_cleanup_authorization",
             required_actions=_TERMINAL_CLEANUP_AUTHORIZATION_ACTIONS,
         )
-        if metadata is not None:
-            finalized_authorizations.add(id(value))
+        return metadata
+
+    def guarded_finalize_terminal_cleanup_authorization(
+        authorization: LifecycleV2TerminalCleanupAuthorization,
+    ) -> RuntimeSealMetadata:
+        require_authority_call_chain(
+            finalization_call_chain[1:],
+            "terminal cleanup semantic finalization",
+        )
+        _require_terminal_cleanup_authorization(authorization)
+        metadata = finalize_authorization(
+            authorization,
+            authorization._snapshot(),
+        )
+        if metadata is None:
+            _reject("terminal cleanup authorization is incomplete or already consumed")
+        return metadata
+
+    def require_finalized_authorization(
+        value: object,
+    ) -> RuntimeSealMetadata:
+        if type(value) is not LifecycleV2TerminalCleanupAuthorization:
+            _reject("terminal cleanup authorization finalization identity is not exact")
+        try:
+            snapshot = _compound_value_snapshot(value)
+        except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected):
+            _reject("terminal cleanup authorization is not exactly finalized")
+        metadata = registry_require(
+            value,
+            snapshot_sha256=snapshot,
+            kind="terminal_cleanup_authorization",
+            consumed=True,
+        )
+        if metadata is None:
+            _reject("terminal cleanup authorization is not exactly finalized")
         return metadata
 
     def capture_unmount_receipt(
@@ -4507,28 +4611,30 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         capture_initial_lineage
     )
 
-    semantic_type_by_ordinal = {
-        3: LifecycleV2TransportCleanupPlan,
-        4: LifecycleV2TransportQuiescence,
-        5: LifecycleV2ReauthenticationIntent,
-        6: LifecycleV2AuthenticatedReauthenticationBinding,
-        7: _FixedSemantic,
-        8: DockerMutationResultSemantic,
-        9: _FixedSemantic,
-        10: DockerMutationResultSemantic,
-        11: _FixedSemantic,
-        12: DockerMutationResultSemantic,
-        13: _FixedSemantic,
-        14: DockerMutationResultSemantic,
-        15: _FixedSemantic,
-        16: DockerMutationResultSemantic,
-        17: _FixedSemantic,
-        18: DockerVolumePreservationResult,
-        19: LifecycleV2ReauthenticationIntent,
-        20: LifecycleV2AuthenticatedReauthenticationBinding,
-        21: LifecycleV2TerminalCleanupPlan,
-        22: LifecycleV2TerminalCleanupResult,
-    }
+    semantic_type_by_ordinal = MappingProxyType(
+        {
+            3: LifecycleV2TransportCleanupPlan,
+            4: LifecycleV2TransportQuiescence,
+            5: LifecycleV2ReauthenticationIntent,
+            6: LifecycleV2AuthenticatedReauthenticationBinding,
+            7: _FixedSemantic,
+            8: DockerMutationResultSemantic,
+            9: _FixedSemantic,
+            10: DockerMutationResultSemantic,
+            11: _FixedSemantic,
+            12: DockerMutationResultSemantic,
+            13: _FixedSemantic,
+            14: DockerMutationResultSemantic,
+            15: _FixedSemantic,
+            16: DockerMutationResultSemantic,
+            17: _FixedSemantic,
+            18: DockerVolumePreservationResult,
+            19: LifecycleV2ReauthenticationIntent,
+            20: LifecycleV2AuthenticatedReauthenticationBinding,
+            21: LifecycleV2TerminalCleanupPlan,
+            22: LifecycleV2TerminalCleanupResult,
+        }
+    )
 
     def validate_transition(
         source: LifecycleV2NormalProgressLineage,
@@ -4536,6 +4642,10 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         expected_ordinal: int,
         transition_arguments: dict[str, object],
     ) -> LifecycleV2NormalProgressLineage:
+        require_authority_caller(
+            transition_validation_callers,
+            "normal lifecycle transition validation",
+        )
         if type(result) is not LifecycleV2NormalProgressLineage:
             _reject("named lifecycle transition returned an inexact lineage")
         exact_result = result
@@ -4654,10 +4764,9 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
                 type(cleanup_result) is not LifecycleV2TerminalCleanupResult
                 or type(terminal_authorization) is not LifecycleV2TerminalCleanupAuthorization
                 or cleanup_result.authorization is not terminal_authorization
-                or id(terminal_authorization) not in finalized_authorizations
             ):
                 _reject("ordinal twenty-two lacks finalized exact cleanup evidence")
-            authorization_metadata = require_compound(terminal_authorization)
+            authorization_metadata = require_finalized_authorization(terminal_authorization)
             register_compound(
                 cleanup_result,
                 provenance=authorization_metadata.provenance,
@@ -4731,16 +4840,21 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         ("retain_terminal_cleanup_intent", 21),
         ("retain_terminal_cleanup_confirmed", 22),
     )
+    wrapped_transition_codes: set[CodeType] = set()
+    terminal_confirmation_code: CodeType | None = None
+    terminal_transition_code: CodeType | None = None
     for method_name, ordinal in transition_methods:
         original = cast(
             Callable[..., LifecycleV2NormalProgressLineage],
             getattr(LifecycleV2NormalProgressLineage, method_name),
         )
-        setattr(
-            LifecycleV2NormalProgressLineage,
-            method_name,
-            wrap_transition(original, ordinal),
-        )
+        if ordinal == 22:
+            terminal_confirmation_code = original.__code__
+        wrapped_transition = wrap_transition(original, ordinal)
+        if ordinal == 22:
+            terminal_transition_code = wrapped_transition.__code__
+        wrapped_transition_codes.add(wrapped_transition.__code__)
+        setattr(LifecycleV2NormalProgressLineage, method_name, wrapped_transition)
 
     def require_lineage_runtime(
         value: object,
@@ -4795,24 +4909,26 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             _reject("confirmed success requires one exact normal lineage")
         lineage_digest = _lineage_snapshot(value)
         validate_lineage_records(value, exact_last_ordinal=22)
+        metadata = registry_require(
+            value,
+            snapshot_sha256=lineage_digest,
+            kind="normal_progress_lineage",
+            provenance="authenticated_injected_lineage",
+            scope_sha256=value.root.sha256,
+            allow_consumed=False,
+        )
+        if metadata is None:
+            _reject("confirmed-success lineage is unavailable or already advanced")
         cleanup_result = value.semantics[-1]
         authorization = value.terminal_cleanup_authorization
         if (
             type(cleanup_result) is not LifecycleV2TerminalCleanupResult
             or type(authorization) is not LifecycleV2TerminalCleanupAuthorization
             or cleanup_result.authorization is not authorization
-            or id(authorization) not in finalized_authorizations
         ):
             _reject("confirmed success lacks exact finalized ordinal-twenty-two evidence")
+        require_finalized_authorization(authorization)
         cleanup_result._require_sealed()
-        metadata = registry_consume_action(
-            value,
-            snapshot_sha256=lineage_digest,
-            kind="normal_progress_lineage",
-            action="repository_confirmed_success",
-        )
-        if metadata is None:
-            _reject("confirmed-success lineage repository consumption was replayed")
         result = object.__new__(LifecycleV2ConfirmedSuccessLineageSnapshot)
         object.__setattr__(result, "root", value.root)
         object.__setattr__(result, "records", value.records)
@@ -4830,14 +4946,17 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
             "terminal_cleanup_result_snapshot_sha256",
             _semantic_runtime_snapshot(cleanup_result),
         )
-        if not registry_seal(
-            result,
-            snapshot_sha256=_confirmed_success_snapshot(result),
-            kind="confirmed_success_snapshot",
-            provenance=metadata.provenance,
-            scope_sha256=metadata.scope_sha256,
-        ):
-            _reject("confirmed-success repository snapshot could not be sealed")
+        transferred_metadata = registry_consume_action_and_transfer(
+            value,
+            source_snapshot_sha256=lineage_digest,
+            source_kind="normal_progress_lineage",
+            action="repository_confirmed_success",
+            result=result,
+            result_snapshot_sha256=_confirmed_success_snapshot(result),
+            result_kind="confirmed_success_snapshot",
+        )
+        if transferred_metadata is not metadata:
+            _reject("confirmed-success repository snapshot could not be atomically sealed")
         return result
 
     def consume_confirmed_success_snapshot_for_repository(
@@ -4861,6 +4980,94 @@ def _install_lifecycle_v2_runtime_seals() -> tuple[Any, ...]:
         ):
             _reject("confirmed-success repository snapshot is not sealed or was replayed")
         return value
+
+    canonical_registration_callers = frozenset(
+        {
+            capture_host_identity.__code__,
+            capture_supervisor_observation.__code__,
+            capture_host_receipt.__code__,
+            capture_reauth_intent.__code__,
+            capture_reauth_binding.__code__,
+            capture_reauth_binding_from_realm.__code__,
+            capture_empty_mount.__code__,
+            capture_mount_projection.__code__,
+            capture_path_absence.__code__,
+            capture_owner_set.__code__,
+            capture_unmount_receipt.__code__,
+            capture_owner_receipt.__code__,
+            capture_fixed_semantic.__code__,
+        }
+    )
+    compound_registration_callers = frozenset(
+        {
+            capture_transport_plan.__code__,
+            capture_quiescence.__code__,
+            mint_authorization.__code__,
+            validate_transition.__code__,
+        }
+    )
+    authorization_action_callers = frozenset(
+        {
+            consume_unmount.__code__,
+            consume_native_owner.__code__,
+            consume_final_recovery.__code__,
+            consume_final_socket.__code__,
+            consume_final_credential.__code__,
+        }
+    )
+    authorization_mint_callers = frozenset({validate_transition.__code__})
+    transition_validation_callers = frozenset(wrapped_transition_codes)
+    if (
+        terminal_confirmation_code is None
+        or terminal_transition_code is None
+        or exact_len(transition_validation_callers) != 1
+    ):
+        _reject("normal lifecycle transition caller topology is invalid")
+    path_absence_code = cast(Any, original_path_absence).__func__.__code__
+    unmount_receipt_code = cast(Any, original_unmount_receipt).__func__.__code__
+    native_owner_receipt_code = cast(Any, original_owner_receipt).__func__.__code__
+    unmount_action_call_chain = (
+        unmount_receipt_code,
+        capture_unmount_receipt.__code__,
+    )
+    native_owner_action_call_chain = (
+        native_owner_receipt_code,
+        capture_owner_receipt.__code__,
+    )
+    final_recovery_action_call_chain = (
+        path_absence_code,
+        capture_path_absence.__code__,
+    )
+    final_socket_action_call_chain = final_recovery_action_call_chain
+    final_credential_action_call_chain = final_recovery_action_call_chain
+    finalization_call_chain = (
+        guarded_finalize_terminal_cleanup_authorization.__code__,
+        terminal_confirmation_code,
+        terminal_transition_code,
+    )
+    registry = LifecycleV2RuntimeSealRegistry(
+        _seal_callers=frozenset(
+            {
+                register_canonical.__code__,
+                register_compound.__code__,
+                build_fake_observer.__code__,
+                capture_initial_lineage.__code__,
+            }
+        ),
+        _transition_callers=transition_validation_callers,
+        _consume_action_callers=frozenset({consume_authorization_action.__code__}),
+        _finalize_actions_callers=frozenset({finalize_authorization.__code__}),
+        _consume_callers=frozenset({consume_confirmed_success_snapshot_for_repository.__code__}),
+        _transfer_callers=frozenset({consume_confirmed_success.__code__}),
+    )
+    registry_seal = registry.seal
+    registry_require = registry.require
+    registry_consume = registry.consume
+    registry_transition = registry.transition
+    registry_consume_action = registry.consume_action
+    registry_consume_action_and_transfer = registry.consume_action_and_transfer
+    registry_finalize_actions = registry.finalize_actions
+    _finalize_terminal_cleanup_authorization = guarded_finalize_terminal_cleanup_authorization
 
     return (
         install_reauthentication_issuance_consumer,

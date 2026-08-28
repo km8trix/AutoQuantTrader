@@ -3244,9 +3244,8 @@ def _build_fake_lifecycle_v2_transport_authentication_endpoints() -> tuple[
 ]:
     """Keep fake issuance test-only, root-bound, and free of caller-held tokens."""
 
-    registry = LifecycleV2RuntimeSealRegistry()
-    seal_runtime = registry.seal
-    require_runtime = registry.require
+    seal_runtime: Callable[..., bool]
+    require_runtime: Callable[..., Any]
     decode_envelope = decode_unverified_lifecycle_v2_transport_envelope
     decode_root = decode_lifecycle_v2_root
     fake_type = _FakeAuthenticatedLifecycleV2TransportEnvelope
@@ -3373,6 +3372,9 @@ def _build_fake_lifecycle_v2_transport_authentication_endpoints() -> tuple[
             raise TrustedTimeGracefulStopV2Rejected("terminal wire is not fake-authenticated")
         return exact_envelope
 
+    registry = LifecycleV2RuntimeSealRegistry(_seal_callers=frozenset({issue.__code__}))
+    seal_runtime = registry.seal
+    require_runtime = registry.require
     return issue, require
 
 

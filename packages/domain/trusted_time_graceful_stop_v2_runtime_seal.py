@@ -10,16 +10,16 @@ with the reviewed native owners; it must not serialize or adapt these seals.
 from __future__ import annotations
 
 import os
+import sys
 import threading
-from collections.abc import Callable
-from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Mapping
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 _REGISTER_AT_FORK = getattr(os, "register_at_fork", None)
 
 
-@dataclass(frozen=True, slots=True)
-class RuntimeSealMetadata:
+class RuntimeSealMetadata(NamedTuple):
     provenance: str
     scope_sha256: str
     origin_pid: int
@@ -27,8 +27,7 @@ class RuntimeSealMetadata:
     fork_epoch: object
 
 
-@dataclass(frozen=True, slots=True)
-class _RuntimeSealEntry:
+class _RuntimeSealEntry(NamedTuple):
     value: object
     snapshot_sha256: str
     kind: str
@@ -42,11 +41,21 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
 
     entry_type = _RuntimeSealEntry
     metadata_type = RuntimeSealMetadata
-    replace_entry = replace
+    attribute_error_type = AttributeError
+    copy_mapping = dict
+    exact_type = type
+    replace_entry = _RuntimeSealEntry._replace
+    freeze_mapping = MappingProxyType
+    immutable_set_type = frozenset
     identity = id
     new_epoch = object
+    object_getattribute = object.__getattribute__
+    object_setattr = object.__setattr__
+    runtime_error_type = RuntimeError
+    type_error_type = TypeError
     default_getpid = os.getpid
     default_current_thread = threading.current_thread
+    default_get_call_frame = sys._getframe
     default_rlock = threading.RLock
     default_register_at_fork = _REGISTER_AT_FORK
 
@@ -65,57 +74,130 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
             and metadata.fork_epoch is registry._fork_epoch
         )
 
+    def mutation_caller_is_allowed(
+        registry: Any,
+        allowed_callers: frozenset[object],
+    ) -> bool:
+        caller = registry._get_call_frame(2)
+        try:
+            return caller.f_code in allowed_callers
+        finally:
+            del caller
+
     class _LifecycleV2RuntimeSealRegistry:
         """Strong-reference registry for one injected lifecycle-v2 trust domain."""
 
+        _configuration_locked: bool
+        _consume_action_callers: frozenset[object]
+        _consume_callers: frozenset[object]
+        _current_thread: Callable[[], threading.Thread]
+        _entries: Mapping[int, _RuntimeSealEntry]
+        _finalize_actions_callers: frozenset[object]
+        _fork_epoch: object
+        _fork_invalidated: bool
+        _get_call_frame: Callable[[int], Any]
+        _getpid: Callable[[], int]
+        _lock: Any
+        _origin_fork_epoch: object
+        _origin_pid: int
+        _seal_callers: frozenset[object]
+        _transfer_callers: frozenset[object]
+        _transition_callers: frozenset[object]
+
         __slots__ = (
-            "__dict__",
+            "_configuration_locked",
+            "_consume_action_callers",
+            "_consume_callers",
             "_current_thread",
             "_entries",
+            "_finalize_actions_callers",
             "_fork_epoch",
             "_fork_invalidated",
+            "_get_call_frame",
             "_getpid",
             "_lock",
             "_origin_fork_epoch",
             "_origin_pid",
+            "_seal_callers",
+            "_transfer_callers",
+            "_transition_callers",
         )
+
+        def __setattr__(self, name: str, value: object) -> None:
+            try:
+                configuration_locked = object_getattribute(
+                    self,
+                    "_configuration_locked",
+                )
+            except attribute_error_type:
+                configuration_locked = False
+            if configuration_locked:
+                raise attribute_error_type("lifecycle-v2 runtime-seal registry is immutable")
+            object_setattr(self, name, value)
+
+        def __delattr__(self, _name: str) -> None:
+            raise attribute_error_type("lifecycle-v2 runtime-seal registry is immutable")
 
         def __init__(
             self,
             *,
             _getpid: Callable[[], int] = default_getpid,
             _current_thread: Callable[[], threading.Thread] = default_current_thread,
+            _get_call_frame: Callable[[int], Any] = default_get_call_frame,
             _rlock: Callable[[], threading.RLock] = default_rlock,
             _register_at_fork: Callable[..., None] | None = default_register_at_fork,
+            _seal_callers: frozenset[object] = frozenset(),
+            _transition_callers: frozenset[object] = frozenset(),
+            _consume_action_callers: frozenset[object] = frozenset(),
+            _finalize_actions_callers: frozenset[object] = frozenset(),
+            _consume_callers: frozenset[object] = frozenset(),
+            _transfer_callers: frozenset[object] = frozenset(),
         ) -> None:
-            self._entries: dict[int, _RuntimeSealEntry] = {}
-            self._getpid = _getpid
-            self._current_thread = _current_thread
-            self._lock = _rlock()
-            self._origin_pid = _getpid()
-            self._fork_epoch = new_epoch()
-            self._origin_fork_epoch = self._fork_epoch
-            self._fork_invalidated = False
+            try:
+                object_getattribute(self, "_configuration_locked")
+            except attribute_error_type:
+                pass
+            else:
+                raise runtime_error_type(
+                    "lifecycle-v2 runtime-seal registry cannot be reinitialized"
+                )
+            for callers in (
+                _seal_callers,
+                _transition_callers,
+                _consume_action_callers,
+                _finalize_actions_callers,
+                _consume_callers,
+                _transfer_callers,
+            ):
+                if exact_type(callers) is not immutable_set_type:
+                    raise type_error_type(
+                        "lifecycle-v2 runtime-seal caller policy is not immutable"
+                    )
+            object_setattr(self, "_configuration_locked", False)
+            object_setattr(self, "_entries", freeze_mapping({}))
+            object_setattr(self, "_getpid", _getpid)
+            object_setattr(self, "_current_thread", _current_thread)
+            object_setattr(self, "_get_call_frame", _get_call_frame)
+            object_setattr(self, "_lock", _rlock())
+            object_setattr(self, "_origin_pid", _getpid())
+            object_setattr(self, "_fork_epoch", new_epoch())
+            object_setattr(self, "_origin_fork_epoch", self._fork_epoch)
+            object_setattr(self, "_fork_invalidated", False)
+            object_setattr(self, "_seal_callers", _seal_callers)
+            object_setattr(self, "_transition_callers", _transition_callers)
+            object_setattr(self, "_consume_action_callers", _consume_action_callers)
+            object_setattr(self, "_finalize_actions_callers", _finalize_actions_callers)
+            object_setattr(self, "_consume_callers", _consume_callers)
+            object_setattr(self, "_transfer_callers", _transfer_callers)
             if _register_at_fork is not None:
                 registry = self
 
                 def invalidate_in_child() -> None:
-                    registry._fork_invalidated = True
-                    registry._fork_epoch = new_epoch()
+                    object_setattr(registry, "_fork_invalidated", True)
+                    object_setattr(registry, "_fork_epoch", new_epoch())
 
                 _register_at_fork(after_in_child=invalidate_in_child)
-            self.__dict__.update(
-                {
-                    "_entry_is_current": self._entry_is_current,
-                    "_registry_is_current": self._registry_is_current,
-                    "consume": self.consume,
-                    "consume_action": self.consume_action,
-                    "finalize_actions": self.finalize_actions,
-                    "require": self.require,
-                    "seal": self.seal,
-                    "transition": self.transition,
-                }
-            )
+            object_setattr(self, "_configuration_locked", True)
 
         def _registry_is_current(self) -> bool:
             return registry_is_current(self)
@@ -132,13 +214,17 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
             provenance: str,
             scope_sha256: str,
         ) -> bool:
-            if not registry_is_current(self):
+            if not mutation_caller_is_allowed(
+                self,
+                self._seal_callers,
+            ) or not registry_is_current(self):
                 return False
             key = identity(value)
             with self._lock:
                 if key in self._entries:
                     return False
-                self._entries[key] = entry_type(
+                entries = copy_mapping(self._entries)
+                entries[key] = entry_type(
                     value=value,
                     snapshot_sha256=snapshot_sha256,
                     kind=kind,
@@ -150,6 +236,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                         fork_epoch=self._fork_epoch,
                     ),
                 )
+                object_setattr(self, "_entries", freeze_mapping(entries))
             return True
 
         def require(
@@ -161,6 +248,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
             provenance: str | None = None,
             scope_sha256: str | None = None,
             allow_consumed: bool = True,
+            consumed: bool | None = None,
         ) -> RuntimeSealMetadata | None:
             if not registry_is_current(self):
                 return None
@@ -173,6 +261,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                     or entry.snapshot_sha256 != snapshot_sha256
                     or not entry_is_current(self, entry)
                     or (entry.consumed and not allow_consumed)
+                    or (consumed is not None and entry.consumed is not consumed)
                     or (provenance is not None and entry.metadata.provenance != provenance)
                     or (scope_sha256 is not None and entry.metadata.scope_sha256 != scope_sha256)
                 ):
@@ -188,7 +277,10 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
             provenance: str | None = None,
             scope_sha256: str | None = None,
         ) -> RuntimeSealMetadata | None:
-            if not registry_is_current(self):
+            if not mutation_caller_is_allowed(
+                self,
+                self._consume_callers,
+            ) or not registry_is_current(self):
                 return None
             with self._lock:
                 key = identity(value)
@@ -204,7 +296,9 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                     or (scope_sha256 is not None and entry.metadata.scope_sha256 != scope_sha256)
                 ):
                     return None
-                self._entries[key] = replace_entry(entry, consumed=True)
+                entries = copy_mapping(self._entries)
+                entries[key] = replace_entry(entry, consumed=True)
+                object_setattr(self, "_entries", freeze_mapping(entries))
                 return entry.metadata
 
         def transition(
@@ -218,7 +312,10 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
             provenance: str,
             scope_sha256: str,
         ) -> bool:
-            if not registry_is_current(self):
+            if not mutation_caller_is_allowed(
+                self,
+                self._transition_callers,
+            ) or not registry_is_current(self):
                 return False
             with self._lock:
                 source_key = identity(source)
@@ -236,8 +333,9 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                     or result_key in self._entries
                 ):
                     return False
-                self._entries[source_key] = replace_entry(source_entry, consumed=True)
-                self._entries[result_key] = entry_type(
+                entries = copy_mapping(self._entries)
+                entries[source_key] = replace_entry(source_entry, consumed=True)
+                entries[result_key] = entry_type(
                     value=result,
                     snapshot_sha256=result_snapshot_sha256,
                     kind=kind,
@@ -249,6 +347,7 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                         fork_epoch=self._fork_epoch,
                     ),
                 )
+                object_setattr(self, "_entries", freeze_mapping(entries))
                 return True
 
         def consume_action(
@@ -260,7 +359,10 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
             action: str,
             prerequisites: frozenset[str] = frozenset(),
         ) -> RuntimeSealMetadata | None:
-            if not registry_is_current(self):
+            if not mutation_caller_is_allowed(
+                self,
+                self._consume_action_callers,
+            ) or not registry_is_current(self):
                 return None
             with self._lock:
                 key = identity(value)
@@ -276,11 +378,68 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                     or not entry_is_current(self, entry)
                 ):
                     return None
-                self._entries[key] = replace_entry(
+                entries = copy_mapping(self._entries)
+                entries[key] = replace_entry(
                     entry,
                     actions=entry.actions | {action},
                 )
+                object_setattr(self, "_entries", freeze_mapping(entries))
                 return entry.metadata
+
+        def consume_action_and_transfer(
+            self,
+            source: object,
+            *,
+            source_snapshot_sha256: str,
+            source_kind: str,
+            action: str,
+            result: object,
+            result_snapshot_sha256: str,
+            result_kind: str,
+            prerequisites: frozenset[str] = frozenset(),
+        ) -> RuntimeSealMetadata | None:
+            """Atomically consume one source action and seal its derived result."""
+
+            if not mutation_caller_is_allowed(
+                self,
+                self._transfer_callers,
+            ) or not registry_is_current(self):
+                return None
+            with self._lock:
+                source_key = identity(source)
+                result_key = identity(result)
+                source_entry = self._entries.get(source_key)
+                if (
+                    source_entry is None
+                    or source_entry.value is not source
+                    or source_entry.kind != source_kind
+                    or source_entry.snapshot_sha256 != source_snapshot_sha256
+                    or source_entry.consumed
+                    or action in source_entry.actions
+                    or not prerequisites.issubset(source_entry.actions)
+                    or not entry_is_current(self, source_entry)
+                    or result_key in self._entries
+                ):
+                    return None
+                entries = copy_mapping(self._entries)
+                entries[source_key] = replace_entry(
+                    source_entry,
+                    actions=source_entry.actions | {action},
+                )
+                entries[result_key] = entry_type(
+                    value=result,
+                    snapshot_sha256=result_snapshot_sha256,
+                    kind=result_kind,
+                    metadata=metadata_type(
+                        provenance=source_entry.metadata.provenance,
+                        scope_sha256=source_entry.metadata.scope_sha256,
+                        origin_pid=self._getpid(),
+                        origin_thread=self._current_thread(),
+                        fork_epoch=self._fork_epoch,
+                    ),
+                )
+                object_setattr(self, "_entries", freeze_mapping(entries))
+                return source_entry.metadata
 
         def finalize_actions(
             self,
@@ -290,7 +449,10 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
             kind: str,
             required_actions: frozenset[str],
         ) -> RuntimeSealMetadata | None:
-            if not registry_is_current(self):
+            if not mutation_caller_is_allowed(
+                self,
+                self._finalize_actions_callers,
+            ) or not registry_is_current(self):
                 return None
             with self._lock:
                 key = identity(value)
@@ -305,7 +467,9 @@ def _install_lifecycle_v2_runtime_seal_registry() -> type[object]:
                     or not entry_is_current(self, entry)
                 ):
                     return None
-                self._entries[key] = replace_entry(entry, consumed=True)
+                entries = copy_mapping(self._entries)
+                entries[key] = replace_entry(entry, consumed=True)
+                object_setattr(self, "_entries", freeze_mapping(entries))
                 return entry.metadata
 
     _LifecycleV2RuntimeSealRegistry.__name__ = "LifecycleV2RuntimeSealRegistry"
@@ -321,8 +485,15 @@ if TYPE_CHECKING:
             *,
             _getpid: Callable[[], int] = ...,
             _current_thread: Callable[[], threading.Thread] = ...,
+            _get_call_frame: Callable[[int], Any] = ...,
             _rlock: Callable[[], threading.RLock] = ...,
             _register_at_fork: Callable[..., None] | None = ...,
+            _seal_callers: frozenset[object] = ...,
+            _transition_callers: frozenset[object] = ...,
+            _consume_action_callers: frozenset[object] = ...,
+            _finalize_actions_callers: frozenset[object] = ...,
+            _consume_callers: frozenset[object] = ...,
+            _transfer_callers: frozenset[object] = ...,
         ) -> None: ...
 
         def _registry_is_current(self) -> bool: ...
@@ -348,6 +519,7 @@ if TYPE_CHECKING:
             provenance: str | None = None,
             scope_sha256: str | None = None,
             allow_consumed: bool = True,
+            consumed: bool | None = None,
         ) -> RuntimeSealMetadata | None: ...
 
         def consume(
@@ -379,6 +551,19 @@ if TYPE_CHECKING:
             snapshot_sha256: str,
             kind: str,
             action: str,
+            prerequisites: frozenset[str] = frozenset(),
+        ) -> RuntimeSealMetadata | None: ...
+
+        def consume_action_and_transfer(
+            self,
+            source: object,
+            *,
+            source_snapshot_sha256: str,
+            source_kind: str,
+            action: str,
+            result: object,
+            result_snapshot_sha256: str,
+            result_kind: str,
             prerequisites: frozenset[str] = frozenset(),
         ) -> RuntimeSealMetadata | None: ...
 
@@ -409,12 +594,13 @@ def _install_lifecycle_v2_runtime_seal_bootstrap_claim() -> Callable[..., object
     return claim_runtime_seal_bootstrap
 
 
-_claim_lifecycle_v2_runtime_seal_bootstrap = (
-    _install_lifecycle_v2_runtime_seal_bootstrap_claim()
-)
+_claim_lifecycle_v2_runtime_seal_bootstrap = _install_lifecycle_v2_runtime_seal_bootstrap_claim()
 del _install_lifecycle_v2_runtime_seal_bootstrap_claim
 globals().pop("_REGISTER_AT_FORK", None)
+globals().pop("MappingProxyType", None)
+globals().pop("NamedTuple", None)
 globals().pop("replace", None)
+globals().pop("sys", None)
 
 
 __all__ = ["LifecycleV2RuntimeSealRegistry", "RuntimeSealMetadata"]

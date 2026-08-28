@@ -3131,7 +3131,7 @@ def _install_docker_result_runtime_seals() -> tuple[
 ]:
     """Install exact capture closures without exporting a registration capability."""
 
-    registry = LifecycleV2RuntimeSealRegistry()
+    registry: LifecycleV2RuntimeSealRegistry
     mutation_capture = cast(
         Callable[..., DockerMutationResultSemantic],
         DockerMutationResultSemantic.capture,
@@ -3200,6 +3200,14 @@ def _install_docker_result_runtime_seals() -> tuple[
             kind="docker_volume_result",
         )
 
+    registry = LifecycleV2RuntimeSealRegistry(
+        _seal_callers=frozenset(
+            {
+                capture_mutation.__code__,
+                capture_volume.__code__,
+            }
+        )
+    )
     cast(Any, DockerMutationResultSemantic).capture = classmethod(capture_mutation)
     cast(Any, DockerVolumePreservationResult).capture = classmethod(capture_volume)
     return require_mutation, require_volume

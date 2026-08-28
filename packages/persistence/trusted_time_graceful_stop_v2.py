@@ -2245,9 +2245,9 @@ def _build_injected_lifecycle_v2_repository_factory() -> Callable[
             "consume_confirmed_success",
             "_install_lifecycle_v2_runtime_seals.<locals>.consume_confirmed_success",
             (
-                "finalized_authorizations",
-                "registry_consume_action",
-                "registry_seal",
+                "registry_consume_action_and_transfer",
+                "registry_require",
+                "require_finalized_authorization",
                 "validate_lineage_records",
             ),
         ),
