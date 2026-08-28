@@ -1,7 +1,9 @@
 # ADR 0126: Native trusted-time lifecycle-v2 milestone-two owner foundation
 
-- Status: Accepted for Wave 7 implementation; this decision grants no runtime,
-  deployment, lifecycle-root, Docker-effect, recovery-effect, or stop authority
+- Status: Implemented locally for Wave 7; final full regression, independent
+  security review, promotion, and remote CI verification remain pending, and
+  this decision grants no runtime, deployment, lifecycle-root, Docker-effect,
+  recovery-effect, or stop authority
 - Date: 2026-08-28
 - Implements the owner boundary in milestone two of:
   [ADR 0121](0121-trusted-time-graceful-stop-lifecycle-v2-implementation-resolution.md)
@@ -120,9 +122,14 @@ connector, host resource admission, owner cleanup, and host seccomp capability.
 The supervisor profile contains the corresponding supervisor signer, listener,
 resource admission, cleanup, and supervisor seccomp capability. The recovery
 profile contains only the fork guard, recovery-classification signer, cleanup,
-and recovery seccomp capability. Its separately packaged Python/import tree
-omits host and supervisor wrappers, endpoint code, Docker domain/adapters, and
-subprocess facilities.
+and recovery seccomp capability. Its separately emitted exact minimal bootstrap
+standard-library tree contains only the required encoding modules and Python
+license, and its one immutable inert entry root omits host and supervisor
+wrappers, endpoint code, Docker domain/adapters, and subprocess facilities. It
+has no dynamic-extension load path. Libpython built-ins are inventoried rather
+than claimed absent; they remain unreachable from the no-input inert entry, and
+seccomp blocks effects. Arbitrary-Python-compromise safety and full operational
+import/dependency composition remain milestone-three activation blockers.
 
 The recovery preprocessed source, link map, import manifest, undefined-symbol
 table, and binary strings must prove absence of normal key names and paths, the
@@ -360,9 +367,10 @@ branches must not edit them independently.
 
 ## Consequences
 
-Milestone-two implementation has an exact cryptographic supply chain and
-executable topology. Recovery isolation is structural: it is a different
-binary and import root, not a runtime role flag. Raw private bytes remain native
+Milestone-two implementation now has an exact cryptographic supply chain and
+executable topology on the local integration branch. Recovery isolation is
+structural: it is a different binary, minimal bootstrap standard-library tree,
+and inert import root, not a runtime role flag. Raw private bytes remain native
 and tmpfs-only. Provisioning does not accept caller-selected generations or
 write plaintext through a pipe, terminal, journal, or ordinary filesystem.
 Fork-child descriptor invalidation precedes Python and seccomp prevents process
@@ -374,8 +382,23 @@ qualification. Monocypher 4.0.3 is a recent timing-hardening release whose
 earlier Cure53 review predates that fix, so exact-compiler constant-time evidence
 remains mandatory.
 
-No operational behavior changes merely because this ADR is accepted. Until all
-milestone-two code and evidence are complete, there is still no native endpoint
-or private-key owner. After Wave 7 closes, milestones three and four still own
-the injected real-root/Docker composition, immutable production release,
-deployment, drills, activation, and every stop-authority change.
+The local implementation produces six reproducible candidate executables, four
+canonical x86_64 seccomp manifests, and source-only systemd units. The
+candidates and units are not installed; candidate builders and native sources
+are retained in the source distribution only and excluded from wheels; the
+role import trees are immutable and inert; and every candidate record states
+`activation_authorized=false`. Final full regression, independent security
+review, promotion, and remote CI verification remain pending.
+
+No operational behavior changes merely because this milestone is implemented.
+There is still no production/default real lifecycle root, real Docker
+transport/effect, production controller/runtime caller, Compose projection,
+installation or activation, deployment, recovery effect, or stop authority.
+Milestone three still owns isolated injected real-root/Docker and operational
+import/dependency composition; signed socket/process-epoch evidence binding boot
+UUID, executable/import hashes, nonce, and immutable image; bounded
+`/proc/<pid>/fd` and `/proc/net/unix` pre/post channel-closure proof; and
+arbitrary-Python-compromise safety. Milestone four still owns immutable
+production release, deployment, drills, activation, and every stop-authority
+change. `make trusted-time-stop` remains the exact exit-2 hard close, and the
+trader remains `not_ready`.

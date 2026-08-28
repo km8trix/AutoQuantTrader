@@ -302,11 +302,15 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   production root, Docker transport/effect, runtime caller, deployment, stop
   authority, or change to the exit-2 target)
 - [ADR 0126: Native trusted-time lifecycle-v2 milestone-two owner foundation](0126-native-trusted-time-lifecycle-v2-milestone-two-owner-foundation.md)
-  (pins Wave 7's Monocypher 4.0.3 supply chain, pre-Python fixed-table fork
-  guard, separately compiled host/supervisor/recovery and provisioner profiles,
-  role-narrow signer/seqpacket owners, argument-free encrypted-credential
-  provisioning, source-only systemd topology, and Linux seccomp manifests;
-  grants no real-root, Docker-effect, caller, deployment, recovery-effect, or
-  stop authority)
+  (implemented locally for Wave 7: pins the Monocypher 4.0.3 supply chain,
+  pre-Python fixed-table fork guard, separately compiled host/supervisor/
+  recovery and provisioner profiles, role-narrow signer/seqpacket owners,
+  argument-free encrypted-credential provisioning, tmpfs-only custody,
+  source-only uninstalled systemd topology, four canonical x86_64 seccomp
+  manifests, and six reproducible uninstalled candidates with immutable inert
+  import trees and `activation_authorized=false`; final full regression,
+  independent security review, promotion, and remote CI remain pending; grants
+  no production/default real lifecycle root, Docker effect, production caller,
+  deployment, activation, recovery effect, or stop authority)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

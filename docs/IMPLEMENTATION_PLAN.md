@@ -105,12 +105,29 @@ gates. These facts close the Wave 6 implementation, repository promotion, and
 remote-CI verification checkpoints only; they add no deployment, stop
 authority, operational authority, or milestone-two completion.
 
-Wave 6 remains zero-caller and non-authorizing. `trusted-time-stop` keeps its
-exact exit-2 no-effect contract. No real endpoint or signer/private-key owner,
-credential provisioning, production root, real Docker transport or effect,
-deployment/bootstrap caller, stop effect, or operational authority exists. ADR
-0121 milestone two is the next repository-local wave; Phase 6 and the paper-MVP
-gate remain open, and the trader remains `not_ready`.
+Wave 7 now implements ADR 0126 and ADR 0121 milestone two on the local
+integration branch without changing that non-authorizing boundary. Native
+pre-Python fork ownership, role-narrow signers, pathname Unix-seqpacket
+endpoints and resource admission, tmpfs-only secret custody, fixed
+provisioners, source-only systemd topology, and four canonical x86_64 seccomp
+manifests are present. The packaging lane builds six reproducible, uninstalled
+candidate executables, retains its builders and native sources only in the
+source distribution, excludes them from wheels, and binds three immutable inert
+role import trees. Every candidate record states
+`activation_authorized=false`. Final branch-wide regression, independent
+security review, promotion, and remote CI verification remain pending.
+
+Wave 7 still creates no production or default real lifecycle root, real Docker
+transport or effect, production controller/runtime caller, Compose projection,
+unit installation or activation, deployment, stop effect, or operational
+authority. `trusted-time-stop` keeps its exact exit-2 no-effect contract and the
+trader remains `not_ready`. ADR 0121 milestone three must add isolated injected
+real-root and Docker composition, signed socket/process-epoch composition that
+binds boot UUID, executable/import hashes, nonce, and immutable image, plus
+bounded `/proc/<pid>/fd` and `/proc/net/unix` pre/post channel-closure proof.
+Milestone four still owns the immutable production release, deployment, drills,
+activation, and every stop-authority change. Phase 6 and the paper-MVP gate
+remain open.
 
 Phase 1B now provides the provider-neutral source seam, strict evidence evaluator,
 durable admission reports, and browser visibility. It is **implemented locally
@@ -575,23 +592,31 @@ start chain into the dormant operation-bound clean-stop supervisor bridge, but
 its host/core private entry points still have zero callers. ADR 0116 froze the
 non-separable transport → same-lock admission → lifecycle-v2 composition and its
 distinct pre-effect and post-teardown reauthentication order. ADR 0121 resolves
-the design; ADR 0124 records the historical partial core; and ADR 0125 completes
+the design; ADR 0124 records the historical partial core; ADR 0125 completes
 milestone one as an unreachable injected implementation with authenticated
 authority/channel/wire contracts, complete terminal and Docker evidence,
 descriptor-safe injected storage, exact normal sequencing through ordinal 23,
-full ADR-0109 evidence at ordinals 6/20, and classification-only recovery. The
-complete local branch-wide regression, architecture/source-seal reconciliation,
-and independent read-only review are now recorded as Wave 6 implementation-
-closure evidence. Wave 6 is promoted to local and remote `main` at
-`c64cbb2da0e600a3899387d3d58e6a7d8762b00c`, with exact-main
-[CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
-passing all 11 jobs. Milestone two's
-native endpoint/signer/fork/key/mount owners,
-every real-root and Docker transport/effect path, production bootstrap/callers,
-deployment, strategy/deployment-promotion authority, and stop authority remain
-unimplemented and unauthorized. Current-topology and stop-authority admission,
-operational durability/outcomes, and all effects remain absent;
-`trusted-time-stop` remains hard closed. Phase 6E is only a
+full ADR-0109 evidence at ordinals 6/20, and classification-only recovery; and
+ADR 0126 is now implemented locally as the milestone-two owner foundation.
+Wave 7 adds the native fork guard, role-constrained signer and endpoint/resource
+owners, fixed credential provisioners and tmpfs-only custody, source-only
+uninstalled units, four canonical x86_64 seccomp manifests, and six
+reproducible uninstalled candidates with inert role import trees. Candidate
+builders and native source evidence are source-distribution-only, and every
+candidate record states `activation_authorized=false`. Final branch-wide
+regression, architecture/source-seal reconciliation, independent security
+review, promotion, and remote CI verification remain pending.
+
+No production/default real lifecycle root, real Docker transport/effect,
+production controller/runtime caller, Compose projection, unit installation or
+activation, deployment, strategy/deployment-promotion authority, or stop
+authority exists. Current-topology and stop-authority admission, operational
+durability/outcomes, and all effects remain absent; `trusted-time-stop` remains
+the exact exit-2 hard close. Milestone three owns isolated injected real-root
+and Docker composition, signed boot/process/socket-epoch composition and
+bounded `/proc/<pid>/fd` plus `/proc/net/unix` pre/post channel-closure proof;
+milestone four owns immutable release, deployment, drills, activation, and stop
+authority. Phase 6E is only a
 dormant watchdog-state reducer. The Phase 6 paper-MVP gate remains unmet, and
 the Phase 7 supervised paper soak and Phase 8 human-approved minimum-size live
 canary remain entirely ahead. No paper or live order authority is enabled.
@@ -4056,19 +4081,34 @@ digests. Authenticated one-use recovery remains classification-only and can
 commit deterministic recovery-required state or finalize only one exact
 already-created marker preimage.
 
-This implementation completes a contract milestone, not an activation gate.
-The complete local integration regression, independent read-only review of the
-stabilized source/configuration tree, and reconciled architecture/native/
-production source seals are complete. Wave 6 is promoted to local and remote
-`main` at `c64cbb2da0e600a3899387d3d58e6a7d8762b00c`, and exact-main
-[CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
-passed all 11 jobs. This closes Wave 6 implementation, repository promotion,
-and remote-CI verification only. ADR 0121 milestone two and later milestones
-remain wholly deferred: there is no real endpoint/signer/private-key owner,
-credential
-provisioning, production root, real Docker transport or effect, bootstrap or
-production caller, deployment, strategy/deployment promotion, stop effect, or operational
-authority. `trusted-time-stop` remains hard closed.
+ADR 0126 now implements ADR 0121 milestone two on the local integration branch,
+still as a packaging and owner-foundation milestone rather than an activation
+gate. Its native fork guard, role-narrow signers, pathname Unix-seqpacket
+endpoint/resource admission, tmpfs-only secret custody, fixed provisioners,
+source-only systemd topology, and four canonical x86_64 seccomp manifests
+produce six reproducible, uninstalled candidates. Candidate builders and native
+source evidence are retained only in the source distribution, not wheels; three
+immutable inert role import trees are bound into the evidence; and every record
+states `activation_authorized=false`. The recovery candidate separately binds
+an exact minimal bootstrap standard-library tree containing only the required
+encoding modules and the Python license, uses one immutable inert entry root,
+and has no dynamic-extension load path. Its libpython built-ins are inventoried,
+not claimed absent, and remain unreachable from the no-input inert entry and
+effect-blocked by seccomp.
+
+Final branch-wide regression, reconciled architecture/native/production source
+seals, independent security review, promotion, and remote CI verification are
+pending. There is no production/default real lifecycle root, real Docker
+transport/effect, production controller/runtime caller, Compose projection,
+unit installation/activation, deployment, strategy/deployment promotion, stop
+effect, or operational authority. `trusted-time-stop` remains the exact exit-2
+hard close. Milestone three must supply isolated injected real-root/Docker and
+operational import/dependency composition, signed socket/process-epoch evidence
+including boot UUID, executable/import hashes, nonce, and immutable image, and
+bounded `/proc/<pid>/fd` plus `/proc/net/unix` pre/post channel-closure proof.
+Arbitrary-Python-compromise safety remains an explicit milestone-three
+activation blocker. Milestone four still owns immutable release, deployment,
+drills, activation, and every stop-authority change.
 
 The ADR-0111 static freeze includes a mandatory raw-byte manifest for every
 regular Python source below the exact `apps`, `packages`, `scripts`, and
@@ -4561,18 +4601,26 @@ unavailable before any watchdog consumer is designed or qualified. See
   evidence; a byte-level test daemon; a descriptor-safe injected physical store;
   the exact named lifecycle through terminal cleanup ordinal 22 and confirmed-
   success ordinal 23; complete canonical ADR-0109 binding evidence at ordinals
-  6 and 20; and authenticated, one-use, classification-only recovery. The
-  architecture/source seals, complete integration regression, and independent
-  read-only review are complete as Wave 6 implementation-closure evidence. Wave
-  6 is promoted to local and remote `main` at
-  `c64cbb2da0e600a3899387d3d58e6a7d8762b00c`, and exact-main
-  [CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
-  passed all 11 jobs. The implementation has
-  no real endpoint, signer/private-key owner, credential provisioning,
-  production root, real Docker transport/effect, production bootstrap/caller,
-  deployment, strategy/deployment promotion, stop authority, or operational
-  authority; the stop
-  target continues to exit 2.
+  6 and 20; and authenticated, one-use, classification-only recovery. Wave 6's
+  implementation, regression, promotion, and exact-main CI evidence remain the
+  promoted baseline at
+  `c64cbb2da0e600a3899387d3d58e6a7d8762b00c`.
+  ADR 0126 is now implemented locally as milestone two: native fork, signer,
+  endpoint/resource, tmpfs secret-custody, and provisioner owners; six
+  reproducible uninstalled role/provisioner candidates; source-only uninstalled
+  systemd units; four canonical x86_64 seccomp manifests; source-distribution-
+  only builders/native evidence; and immutable inert role import trees. Every
+  candidate record states `activation_authorized=false`. Wave 7's final full
+  regression, architecture/source-seal reconciliation, independent security
+  review, promotion, and remote CI verification remain pending. It has no
+  production/default real lifecycle root, real Docker transport/effect,
+  production controller/runtime caller, Compose projection, installation or
+  activation, deployment, strategy/deployment promotion, stop authority, or
+  operational authority; the stop target continues to exit 2. Milestone three
+  retains isolated injected real-root/Docker and operational import/dependency
+  composition, signed process/socket-epoch evidence, bounded pre/post channel-
+  closure proof, and arbitrary-Python-compromise safety. Milestone four retains
+  immutable release, deployment, drills, activation, and stop authority.
   Claim persistence now uses one globally single-use fixed slot and rejects any
   current or legacy per-operation claim. An import-only coordinator checks the
   exact enrollment evidence before reauthentication and before and after claim
@@ -4731,21 +4779,25 @@ unavailable before any watchdog consumer is designed or qualified. See
 
 ### Exit gate for paper-trading MVP
 
-Status: **open**. ADR 0125 completes ADR 0121 milestone one only as an
-unreachable injected implementation. It proves the canonical authenticated
-contracts, injected physical publication, exact ordinal-23 success sequencing,
-and classification-only recovery, but supplies no native endpoint or signer
-owner, private-key custody/provisioning, production root, real Docker transport
-or effect, production caller/bootstrap, deployed shutdown, operational drill,
-or operational strategy-promotion authority. Wave 6 source-seal reconciliation,
-the complete local regression, and independent read-only review are complete;
-the implementation is promoted to local and remote `main` at
-`c64cbb2da0e600a3899387d3d58e6a7d8762b00c`, and exact-main
-[CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
-passed all 11 jobs. That repository promotion and CI evidence grant no
-operational or strategy-promotion authority.
-`trusted-time-stop` remains the
-exact exit-2 no-effect target, and milestone-one contract evidence satisfies
+Status: **open**. ADR 0125 completes ADR 0121 milestone one as an unreachable
+injected implementation, and Wave 7 now implements ADR 0126's milestone-two
+native owner foundation locally. Six reproducible candidates, the source-only
+systemd topology, four canonical x86_64 seccomp manifests, and the native fork,
+signer, endpoint/resource, provisioner, and tmpfs custody owners remain
+uninstalled packaging evidence with `activation_authorized=false`. Their
+builders and native sources are source-distribution-only, and their immutable
+role import trees are inert. Wave 7's final branch-wide regression, security
+review, promotion, and remote CI verification remain pending.
+
+The gate remains open because there is no production/default real lifecycle
+root, real Docker transport/effect, production controller/runtime caller,
+Compose projection, installation/activation, deployed shutdown, operational
+drill, or strategy-promotion authority. Milestone three still owns the isolated
+injected real-root/Docker and operational import/dependency composition, signed
+socket/process-epoch evidence, bounded pre/post channel-closure proof, and
+arbitrary-Python-compromise safety; milestone four still owns immutable release,
+deployment, drills, activation, and stop authority. `trusted-time-stop` remains
+the exact exit-2 no-effect target, and milestone-two candidate evidence satisfies
 none of the deployment or operational outcomes below.
 
 - A fresh environment deploys from immutable artifacts without manual database
@@ -4916,9 +4968,15 @@ Every change includes:
     tracing, authenticated operations, read-only dashboard, and control-runbook
     slices and atomic admission verification are locally implemented. ADR 0125
     completes the unreachable injected trusted-time lifecycle-v2 milestone-one
-    contracts; native owners, production roots/transports/effects,
+    contracts, and ADR 0126's native milestone-two fork, signer,
+    endpoint/resource, provisioner, and tmpfs-custody owners are implemented
+    locally as uninstalled, non-authorizing candidate evidence. Isolated
+    injected real-root/Docker and operational import/dependency composition,
+    signed process/socket-epoch and bounded pre/post channel-closure proof,
+    arbitrary-Python-compromise safety, immutable production release,
     bootstrap/deployment, promotion, approved external routes/exporters,
-    authoritative composition, drills, backups, and broader runbooks remain.**
+    authoritative composition, drills, backups, activation/stop authority, and
+    broader runbooks remain.**
 
 ## Decisions required before Phase 1
 
