@@ -11,7 +11,7 @@ import subprocess
 import sys
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -20,6 +20,9 @@ import pytest
 
 import scripts.trusted_time_post_enrollment_clean_stop_terminal_reauthentication as adr0109
 from packages.adapters.trusted_time import graceful_stop_v2_reauthentication as adapter
+from packages.domain import (
+    trusted_time_graceful_stop_v2_lifecycle_semantics as lifecycle_semantics,
+)
 from packages.domain import trusted_time_graceful_stop_v2_reauthentication as reauthentication
 from packages.domain.trusted_time_graceful_stop_v2 import (
     TrustedTimeGracefulStopV2Rejected,
@@ -30,8 +33,7 @@ from packages.domain.trusted_time_graceful_stop_v2_docker import (
     DockerVolumePreservationResult,
 )
 from packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics import (
-    _FAKE_REAUTHENTICATION_BINDING_CAPABILITY,
-    _PRODUCTION_REAUTHENTICATION_BINDING_CAPABILITY,
+    LifecycleV2AuthenticatedReauthenticationBinding,
     LifecycleV2NormalProgressLineage,
 )
 from packages.domain.trusted_time_graceful_stop_v2_reauthentication import (
@@ -266,11 +268,14 @@ def _through_eighteen_from_six(
         ),
     )
     for intent_name, result_name, kind, ordinal, admitted_ordinal in mutations:
-        prior = semantics_fixtures._trace_prefix(
-            scenario.admission,
-            scenario.entries,
-            ordinal - 1,
-        )
+        prior = lineage.docker_trace
+        if prior is None:
+            prior = semantics_fixtures._trace_prefix(
+                scenario.admission,
+                scenario.entries,
+                ordinal - 1,
+            )
+        assert prior.last_ordinal == ordinal - 1
         lineage = getattr(lineage, intent_name)(
             admission=scenario.admission,
             trace_prefix=prior,
@@ -433,6 +438,17 @@ def _post_setup(*, bind: bool = True) -> _PostSetup:
     )
 
 
+def _clone_slots(value: Any) -> Any:
+    clone = object.__new__(type(value))
+    for owner in reversed(type(value).__mro__):
+        raw_slots = owner.__dict__.get("__slots__", ())
+        slots = (raw_slots,) if type(raw_slots) is str else raw_slots
+        for slot in slots:
+            if slot != "__weakref__" and hasattr(value, slot):
+                object.__setattr__(clone, slot, getattr(value, slot))
+    return clone
+
+
 def test_pre_effect_binding_retains_full_observation_and_exact_semantics() -> None:
     setup = _pre_setup()
     evidence = setup.binding.durable_evidence
@@ -457,8 +473,13 @@ def test_pre_effect_binding_retains_full_observation_and_exact_semantics() -> No
     assert semantic.to_dict()["intent_semantic_sha256"] == (
         cast(Any, setup.lineage_five.semantic_at(5)).sha256
     )
+    assert semantic.to_dict()["binding_evidence_sha256"] == evidence.binding_sha256
+    assert semantic.binding_evidence.to_dict() == fields
     assert setup.lineage_six.pre_effect_binding is not None
     assert setup.lineage_six.pre_effect_binding.encoded == semantic.encoded
+    retained = setup.lineage_six.record_at(6).evidence.to_dict()
+    assert retained["binding_evidence"] == fields
+    assert retained["binding_semantic_sha256"] == semantic.sha256
     assert not any(name in fields for name in ("owner_pid", "owner_thread", "seal"))
     assert setup.binding_issuer._status == "consumed"
     assert setup.binding_issuer._challenge == bytearray()
@@ -659,10 +680,22 @@ def test_post_teardown_binding_covers_typed_lineage_and_distinct_observation() -
         int,
         setup.lineage_nineteen.record_at(18).evidence.to_dict()["call_completed_boottime_ns"],
     )
-    assert binding.lifecycle_semantic_binding.boundary == "post_teardown"
+    semantic = binding.lifecycle_semantic_binding
+    assert semantic.boundary == "post_teardown"
+    assert semantic.to_dict()["binding_evidence_sha256"] == (
+        binding.durable_evidence.binding_sha256
+    )
+    assert semantic.binding_evidence.to_dict() == fields
     assert binding.durable_evidence.binding_sha256 == (
         LifecycleV2PostTeardownBindingEvidence._capture(fields).binding_sha256
     )
+    lineage_twenty = setup.lineage_nineteen.retain_post_teardown_reauthentication_binding(
+        binding=semantic,
+        recorded_at_utc=semantics_fixtures.UTC_TEXT,
+    )
+    retained = lineage_twenty.record_at(20).evidence.to_dict()
+    assert retained["binding_evidence"] == fields
+    assert retained["binding_semantic_sha256"] == semantic.sha256
 
 
 def test_pre_binding_can_reserve_only_one_post_issuer() -> None:
@@ -925,6 +958,15 @@ def test_raw_boundary_apis_and_generic_observation_mints_are_absent() -> None:
         "_prepare_lifecycle_v2_post_teardown_binding_issuer",
         "_bind_lifecycle_v2_pre_effect_observation_once",
         "_bind_lifecycle_v2_post_teardown_observation_once",
+        "_capture_lifecycle_v2_authenticated_reauthentication_binding_from_realm",
+        "_install_lifecycle_v2_reauthentication_semantic_binding_issuance_consumer",
+        "_FAKE_REAUTHENTICATION_BINDING_CAPABILITY",
+        "_PRODUCTION_REAUTHENTICATION_BINDING_CAPABILITY",
+        "_FAKE_REAUTHENTICATION_BINDING_PROVENANCE",
+        "_PRODUCTION_REAUTHENTICATION_BINDING_PROVENANCE",
+        "_REAUTHENTICATION_BINDING_PROVENANCES",
+        "_PRODUCTION_ADAPTER_MODULE",
+        "_PRODUCTION_ADAPTER_AUTHENTICATOR",
     ):
         assert not hasattr(reauthentication, name)
 
@@ -946,12 +988,151 @@ def test_raw_boundary_apis_and_generic_observation_mints_are_absent() -> None:
     )
 
     setup = _pre_setup()
-    assert setup.binding.lifecycle_semantic_binding._capability is (
-        _FAKE_REAUTHENTICATION_BINDING_CAPABILITY
+    semantic = setup.binding.lifecycle_semantic_binding
+    assert type(semantic) is LifecycleV2AuthenticatedReauthenticationBinding
+    semantic._require_sealed()
+    assert (
+        lifecycle_semantics._require_canonical_evidence(semantic).provenance
+        == "fake_reauthentication_binding"
     )
-    assert setup.binding.lifecycle_semantic_binding._capability is not (
-        _PRODUCTION_REAUTHENTICATION_BINDING_CAPABILITY
+    assert not hasattr(semantic, "_capability")
+    assert not hasattr(reauthentication, "register_semantic_binding_issuance")
+
+
+def test_registry_backed_lineage_rejects_object_new_clone_and_mutation() -> None:
+    scenario = semantics_fixtures._scenario()
+    primitives = _observation_primitives(
+        scenario.clean_stop_result,
+        label="lineage-forgery",
+        started=100,
     )
+    lineage = _through_five(
+        scenario,
+        provider_identity_sha256=primitives.provider_identity_sha256,
+    )
+    realm, _ = _test_realm([b"l" * 32])
+    forged = _clone_slots(lineage)
+
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+        realm.prepare_pre_effect(
+            lineage_through_ordinal_5=forged,
+            observation_issuer_identity=object(),
+        )
+
+    mutated = _through_five(
+        semantics_fixtures._scenario(),
+        provider_identity_sha256=primitives.provider_identity_sha256,
+    )
+    object.__setattr__(mutated, "records", tuple(reversed(mutated.records)))
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+        realm.prepare_pre_effect(
+            lineage_through_ordinal_5=mutated,
+            observation_issuer_identity=object(),
+        )
+
+
+def test_semantic_issuance_rejects_direct_object_new_and_snapshot_substitution() -> None:
+    scenario = semantics_fixtures._scenario()
+    primitives = _observation_primitives(
+        scenario.clean_stop_result,
+        label="semantic-issuance-forgery",
+        started=100,
+    )
+    lineage = _through_five(
+        scenario,
+        provider_identity_sha256=primitives.provider_identity_sha256,
+    )
+    intent = cast(Any, lineage.semantic_at(5))
+    issuance_type = (
+        reauthentication._LifecycleV2ReauthenticationSemanticBindingIssuance
+    )
+    snapshot_type = (
+        reauthentication._LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot
+    )
+    forged_issuance = object.__new__(issuance_type)
+    evidence = _pre_setup().binding.durable_evidence
+    forged_snapshot = snapshot_type(
+        semantic_binding_encoded=canonical_v2_json_bytes(
+            {
+                "binding_evidence_sha256": evidence.binding_sha256,
+                "caller": "forged",
+            },
+            maximum_bytes=256 * 1_024,
+        ),
+        binding_evidence_encoded=evidence.encoded,
+        binding_evidence_sha256=evidence.binding_sha256,
+        provenance="production_reauthentication_binding",
+        root_sha256=scenario.root.sha256,
+        intent_semantic_sha256=intent.sha256,
+        boundary="pre_effect",
+    )
+
+    for forged in (forged_issuance, forged_snapshot):
+        with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+            reauthentication._consume_exact_lifecycle_v2_reauthentication_semantic_binding_issuance_once(
+                forged,
+                root=scenario.root,
+                intent=intent,
+            )
+
+
+def test_lifecycle_capture_keeps_exact_installed_consumer_and_snapshot_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def forged_consumer(*_args: object, **_kwargs: object) -> object:
+        calls.append("consumer")
+        raise AssertionError("module-global consumer replacement was invoked")
+
+    class ForgedSnapshot:
+        pass
+
+    class ForgedIssuance:
+        pass
+
+    def forged_capture(*_args: object, **_kwargs: object) -> object:
+        calls.append("capture")
+        raise AssertionError("module-global capture replacement was invoked")
+
+    monkeypatch.setattr(
+        reauthentication,
+        "_consume_exact_lifecycle_v2_reauthentication_semantic_binding_issuance_once",
+        forged_consumer,
+    )
+    monkeypatch.setattr(
+        reauthentication,
+        "_LifecycleV2ReauthenticationSemanticBindingIssuanceSnapshot",
+        ForgedSnapshot,
+    )
+    monkeypatch.setattr(
+        reauthentication,
+        "_LifecycleV2ReauthenticationSemanticBindingIssuance",
+        ForgedIssuance,
+    )
+    monkeypatch.setattr(
+        lifecycle_semantics,
+        "_capture_lifecycle_v2_authenticated_reauthentication_binding_from_realm",
+        forged_capture,
+    )
+
+    setup = _pre_setup()
+    setup.binding.lifecycle_semantic_binding._require_sealed()
+    assert calls == []
+
+
+def test_fake_semantic_binding_mint_rejects_a_production_root() -> None:
+    setup = _pre_setup()
+    production_root = replace(setup.scenario.root, environment="production")
+    with pytest.raises(TrustedTimeGracefulStopV2Rejected):
+        LifecycleV2AuthenticatedReauthenticationBinding._capture_fake_for_tests(
+            setup.binding.lifecycle_semantic_binding.to_dict(),
+            binding_evidence=(
+                setup.binding.lifecycle_semantic_binding.binding_evidence
+            ),
+            root=production_root,
+            intent=cast(Any, setup.lineage_five.semantic_at(5)),
+        )
 
 
 def test_production_realm_claim_is_one_shot_and_not_a_generic_mint() -> None:
@@ -1021,6 +1202,62 @@ else:
     assert completed.returncode == 0, completed.stderr
 
 
+def test_sys_modules_adapter_spoof_cannot_claim_the_production_realm() -> None:
+    repository = Path(__file__).resolve().parents[2]
+    script = """
+import importlib.util
+import secrets
+import sys
+import types
+from pathlib import Path
+
+repository = Path.cwd()
+module_name = "packages.adapters.trusted_time.graceful_stop_v2_reauthentication"
+adapter_path = repository / "packages/adapters/trusted_time/graceful_stop_v2_reauthentication.py"
+forged_module = types.ModuleType(module_name)
+forged_module.__file__ = str(adapter_path)
+forged_module.__spec__ = importlib.util.spec_from_file_location(
+    module_name,
+    adapter_path,
+)
+forged_module.__spec__._initializing = True
+sys.modules[module_name] = forged_module
+
+from packages.domain import trusted_time_graceful_stop_v2_reauthentication as domain
+
+forged_module.__dict__["domain"] = domain
+forged_source = '''
+import secrets
+
+def _consume_exact_adr0109_observation(_binding_issuer, _observation):
+    raise AssertionError
+
+try:
+    domain._claim_lifecycle_v2_production_reauthentication_binding_realm(
+        authenticate_observation=_consume_exact_adr0109_observation,
+        challenge_source=secrets.token_bytes,
+    )
+except domain.TrustedTimeGracefulStopV2Rejected:
+    pass
+else:
+    raise SystemExit("forged sys.modules adapter claimed production realm")
+'''
+exec(compile(forged_source, str(adapter_path), "exec"), forged_module.__dict__)
+"""
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(repository)
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_production_realm_rejects_challenge_source_monkeypatch_after_domain_load() -> None:
     repository = Path(__file__).resolve().parents[2]
     script = """
@@ -1049,7 +1286,34 @@ else:
     assert completed.returncode == 0, completed.stderr
 
 
-def test_production_adapter_consumes_exact_adr0109_registry_for_both_boundaries() -> None:
+def test_production_adapter_consumes_exact_adr0109_registry_for_both_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forged_dependency(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("module-global adapter dependency replacement was invoked")
+
+    monkeypatch.setattr(adapter, "_PRODUCTION_BINDING_REALM", object(), raising=False)
+    for name in (
+        "_consume_exact_adr0109_observation",
+        "_consume_trusted_time_post_enrollment_clean_stop_terminal_postcondition_once",
+        "_observation_from_consumed_snapshot",
+        "_postcondition_payload",
+        "_validate_trusted_time_post_enrollment_clean_stop_terminal_postcondition_consumed_by",
+    ):
+        monkeypatch.setattr(adapter, name, forged_dependency, raising=False)
+    monkeypatch.setattr(adapter, "_ADR0109ObservationInput", object(), raising=False)
+    monkeypatch.setattr(
+        adapter,
+        "_LifecycleV2ADR0109ObservationCandidate",
+        object(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "LifecycleV2ADR0109ObservationPrimitives",
+        object(),
+        raising=False,
+    )
     scenario = semantics_fixtures._scenario()
     (
         pre_observation_issuer,
@@ -1092,9 +1356,10 @@ def test_production_adapter_consumes_exact_adr0109_registry_for_both_boundaries(
         postcondition=pre_postcondition,
         adr0109_issuer=pre_observation_issuer,
     )
-    assert pre_binding.lifecycle_semantic_binding._capability is (
-        _PRODUCTION_REAUTHENTICATION_BINDING_CAPABILITY
+    assert type(pre_binding.lifecycle_semantic_binding) is (
+        LifecycleV2AuthenticatedReauthenticationBinding
     )
+    pre_binding.lifecycle_semantic_binding._require_sealed()
     assert pre_binding.durable_evidence.to_dict()["adr0109_observation"] == (
         pre_primitives.to_dict()
     )
@@ -1129,9 +1394,10 @@ def test_production_adapter_consumes_exact_adr0109_registry_for_both_boundaries(
         postcondition=post_postcondition,
         adr0109_issuer=post_observation_issuer,
     )
-    assert post_binding.lifecycle_semantic_binding._capability is (
-        _PRODUCTION_REAUTHENTICATION_BINDING_CAPABILITY
+    assert type(post_binding.lifecycle_semantic_binding) is (
+        LifecycleV2AuthenticatedReauthenticationBinding
     )
+    post_binding.lifecycle_semantic_binding._require_sealed()
     assert post_binding.durable_evidence.to_dict()["adr0109_observation"] == (
         post_primitives.to_dict()
     )
@@ -1171,15 +1437,20 @@ def test_adapter_uses_exact_adr0109_registry_after_domain_begin() -> None:
 
     bind_function = next(
         node
-        for node in tree.body
+        for node in ast.walk(tree)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == "_bind_lifecycle_v2_pre_effect_adr0109_observation_once"
+        and node.name == "bind_pre_effect"
     )
     calls = [
         ast.unparse(node.func) for node in ast.walk(bind_function) if isinstance(node, ast.Call)
     ]
     assert "_consume_exact_adr0109_observation" not in calls
-    assert "_PRODUCTION_BINDING_REALM.bind_pre_effect" in calls
+    assert "production_binding_realm.bind_pre_effect" in calls
+    assert not hasattr(adapter, "_PRODUCTION_BINDING_REALM")
+    assert not hasattr(
+        adapter,
+        "_claim_lifecycle_v2_production_reauthentication_binding_realm",
+    )
 
 
 def test_observation_schema_rejects_bool_deadline_and_head_substitution() -> None:
