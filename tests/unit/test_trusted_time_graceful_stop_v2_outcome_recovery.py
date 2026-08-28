@@ -285,6 +285,146 @@ def _result_evidence(root: LifecycleV2Root, ordinal: int) -> dict[str, object]:
     }
 
 
+def _raw_reauthentication_result_evidence(
+    root: LifecycleV2Root,
+    ordinal: int,
+) -> dict[str, object]:
+    boundary = "pre_effect" if ordinal == 6 else "post_teardown"
+    started = root.admission_started_boottime_ns + ordinal
+    completed = started + 1
+    deadline = started + 120_000_000_000
+    current_anchor_sha256 = _digest(f"current-anchor-{ordinal}")
+    issuer_binding_sha256 = _digest(f"issuer-binding-{ordinal}")
+    read_only_configuration_sha256 = _digest(f"read-only-configuration-{ordinal}")
+    observation: dict[str, object] = {
+        "contract_version": "phase6d-post-enrollment-clean-stop-terminal-reauthentication-v1",
+        "status": "provider_terminal_observed_under_stable_sql_authenticated",
+        "anchor_sequence": 3,
+        "checkpoint_reason": "clean_stop",
+        "confirmed_anchor_count": 3,
+        "local_transition_count": 3,
+        "confirmed_anchor_local_transition_ordinal": 3,
+        "remote_object_count": 3,
+        "predecessor_anchor_sha256": _digest(f"predecessor-anchor-{ordinal}"),
+        "current_host_head_sha256": _digest(f"current-head-{ordinal}"),
+        "current_anchor_sha256": current_anchor_sha256,
+        "current_anchor_semantic_sha256": _digest(f"anchor-semantic-{ordinal}"),
+        "anchor_intent_semantic_sha256": _digest(f"anchor-intent-{ordinal}"),
+        "candidate_remote_readback_sha256": current_anchor_sha256,
+        "receipt_semantic_sha256": _digest(f"receipt-semantic-{ordinal}"),
+        "receipt_observed_at_utc": UTC_TEXT,
+        "remote_observation_sha256": _digest(f"remote-observation-{ordinal}"),
+        "anchor_authority_sha256": _digest(f"anchor-authority-{ordinal}"),
+        "deployment_identity_sha256": _digest(f"deployment-{ordinal}"),
+        "runtime_database_identity_sha256": _digest(f"database-{ordinal}"),
+        "anchor_project_identity_sha256": _digest(f"project-{ordinal}"),
+        "source_authority_sha256": _digest(f"source-authority-{ordinal}"),
+        "signing_public_key_sha256": _digest(f"signing-key-{ordinal}"),
+        "host_identity_sha256": _digest(f"host-{ordinal}"),
+        "principal_identity_sha256": _digest(f"principal-{ordinal}"),
+        "bucket_identity_sha256": _digest(f"bucket-{ordinal}"),
+        "observation_started_monotonic_ns": started,
+        "observation_completed_monotonic_ns": completed,
+        "deadline_monotonic_ns": deadline,
+        "issuer_binding_sha256": issuer_binding_sha256,
+        "read_only_configuration_sha256": read_only_configuration_sha256,
+    }
+    observation["semantic_sha256"] = hashlib.sha256(
+        canonical_v2_json_bytes(observation, maximum_bytes=180_224)
+    ).hexdigest()
+    provider_projection = {
+        name: observation[name]
+        for name in (
+            "anchor_authority_sha256",
+            "deployment_identity_sha256",
+            "runtime_database_identity_sha256",
+            "anchor_project_identity_sha256",
+            "source_authority_sha256",
+            "signing_public_key_sha256",
+            "host_identity_sha256",
+            "principal_identity_sha256",
+            "bucket_identity_sha256",
+            "read_only_configuration_sha256",
+        )
+    }
+    provider_identity_sha256 = hashlib.sha256(
+        b"AutoQuantTrader/trusted-time/graceful-stop/adr0109-provider-identity/v2\0"
+        + canonical_v2_json_bytes(provider_projection, maximum_bytes=180_224)
+    ).hexdigest()
+    binding_evidence: dict[str, object] = {
+        "contract_version": (
+            "phase6d-trusted-time-graceful-stop-"
+            f"{boundary.replace('_', '-')}-reauthentication-binding-v2"
+        ),
+        "service": LIFECYCLE_V2_SERVICE,
+        "status": (
+            "fresh_pre_effect_adr0109_observation_bound"
+            if boundary == "pre_effect"
+            else "distinct_post_teardown_adr0109_observation_bound"
+        ),
+        "environment": root.environment,
+        "graceful_stop_operation_id": root.graceful_stop_operation_id,
+        "lifecycle_root_sha256": root.sha256,
+        "expected_checkpoint_reason": "clean_stop",
+        "expected_clean_stop_head_sha256": current_anchor_sha256,
+        "expected_clean_stop_terminal_result_semantic_sha256": _digest(
+            f"terminal-result-{ordinal}"
+        ),
+        "adr0109_observation": observation,
+        "adr0109_observation_sha256": hashlib.sha256(
+            canonical_v2_json_bytes(observation, maximum_bytes=180_224)
+        ).hexdigest(),
+        "provider_identity_sha256": provider_identity_sha256,
+        "observation_semantic_sha256": observation["semantic_sha256"],
+        "adr0109_issuer_binding_sha256": issuer_binding_sha256,
+        "adr0109_read_only_configuration_sha256": read_only_configuration_sha256,
+        "issuer_challenge_sha256": _digest(f"issuer-challenge-{ordinal}"),
+        "observation_started_monotonic_ns": started,
+        "observation_completed_monotonic_ns": completed,
+        "observation_deadline_monotonic_ns": deadline,
+    }
+    if boundary == "pre_effect":
+        binding_evidence.update(
+            {
+                "clean_stop_request_sha256": _digest("clean-stop-request"),
+                "clean_stop_result_sha256": _digest("clean-stop-result"),
+                "channel_id": root.channel_id,
+                "topology_sha256": root.topology_sha256,
+                "topology_lease_sha256": root.topology_lease_sha256,
+                "transport_quiescence_record_sha256": _digest("transport-quiescence"),
+                "pre_effect_intent_sha256": _digest("pre-effect-intent"),
+            }
+        )
+    else:
+        binding_evidence.update(
+            {
+                "published_prefix_through_ordinal_18_sha256": _digest("prefix-18"),
+                "pre_effect_binding_sha256": _digest("pre-effect-binding"),
+                "supervisor_stop_result_sha256": _digest("supervisor-stop-result"),
+                "source_stop_result_sha256": _digest("source-stop-result"),
+                "supervisor_remove_result_sha256": _digest("supervisor-remove-result"),
+                "source_remove_result_sha256": _digest("source-remove-result"),
+                "project_network_remove_result_sha256": _digest("network-remove-result"),
+                "volume_proof_sha256": _digest("volume-proof"),
+                "post_teardown_intent_sha256": _digest("post-teardown-intent"),
+            }
+        )
+    binding_semantic_sha256 = _digest(f"binding-{ordinal}")
+    return {
+        "intent_sha256": _digest(f"intent-{ordinal}"),
+        "responder_identity_sha256": issuer_binding_sha256,
+        "disposition": f"{boundary}_reauthentication_bound",
+        "result_semantic_sha256": binding_semantic_sha256,
+        "call_started_boottime_ns": started,
+        "call_completed_boottime_ns": completed,
+        "observation_semantic_sha256": observation["semantic_sha256"],
+        "binding_semantic_sha256": binding_semantic_sha256,
+        "observed_head_sha256": current_anchor_sha256,
+        "provider_identity_sha256": provider_identity_sha256,
+        "binding_evidence": binding_evidence,
+    }
+
+
 def _stage_evidence(
     root: LifecycleV2Root,
     stage: LifecycleV2Stage,
@@ -331,13 +471,7 @@ def _stage_evidence(
         LifecycleV2Stage.PRE_EFFECT_REAUTHENTICATION_BOUND,
         LifecycleV2Stage.POST_TEARDOWN_TERMINAL_REAUTHENTICATION_BOUND,
     }:
-        return {
-            **_result_evidence(root, ordinal),
-            "observation_semantic_sha256": _digest(f"observation-{ordinal}"),
-            "binding_semantic_sha256": _digest(f"binding-{ordinal}"),
-            "observed_head_sha256": _digest(f"head-{ordinal}"),
-            "provider_identity_sha256": _digest("provider"),
-        }
+        return _raw_reauthentication_result_evidence(root, ordinal)
     if stage in {
         LifecycleV2Stage.SUPERVISOR_CONTAINER_STOP_INTENT_RETAINED,
         LifecycleV2Stage.SOURCE_CONTAINER_STOP_INTENT_RETAINED,
@@ -1218,9 +1352,7 @@ def test_nonempty_precommit_owner_projection_cannot_publish_marker(field: str) -
     ["before", "staging_created", "file_fsynced", "renamed", "directory_fsynced", "readback"],
 )
 def test_success_marker_fault_allows_only_exact_preimage_revalidation(phase: str) -> None:
-    store = _SealedLineageArtifactStore(
-        fault=FakePublicationFault(operation="commit", phase=phase)
-    )
+    store = _SealedLineageArtifactStore(fault=FakePublicationFault(operation="commit", phase=phase))
     repository, root, lineage = _complete_sealed_success_prefix(store)
     with pytest.raises(persistence.LifecycleV2RetentionUnconfirmed):
         repository.commit_confirmed_success(

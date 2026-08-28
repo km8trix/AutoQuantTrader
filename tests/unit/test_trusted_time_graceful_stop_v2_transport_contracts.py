@@ -1353,29 +1353,29 @@ def test_authenticated_recovery_wrapper_rejects_cross_root_mutation_before_consu
         )
 
 
-def test_authenticated_recovery_wrapper_burns_before_downstream_base_exception(
+def test_authenticated_recovery_wrapper_ignores_replaced_canonicalizer_and_burns_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     authenticated, root, transcript, _ = _authenticated_recovery_for_consumption(
         nonce=bytes([205]) * 32
     )
-    original = recovery_domain._canonical_recovery_inputs
-    interruption = KeyboardInterrupt("injected after authenticated unwrap")
+    replaced_global_called = False
 
-    def interrupt(**_kwargs: object) -> Any:
-        raise interruption
+    def replaced_global(**_kwargs: object) -> Any:
+        nonlocal replaced_global_called
+        replaced_global_called = True
+        raise AssertionError("closure-captured canonicalizer was replaced")
 
-    monkeypatch.setattr(recovery_domain, "_canonical_recovery_inputs", interrupt)
-    with pytest.raises(KeyboardInterrupt) as raised:
-        consume_authenticated_lifecycle_v2_recovery_classification_envelope(
-            authenticated,
-            root=root,
-            classified_transcript=transcript,
-            recorded_at_utc=UTC_TEXT,
-        )
-    assert raised.value is interruption
+    monkeypatch.setattr(recovery_domain, "_canonical_recovery_inputs", replaced_global)
+    intent = consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+        authenticated,
+        root=root,
+        classified_transcript=transcript,
+        recorded_at_utc=UTC_TEXT,
+    )
+    assert intent.root_sha256 == root.sha256
+    assert replaced_global_called is False
 
-    monkeypatch.setattr(recovery_domain, "_canonical_recovery_inputs", original)
     object.__setattr__(authenticated, "_consumed", False)
     with pytest.raises(TrustedTimeGracefulStopV2Rejected, match="cannot be consumed"):
         consume_authenticated_lifecycle_v2_recovery_classification_envelope(
