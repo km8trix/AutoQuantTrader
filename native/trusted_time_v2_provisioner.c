@@ -9,6 +9,7 @@
 #include "trusted_time_v2_descriptor_baseline.h"
 #include "trusted_time_v2_fork_guard.h"
 #include "trusted_time_v2_seccomp.h"
+#include "trusted_time_v2_secret_mount_admission.h"
 
 #include "monocypher-ed25519.h"
 #include "monocypher.h"
@@ -163,6 +164,14 @@ static _Atomic int aqt_generation_state = 0;
 static volatile sig_atomic_t aqt_interrupted_signal = 0;
 static struct sigaction aqt_saved_signal_actions[4];
 static int aqt_signal_actions_installed = 0;
+
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+static uintptr_t
+aqt_secret_mount_admission_identity(void)
+{
+    return (uintptr_t)(const void *)&aqt_child_state;
+}
+#endif
 
 static uint32_t
 aqt_rotate_right(uint32_t value, unsigned int count)
@@ -660,11 +669,28 @@ cleanup:
 static int
 aqt_revalidate_blob_identity(const char *path, const struct stat *identity)
 {
+    char basename[AQT_MAX_PATH_BYTES];
     struct stat current;
+    int directory_descriptor = -1;
+    int result = -1;
 
+    memset(basename, 0, sizeof(basename));
     memset(&current, 0, sizeof(current));
-    return aqt_capture_blob_identity(path, &current) == 0
-        && aqt_metadata_equal(identity, &current) ? 0 : -1;
+    directory_descriptor = aqt_open_parent_directory(path, basename);
+    if (directory_descriptor >= 0
+        && fstatat(
+            directory_descriptor,
+            basename,
+            &current,
+            AT_SYMLINK_NOFOLLOW
+        ) == 0
+        && aqt_metadata_equal(identity, &current)) {
+        result = 0;
+    }
+    if (directory_descriptor >= 0) {
+        (void)close(directory_descriptor);
+    }
+    return result;
 }
 
 static int
@@ -1329,6 +1355,14 @@ aqt_trusted_time_v2_provisioner_main(int argument_count, char **argument_values)
     int unlink_result = 0;
     int success = 0;
     int seccomp_result;
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+    aqt_trusted_time_v2_secret_mount_admission *pre_create_mount_admission = NULL;
+    aqt_trusted_time_v2_secret_mount_admission *post_create_mount_admission = NULL;
+    const uintptr_t mount_admission_identity =
+        aqt_secret_mount_admission_identity();
+    int mount_revalidation_result = -1;
+    int mount_cleanup_result = 0;
+#endif
 
     memset(&generation, 0, sizeof(generation));
     memset(blob_path, 0, sizeof(blob_path));
@@ -1365,11 +1399,45 @@ aqt_trusted_time_v2_provisioner_main(int argument_count, char **argument_values)
     if (directory_descriptor < 0) {
         goto cleanup;
     }
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+    if (aqt_trusted_time_v2_secret_mount_admission_capture(
+            &pre_create_mount_admission,
+            directory_descriptor,
+            mount_admission_identity
+        ) != 0
+        || aqt_trusted_time_v2_secret_mount_admission_revalidate(
+            pre_create_mount_admission,
+            directory_descriptor,
+            mount_admission_identity
+        ) != 0) {
+        goto cleanup;
+    }
+#endif
     target_descriptor = aqt_create_target(directory_descriptor, &target_identity);
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+    if (aqt_trusted_time_v2_secret_mount_admission_close(
+            &pre_create_mount_admission,
+            mount_admission_identity
+        ) != 0) {
+        goto cleanup;
+    }
+#endif
     if (target_descriptor == -2) {
         unlink_result = -1;
         goto cleanup;
     }
+    if (target_descriptor < 0) {
+        goto cleanup;
+    }
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+    if (aqt_trusted_time_v2_secret_mount_admission_capture(
+            &post_create_mount_admission,
+            directory_descriptor,
+            mount_admission_identity
+        ) != 0) {
+        goto cleanup;
+    }
+#endif
     executable_descriptor = aqt_open_systemd_creds();
     null_descriptor = open("/dev/null", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
     if (target_descriptor < 3 || executable_descriptor < 3 || null_descriptor < 3
@@ -1401,16 +1469,21 @@ aqt_trusted_time_v2_provisioner_main(int argument_count, char **argument_values)
         || aqt_trusted_time_v2_fork_guard_require_owner_table_empty() != 0) {
         goto cleanup;
     }
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+    if (aqt_trusted_time_v2_secret_mount_admission_revalidate(
+            post_create_mount_admission,
+            directory_descriptor,
+            mount_admission_identity
+        ) != 0) {
+        goto cleanup;
+    }
+#endif
     child_attempted = 1;
     child_result = aqt_run_child(
         executable_descriptor,
         null_descriptor,
         target_descriptor,
         blob_path
-    );
-    blob_revalidation_result = aqt_revalidate_blob_identity(
-        blob_path,
-        &blob_identity
     );
     seccomp_result = aqt_trusted_time_v2_seccomp_install_post_child();
 #ifdef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
@@ -1421,8 +1494,23 @@ aqt_trusted_time_v2_provisioner_main(int argument_count, char **argument_values)
 #endif
         goto cleanup;
     }
+    blob_revalidation_result = aqt_revalidate_blob_identity(
+        blob_path,
+        &blob_identity
+    );
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+    mount_revalidation_result =
+        aqt_trusted_time_v2_secret_mount_admission_revalidate(
+            post_create_mount_admission,
+            directory_descriptor,
+            mount_admission_identity
+        );
+#endif
     if (child_result != 0
         || blob_revalidation_result != 0
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+        || mount_revalidation_result != 0
+#endif
         || aqt_interrupted_signal != 0
         || aqt_trusted_time_v2_fork_guard_is_poisoned() != 0
         || aqt_read_and_verify_seed(
@@ -1433,8 +1521,32 @@ aqt_trusted_time_v2_provisioner_main(int argument_count, char **argument_values)
         ) != 0) {
         goto cleanup;
     }
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+    if (aqt_trusted_time_v2_secret_mount_admission_revalidate(
+            post_create_mount_admission,
+            directory_descriptor,
+            mount_admission_identity
+        ) != 0
+        || aqt_trusted_time_v2_secret_mount_admission_close(
+            &post_create_mount_admission,
+            mount_admission_identity
+        ) != 0) {
+        goto cleanup;
+    }
+#endif
     success = 1;
 cleanup:
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+    if (!success && target_descriptor >= 0
+        && post_create_mount_admission != NULL) {
+        mount_cleanup_result =
+            aqt_trusted_time_v2_secret_mount_admission_revalidate(
+                post_create_mount_admission,
+                directory_descriptor,
+                mount_admission_identity
+            );
+    }
+#endif
     if (!success && target_descriptor >= 0) {
         unlink_result = aqt_unlink_exact_target(
             directory_descriptor,
@@ -1442,6 +1554,27 @@ cleanup:
             &target_identity
         );
     }
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+    {
+        int admission_close_result =
+            aqt_trusted_time_v2_secret_mount_admission_close(
+                &post_create_mount_admission,
+                mount_admission_identity
+            );
+
+        if (admission_close_result != 0 && mount_cleanup_result == 0) {
+            mount_cleanup_result = admission_close_result;
+        }
+        admission_close_result =
+            aqt_trusted_time_v2_secret_mount_admission_close(
+                &pre_create_mount_admission,
+                mount_admission_identity
+            );
+        if (admission_close_result != 0 && mount_cleanup_result == 0) {
+            mount_cleanup_result = admission_close_result;
+        }
+    }
+#endif
     if (null_descriptor >= 0) {
         (void)close(null_descriptor);
     }
@@ -1467,6 +1600,11 @@ cleanup:
         if (unlink_result != 0) {
             aqt_fail("the failed target exact-inode unlink was not proven");
         }
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+        if (mount_cleanup_result != 0) {
+            aqt_fail("the secret-mount custody cleanup was not proven");
+        }
+#endif
         aqt_fail("credential provisioning failed closed");
     }
     return 0;

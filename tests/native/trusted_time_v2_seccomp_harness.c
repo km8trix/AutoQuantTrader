@@ -16,7 +16,9 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 static int
@@ -303,6 +305,36 @@ aqt_probe_argument_filters(void)
         failed = 1;
     }
 #endif
+#if defined(AQT_TRUSTED_TIME_V2_HOST_PROVISIONER_PROFILE) \
+    && defined(__NR_clone)
+    {
+        long clone_result;
+
+        errno = 0;
+        clone_result = syscall(
+            __NR_clone,
+            (long)UINT64_C(0x0000000101200011),
+            0L,
+            0L,
+            0L,
+            0L
+        );
+        if (clone_result == 0L) {
+            _exit(99);
+        }
+        if (clone_result > 0L) {
+            int status;
+
+            (void)kill((pid_t)clone_result, SIGKILL);
+            while (waitpid((pid_t)clone_result, &status, 0) < 0
+                   && errno == EINTR) {
+            }
+            failed = 1;
+        } else {
+            failed |= aqt_expect_eperm(clone_result);
+        }
+    }
+#endif
     failed |= aqt_raw_eperm(__NR_umask, 0022L, 0L, 0L, 0L, 0L);
     return failed;
 }
@@ -370,6 +402,10 @@ main(int argument_count, char **argument_values)
     }
     if (strcmp(mode, "post-child") == 0) {
 #if defined(AQT_TRUSTED_TIME_V2_HOST_PROVISIONER_PROFILE)
+        char byte;
+        int descriptor;
+        struct statfs filesystem;
+
         if (aqt_trusted_time_v2_seccomp_install_post_child()
             != AQT_TRUSTED_TIME_V2_SECCOMP_OK) {
             return 4;
@@ -379,9 +415,35 @@ main(int argument_count, char **argument_values)
             return 5;
         }
         errno = 0;
-        return aqt_expect_eperm(
-            (long)openat(AT_FDCWD, "/etc/passwd", O_RDONLY | O_CLOEXEC)
+        descriptor = openat(
+            AT_FDCWD,
+            "/proc/self/mountinfo",
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW
         );
+        if (descriptor < 0 || fcntl(descriptor, F_GETFD) < 0
+            || fstatfs(descriptor, &filesystem) != 0
+            || pread(descriptor, &byte, 1U, 0) != 1
+            || syscall(__NR_geteuid) < 0 || syscall(__NR_getegid) < 0) {
+            if (descriptor >= 0) {
+                (void)close(descriptor);
+            }
+            return 12;
+        }
+        errno = 0;
+        if (aqt_expect_eperm((long)fcntl(descriptor, F_GETFL)) != 0) {
+            (void)close(descriptor);
+            return 13;
+        }
+        if (close(descriptor) != 0) {
+            return 14;
+        }
+        errno = 0;
+        return aqt_expect_eperm((long)openat(
+            AT_FDCWD,
+            "/tmp/aqt-post-child-write",
+            O_WRONLY | O_CREAT | O_CLOEXEC,
+            0600
+        ));
 #else
         return 6;
 #endif

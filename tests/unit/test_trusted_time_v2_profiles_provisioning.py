@@ -102,12 +102,65 @@ def test_provisioner_contract_is_descriptor_pinned_and_fail_closed() -> None:
         "MADV_WIPEONFORK",
         "mlock(mapping, mapping_size)",
         "AQT_CHILD_TIMEOUT_SECONDS",
+        '#include "trusted_time_v2_secret_mount_admission.h"',
     ):
         assert required in source
     assert "argument_count != 1" in source
     assert "target_descriptor < 3" in source
     assert "executable_descriptor < 3" in source
     assert "null_descriptor < 3" in source
+
+    main = source[source.index("aqt_trusted_time_v2_provisioner_main(") :]
+    pre_capture = main.index("&pre_create_mount_admission")
+    pre_revalidate = main.index(
+        "aqt_trusted_time_v2_secret_mount_admission_revalidate(", pre_capture
+    )
+    create = main.index("aqt_create_target(", pre_revalidate)
+    pre_close = main.index(
+        "aqt_trusted_time_v2_secret_mount_admission_close(", create
+    )
+    post_capture = main.index("&post_create_mount_admission", pre_close)
+    before_child = main.index(
+        "aqt_trusted_time_v2_secret_mount_admission_revalidate(", post_capture
+    )
+    child = main.index("aqt_run_child(", before_child)
+    post_filter = main.index("aqt_trusted_time_v2_seccomp_install_post_child()", child)
+    blob_revalidate = main.index("aqt_revalidate_blob_identity(", post_filter)
+    after_child = main.index(
+        "aqt_trusted_time_v2_secret_mount_admission_revalidate(", blob_revalidate
+    )
+    verify = main.index("aqt_read_and_verify_seed(", post_filter)
+    final_revalidate = main.index(
+        "aqt_trusted_time_v2_secret_mount_admission_revalidate(", verify
+    )
+    final_close = main.index(
+        "aqt_trusted_time_v2_secret_mount_admission_close(", final_revalidate
+    )
+    assert (
+        pre_capture
+        < pre_revalidate
+        < create
+        < pre_close
+        < post_capture
+        < before_child
+        < child
+        < post_filter
+        < blob_revalidate
+        < after_child
+        < verify
+        < final_revalidate
+        < final_close
+    )
+
+    cleanup = main[main.index("cleanup:") :]
+    cleanup_revalidate = cleanup.index(
+        "aqt_trusted_time_v2_secret_mount_admission_revalidate("
+    )
+    exact_unlink = cleanup.index("aqt_unlink_exact_target(", cleanup_revalidate)
+    cleanup_close = cleanup.index(
+        "aqt_trusted_time_v2_secret_mount_admission_close(", exact_unlink
+    )
+    assert cleanup_revalidate < exact_unlink < cleanup_close
 
 
 def test_seccomp_policy_is_embedded_default_deny_and_two_phase() -> None:

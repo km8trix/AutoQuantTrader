@@ -171,6 +171,13 @@ aqt_trusted_time_v2_seccomp_policy_model(void)
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
     AQT_ERRNO_RESULT
 
+#define AQT_FCNTL_GETFD_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_fcntl, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_GETFD, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
 #define AQT_TCGETS_IOCTL_RULE \
     BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ioctl, 0, 4), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
@@ -320,9 +327,11 @@ aqt_trusted_time_v2_seccomp_policy_model(void)
     AQT_ERRNO_RESULT
 
 #define AQT_EXACT_FORK_CLONE_RULE \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_clone, 0, 16), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_clone, 0, 18), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_FORK_CLONE_FLAGS, 0, 13), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_FORK_CLONE_FLAGS, 0, 15), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0]) + 4U), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 13), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
     BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 11), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1]) + 4U), \
@@ -446,13 +455,13 @@ static const struct sock_filter aqt_initial_filter[] = {
 #endif
 #if defined(AQT_TRUSTED_TIME_V2_HOST_PROFILE) \
     || defined(AQT_TRUSTED_TIME_V2_SUPERVISOR_PROFILE)
+    AQT_ALLOW_SYSCALL(__NR_getegid),
     AQT_UNIX_SEQPACKET_SOCKET_RULE,
     AQT_ENDPOINT_SETSOCKOPT_RULE,
     AQT_ALLOW_SYSCALL(__NR_ppoll),
     AQT_MESSAGE_FLAGS_RULE(__NR_sendmsg, MSG_DONTWAIT | MSG_NOSIGNAL),
     AQT_MESSAGE_FLAGS_RULE(__NR_recvmsg, MSG_DONTWAIT | MSG_CMSG_CLOEXEC),
     AQT_UNLINKAT_RULE,
-    AQT_ALLOW_SYSCALL(__NR_statfs),
     AQT_ALLOW_SYSCALL(__NR_fstatfs),
 #if defined(AQT_TRUSTED_TIME_V2_HOST_PROFILE)
     AQT_HOST_GETSOCKOPT_RULE,
@@ -480,10 +489,7 @@ static const struct sock_filter aqt_initial_filter[] = {
     AQT_UNLINKAT_RULE,
     AQT_ALLOW_SYSCALL(__NR_fchmod),
     AQT_ALLOW_SYSCALL(__NR_fchown),
-    AQT_ALLOW_SYSCALL(__NR_statfs),
     AQT_ALLOW_SYSCALL(__NR_fstatfs),
-    AQT_ALLOW_SYSCALL(__NR_getuid),
-    AQT_ALLOW_SYSCALL(__NR_getgid),
     AQT_ALLOW_SYSCALL(__NR_getegid),
 #endif
     AQT_FILTER_SUFFIX,
@@ -548,6 +554,8 @@ static const struct sock_filter aqt_child_exec_filter[] = {
 static const struct sock_filter aqt_post_child_filter[] = {
     AQT_FILTER_PREFIX,
     AQT_STDIO_WRITE_RULE,
+    AQT_READ_ONLY_OPENAT_RULE,
+    AQT_FCNTL_GETFD_RULE,
     AQT_NONEXECUTABLE_MMAP_RULE,
     AQT_ALLOW_SYSCALL(__NR_read),
     AQT_ALLOW_SYSCALL(__NR_close),
@@ -555,12 +563,16 @@ static const struct sock_filter aqt_post_child_filter[] = {
     AQT_ALLOW_SYSCALL(__NR_munmap),
     AQT_ALLOW_SYSCALL(__NR_rt_sigaction),
     AQT_ALLOW_SYSCALL(__NR_rt_sigreturn),
+    AQT_ALLOW_SYSCALL(__NR_pread64),
     AQT_ALLOW_SYSCALL(__NR_madvise),
+    AQT_ALLOW_SYSCALL(__NR_geteuid),
+    AQT_ALLOW_SYSCALL(__NR_getegid),
     AQT_ALLOW_SYSCALL(__NR_getpid),
     AQT_ALLOW_SYSCALL(__NR_exit),
     AQT_ALLOW_SYSCALL(__NR_exit_group),
     AQT_ALLOW_SYSCALL(__NR_newfstatat),
     AQT_ALLOW_SYSCALL(__NR_fstat),
+    AQT_ALLOW_SYSCALL(__NR_fstatfs),
     AQT_ALLOW_SYSCALL(__NR_mlock),
     AQT_ALLOW_SYSCALL(__NR_munlock),
 #ifdef __NR_gettid

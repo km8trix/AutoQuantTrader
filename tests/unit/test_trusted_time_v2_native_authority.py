@@ -27,6 +27,7 @@ HARNESS = ROOT / "tests" / "native" / "trusted_time_v2_authority_harness.c"
 NO_PIN_HARNESS = ROOT / "tests" / "native" / "trusted_time_v2_authority_no_pin_harness.c"
 AUTHORITY = NATIVE / "trusted_time_v2_authority.c"
 FORK_GUARD = NATIVE / "trusted_time_v2_fork_guard.c"
+SECRET_MOUNT_ADMISSION = NATIVE / "trusted_time_v2_secret_mount_admission.c"
 MONOCYPHER = VENDOR / "monocypher.c"
 MONOCYPHER_ED25519 = OPTIONAL / "monocypher-ed25519.c"
 
@@ -568,10 +569,11 @@ def test_all_production_role_provisioners_link_without_a_release_root_pin(
             f"-I{VENDOR}",
             f"-I{OPTIONAL}",
             str(NATIVE / "trusted_time_v2_provisioner.c"),
-                str(AUTHORITY),
-                str(FORK_GUARD),
-                str(NATIVE / "trusted_time_v2_descriptor_baseline.c"),
-                str(NATIVE / "trusted_time_v2_seccomp.c"),
+            str(AUTHORITY),
+            str(FORK_GUARD),
+            str(SECRET_MOUNT_ADMISSION),
+            str(NATIVE / "trusted_time_v2_descriptor_baseline.c"),
+            str(NATIVE / "trusted_time_v2_seccomp.c"),
             str(MONOCYPHER),
             str(MONOCYPHER_ED25519),
             "-o",
