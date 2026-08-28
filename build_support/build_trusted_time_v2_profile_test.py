@@ -28,6 +28,7 @@ _STUBS = _ROOT / "tests/fixtures/native/trusted-time-v2"
 _ROLE_SOURCE = _NATIVE / "trusted_time_v2_role_launcher.c"
 _PROVISIONER_SOURCE = _NATIVE / "trusted_time_v2_provisioner.c"
 _SECCOMP_SOURCE = _NATIVE / "trusted_time_v2_seccomp.c"
+_DESCRIPTOR_BASELINE_SOURCE = _NATIVE / "trusted_time_v2_descriptor_baseline.c"
 _MONOCYPHER_SOURCE = _MONOCYPHER / "monocypher.c"
 _MONOCYPHER_ED25519_SOURCE = _MONOCYPHER_OPTIONAL / "monocypher-ed25519.c"
 _STUB_SOURCE = _STUBS / "profile_stubs.c"
@@ -52,20 +53,37 @@ _FORBIDDEN_RECOVERY_STRINGS = (
 )
 _FORBIDDEN_RECOVERY_UNDEFINED = (
     "accept",
+    "accept4",
     "bind",
     "clone",
+    "clone3",
     "connect",
     "dlopen",
     "dlsym",
-    "exec",
+    "execl",
+    "execle",
+    "execlp",
+    "execv",
+    "execve",
+    "execveat",
+    "execvp",
+    "execvpe",
     "fork",
     "listen",
     "popen",
     "posix_spawn",
+    "posix_spawnp",
     "recv",
+    "recvfrom",
+    "recvmmsg",
+    "recvmsg",
     "send",
+    "sendmmsg",
+    "sendmsg",
+    "sendto",
     "shutdown",
     "socket",
+    "socketpair",
     "system",
     "vfork",
 )
@@ -302,6 +320,7 @@ def _build_role(
             "-DAQT_TRUSTED_TIME_V2_PORTABLE_TEST_PROFILE=1",
             *_role_python_definitions(role),
             str(_ROLE_SOURCE),
+            str(_DESCRIPTOR_BASELINE_SOURCE),
             str(_SECCOMP_SOURCE),
             str(_STUB_SOURCE),
             "-o",
@@ -437,11 +456,12 @@ def _audit_recovery(
 
     nm = _tool("nm")
     undefined = _run((str(nm), "-u", str(role_binary))).decode("utf-8", errors="strict")
-    found_symbols = [
-        value
-        for value in _FORBIDDEN_RECOVERY_UNDEFINED
-        if any(value in line.lower() for line in undefined.splitlines())
-    ]
+    undefined_symbols = {
+        line.split()[-1].partition("@")[0]
+        for line in undefined.splitlines()
+        if line.split()
+    }
+    found_symbols = sorted(undefined_symbols & set(_FORBIDDEN_RECOVERY_UNDEFINED))
     if found_symbols:
         _fail(f"recovery role has forbidden undefined capabilities: {found_symbols}")
 

@@ -43,7 +43,7 @@ main(void)
     }
     if (strcmp(
             aqt_trusted_time_v2_seccomp_policy_model(),
-            "ordered-default-allow-denylist-v1"
+            "ordered-default-deny-allowlist-v1"
         ) != 0
         || strcmp(aqt_trusted_time_v2_seccomp_profile_name(), "provisioner") != 0) {
         return 3;

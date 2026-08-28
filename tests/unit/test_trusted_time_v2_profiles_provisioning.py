@@ -108,15 +108,19 @@ def test_provisioner_contract_is_descriptor_pinned_and_fail_closed() -> None:
     assert "null_descriptor < 3" in source
 
 
-def test_seccomp_policy_is_embedded_two_phase_and_truthfully_named() -> None:
+def test_seccomp_policy_is_embedded_default_deny_and_two_phase() -> None:
     source = _SECCOMP_SOURCE.read_text(encoding="utf-8")
 
-    assert 'return "ordered-default-allow-denylist-v1"' in source
+    assert 'return "ordered-default-deny-allowlist-v1"' in source
     assert "SECCOMP_FILTER_FLAG_TSYNC" in source
     assert "SECCOMP_RET_KILL_PROCESS" in source
+    assert "AQT_X32_REJECTION" in source
     assert "aqt_trusted_time_v2_seccomp_filter_bytes" in source
     assert "aqt_trusted_time_v2_seccomp_filter_count" in source
-    assert "aqt_network_filter" in source
-    assert "aqt_process_filter" in source
+    assert "aqt_initial_filter" in source
+    assert "aqt_post_child_filter" in source
     assert "aqt_trusted_time_v2_seccomp_install_post_child" in source
+    assert "__NR_io_uring" not in source
+    assert "__NR_ptrace" not in source
+    assert "__NR_process_vm" not in source
     assert "json" not in source.lower()

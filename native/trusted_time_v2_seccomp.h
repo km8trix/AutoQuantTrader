@@ -19,8 +19,10 @@
 #define AQT_TRUSTED_TIME_V2_SECCOMP_FILTER_FAILED 4
 #define AQT_TRUSTED_TIME_V2_SECCOMP_INITIAL_PHASE 0
 #define AQT_TRUSTED_TIME_V2_SECCOMP_POST_CHILD_PHASE 1
+#define AQT_TRUSTED_TIME_V2_SECCOMP_CHILD_EXEC_PHASE 2
 
 int aqt_trusted_time_v2_seccomp_install_initial(void);
+int aqt_trusted_time_v2_seccomp_install_child_exec(void);
 int aqt_trusted_time_v2_seccomp_install_post_child(void);
 const char *aqt_trusted_time_v2_seccomp_profile_name(void);
 const char *aqt_trusted_time_v2_seccomp_policy_model(void);

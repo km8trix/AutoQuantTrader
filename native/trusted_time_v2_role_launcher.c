@@ -1,8 +1,10 @@
+#define _XOPEN_SOURCE 700
 #define _POSIX_C_SOURCE 200809L
 
 #include "trusted_time_v2_role_launcher.h"
 
 #include "trusted_time_graceful_stop_v2_signer.h"
+#include "trusted_time_v2_descriptor_baseline.h"
 #include "trusted_time_v2_fork_guard.h"
 #include "trusted_time_v2_seccomp.h"
 
@@ -444,6 +446,10 @@ aqt_trusted_time_v2_role_launcher_main(int argument_count, char **argument_value
     int seccomp_result;
 
     aqt_validate_executable(argument_count, argument_values);
+    if (aqt_trusted_time_v2_close_ambient_descriptors() != 0
+        || aqt_trusted_time_v2_validate_standard_descriptors() != 0) {
+        aqt_fail("the fixed descriptor baseline could not be established");
+    }
     aqt_install_sigpipe_disposition();
     aqt_clear_environment();
     if (aqt_initialize_fork_guard() != 0) {

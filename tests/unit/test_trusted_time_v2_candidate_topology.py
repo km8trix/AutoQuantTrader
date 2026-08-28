@@ -75,22 +75,22 @@ EXPECTED_EXECUTABLES = {
 
 EXPECTED_UNIT_SHA256 = {
     "autoquant-trusted-time-graceful-stop-v2-host-provision.service": (
-        "5673456a79d6e826e1e47058c53116c62fb571d344fb236c1b142fa7d9f8e7a1"
+        "7f5adf8b294b418c1492eb84044eaa4230bd74708554a3009bae9cd2db6a96f0"
     ),
     "autoquant-trusted-time-graceful-stop-v2-host.service": (
-        "b330091fce151ff3c26930eb21fc14118e6452cdaadaf6ecf56111b30360c9fb"
+        "7f84bdd03d8e80e571f06d02fc91b427864c0647d522e2887f99c6ffc0c3fcd1"
     ),
     "autoquant-trusted-time-graceful-stop-v2-recovery-provision.service": (
-        "f3a24160b9daff40a7bfc9719c099c9489df2069a4fc3f283d0b343dc745ca0f"
+        "e8e02dfbdded2cdacea71d0d2205a7b43fd38ae07c27acad86dad0ae850f7093"
     ),
     "autoquant-trusted-time-graceful-stop-v2-recovery.service": (
-        "644d0aa26152828ff187b044079993fff0f2f091b530356e9f6ec81080142e24"
+        "90aeb875aaea0d690011dd44f150c9500928d04166d95b7399baad48f24fb9d8"
     ),
     "autoquant-trusted-time-graceful-stop-v2-supervisor-provision.service": (
-        "c7017103231e49387a1bb55035fce722558ba9bc3a953190130ad83af68fb82e"
+        "3d5accb7fefee1a3aafa6eaba3f0fca970ce9a6bdb5cd3a030e3f8662f5646f9"
     ),
     "autoquant-trusted-time-graceful-stop-v2-supervisor.service": (
-        "a8425ba8e66d82c9cba7536d98061b9a2c3409d681b0d93641f16aedbe25ec0d"
+        "716c0acf326ba0a07e9eac84041d3b80ddcdf83c4438715121ebfc366b9eafc6"
     ),
     HOST_SECRET_MOUNT: (
         "0fd219ec43c6dd68eec70e1c3ff6066f18661e800d405731326aa0942ce08ecd"
@@ -160,6 +160,9 @@ def test_every_fixed_service_has_one_argument_free_candidate_executable() -> Non
         assert tuple(unit) == ("DEFAULT", "Unit", "Service")
         assert unit["Service"]["ExecStart"] == executable
         assert " " not in unit["Service"]["ExecStart"]
+        assert unit["Service"]["StandardInput"] == "null"
+        assert unit["Service"]["StandardOutput"] == "null"
+        assert unit["Service"]["StandardError"] == "null"
         assert unit["Service"]["NoNewPrivileges"] == "yes"
         assert unit["Service"]["ProtectSystem"] == "strict"
         assert unit["Service"]["ProtectHome"] == "yes"

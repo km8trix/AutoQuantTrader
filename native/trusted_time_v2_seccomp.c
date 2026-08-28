@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include "trusted_time_v2_seccomp.h"
 
 #include <stddef.h>
@@ -36,17 +38,23 @@ aqt_trusted_time_v2_seccomp_profile_name(void)
 const char *
 aqt_trusted_time_v2_seccomp_policy_model(void)
 {
-    return "ordered-default-allow-denylist-v1";
+    return "ordered-default-deny-allowlist-v1";
 }
 
 #ifdef __linux__
 
 #include <errno.h>
+#include <fcntl.h>
 #include <linux/audit.h>
 #include <linux/filter.h>
+#include <linux/sched.h>
 #include <linux/seccomp.h>
+#include <signal.h>
 #include <stdint.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/prctl.h>
+#include <sys/socket.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -61,112 +69,451 @@ aqt_trusted_time_v2_seccomp_policy_model(void)
 #ifndef SECCOMP_FILTER_FLAG_TSYNC
 #error "The trusted-time lifecycle-v2 seccomp profile requires TSYNC support."
 #endif
+#ifndef __X32_SYSCALL_BIT
+#define __X32_SYSCALL_BIT 0x40000000U
+#endif
+#ifndef __O_TMPFILE
+#define __O_TMPFILE 020000000
+#endif
+#ifndef SO_PEERCRED
+#define SO_PEERCRED 17
+#endif
 
-#define AQT_DENY_SYSCALL(number) \
+#define AQT_SYSTEMD_CREDS_FD 64U
+#define AQT_NULL_INPUT_FD 65U
+#define AQT_SECRET_OUTPUT_FD 66U
+#define AQT_FORK_CLONE_FLAGS \
+    ((unsigned int)(CLONE_CHILD_CLEARTID | CLONE_CHILD_SETTID | SIGCHLD))
+#define AQT_OPENAT_WRITE_BITS \
+    ((unsigned int)(O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_APPEND | __O_TMPFILE))
+#define AQT_TARGET_CREATE_FLAGS \
+    ((unsigned int)(O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_CREAT | O_EXCL))
+
+#define AQT_ALLOW_SYSCALL(number) \
     BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (number), 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
+
+#define AQT_ERRNO_RESULT \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA))
+
+#if defined(__x86_64__)
+#define AQT_X32_REJECTION \
+    , BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, __X32_SYSCALL_BIT, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS)
+#else
+#define AQT_X32_REJECTION
+#endif
 
 #define AQT_FILTER_PREFIX \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)), \
     BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_AUDIT_ARCH, 1, 0), \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS), \
-    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr))
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)) \
+    AQT_X32_REJECTION
 
-#define AQT_FILTER_SUFFIX \
-    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
+#define AQT_FILTER_SUFFIX AQT_ERRNO_RESULT
+
+#define AQT_STDIO_WRITE_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_write, 0, 5), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, STDOUT_FILENO, 1, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, STDERR_FILENO, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_READ_ONLY_OPENAT_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_openat, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, AQT_OPENAT_WRITE_BITS, 1, 0), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_PROVISIONER_OPENAT_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_openat, 0, 8), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, AQT_OPENAT_WRITE_BITS, 1, 0), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_TARGET_CREATE_FLAGS, 0, 3), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[3])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0600U, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_NONEXECUTABLE_MMAP_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_mmap, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, PROT_EXEC, 1, 0), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_NONEXECUTABLE_MPROTECT_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_mprotect, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, PROT_EXEC, 1, 0), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_FCNTL_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_fcntl, 0, 9), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_GETFD, 5, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_GETFL, 4, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_SETFD, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, FD_CLOEXEC, 1, 0), \
+    AQT_ERRNO_RESULT, \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_TCGETS_IOCTL_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ioctl, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, TCGETS, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_ENDPOINT_IOCTL_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ioctl, 0, 5), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, TCGETS, 1, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, FIONREAD, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_MESSAGE_FLAGS_RULE(number, required_flags) \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (number), 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (required_flags), 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_UNIX_SEQPACKET_SOCKET_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, 8), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_UNIX, 0, 6), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP( \
+        BPF_JMP | BPF_JEQ | BPF_K, \
+        SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, \
+        0, \
+        3 \
+    ), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_HOST_GETSOCKOPT_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_getsockopt, 0, 8), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SOL_SOCKET, 0, 5), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_TYPE, 2, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_PEERCRED, 1, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_ERROR, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_SUPERVISOR_GETSOCKOPT_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_getsockopt, 0, 7), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SOL_SOCKET, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_TYPE, 1, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_PEERCRED, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_ACCEPT4_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_accept4, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[3])), \
+    BPF_JUMP( \
+        BPF_JMP | BPF_JEQ | BPF_K, \
+        SOCK_CLOEXEC | SOCK_NONBLOCK, \
+        0, \
+        1 \
+    ), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_LISTEN_ONE_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_listen, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 1U, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_PRCTL_NO_NEW_PRIVS_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_prctl, 0, 6), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PR_SET_NO_NEW_PRIVS, 0, 3), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 1U, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_SECCOMP_TSYNC_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_seccomp, 0, 6), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SECCOMP_SET_MODE_FILTER, 0, 3), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SECCOMP_FILTER_FLAG_TSYNC, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_EXACT_FORK_CLONE_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_clone, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_FORK_CLONE_FLAGS, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_SIGKILL_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_kill, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SIGKILL, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_EXACT_EXECVEAT_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_execveat, 0, 6), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_SYSTEMD_CREDS_FD, 0, 3), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[4])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AT_EMPTY_PATH, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_DUP3_NORMALIZE_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_dup3, 0, 21), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, O_CLOEXEC, 0, 5), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_SYSTEMD_CREDS_FD, 15, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_NULL_INPUT_FD, 14, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_SECRET_OUTPUT_FD, 13, 0), \
+    AQT_ERRNO_RESULT, \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 12), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_NULL_INPUT_FD, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, STDIN_FILENO, 7, 0), \
+    AQT_ERRNO_RESULT, \
+    AQT_ERRNO_RESULT, \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_SECRET_OUTPUT_FD, 0, 5), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, STDOUT_FILENO, 2, 0), \
+    AQT_ERRNO_RESULT, \
+    AQT_ERRNO_RESULT, \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_EXACT_DUP2_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_dup2, 0, 11), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_NULL_INPUT_FD, 0, 3), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, STDIN_FILENO, 5, 0), \
+    AQT_ERRNO_RESULT, \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_SECRET_OUTPUT_FD, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, STDOUT_FILENO, 1, 0), \
+    AQT_ERRNO_RESULT, \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_BASE_RUNTIME_ALLOWANCES \
+    AQT_ALLOW_SYSCALL(__NR_read), \
+    AQT_ALLOW_SYSCALL(__NR_close), \
+    AQT_ALLOW_SYSCALL(__NR_lseek), \
+    AQT_ALLOW_SYSCALL(__NR_munmap), \
+    AQT_ALLOW_SYSCALL(__NR_brk), \
+    AQT_ALLOW_SYSCALL(__NR_rt_sigaction), \
+    AQT_ALLOW_SYSCALL(__NR_rt_sigprocmask), \
+    AQT_ALLOW_SYSCALL(__NR_rt_sigreturn), \
+    AQT_ALLOW_SYSCALL(__NR_pread64), \
+    AQT_ALLOW_SYSCALL(__NR_madvise), \
+    AQT_ALLOW_SYSCALL(__NR_geteuid), \
+    AQT_ALLOW_SYSCALL(__NR_getpid), \
+    AQT_ALLOW_SYSCALL(__NR_futex), \
+    AQT_ALLOW_SYSCALL(__NR_clock_gettime), \
+    AQT_ALLOW_SYSCALL(__NR_exit), \
+    AQT_ALLOW_SYSCALL(__NR_exit_group), \
+    AQT_ALLOW_SYSCALL(__NR_newfstatat), \
+    AQT_ALLOW_SYSCALL(__NR_fstat), \
+    AQT_ALLOW_SYSCALL(__NR_getdents64), \
+    AQT_ALLOW_SYSCALL(__NR_getrandom), \
+    AQT_ALLOW_SYSCALL(__NR_mlock), \
+    AQT_ALLOW_SYSCALL(__NR_munlock), \
+    AQT_ALLOW_SYSCALL(__NR_readlinkat), \
+    AQT_ALLOW_SYSCALL(__NR_sysinfo)
 
 _Static_assert(
     sizeof(struct sock_filter) == 8U,
     "manifest-bound classic BPF instructions must be exactly eight bytes"
 );
 
-/*
- * Process creation is intentionally denied more strictly than a Python
- * subprocess boundary: Linux clone-based thread creation is denied too.  The
- * fixed owner processes enter this profile single-threaded before Python.
- */
-#define AQT_PROCESS_DENIALS \
-    AQT_DENY_SYSCALL(__NR_clone), \
-    AQT_DENY_SYSCALL(__NR_execve), \
-    AQT_DENY_SYSCALL(__NR_unshare), \
-    AQT_DENY_SYSCALL(__NR_setns)
-
-static const struct sock_filter aqt_process_filter[] = {
+static const struct sock_filter aqt_initial_filter[] = {
     AQT_FILTER_PREFIX,
-#ifdef __NR_fork
-    AQT_DENY_SYSCALL(__NR_fork),
+    AQT_STDIO_WRITE_RULE,
+#if defined(AQT_TRUSTED_TIME_V2_PROVISIONER_PROFILE)
+    AQT_PROVISIONER_OPENAT_RULE,
+#else
+    AQT_READ_ONLY_OPENAT_RULE,
 #endif
-#ifdef __NR_vfork
-    AQT_DENY_SYSCALL(__NR_vfork),
+    AQT_FCNTL_RULE,
+#if defined(AQT_TRUSTED_TIME_V2_HOST_PROFILE) \
+    || defined(AQT_TRUSTED_TIME_V2_SUPERVISOR_PROFILE)
+    AQT_ENDPOINT_IOCTL_RULE,
+#else
+    AQT_TCGETS_IOCTL_RULE,
 #endif
-    AQT_PROCESS_DENIALS,
-#ifdef __NR_clone3
-    AQT_DENY_SYSCALL(__NR_clone3),
+#if !defined(AQT_TRUSTED_TIME_V2_PROVISIONER_PROFILE)
+    AQT_NONEXECUTABLE_MMAP_RULE,
+    AQT_NONEXECUTABLE_MPROTECT_RULE,
+#else
+    AQT_ALLOW_SYSCALL(__NR_mmap),
+    AQT_ALLOW_SYSCALL(__NR_mprotect),
 #endif
-#ifdef __NR_execveat
-    AQT_DENY_SYSCALL(__NR_execveat),
+    AQT_BASE_RUNTIME_ALLOWANCES,
+#ifdef __NR_faccessat2
+    AQT_ALLOW_SYSCALL(__NR_faccessat2),
+#endif
+#ifdef __NR_gettid
+    AQT_ALLOW_SYSCALL(__NR_gettid),
+#endif
+#ifdef __NR_prlimit64
+    AQT_ALLOW_SYSCALL(__NR_prlimit64),
+#endif
+#ifdef __NR_rseq
+    AQT_ALLOW_SYSCALL(__NR_rseq),
+#endif
+#if defined(AQT_TRUSTED_TIME_V2_HOST_PROFILE) \
+    || defined(AQT_TRUSTED_TIME_V2_SUPERVISOR_PROFILE)
+    AQT_UNIX_SEQPACKET_SOCKET_RULE,
+    AQT_ALLOW_SYSCALL(__NR_ppoll),
+    AQT_MESSAGE_FLAGS_RULE(__NR_sendmsg, MSG_DONTWAIT | MSG_NOSIGNAL),
+    AQT_MESSAGE_FLAGS_RULE(__NR_recvmsg, MSG_DONTWAIT | MSG_CMSG_CLOEXEC),
+    AQT_ALLOW_SYSCALL(__NR_unlinkat),
+    AQT_ALLOW_SYSCALL(__NR_statfs),
+    AQT_ALLOW_SYSCALL(__NR_fstatfs),
+    AQT_ALLOW_SYSCALL(__NR_shutdown),
+#if defined(AQT_TRUSTED_TIME_V2_HOST_PROFILE)
+    AQT_HOST_GETSOCKOPT_RULE,
+    AQT_ALLOW_SYSCALL(__NR_connect),
+    AQT_ALLOW_SYSCALL(__NR_getsockname),
+#else
+    AQT_SUPERVISOR_GETSOCKOPT_RULE,
+    AQT_ACCEPT4_RULE,
+    AQT_LISTEN_ONE_RULE,
+    AQT_ALLOW_SYSCALL(__NR_bind),
+    AQT_ALLOW_SYSCALL(__NR_getsockname),
+    AQT_ALLOW_SYSCALL(__NR_umask),
+#endif
+#elif defined(AQT_TRUSTED_TIME_V2_RECOVERY_PROFILE)
+    AQT_ALLOW_SYSCALL(__NR_unlinkat),
+#else
+    AQT_DUP3_NORMALIZE_RULE,
+#ifdef __NR_dup2
+    AQT_EXACT_DUP2_RULE,
+#endif
+    AQT_EXACT_FORK_CLONE_RULE,
+    AQT_SIGKILL_RULE,
+    AQT_EXACT_EXECVEAT_RULE,
+    AQT_PRCTL_NO_NEW_PRIVS_RULE,
+    AQT_SECCOMP_TSYNC_RULE,
+    AQT_ALLOW_SYSCALL(__NR_wait4),
+    AQT_ALLOW_SYSCALL(__NR_nanosleep),
+    AQT_ALLOW_SYSCALL(__NR_unlinkat),
+    AQT_ALLOW_SYSCALL(__NR_fchmod),
+    AQT_ALLOW_SYSCALL(__NR_fchown),
+    AQT_ALLOW_SYSCALL(__NR_statfs),
+    AQT_ALLOW_SYSCALL(__NR_fstatfs),
+    AQT_ALLOW_SYSCALL(__NR_getuid),
+    AQT_ALLOW_SYSCALL(__NR_getgid),
+    AQT_ALLOW_SYSCALL(__NR_getegid),
 #endif
     AQT_FILTER_SUFFIX,
 };
 
-#if defined(AQT_TRUSTED_TIME_V2_RECOVERY_PROFILE) \
-    || defined(AQT_TRUSTED_TIME_V2_PROVISIONER_PROFILE)
-static const struct sock_filter aqt_network_filter[] = {
+#if defined(AQT_TRUSTED_TIME_V2_PROVISIONER_PROFILE)
+static const struct sock_filter aqt_child_exec_filter[] = {
     AQT_FILTER_PREFIX,
-#ifdef __NR_socket
-    AQT_DENY_SYSCALL(__NR_socket),
+    AQT_STDIO_WRITE_RULE,
+    AQT_READ_ONLY_OPENAT_RULE,
+    AQT_FCNTL_RULE,
+    AQT_TCGETS_IOCTL_RULE,
+    AQT_ALLOW_SYSCALL(__NR_mmap),
+    AQT_ALLOW_SYSCALL(__NR_mprotect),
+    AQT_BASE_RUNTIME_ALLOWANCES,
+    AQT_EXACT_EXECVEAT_RULE,
+#ifdef __NR_access
+    AQT_ALLOW_SYSCALL(__NR_access),
 #endif
-#ifdef __NR_socketpair
-    AQT_DENY_SYSCALL(__NR_socketpair),
+#ifdef __NR_arch_prctl
+    AQT_ALLOW_SYSCALL(__NR_arch_prctl),
 #endif
-#ifdef __NR_connect
-    AQT_DENY_SYSCALL(__NR_connect),
+#ifdef __NR_faccessat2
+    AQT_ALLOW_SYSCALL(__NR_faccessat2),
 #endif
-#ifdef __NR_bind
-    AQT_DENY_SYSCALL(__NR_bind),
+#ifdef __NR_getegid
+    AQT_ALLOW_SYSCALL(__NR_getegid),
 #endif
-#ifdef __NR_listen
-    AQT_DENY_SYSCALL(__NR_listen),
+#ifdef __NR_getgid
+    AQT_ALLOW_SYSCALL(__NR_getgid),
 #endif
-#ifdef __NR_accept
-    AQT_DENY_SYSCALL(__NR_accept),
+#ifdef __NR_gettid
+    AQT_ALLOW_SYSCALL(__NR_gettid),
 #endif
-#ifdef __NR_accept4
-    AQT_DENY_SYSCALL(__NR_accept4),
+#ifdef __NR_getuid
+    AQT_ALLOW_SYSCALL(__NR_getuid),
 #endif
-#ifdef __NR_sendto
-    AQT_DENY_SYSCALL(__NR_sendto),
+#ifdef __NR_prlimit64
+    AQT_ALLOW_SYSCALL(__NR_prlimit64),
 #endif
-#ifdef __NR_sendmsg
-    AQT_DENY_SYSCALL(__NR_sendmsg),
+#ifdef __NR_readlink
+    AQT_ALLOW_SYSCALL(__NR_readlink),
 #endif
-#ifdef __NR_sendmmsg
-    AQT_DENY_SYSCALL(__NR_sendmmsg),
+#ifdef __NR_rseq
+    AQT_ALLOW_SYSCALL(__NR_rseq),
 #endif
-#ifdef __NR_recvfrom
-    AQT_DENY_SYSCALL(__NR_recvfrom),
+#ifdef __NR_set_robust_list
+    AQT_ALLOW_SYSCALL(__NR_set_robust_list),
 #endif
-#ifdef __NR_recvmsg
-    AQT_DENY_SYSCALL(__NR_recvmsg),
+#ifdef __NR_set_tid_address
+    AQT_ALLOW_SYSCALL(__NR_set_tid_address),
 #endif
-#ifdef __NR_recvmmsg
-    AQT_DENY_SYSCALL(__NR_recvmmsg),
+#ifdef __NR_statx
+    AQT_ALLOW_SYSCALL(__NR_statx),
 #endif
-#ifdef __NR_shutdown
-    AQT_DENY_SYSCALL(__NR_shutdown),
+#ifdef __NR_uname
+    AQT_ALLOW_SYSCALL(__NR_uname),
 #endif
-#ifdef __NR_getsockname
-    AQT_DENY_SYSCALL(__NR_getsockname),
+    AQT_FILTER_SUFFIX,
+};
+
+static const struct sock_filter aqt_post_child_filter[] = {
+    AQT_FILTER_PREFIX,
+    AQT_STDIO_WRITE_RULE,
+    AQT_NONEXECUTABLE_MMAP_RULE,
+    AQT_ALLOW_SYSCALL(__NR_read),
+    AQT_ALLOW_SYSCALL(__NR_close),
+    AQT_ALLOW_SYSCALL(__NR_lseek),
+    AQT_ALLOW_SYSCALL(__NR_munmap),
+    AQT_ALLOW_SYSCALL(__NR_rt_sigaction),
+    AQT_ALLOW_SYSCALL(__NR_rt_sigreturn),
+    AQT_ALLOW_SYSCALL(__NR_madvise),
+    AQT_ALLOW_SYSCALL(__NR_getpid),
+    AQT_ALLOW_SYSCALL(__NR_exit),
+    AQT_ALLOW_SYSCALL(__NR_exit_group),
+    AQT_ALLOW_SYSCALL(__NR_newfstatat),
+    AQT_ALLOW_SYSCALL(__NR_fstat),
+    AQT_ALLOW_SYSCALL(__NR_mlock),
+    AQT_ALLOW_SYSCALL(__NR_munlock),
+#ifdef __NR_gettid
+    AQT_ALLOW_SYSCALL(__NR_gettid),
 #endif
-#ifdef __NR_getpeername
-    AQT_DENY_SYSCALL(__NR_getpeername),
-#endif
-#ifdef __NR_setsockopt
-    AQT_DENY_SYSCALL(__NR_setsockopt),
-#endif
-#ifdef __NR_getsockopt
-    AQT_DENY_SYSCALL(__NR_getsockopt),
-#endif
+    AQT_ALLOW_SYSCALL(__NR_unlinkat),
     AQT_FILTER_SUFFIX,
 };
 #endif
@@ -203,70 +550,47 @@ aqt_filter_view(
     size_t *count
 )
 {
-    if (instructions == NULL || count == NULL) {
+    if (instructions == NULL || count == NULL || filter_index != 0U) {
         return AQT_TRUSTED_TIME_V2_SECCOMP_INVALID_PHASE;
     }
-#if defined(AQT_TRUSTED_TIME_V2_RECOVERY_PROFILE)
-    if (phase == AQT_TRUSTED_TIME_V2_SECCOMP_INITIAL_PHASE
-        && filter_index == 0U) {
-        *instructions = aqt_network_filter;
-        *count = sizeof(aqt_network_filter) / sizeof(aqt_network_filter[0]);
+#if defined(AQT_TRUSTED_TIME_V2_PROVISIONER_PROFILE)
+    if (phase == AQT_TRUSTED_TIME_V2_SECCOMP_CHILD_EXEC_PHASE) {
+        *instructions = aqt_child_exec_filter;
+        *count = sizeof(aqt_child_exec_filter) / sizeof(aqt_child_exec_filter[0]);
         return AQT_TRUSTED_TIME_V2_SECCOMP_OK;
     }
-    if (phase == AQT_TRUSTED_TIME_V2_SECCOMP_INITIAL_PHASE
-        && filter_index == 1U) {
-        *instructions = aqt_process_filter;
-        *count = sizeof(aqt_process_filter) / sizeof(aqt_process_filter[0]);
-        return AQT_TRUSTED_TIME_V2_SECCOMP_OK;
-    }
-#elif defined(AQT_TRUSTED_TIME_V2_PROVISIONER_PROFILE)
-    if (phase == AQT_TRUSTED_TIME_V2_SECCOMP_INITIAL_PHASE
-        && filter_index == 0U) {
-        *instructions = aqt_network_filter;
-        *count = sizeof(aqt_network_filter) / sizeof(aqt_network_filter[0]);
-        return AQT_TRUSTED_TIME_V2_SECCOMP_OK;
-    }
-    if (phase == AQT_TRUSTED_TIME_V2_SECCOMP_POST_CHILD_PHASE
-        && filter_index == 0U) {
-        *instructions = aqt_process_filter;
-        *count = sizeof(aqt_process_filter) / sizeof(aqt_process_filter[0]);
-        return AQT_TRUSTED_TIME_V2_SECCOMP_OK;
-    }
-#else
-    if (phase == AQT_TRUSTED_TIME_V2_SECCOMP_INITIAL_PHASE
-        && filter_index == 0U) {
-        *instructions = aqt_process_filter;
-        *count = sizeof(aqt_process_filter) / sizeof(aqt_process_filter[0]);
+    if (phase == AQT_TRUSTED_TIME_V2_SECCOMP_POST_CHILD_PHASE) {
+        *instructions = aqt_post_child_filter;
+        *count = sizeof(aqt_post_child_filter) / sizeof(aqt_post_child_filter[0]);
         return AQT_TRUSTED_TIME_V2_SECCOMP_OK;
     }
 #endif
+    if (phase == AQT_TRUSTED_TIME_V2_SECCOMP_INITIAL_PHASE) {
+        *instructions = aqt_initial_filter;
+        *count = sizeof(aqt_initial_filter) / sizeof(aqt_initial_filter[0]);
+        return AQT_TRUSTED_TIME_V2_SECCOMP_OK;
+    }
     return AQT_TRUSTED_TIME_V2_SECCOMP_INVALID_PHASE;
 }
 
 int
 aqt_trusted_time_v2_seccomp_filter_count(int phase, size_t *count)
 {
+    const struct sock_filter *instructions;
+    size_t instruction_count;
+    int result;
+
     if (count == NULL) {
         return AQT_TRUSTED_TIME_V2_SECCOMP_INVALID_PHASE;
     }
-#if defined(AQT_TRUSTED_TIME_V2_RECOVERY_PROFILE)
-    if (phase == AQT_TRUSTED_TIME_V2_SECCOMP_INITIAL_PHASE) {
-        *count = 2U;
-        return AQT_TRUSTED_TIME_V2_SECCOMP_OK;
+    result = aqt_filter_view(phase, 0U, &instructions, &instruction_count);
+    if (result != AQT_TRUSTED_TIME_V2_SECCOMP_OK) {
+        return result;
     }
-#elif defined(AQT_TRUSTED_TIME_V2_PROVISIONER_PROFILE)
-    if (phase == AQT_TRUSTED_TIME_V2_SECCOMP_INITIAL_PHASE
-        || phase == AQT_TRUSTED_TIME_V2_SECCOMP_POST_CHILD_PHASE) {
-        *count = 1U;
-        return AQT_TRUSTED_TIME_V2_SECCOMP_OK;
-    }
-#else
-    if (phase == AQT_TRUSTED_TIME_V2_SECCOMP_INITIAL_PHASE) {
-        *count = 1U;
-        return AQT_TRUSTED_TIME_V2_SECCOMP_OK;
-    }
-#endif
-    return AQT_TRUSTED_TIME_V2_SECCOMP_INVALID_PHASE;
+    (void)instructions;
+    (void)instruction_count;
+    *count = 1U;
+    return AQT_TRUSTED_TIME_V2_SECCOMP_OK;
 }
 
 int
@@ -296,28 +620,22 @@ aqt_trusted_time_v2_seccomp_filter_bytes(
 int
 aqt_trusted_time_v2_seccomp_install_initial(void)
 {
-#if defined(AQT_TRUSTED_TIME_V2_RECOVERY_PROFILE)
-    int result = aqt_install_filter(
-        aqt_network_filter,
-        sizeof(aqt_network_filter) / sizeof(aqt_network_filter[0])
-    );
-    if (result != AQT_TRUSTED_TIME_V2_SECCOMP_OK) {
-        return result;
-    }
     return aqt_install_filter(
-        aqt_process_filter,
-        sizeof(aqt_process_filter) / sizeof(aqt_process_filter[0])
+        aqt_initial_filter,
+        sizeof(aqt_initial_filter) / sizeof(aqt_initial_filter[0])
     );
-#elif defined(AQT_TRUSTED_TIME_V2_PROVISIONER_PROFILE)
+}
+
+int
+aqt_trusted_time_v2_seccomp_install_child_exec(void)
+{
+#if defined(AQT_TRUSTED_TIME_V2_PROVISIONER_PROFILE)
     return aqt_install_filter(
-        aqt_network_filter,
-        sizeof(aqt_network_filter) / sizeof(aqt_network_filter[0])
+        aqt_child_exec_filter,
+        sizeof(aqt_child_exec_filter) / sizeof(aqt_child_exec_filter[0])
     );
 #else
-    return aqt_install_filter(
-        aqt_process_filter,
-        sizeof(aqt_process_filter) / sizeof(aqt_process_filter[0])
-    );
+    return AQT_TRUSTED_TIME_V2_SECCOMP_INVALID_PHASE;
 #endif
 }
 
@@ -326,8 +644,8 @@ aqt_trusted_time_v2_seccomp_install_post_child(void)
 {
 #if defined(AQT_TRUSTED_TIME_V2_PROVISIONER_PROFILE)
     return aqt_install_filter(
-        aqt_process_filter,
-        sizeof(aqt_process_filter) / sizeof(aqt_process_filter[0])
+        aqt_post_child_filter,
+        sizeof(aqt_post_child_filter) / sizeof(aqt_post_child_filter[0])
     );
 #else
     return AQT_TRUSTED_TIME_V2_SECCOMP_INVALID_PHASE;
@@ -363,6 +681,16 @@ int
 aqt_trusted_time_v2_seccomp_install_initial(void)
 {
     return AQT_TRUSTED_TIME_V2_SECCOMP_UNSUPPORTED;
+}
+
+int
+aqt_trusted_time_v2_seccomp_install_child_exec(void)
+{
+#ifdef AQT_TRUSTED_TIME_V2_PROVISIONER_PROFILE
+    return AQT_TRUSTED_TIME_V2_SECCOMP_UNSUPPORTED;
+#else
+    return AQT_TRUSTED_TIME_V2_SECCOMP_INVALID_PHASE;
+#endif
 }
 
 int
