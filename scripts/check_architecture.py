@@ -19,7 +19,7 @@ _STRATEGY_START_AUTHORIZATION_FACTORY = "_strategy_invocation_start_authorizatio
 _STRATEGY_START_AUTHORIZATION_ISSUER = Path("packages/persistence/strategy_invocation_lifecycle.py")
 
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SHA256 = (
-    "09f3424d172a0b03f333a07adb9c1b9630cd313de555ea7ccf535fda6713f6fc"
+    "4e2f1bd03a4807f1326393f1610bcb414f4bcd3cb5ad3771a434ad114c8aa09b"
 )
 _TRUSTED_TIME_TOPOLOGY_PRODUCTION_AST_SENTINEL = "trusted-time-topology-production-ast-sha256-v1"
 
@@ -2762,7 +2762,7 @@ _EXACT_NATIVE_FFI_MODULE_AST_SHA256 = {
         "a38808e452a92cad0fc63141bb234c579357b07ddb1f17f78bd00b3ca57cef48"
     ),
     Path("scripts/verify_trusted_time_images.py"): (
-        "034d230d49384171807f61056f9cecce15564f238d329c4d2fbaa7cc3d9fd855"
+        "d816043a93c951901520be3fe635c8c9e41b727515165affe483be386c4ecae1"
     ),
 }
 
@@ -11695,7 +11695,7 @@ def check(
             "a7e775204b3fddea7035e0a0bf9cfcbfeb8930d858c9c0d79fcc09117ae0d15e"
         ),
         Path("scripts/verify_trusted_time_images.py"): (
-            "034d230d49384171807f61056f9cecce15564f238d329c4d2fbaa7cc3d9fd855"
+            "d816043a93c951901520be3fe635c8c9e41b727515165affe483be386c4ecae1"
         ),
         Path("apps/api/backtest_views.py"): (
             "0d42ab3f6a8deb21092d3f51a2e8eaf8c19838d948a6625f1f1fb34702fdc141"

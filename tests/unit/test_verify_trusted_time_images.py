@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import venv
 from collections.abc import Iterator
 from dataclasses import replace
@@ -104,6 +105,39 @@ NATIVE_BUILD_CONTEXT_RELATIVE_PATHS = (
     "native/owned_file_descriptor.c",
     "native/trusted_time_python_launcher.c",
 )
+
+
+def _logical_dockerfile_instructions(stage: str) -> tuple[str, ...]:
+    instructions: list[str] = []
+    pending = ""
+    for raw_line in stage.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        pending = f"{pending} {line}".strip()
+        if pending.endswith("\\"):
+            pending = pending[:-1].rstrip()
+            continue
+        instructions.append(pending)
+        pending = ""
+    assert not pending
+    return tuple(instructions)
+
+
+def _context_copy_sources(instructions: tuple[str, ...]) -> tuple[str, ...]:
+    sources: list[str] = []
+    for instruction in instructions:
+        fields = instruction.split()
+        if not fields or fields[0] != "COPY":
+            continue
+        option_end = 1
+        while option_end < len(fields) and fields[option_end].startswith("--"):
+            option_end += 1
+        if any(field.startswith("--from=") for field in fields[1:option_end]):
+            continue
+        assert len(fields[option_end:]) >= 2
+        sources.extend(fields[option_end:-1])
+    return tuple(sources)
 
 
 def _immutable_docker_result(
@@ -1589,6 +1623,82 @@ def test_absent_operator_authority_is_not_a_required_fixed_worktree_input() -> N
 
 def test_trusted_time_dockerignore_is_exact_deny_by_default_allowlist() -> None:
     _validate_trusted_time_dockerignore_contract()
+
+
+def test_wave7_sdist_inputs_are_exact_trusted_time_build_context_contract() -> None:
+    with (ROOT / "pyproject.toml").open("rb") as stream:
+        pyproject = tomllib.load(stream)
+    force_include = pyproject["tool"]["hatch"]["build"]["targets"]["sdist"]["force-include"]
+    expected_paths = image_verifier._PROJECT_SDIST_FORCE_INCLUDE_RELATIVE_PATHS
+
+    assert len(expected_paths) == 51
+    assert force_include == {relative: relative for relative in expected_paths}
+    assert all(
+        image_verifier._REVIEWED_FIXED_RELATIVE_PATHS.count(relative) == 1
+        for relative in expected_paths
+    )
+    assert frozenset(expected_paths).issubset(image_verifier._BUILD_CONTEXT_FIXED_RELATIVE_PATHS)
+
+    dockerignore_lines = (
+        (ROOT / "infra" / "docker" / "trusted-time.Dockerfile.dockerignore")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    assert all(dockerignore_lines.count(f"!{relative}") == 1 for relative in expected_paths)
+
+    dockerfile = (ROOT / "infra" / "docker" / "trusted-time.Dockerfile").read_text(encoding="utf-8")
+    build_stage = dockerfile.split(
+        "FROM ${PYTHON_BUILDER_IMAGE} AS trusted-time-supervisor-build\n", 1
+    )[1].split("FROM ${PYTHON_IMAGE} AS trusted-time-supervisor\n", 1)[0]
+    runtime_stage = dockerfile.split("FROM ${PYTHON_IMAGE} AS trusted-time-supervisor\n", 1)[1]
+    build_instructions = _logical_dockerfile_instructions(build_stage)
+    runtime_instructions = _logical_dockerfile_instructions(runtime_stage)
+    build_context_sources = _context_copy_sources(build_instructions)
+    runtime_context_sources = _context_copy_sources(runtime_instructions)
+
+    package_force_include = "packages/adapters/trusted_time/_bounded_process.py"
+    expected_build_context_sources = {
+        "pyproject.toml",
+        "uv.lock",
+        *(relative for relative in expected_paths if relative != package_force_include),
+        "apps/__init__.py",
+        "apps/trusted_time_supervisor",
+        "packages",
+    }
+    assert len(build_context_sources) == len(frozenset(build_context_sources))
+    assert set(build_context_sources) == expected_build_context_sources
+    assert package_force_include not in build_context_sources
+    assert "packages" in build_context_sources
+
+    sdist_instruction_index = next(
+        index
+        for index, instruction in enumerate(build_instructions)
+        if instruction.startswith("RUN uv build --sdist ")
+    )
+    assert all(
+        not instruction.startswith("COPY ")
+        for instruction in build_instructions[sdist_instruction_index + 1 :]
+    )
+    build_instruction = build_instructions[sdist_instruction_index]
+    assert build_instruction.index("uv build --sdist --no-sources") < build_instruction.index(
+        "uv build --wheel --no-sources"
+    )
+    assert "/tmp/autoquant-native-dist/sdist/autoquant_trader-0.1.0.tar.gz" in build_instruction
+
+    expected_runtime_context_sources = {
+        "build_support/native_image_manifest.py",
+        "infra/trusted-time/chrony.conf",
+        "infra/trusted-time/source-authority.json",
+        "packages/persistence/certs/supabase-prod-ca-2021.crt",
+    }
+    assert len(runtime_context_sources) == len(frozenset(runtime_context_sources))
+    assert set(runtime_context_sources) == expected_runtime_context_sources
+    assert set(expected_paths).intersection(runtime_context_sources) == {
+        "build_support/native_image_manifest.py"
+    }
+    assert not (set(expected_paths) - {"build_support/native_image_manifest.py"}).intersection(
+        runtime_context_sources
+    )
 
 
 def test_trusted_time_dockerfile_frontend_is_content_addressed() -> None:

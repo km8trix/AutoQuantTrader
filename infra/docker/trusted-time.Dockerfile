@@ -89,12 +89,69 @@ RUN python -I -B -c \
     && echo "729ef157f6026e6e1b3104593f87dddc597c3b83b60c7c2965878c62a56c6f7d  /usr/local/include/python3.12/Python.h" \
         | sha256sum -c -
 COPY pyproject.toml uv.lock ./
-COPY build_support/native_build_constraints.txt ./build_support/native_build_constraints.txt
-COPY build_support/native_image_manifest.py ./build_support/native_image_manifest.py
-COPY build_support/native_owned_file_descriptor_hook.py ./build_support/native_owned_file_descriptor_hook.py
-COPY native/bounded_process.c ./native/bounded_process.c
-COPY native/owned_file_descriptor.c ./native/owned_file_descriptor.c
-COPY native/trusted_time_python_launcher.c ./native/trusted_time_python_launcher.c
+COPY build_support/build_trusted_time_v2_candidates.py \
+    build_support/build_trusted_time_v2_linked_role_test.py \
+    build_support/exercise_trusted_time_v2_exact_candidates.py \
+    build_support/native_build_constraints.txt \
+    build_support/native_image_manifest.py \
+    build_support/native_owned_file_descriptor_hook.py \
+    build_support/qualify_trusted_time_v2_candidates.py \
+    build_support/smoke_trusted_time_v2_sdist.py \
+    build_support/trusted_time_v2_candidate_execution.Dockerfile \
+    build_support/trusted_time_v2_seccomp_manifests.py \
+    ./build_support/
+COPY build_support/trusted_time_v2_candidate_import_roots/host/autoquant_trusted_time_v2_host_entry.py \
+    ./build_support/trusted_time_v2_candidate_import_roots/host/autoquant_trusted_time_v2_host_entry.py
+COPY build_support/trusted_time_v2_candidate_import_roots/recovery/autoquant_trusted_time_v2_recovery_entry.py \
+    ./build_support/trusted_time_v2_candidate_import_roots/recovery/autoquant_trusted_time_v2_recovery_entry.py
+COPY build_support/trusted_time_v2_candidate_import_roots/supervisor/autoquant_trusted_time_v2_supervisor_entry.py \
+    ./build_support/trusted_time_v2_candidate_import_roots/supervisor/autoquant_trusted_time_v2_supervisor_entry.py
+COPY infra/trusted-time/graceful-stop-v2/seccomp/host.json \
+    infra/trusted-time/graceful-stop-v2/seccomp/provisioner.json \
+    infra/trusted-time/graceful-stop-v2/seccomp/recovery.json \
+    infra/trusted-time/graceful-stop-v2/seccomp/supervisor.json \
+    ./infra/trusted-time/graceful-stop-v2/seccomp/
+COPY native/bounded_process.c \
+    native/owned_file_descriptor.c \
+    native/trusted_time_graceful_stop_v2_endpoint.c \
+    native/trusted_time_graceful_stop_v2_endpoint.h \
+    native/trusted_time_graceful_stop_v2_resources.c \
+    native/trusted_time_graceful_stop_v2_resources.h \
+    native/trusted_time_graceful_stop_v2_signer.c \
+    native/trusted_time_graceful_stop_v2_signer.h \
+    native/trusted_time_python_launcher.c \
+    native/trusted_time_v2_authority.c \
+    native/trusted_time_v2_authority.h \
+    native/trusted_time_v2_descriptor_baseline.c \
+    native/trusted_time_v2_descriptor_baseline.h \
+    native/trusted_time_v2_fork_guard.c \
+    native/trusted_time_v2_fork_guard.h \
+    native/trusted_time_v2_provisioner.c \
+    native/trusted_time_v2_provisioner.h \
+    native/trusted_time_v2_role_launcher.c \
+    native/trusted_time_v2_role_launcher.h \
+    native/trusted_time_v2_seccomp.c \
+    native/trusted_time_v2_seccomp.h \
+    native/trusted_time_v2_secret_mount_admission.c \
+    native/trusted_time_v2_secret_mount_admission.h \
+    ./native/
+COPY third_party/monocypher/4.0.3/LICENCE.md \
+    third_party/monocypher/4.0.3/VENDORING.json \
+    ./third_party/monocypher/4.0.3/
+COPY third_party/monocypher/4.0.3/src/monocypher.c \
+    third_party/monocypher/4.0.3/src/monocypher.h \
+    ./third_party/monocypher/4.0.3/src/
+COPY third_party/monocypher/4.0.3/src/optional/monocypher-ed25519.c \
+    third_party/monocypher/4.0.3/src/optional/monocypher-ed25519.h \
+    ./third_party/monocypher/4.0.3/src/optional/
+COPY tests/native/trusted_time_v2_seccomp_manifest_harness.c \
+    ./tests/native/trusted_time_v2_seccomp_manifest_harness.c
+COPY tests/fixtures/native/trusted-time-v2/import-roots/host/autoquant_trusted_time_v2_host_entry.py \
+    ./tests/fixtures/native/trusted-time-v2/import-roots/host/autoquant_trusted_time_v2_host_entry.py
+COPY tests/fixtures/native/trusted-time-v2/import-roots/recovery/autoquant_trusted_time_v2_recovery_entry.py \
+    ./tests/fixtures/native/trusted-time-v2/import-roots/recovery/autoquant_trusted_time_v2_recovery_entry.py
+COPY tests/fixtures/native/trusted-time-v2/import-roots/supervisor/autoquant_trusted_time_v2_supervisor_entry.py \
+    ./tests/fixtures/native/trusted-time-v2/import-roots/supervisor/autoquant_trusted_time_v2_supervisor_entry.py
 COPY apps/__init__.py ./apps/__init__.py
 COPY apps/trusted_time_supervisor ./apps/trusted_time_supervisor
 COPY packages ./packages
