@@ -79,21 +79,32 @@ This evidence closes the Wave 5 integration and CI-repair checkpoints only;
 the Phase 1 external-admission dependency and the Phase 3-6 exit gates remain
 open.
 
-The next repository-local delivery wave is Wave 6: completion of ADR 0121
-lifecycle-v2 milestone one. ADR 0124 is only its injected partial core. Wave 6
-must remain unreachable from production and keep `trusted-time-stop` at its
-exact exit-2 no-effect contract while it closes the remaining canonical
-authority/identity/channel and signed-envelope contracts, complete clean-stop
-and Docker HTTP evidence schemas, byte-level fake daemon, descriptor-safe
-injected-root persistence, retained-wire authentication, confirmed-success and
-authenticated-recovery sequencing, full fault/fork/bounds evidence, and the
-associated architecture/source seals. Foundation contract, fake-daemon, and
-persistence lanes may proceed concurrently; success/recovery integration must
-follow their frozen interfaces, and closure requires the complete regression
-and independent exact-commit review. ADR 0121 milestone two remains a later
-wave: no real endpoint or signer owner, credential provisioning, production
-root, real Docker transport, production caller, deployment change, stop effect,
-or operational authority belongs in Wave 6.
+Wave 6 now completes ADR 0121 lifecycle-v2 milestone one as an unreachable,
+injected implementation. ADR 0125 supersedes ADR 0124's partial current-status
+and deferred-work lists. The implementation includes canonical authority,
+selection, boot/process/peer/socket, handshake/channel, and signed-envelope
+contracts; complete clean-stop terminal and Docker HTTP evidence; a byte-level
+test daemon; descriptor-safe injected-root physical storage; retained-wire
+Ed25519 reauthentication; the exact normal lifecycle through authenticated
+terminal cleanup at ordinal 22 and confirmed success at ordinal 23; complete
+canonical ADR-0109 binding evidence at ordinals 6 and 20; authenticated
+classification-only recovery; and the required fault, fork, and boundary
+vectors. On the current unpromoted local integration tree, the architecture/
+source-seal reconciliation, complete branch-wide regression, and independent
+read-only review of the stabilized source and configuration tree are complete.
+The backend reports 12,301 passed and 1,097 skipped; frontend lint, typecheck, 67
+Vitest tests, 33 bundle-policy tests, and the production build pass; and native
+Python 3.12/3.13 packaging parity reports 142 passed with 36 expected skips.
+These facts close Wave 6 local implementation evidence only; they claim neither
+promotion nor remote CI and add no deployment, stop authority, operational
+authority, or milestone-two completion.
+
+Wave 6 remains zero-caller and non-authorizing. `trusted-time-stop` keeps its
+exact exit-2 no-effect contract. No real endpoint or signer/private-key owner,
+credential provisioning, production root, real Docker transport or effect,
+deployment/bootstrap caller, stop effect, or operational authority exists. ADR
+0121 milestone two is the next repository-local wave; Phase 6 and the paper-MVP
+gate remain open, and the trader remains `not_ready`.
 
 Phase 1B now provides the provider-neutral source seam, strict evidence evaluator,
 durable admission reports, and browser visibility. It is **implemented locally
@@ -558,15 +569,20 @@ start chain into the dormant operation-bound clean-stop supervisor bridge, but
 its host/core private entry points still have zero callers. ADR 0116 froze the
 non-separable transport → same-lock admission → lifecycle-v2 composition and its
 distinct pre-effect and post-teardown reauthentication order. ADR 0121 resolves
-the design, and ADR 0124 partially implements milestone one as independent
-canonical v2 values/codecs, an injected no-default-root repository, a separate
-dormant ADR-0112 v2 handoff, and test-only transport/Docker-effect fakes. The
-milestone is not complete: real authority/key/boot/process/socket resources,
-authenticated transport, physical persistence, complete success/recovery
-paths, Docker effects, production bootstrap/callers, deployment, and promotion
-remain unimplemented and unauthorized. Current-topology and stop-authority
-admission, operational durability/outcomes, and all effects remain absent;
-`trusted-time-stop` remains hard closed. Phase 6E is only a
+the design; ADR 0124 records the historical partial core; and ADR 0125 completes
+milestone one as an unreachable injected implementation with authenticated
+authority/channel/wire contracts, complete terminal and Docker evidence,
+descriptor-safe injected storage, exact normal sequencing through ordinal 23,
+full ADR-0109 evidence at ordinals 6/20, and classification-only recovery. The
+complete local branch-wide regression, architecture/source-seal reconciliation,
+and independent read-only review are now recorded as Wave 6 implementation-
+closure evidence on the current unpromoted integration tree. Milestone two's
+native endpoint/signer/fork/key/mount owners,
+every real-root and Docker transport/effect path, production bootstrap/callers,
+deployment, promotion, and stop authority remain unimplemented and
+unauthorized. Current-topology and stop-authority admission, operational
+durability/outcomes, and all effects remain absent; `trusted-time-stop` remains
+hard closed. Phase 6E is only a
 dormant watchdog-state reducer. The Phase 6 paper-MVP gate remains unmet, and
 the Phase 7 supervised paper soak and Phase 8 human-approved minimum-size live
 canary remain entirely ahead. No paper or live order authority is enabled.
@@ -3891,8 +3907,9 @@ boundary, the transport, admission, lifecycle schema and contract IDs, worker
 association, v2 historical-receipt handoff, cross-version import/decoder
 boundaries, fork mechanism, effects, both reauthentication bindings, recovery
 operator, and numeric deadlines were unimplemented external blockers. ADR 0116
-itself changes documentation only; ADR 0124 now implements the bounded partial
-core described below, and `trusted-time-stop` remains hard closed.
+itself changes documentation only; ADR 0124 later recorded the bounded partial
+core and ADR 0125 now records milestone-one implementation completion, while
+`trusted-time-stop` remains hard closed.
 
 ADR 0112's current private handoff is bound to ADR 0111's v1 bridge and is not a
 v2 input. [ADR 0121](adr/0121-trusted-time-graceful-stop-lifecycle-v2-implementation-resolution.md)
@@ -4015,31 +4032,31 @@ retry, continue, compensate, or select an effect. Unknown or mixed state permits
 no write. These decisions remove schema and choreography ambiguity, but every
 activation and authority gate remains ahead.
 
-[ADR 0124](adr/0124-trusted-time-lifecycle-v2-milestone-one.md) now implements
-only a bounded partial milestone-one core. Independent v2 domain values and
-canonical codecs cover the root, progress records, immutable transcript
-prefixes, non-circular request basis/intent/dispatch/final request, structurally
-unverified bounded transport envelopes, recovery-required and confirmed-success
-outcome values, and the fixed commit codec, with direct v1/v2 mixing rejected.
-An injected process/thread-bound repository enforces the one shared slot,
-gap-free transition graph, ambiguous-store/call burns, exact wire/transcript
-relationships, and recovery-required commits. It has no default artifact root,
-filesystem implementation, confirmed-success writer, or ability to
-reauthenticate retained terminal wire after restart. A separate dormant
-ADR-0112 v2 handoff binds operation/admission/channel/PID/Thread without calling
-the v1 bridge. Test-only transport and Docker/effect fakes exercise one-shot
-correlation and exact effect ordering only; they are not real resource or
-effect adapters.
+[ADR 0124](adr/0124-trusted-time-lifecycle-v2-milestone-one.md) remains the
+historical record of the bounded Wave 5 partial core.
+[ADR 0125](adr/0125-complete-injected-trusted-time-lifecycle-v2-milestone-one.md)
+supersedes its current-status and deferred-work lists and completes ADR 0121
+milestone one in unreachable injected code. The completed surface adds exact
+authority/selection and boot/process/peer/socket identities, authenticated
+handshake/channel/frame and retained-wire contracts, complete terminal and
+Docker HTTP evidence, the byte-level test daemon, descriptor-safe no-default-
+root storage, and the full named normal lineage through authenticated cleanup
+at ordinal 22 and confirmed success at ordinal 23. Ordinals 6 and 20 retain the
+complete canonical ADR-0109 binding and observation primitives, not only outer
+digests. Authenticated one-use recovery remains classification-only and can
+commit deterministic recovery-required state or finalize only one exact
+already-created marker preimage.
 
-ADR 0121 milestone one is therefore not complete. Authority manifests and
-selection rules, boot/process/peer/socket identities, Ed25519 frame
-authentication, physical descriptor-safe persistence, complete nested result
-and Docker HTTP schemas, real/fake-daemon resource boundaries, pre-effect and
-terminal issuers, confirmed-success sequencing, authenticated recovery and
-signer custody, full fault/fork vectors, and production-source policy closure
-remain. Milestones two through four, real endpoint/key owners, bootstrap,
-deployment, integration, promotion, and all stop effects/authority are wholly
-deferred; `trusted-time-stop` remains hard closed.
+This implementation completes a contract milestone, not an activation gate.
+The complete local integration regression, independent read-only review of the
+stabilized source/configuration tree, and reconciled architecture/native/
+production source seals are complete on the current unpromoted integration
+tree. This closes Wave 6 local implementation evidence only and claims neither
+promotion nor remote CI. ADR 0121 milestone two and later milestones remain wholly
+deferred: there is no real endpoint/signer/private-key owner, credential
+provisioning, production root, real Docker transport or effect, bootstrap or
+production caller, deployment, promotion, stop effect, or operational
+authority. `trusted-time-stop` remains hard closed.
 
 The ADR-0111 static freeze includes a mandatory raw-byte manifest for every
 regular Python source below the exact `apps`, `packages`, `scripts`, and
@@ -4525,17 +4542,21 @@ unavailable before any watchdog consumer is designed or qualified. See
   generation-pinned, one-use, classification-only recovery that cannot reach
   transport or Docker mutation. Every post-reservation CALL/STORE ambiguity is
   recovery-required without automatic retry. The design choices are closed.
-  ADR 0124 now implements only a partial, unreachable milestone-one core:
-  independent canonical v2 types/codecs, a process/thread-bound injected
-  repository with no default or physical store, a separately guarded dormant
-  ADR-0112 v2 handoff, and test-only transport and ordered Docker/effect fakes.
-  It can commit only injected recovery-required outcomes and cannot authenticate
-  retained terminal wire after restart or publish confirmed success. Real
-  manifests/keys/boot/process/socket resources, cryptographic transport,
-  descriptor-safe persistence, complete nested effect schemas, Docker HTTP
-  adapters/effects, both live reauthentication bindings, recovery signer,
-  production bootstrap/caller/deployment, promotion, and authority remain open;
-  the stop target continues to exit 2.
+  ADR 0124 records the historical partial core. ADR 0125 completes milestone one
+  as an unreachable injected implementation: canonical authority/selection,
+  boot/process/peer/socket and handshake/channel values; verifier-owned Ed25519
+  transport and retained-wire authentication; complete terminal and Docker HTTP
+  evidence; a byte-level test daemon; a descriptor-safe injected physical store;
+  the exact named lifecycle through terminal cleanup ordinal 22 and confirmed-
+  success ordinal 23; complete canonical ADR-0109 binding evidence at ordinals
+  6 and 20; and authenticated, one-use, classification-only recovery. The
+  architecture/source seals, complete integration regression, and independent
+  read-only review are complete as Wave 6 local implementation-closure evidence
+  on the current unpromoted integration tree. The implementation has
+  no real endpoint, signer/private-key owner, credential provisioning,
+  production root, real Docker transport/effect, production bootstrap/caller,
+  deployment, promotion, stop authority, or operational authority; the stop
+  target continues to exit 2.
   Claim persistence now uses one globally single-use fixed slot and rejects any
   current or legacy per-operation claim. An import-only coordinator checks the
   exact enrollment evidence before reauthentication and before and after claim
@@ -4694,13 +4715,18 @@ unavailable before any watchdog consumer is designed or qualified. See
 
 ### Exit gate for paper-trading MVP
 
-Status: **open**. ADR 0124's unreachable injected lifecycle-v2 core is local
-implementation evidence for only part of ADR 0121 milestone one. It provides no
-real authority/key/boot/process/socket resources, authenticated transport,
-physical persistence, Docker effect, confirmed-success or authenticated
-recovery path, production caller/bootstrap, deployed shutdown, or promotion
-evidence. `trusted-time-stop` remains the exact exit-2 no-effect target, and the
-partial core satisfies none of the deployment or operational outcomes below.
+Status: **open**. ADR 0125 completes ADR 0121 milestone one only as an
+unreachable injected implementation. It proves the canonical authenticated
+contracts, injected physical publication, exact ordinal-23 success sequencing,
+and classification-only recovery, but supplies no native endpoint or signer
+owner, private-key custody/provisioning, production root, real Docker transport
+or effect, production caller/bootstrap, deployed shutdown, operational drill,
+or promotion authority. Wave 6 source-seal reconciliation, the complete local
+regression, and independent read-only review are complete on the current
+unpromoted integration tree; this is no claim of promotion or remote CI.
+`trusted-time-stop` remains the
+exact exit-2 no-effect target, and milestone-one contract evidence satisfies
+none of the deployment or operational outcomes below.
 
 - A fresh environment deploys from immutable artifacts without manual database
   edits; restore and recovery objectives are demonstrated.
@@ -4868,11 +4894,11 @@ Every change includes:
 16. Advanced breakers, alerts, operations UI, deployment, backups, and
     runbooks. **Local risk/control, supervised-strategy, provider-neutral alert,
     tracing, authenticated operations, read-only dashboard, and control-runbook
-    slices and atomic admission verification are locally implemented. ADR 0124
-    adds only a partial injected trusted-time lifecycle-v2 milestone-one core;
-    real resources, persistence, effects, bootstrap/deployment, promotion,
-    approved external routes/exporters, authoritative composition, drills,
-    backups, and broader runbooks remain.**
+    slices and atomic admission verification are locally implemented. ADR 0125
+    completes the unreachable injected trusted-time lifecycle-v2 milestone-one
+    contracts; native owners, production roots/transports/effects,
+    bootstrap/deployment, promotion, approved external routes/exporters,
+    authoritative composition, drills, backups, and broader runbooks remain.**
 
 ## Decisions required before Phase 1
 

@@ -285,10 +285,18 @@ choice is recorded in a new ADR that supersedes the earlier decision.
   session-head commit, account binding, broker action, or trading authority is
   added)
 - [ADR 0124: Partial trusted-time lifecycle-v2 milestone-one core](0124-trusted-time-lifecycle-v2-milestone-one.md)
-  (implements an unreachable partial ADR-0121 core with independent v2 types and
-  codecs, an injected repository, an additive ADR-0112 admission seam, fake-only
-  transport/Docker ports, and fault tests; milestone one remains incomplete and
-  adds no real artifact root, authenticated production transport, Docker effect,
-  recovery signer, production caller, stop effect, or authority)
+  (historically records Wave 5's unreachable partial ADR-0121 core with
+  independent v2 types and codecs, an injected repository, an additive ADR-0112
+  admission seam, fake-only transport/Docker ports, and initial fault tests;
+  ADR 0125 supersedes its current-status and deferred-work lists)
+- [ADR 0125: Complete injected trusted-time lifecycle-v2 milestone one](0125-complete-injected-trusted-time-lifecycle-v2-milestone-one.md)
+  (completes ADR-0121 milestone one as an unreachable injected implementation:
+  authenticated authority/channel/wire contracts, complete terminal and Docker
+  HTTP evidence, a byte-level fake daemon, descriptor-safe injected storage,
+  full ordinal-6/20 ADR-0109 evidence, exact lifecycle sequencing through
+  confirmed-success ordinal 23, and authenticated classification-only recovery;
+  it adds no real endpoint, signer/private-key owner, production root, Docker
+  transport/effect, runtime caller, deployment, stop authority, or change to the
+  exit-2 target)
 
 Related normative baseline: [Operational budgets](../OPERATIONAL_BUDGETS.md).

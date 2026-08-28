@@ -1,14 +1,15 @@
 # ADR 0124: Partial trusted-time lifecycle-v2 milestone-one core
 
-- Status: Accepted for an unreachable, injected, partial milestone-one core;
-  ADR 0121 milestone one is not complete and no production caller, real
-  artifact root, authenticated production transport, Docker effect, recovery
-  signer, stop effect, or operational authority exists
+- Status: Accepted as the historical record of the unreachable, injected,
+  partial Wave 5 core; ADR 0125 supersedes this ADR's current milestone-one
+  status and deferred-work list
 - Date: 2026-08-26
 - Implements part of:
   [ADR 0121](0121-trusted-time-graceful-stop-lifecycle-v2-implementation-resolution.md)
 - Preserves:
   [ADR 0112](0112-durable-graceful-stop-decision-artifact-receipt-reauthentication.md)
+- Current implementation record:
+  [ADR 0125](0125-complete-injected-trusted-time-lifecycle-v2-milestone-one.md)
 
 ## Context
 
@@ -27,8 +28,10 @@ must reject v1/v2 mixing, and must turn every ambiguous store or fake call into
 a burned normal path. This decision records the bounded core now implemented
 and, equally importantly, the milestone-one work that remains deferred.
 
-This ADR is an implementation record, not an amendment to ADR 0121. ADR 0121
-remains normative wherever this partial core is incomplete.
+This ADR is a historical implementation record, not an amendment to ADR 0121.
+ADR 0125 records the later completion of the injected milestone-one boundary
+and supersedes the present-tense status and deferred-work list below. ADR 0121
+remains the normative protocol and rollout decision.
 
 ## Decision
 
@@ -234,10 +237,12 @@ The unchanged ADR-0112 and ADR-0110 lifecycle suites remain required focused
 compatibility gates because this slice edits the former and shares the latter's
 fixed root name.
 
-## Explicitly deferred ADR-0121 milestone-one work
+## Historically deferred ADR-0121 milestone-one work
 
-This ADR does not declare ADR-0121 milestone one complete. The following work
-is still required before that claim is accurate:
+At the Wave 5 revision recorded by this ADR, milestone one was not complete and
+the following work was still required. ADR 0125 implements this list and
+supersedes it as the current roadmap; the list remains here to preserve the
+review history of the partial slice:
 
 - exact canonical authority manifest and selection types, signatures,
   predecessor-chain selection, `new_roots_denied`, and recovery-generation
@@ -285,7 +290,7 @@ is still required before that claim is accurate:
   including reviewed imports/private callsites and the updated production
   source-manifest digest.
 
-Milestone two remains wholly deferred: native endpoint and signer owners,
+Milestone two remains deferred after ADR 0125: native endpoint and signer owners,
 fork guard, fixed launch profiles, encrypted credential provisioning, tmpfs
 mount and key admission, socket endpoint admission, seccomp, real Docker Unix
 transport, and every real-root path. Milestones three and four remain wholly

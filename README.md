@@ -150,10 +150,26 @@ environment-specific adapters and operational gates added around it.
 | Status | Scope |
 |---|---|
 | **Working locally** | Synthetic SPY ingestion/cataloging; a separate golden backtest with risk, simulated execution, settlement, corporate actions, and balanced-ledger accounting; durable jobs, reports, and browser views |
-| **Bounded foundations** | Feature/target parity, read-only experiment governance, and governed fixed-child exact-decimal fixture economics; account fencing, ambiguous-submission handling, and historical Alpaca raw-first recovery/reconciliation evidence; the E\*TRADE endpoint/request/signing, sanitized OAuth journal, and injected token-runtime prerequisite; operational controls, alerts, tracing, and an unreachable partial trusted-time lifecycle-v2 core |
+| **Bounded foundations** | Feature/target parity, read-only experiment governance, and governed fixed-child exact-decimal fixture economics; account fencing, ambiguous-submission handling, and historical Alpaca raw-first recovery/reconciliation evidence; the E\*TRADE endpoint/request/signing, sanitized OAuth journal, and injected token-runtime prerequisite; operational controls, alerts, tracing, and the complete unreachable/injected ADR-0121 lifecycle-v2 milestone-one implementation |
 | **Disabled** | Admitted production data, an enabled broker loop, paper/live order authority, and automatic re-arm |
 
 The bounded foundations are locally tested but intentionally non-authorizing.
+Wave 6 completes ADR 0121 milestone one in unreachable injected code: canonical
+authority/channel and signed-wire contracts, complete terminal and Docker HTTP
+evidence, descriptor-safe injected storage, exact lifecycle sequencing through
+confirmed success, full pre-effect/post-teardown ADR-0109 evidence, and
+classification-only recovery. Final branch-wide regression and source-seal
+reconciliation, including independent read-only review, are complete on the
+current unpromoted local integration tree. The full backend regression reports
+12,301 passed and 1,097 skipped; frontend lint, typecheck, 67 Vitest tests, 33
+bundle-policy tests, and the production build pass; and native Python 3.12/3.13
+packaging parity reports 142 passed with 36 expected skips. This closes Wave 6
+local implementation evidence only and claims neither promotion nor remote CI.
+ADR 0121 milestone two is next;
+there is still no real endpoint, signer/private-key owner, production root,
+Docker transport/effect, runtime caller, deployment, or stop authority.
+`make trusted-time-stop` remains an exact exit-2 hard close, and the trader
+remains `not_ready`.
 
 ## Project structure
 
