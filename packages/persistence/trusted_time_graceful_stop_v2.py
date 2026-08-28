@@ -6,6 +6,7 @@ authority remains behind an explicitly injected, descriptor-safe store.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import threading
@@ -13,7 +14,8 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol, cast
+from types import CodeType
+from typing import Any, Protocol, cast
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_ROOT_FILE_NAME,
@@ -496,17 +498,24 @@ class _LifecycleV2Repository:
         "_closed",
         "_commit",
         "_commit_staging",
+        "_consume_recovery_intent",
+        "_consume_success_lineage",
+        "_consume_success_snapshot",
         "_opened_with_existing_root",
+        "_origin_current_thread",
+        "_origin_getpid",
         "_origin_pid",
         "_origin_thread",
         "_outcome",
         "_poisoned",
         "_records",
+        "_require_recovery_intent",
         "_retained_wire_verifier",
         "_root",
         "_store",
         "_store_disposed",
         "_store_identity",
+        "_success_snapshot_type",
         "_wire",
     )
 
@@ -516,11 +525,25 @@ class _LifecycleV2Repository:
         *,
         artifact_directory_path: str | None,
         retained_wire_verifier: LifecycleV2RetainedWireVerifier | None,
+        _origin_getpid: Callable[[], int],
+        _origin_current_thread: Callable[[], threading.Thread],
+        _require_recovery_intent: Callable[[object], object],
+        _consume_recovery_intent: Callable[[object], object],
+        _consume_success_lineage: Callable[[object], object],
+        _consume_success_snapshot: Callable[[object], object],
+        _success_snapshot_type: type[object],
     ) -> None:
         self._store = store
         self._retained_wire_verifier = retained_wire_verifier
-        self._origin_pid = os.getpid()
-        self._origin_thread = threading.current_thread()
+        self._origin_getpid = _origin_getpid
+        self._origin_current_thread = _origin_current_thread
+        self._origin_pid = _origin_getpid()
+        self._origin_thread = _origin_current_thread()
+        self._require_recovery_intent = _require_recovery_intent
+        self._consume_recovery_intent = _consume_recovery_intent
+        self._consume_success_lineage = _consume_success_lineage
+        self._consume_success_snapshot = _consume_success_snapshot
+        self._success_snapshot_type = _success_snapshot_type
         self._poisoned = False
         self._closed = False
         self._store_disposed = False
@@ -550,7 +573,10 @@ class _LifecycleV2Repository:
         self._load_namespace()
 
     def _require_origin(self) -> None:
-        if os.getpid() != self._origin_pid or threading.current_thread() is not self._origin_thread:
+        if (
+            self._origin_getpid() != self._origin_pid
+            or self._origin_current_thread() is not self._origin_thread
+        ):
             raise LifecycleV2RetentionUnconfirmed("repository process or thread owner is invalid")
 
     def _require_store_binding(self) -> None:
@@ -1158,6 +1184,30 @@ class _LifecycleV2Repository:
             return
         if record.stage is not expected:
             raise LifecycleV2RepositoryRejected("normal lifecycle stage is out of order")
+        if record.stage in {
+            LifecycleV2Stage.TERMINAL_CLEANUP_INTENT_RETAINED,
+            LifecycleV2Stage.TERMINAL_CLEANUP_CONFIRMED,
+        }:
+            if self._root is None or len(exact_records) < 12:
+                raise LifecycleV2RepositoryRejected(
+                    "terminal cleanup lacks its exact retained prefix"
+                )
+            evidence = record.evidence.to_dict()
+            if (
+                evidence["transport_quiescence_record_sha256"]
+                != exact_records[3].sha256
+                or evidence["supervisor_remove_result_sha256"]
+                != exact_records[11].sha256
+                or (
+                    record.stage
+                    is LifecycleV2Stage.TERMINAL_CLEANUP_INTENT_RETAINED
+                    and evidence["cleanup_deadline_boottime_ns"]
+                    != self._root.operation_deadline_boottime_ns
+                )
+            ):
+                raise LifecycleV2RepositoryRejected(
+                    "terminal cleanup crossed its exact retained prefix"
+                )
 
     def _require_record_binding(self, record: LifecycleV2ProgressRecord) -> None:
         if type(record) is not LifecycleV2ProgressRecord or self._root is None:
@@ -1327,11 +1377,16 @@ class _LifecycleV2Repository:
     ) -> LifecycleV2ProgressRecord:
         self._require_owner()
         try:
-            exact_intent = require_authenticated_lifecycle_v2_recovery_intent(authenticated_intent)
+            exact_intent_value = self._require_recovery_intent(authenticated_intent)
         except TrustedTimeGracefulStopV2Rejected as error:
             raise LifecycleV2RepositoryRejected(
                 "recovery classification intent is not authenticated"
             ) from error
+        if type(exact_intent_value) is not LifecycleV2AuthenticatedRecoveryIntent:
+            raise LifecycleV2RepositoryRejected(
+                "recovery classification intent type is not exact"
+            )
+        exact_intent = exact_intent_value
         record = exact_intent.record
         if record.stage is not LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED:
             raise LifecycleV2RepositoryRejected("recovery-classification stage is wrong")
@@ -1361,13 +1416,18 @@ class _LifecycleV2Repository:
                 "classified transcript retention is unconfirmed"
             ) from None
         try:
-            consumed_intent = consume_authenticated_lifecycle_v2_recovery_intent(
+            consumed_intent_value = self._consume_recovery_intent(
                 authenticated_intent
             )
         except TrustedTimeGracefulStopV2Rejected as error:
             raise LifecycleV2RepositoryRejected(
                 "recovery classification intent is invalid or already consumed"
             ) from error
+        if type(consumed_intent_value) is not LifecycleV2AuthenticatedRecoveryIntent:
+            raise LifecycleV2RepositoryRejected(
+                "consumed recovery classification intent type is not exact"
+            )
+        consumed_intent = consumed_intent_value
         if consumed_intent is not exact_intent or consumed_intent.record != record:
             raise LifecycleV2RepositoryRejected(
                 "recovery classification intent changed before retention"
@@ -1675,14 +1735,18 @@ class _LifecycleV2Repository:
                 "confirmed success requires one live newly reserved root"
             )
         try:
-            snapshot = consume_exact_lifecycle_v2_confirmed_success_lineage(lineage)
+            snapshot_value = self._consume_success_lineage(lineage)
         except (AttributeError, TypeError, TrustedTimeLifecycleV2SemanticsRejected) as error:
             raise LifecycleV2RepositoryRejected(
                 "confirmed success requires one sealed exact ordinal-22 lineage"
             ) from error
+        if type(snapshot_value) is not self._success_snapshot_type:
+            raise LifecycleV2RepositoryRejected(
+                "confirmed success requires one exact lineage snapshot type"
+            )
+        snapshot = cast(Any, snapshot_value)
         if (
-            type(snapshot) is not LifecycleV2ConfirmedSuccessLineageSnapshot
-            or snapshot.root != self._root
+            snapshot.root != self._root
             or snapshot.root_encoded != self._root.encoded
             or snapshot.lineage_provenance != "authenticated_injected_lineage"
             or len(self._records) != 22
@@ -1758,7 +1822,7 @@ class _LifecycleV2Repository:
         )
         try:
             if (
-                consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository(snapshot)
+                self._consume_success_snapshot(snapshot)
                 is not snapshot
             ):
                 raise TrustedTimeLifecycleV2SemanticsRejected(
@@ -1884,6 +1948,10 @@ class _LifecycleV2Repository:
 def _build_named_lifecycle_v2_retention_endpoints() -> tuple[Callable[..., None], ...]:
     """Keep the shared append primitive unreachable behind exact named stages."""
 
+    require_fake_authenticated_envelope = (
+        _require_fake_authenticated_lifecycle_v2_transport_envelope  # noqa: F821
+    )
+
     def retain_record(
         repository: _LifecycleV2Repository,
         record: LifecycleV2ProgressRecord,
@@ -1975,7 +2043,11 @@ def _build_named_lifecycle_v2_retention_endpoints() -> tuple[Callable[..., None]
         try:
             if repository._root is None:
                 raise LifecycleV2RepositoryRejected("progress requires a lifecycle root")
-            envelope = _require_fake_authenticated_lifecycle_v2_transport_envelope(
+            if repository._root.environment != "test":
+                raise LifecycleV2RepositoryRejected(
+                    "fake-authenticated wire retention is confined to test roots"
+                )
+            envelope = require_fake_authenticated_envelope(
                 authenticated_envelope,
                 root=repository._root,
             )
@@ -2119,19 +2191,157 @@ def _build_named_lifecycle_v2_retention_endpoints() -> tuple[Callable[..., None]
 del _build_named_lifecycle_v2_retention_endpoints
 
 
-def _open_injected_lifecycle_v2_repository(
-    store: LifecycleV2ArtifactStore,
-    *,
-    artifact_directory_path: str | None = None,
-    retained_wire_verifier: LifecycleV2RetainedWireVerifier | None = None,
-) -> _LifecycleV2Repository:
-    """Test-only builder; deliberately private and without a default root."""
+def _build_injected_lifecycle_v2_repository_factory() -> Callable[
+    ...,
+    _LifecycleV2Repository,
+]:
+    """Capture every authority-bearing validator before issuing repositories."""
 
-    return _LifecycleV2Repository(
-        store,
-        artifact_directory_path=artifact_directory_path,
-        retained_wire_verifier=retained_wire_verifier,
+    repository_type = _LifecycleV2Repository
+    origin_getpid = os.getpid
+    origin_current_thread = threading.current_thread
+    require_recovery_intent = (
+        require_authenticated_lifecycle_v2_recovery_intent  # noqa: F821
     )
+    consume_recovery_intent = (
+        consume_authenticated_lifecycle_v2_recovery_intent  # noqa: F821
+    )
+    consume_success_lineage = (
+        consume_exact_lifecycle_v2_confirmed_success_lineage  # noqa: F821
+    )
+    consume_success_snapshot = (
+        consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository  # noqa: F821
+    )
+    success_snapshot_type = LifecycleV2ConfirmedSuccessLineageSnapshot  # noqa: F821
+    import_module = importlib.import_module
+    exact_getattr = getattr
+    exact_realpath = os.path.realpath
+    lifecycle_module_name = (
+        "packages.domain.trusted_time_graceful_stop_v2_lifecycle_semantics"
+    )
+    recovery_module_name = "packages.domain.trusted_time_graceful_stop_v2_recovery"
+    lifecycle_source = os.path.realpath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "domain",
+            "trusted_time_graceful_stop_v2_lifecycle_semantics.py",
+        )
+    )
+    recovery_source = os.path.realpath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "domain",
+            "trusted_time_graceful_stop_v2_recovery.py",
+        )
+    )
+
+    endpoint_specs = (
+        (
+            consume_success_lineage,
+            lifecycle_module_name,
+            lifecycle_source,
+            "consume_confirmed_success",
+            "_install_lifecycle_v2_runtime_seals.<locals>.consume_confirmed_success",
+            (
+                "finalized_authorizations",
+                "registry_consume_action",
+                "registry_seal",
+                "validate_lineage_records",
+            ),
+        ),
+        (
+            consume_success_snapshot,
+            lifecycle_module_name,
+            lifecycle_source,
+            "consume_confirmed_success_snapshot_for_repository",
+            (
+                "_install_lifecycle_v2_runtime_seals.<locals>."
+                "consume_confirmed_success_snapshot_for_repository"
+            ),
+            ("registry_consume",),
+        ),
+        (
+            require_recovery_intent,
+            recovery_module_name,
+            recovery_source,
+            "require",
+            "_lifecycle_v2_recovery_intent_issuance_registry.<locals>.require",
+            ("lookup", "validate_issuance"),
+        ),
+        (
+            consume_recovery_intent,
+            recovery_module_name,
+            recovery_source,
+            "consume",
+            "_lifecycle_v2_recovery_intent_issuance_registry.<locals>.consume",
+            ("lookup", "validate_issuance"),
+        ),
+    )
+    for endpoint, module_name, source, code_name, code_qualname, freevars in endpoint_specs:
+        module = import_module(module_name)
+        module_globals = exact_getattr(module, "__dict__", None)
+        module_spec = exact_getattr(module, "__spec__", None)
+        endpoint_code = exact_getattr(endpoint, "__code__", None)
+        if (
+            exact_getattr(module, "__name__", None) != module_name
+            or exact_realpath(exact_getattr(module, "__file__", "")) != source
+            or exact_getattr(module_spec, "name", None) != module_name
+            or exact_realpath(exact_getattr(module_spec, "origin", "")) != source
+            or exact_getattr(endpoint, "__globals__", None) is not module_globals
+            or exact_getattr(endpoint, "__module__", None) != module_name
+            or type(endpoint_code) is not CodeType
+            or exact_realpath(endpoint_code.co_filename) != source
+            or endpoint_code.co_name != code_name
+            or endpoint_code.co_qualname != code_qualname
+            or endpoint_code.co_freevars != freevars
+        ):
+            raise LifecycleV2RepositoryRejected(
+                "repository authority endpoint provenance is invalid"
+            )
+    if (
+        type(success_snapshot_type) is not type
+        or success_snapshot_type.__module__ != lifecycle_module_name
+        or success_snapshot_type.__qualname__
+        != "LifecycleV2ConfirmedSuccessLineageSnapshot"
+    ):
+        raise LifecycleV2RepositoryRejected(
+            "repository success snapshot provenance is invalid"
+        )
+
+    def open_injected_repository(
+        store: LifecycleV2ArtifactStore,
+        *,
+        artifact_directory_path: str | None = None,
+        retained_wire_verifier: LifecycleV2RetainedWireVerifier | None = None,
+    ) -> _LifecycleV2Repository:
+        return repository_type(
+            store,
+            artifact_directory_path=artifact_directory_path,
+            retained_wire_verifier=retained_wire_verifier,
+            _origin_getpid=origin_getpid,
+            _origin_current_thread=origin_current_thread,
+            _require_recovery_intent=require_recovery_intent,
+            _consume_recovery_intent=consume_recovery_intent,
+            _consume_success_lineage=consume_success_lineage,
+            _consume_success_snapshot=consume_success_snapshot,
+            _success_snapshot_type=success_snapshot_type,
+        )
+
+    return open_injected_repository
+
+
+_open_injected_lifecycle_v2_repository = (
+    _build_injected_lifecycle_v2_repository_factory()
+)
+del _build_injected_lifecycle_v2_repository_factory
+del consume_exact_lifecycle_v2_confirmed_success_lineage
+del consume_exact_lifecycle_v2_confirmed_success_snapshot_for_repository
+del require_authenticated_lifecycle_v2_recovery_intent
+del consume_authenticated_lifecycle_v2_recovery_intent
+del LifecycleV2ConfirmedSuccessLineageSnapshot
+del _require_fake_authenticated_lifecycle_v2_transport_envelope
 
 
 def lifecycle_v2_repository_non_authority_facts() -> dict[str, bool]:

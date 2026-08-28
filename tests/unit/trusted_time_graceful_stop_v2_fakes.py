@@ -399,6 +399,8 @@ class FakeLifecycleV2RetainedWireVerifier:
         self.calls.append(
             (envelope, root, request_intent, terminal_record, artifact_directory_path)
         )
+        if root.environment != "test":
+            raise ValueError("fake retained-wire verification is confined to test roots")
         if self.reject:
             raise ValueError("injected signature rejection")
         if self.invalid_return:
