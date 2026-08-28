@@ -1,0 +1,40 @@
+{
+  "archive": {
+    "name": "monocypher-4.0.3.tar.gz",
+    "sha512": "40904ada5c7ee4f7741733e38b69a30a4b0561cbffba5ffe7c2dce16136d540251ec0d9056ff606510d3b5b708fb8a40db7e0870d4a0b2dc17ba2bfb880f8965",
+    "url": "https://monocypher.org/download/monocypher-4.0.3.tar.gz"
+  },
+  "commit": "ab2b16dd619ad5f6979a4fbe69cfa324a6fcc35f",
+  "files": [
+    {
+      "path": "LICENCE.md",
+      "sha256": "5f8360e4c06ddcc584bdb4b210c6af824c4bb301e6a9a521869b6d90795ca4b3",
+      "size": 9085
+    },
+    {
+      "path": "src/monocypher.c",
+      "sha256": "57eb914fc88136119bd41655cccb8c250048bf54d470540625186f8ab16f64be",
+      "size": 102580
+    },
+    {
+      "path": "src/monocypher.h",
+      "sha256": "c494da712122da7ff679fdcf318a5317e84972b6c950fe9d896212947797facd",
+      "size": 12175
+    },
+    {
+      "path": "src/optional/monocypher-ed25519.c",
+      "sha256": "60fce3578fb00b00da96490653d993c4cb427b1e1be38183285c66e04d22cc18",
+      "size": 16524
+    },
+    {
+      "path": "src/optional/monocypher-ed25519.h",
+      "sha256": "abc4fad381879f5c29176ebe014b9189956b3dfe0a3e36459b6990bc57212380",
+      "size": 5449
+    }
+  ],
+  "license_expression": "BSD-2-Clause OR CC0-1.0",
+  "patches": [],
+  "schema": "autoquant-vendored-native-source-v1",
+  "tag": "4.0.3",
+  "upstream": "https://github.com/LoupVaillant/Monocypher"
+}
