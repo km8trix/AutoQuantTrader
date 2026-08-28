@@ -1,0 +1,19 @@
+[Unit]
+Description=AutoQuant trusted-time graceful-stop v2 host endpoint candidate
+Documentation=docs/adr/0121-trusted-time-graceful-stop-lifecycle-v2-implementation-resolution.md
+Requires=run-autoquant-trusted\x2dtime-graceful\x2dstop\x2dv2-transport.mount run-autoquant-trusted\x2dtime-graceful\x2dstop\x2dv2-host\x2dsecrets.mount autoquant-trusted-time-graceful-stop-v2-host-provision.service
+After=run-autoquant-trusted\x2dtime-graceful\x2dstop\x2dv2-transport.mount run-autoquant-trusted\x2dtime-graceful\x2dstop\x2dv2-host\x2dsecrets.mount autoquant-trusted-time-graceful-stop-v2-host-provision.service
+Conflicts=autoquant-trusted-time-graceful-stop-v2-recovery.service run-autoquant-trusted\x2dtime-graceful\x2dstop\x2dv2-recovery\x2dsecrets.mount
+ConditionPathIsMountPoint=!/run/autoquant/trusted-time/graceful-stop-v2/recovery-secrets
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0177
+ExecStart=/opt/autoquant/trusted-time-graceful-stop-v2-host/bin/autoquant-trusted-time-graceful-stop-v2-host
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/run/autoquant/trusted-time/graceful-stop-v2/transport /run/autoquant/trusted-time/graceful-stop-v2/host-secrets

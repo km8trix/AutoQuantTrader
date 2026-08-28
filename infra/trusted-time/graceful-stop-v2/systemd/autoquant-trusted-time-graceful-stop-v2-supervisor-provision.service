@@ -1,0 +1,20 @@
+[Unit]
+Description=AutoQuant trusted-time graceful-stop v2 supervisor credential provisioner candidate
+Documentation=docs/adr/0121-trusted-time-graceful-stop-lifecycle-v2-implementation-resolution.md
+Requires=run-autoquant-trusted\x2dtime-graceful\x2dstop\x2dv2-supervisor\x2dsecrets.mount
+After=run-autoquant-trusted\x2dtime-graceful\x2dstop\x2dv2-supervisor\x2dsecrets.mount
+Before=autoquant-trusted-time-graceful-stop-v2-supervisor.service
+Conflicts=autoquant-trusted-time-graceful-stop-v2-recovery.service
+ConditionPathIsMountPoint=!/run/autoquant/trusted-time/graceful-stop-v2/recovery-secrets
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/opt/autoquant/trusted-time-graceful-stop-v2-provision/bin/autoquant-trusted-time-graceful-stop-v2-supervisor-provision
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/run/autoquant/trusted-time/graceful-stop-v2/supervisor-secrets
