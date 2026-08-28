@@ -89,6 +89,10 @@ def _role_definition(role: str) -> str:
     return f"-DAQT_TRUSTED_TIME_V2_SIGNER_{role.upper()}_PROFILE"
 
 
+def _provisioner_role_definition(role: str) -> str:
+    return f"-DAQT_TRUSTED_TIME_V2_{role.upper()}_PROVISIONER_PROFILE"
+
+
 @pytest.fixture(scope="module")
 def compiled_native_lane(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     build_directory = tmp_path_factory.mktemp("trusted-time-v2-native")
@@ -102,8 +106,10 @@ def compiled_native_lane(tmp_path_factory: pytest.TempPathFactory) -> dict[str, 
             _role_definition(role),
             "-DAQT_TRUSTED_TIME_V2_SIGNER_TEST_PROFILE",
             "-DAQT_TRUSTED_TIME_V2_SIGNER_TESTING",
+            "-DAQT_TRUSTED_TIME_V2_SECRET_MOUNT_ADMISSION_TESTING",
             "-DAQT_TRUSTED_TIME_V2_FORK_GUARD_TESTING",
             str(NATIVE / "trusted_time_v2_fork_guard.c"),
+            str(NATIVE / "trusted_time_v2_secret_mount_admission.c"),
             str(NATIVE / "trusted_time_graceful_stop_v2_signer.c"),
             str(HARNESS),
             str(VENDOR / "src" / "monocypher.c"),
@@ -131,6 +137,46 @@ def compiled_native_lane(tmp_path_factory: pytest.TempPathFactory) -> dict[str, 
             capture_output=True,
         )
         outputs[f"{role}-object"] = signer_object
+
+        mount_object = build_directory / f"{role}-secret-mount.o"
+        subprocess.run(
+            [
+                compiler,
+                *_strict_flags(),
+                _role_definition(role),
+                "-c",
+                str(NATIVE / "trusted_time_v2_secret_mount_admission.c"),
+                "-o",
+                str(mount_object),
+            ],
+            cwd=ROOT,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        outputs[f"{role}-secret-mount-object"] = mount_object
+
+        provisioner_mount_object = (
+            build_directory / f"{role}-provisioner-secret-mount.o"
+        )
+        subprocess.run(
+            [
+                compiler,
+                *_strict_flags(),
+                _provisioner_role_definition(role),
+                "-c",
+                str(NATIVE / "trusted_time_v2_secret_mount_admission.c"),
+                "-o",
+                str(provisioner_mount_object),
+            ],
+            cwd=ROOT,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        outputs[f"{role}-provisioner-secret-mount-object"] = (
+            provisioner_mount_object
+        )
     return outputs
 
 
@@ -180,6 +226,41 @@ def test_rfc8032_basic_vectors(compiled_native_lane: dict[str, Path]) -> None:
 def test_role_signer_lifecycle(compiled_native_lane: dict[str, Path], role: str) -> None:
     subprocess.run(
         [compiled_native_lane[role], "signer"],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.parametrize("role", tuple(ROLE_METHODS))
+def test_role_secret_mountinfo_is_exact(
+    compiled_native_lane: dict[str, Path], role: str
+) -> None:
+    subprocess.run(
+        [compiled_native_lane[role], "secret-mountinfo"],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "mode",
+    (
+        "signer-metadata-drift",
+        "signer-key-reappearance",
+        "signer-credential-close-fault",
+        "signer-directory-close-fault",
+        "signer-seed-read-race",
+    ),
+)
+def test_signer_resource_drift_and_close_faults(
+    compiled_native_lane: dict[str, Path], mode: str
+) -> None:
+    subprocess.run(
+        [compiled_native_lane["host"], mode],
         cwd=ROOT,
         check=True,
         text=True,
@@ -310,6 +391,117 @@ def test_production_role_object_has_closed_symbol_surface(
             for literal in credential_literals:
                 assert (literal in literals) is (candidate_role == role)
         assert "credential.raw" not in literals
+
+
+@pytest.mark.parametrize("role", tuple(ROLE_METHODS))
+def test_secret_mount_admission_has_one_private_fixed_role_surface(
+    compiled_native_lane: dict[str, Path], role: str
+) -> None:
+    signer_source = (NATIVE / "trusted_time_graceful_stop_v2_signer.c").read_text(
+        encoding="utf-8"
+    )
+    mount_source = (NATIVE / "trusted_time_v2_secret_mount_admission.c").read_text(
+        encoding="utf-8"
+    )
+    mount_header = (NATIVE / "trusted_time_v2_secret_mount_admission.h").read_text(
+        encoding="utf-8"
+    )
+    assert '#include "trusted_time_v2_secret_mount_admission.h"' in signer_source
+    assert "mountinfo" not in signer_source
+    assert "aqt_signer_parse_mountinfo" not in signer_source
+    assert mount_source.count("static int\naqt_secret_parse_mountinfo(") == 1
+    assert "const char *path" not in mount_header
+    assert "const char *options" not in mount_header
+
+    nm = shutil.which("nm")
+    if not nm:
+        pytest.skip("nm is required for the native symbol audit")
+    output = subprocess.run(
+        [nm, "-g", compiled_native_lane[f"{role}-secret-mount-object"]],
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout
+    for method in (
+        "aqt_trusted_time_v2_secret_mount_admission_capture",
+        "aqt_trusted_time_v2_secret_mount_admission_revalidate",
+        "aqt_trusted_time_v2_secret_mount_admission_close",
+    ):
+        assert method in output
+    assert "aqt_trusted_time_v2_secret_mount_admission_test_" not in output
+
+    strings = shutil.which("strings")
+    if strings:
+        literals = subprocess.run(
+            [strings, compiled_native_lane[f"{role}-secret-mount-object"]],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
+        for candidate_role, credential_literals in ROLE_CREDENTIALS.items():
+            mountpoint = credential_literals[0]
+            assert (mountpoint in literals) is (candidate_role == role)
+
+
+def test_production_custody_uses_literal_correlation_and_two_admissions() -> None:
+    signer_source = (NATIVE / "trusted_time_graceful_stop_v2_signer.c").read_text(
+        encoding="utf-8"
+    )
+    mount_source = (NATIVE / "trusted_time_v2_secret_mount_admission.c").read_text(
+        encoding="utf-8"
+    )
+    assert "descriptor_metadata_before.st_dev != directory_metadata.st_dev" in (
+        signer_source
+    )
+    assert "secret->verification_seed" in signer_source
+    assert "index == 0U ? UINT64_C(1) : UINT64_C(2)" in signer_source
+    assert "index == 0U ? UINT64_C(1) : UINT64_C(2)" in mount_source
+
+    internal_start = signer_source.index("aqt_signer_owner_open_guarded_internal(")
+    internal_end = signer_source.index(
+        "#ifdef AQT_TRUSTED_TIME_V2_SIGNER_TEST_PROFILE",
+        internal_start,
+    )
+    internal = signer_source[internal_start:internal_end]
+    pre_revalidate = internal.index(
+        "aqt_trusted_time_v2_secret_mount_admission_revalidate("
+    )
+    unlink = internal.index("unlinkat(", pre_revalidate)
+    pre_close = internal.index(
+        "aqt_trusted_time_v2_secret_mount_admission_close(", unlink
+    )
+    post_capture = internal.index(
+        "aqt_trusted_time_v2_secret_mount_admission_capture(", pre_close
+    )
+    assert pre_revalidate < unlink < pre_close < post_capture
+
+    production_start = signer_source.index(
+        "aqt_trusted_time_v2_signer_owner_open("
+    )
+    production = signer_source[production_start:]
+    assert production.index(
+        "aqt_trusted_time_v2_secret_mount_admission_capture("
+    ) < production.index("aqt_signer_open_correlated_child(")
+
+    validation_start = mount_source.index("aqt_secret_validate_directory(")
+    validation_end = mount_source.index("\n}\n#endif", validation_start)
+    validation = mount_source[validation_start:validation_end]
+    assert validation.index("aqt_secret_open_literal_directory(") < validation.index(
+        "aqt_secret_stat9_equal(&identity, &literal_identity)"
+    )
+
+    capture_start = mount_source.index(
+        "aqt_trusted_time_v2_secret_mount_admission_capture("
+    )
+    capture_end = mount_source.index(
+        "aqt_trusted_time_v2_secret_mount_admission_revalidate(",
+        capture_start,
+    )
+    capture = mount_source[capture_start:capture_end]
+    first_mount = capture.index("aqt_secret_capture_mount_identity(")
+    directory = capture.index("aqt_secret_validate_directory(", first_mount)
+    second_mount = capture.index("aqt_secret_capture_mount_identity(", directory)
+    assert first_mount < directory < second_mount
 
 
 @pytest.mark.parametrize("role", tuple(ROLE_METHODS))

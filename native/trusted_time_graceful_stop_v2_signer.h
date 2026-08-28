@@ -126,11 +126,21 @@ int aqt_trusted_time_v2_signer_sign_recovery_classification(
 );
 #endif
 
+#define AQT_TRUSTED_TIME_V2_SIGNER_TEST_CLOSE_CREDENTIAL 1
+#define AQT_TRUSTED_TIME_V2_SIGNER_TEST_CLOSE_DIRECTORY 2
+
 #ifdef AQT_TRUSTED_TIME_V2_SIGNER_TESTING
 int aqt_trusted_time_v2_signer_test_last_close_zeroized(void);
 int aqt_trusted_time_v2_signer_test_fork_secret_is_zero(
     const aqt_trusted_time_v2_signer_owner *owner
 );
+int aqt_trusted_time_v2_signer_test_directory_is_closed_after_fork(
+    const aqt_trusted_time_v2_signer_owner *owner
+);
+void aqt_trusted_time_v2_signer_test_fail_next_guarded_close(int stage);
+void aqt_trusted_time_v2_signer_test_pause_after_first_seed_read(void);
+int aqt_trusted_time_v2_signer_test_first_seed_read_is_paused(void);
+void aqt_trusted_time_v2_signer_test_resume_after_first_seed_read(void);
 #endif
 
 #ifdef __cplusplus

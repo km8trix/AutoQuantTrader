@@ -5,6 +5,7 @@
 #endif
 
 #include "trusted_time_v2_fork_guard.h"
+#include "trusted_time_v2_secret_mount_admission.h"
 #include "trusted_time_graceful_stop_v2_signer.h"
 #include "monocypher-ed25519.h"
 #include "monocypher.h"
@@ -48,6 +49,15 @@ typedef struct {
     int expect_closed;
     int result;
 } aqt_concurrent_fork_context;
+
+typedef struct {
+    aqt_trusted_time_v2_signer_owner *owner;
+    int directory_fd;
+    int credential_fd;
+    uint8_t expected_public_key[32];
+    uintptr_t interpreter_identity;
+    int result;
+} aqt_seed_race_context;
 
 static int
 aqt_hex_nibble(char value)
@@ -451,7 +461,7 @@ aqt_test_signer(void)
     AQT_CHECK(aqt_open_test_owner(
         directory_path, public_key, interpreter_identity, &owner) == 0);
     AQT_CHECK(owner != NULL);
-    AQT_CHECK(aqt_trusted_time_v2_fork_guard_require_owner_table_empty() == 0);
+    AQT_CHECK(aqt_trusted_time_v2_fork_guard_require_owner_table_empty() == EBUSY);
     AQT_CHECK(aqt_trusted_time_v2_signer_owner_read_public_key(
         owner, interpreter_identity, observed_public_key) == 0);
     AQT_CHECK(memcmp(observed_public_key, public_key, sizeof(public_key)) == 0);
@@ -479,6 +489,9 @@ aqt_test_signer(void)
             _exit(21);
         }
 #endif
+        if (!aqt_trusted_time_v2_signer_test_directory_is_closed_after_fork(owner)) {
+            _exit(22);
+        }
         _exit(0);
     }
     AQT_CHECK(waitpid(child, &child_status, 0) == child);
@@ -492,12 +505,450 @@ aqt_test_signer(void)
     AQT_CHECK(aqt_trusted_time_v2_signer_owner_close(
         &owner, interpreter_identity + 1U) == EPERM);
     AQT_CHECK(owner != NULL);
-    AQT_CHECK(aqt_trusted_time_v2_signer_owner_close(&owner, interpreter_identity) == 0);
+    AQT_CHECK(aqt_trusted_time_v2_signer_owner_close(
+        &owner, interpreter_identity) == EPERM);
     AQT_CHECK(owner == NULL);
     AQT_CHECK(aqt_trusted_time_v2_signer_test_last_close_zeroized());
     AQT_CHECK(aqt_trusted_time_v2_signer_owner_close(&owner, interpreter_identity) == 0);
     AQT_CHECK(rmdir(directory_path) == 0);
     crypto_wipe(seed, sizeof(seed));
+    return 0;
+}
+
+static int
+aqt_test_signer_resource_failure(const char *mode)
+{
+    static const char seed_hex[] =
+        "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+    static const char public_key_hex[] =
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+    char directory_template[] = "/tmp/aqt-v2-signer-failure-XXXXXX";
+    char credential_path[512];
+    char *directory_path;
+    uint8_t seed[32];
+    uint8_t public_key[32];
+    aqt_trusted_time_v2_signer_owner *owner = NULL;
+    const uintptr_t interpreter_identity = (uintptr_t)0x61717432U;
+    int result;
+
+    AQT_CHECK(aqt_decode_hex(seed_hex, seed, sizeof(seed)) == 0);
+    AQT_CHECK(aqt_decode_hex(public_key_hex, public_key, sizeof(public_key)) == 0);
+    AQT_CHECK(aqt_trusted_time_v2_fork_guard_initialize_before_python() == 0);
+    AQT_CHECK(aqt_trusted_time_v2_signer_initialize_before_python() == 0);
+    directory_path = mkdtemp(directory_template);
+    AQT_CHECK(directory_path != NULL);
+    AQT_CHECK(chown(directory_path, geteuid(), getegid()) == 0);
+    AQT_CHECK(chmod(directory_path, (mode_t)0700) == 0);
+    AQT_CHECK(snprintf(
+        credential_path,
+        sizeof(credential_path),
+        "%s/credential.raw",
+        directory_path) > 0);
+    AQT_CHECK(aqt_write_seed_file(directory_path, seed) == 0);
+
+    if (strcmp(mode, "credential-close") == 0) {
+        aqt_trusted_time_v2_signer_test_fail_next_guarded_close(
+            AQT_TRUSTED_TIME_V2_SIGNER_TEST_CLOSE_CREDENTIAL
+        );
+        result = aqt_open_test_owner(
+            directory_path,
+            public_key,
+            interpreter_identity,
+            &owner
+        );
+        AQT_CHECK(result == EBADF);
+        AQT_CHECK(owner == NULL);
+        AQT_CHECK(aqt_trusted_time_v2_fork_guard_is_poisoned());
+    } else {
+        AQT_CHECK(aqt_open_test_owner(
+            directory_path,
+            public_key,
+            interpreter_identity,
+            &owner) == 0);
+        AQT_CHECK(owner != NULL);
+        if (strcmp(mode, "directory-close") == 0) {
+            aqt_trusted_time_v2_signer_test_fail_next_guarded_close(
+                AQT_TRUSTED_TIME_V2_SIGNER_TEST_CLOSE_DIRECTORY
+            );
+            result = aqt_trusted_time_v2_signer_owner_close(
+                &owner,
+                interpreter_identity
+            );
+            AQT_CHECK(result == EBADF);
+            AQT_CHECK(aqt_trusted_time_v2_fork_guard_is_poisoned());
+        } else if (strcmp(mode, "metadata-drift") == 0) {
+            AQT_CHECK(chmod(directory_path, (mode_t)0710) == 0);
+            result = aqt_trusted_time_v2_signer_owner_close(
+                &owner,
+                interpreter_identity
+            );
+            AQT_CHECK(result == ESTALE);
+            AQT_CHECK(chmod(directory_path, (mode_t)0700) == 0);
+            AQT_CHECK(aqt_trusted_time_v2_fork_guard_require_owner_table_empty() == 0);
+        } else if (strcmp(mode, "key-reappearance") == 0) {
+            AQT_CHECK(aqt_write_seed_file(directory_path, seed) == 0);
+            result = aqt_trusted_time_v2_signer_owner_close(
+                &owner,
+                interpreter_identity
+            );
+            AQT_CHECK(result == ESTALE || result == EPERM);
+            AQT_CHECK(unlink(credential_path) == 0);
+        } else {
+            return 2;
+        }
+        AQT_CHECK(owner == NULL);
+    }
+    AQT_CHECK(aqt_trusted_time_v2_signer_test_last_close_zeroized());
+    AQT_CHECK(rmdir(directory_path) == 0);
+    crypto_wipe(seed, sizeof(seed));
+    return 0;
+}
+
+static void *
+aqt_seed_race_open_main(void *opaque)
+{
+    aqt_seed_race_context *context = (aqt_seed_race_context *)opaque;
+
+    context->result = aqt_trusted_time_v2_signer_owner_open_preopened(
+        &context->owner,
+        context->directory_fd,
+        context->credential_fd,
+        context->expected_public_key,
+        context->interpreter_identity
+    );
+    return NULL;
+}
+
+static int
+aqt_test_signer_seed_read_race(void)
+{
+    static const char seed_hex[] =
+        "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+    static const char public_key_hex[] =
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+    char directory_template[] = "/tmp/aqt-v2-signer-seed-race-XXXXXX";
+    char credential_path[512];
+    char *directory_path;
+    uint8_t seed[32];
+    aqt_seed_race_context context;
+    pthread_t thread;
+    int writer_fd;
+    ssize_t count;
+
+    AQT_CHECK(aqt_decode_hex(seed_hex, seed, sizeof(seed)) == 0);
+    (void)memset(&context, 0, sizeof(context));
+    AQT_CHECK(aqt_decode_hex(
+        public_key_hex,
+        context.expected_public_key,
+        sizeof(context.expected_public_key)) == 0);
+    context.interpreter_identity = (uintptr_t)0x61717432U;
+    context.directory_fd = -1;
+    context.credential_fd = -1;
+    writer_fd = -1;
+    AQT_CHECK(aqt_trusted_time_v2_fork_guard_initialize_before_python() == 0);
+    AQT_CHECK(aqt_trusted_time_v2_signer_initialize_before_python() == 0);
+    directory_path = mkdtemp(directory_template);
+    AQT_CHECK(directory_path != NULL);
+    AQT_CHECK(chown(directory_path, geteuid(), getegid()) == 0);
+    AQT_CHECK(chmod(directory_path, (mode_t)0700) == 0);
+    AQT_CHECK(snprintf(
+        credential_path,
+        sizeof(credential_path),
+        "%s/credential.raw",
+        directory_path) > 0);
+    context.directory_fd = open(
+        directory_path,
+        O_RDONLY | O_DIRECTORY | O_CLOEXEC
+    );
+    AQT_CHECK(context.directory_fd >= 0);
+    writer_fd = openat(
+        context.directory_fd,
+        "credential.raw",
+        O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC,
+        (mode_t)0600
+    );
+    AQT_CHECK(writer_fd >= 0);
+    AQT_CHECK(fchown(writer_fd, geteuid(), getegid()) == 0);
+    count = write(writer_fd, seed, sizeof(seed));
+    AQT_CHECK(count == (ssize_t)sizeof(seed));
+    AQT_CHECK(fsync(writer_fd) == 0);
+    AQT_CHECK(fchmod(writer_fd, (mode_t)0400) == 0);
+    context.credential_fd = openat(
+        context.directory_fd,
+        "credential.raw",
+        O_RDONLY | O_CLOEXEC
+    );
+    AQT_CHECK(context.credential_fd >= 0);
+    aqt_trusted_time_v2_signer_test_pause_after_first_seed_read();
+    AQT_CHECK(pthread_create(
+        &thread,
+        NULL,
+        aqt_seed_race_open_main,
+        &context) == 0);
+    while (!aqt_trusted_time_v2_signer_test_first_seed_read_is_paused()) {
+        (void)sched_yield();
+    }
+    seed[0] ^= UINT8_C(1);
+    count = pwrite(writer_fd, seed, sizeof(seed), (off_t)0);
+    AQT_CHECK(count == (ssize_t)sizeof(seed));
+    AQT_CHECK(fsync(writer_fd) == 0);
+    aqt_trusted_time_v2_signer_test_resume_after_first_seed_read();
+    AQT_CHECK(pthread_join(thread, NULL) == 0);
+    AQT_CHECK(context.result == ESTALE);
+    AQT_CHECK(context.owner == NULL);
+    AQT_CHECK(aqt_trusted_time_v2_signer_test_last_close_zeroized());
+    AQT_CHECK(aqt_trusted_time_v2_fork_guard_require_owner_table_empty() == 0);
+    AQT_CHECK(close(writer_fd) == 0);
+    AQT_CHECK(unlink(credential_path) == 0);
+    AQT_CHECK(rmdir(directory_path) == 0);
+    crypto_wipe(seed, sizeof(seed));
+    return 0;
+}
+
+static int
+aqt_secret_mount_line(
+    char *buffer,
+    size_t capacity,
+    const char *mount_id,
+    const char *parent_id,
+    const char *device,
+    const char *root,
+    const char *mount_options,
+    const char *optional_fields,
+    const char *filesystem,
+    const char *source,
+    const char *super_options)
+{
+#if defined(AQT_TRUSTED_TIME_V2_SIGNER_HOST_PROFILE)
+    static const char mountpoint[] =
+        "/run/autoquant/trusted-time/graceful-stop-v2/host-secrets";
+#elif defined(AQT_TRUSTED_TIME_V2_SIGNER_SUPERVISOR_PROFILE)
+    static const char mountpoint[] =
+        "/run/autoquant/trusted-time/graceful-stop-v2/supervisor-secrets";
+#else
+    static const char mountpoint[] =
+        "/run/autoquant/trusted-time/graceful-stop-v2/recovery-secrets";
+#endif
+    const int count = snprintf(
+        buffer,
+        capacity,
+        "%s %s %s %s %s %s%s%s - %s %s %s\n",
+        mount_id,
+        parent_id,
+        device,
+        root,
+        mountpoint,
+        mount_options,
+        optional_fields[0] == '\0' ? "" : " ",
+        optional_fields,
+        filesystem,
+        source,
+        super_options
+    );
+
+    return count > 0 && (size_t)count < capacity ? count : -1;
+}
+
+static int
+aqt_test_secret_mountinfo(void)
+{
+    static const char mount_options[] = "rw,nosuid,nodev,noexec,relatime";
+#if defined(AQT_TRUSTED_TIME_V2_SIGNER_SUPERVISOR_PROFILE)
+    static const char super_options[] = "rw,size=64k,mode=730,gid=10001,inode64";
+    static const char no_inode_options[] = "rw,size=64k,mode=730,gid=10001";
+    static const char size_drift[] = "rw,size=65k,mode=730,gid=10001,inode64";
+    static const char mode_drift[] = "rw,size=64k,mode=700,gid=10001,inode64";
+    static const char owner_drift[] = "rw,size=64k,mode=730,gid=10002,inode64";
+    static const char missing_rw[] = "size=64k,mode=730,gid=10001,inode64";
+    static const char missing_size[] = "rw,mode=730,gid=10001,inode64";
+    static const char missing_mode[] = "rw,size=64k,gid=10001,inode64";
+    static const char missing_owner[] = "rw,size=64k,mode=730,inode64";
+    static const char duplicate_rw[] =
+        "rw,rw,size=64k,mode=730,gid=10001,inode64";
+    static const char duplicate_inode[] =
+        "rw,size=64k,mode=730,gid=10001,inode64,inode64";
+    static const char unknown_super[] =
+        "rw,size=64k,mode=730,gid=10001,inode64,unknown";
+    static const char trailing_super[] =
+        "rw,size=64k,mode=730,gid=10001,inode64,";
+#else
+    static const char super_options[] = "rw,size=64k,mode=700,inode64";
+    static const char no_inode_options[] = "rw,size=64k,mode=700";
+    static const char size_drift[] = "rw,size=65k,mode=700,inode64";
+    static const char mode_drift[] = "rw,size=64k,mode=730,inode64";
+    static const char owner_drift[] = "rw,size=64k,mode=700,gid=0,inode64";
+    static const char missing_rw[] = "size=64k,mode=700,inode64";
+    static const char missing_size[] = "rw,mode=700,inode64";
+    static const char missing_mode[] = "rw,size=64k,inode64";
+    static const char duplicate_rw[] = "rw,rw,size=64k,mode=700,inode64";
+    static const char duplicate_inode[] =
+        "rw,size=64k,mode=700,inode64,inode64";
+    static const char unknown_super[] =
+        "rw,size=64k,mode=700,inode64,unknown";
+    static const char trailing_super[] = "rw,size=64k,mode=700,inode64,";
+#endif
+    char exact[1024];
+    char no_inode[1024];
+    char mutation[1024];
+    char second[1024];
+    char duplicate[2048];
+    int exact_length;
+    int no_inode_length;
+    int mutation_length;
+    int second_length;
+
+    exact_length = aqt_secret_mount_line(
+        exact, sizeof(exact), "42", "31", "0:77", "/", mount_options, "",
+        "tmpfs", "tmpfs", super_options);
+    no_inode_length = aqt_secret_mount_line(
+        no_inode, sizeof(no_inode), "42", "31", "0:77", "/", mount_options, "",
+        "tmpfs", "tmpfs", no_inode_options);
+    AQT_CHECK(exact_length > 0 && no_inode_length > 0);
+    AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_parse_mountinfo(
+        (const unsigned char *)exact, (size_t)exact_length, 0U, 77U) == 0);
+    AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_parse_mountinfo(
+        (const unsigned char *)no_inode, (size_t)no_inode_length, 0U, 77U) == 0);
+    AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_parse_mountinfo(
+        (const unsigned char *)exact, (size_t)exact_length, 0U, 78U) == ESTALE);
+    AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_compare_mountinfo(
+        (const unsigned char *)exact, (size_t)exact_length,
+        (const unsigned char *)exact, (size_t)exact_length) == 0);
+    AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_compare_mountinfo(
+        (const unsigned char *)exact, (size_t)exact_length,
+        (const unsigned char *)no_inode, (size_t)no_inode_length) == ESTALE);
+    AQT_CHECK(
+        aqt_trusted_time_v2_secret_mount_admission_test_secure_directory_metadata(
+            0U, 0U, UINT32_C(0555), UINT64_C(2)) == 0);
+    AQT_CHECK(
+        aqt_trusted_time_v2_secret_mount_admission_test_secure_directory_metadata(
+            0U, 0U, UINT32_C(0555), UINT64_C(1)) == EPERM);
+    AQT_CHECK(
+        aqt_trusted_time_v2_secret_mount_admission_test_root_directory_metadata(
+            0U, 0U, UINT32_C(0555), UINT64_C(1)) == 0);
+    AQT_CHECK(
+        aqt_trusted_time_v2_secret_mount_admission_test_root_directory_metadata(
+            0U, 0U, UINT32_C(0555), UINT64_C(0)) == EPERM);
+    AQT_CHECK(
+        aqt_trusted_time_v2_secret_mount_admission_test_run_directory_metadata(
+            0U, 0U, UINT32_C(0755), UINT64_C(1)) == 0);
+    AQT_CHECK(
+        aqt_trusted_time_v2_secret_mount_admission_test_secure_directory_metadata(
+            0U, 0U, UINT32_C(0755), UINT64_C(1)) == EPERM);
+    AQT_CHECK(
+        aqt_trusted_time_v2_secret_mount_admission_test_secure_directory_metadata(
+            1U, 0U, UINT32_C(0555), UINT64_C(2)) == EPERM);
+    AQT_CHECK(
+        aqt_trusted_time_v2_secret_mount_admission_test_secure_directory_metadata(
+            0U, 1U, UINT32_C(0555), UINT64_C(2)) == EPERM);
+    AQT_CHECK(
+        aqt_trusted_time_v2_secret_mount_admission_test_secure_directory_metadata(
+            0U, 0U, UINT32_C(0575), UINT64_C(2)) == EPERM);
+
+#define AQT_REJECT_MOUNT_LINE(id, parent, device_value, root_value, mount_value, optional_value, fs_value, source_value, super_value) \
+    do { \
+        mutation_length = aqt_secret_mount_line( \
+            mutation, sizeof(mutation), id, parent, device_value, root_value, \
+            mount_value, optional_value, fs_value, source_value, super_value); \
+        AQT_CHECK(mutation_length > 0); \
+        AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_parse_mountinfo( \
+            (const unsigned char *)mutation, (size_t)mutation_length, 0U, 77U) != 0); \
+    } while (0)
+
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/",
+        "rw,nosuid,nodev,relatime", "", "tmpfs", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/",
+        "rw,nodev,noexec,relatime", "", "tmpfs", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/",
+        "rw,nosuid,noexec,relatime", "", "tmpfs", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/",
+        "rw,nosuid,nodev,noexec", "", "tmpfs", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/",
+        "ro,nosuid,nodev,noexec,relatime", "", "tmpfs", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/",
+        "rw,rw,nosuid,nodev,noexec,relatime", "", "tmpfs", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/",
+        "rw,nosuid,nodev,noexec,relatime,exec", "", "tmpfs", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/",
+        "rw,nosuid,nodev,noexec,relatime,suid", "", "tmpfs", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/",
+        "rw,nosuid,nodev,noexec,relatime,dev", "", "tmpfs", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/",
+        "rw,nosuid,nodev,noexec,relatime,unknown", "", "tmpfs", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/",
+        "rw,nosuid,nodev,noexec,relatime,", "", "tmpfs", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "shared:1", "tmpfs", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/wrong", mount_options,
+        "", "tmpfs", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "", "ext4", "tmpfs", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "", "tmpfs", "none", super_options);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "", "tmpfs", "tmpfs", size_drift);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "", "tmpfs", "tmpfs", mode_drift);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "", "tmpfs", "tmpfs", owner_drift);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "", "tmpfs", "tmpfs", missing_rw);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "", "tmpfs", "tmpfs", missing_size);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "", "tmpfs", "tmpfs", missing_mode);
+#if defined(AQT_TRUSTED_TIME_V2_SIGNER_SUPERVISOR_PROFILE)
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "", "tmpfs", "tmpfs", missing_owner);
+#endif
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "", "tmpfs", "tmpfs", duplicate_rw);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "", "tmpfs", "tmpfs", duplicate_inode);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "", "tmpfs", "tmpfs", unknown_super);
+    AQT_REJECT_MOUNT_LINE("42", "31", "0:77", "/", mount_options,
+        "", "tmpfs", "tmpfs", trailing_super);
+#undef AQT_REJECT_MOUNT_LINE
+
+    second_length = aqt_secret_mount_line(
+        second, sizeof(second), "43", "31", "0:77", "/", mount_options, "",
+        "tmpfs", "tmpfs", super_options);
+    AQT_CHECK(second_length > 0);
+    AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_compare_mountinfo(
+        (const unsigned char *)exact, (size_t)exact_length,
+        (const unsigned char *)second, (size_t)second_length) == ESTALE);
+    second_length = aqt_secret_mount_line(
+        second, sizeof(second), "42", "30", "0:77", "/", mount_options, "",
+        "tmpfs", "tmpfs", super_options);
+    AQT_CHECK(second_length > 0);
+    AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_compare_mountinfo(
+        (const unsigned char *)exact, (size_t)exact_length,
+        (const unsigned char *)second, (size_t)second_length) == ESTALE);
+    second_length = aqt_secret_mount_line(
+        second, sizeof(second), "42", "31", "0:78", "/", mount_options, "",
+        "tmpfs", "tmpfs", super_options);
+    AQT_CHECK(second_length > 0);
+    AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_compare_mountinfo(
+        (const unsigned char *)exact, (size_t)exact_length,
+        (const unsigned char *)second, (size_t)second_length) == ESTALE);
+    AQT_CHECK((size_t)exact_length * 2U < sizeof(duplicate));
+    (void)memcpy(duplicate, exact, (size_t)exact_length);
+    (void)memcpy(duplicate + exact_length, exact, (size_t)exact_length);
+    AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_parse_mountinfo(
+        (const unsigned char *)duplicate, (size_t)exact_length * 2U, 0U, 77U) != 0);
+    AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_parse_mountinfo(
+        (const unsigned char *)exact, (size_t)exact_length - 1U, 0U, 77U) != 0);
+    (void)memcpy(mutation, exact, (size_t)exact_length);
+    mutation[3] = ' ';
+    AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_parse_mountinfo(
+        (const unsigned char *)mutation, (size_t)exact_length, 0U, 77U) != 0);
+    (void)memcpy(mutation, exact, (size_t)exact_length);
+    mutation[3] = (char)0x1f;
+    AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_parse_mountinfo(
+        (const unsigned char *)mutation, (size_t)exact_length, 0U, 77U) != 0);
+    exact[10] = '\0';
+    AQT_CHECK(aqt_trusted_time_v2_secret_mount_admission_test_parse_mountinfo(
+        (const unsigned char *)exact, (size_t)exact_length, 0U, 77U) != 0);
     return 0;
 }
 
@@ -765,6 +1216,24 @@ main(int argument_count, char **arguments)
     }
     if (strcmp(arguments[1], "signer") == 0) {
         return aqt_test_signer();
+    }
+    if (strcmp(arguments[1], "signer-metadata-drift") == 0) {
+        return aqt_test_signer_resource_failure("metadata-drift");
+    }
+    if (strcmp(arguments[1], "signer-key-reappearance") == 0) {
+        return aqt_test_signer_resource_failure("key-reappearance");
+    }
+    if (strcmp(arguments[1], "signer-credential-close-fault") == 0) {
+        return aqt_test_signer_resource_failure("credential-close");
+    }
+    if (strcmp(arguments[1], "signer-directory-close-fault") == 0) {
+        return aqt_test_signer_resource_failure("directory-close");
+    }
+    if (strcmp(arguments[1], "signer-seed-read-race") == 0) {
+        return aqt_test_signer_seed_read_race();
+    }
+    if (strcmp(arguments[1], "secret-mountinfo") == 0) {
+        return aqt_test_secret_mountinfo();
     }
     if (strcmp(arguments[1], "guard-race") == 0) {
         return aqt_test_guard_race();
