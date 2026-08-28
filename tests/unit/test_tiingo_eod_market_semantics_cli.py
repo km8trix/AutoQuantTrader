@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -531,6 +532,7 @@ def test_market_semantics_make_target_expands_to_strict_offline_command() -> Non
         check=True,
         capture_output=True,
         text=True,
+        env={**os.environ, "TMPDIR": "/tmp"},
     )
 
     assert result.stderr == ""
