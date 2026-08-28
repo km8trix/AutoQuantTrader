@@ -13,10 +13,9 @@ import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.hazmat.bindings import _rust as _cryptography_rust
 
 from packages.domain.trusted_time_graceful_stop_v2 import (
     LIFECYCLE_V2_WIRE_MAXIMUM_BYTES,
@@ -76,49 +75,84 @@ class LifecycleV2TransportAuthenticationError(RuntimeError):
 
 
 def _build_exact_ed25519_verification_endpoints() -> tuple[
-    Callable[[object], Ed25519PublicKey],
+    Callable[[object], object],
     Callable[[bytes, bytes, bytes], None],
 ]:
-    """Capture the reviewed crypto implementation before publishing any issuer."""
+    """Anchor verification to the immutable compiled backend, not its public shim."""
 
-    public_key_type = Ed25519PublicKey
-    from_public_bytes = public_key_type.from_public_bytes
-    concrete_public_key_type = type(from_public_bytes(bytes(32)))
-    verify_method = concrete_public_key_type.verify
-    invalid_signature_type = InvalidSignature
+    rust_binding = cast(Any, _cryptography_rust)
+    primitive_module = cast(Any, rust_binding.openssl.ed25519)
+    from_public_bytes = cast(Any, primitive_module.from_public_bytes)
+    concrete_public_key_type = cast(Any, primitive_module.Ed25519PublicKey)
+    verify_method = cast(Any, concrete_public_key_type.verify)
+    builtin_function_type = type(len)
+    method_descriptor_type = type(str.join)
     authentication_error_type = LifecycleV2TransportAuthenticationError
     exact_type = type
     bytes_type = bytes
+    length = len
+    exception_type = Exception
+    type_error_type = TypeError
     cast_value = cast
 
-    def public_key(public_key_bytes: object) -> Ed25519PublicKey:
+    if (
+        exact_type(from_public_bytes) is not builtin_function_type
+        or exact_type(concrete_public_key_type) is not type
+        or exact_type(verify_method) is not method_descriptor_type
+        or getattr(verify_method, "__objclass__", None) is not concrete_public_key_type
+        or getattr(verify_method, "__name__", None) != "verify"
+    ):
+        raise RuntimeError("compiled Ed25519 primitive provenance is invalid")
+
+    def public_key(public_key_bytes: object) -> object:
         if exact_type(public_key_bytes) is not bytes_type:
             raise authentication_error_type(
                 "transport authority public key must be exactly 32 bytes"
             )
-        exact_public_key_bytes = cast_value(bytes, public_key_bytes)
-        if len(exact_public_key_bytes) != 32:
+        exact_public_key_bytes = cast_value("bytes", public_key_bytes)
+        if length(exact_public_key_bytes) != 32:
             raise authentication_error_type(
                 "transport authority public key must be exactly 32 bytes"
             )
         try:
-            return from_public_bytes(exact_public_key_bytes)
-        except (TypeError, ValueError):
+            result = from_public_bytes(exact_public_key_bytes)
+        except exception_type:
             raise authentication_error_type("transport authority public key is invalid") from None
+        if exact_type(result) is not concrete_public_key_type:
+            raise authentication_error_type("transport authority public key is invalid")
+        return result
 
     def verify(public_key_bytes: bytes, signature_input: bytes, signature: bytes) -> None:
         try:
-            verify_method(public_key(public_key_bytes), signature, signature_input)
-        except invalid_signature_type:
+            if (
+                exact_type(signature_input) is not bytes_type
+                or exact_type(signature) is not bytes_type
+            ):
+                raise type_error_type("Ed25519 signature inputs are invalid")
+            result = verify_method(public_key(public_key_bytes), signature, signature_input)
+            if result is not None:
+                raise type_error_type("Ed25519 verifier returned an invalid result")
+        except authentication_error_type:
+            raise
+        except exception_type:
             raise authentication_error_type(
                 "lifecycle-v2 Ed25519 signature authentication failed"
             ) from None
-        except authentication_error_type:
-            raise
-        except Exception:
-            raise authentication_error_type(
-                "lifecycle-v2 Ed25519 verification failed closed"
-            ) from None
+
+    known_public_key = bytes_type.fromhex(
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+    )
+    known_signature = bytes_type.fromhex(
+        "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155"
+        "5fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+    )
+    verify(known_public_key, b"", known_signature)
+    try:
+        verify(known_public_key, b"", bytes_type(64))
+    except authentication_error_type:
+        pass
+    else:
+        raise RuntimeError("compiled Ed25519 verifier failed its bootstrap self-test")
 
     return public_key, verify
 
@@ -158,6 +192,7 @@ def _build_manifest_authentication_endpoints() -> tuple[
     verify_signature = _verify
     authentication_error_type = LifecycleV2TransportAuthenticationError
     rejected_type = TrustedTimeGracefulStopV2Rejected
+    attribute_error_type = AttributeError
     exact_type = type
     exact_id = id
     bytes_type = bytes
@@ -186,7 +221,7 @@ def _build_manifest_authentication_endpoints() -> tuple[
             value_manifest = value.manifest
             value_root_digest = value.root_public_key_sha256
             value_capability = value._capability
-        except (AttributeError, rejected_type) as error:
+        except (attribute_error_type, rejected_type) as error:
             raise authentication_error_type(
                 "authenticated transport authority manifest changed under validation"
             ) from error
@@ -303,6 +338,7 @@ def _build_selection_authentication_endpoints() -> tuple[
     verify_signature = _verify
     authentication_error_type = LifecycleV2TransportAuthenticationError
     rejected_type = TrustedTimeGracefulStopV2Rejected
+    attribute_error_type = AttributeError
     exact_type = type
     exact_id = id
     bytes_type = bytes
@@ -330,7 +366,7 @@ def _build_selection_authentication_endpoints() -> tuple[
             value_selection = value.selection
             value_root_digest = value.root_public_key_sha256
             value_capability = value._capability
-        except (AttributeError, rejected_type) as error:
+        except (attribute_error_type, rejected_type) as error:
             raise authentication_error_type(
                 "authenticated transport authority selection changed under validation"
             ) from error
@@ -411,18 +447,20 @@ class AuthenticatedLifecycleV2TransportAuthority:
         selected = self.resolution.selected_manifest
         if selected is None:
             return None
-        return next(
-            item for item in self.authenticated_manifests if item.manifest.sha256 == selected.sha256
-        )
+        for item in self.authenticated_manifests:
+            if item.manifest.sha256 == selected.sha256:
+                return item
+        return None
 
     @property
     def recovery_manifest(self) -> AuthenticatedLifecycleV2TransportAuthorityManifest | None:
         recovery = self.resolution.recovery_manifest
         if recovery is None:
             return None
-        return next(
-            item for item in self.authenticated_manifests if item.manifest.sha256 == recovery.sha256
-        )
+        for item in self.authenticated_manifests:
+            if item.manifest.sha256 == recovery.sha256:
+                return item
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,6 +496,9 @@ def _build_authority_authentication_endpoints() -> tuple[
     resolve_authority = resolve_lifecycle_v2_transport_authority
     authentication_error_type = LifecycleV2TransportAuthenticationError
     rejected_type = TrustedTimeGracefulStopV2Rejected
+    attribute_error_type = AttributeError
+    tuple_type = tuple
+    any_value = any
     exact_type = type
     exact_id = id
     new_object = object.__new__
@@ -479,14 +520,16 @@ def _build_authority_authentication_endpoints() -> tuple[
         ):
             raise authentication_error_type("transport authority resolution is not authenticated")
         try:
-            manifests = tuple(require_manifest(item) for item in snapshot.authenticated_manifests)
-            selections = tuple(
+            manifests = tuple_type(
+                require_manifest(item) for item in snapshot.authenticated_manifests
+            )
+            selections = tuple_type(
                 require_selection(item) for item in snapshot.authenticated_selections
             )
-            canonical_manifests = tuple(
+            canonical_manifests = tuple_type(
                 decode_manifest(encoded) for encoded in snapshot.manifest_encoded_chain
             )
-            canonical_selections = tuple(
+            canonical_selections = tuple_type(
                 decode_selection(encoded) for encoded in snapshot.selection_encoded_chain
             )
             resolution = resolve_authority(
@@ -498,7 +541,7 @@ def _build_authority_authentication_endpoints() -> tuple[
             value_selections = value.authenticated_selections
             value_root_digest = value.root_public_key_sha256
             value_capability = value._capability
-        except (AttributeError, rejected_type) as error:
+        except (attribute_error_type, rejected_type) as error:
             raise authentication_error_type(
                 "authenticated transport authority changed under validation"
             ) from error
@@ -510,8 +553,8 @@ def _build_authority_authentication_endpoints() -> tuple[
             or value_selections is not snapshot.authenticated_selections
             or manifests != snapshot.authenticated_manifests
             or selections != snapshot.authenticated_selections
-            or tuple(item.manifest for item in manifests) != canonical_manifests
-            or tuple(item.selection for item in selections) != canonical_selections
+            or tuple_type(item.manifest for item in manifests) != canonical_manifests
+            or tuple_type(item.selection for item in selections) != canonical_selections
             or value_resolution != resolution
             or value_root_digest != snapshot.root_public_key_sha256
         ):
@@ -529,7 +572,7 @@ def _build_authority_authentication_endpoints() -> tuple[
     ) -> AuthenticatedLifecycleV2TransportAuthority:
         """Authenticate and structurally resolve complete manifest/selection chains."""
 
-        manifests = tuple(
+        manifests = tuple_type(
             manifest_authenticate(
                 encoded,
                 reviewed_root_key_id=reviewed_root_key_id,
@@ -537,7 +580,7 @@ def _build_authority_authentication_endpoints() -> tuple[
             )
             for encoded in manifest_encoded_chain
         )
-        selections = tuple(
+        selections = tuple_type(
             selection_authenticate(
                 encoded,
                 reviewed_root_public_key=reviewed_root_public_key,
@@ -547,7 +590,7 @@ def _build_authority_authentication_endpoints() -> tuple[
         if not manifests or not selections:
             raise authentication_error_type("transport authority chains cannot be empty")
         root_digest = manifests[0].root_public_key_sha256
-        if any(item.root_public_key_sha256 != root_digest for item in manifests) or any(
+        if any_value(item.root_public_key_sha256 != root_digest for item in manifests) or any_value(
             item.root_public_key_sha256 != root_digest for item in selections
         ):
             raise authentication_error_type(
@@ -555,8 +598,8 @@ def _build_authority_authentication_endpoints() -> tuple[
             )
         try:
             resolution = resolve_authority(
-                tuple(item.manifest for item in manifests),
-                tuple(item.selection for item in selections),
+                tuple_type(item.manifest for item in manifests),
+                tuple_type(item.selection for item in selections),
             )
         except rejected_type as error:
             raise authentication_error_type(
@@ -570,8 +613,8 @@ def _build_authority_authentication_endpoints() -> tuple[
         set_attribute(result, "_capability", issuance_capability)
         snapshot = snapshot_type(
             value=result,
-            manifest_encoded_chain=tuple(item.manifest.encoded for item in manifests),
-            selection_encoded_chain=tuple(item.selection.encoded for item in selections),
+            manifest_encoded_chain=tuple_type(item.manifest.encoded for item in manifests),
+            selection_encoded_chain=tuple_type(item.selection.encoded for item in selections),
             authenticated_manifests=manifests,
             authenticated_selections=selections,
             root_public_key_sha256=root_digest,
@@ -851,6 +894,8 @@ def _build_recovery_classification_validation_endpoints() -> tuple[
     rejected_type = TrustedTimeGracefulStopV2Rejected
     exact_type = type
     cast_value = cast
+    attribute_error_type = AttributeError
+    type_error_type = TypeError
     get_pid = os.getpid
     current_thread = threading.current_thread
 
@@ -874,7 +919,7 @@ def _build_recovery_classification_validation_endpoints() -> tuple[
             value_origin_thread = authenticated_value._origin_thread
             value_consumed = authenticated_value._consumed
             value_capability = authenticated_value._capability
-        except (AttributeError, TypeError, rejected_type) as error:
+        except (attribute_error_type, type_error_type, rejected_type) as error:
             raise authentication_error_type(
                 "authenticated recovery classification changed under validation"
             ) from error
@@ -920,7 +965,7 @@ def _build_recovery_classification_validation_endpoints() -> tuple[
             envelope = decode_envelope(encoded)
             exact_root = decode_root(root.encoded)
             exact_transcript = decode_transcript(classified_transcript.encoded)
-        except (AttributeError, rejected_type) as error:
+        except (attribute_error_type, rejected_type) as error:
             raise authentication_error_type(
                 "recovery classification inputs are not canonical"
             ) from error
@@ -1145,6 +1190,7 @@ def _build_handshake_authentication_endpoints() -> tuple[
     decode_confirmation = decode_lifecycle_v2_host_channel_confirmation
     authentication_error_type = LifecycleV2TransportAuthenticationError
     rejected_type = TrustedTimeGracefulStopV2Rejected
+    attribute_error_type = AttributeError
     exact_type = type
     exact_id = id
     new_object = object.__new__
@@ -1174,7 +1220,7 @@ def _build_handshake_authentication_endpoints() -> tuple[
             value_handshake = value.handshake
             value_manifest_sha256 = value.authority_manifest_sha256
             value_capability = value._capability
-        except (AttributeError, rejected_type) as error:
+        except (attribute_error_type, rejected_type) as error:
             raise authentication_error_type(
                 "authenticated lifecycle-v2 handshake changed under validation"
             ) from error
@@ -1310,6 +1356,10 @@ def _build_transport_frame_expectation_endpoints() -> tuple[
     rejected_type = TrustedTimeGracefulStopV2Rejected
     exact_type = type
     exact_id = id
+    tuple_type = tuple
+    get_attribute = getattr
+    strict_zip = zip
+    attribute_error_type = AttributeError
     new_object = object.__new__
     set_attribute = object.__setattr__
     get_pid = os.getpid
@@ -1329,9 +1379,9 @@ def _build_transport_frame_expectation_endpoints() -> tuple[
         ):
             raise authentication_error_type("transport frame expectation has no exact issuance")
         try:
-            fields = tuple(getattr(value, name) for name in field_names)
+            fields = tuple_type(get_attribute(value, name) for name in field_names)
             capability = value._capability
-        except AttributeError as error:
+        except attribute_error_type as error:
             raise authentication_error_type(
                 "transport frame expectation changed under validation"
             ) from error
@@ -1353,7 +1403,7 @@ def _build_transport_frame_expectation_endpoints() -> tuple[
         try:
             exact_root = decode_root(root.encoded)
             exact_intent = decode_progress(request_intent.encoded)
-        except (AttributeError, rejected_type) as error:
+        except (attribute_error_type, rejected_type) as error:
             raise authentication_error_type(
                 "retained-wire expectation requires canonical root and intent"
             ) from error
@@ -1389,7 +1439,7 @@ def _build_transport_frame_expectation_endpoints() -> tuple[
             2 if host_frame else 1,
             exact_root.clean_stop_result_deadline_boottime_ns,
         )
-        for name, value in zip(field_names, fields, strict=True):
+        for name, value in strict_zip(field_names, fields, strict=True):
             set_attribute(result, name, value)
         set_attribute(result, "_capability", issuance_capability)
         snapshot = snapshot_type(
@@ -1479,7 +1529,8 @@ def _build_exact_transport_frame_validation_endpoints() -> tuple[
     rejected_type = TrustedTimeGracefulStopV2Rejected
     exact_type = type
     str_type = str
-    cast_value = cast
+    length = len
+    any_value = any
 
     def signature_input(envelope: UnverifiedLifecycleV2TransportEnvelope) -> bytes:
         fields = envelope.to_dict()
@@ -1492,14 +1543,14 @@ def _build_exact_transport_frame_validation_endpoints() -> tuple[
         payload_base64 = fields["payload_base64"]
         if exact_type(payload_base64) is not str_type:
             raise authentication_error_type("transport payload encoding is invalid")
-        exact_payload_base64 = cast_value(str, payload_base64)
+        exact_payload_base64 = str_type(payload_base64)
         fields["payload_base64"] = ""
-        overhead = len(canonical_json(fields, maximum_bytes=maximum_wire_bytes))
-        expected_payload_base64_length = 4 * ((len(envelope.payload) + 2) // 3)
+        overhead = length(canonical_json(fields, maximum_bytes=maximum_wire_bytes))
+        expected_payload_base64_length = 4 * ((length(envelope.payload) + 2) // 3)
         if (
             overhead > maximum_overhead_bytes
-            or len(exact_payload_base64) != expected_payload_base64_length
-            or len(envelope.encoded) != overhead + expected_payload_base64_length
+            or length(exact_payload_base64) != expected_payload_base64_length
+            or length(envelope.encoded) != overhead + expected_payload_base64_length
         ):
             raise authentication_error_type(
                 "transport envelope overhead or base64 length formula is invalid"
@@ -1536,7 +1587,7 @@ def _build_exact_transport_frame_validation_endpoints() -> tuple[
             "message_counter": exact_expectation.message_counter,
             "deadline_boottime_ns": exact_expectation.deadline_boottime_ns,
         }
-        if any(fields[name] != expected for name, expected in expected_fields.items()):
+        if any_value(fields[name] != expected for name, expected in expected_fields.items()):
             raise authentication_error_type(
                 "transport envelope crossed an expected retained-wire correlator"
             )
@@ -1583,6 +1634,7 @@ def _build_transport_frame_authentication_endpoints() -> tuple[
     decode_envelope = decode_unverified_lifecycle_v2_transport_envelope
     authentication_error_type = LifecycleV2TransportAuthenticationError
     rejected_type = TrustedTimeGracefulStopV2Rejected
+    attribute_error_type = AttributeError
     exact_type = type
     exact_id = id
     new_object = object.__new__
@@ -1611,7 +1663,7 @@ def _build_transport_frame_authentication_endpoints() -> tuple[
             value_manifest_sha256 = value.authority_manifest_sha256
             value_signer_role = value.signer_role
             value_capability = value._capability
-        except (AttributeError, rejected_type) as error:
+        except (attribute_error_type, rejected_type) as error:
             raise authentication_error_type(
                 "authenticated transport envelope changed under validation"
             ) from error
@@ -1730,6 +1782,7 @@ def _build_root_bound_transport_authentication_endpoints() -> tuple[
     decode_root = decode_lifecycle_v2_root
     authentication_error_type = LifecycleV2TransportAuthenticationError
     rejected_type = TrustedTimeGracefulStopV2Rejected
+    attribute_error_type = AttributeError
 
     def authenticate_root_bound(
         encoded: object,
@@ -1743,7 +1796,7 @@ def _build_root_bound_transport_authentication_endpoints() -> tuple[
         try:
             envelope = decode_envelope(encoded)
             exact_root = decode_root(root.encoded)
-        except (AttributeError, rejected_type) as error:
+        except (attribute_error_type, rejected_type) as error:
             raise authentication_error_type(
                 "root-bound lifecycle-v2 frame inputs are not canonical"
             ) from error
@@ -1771,7 +1824,7 @@ def _build_root_bound_transport_authentication_endpoints() -> tuple[
         try:
             envelope = decode_envelope(encoded)
             exact_root = decode_root(root.encoded)
-        except (AttributeError, rejected_type) as error:
+        except (attribute_error_type, rejected_type) as error:
             raise authentication_error_type(
                 "retained lifecycle-v2 wire inputs are not canonical"
             ) from error
@@ -1912,10 +1965,12 @@ def _build_retained_wire_verifier_endpoints() -> tuple[
     error_retained_stage = LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED
     authentication_error_type = LifecycleV2TransportAuthenticationError
     rejected_type = TrustedTimeGracefulStopV2Rejected
+    attribute_error_type = AttributeError
     exact_type = type
     exact_id = id
     str_type = str
     new_object = object.__new__
+    new_capability = object
     set_attribute = object.__setattr__
     get_pid = os.getpid
     current_thread = threading.current_thread
@@ -1941,7 +1996,7 @@ def _build_retained_wire_verifier_endpoints() -> tuple[
             value_thread = value._origin_thread
             value_result_capability = value._sealed_result_capability
             value_capability = value._capability
-        except AttributeError as error:
+        except attribute_error_type as error:
             raise authentication_error_type("retained-wire verifier owner is invalid") from error
         if (
             get_pid() != snapshot.origin_pid
@@ -1961,7 +2016,7 @@ def _build_retained_wire_verifier_endpoints() -> tuple[
     ) -> _LifecycleV2Ed25519RetainedWireVerifier:
         authenticated = require_manifest(authority_manifest)
         result = new_object(verifier_type)
-        result_capability = object()
+        result_capability = new_capability()
         set_attribute(result, "_authority_manifest", authenticated)
         set_attribute(result, "_origin_pid", get_pid())
         set_attribute(result, "_origin_thread", current_thread())
@@ -1998,7 +2053,7 @@ def _build_retained_wire_verifier_endpoints() -> tuple[
             exact_root = decode_root(root.encoded)
             exact_intent = decode_progress(request_intent.encoded)
             exact_record = decode_progress(terminal_record.encoded)
-        except (AttributeError, rejected_type) as error:
+        except (attribute_error_type, rejected_type) as error:
             raise authentication_error_type(
                 "retained-wire result inputs are not canonical"
             ) from error
@@ -2118,7 +2173,7 @@ def _build_retained_wire_verifier_endpoints() -> tuple[
             )
             result_envelope = result.envelope
             result_capability = result._verifier_capability
-        except (AttributeError, rejected_type) as error:
+        except (attribute_error_type, rejected_type) as error:
             raise authentication_error_type(
                 "retained-wire verifier result changed under validation"
             ) from error
@@ -2157,7 +2212,7 @@ def _build_retained_wire_verifier_endpoints() -> tuple[
             exact_record = decode_progress(terminal_record.encoded)
             exact_root = decode_root(root.encoded)
             exact_intent = decode_progress(request_intent.encoded)
-        except (AttributeError, rejected_type) as error:
+        except (attribute_error_type, rejected_type) as error:
             raise authentication_error_type(
                 "retained-wire repository values are not canonical"
             ) from error

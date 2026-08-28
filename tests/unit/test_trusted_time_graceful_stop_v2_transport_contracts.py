@@ -1057,6 +1057,150 @@ else:
     assert completed.returncode == 0, completed.stderr
 
 
+def test_preseeded_public_ed25519_module_cannot_supply_adapter_verification() -> None:
+    script = """
+import base64
+import sys
+from types import ModuleType
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+class FakeEd25519PublicKey:
+    @classmethod
+    def from_public_bytes(cls, _value):
+        return cls()
+
+    def verify(self, _signature, _message):
+        return None
+
+fake_ed25519 = ModuleType("cryptography.hazmat.primitives.asymmetric.ed25519")
+fake_ed25519.Ed25519PublicKey = FakeEd25519PublicKey
+fake_ed25519.Ed25519PrivateKey = Ed25519PrivateKey
+sys.modules["cryptography.hazmat.primitives.asymmetric.ed25519"] = fake_ed25519
+
+from packages.adapters.trusted_time import graceful_stop_v2_ed25519 as adapter
+from packages.domain.trusted_time_graceful_stop_v2_transport import (
+    TRANSPORT_AUTHORITY_MANIFEST_CONTRACT_VERSION,
+    TRANSPORT_SERVICE,
+    LifecycleV2TransportAuthorityManifest,
+)
+
+encode = lambda value: base64.b64encode(value).decode("ascii")
+root_public_key = bytes.fromhex(
+    "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+)
+manifest = LifecycleV2TransportAuthorityManifest.capture(
+    {
+        "contract_version": TRANSPORT_AUTHORITY_MANIFEST_CONTRACT_VERSION,
+        "service": TRANSPORT_SERVICE,
+        "status": "transport_authority_manifest_issued",
+        "environment": "test",
+        "generation": 1,
+        "root_key_id": "trusted-time-transport-root-ed25519-v1",
+        "predecessor_manifest_sha256": None,
+        "host_key_id": "host-transport-key-g1",
+        "host_public_key_base64": encode(bytes([1]) * 32),
+        "supervisor_key_id": "supervisor-transport-key-g1",
+        "supervisor_public_key_base64": encode(bytes([2]) * 32),
+        "recovery_key_id": "recovery-transport-key-g1",
+        "recovery_public_key_base64": encode(bytes([3]) * 32),
+        "signature_ed25519_base64": encode(bytes(64)),
+    }
+)
+try:
+    adapter.authenticate_lifecycle_v2_transport_authority_manifest(
+        manifest.encoded,
+        reviewed_root_key_id="trusted-time-transport-root-ed25519-v1",
+        reviewed_root_public_key=root_public_key,
+    )
+except adapter.LifecycleV2TransportAuthenticationError:
+    pass
+else:
+    raise SystemExit("preseeded public Ed25519 shim admitted a zero signature")
+
+private_key = Ed25519PrivateKey.from_private_bytes(
+    bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
+)
+signed_fields = manifest.to_dict()
+signed_fields["signature_ed25519_base64"] = encode(private_key.sign(manifest.signature_input))
+signed_manifest = LifecycleV2TransportAuthorityManifest.capture(signed_fields)
+authenticated = adapter.authenticate_lifecycle_v2_transport_authority_manifest(
+    signed_manifest.encoded,
+    reviewed_root_key_id="trusted-time-transport-root-ed25519-v1",
+    reviewed_root_public_key=root_public_key,
+)
+if authenticated.manifest != signed_manifest:
+    raise SystemExit("compiled Ed25519 backend rejected a genuine signature")
+
+backend_key = adapter._public_key(root_public_key)
+if type(backend_key).__module__ != "cryptography.hazmat.bindings._rust.openssl.ed25519":
+    raise SystemExit("adapter did not capture the compiled Ed25519 backend")
+"""
+    repository = Path(__file__).resolve().parents[2]
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(repository)
+    python_executable = Path(sys.executable).with_name("python")
+    completed = subprocess.run(
+        [python_executable, "-c", script],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_preseeded_fake_rust_binding_fails_provenance_before_endpoint_publication() -> None:
+    script = """
+import sys
+from types import ModuleType, SimpleNamespace
+
+import cryptography.hazmat.bindings as bindings
+import packages.adapters.trusted_time
+
+class FakeEd25519PublicKey:
+    @classmethod
+    def from_public_bytes(cls, _value):
+        return cls()
+
+    def verify(self, _signature, _message):
+        return None
+
+fake_rust = ModuleType("cryptography.hazmat.bindings._rust")
+fake_rust.openssl = SimpleNamespace(
+    ed25519=SimpleNamespace(
+        from_public_bytes=FakeEd25519PublicKey.from_public_bytes,
+        Ed25519PublicKey=FakeEd25519PublicKey,
+    )
+)
+bindings._rust = fake_rust
+sys.modules["cryptography.hazmat.bindings._rust"] = fake_rust
+try:
+    from packages.adapters.trusted_time import graceful_stop_v2_ed25519
+except RuntimeError as error:
+    if "provenance" not in str(error):
+        raise
+else:
+    raise SystemExit("preseeded fake Rust binding survived primitive provenance checks")
+"""
+    repository = Path(__file__).resolve().parents[2]
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(repository)
+    python_executable = Path(sys.executable).with_name("python")
+    completed = subprocess.run(
+        [python_executable, "-c", script],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_object_new_clones_cannot_reuse_authenticated_ed25519_issuances() -> None:
     manifest = _manifest()
     selection = _selection(
@@ -1340,6 +1484,8 @@ def test_ed25519_issuers_ignore_replaced_adapter_globals_and_modules(
     )
     authenticated_manifest = _authenticated_manifest(manifest)
     host = _host_hello(manifest)
+    valid_supervisor = _supervisor_hello(manifest, host)
+    valid_confirmation = _confirmation(manifest, host, valid_supervisor)
     host_fields = host.to_dict()
     host_fields["signature_ed25519_base64"] = _b64(bytes([97]) * 64)
     invalid_host = LifecycleV2HostHello.capture(host_fields)
@@ -1393,8 +1539,25 @@ def test_ed25519_issuers_ignore_replaced_adapter_globals_and_modules(
         "decode_unverified_lifecycle_v2_transport_envelope",
     ):
         monkeypatch.setattr(ed25519_adapter, name, identity)
-    monkeypatch.setattr(ed25519_adapter, "Ed25519PublicKey", object)
-    monkeypatch.setattr(ed25519_adapter, "InvalidSignature", RuntimeError)
+    monkeypatch.setattr(ed25519_adapter, "_cryptography_rust", object())
+    for name in (
+        "Any",
+        "AttributeError",
+        "Exception",
+        "TypeError",
+        "any",
+        "bytes",
+        "cast",
+        "getattr",
+        "id",
+        "len",
+        "object",
+        "str",
+        "tuple",
+        "type",
+        "zip",
+    ):
+        monkeypatch.setattr(ed25519_adapter, name, object(), raising=False)
     adapter_os = cast(Any, ed25519_adapter).os
     adapter_threading = cast(Any, ed25519_adapter).threading
     monkeypatch.setattr(adapter_os, "getpid", lambda: 1)
@@ -1404,8 +1567,52 @@ def test_ed25519_issuers_ignore_replaced_adapter_globals_and_modules(
         "packages.domain.trusted_time_graceful_stop_v2_recovery",
         "packages.domain.trusted_time_graceful_stop_v2_terminal",
         "packages.domain.trusted_time_graceful_stop_v2_transport",
+        "cryptography.hazmat.primitives.asymmetric.ed25519",
     ):
         monkeypatch.setitem(sys.modules, module_name, object())
+
+    replacement_safe_manifest = authenticate_lifecycle_v2_transport_authority_manifest(
+        manifest.encoded,
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    authenticate_lifecycle_v2_transport_authority_selection(
+        selection.encoded,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    replacement_safe_authority = authenticate_lifecycle_v2_transport_authority(
+        (manifest.encoded,),
+        (selection.encoded,),
+        reviewed_root_key_id=ROOT_KEY_ID,
+        reviewed_root_public_key=_public_key(ROOT_PRIVATE_KEY),
+    )
+    authenticate_selected_lifecycle_v2_handshake(
+        replacement_safe_authority,
+        host_hello_encoded=host.encoded,
+        supervisor_hello_encoded=valid_supervisor.encoded,
+        host_confirmation_encoded=valid_confirmation.encoded,
+    )
+    authenticate_lifecycle_v2_recovery_classification_envelope(
+        recovery_envelope.encoded,
+        authority=replacement_safe_authority,
+        root=root,
+        classified_transcript=transcript,
+    )
+    replacement_safe_frame = authenticate_root_bound_lifecycle_v2_transport_frame(
+        transport_envelope.encoded,
+        authority_manifest=replacement_safe_manifest,
+        root=root,
+        request_intent=intent,
+    )
+    ed25519_adapter._require_authenticated_lifecycle_v2_transport_envelope(
+        replacement_safe_frame
+    )
+    replacement_safe_verifier = (
+        ed25519_adapter._build_injected_lifecycle_v2_ed25519_retained_wire_verifier(
+            replacement_safe_manifest
+        )
+    )
+    ed25519_adapter._require_exact_retained_wire_verifier(replacement_safe_verifier)
 
     with pytest.raises(LifecycleV2TransportAuthenticationError, match="signature"):
         authenticate_lifecycle_v2_transport_authority_manifest(
