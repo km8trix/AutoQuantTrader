@@ -1368,8 +1368,7 @@ aqt_trusted_time_v2_provisioner_main(int argument_count, char **argument_values)
     }
     success = 1;
 cleanup:
-    if (!success && target_descriptor >= 0
-        && (child_attempted == 0 || atomic_load(&aqt_child_state) == 2)) {
+    if (!success && target_descriptor >= 0) {
         unlink_result = aqt_unlink_exact_target(
             directory_descriptor,
             target_descriptor,
