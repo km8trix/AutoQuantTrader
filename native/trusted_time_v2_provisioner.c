@@ -6,6 +6,7 @@
 
 #include "trusted_time_v2_provisioner.h"
 
+#include "trusted_time_v2_descriptor_baseline.h"
 #include "trusted_time_v2_fork_guard.h"
 #include "trusted_time_v2_seccomp.h"
 
@@ -35,6 +36,7 @@
 #include <linux/magic.h>
 #include <sys/statfs.h>
 #include <sys/syscall.h>
+#include <sys/sysmacros.h>
 #endif
 
 #if (defined(AQT_TRUSTED_TIME_V2_HOST_PROVISIONER_PROFILE) \
@@ -129,6 +131,24 @@
 #define AQT_DIRECTORY_UID ((uid_t)0)
 #define AQT_DIRECTORY_GID ((gid_t)0)
 #define AQT_DIRECTORY_MODE ((mode_t)0700)
+#endif
+
+#ifdef AQT_TRUSTED_TIME_V2_TEST_BLOB_PREFIX
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+#error "The blob-prefix override is test-only."
+#endif
+#undef AQT_BLOB_PREFIX
+#define AQT_BLOB_PREFIX AQT_TRUSTED_TIME_V2_TEST_BLOB_PREFIX
+#endif
+
+#ifdef AQT_TRUSTED_TIME_V2_TEST_TARGET_DIRECTORY
+#ifndef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+#error "The target-directory override is test-only."
+#endif
+#undef AQT_TARGET_DIRECTORY
+#undef AQT_TARGET_PATH
+#define AQT_TARGET_DIRECTORY AQT_TRUSTED_TIME_V2_TEST_TARGET_DIRECTORY
+#define AQT_TARGET_PATH AQT_TARGET_DIRECTORY "/" AQT_TARGET_BASENAME
 #endif
 
 typedef struct {
@@ -890,6 +910,32 @@ aqt_consume_authenticated_generation(
 
 #ifdef __linux__
 static int
+aqt_normalize_descriptor(int *descriptor_io, int fixed_descriptor)
+{
+    struct stat before;
+    struct stat after;
+    int original;
+
+    if (descriptor_io == NULL || *descriptor_io < 3 || fixed_descriptor < 3) {
+        return -1;
+    }
+    original = *descriptor_io;
+    if (fstat(original, &before) != 0) {
+        return -1;
+    }
+    if (original != fixed_descriptor) {
+        if (dup3(original, fixed_descriptor, O_CLOEXEC) != fixed_descriptor
+            || fstat(fixed_descriptor, &after) != 0
+            || !aqt_metadata_equal(&before, &after)
+            || close(original) != 0) {
+            (void)close(fixed_descriptor);
+            return -1;
+        }
+        *descriptor_io = fixed_descriptor;
+    }
+    return 0;
+}
+static int
 aqt_close_child_descriptors(int executable_descriptor, rlim_t maximum_descriptor)
 {
     int descriptor;
@@ -902,6 +948,14 @@ aqt_close_child_descriptors(int executable_descriptor, rlim_t maximum_descriptor
             (void)close(descriptor);
         }
     }
+    return 0;
+}
+#else
+static int
+aqt_normalize_descriptor(int *descriptor_io, int fixed_descriptor)
+{
+    (void)descriptor_io;
+    (void)fixed_descriptor;
     return 0;
 }
 #endif
@@ -1016,14 +1070,18 @@ aqt_run_child(
         for (index = 0U; index < 4U; index++) {
             (void)sigaction(signals[index], &default_action, NULL);
         }
-        if (dup2(null_descriptor, STDIN_FILENO) < 0
-            || dup2(target_descriptor, STDOUT_FILENO) < 0) {
+        if (dup3(null_descriptor, STDIN_FILENO, 0) != STDIN_FILENO
+            || dup3(target_descriptor, STDOUT_FILENO, 0) != STDOUT_FILENO) {
             _exit(126);
         }
         (void)aqt_close_child_descriptors(
             executable_descriptor,
             descriptor_limit.rlim_cur
         );
+        if (aqt_trusted_time_v2_seccomp_install_child_exec()
+            != AQT_TRUSTED_TIME_V2_SECCOMP_OK) {
+            _exit(126);
+        }
         (void)syscall(
             SYS_execveat,
             executable_descriptor,
@@ -1252,19 +1310,6 @@ aqt_validate_invocation(int argument_count, char **argument_values)
 #endif
 }
 
-static int
-aqt_validate_standard_descriptors(void)
-{
-    int descriptor;
-
-    for (descriptor = STDIN_FILENO; descriptor <= STDERR_FILENO; descriptor++) {
-        if (fcntl(descriptor, F_GETFD) < 0) {
-            return -1;
-        }
-    }
-    return 0;
-}
-
 int
 aqt_trusted_time_v2_provisioner_main(int argument_count, char **argument_values)
 {
@@ -1272,6 +1317,7 @@ aqt_trusted_time_v2_provisioner_main(int argument_count, char **argument_values)
     char blob_path[AQT_MAX_PATH_BYTES];
     struct stat blob_identity;
     struct stat null_identity;
+    struct stat normalized_target_identity;
     struct stat target_identity;
     int directory_descriptor = -1;
     int target_descriptor = -1;
@@ -1288,9 +1334,11 @@ aqt_trusted_time_v2_provisioner_main(int argument_count, char **argument_values)
     memset(blob_path, 0, sizeof(blob_path));
     memset(&blob_identity, 0, sizeof(blob_identity));
     memset(&null_identity, 0, sizeof(null_identity));
+    memset(&normalized_target_identity, 0, sizeof(normalized_target_identity));
     memset(&target_identity, 0, sizeof(target_identity));
     aqt_validate_invocation(argument_count, argument_values);
-    if (aqt_validate_standard_descriptors() != 0
+    if (aqt_trusted_time_v2_close_ambient_descriptors() != 0
+        || aqt_trusted_time_v2_validate_standard_descriptors() != 0
         || aqt_install_signal_deferral() != 0) {
         aqt_fail("the fixed descriptor and signal baseline is unavailable");
     }
@@ -1328,8 +1376,27 @@ aqt_trusted_time_v2_provisioner_main(int argument_count, char **argument_values)
         || target_descriptor == executable_descriptor
         || target_descriptor == null_descriptor
         || executable_descriptor == null_descriptor
+        || aqt_normalize_descriptor(
+            &executable_descriptor,
+            AQT_TRUSTED_TIME_V2_SYSTEMD_CREDS_FD
+        ) != 0
+        || aqt_normalize_descriptor(
+            &null_descriptor,
+            AQT_TRUSTED_TIME_V2_NULL_INPUT_FD
+        ) != 0
+        || aqt_normalize_descriptor(
+            &target_descriptor,
+            AQT_TRUSTED_TIME_V2_SECRET_OUTPUT_FD
+        ) != 0
+        || fstat(target_descriptor, &normalized_target_identity) != 0
+        || !aqt_metadata_equal(&target_identity, &normalized_target_identity)
         || fstat(null_descriptor, &null_identity) != 0
         || !S_ISCHR(null_identity.st_mode)
+#ifdef __linux__
+        || major(null_identity.st_rdev) != 1U
+        || minor(null_identity.st_rdev) != 3U
+#endif
+        || (fcntl(null_descriptor, F_GETFL) & O_ACCMODE) != O_RDONLY
         || aqt_interrupted_signal != 0
         || aqt_trusted_time_v2_fork_guard_require_owner_table_empty() != 0) {
         goto cleanup;
@@ -1390,6 +1457,7 @@ cleanup:
     aqt_wipe(blob_path, sizeof(blob_path));
     aqt_wipe(&blob_identity, sizeof(blob_identity));
     aqt_wipe(&null_identity, sizeof(null_identity));
+    aqt_wipe(&normalized_target_identity, sizeof(normalized_target_identity));
     aqt_wipe(&generation, sizeof(generation));
     aqt_restore_signal_dispositions();
     if (!success) {

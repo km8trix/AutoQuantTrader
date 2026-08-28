@@ -15,6 +15,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -200,6 +201,15 @@ aqt_probe_socket_surface(void)
     errno = 0;
 #if defined(AQT_TRUSTED_TIME_V2_HOST_PROFILE) \
     || defined(AQT_TRUSTED_TIME_V2_SUPERVISOR_PROFILE)
+    value = 262145;
+    failed |= aqt_expect_not_eperm(
+        (long)setsockopt(-1, SOL_SOCKET, SO_SNDBUF, &value, sizeof(value))
+    );
+    errno = 0;
+    failed |= aqt_expect_not_eperm(
+        (long)setsockopt(-1, SOL_SOCKET, SO_RCVBUF, &value, sizeof(value))
+    );
+    errno = 0;
     failed |= aqt_expect_not_eperm(
         (long)sendmsg(-1, &message, MSG_DONTWAIT | MSG_NOSIGNAL)
     );
@@ -212,9 +222,17 @@ aqt_probe_socket_surface(void)
         (long)getsockopt(-1, SOL_SOCKET, SO_TYPE, &value, &value_size)
     );
     errno = 0;
+    failed |= aqt_expect_not_eperm(
+        (long)getsockopt(-1, SOL_SOCKET, SO_SNDBUF, &value, &value_size)
+    );
+    errno = 0;
+    failed |= aqt_expect_not_eperm(
+        (long)getsockopt(-1, SOL_SOCKET, SO_RCVBUF, &value, &value_size)
+    );
+    errno = 0;
     failed |= aqt_expect_not_eperm((long)getsockname(-1, NULL, NULL));
     errno = 0;
-    failed |= aqt_expect_not_eperm((long)shutdown(-1, SHUT_RDWR));
+    failed |= aqt_expect_eperm((long)shutdown(-1, SHUT_RDWR));
 #else
     failed |= aqt_expect_eperm(
         (long)sendmsg(-1, &message, MSG_DONTWAIT | MSG_NOSIGNAL)
@@ -239,6 +257,14 @@ aqt_probe_socket_surface(void)
     errno = 0;
     failed |= aqt_expect_eperm(
         (long)getsockopt(-1, SOL_SOCKET, SO_BROADCAST, &value, &value_size)
+    );
+    errno = 0;
+    failed |= aqt_expect_eperm(
+        (long)setsockopt(-1, SOL_SOCKET, SO_SNDBUF, &value, sizeof(value) + 1U)
+    );
+    errno = 0;
+    failed |= aqt_expect_eperm(
+        (long)setsockopt(-1, SOL_SOCKET, SO_BROADCAST, &value, sizeof(value))
     );
     return failed;
 }
@@ -271,6 +297,13 @@ aqt_probe_argument_filters(void)
         )
     );
 #endif
+#if defined(AQT_TRUSTED_TIME_V2_SUPERVISOR_PROFILE)
+    errno = 0;
+    if (syscall(__NR_umask, 0177L) == -1L && errno == EPERM) {
+        failed = 1;
+    }
+#endif
+    failed |= aqt_raw_eperm(__NR_umask, 0022L, 0L, 0L, 0L, 0L);
     return failed;
 }
 

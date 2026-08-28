@@ -72,20 +72,26 @@ aqt_trusted_time_v2_seccomp_policy_model(void)
 #ifndef __X32_SYSCALL_BIT
 #define __X32_SYSCALL_BIT 0x40000000U
 #endif
-#ifndef __O_TMPFILE
-#define __O_TMPFILE 020000000
-#endif
 #ifndef SO_PEERCRED
 #define SO_PEERCRED 17
 #endif
+#ifndef SO_COOKIE
+#define SO_COOKIE 57
+#endif
 
-#define AQT_SYSTEMD_CREDS_FD 64U
-#define AQT_NULL_INPUT_FD 65U
-#define AQT_SECRET_OUTPUT_FD 66U
+#if defined(__x86_64__)
+#define AQT_CLONE_TLS_ARGUMENT args[4]
+#else
+#define AQT_CLONE_TLS_ARGUMENT args[3]
+#endif
+
+#define AQT_SYSTEMD_CREDS_FD ((unsigned int)AQT_TRUSTED_TIME_V2_SYSTEMD_CREDS_FD)
+#define AQT_NULL_INPUT_FD ((unsigned int)AQT_TRUSTED_TIME_V2_NULL_INPUT_FD)
+#define AQT_SECRET_OUTPUT_FD ((unsigned int)AQT_TRUSTED_TIME_V2_SECRET_OUTPUT_FD)
 #define AQT_FORK_CLONE_FLAGS \
     ((unsigned int)(CLONE_CHILD_CLEARTID | CLONE_CHILD_SETTID | SIGCHLD))
 #define AQT_OPENAT_WRITE_BITS \
-    ((unsigned int)(O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_APPEND | __O_TMPFILE))
+    ((unsigned int)(O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_APPEND | 020000000))
 #define AQT_TARGET_CREATE_FLAGS \
     ((unsigned int)(O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_CREAT | O_EXCL))
 
@@ -204,23 +210,43 @@ aqt_trusted_time_v2_seccomp_policy_model(void)
     AQT_ERRNO_RESULT
 
 #define AQT_HOST_GETSOCKOPT_RULE \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_getsockopt, 0, 8), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_getsockopt, 0, 11), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SOL_SOCKET, 0, 5), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SOL_SOCKET, 0, 8), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_TYPE, 2, 0), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_PEERCRED, 1, 0), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_ERROR, 0, 1), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_TYPE, 5, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_PEERCRED, 4, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_ERROR, 3, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_COOKIE, 2, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_SNDBUF, 1, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_RCVBUF, 0, 1), \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
     AQT_ERRNO_RESULT
 
 #define AQT_SUPERVISOR_GETSOCKOPT_RULE \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_getsockopt, 0, 7), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_getsockopt, 0, 10), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SOL_SOCKET, 0, 4), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SOL_SOCKET, 0, 7), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_TYPE, 1, 0), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_PEERCRED, 0, 1), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_TYPE, 4, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_PEERCRED, 3, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_COOKIE, 2, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_SNDBUF, 1, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_RCVBUF, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_ENDPOINT_SETSOCKOPT_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_setsockopt, 0, 11), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SOL_SOCKET, 0, 8), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_SNDBUF, 1, 0), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SO_RCVBUF, 0, 5), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[4])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, sizeof(int), 0, 3), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[4]) + 4U), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 1), \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
     AQT_ERRNO_RESULT
 
@@ -243,28 +269,72 @@ aqt_trusted_time_v2_seccomp_policy_model(void)
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
     AQT_ERRNO_RESULT
 
-#define AQT_PRCTL_NO_NEW_PRIVS_RULE \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_prctl, 0, 6), \
+#define AQT_EXACT_UMASK_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_umask, 0, 6), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PR_SET_NO_NEW_PRIVS, 0, 3), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0177U, 0, 3), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0]) + 4U), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_UNLINKAT_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_unlinkat, 0, 4), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+
+#define AQT_PRCTL_NO_NEW_PRIVS_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_prctl, 0, 18), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PR_SET_NO_NEW_PRIVS, 0, 15), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 1U, 0, 1), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 1U, 0, 13), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 11), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2]) + 4U), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 9), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[3])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 7), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[3]) + 4U), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 5), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[4])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 3), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[4]) + 4U), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 1), \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
     AQT_ERRNO_RESULT
 
 #define AQT_SECCOMP_TSYNC_RULE \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_seccomp, 0, 6), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_seccomp, 0, 10), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SECCOMP_SET_MODE_FILTER, 0, 3), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SECCOMP_SET_MODE_FILTER, 0, 7), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SECCOMP_FILTER_FLAG_TSYNC, 0, 1), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SECCOMP_FILTER_FLAG_TSYNC, 0, 5), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 2), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2]) + 4U), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 1, 0), \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
     AQT_ERRNO_RESULT
 
 #define AQT_EXACT_FORK_CLONE_RULE \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_clone, 0, 4), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_clone, 0, 16), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_FORK_CLONE_FLAGS, 0, 1), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_FORK_CLONE_FLAGS, 0, 13), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 11), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1]) + 4U), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 9), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 7), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2]) + 4U), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 5), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, AQT_CLONE_TLS_ARGUMENT)), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 3), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, AQT_CLONE_TLS_ARGUMENT) + 4U), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 1), \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
     AQT_ERRNO_RESULT
 
@@ -304,20 +374,6 @@ aqt_trusted_time_v2_seccomp_policy_model(void)
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
     BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, STDOUT_FILENO, 2, 0), \
     AQT_ERRNO_RESULT, \
-    AQT_ERRNO_RESULT, \
-    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
-    AQT_ERRNO_RESULT
-
-#define AQT_EXACT_DUP2_RULE \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_dup2, 0, 11), \
-    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_NULL_INPUT_FD, 0, 3), \
-    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, STDIN_FILENO, 5, 0), \
-    AQT_ERRNO_RESULT, \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AQT_SECRET_OUTPUT_FD, 0, 4), \
-    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])), \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, STDOUT_FILENO, 1, 0), \
     AQT_ERRNO_RESULT, \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
     AQT_ERRNO_RESULT
@@ -391,13 +447,13 @@ static const struct sock_filter aqt_initial_filter[] = {
 #if defined(AQT_TRUSTED_TIME_V2_HOST_PROFILE) \
     || defined(AQT_TRUSTED_TIME_V2_SUPERVISOR_PROFILE)
     AQT_UNIX_SEQPACKET_SOCKET_RULE,
+    AQT_ENDPOINT_SETSOCKOPT_RULE,
     AQT_ALLOW_SYSCALL(__NR_ppoll),
     AQT_MESSAGE_FLAGS_RULE(__NR_sendmsg, MSG_DONTWAIT | MSG_NOSIGNAL),
     AQT_MESSAGE_FLAGS_RULE(__NR_recvmsg, MSG_DONTWAIT | MSG_CMSG_CLOEXEC),
-    AQT_ALLOW_SYSCALL(__NR_unlinkat),
+    AQT_UNLINKAT_RULE,
     AQT_ALLOW_SYSCALL(__NR_statfs),
     AQT_ALLOW_SYSCALL(__NR_fstatfs),
-    AQT_ALLOW_SYSCALL(__NR_shutdown),
 #if defined(AQT_TRUSTED_TIME_V2_HOST_PROFILE)
     AQT_HOST_GETSOCKOPT_RULE,
     AQT_ALLOW_SYSCALL(__NR_connect),
@@ -408,15 +464,12 @@ static const struct sock_filter aqt_initial_filter[] = {
     AQT_LISTEN_ONE_RULE,
     AQT_ALLOW_SYSCALL(__NR_bind),
     AQT_ALLOW_SYSCALL(__NR_getsockname),
-    AQT_ALLOW_SYSCALL(__NR_umask),
+    AQT_EXACT_UMASK_RULE,
 #endif
 #elif defined(AQT_TRUSTED_TIME_V2_RECOVERY_PROFILE)
-    AQT_ALLOW_SYSCALL(__NR_unlinkat),
+    AQT_UNLINKAT_RULE,
 #else
     AQT_DUP3_NORMALIZE_RULE,
-#ifdef __NR_dup2
-    AQT_EXACT_DUP2_RULE,
-#endif
     AQT_EXACT_FORK_CLONE_RULE,
     AQT_SIGKILL_RULE,
     AQT_EXACT_EXECVEAT_RULE,
@@ -424,7 +477,7 @@ static const struct sock_filter aqt_initial_filter[] = {
     AQT_SECCOMP_TSYNC_RULE,
     AQT_ALLOW_SYSCALL(__NR_wait4),
     AQT_ALLOW_SYSCALL(__NR_nanosleep),
-    AQT_ALLOW_SYSCALL(__NR_unlinkat),
+    AQT_UNLINKAT_RULE,
     AQT_ALLOW_SYSCALL(__NR_fchmod),
     AQT_ALLOW_SYSCALL(__NR_fchown),
     AQT_ALLOW_SYSCALL(__NR_statfs),
@@ -513,7 +566,7 @@ static const struct sock_filter aqt_post_child_filter[] = {
 #ifdef __NR_gettid
     AQT_ALLOW_SYSCALL(__NR_gettid),
 #endif
-    AQT_ALLOW_SYSCALL(__NR_unlinkat),
+    AQT_UNLINKAT_RULE,
     AQT_FILTER_SUFFIX,
 };
 #endif

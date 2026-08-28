@@ -20,6 +20,9 @@
 #define AQT_TRUSTED_TIME_V2_SECCOMP_INITIAL_PHASE 0
 #define AQT_TRUSTED_TIME_V2_SECCOMP_POST_CHILD_PHASE 1
 #define AQT_TRUSTED_TIME_V2_SECCOMP_CHILD_EXEC_PHASE 2
+#define AQT_TRUSTED_TIME_V2_SYSTEMD_CREDS_FD 64
+#define AQT_TRUSTED_TIME_V2_NULL_INPUT_FD 65
+#define AQT_TRUSTED_TIME_V2_SECRET_OUTPUT_FD 66
 
 int aqt_trusted_time_v2_seccomp_install_initial(void);
 int aqt_trusted_time_v2_seccomp_install_child_exec(void);
