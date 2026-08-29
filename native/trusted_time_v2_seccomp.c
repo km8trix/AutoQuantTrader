@@ -441,9 +441,12 @@ static const struct sock_filter aqt_initial_filter[] = {
     AQT_ALLOW_SYSCALL(__NR_mprotect),
 #endif
     AQT_BASE_RUNTIME_ALLOWANCES,
-#if !defined(AQT_TRUSTED_TIME_V2_PROVISIONER_PROFILE) \
-    && defined(__NR_readlink)
+#ifdef __NR_readlink
     AQT_ALLOW_SYSCALL(__NR_readlink),
+#endif
+#if !defined(AQT_TRUSTED_TIME_V2_PROVISIONER_PROFILE) \
+    && defined(__NR_stat)
+    AQT_ALLOW_SYSCALL(__NR_stat),
 #endif
 #ifdef __NR_faccessat2
     AQT_ALLOW_SYSCALL(__NR_faccessat2),

@@ -238,6 +238,12 @@ def test_systemd_accepts_every_source_unit(tmp_path: Path) -> None:
     unit_directory.mkdir(parents=True)
     for source in SYSTEMD_DIRECTORY.iterdir():
         shutil.copyfile(source, unit_directory / source.name)
+    sysinit_target = unit_directory / "sysinit.target"
+    sysinit_target.write_text(
+        "[Unit]\nDescription=Synthetic system initialization target for unit verification\n",
+        encoding="ascii",
+    )
+    sysinit_target.chmod(0o444)
     for executable in EXPECTED_EXECUTABLES.values():
         staged = root / executable.removeprefix("/")
         staged.parent.mkdir(parents=True, exist_ok=True)

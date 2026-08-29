@@ -599,8 +599,12 @@ def _python_build(toolchain: _Toolchain) -> _PythonBuild:
     include = Path(include_value).resolve(strict=True)
     library_root = Path(library_root_value).resolve(strict=True)
     library = (library_root / library_name).resolve(strict=True)
-    executable = Path(sys.executable).resolve(strict=True)
     home = Path(sys.base_prefix).resolve(strict=True)
+    base_executable = home / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    try:
+        executable = base_executable.resolve(strict=True)
+    except OSError:
+        _fail("the qualification Python base executable is unavailable")
     standard_library = Path(sysconfig.get_path("stdlib")).resolve(strict=True)
     dynamic_extensions = Path(dynamic_extensions_value).resolve(strict=True)
     _regular_file(library)
@@ -1238,13 +1242,16 @@ def _validate_vendoring() -> dict[str, object]:
 def _validate_seccomp_manifests(
     *,
     verify_compiled_filters: bool,
+    qualification_python: Path | None = None,
 ) -> dict[str, dict[str, object]]:
     if os.uname().machine != "x86_64":
         _fail("the retained canonical seccomp manifests require Linux x86_64")
     if verify_compiled_filters:
+        if qualification_python is None:
+            _fail("the seccomp verifier requires the qualification Python executable")
         _run(
             (
-                sys.executable,
+                str(qualification_python),
                 "-I",
                 "-B",
                 str(_SECCOMP_MANIFEST_HELPER),
@@ -2205,7 +2212,10 @@ def build(output_directory: Path) -> dict[str, object]:
     audit_tools = _audit_tool_records(toolchain)
     source_manifest = _validate_sources()
     vendor = _validate_vendoring()
-    seccomp_manifests = _validate_seccomp_manifests(verify_compiled_filters=True)
+    seccomp_manifests = _validate_seccomp_manifests(
+        verify_compiled_filters=True,
+        qualification_python=python.executable,
+    )
     import_tree_sources = _validate_candidate_import_sources()
     recovery_runtime_sources = _validate_recovery_runtime_sources(python)
     recovery_module_inventory = _python_module_inventory()

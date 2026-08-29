@@ -154,6 +154,7 @@ def _normal_prefix(*, endpoint: bool) -> tuple[dict[str, object], ...]:
         _NONEXEC_MPROTECT,
         *_BASE_RUNTIME,
         _allow("readlink"),
+        _allow("stat"),
         *_PORTABLE_LINUX_RUNTIME,
     )
 
@@ -233,6 +234,7 @@ def _policies(profile: str) -> tuple[tuple[str, int, tuple[dict[str, object], ..
         _allow("mmap"),
         _allow("mprotect"),
         *_BASE_RUNTIME,
+        _allow("readlink"),
         *_PORTABLE_LINUX_RUNTIME,
         _allow(
             "dup3",

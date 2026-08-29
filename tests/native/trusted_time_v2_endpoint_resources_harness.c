@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -801,6 +802,43 @@ static int test_socket_fd_substitution(void) {
   CHECK(aqt_trusted_time_v2_fork_guard_require_owner_table_empty() == 0);
   return 0;
 }
+
+static int test_current_process_proc_admission(void) {
+  struct stat executable;
+  char pid_name[32];
+  int pid_name_length;
+  int root_descriptor;
+  int proc_descriptor;
+  int process_descriptor;
+  int executable_descriptor;
+  int expected_admission;
+
+  pid_name_length =
+      snprintf(pid_name, sizeof(pid_name), "%ld", (long)getpid());
+  CHECK(pid_name_length > 0 && (size_t)pid_name_length < sizeof(pid_name));
+  root_descriptor =
+      open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+  CHECK(root_descriptor >= 0);
+  proc_descriptor = openat(root_descriptor, "proc",
+                           O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+  CHECK(proc_descriptor >= 0);
+  process_descriptor = openat(proc_descriptor, pid_name,
+                              O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+  CHECK(process_descriptor >= 0);
+  executable_descriptor =
+      openat(process_descriptor, "exe", O_RDONLY | O_CLOEXEC);
+  CHECK(executable_descriptor >= 0);
+  CHECK(fstat(executable_descriptor, &executable) == 0);
+  CHECK(close(executable_descriptor) == 0);
+  CHECK(close(process_descriptor) == 0);
+  CHECK(close(proc_descriptor) == 0);
+  CHECK(close(root_descriptor) == 0);
+  expected_admission =
+      executable.st_uid == 0U && executable.st_gid == 0U ? 0 : EPERM;
+  CHECK(aqt_trusted_time_v2_resources_test_current_process_proc_admission() ==
+        expected_admission);
+  return 0;
+}
 #endif
 
 int main(void) {
@@ -818,8 +856,7 @@ int main(void) {
         0);
   CHECK(aqt_trusted_time_graceful_stop_v2_endpoint_initialize_before_python() ==
         EALREADY);
-  CHECK(aqt_trusted_time_v2_resources_test_current_process_proc_admission() ==
-        0);
+  CHECK(test_current_process_proc_admission() == 0);
   CHECK(aqt_trusted_time_v2_fork_guard_require_owner_table_empty() == 0);
   CHECK(test_complete_state_machine() == 0);
   CHECK(test_terminal_receive_boundaries() == 0);

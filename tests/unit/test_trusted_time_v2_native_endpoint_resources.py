@@ -225,6 +225,9 @@ def test_header_has_only_role_narrow_production_surface() -> None:
 
 def test_resource_admission_is_literal_and_stable() -> None:
     source = (NATIVE / "trusted_time_graceful_stop_v2_resources.c").read_text(encoding="utf-8")
+    harness = (
+        ROOT / "tests" / "native" / "trusted_time_v2_endpoint_resources_harness.c"
+    ).read_text(encoding="utf-8")
     assert '"/proc/self/mountinfo"' not in source
     assert '"mountinfo"' in source
     assert '"proc"' in source
@@ -240,6 +243,14 @@ def test_resource_admission_is_literal_and_stable() -> None:
     assert "aqt_read_proc_file_once" in source
     assert "aqt_capture_executable_identity" in source
     assert "aqt_executable_identity_is_valid" in source
+    assert "identity->uid == 0U && identity->gid == 0U" in source
+    assert 'open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)' in harness
+    assert 'openat(root_descriptor, "proc"' in harness
+    assert "openat(proc_descriptor, pid_name" in harness
+    assert 'openat(process_descriptor, "exe", O_RDONLY | O_CLOEXEC)' in harness
+    assert "fstat(executable_descriptor, &executable) == 0" in harness
+    assert "close(executable_descriptor) == 0" in harness
+    assert "executable.st_uid == 0U && executable.st_gid == 0U ? 0 : EPERM" in harness
     assert "executable_after" in source
     assert "aqt_capture_pid_namespace_identity" in source
     assert "expected_mode" in source

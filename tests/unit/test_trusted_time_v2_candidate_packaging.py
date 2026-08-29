@@ -60,6 +60,16 @@ def test_builder_is_source_only_and_has_no_test_profile_or_activation_surface() 
     assert "seccomp_manifests_included" in source
 
 
+def test_builder_uses_the_base_cpython_not_the_policy_launcher() -> None:
+    source = BUILDER.read_text(encoding="utf-8")
+
+    assert "_base_executable" not in source
+    assert "sys.executable" not in source
+    assert 'home / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"' in source
+    assert "the qualification Python base executable is unavailable" in source
+    assert "qualification_python=python.executable" in source
+
+
 def test_role_launcher_omits_portable_only_basename_helper_from_production() -> None:
     source = ROLE_LAUNCHER.read_text(encoding="utf-8")
     guarded_helper = """#ifdef AQT_TRUSTED_TIME_V2_PORTABLE_TEST_PROFILE
