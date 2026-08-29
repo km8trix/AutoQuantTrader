@@ -866,7 +866,6 @@ def _expected_candidate_entry_source(role: str) -> bytes:
         )
         return (
             '"""Inert entry for the unactivated lifecycle-v2 recovery candidate."""\n\n'
-            "from __future__ import annotations\n\n"
             "import sys\n\n"
             "_EXPECTED_PATH = [\n"
             f'    "{_RECOVERY_RUNTIME_ROOT}",\n'

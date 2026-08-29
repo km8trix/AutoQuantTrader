@@ -699,7 +699,7 @@ project_build_bootstrap_manifest_paths = [
   "third_party/monocypher/4.0.3/src/optional/monocypher-ed25519.c",
   "third_party/monocypher/4.0.3/src/optional/monocypher-ed25519.h",
 ]
-project_build_bootstrap_manifest_sha256 = "c3d3556c3006256f8499e10a3444f553db4e1b763fe78868e9b98f0bccbf9654"
+project_build_bootstrap_manifest_sha256 = "e8e44255e5337120afe0cb92a63541123ae1aaba2a0bfafee612761ce6eefead"
 project_build_bootstrap_forbidden_paths = [
   "MANIFEST.in",
   "hatch.toml",

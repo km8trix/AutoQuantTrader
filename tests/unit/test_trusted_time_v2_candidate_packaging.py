@@ -136,9 +136,12 @@ def test_inert_candidate_import_sources_are_exact_and_reject_mutation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     records = candidate_builder._validate_candidate_import_sources()
+    recovery_source = candidate_builder._ROLE_IMPORT_SOURCE_PATHS["recovery"].read_bytes()
 
     assert set(records) == ROLES
     assert all(record["size"] > 0 for record in records.values())
+    assert recovery_source == candidate_builder._expected_candidate_entry_source("recovery")
+    assert b"__future__" not in recovery_source
     unsafe_root = tmp_path / "recovery"
     unsafe_root.mkdir()
     unsafe = unsafe_root / "autoquant_trusted_time_v2_recovery_entry.py"

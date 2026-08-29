@@ -1,7 +1,5 @@
 """Inert entry for the unactivated lifecycle-v2 recovery candidate."""
 
-from __future__ import annotations
-
 import sys
 
 _EXPECTED_PATH = [
