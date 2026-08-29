@@ -65,6 +65,7 @@ _RECOVERY_RUNTIME_RELATIVE_PATHS = (
     Path("LICENSE.txt"),
     Path("encodings/__init__.py"),
     Path("encodings/aliases.py"),
+    Path("encodings/ascii.py"),
     Path("encodings/utf_8.py"),
 )
 _RECOVERY_RUNTIME_FORBIDDEN_RELATIVE_PREFIXES = (
@@ -772,6 +773,7 @@ def _python_record(python: _PythonBuild) -> dict[str, object]:
     startup_relative_paths = (
         "encodings/__init__.py",
         "encodings/aliases.py",
+        "encodings/ascii.py",
         "encodings/utf_8.py",
     )
     startup_files = [

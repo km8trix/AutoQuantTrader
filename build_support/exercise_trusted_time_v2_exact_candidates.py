@@ -67,6 +67,7 @@ _RECOVERY_RUNTIME_FILES = frozenset(
         "LICENSE.txt",
         "encodings/__init__.py",
         "encodings/aliases.py",
+        "encodings/ascii.py",
         "encodings/utf_8.py",
     }
 )

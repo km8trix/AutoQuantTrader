@@ -11,6 +11,7 @@ import pytest
 
 from build_support import build_trusted_time_v2_candidates as candidate_builder
 from build_support import build_trusted_time_v2_linked_role_test as linked_role_test
+from build_support import exercise_trusted_time_v2_exact_candidates as exact_execution
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILDER = ROOT / "build_support/build_trusted_time_v2_candidates.py"
@@ -68,6 +69,24 @@ def test_builder_uses_the_base_cpython_not_the_policy_launcher() -> None:
     assert 'home / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"' in source
     assert "the qualification Python base executable is unavailable" in source
     assert "qualification_python=python.executable" in source
+
+
+def test_recovery_runtime_codec_closure_is_exact_for_fixed_c_locale() -> None:
+    expected = {
+        "LICENSE.txt",
+        "encodings/__init__.py",
+        "encodings/aliases.py",
+        "encodings/ascii.py",
+        "encodings/utf_8.py",
+    }
+    linked_gate = LINKED_ROLE_TEST.read_text(encoding="utf-8")
+
+    assert {
+        path.as_posix() for path in candidate_builder._RECOVERY_RUNTIME_RELATIVE_PATHS
+    } == expected
+    assert expected == exact_execution._RECOVERY_RUNTIME_FILES
+    assert "recovery_standard_library=recovery_runtime_root" in linked_gate
+    assert "recovery_standard_library=python.standard_library" not in linked_gate
 
 
 def test_role_launcher_omits_portable_only_basename_helper_from_production() -> None:
@@ -526,7 +545,12 @@ def test_builder_emits_six_reproducible_unactivated_real_candidates(
     assert {
         record["relative_path"]
         for record in python_record["normal_role_startup_standard_library"]["files"]
-    } == {"encodings/__init__.py", "encodings/aliases.py", "encodings/utf_8.py"}
+    } == {
+        "encodings/__init__.py",
+        "encodings/aliases.py",
+        "encodings/ascii.py",
+        "encodings/utf_8.py",
+    }
     import_trees = result["role_import_trees"]
     assert set(import_trees) == ROLES
     assert all(record["file_count"] == 1 for record in import_trees.values())
@@ -550,6 +574,7 @@ def test_builder_emits_six_reproducible_unactivated_real_candidates(
         "LICENSE.txt",
         "encodings/__init__.py",
         "encodings/aliases.py",
+        "encodings/ascii.py",
         "encodings/utf_8.py",
     }
     recovery_role = next(

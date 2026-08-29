@@ -126,6 +126,13 @@ def exercise(output_directory: Path) -> dict[str, object]:
     vendor = candidate_builder._validate_vendoring()
     entry_manifest = _entry_manifest()
     staged_entry_roots = _stage_entry_roots(build_root)
+    recovery_runtime_sources = candidate_builder._validate_recovery_runtime_sources(python)
+    recovery_runtime = candidate_builder._emit_recovery_runtime(
+        build_root,
+        recovery_runtime_sources,
+        candidate_builder._python_module_inventory(),
+    )
+    recovery_runtime_root = (build_root / str(recovery_runtime["output_root"])).resolve(strict=True)
     test_child = Path("/usr/bin/true").resolve(strict=True)
     candidate_builder._regular_file(test_child)
     test_child_sha256 = _sha256(test_child)
@@ -145,7 +152,7 @@ def exercise(output_directory: Path) -> dict[str, object]:
             *candidate_builder._python_definitions(
                 role,
                 python,
-                recovery_standard_library=python.standard_library,
+                recovery_standard_library=recovery_runtime_root,
             ),
         )
         plan = candidate_builder._BuildPlan(
@@ -238,6 +245,7 @@ def exercise(output_directory: Path) -> dict[str, object]:
         or candidate_builder._compiler_record(toolchain) != compiler_record
         or candidate_builder._audit_tool_records(toolchain) != audit_tools
         or candidate_builder._python_record(python) != python_record
+        or candidate_builder._validate_recovery_runtime_sources(python) != recovery_runtime_sources
         or _sha256(test_child) != test_child_sha256
     ):
         candidate_builder._fail("a linked-role execution input changed during the gate")
@@ -247,6 +255,10 @@ def exercise(output_directory: Path) -> dict[str, object]:
         )
         if _sha256(staged_entry) != staged["entry_sha256"]:
             candidate_builder._fail(f"the staged {role} entry mutated during execution")
+    for record in recovery_runtime["files"]:
+        runtime_file = recovery_runtime_root / str(record["path"])
+        if _sha256(runtime_file) != record["sha256"]:
+            candidate_builder._fail("the staged recovery runtime mutated during execution")
     _remove_build_root(build_root)
 
     result: dict[str, object] = {
