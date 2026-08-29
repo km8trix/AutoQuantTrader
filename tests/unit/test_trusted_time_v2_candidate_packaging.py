@@ -376,6 +376,10 @@ def test_exact_candidate_execution_is_locked_to_disposable_container() -> None:
         'trusted_time_v2_candidate_execution.Dockerfile"' in workflow
     )
     assert "Remove disposable Wave 7 qualification state" in workflow
+    cleanup_step = workflow.split("- name: Remove disposable Wave 7 qualification state", 1)[1]
+    assert "id: wave7_image_build" in workflow
+    assert "AQT_WAVE7_IMAGE_BUILD_OUTCOME: ${{ steps.wave7_image_build.outcome }}" in cleanup_step
+    assert '[ "${AQT_WAVE7_IMAGE_BUILD_OUTCOME}" = "skipped" ]' in cleanup_step
     assert "AQT_WAVE7_IMAGE_ID_FILE" in workflow
     assert 'receipt["exact_execution"]["qualification_image_id"]' in workflow
     assert "sdist_receipt = json.loads(Path(sys.argv[3])" in workflow

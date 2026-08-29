@@ -699,7 +699,7 @@ project_build_bootstrap_manifest_paths = [
   "third_party/monocypher/4.0.3/src/optional/monocypher-ed25519.c",
   "third_party/monocypher/4.0.3/src/optional/monocypher-ed25519.h",
 ]
-project_build_bootstrap_manifest_sha256 = "90d64c72fd9e65c169383e79396addef5c6b51b984a867321f0bb42d035cb457"
+project_build_bootstrap_manifest_sha256 = "f7e06c35c3bd9042f6161e79aec9091a432c55b76ad3ddb01883d6113766d5c1"
 project_build_bootstrap_forbidden_paths = [
   "MANIFEST.in",
   "hatch.toml",
@@ -708,7 +708,7 @@ project_build_bootstrap_forbidden_paths = [
   "uv.toml",
 ]
 architecture_checker_invocation_source_sha256."Makefile" = "6802268c7998df71d5543feba63663e1d6d3e07d87b4ff679107b42594770e42"
-architecture_checker_invocation_source_sha256.".github/workflows/ci.yml" = "f72261bfc102ef8efb95411ff70f76e27135033f8173ae838047fdc417e3dee7"
+architecture_checker_invocation_source_sha256.".github/workflows/ci.yml" = "5af18af8b4eeb7f92a4b507eb196c9b6b30bca2a0c1a01dca09b7c93fafb637f"
 builtin_namespace_integrity_roots = ["apps", "packages", "scripts"]
 builtin_namespace_integrity_excluded_roots = ["scripts/check_architecture.py"]
 builtin_namespace_integrity_allowed_imports."packages/adapters/market_data/recorded.py" = [

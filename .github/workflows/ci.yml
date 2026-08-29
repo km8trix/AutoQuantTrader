@@ -393,6 +393,7 @@ jobs:
           tests/unit/test_trusted_time_v2_candidate_packaging.py
 
       - name: Build pinned disposable Wave 7 qualification image
+        id: wave7_image_build
         if: runner.os == 'Linux'
         env:
           AQT_WAVE7_IMAGE: autoquant-wave7-qualification:${{ matrix.python-version }}
@@ -549,6 +550,7 @@ jobs:
           AQT_WAVE7_CONTAINER: aqt-wave7-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.python-version }}
           AQT_WAVE7_IMAGE: autoquant-wave7-qualification:${{ matrix.python-version }}
           AQT_WAVE7_IMAGE_ID_FILE: ${{ runner.temp }}/wave7-image-${{ matrix.python-version }}.txt
+          AQT_WAVE7_IMAGE_BUILD_OUTCOME: ${{ steps.wave7_image_build.outcome }}
           AQT_WAVE7_SDIST_ROOT: ${{ runner.temp }}/wave7-sdist-${{ matrix.python-version }}
           EXPECTED_RUNNER_TEMP: ${{ runner.temp }}
         run: |
@@ -565,8 +567,12 @@ jobs:
               image_id_cleanup_valid=false
             fi
           else
-            echo "Qualification image-ID file is missing" >&2
-            image_id_cleanup_valid=false
+            if [ "${AQT_WAVE7_IMAGE_BUILD_OUTCOME}" = "skipped" ]; then
+              echo "Qualification image build was skipped; no image-ID file was expected"
+            else
+              echo "Qualification image-ID file is missing" >&2
+              image_id_cleanup_valid=false
+            fi
           fi
           docker image rm --force "${AQT_WAVE7_IMAGE}" >/dev/null 2>&1 || true
           .venv/bin/python -I -B - \

@@ -153,6 +153,7 @@ def _normal_prefix(*, endpoint: bool) -> tuple[dict[str, object], ...]:
         _NONEXEC_MMAP,
         _NONEXEC_MPROTECT,
         *_BASE_RUNTIME,
+        _allow("readlink"),
         *_PORTABLE_LINUX_RUNTIME,
     )
 

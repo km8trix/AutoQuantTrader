@@ -42,6 +42,21 @@ def test_provisioner_manifest_truthfully_separates_process_authority_phases() ->
     ]
 
 
+def test_legacy_readlink_is_limited_to_role_initial_policies() -> None:
+    for profile in ("host", "supervisor", "recovery"):
+        phase_name, _, policy = manifests._policies(profile)[0]
+        assert phase_name == "initial"
+        assert "readlink" in {rule["syscall"] for rule in policy}
+
+    provisioner = {
+        phase_name: {rule["syscall"] for rule in policy}
+        for phase_name, _, policy in manifests._policies("provisioner")
+    }
+    assert "readlink" not in provisioner["initial"]
+    assert "readlink" in provisioner["child_exec"]
+    assert "readlink" not in provisioner["post_child"]
+
+
 @pytest.mark.skipif(
     platform.system() != "Linux" or platform.machine() != "x86_64",
     reason="canonical BPF is qualified on Linux x86_64",
@@ -111,6 +126,14 @@ def test_compiled_bpf_has_no_hidden_syscall_or_process_authority() -> None:
     forbidden_process = ("fork", "vfork", "clone3", "execve", "unshare", "setns")
     for profile in ("host", "supervisor", "recovery"):
         payload = compiled[profile]["initial"]
+        assert (
+            manifests.evaluate_classic_bpf(
+                payload,
+                architecture=manifests.AUDIT_ARCH_X86_64,
+                syscall_number=numbers["readlink"],
+            )
+            == manifests.SECCOMP_RET_ALLOW
+        )
         for syscall in forbidden_process:
             assert (
                 manifests.evaluate_classic_bpf(
@@ -133,6 +156,14 @@ def test_compiled_bpf_has_no_hidden_syscall_or_process_authority() -> None:
         )
 
     initial = compiled["provisioner"]["initial"]
+    assert (
+        manifests.evaluate_classic_bpf(
+            initial,
+            architecture=manifests.AUDIT_ARCH_X86_64,
+            syscall_number=numbers["readlink"],
+        )
+        == manifests.SECCOMP_RET_ERRNO_EPERM
+    )
     assert (
         manifests.evaluate_classic_bpf(
             initial,
@@ -164,12 +195,28 @@ def test_compiled_bpf_has_no_hidden_syscall_or_process_authority() -> None:
         manifests.evaluate_classic_bpf(
             child_exec,
             architecture=manifests.AUDIT_ARCH_X86_64,
+            syscall_number=numbers["readlink"],
+        )
+        == manifests.SECCOMP_RET_ALLOW
+    )
+    assert (
+        manifests.evaluate_classic_bpf(
+            child_exec,
+            architecture=manifests.AUDIT_ARCH_X86_64,
             syscall_number=numbers["execveat"],
             arguments=(64, 0, 0, 0, 0x1000, 0),
         )
         == manifests.SECCOMP_RET_ALLOW
     )
     post_child = compiled["provisioner"]["post_child"]
+    assert (
+        manifests.evaluate_classic_bpf(
+            post_child,
+            architecture=manifests.AUDIT_ARCH_X86_64,
+            syscall_number=numbers["readlink"],
+        )
+        == manifests.SECCOMP_RET_ERRNO_EPERM
+    )
     for syscall in (*forbidden_process, "execveat", "clone"):
         assert (
             manifests.evaluate_classic_bpf(

@@ -11938,7 +11938,7 @@ def test_adr0111_operation_bound_supervisor_bridge_is_exact_dormant_and_unconnec
     expected_invocation_source_sha256 = {
         "Makefile": "6802268c7998df71d5543feba63663e1d6d3e07d87b4ff679107b42594770e42",
         ".github/workflows/ci.yml": (
-            "f72261bfc102ef8efb95411ff70f76e27135033f8173ae838047fdc417e3dee7"
+            "5af18af8b4eeb7f92a4b507eb196c9b6b30bca2a0c1a01dca09b7c93fafb637f"
         ),
     }
     assert architecture_config["architecture_checker_invocation_source_sha256"] == (
