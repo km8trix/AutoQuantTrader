@@ -651,8 +651,13 @@ aqt_capture_blob_identity(const char *path, struct stat *identity)
         ) != 0
         || !S_ISREG(identity->st_mode)
         || identity->st_nlink != 1
+#ifdef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+        || identity->st_uid != geteuid()
+        || identity->st_gid != getegid()
+#else
         || identity->st_uid != 0
         || identity->st_gid != 0
+#endif
         || (identity->st_mode & 07777) != 0600
         || identity->st_size <= 0
         || identity->st_size > (off_t)(16U * 1024U * 1024U)) {

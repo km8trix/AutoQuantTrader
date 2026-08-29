@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import platform
 import shutil
 import subprocess
@@ -57,6 +58,9 @@ def test_real_provisioner_child_path_is_positive_and_single_use(tmp_path: Path) 
     blob = tmp_path / "encrypted-host-g00000001.cred"
     blob.write_bytes(b"fixed encrypted credential fixture\n")
     blob.chmod(0o600)
+    blob_metadata = blob.stat()
+    assert blob_metadata.st_uid == os.geteuid()
+    assert blob_metadata.st_gid == os.getegid()
     target = tmp_path / "host-secrets"
     target.mkdir(mode=0o700)
     output = tmp_path / "autoquant-trusted-time-graceful-stop-v2-host-provision"

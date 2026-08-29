@@ -110,6 +110,22 @@ def test_provisioner_contract_is_descriptor_pinned_and_fail_closed() -> None:
     assert "executable_descriptor < 3" in source
     assert "null_descriptor < 3" in source
 
+    blob_capture = source[
+        source.index("static int\naqt_capture_blob_identity(") : source.index(
+            "static int\naqt_revalidate_blob_identity("
+        )
+    ]
+    assert (
+        """#ifdef AQT_TRUSTED_TIME_V2_PROVISIONER_TEST_BUILD
+        || identity->st_uid != geteuid()
+        || identity->st_gid != getegid()
+#else
+        || identity->st_uid != 0
+        || identity->st_gid != 0
+#endif"""
+        in blob_capture
+    )
+
     main = source[source.index("aqt_trusted_time_v2_provisioner_main(") :]
     pre_capture = main.index("&pre_create_mount_admission")
     pre_revalidate = main.index(
