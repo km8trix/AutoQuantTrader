@@ -77,6 +77,59 @@ def test_compiled_bpf_is_reproducible_and_matches_every_canonical_manifest() -> 
 
 @pytest.mark.skipif(
     platform.system() != "Linux" or platform.machine() != "x86_64",
+    reason="x86_64 TLS bootstrap authority is qualified on Linux x86_64",
+)
+def test_provisioner_tls_bootstrap_allows_only_exact_arch_set_fs() -> None:
+    with tempfile.TemporaryDirectory(prefix="aqt-wave7-seccomp-tls-test-") as temporary:
+        build = Path(temporary)
+        numbers = manifests._syscall_numbers(build)
+        compiled = manifests._compiled_filters(build, "provisioner")
+
+    tls_base = 0x7F0012345000
+    exact_arguments = (manifests.ARCH_SET_FS, tls_base, 0, 0, 0, 0)
+    wrong_operation = (manifests.ARCH_SET_FS - 1, tls_base, 0, 0, 0, 0)
+    nonzero_high_word = (
+        (1 << 32) | manifests.ARCH_SET_FS,
+        tls_base,
+        0,
+        0,
+        0,
+        0,
+    )
+    for phase_name in ("initial", "child_exec"):
+        payload = compiled[phase_name]
+        assert (
+            manifests.evaluate_classic_bpf(
+                payload,
+                architecture=manifests.AUDIT_ARCH_X86_64,
+                syscall_number=numbers["arch_prctl"],
+                arguments=exact_arguments,
+            )
+            == manifests.SECCOMP_RET_ALLOW
+        )
+        for arguments in (wrong_operation, nonzero_high_word):
+            assert (
+                manifests.evaluate_classic_bpf(
+                    payload,
+                    architecture=manifests.AUDIT_ARCH_X86_64,
+                    syscall_number=numbers["arch_prctl"],
+                    arguments=arguments,
+                )
+                == manifests.SECCOMP_RET_ERRNO_EPERM
+            )
+    assert (
+        manifests.evaluate_classic_bpf(
+            compiled["post_child"],
+            architecture=manifests.AUDIT_ARCH_X86_64,
+            syscall_number=numbers["arch_prctl"],
+            arguments=exact_arguments,
+        )
+        == manifests.SECCOMP_RET_ERRNO_EPERM
+    )
+
+
+@pytest.mark.skipif(
+    platform.system() != "Linux" or platform.machine() != "x86_64",
     reason="canonical BPF is qualified on Linux x86_64",
 )
 def test_compiled_bpf_has_no_hidden_syscall_or_process_authority() -> None:

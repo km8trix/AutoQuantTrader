@@ -43,6 +43,9 @@ aqt_trusted_time_v2_seccomp_policy_model(void)
 
 #ifdef __linux__
 
+#if defined(__x86_64__)
+#include <asm/prctl.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/audit.h>
@@ -292,6 +295,17 @@ aqt_trusted_time_v2_seccomp_policy_model(void)
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
     AQT_ERRNO_RESULT
 
+#if defined(__x86_64__)
+#define AQT_ARCH_SET_FS_RULE \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_arch_prctl, 0, 6), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, ARCH_SET_FS, 0, 3), \
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0]) + 4U), \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+    AQT_ERRNO_RESULT
+#endif
+
 #define AQT_PRCTL_NO_NEW_PRIVS_RULE \
     BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_prctl, 0, 18), \
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
@@ -489,6 +503,9 @@ static const struct sock_filter aqt_initial_filter[] = {
     AQT_EXACT_FORK_CLONE_RULE,
     AQT_SIGKILL_RULE,
     AQT_EXACT_EXECVEAT_RULE,
+#if defined(__x86_64__)
+    AQT_ARCH_SET_FS_RULE,
+#endif
     AQT_PRCTL_NO_NEW_PRIVS_RULE,
     AQT_SECCOMP_TSYNC_RULE,
     AQT_ALLOW_SYSCALL(__NR_wait4),
@@ -516,8 +533,8 @@ static const struct sock_filter aqt_child_exec_filter[] = {
 #ifdef __NR_access
     AQT_ALLOW_SYSCALL(__NR_access),
 #endif
-#ifdef __NR_arch_prctl
-    AQT_ALLOW_SYSCALL(__NR_arch_prctl),
+#if defined(__x86_64__)
+    AQT_ARCH_SET_FS_RULE,
 #endif
 #ifdef __NR_faccessat2
     AQT_ALLOW_SYSCALL(__NR_faccessat2),

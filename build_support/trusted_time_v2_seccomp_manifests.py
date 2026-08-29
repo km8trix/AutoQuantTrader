@@ -33,6 +33,7 @@ AUDIT_ARCH_X86_64 = 0xC000003E
 SECCOMP_RET_KILL_PROCESS = 0x80000000
 SECCOMP_RET_ERRNO_EPERM = 0x00050001
 SECCOMP_RET_ALLOW = 0x7FFF0000
+ARCH_SET_FS = 0x1002
 
 PROFILE_MACROS = {
     "host": "AQT_TRUSTED_TIME_V2_HOST_PROFILE",
@@ -142,6 +143,10 @@ _ENDPOINT_IOCTL = _allow("ioctl", "request is exactly TCGETS or FIONREAD")
 _NONEXEC_MMAP = _allow("mmap", "protection excludes PROT_EXEC")
 _NONEXEC_MPROTECT = _allow("mprotect", "protection excludes PROT_EXEC")
 _UNLINKAT = _allow("unlinkat", "flags are exactly zero")
+_ARCH_SET_FS = _allow(
+    "arch_prctl",
+    "operation is exactly ARCH_SET_FS with a zero high word; TLS base address is unconstrained",
+)
 
 
 def _normal_prefix(*, endpoint: bool) -> tuple[dict[str, object], ...]:
@@ -244,6 +249,7 @@ def _policies(profile: str) -> tuple[tuple[str, int, tuple[dict[str, object], ..
         _allow("clone", "exact fork-like flags and null stack/parent-tid/TLS"),
         _allow("kill", "signal is exactly SIGKILL"),
         _allow("execveat", "fd is exactly 64 and flags are exactly AT_EMPTY_PATH"),
+        _ARCH_SET_FS,
         _allow("prctl", "exact PR_SET_NO_NEW_PRIVS(1,0,0,0)"),
         _allow("seccomp", "exact SET_MODE_FILTER with TSYNC and nonnull program"),
         _allow("wait4"),
@@ -264,7 +270,7 @@ def _policies(profile: str) -> tuple[tuple[str, int, tuple[dict[str, object], ..
         *_BASE_RUNTIME,
         _allow("execveat", "fd is exactly 64 and flags are exactly AT_EMPTY_PATH"),
         _allow("access"),
-        _allow("arch_prctl"),
+        _ARCH_SET_FS,
         _allow("faccessat2"),
         _allow("getegid"),
         _allow("getgid"),
@@ -618,6 +624,36 @@ def build_documents() -> dict[str, bytes]:
                         arguments=(64, 0, 0, 0, 0x1000, 0),
                     )
                     != SECCOMP_RET_ALLOW
+                    or any(
+                        evaluate_classic_bpf(
+                            payload,
+                            architecture=AUDIT_ARCH_X86_64,
+                            syscall_number=syscall_numbers["arch_prctl"],
+                            arguments=(ARCH_SET_FS, 0x7F0012345000, 0, 0, 0, 0),
+                        )
+                        != SECCOMP_RET_ALLOW
+                        for payload in (initial, child_exec)
+                    )
+                    or any(
+                        evaluate_classic_bpf(
+                            payload,
+                            architecture=AUDIT_ARCH_X86_64,
+                            syscall_number=syscall_numbers["arch_prctl"],
+                            arguments=(0x1001, 0x7F0012345000, 0, 0, 0, 0),
+                        )
+                        != SECCOMP_RET_ERRNO_EPERM
+                        for payload in (initial, child_exec)
+                    )
+                    or any(
+                        evaluate_classic_bpf(
+                            payload,
+                            architecture=AUDIT_ARCH_X86_64,
+                            syscall_number=syscall_numbers["arch_prctl"],
+                            arguments=(0x0000000100001002, 0x7F0012345000, 0, 0, 0, 0),
+                        )
+                        != SECCOMP_RET_ERRNO_EPERM
+                        for payload in (initial, child_exec)
+                    )
                     or evaluate_classic_bpf(
                         post_child,
                         architecture=AUDIT_ARCH_X86_64,
@@ -628,6 +664,13 @@ def build_documents() -> dict[str, bytes]:
                         post_child,
                         architecture=AUDIT_ARCH_X86_64,
                         syscall_number=syscall_numbers["execveat"],
+                    )
+                    != SECCOMP_RET_ERRNO_EPERM
+                    or evaluate_classic_bpf(
+                        post_child,
+                        architecture=AUDIT_ARCH_X86_64,
+                        syscall_number=syscall_numbers["arch_prctl"],
+                        arguments=(ARCH_SET_FS, 0x7F0012345000, 0, 0, 0, 0),
                     )
                     != SECCOMP_RET_ERRNO_EPERM
                 ):
