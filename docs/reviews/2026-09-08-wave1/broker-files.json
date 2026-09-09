@@ -1,0 +1,8 @@
+{
+  "packages/adapters/broker/etrade_readonly.py": "ab8830eb2f56ff4c2882e2608abedab69c29d336037d3b62aef9be96ac10e369",
+  "packages/application/etrade_session.py": "69625360b791fe6cee689b024312b84b0ff8cd663fc1ddc477753eafe464721c",
+  "scripts/qualify_etrade_readonly.py": "050cba497a50a31fd73f88f7bd4ada29b82b5d6ecb9c34a875f9935748540ea4",
+  "tests/unit/test_etrade_session.py": "8379c09c734d2466df5d6d02ae5468fdb9fa24e0c91fb71a9b9c827290d2543f",
+  "tests/fixtures/broker/etrade_readonly/account_round.json": "8a1d3f64c6ed33ca724024483b5a3ded09c646475f7ad690b9799ad6381e9d3d",
+  "docs/runbooks/personal-v1-etrade-readonly.md": "400d5aa9eb7f073edce35462fa05e077b4355a43963db1715e4923ade9169602"
+}

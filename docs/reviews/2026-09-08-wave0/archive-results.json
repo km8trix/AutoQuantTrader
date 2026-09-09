@@ -1,0 +1,98 @@
+[
+  {
+    "threadId": "01a06dc0-70fe-7ab0-bf2b-efd7227fac7e",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"threadId\":\"01a06dc0-70fe-7ab0-bf2b-efd7227fac7e\",\"archived\":true}"
+        }
+      ],
+      "isError": false
+    }
+  },
+  {
+    "threadId": "01a06dc6-8724-7b83-9786-f9fb7a0a5ab2",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"threadId\":\"01a06dc6-8724-7b83-9786-f9fb7a0a5ab2\",\"archived\":true}"
+        }
+      ],
+      "isError": false
+    }
+  },
+  {
+    "threadId": "01a06dc8-1e13-7580-93d5-6daa3e9cc065",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"threadId\":\"01a06dc8-1e13-7580-93d5-6daa3e9cc065\",\"archived\":true}"
+        }
+      ],
+      "isError": false
+    }
+  },
+  {
+    "threadId": "01a06dcb-9593-7b13-8195-43cfb9383c6b",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"threadId\":\"01a06dcb-9593-7b13-8195-43cfb9383c6b\",\"archived\":true}"
+        }
+      ],
+      "isError": false
+    }
+  },
+  {
+    "threadId": "01a06dcf-f644-7e80-a040-c8f54f587306",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"threadId\":\"01a06dcf-f644-7e80-a040-c8f54f587306\",\"archived\":true}"
+        }
+      ],
+      "isError": false
+    }
+  },
+  {
+    "threadId": "01a06dd7-baf6-79a2-86e9-1e4a9da3dc25",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"threadId\":\"01a06dd7-baf6-79a2-86e9-1e4a9da3dc25\",\"archived\":true}"
+        }
+      ],
+      "isError": false
+    }
+  },
+  {
+    "threadId": "01a06dd9-8ae2-77a2-a1c7-b6acbda47cf3",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"threadId\":\"01a06dd9-8ae2-77a2-a1c7-b6acbda47cf3\",\"archived\":true}"
+        }
+      ],
+      "isError": false
+    }
+  },
+  {
+    "threadId": "01a06593-5780-7233-9104-39a6914b8e7c",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"threadId\":\"01a06593-5780-7233-9104-39a6914b8e7c\",\"archived\":true}"
+        }
+      ],
+      "isError": false
+    }
+  }
+]

@@ -1,0 +1,105 @@
+[
+  {
+    "name": "architecture",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-I",
+      "-B",
+      "scripts/check_personal_architecture.py"
+    ],
+    "cwd": "/private/tmp/aqt-wave1-rp_bjl5c/integration-stage",
+    "exit_code": 0,
+    "seconds": 2.287,
+    "output": "check-output/architecture.txt"
+  },
+  {
+    "name": "ruff-format",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "-m",
+      "ruff",
+      "format",
+      "--check",
+      "--no-cache",
+      "."
+    ],
+    "cwd": "/private/tmp/aqt-wave1-rp_bjl5c/integration-stage",
+    "exit_code": 0,
+    "seconds": 0.259,
+    "output": "check-output/ruff-format.txt"
+  },
+  {
+    "name": "ruff-lint",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "-m",
+      "ruff",
+      "check",
+      "--no-cache",
+      "."
+    ],
+    "cwd": "/private/tmp/aqt-wave1-rp_bjl5c/integration-stage",
+    "exit_code": 0,
+    "seconds": 0.256,
+    "output": "check-output/ruff-lint.txt"
+  },
+  {
+    "name": "mypy",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "-m",
+      "mypy",
+      "apps",
+      "packages"
+    ],
+    "cwd": "/private/tmp/aqt-wave1-rp_bjl5c/integration-stage",
+    "exit_code": 0,
+    "seconds": 0.583,
+    "output": "check-output/mypy.txt"
+  },
+  {
+    "name": "api-contracts",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "scripts/generate_api_contracts.py",
+      "--check"
+    ],
+    "cwd": "/private/tmp/aqt-wave1-rp_bjl5c/integration-stage",
+    "exit_code": 0,
+    "seconds": 1.895,
+    "output": "check-output/api-contracts.txt"
+  },
+  {
+    "name": "compose-model",
+    "command": [
+      "/usr/local/bin/docker",
+      "compose",
+      "--env-file",
+      "/dev/null",
+      "-f",
+      "infra/compose/compose.yaml",
+      "config",
+      "--quiet"
+    ],
+    "cwd": "/private/tmp/aqt-wave1-rp_bjl5c/integration-stage",
+    "exit_code": 0,
+    "seconds": 0.437,
+    "output": "check-output/compose-model.txt"
+  },
+  {
+    "name": "personal-suite",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "scripts/run_personal_tests.py"
+    ],
+    "cwd": "/private/tmp/aqt-wave1-rp_bjl5c/integration-stage",
+    "exit_code": 0,
+    "seconds": 96.272,
+    "output": "check-output/personal-suite.txt"
+  }
+]

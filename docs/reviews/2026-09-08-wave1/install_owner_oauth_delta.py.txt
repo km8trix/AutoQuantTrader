@@ -1,0 +1,62 @@
+from pathlib import Path
+import concurrent.futures,hashlib,json,os,shutil,subprocess,tempfile
+B=Path('/private/tmp/aqt-wave1-rp_bjl5c');S=B/'integration-stage';R=Path('/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader');EP=Path('docs/reviews/2026-09-08-wave1');E=S/EP
+ENV={'PATH':'/usr/bin:/bin','TMPDIR':str(B/'tmp'),'GIT_OPTIONAL_LOCKS':'0'}
+def digest(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+def git(p,*args):return subprocess.check_output(['git','-C',str(p),*args],env=ENV,stderr=subprocess.PIPE)
+def put(p,data):
+ p.parent.mkdir(parents=True,exist_ok=True)
+ fd,tmp=tempfile.mkstemp(prefix='.aqt-wave1-oauth-',dir=p.parent)
+ try:
+  with os.fdopen(fd,'wb') as f:f.write(data)
+  os.chmod(tmp,0o644);os.replace(tmp,p)
+ finally:
+  if os.path.exists(tmp):os.unlink(tmp)
+core=json.loads((B/'core-before-owner-oauth-manifest.json').read_text())
+assert digest(R/EP/'final-artifact-manifest.json')=='6451f4d9cdf6e578ce0db1b1a858e26240202cc26d5ae70e845f46f01269e1a9'
+assert git(R,'rev-parse','HEAD').decode().strip()==core['base_head']
+assert git(R,'branch','--show-current').decode().strip()==core['branch']
+for name,expected in core['files'].items(): assert digest(R/name)==expected,name+' changed since core integration'
+initial=json.loads((B/'initial-preservation.json').read_text())
+for name,expected in initial['initial_files'].items():
+ if name not in {'AGENTS.md','docs/ARCHITECTURE.md','docs/IMPLEMENTATION_PLAN.md'}: assert digest(R/name)==expected,name+' frozen W0 file changed'
+assert digest(R/'docs/reviews/2026-09-08-wave0/final-artifact-manifest.json')==initial['wave0_manifest_sha256']
+old=json.loads((R/'docs/reviews/2026-09-08-wave0/final-preservation.json').read_text())['worktrees']
+def inspect(row):
+ p=Path(row['path']);head=git(p,'rev-parse','HEAD').decode().strip();status=hashlib.sha256(git(p,'status','--porcelain=v1','-z','--untracked-files=all')).hexdigest()
+ assert head==row['head'],str(p)+' head changed'
+ if p!=R:assert status==row['status_sha256'],str(p)+' status changed'
+ return {'path':str(p),'head':head,'head_unchanged':True,'status_sha256':status,'status_unchanged':p!=R}
+with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:worktrees=list(pool.map(inspect,old))
+assert len(worktrees)==39
+assert sum(line.startswith('worktree ') for line in git(R,'worktree','list','--porcelain').decode().splitlines())==42
+implementation=json.loads((E/'implementation-manifest.json').read_text())
+files=list(implementation['files']);assert len(files)==35
+for name,row in implementation['files'].items():
+ assert digest(S/name)==row['after_sha256'],name+' stage changed'
+ assert not (S/name).is_symlink() and not (R/name).is_symlink()
+ if name not in core['files']:assert not (R/name).exists()
+record=json.loads((R/EP/'final-preservation.json').read_text())
+record.update(implementation_paths=35,worktrees=worktrees,owner_oauth_delta_preserves_core_manifest=True,owner_oauth_provider_requests=0)
+(E/'final-preservation.json').write_text(json.dumps(record,indent=2)+'\n')
+shutil.copyfile(Path(__file__),E/'install_owner_oauth_delta.py.txt')
+# Preserve every changed byte sequence bound by the core manifest as a historical snapshot.
+snapshots={}
+for name,expected in core['files'].items():
+ if (S/name).exists() and digest(S/name)!=expected:
+  snap=EP/'prior-owner-oauth'/(name+'.txt')
+  target=S/snap;assert not target.exists()
+  target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(R/name,target)
+  snapshots[name]={'prior_sha256':expected,'snapshot_path':str(snap)}
+(E/'prior-owner-oauth-manifest.json').write_text(json.dumps({'core_manifest_sha256':digest(B/'core-before-owner-oauth-manifest.json'),'note':'Historical core paths may now differ; snapshots below preserve prior contents for every changed core artifact.','snapshots':snapshots},indent=2)+'\n')
+paths=sorted(set(files)|{str(p.relative_to(S)) for p in E.rglob('*') if p.is_file() and p.name!='final-artifact-manifest.json'})
+for name in paths:
+ if name not in core['files']:assert not (R/name).exists(),name+' new path already exists'
+final={'base_head':core['base_head'],'branch':core['branch'],'status':'W1_A_C_passed_B_owner_OAuth_and_account_read_pending','files':{name:digest(S/name) for name in paths},'self_excluded':True}
+(E/'final-artifact-manifest.json').write_text(json.dumps(final,indent=2)+'\n')
+# All validation and snapshot preparation precede active writes.
+for name in paths:
+ if not (R/name).exists() or digest(R/name)!=final['files'][name]:put(R/name,(S/name).read_bytes())
+put(R/EP/'final-artifact-manifest.json',(E/'final-artifact-manifest.json').read_bytes())
+for name,expected in final['files'].items():assert digest(R/name)==expected,name+' install mismatch'
+print(json.dumps({'implementation_paths':len(files),'bound_artifact_paths':len(paths),'core_snapshots':len(snapshots),'final_manifest_sha256':digest(R/EP/'final-artifact-manifest.json'),'old_heads_preserved':39,'old_nonactive_statuses_preserved':38,'provider_oauth_requests':0},indent=2))

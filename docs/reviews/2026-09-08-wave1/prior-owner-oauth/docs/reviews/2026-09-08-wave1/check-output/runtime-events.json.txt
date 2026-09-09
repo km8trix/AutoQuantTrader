@@ -1,0 +1,186 @@
+{
+  "first_process": [
+    {
+      "broker_exposure": "unknown",
+      "broker_exposure_reason": "broker state was not read; orders or positions may remain",
+      "clock_health": {
+        "epoch": null,
+        "evidence_class": "unavailable",
+        "observed_at_utc": null,
+        "observed_monotonic_ns": null,
+        "offset_ns": null,
+        "rearm_required": true,
+        "reasons": [
+          "startup_no_sample"
+        ],
+        "recovery_ready": false,
+        "sample_age_ns": null,
+        "sampling_duration_ns": null,
+        "sequence": 0,
+        "source_id": null,
+        "source_observed_at_utc": null,
+        "source_observed_monotonic_ns": null,
+        "status": "blocked",
+        "uncertainty_ns": null
+      },
+      "environment": "personal-simulation",
+      "event": "started",
+      "live_enabled": false,
+      "mode": "personal-simulation-foundation",
+      "order_authority": false,
+      "status": "HALTED"
+    },
+    {
+      "broker_exposure": "unknown",
+      "broker_exposure_reason": "broker state was not read; orders or positions may remain",
+      "clock_health": {
+        "epoch": "bb70564943d246aba2c28dfe060cfdbb:35693",
+        "evidence_class": "simulated",
+        "observed_at_utc": "2026-09-09T02:24:26.293221+00:00",
+        "observed_monotonic_ns": 19163895648708,
+        "offset_ns": 0,
+        "rearm_required": true,
+        "reasons": [
+          "startup_qualifying"
+        ],
+        "recovery_ready": false,
+        "sample_age_ns": 162083,
+        "sampling_duration_ns": 162083,
+        "sequence": 1,
+        "source_id": "explicit-simulation-time-model",
+        "source_observed_at_utc": "2026-09-09T02:24:26.293066+00:00",
+        "source_observed_monotonic_ns": 19163895486625,
+        "status": "blocked",
+        "uncertainty_ns": 0
+      },
+      "environment": "personal-simulation",
+      "event": "clock_health",
+      "live_enabled": false,
+      "mode": "personal-simulation-foundation",
+      "order_authority": false,
+      "status": "HALTED"
+    },
+    {
+      "broker_exposure": "unknown",
+      "broker_exposure_reason": "broker state was not read; orders or positions may remain",
+      "clock_health": {
+        "epoch": "bb70564943d246aba2c28dfe060cfdbb:35693",
+        "evidence_class": "simulated",
+        "observed_at_utc": "2026-09-09T02:24:26.293221+00:00",
+        "observed_monotonic_ns": 19163895648708,
+        "offset_ns": 0,
+        "rearm_required": true,
+        "reasons": [
+          "startup_qualifying"
+        ],
+        "recovery_ready": false,
+        "sample_age_ns": 162083,
+        "sampling_duration_ns": 162083,
+        "sequence": 1,
+        "source_id": "explicit-simulation-time-model",
+        "source_observed_at_utc": "2026-09-09T02:24:26.293066+00:00",
+        "source_observed_monotonic_ns": 19163895486625,
+        "status": "blocked",
+        "uncertainty_ns": 0
+      },
+      "environment": "personal-simulation",
+      "event": "stopped",
+      "live_enabled": false,
+      "mode": "personal-simulation-foundation",
+      "order_authority": false,
+      "status": "STOPPED"
+    }
+  ],
+  "restart": [
+    {
+      "broker_exposure": "unknown",
+      "broker_exposure_reason": "broker state was not read; orders or positions may remain",
+      "clock_health": {
+        "epoch": null,
+        "evidence_class": "unavailable",
+        "observed_at_utc": null,
+        "observed_monotonic_ns": null,
+        "offset_ns": null,
+        "rearm_required": true,
+        "reasons": [
+          "startup_no_sample"
+        ],
+        "recovery_ready": false,
+        "sample_age_ns": null,
+        "sampling_duration_ns": null,
+        "sequence": 0,
+        "source_id": null,
+        "source_observed_at_utc": null,
+        "source_observed_monotonic_ns": null,
+        "status": "blocked",
+        "uncertainty_ns": null
+      },
+      "environment": "personal-simulation",
+      "event": "started",
+      "live_enabled": false,
+      "mode": "personal-simulation-foundation",
+      "order_authority": false,
+      "status": "HALTED"
+    },
+    {
+      "broker_exposure": "unknown",
+      "broker_exposure_reason": "broker state was not read; orders or positions may remain",
+      "clock_health": {
+        "epoch": "9299a6497b834714b16dae7057b7e9d1:35695",
+        "evidence_class": "simulated",
+        "observed_at_utc": "2026-09-09T02:24:26.484709+00:00",
+        "observed_monotonic_ns": 19164087136958,
+        "offset_ns": 0,
+        "rearm_required": true,
+        "reasons": [
+          "startup_qualifying"
+        ],
+        "recovery_ready": false,
+        "sample_age_ns": 108667,
+        "sampling_duration_ns": 108667,
+        "sequence": 1,
+        "source_id": "explicit-simulation-time-model",
+        "source_observed_at_utc": "2026-09-09T02:24:26.484605+00:00",
+        "source_observed_monotonic_ns": 19164087028291,
+        "status": "blocked",
+        "uncertainty_ns": 0
+      },
+      "environment": "personal-simulation",
+      "event": "clock_health",
+      "live_enabled": false,
+      "mode": "personal-simulation-foundation",
+      "order_authority": false,
+      "status": "HALTED"
+    },
+    {
+      "broker_exposure": "unknown",
+      "broker_exposure_reason": "broker state was not read; orders or positions may remain",
+      "clock_health": {
+        "epoch": "9299a6497b834714b16dae7057b7e9d1:35695",
+        "evidence_class": "simulated",
+        "observed_at_utc": "2026-09-09T02:24:26.484709+00:00",
+        "observed_monotonic_ns": 19164087136958,
+        "offset_ns": 0,
+        "rearm_required": true,
+        "reasons": [
+          "startup_qualifying"
+        ],
+        "recovery_ready": false,
+        "sample_age_ns": 108667,
+        "sampling_duration_ns": 108667,
+        "sequence": 1,
+        "source_id": "explicit-simulation-time-model",
+        "source_observed_at_utc": "2026-09-09T02:24:26.484605+00:00",
+        "source_observed_monotonic_ns": 19164087028291,
+        "status": "blocked",
+        "uncertainty_ns": 0
+      },
+      "environment": "personal-simulation",
+      "event": "stopped",
+      "live_enabled": false,
+      "mode": "personal-simulation-foundation",
+      "order_authority": false,
+      "status": "STOPPED"
+    }
+  ]
+}

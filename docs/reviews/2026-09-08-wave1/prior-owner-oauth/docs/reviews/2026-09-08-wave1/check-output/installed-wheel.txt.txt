@@ -1,0 +1,8 @@
+Personal wheel verified: autoquant_trader-0.1.0-py3-none-any.whl
+Using Python 3.12.13 environment at: installed
+Resolved 1 package in 6ms
+Prepared 1 package in 33ms
+Uninstalled 1 package in 36ms
+Installed 1 package in 7ms
+ - autoquant-trader==0.1.0 (from file:///private/tmp/aqt-wave1-rp_bjl5c/wheel-initial/autoquant_trader-0.1.0-py3-none-any.whl)
+ + autoquant-trader==0.1.0 (from file:///private/tmp/aqt-wave1-rp_bjl5c/wheel-final/autoquant_trader-0.1.0-py3-none-any.whl)

@@ -1,0 +1,93 @@
+# Personal-v1 E*TRADE read qualification
+
+This is the Wave 1 session/read implementation procedure. It does not enable orders, quote qualification, reconciliation, or unattended execution. Historical recorded-offline E*TRADE proof classes remain unchanged and retain their all-false authority values.
+
+Run these commands only for an owner-authorized reference/environment. The implementation does not discover secrets or read any file on import. An authorization flag records the explicit caller action; it cannot grant OAuth privileges or prove authorization by itself.
+
+## Current external blocker
+
+The orchestrator's authorized presence-only inspection on 2026-09-09 found a consumer key/secret pair for both sandbox and production, and no scoped or unscoped access-token pair. It made zero provider requests and displayed no values. Consumer keys identify the application; they do not replace the owner's OAuth login/consent and access-token exchange.
+
+This Wave 1 command does **not** implement an interactive OAuth acquisition or renewal helper. The existing historical OAuth signing/transition/token-runtime components remain injected prerequisites, not a deployed login tool. The next explicitly authorized owner step is to acquire a request token with the chosen environment's consumer pair, approve the E*TRADE browser authorization, transfer the verifier privately to a reviewed local helper, and exchange it for an access token. A reviewed helper must keep all token bodies/verifiers/headers out of logs, preserve ambiguous exchange outcomes, and save the token and observed lifecycle metadata to an explicit private reference. Do not paste secrets or verifier codes into Codex. Implementing and reviewing that helper, or using an independently reviewed existing owner tool, is necessary before this read CLI can connect. Repeat separately for sandbox and production.
+
+The [official developer guide](https://developer.etrade.com/getting-started/developer-guides) describes OAuth 1.0a, two-hour inactivity, renewal of the same token, and default midnight Eastern expiry. The read workflow requires explicit issuance, last-activity and expiry metadata; it clamps the expiry to the next Eastern midnight after issuance. These are conservative admission limits, not proof of provider acceptance. It never invents issuance/activity dates from a file timestamp or treats an inactive/expired token as usable. An inactive session reports supervised renewal required; daily expiry or 401/403 reports reauthorization required. No renewal or financial operation is sent.
+
+## Explicit references
+
+Presence-only inspection of the exact owner-named file:
+
+```sh
+python -m scripts.qualify_etrade_readonly \
+  --environment sandbox \
+  --secret-reference 'envfile:///absolute/owner-named/path/.env?version=1' \
+  --inspect-reference
+```
+
+Use `--environment production` separately. The output contains presence booleans and a blocker, never values. The parser does not source, evaluate, interpolate, search, or rewrite the file. It accepts conventional literal `NAME=value` assignments, optional `export`, and matching single/double quotes. Duplicate selected variable names and shell interpolation are rejected.
+
+The allowlisted mappings are:
+
+| Meaning | Sandbox | Production |
+|---|---|---|
+| Consumer key | `ETRADE_SANDBOX_CONSUMER_KEY` | `ETRADE_PROD_CONSUMER_KEY` |
+| Consumer secret | `ETRADE_SANDBOX_CONSUMER_SECRET` | `ETRADE_PROD_CONSUMER_SECRET` |
+| Access token | `ETRADE_SANDBOX_ACCESS_TOKEN` | `ETRADE_PROD_ACCESS_TOKEN` |
+| Access secret | `ETRADE_SANDBOX_ACCESS_SECRET` | `ETRADE_PROD_ACCESS_SECRET` |
+| Observed issuance UTC | `ETRADE_SANDBOX_TOKEN_ISSUED_AT` | `ETRADE_PROD_TOKEN_ISSUED_AT` |
+| Last observed activity UTC | `ETRADE_SANDBOX_TOKEN_LAST_ACTIVITY_AT` | `ETRADE_PROD_TOKEN_LAST_ACTIVITY_AT` |
+| Expiry UTC with reviewed provenance | `ETRADE_SANDBOX_TOKEN_EXPIRES_AT` | `ETRADE_PROD_TOKEN_EXPIRES_AT` |
+
+Times use ISO 8601 UTC, such as `2026-09-09T13:00:00Z`. These are format examples, not dates to assign to an existing token. Legacy `ETRADE_ACCESS_TOKEN` / `ETRADE_ACCESS_SECRET` are reported as present only and never consumed, because they do not bind an environment. No fallback from sandbox to production or the reverse exists. This adapter is a compatibility path for an explicitly supplied existing file, not an automatic migration or recommendation to put new tokens in repository files.
+
+The preferred OS store path also exists:
+
+```text
+keychain://autoquanttrader.etrade.sandbox.oauth.v1/owner-record?version=1
+keychain://autoquanttrader.etrade.production.oauth.v1/owner-record?version=1
+```
+
+Each exact macOS generic-password item contains a JSON object with `environment`, integer `version`, `consumer_key`, `consumer_secret`, `access_token`, `access_secret`, `issued_at`, `last_activity_at`, and `expires_at`. Store each environment independently. The adapter looks up only the exact item; it does not enumerate/create/migrate anything. Presence-only inspection currently supports the explicit envfile path; Keychain resolution occurs only for the read workflow. Credential buffers are redacted/nonserializable and cleared after use, but Python/SSL may make transient copies; this does not claim secure erasure of all process memory.
+
+## Discovery and capture after supervised authorization
+
+Choose an existing private parent directory outside the checkout. The output directory must be new; it is created with mode 0700 and every capture file uses mode 0600.
+
+```sh
+python -m scripts.qualify_etrade_readonly \
+  --environment sandbox \
+  --secret-reference 'keychain://autoquanttrader.etrade.sandbox.oauth.v1/owner-record?version=1' \
+  --authorize-read \
+  --private-output-dir /absolute/private/new-discovery-directory
+```
+
+Discovery displays environment-specific account fingerprints and cash-candidate/USD indicators. A successful discovery never selects an account. Then invoke again with the chosen fingerprint and explicit historical bounds:
+
+```sh
+python -m scripts.qualify_etrade_readonly \
+  --environment sandbox \
+  --secret-reference 'keychain://autoquanttrader.etrade.sandbox.oauth.v1/owner-record?version=1' \
+  --authorize-read \
+  --private-output-dir /absolute/private/new-account-capture-directory \
+  --account-fingerprint DISCOVERED_FINGERPRINT \
+  --declare-exclusive \
+  --start-date YYYY-MM-DD --end-date YYYY-MM-DD
+```
+
+Exclusivity is an **owner declaration**, never broker-attested. The selected discovery must show an active brokerage cash account. The capture rechecks the numeric account relationship and cash mode in balances, reads the portfolio, unfiltered current orders, bounded order history, and bounded transactions. It requests no symbol/status filter that could hide foreign orders. No returned continuation URL is followed; only validated markers/page numbers are used with the original account/environment/bounds. Orders contain individual provider order IDs; transactions contain transaction IDs; neither becomes an invented fill or correction identity.
+
+The five endpoint paths use pinned TLS hosts and GET. There is no Preview/Place/Cancel/replace route. The local budget is at most ten reads per rolling minute, one attempt per read, with a three-second deadline. It is not a provider quota claim. No automatic retry is necessary for this manually invoked feasibility episode. DNS may finish in a background resolver after its deadline, but that resolver never receives credentials and cannot dispatch HTTP. The session checks UTC/monotonic consistency, inactivity/expiry, fresh discovery/selection, nonce reuse, and credential-set rotation before publishing observations.
+
+## Interpreting evidence
+
+Portable output contains digests, request bounds, hashed markers, receipt times, traversal status and blockers. Raw HTTP 200 account bodies are **private provider bodies**, not a universal secret-free sanitization guarantee: known credential-like field names are rejected, but arbitrary provider free text is not universally scrubbed. Error bodies, authorization headers, token bodies and verifier codes are never journaled. Raw successful bodies are durably written before financial observations are returned. Review private outputs on the owner's host; do not commit them or paste them into general logs. A journal failure blocks observation publication.
+
+All-page traversal is distinct from economic completeness. Pagination gaps/cycles, duplicate identities, inconsistent counts/terminal evidence, session mismatches and transport failures discard the combined observation. Raw pages already received remain available privately for diagnosis. Balances preserve the provider's separate cash fields with exact Decimal values; absent settled cash remains unavailable. Missing account currency is a blocker. Unsupported/fractional/short/non-universe positions remain observed and block supported-scope qualification.
+
+Documentation reviewed 2026-09-09:
+
+- [Portfolio](https://apisb.etrade.com/docs/api/account/api-portfolio-v1.html): request/response tables describe page numbers and total pages, while notes describe markers. This implementation requires stable `totalNoOfPages`/`nextPageNo` evidence and blocks an unrecognized shape. Actual account traversal remains unqualified.
+- [Orders](https://apisb.etrade.com/docs/api/order/api-order-v1.html): an explicit empty marker is terminal evidence. Read current orders without date filters as well as the requested history. Client-order IDs are documented absent from responses; the capture does not invent client-ID lookup or UNKNOWN resolution.
+- [Transactions](https://apisb.etrade.com/docs/api/account/api-transaction-v1.html): continue full pages and stop only with documented short-count/204 evidence; contradictory continuation fields block. Public descriptions/error tables differ on two/three-year history. This lane conservatively permits at most 730 days and still reports retention unqualified.
+- [Balances](https://apisb.etrade.com/docs/api/account/api-balance-v1.html): multiple cash/buying-power meanings are retained separately; actual account cash/settlement semantics require qualification.
+
+Sandbox observations are stored examples, not stateful or current economic evidence. Every result retains quote entitlement/freshness, provider quotas, recovery/correction identity, retention and single-round reconciliation blockers. No result publishes ledger facts, clears reconciliation, or grants order authority. Overall Wave 1 remains externally blocked until an authorized usable session/account-read result exists; independent data/runtime gates are governed by the canonical plan.

@@ -1,0 +1,61 @@
+# Personal-v1 foundations
+
+Wave 1 adds an exploratory Tiingo daily-data import, a conventional halted local process, and an E*TRADE read-only session boundary. The [canonical plan](../IMPLEMENTATION_PLAN.md) owns readiness and later work. Strategy execution, order placement and account reconciliation are later gates.
+
+## Run the local process
+
+Use Python 3.12 and the repository's locked dependencies. The previous checkout `.venv` launcher is broken on the reviewed host; this separate environment preserves it:
+
+```sh
+export UV_PROJECT_ENVIRONMENT="$PWD/.local/personal-venv"
+uv sync --locked --all-groups
+mkdir -p .local/personal
+chmod 700 .local/personal
+make personal-simulation INSTANCE_LOCK="$PWD/.local/personal/runtime.lock"
+```
+
+The process emits JSON status and starts **HALTED**. Ctrl-C or SIGTERM stops it. `ARGS=--once` samples and exits. An existing process holding the same lock excludes another instance; a restart starts halted again. The lock is a local process guard, not a database lease or broker fence. Stop reports broker exposure as unknown because the process does not query the account.
+
+Clock health uses aware UTC and monotonic time. Missing host synchronization evidence is unavailable, never an assumed measured zero. This CLI selects an explicitly labelled simulation model; 60 seconds of qualifying samples do not grant trading authority. Regression, epoch/source change, suspend/cadence gaps and stalled sampling block health. No re-arm operation is implemented here.
+
+## Import and replay history
+
+The source path admits explicit local Tiingo-format JSON, stores exact bytes in a reproducible archive, and exposes complete session batches through `replay_research_dataset`. The archive keeps raw/adjusted values, source hashes, identity/calendar/rights references, and action limitations. It never converts modeled historical availability into old `RawBar` or `VendorBarRecord` factual timestamps.
+
+For an explicitly authorized small capture, run `uv run --no-env-file python -m scripts.capture_personal_tiingo --help`. Provide the exact private credential-file reference, a **new absolute private output directory outside the checkout**, dates, and the chosen DIA/IWM/QQQ/SPY symbols. The helper reads only `TIINGO_TOKEN` internally, performs one fixed-host GET per symbol, and does not print credentials or retry. It makes no purchase or subscription change. Responses stay private; only hashes/counts/receipt metadata belong in review artifacts.
+
+Create a declaration binding source hashes and receipt times to the selected instruments and reviewed calendar. The schema and a synthetic example are in `tests/unit/test_personal_research_dataset.py`. Then:
+
+```sh
+uv run --no-env-file python -m scripts.import_personal_dataset \
+  --declaration /private/path/declaration.json \
+  --calendar /private/path/calendar.json \
+  --source SPY=/private/path/SPY.json \
+  --output /private/path/new-research-dataset.json
+```
+
+Every declared symbol needs a source argument. Output creation is exclusive, so an existing archive is preserved. Import bounds are 366 calendar days, 4 MiB per symbol and 32 MiB per archive; the capture helper is limited to 31 calendar days. These limits make this a bounded foundation, not the full study-period ingestion job.
+
+Unknown vendor publication remains null. A retained capture supplies its current factual observation time. Historical availability is separately modeled at 20:00 America/New_York on the session date; no daily OHLC is exposed at that day's open or close. Current-vintage admission is exploratory structural validation and a source review, not historical PIT or provider qualification. Adjusted values are not executable prices. Split-affected scopes reject until fractional-action support exists; dividends without payable evidence carry an explicit cash-accounting exclusion.
+
+## E*TRADE read qualification
+
+Consumer keys identify the application. Each environment also needs an owner-authorized OAuth access token and token secret before account reads can occur. Sandbox and production references are isolated. Completing OAuth consent is an interactive owner step; **this Wave 1 CLI does not acquire or renew access tokens**. The detailed [read-only runbook](personal-v1-etrade-readonly.md) records the current blocker and supported session references. The provider's [OAuth guide](https://developer.etrade.com/getting-started/developer-guides) describes request-token, owner consent/verifier and access-token exchange. Do not paste keys, tokens or verifiers into a task.
+
+The supported existing-session reference is `envfile:///absolute/path/.env?version=1`. The exact prefixes are `ETRADE_SANDBOX_` and `ETRADE_PROD_`, with `CONSUMER_KEY`, `CONSUMER_SECRET`, `ACCESS_TOKEN`, `ACCESS_SECRET`, `TOKEN_ISSUED_AT`, `TOKEN_LAST_ACTIVITY_AT` and `TOKEN_EXPIRES_AT` suffixes. Times must be actual UTC lifecycle metadata, not guessed values. Unscoped access tokens never become an environment-bound session. An explicitly named environment-scoped macOS Keychain JSON item is also supported; see the credential store's schema.
+
+The owner can inspect the reference without a provider call:
+
+```sh
+uv run --no-env-file python -m scripts.qualify_etrade_readonly \
+  --environment sandbox \
+  --secret-reference "envfile://$PWD/.env?version=1" --inspect-reference
+```
+
+Repeat explicitly with `--environment production`. Inspection returns only booleans and a fixed blocker code. After owner OAuth setup, `--authorize-read --private-output-dir /private/new-capture-directory` discovers accounts and prints fingerprints. Select the exact fingerprint explicitly before bounded balance/portfolio/order/activity reads; use `--help` for date and exclusivity-declaration arguments. Exclusivity is an owner declaration, never a broker-attested fact. The fixed GET transport has no Preview/Place/Cancel route. Expiry, inactivity, credential rotation, identity mismatch or incomplete pagination fail closed. Private provider bodies are not a universal content scrubber and must remain private. A complete traversal is not a reconciled or trade-ready account.
+
+## Checks and historical tooling
+
+`make check` now runs standard architecture boundaries, Python quality, the explicit foundation/financial regression suite, browser checks, API contracts and Compose model validation. `make personal-check` omits browser and Compose work. The suite preserves ledger, risk, reservations, UNKNOWN handling, control, OAuth, time and data regressions; `scripts/run_personal_tests.py` defines its scope. PostgreSQL tests need an explicit disposable database (`ARGS='--postgres-url …'`); absent database evidence is reported as skipped.
+
+The default wheel disables the historical custom native hook through Hatch's `enable-by-default = false`. [Hatch documents this setting](https://hatch.pypa.io/dev/config/build/). The installed personal CLI needs only the standard library. Native source, manifests, remote-anchor code and old worktrees remain preserved. `legacy-architecture-check`, `legacy-test`, `trusted-time-*` targets and the manual-only historical workflow retain their own prerequisites; their old exact seals are not personal-profile readiness evidence. No native lifecycle or historical container qualification was activated for Wave 1.

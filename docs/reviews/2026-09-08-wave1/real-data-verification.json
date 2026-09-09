@@ -1,0 +1,74 @@
+{
+  "dataset_id": "research-afecc7fcec681cb3748b00606db462c9a3de7b0ebad2fd4a91380d37561379fd",
+  "data_class": "validated_current_vintage",
+  "admission": "admitted_exploratory",
+  "symbols": [
+    "DIA",
+    "IWM",
+    "QQQ",
+    "SPY"
+  ],
+  "sessions": 5,
+  "rows": 20,
+  "archive_bytes": 13560,
+  "archive_sha256": "d5e5539c9d8375e7889932d4fbe4228861aa1fe1c599a65f638554cdc0bde391",
+  "calendar_sha256": "e16db617e6e0133da7eb588ab1b8d901bead122897b30810218abdd711d22933",
+  "raw_hashes": {
+    "DIA": "8811e3b3d84207c2e91ad21283e68a7325b01ce6f13f1aadbb9327486e79a2ea",
+    "IWM": "c86b2dbb0b921595ab262ff5a25408cca4650db1d8e1bfacaf321c09d33c0d9d",
+    "QQQ": "4f0f9ee28d91d280e5d2f3e89639f3f939002bcd64f882b29a9c97e7f720e817",
+    "SPY": "433f143efd705e8583e141317106294813ef996f34c8bec3c2fd4159a7c70ed5"
+  },
+  "raw_adjusted_distinct": true,
+  "split_dividend_events_in_this_sample": 0,
+  "vendor_publication_times": "unknown",
+  "actual_captures": "2026-09-09T02:10:17Z",
+  "modelled_historical_availability": "daily20:00America/New_York;explicitassumption",
+  "archive_reload": "byte-identical",
+  "probes": [
+    {
+      "probe": "first_open",
+      "as_of": "2025-02-03T14:30:00+00:00",
+      "batches": 0,
+      "rows": 0
+    },
+    {
+      "probe": "first_close",
+      "as_of": "2025-02-03T21:00:00+00:00",
+      "batches": 0,
+      "rows": 0
+    },
+    {
+      "probe": "before_first_availability",
+      "as_of": "2025-02-04T00:59:59.999999+00:00",
+      "batches": 0,
+      "rows": 0
+    },
+    {
+      "probe": "at_first_availability",
+      "as_of": "2025-02-04T01:00:00+00:00",
+      "batches": 1,
+      "rows": 4
+    },
+    {
+      "probe": "third_session",
+      "as_of": "2025-02-06T01:00:00+00:00",
+      "batches": 3,
+      "rows": 12
+    },
+    {
+      "probe": "all_sessions",
+      "as_of": "2025-02-08T01:00:00+00:00",
+      "batches": 5,
+      "rows": 20
+    }
+  ],
+  "exclusions": [
+    "adjusted-series-not-executable",
+    "fixed-universe-selection-bias",
+    "no-execution-time-quotes",
+    "no-historical-pit",
+    "owner-review-not-provider-qualification"
+  ],
+  "source_scope_note": "Fixed five-session engineering sample, not full study-period or PIT qualification; dates are in proposed2025holdout and access is now recorded."
+}

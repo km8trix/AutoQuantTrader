@@ -1,0 +1,49 @@
+{
+  "builds": [
+    {
+      "command": [
+        "/Users/spencer.karrat/.local/bin/uv",
+        "build",
+        "--offline",
+        "--python",
+        "/Users/spencer.karrat/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12",
+        "--wheel",
+        "--no-sources",
+        "--build-constraints",
+        "build_support/native_build_constraints.txt",
+        "--require-hashes",
+        "--cache-dir",
+        "/Users/spencer.karrat/.cache/uv",
+        "--out-dir",
+        "/private/tmp/aqt-wave1-rp_bjl5c/wheel-owner-renewal"
+      ],
+      "exit_code": 0,
+      "seconds": 2.58
+    },
+    {
+      "command": [
+        "/Users/spencer.karrat/.local/bin/uv",
+        "build",
+        "--offline",
+        "--python",
+        "/Users/spencer.karrat/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12",
+        "--wheel",
+        "--no-sources",
+        "--build-constraints",
+        "build_support/native_build_constraints.txt",
+        "--require-hashes",
+        "--cache-dir",
+        "/Users/spencer.karrat/.cache/uv",
+        "--out-dir",
+        "/private/tmp/aqt-wave1-rp_bjl5c/wheel-owner-renewal-repeat"
+      ],
+      "exit_code": 0,
+      "seconds": 0.657
+    }
+  ],
+  "wheel_sha256": "5813b90b29898a8f92fa223bec470401cec2d94ad75a84021f60af7a6fd68380",
+  "byte_reproducible": true,
+  "build_hooks_override": null,
+  "retained_wheel_path": "/Users/spencer.karrat/Documents/AutoQuantTrader/personal-artifacts/wave1-20260908/owner-renewal/autoquant_trader-0.1.0-py3-none-any.whl",
+  "core_wheel_preserved": true
+}

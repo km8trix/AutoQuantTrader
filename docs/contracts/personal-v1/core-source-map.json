@@ -1,0 +1,2055 @@
+{
+  "reviewed_code_revision": "107fa791bb52e9fa42cbce65992ea1ce9168834e",
+  "method": "AST static imports across all tracked Python files; direct edges including package reexports; no runtime calls/imports, dynamic edges or non-Python callers inferred. Grouped invariant and UI caller coverage is in core-engine.md. This is a migration inventory, not permission to remove sources.",
+  "tracked_python_files_scanned": 689,
+  "parse_errors": [],
+  "mapped_files": 90,
+  "entries": [
+    {
+      "path": "apps/api/backtest_views.py",
+      "sha256": "7e216a0226eed2ededcfd0c791f0c81f2ce1e3011efd93529b982bf4efd9c591",
+      "group": "research-api-composition",
+      "disposition": "keep-refactor",
+      "owner": "W3-A APIs; O main/contracts/composition",
+      "direct_source_callers": [
+        "apps/api/main.py",
+        "apps/api/operations_dashboard_views.py",
+        "apps/api/operations_views.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase5_local_operations_composition.py",
+        "tests/integration/test_phase5_operations_api.py",
+        "tests/unit/test_config.py",
+        "tests/unit/test_operations_dashboard_views.py"
+      ]
+    },
+    {
+      "path": "apps/api/contracts.py",
+      "sha256": "5e2f3a121b009002d8373a5b948474d6cd5cd5486c0dce9f5d839bb20731e312",
+      "group": "research-api-composition",
+      "disposition": "keep-refactor",
+      "owner": "W3-A APIs; O main/contracts/composition",
+      "direct_source_callers": [
+        "apps/api/backtest_views.py",
+        "apps/api/data_views.py",
+        "apps/api/experiment_views.py",
+        "apps/api/fixture_segment_views.py",
+        "apps/api/main.py",
+        "apps/api/operations_dashboard_views.py",
+        "apps/api/operations_views.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_api.py",
+        "tests/integration/test_phase5_local_operations_composition.py",
+        "tests/integration/test_phase5_operations_api.py"
+      ]
+    },
+    {
+      "path": "apps/api/data_views.py",
+      "sha256": "c27a847ffd4a2f517a5d11a1549e63c011d5ce1993edfe7ba822b5f363fde152",
+      "group": "research-api-composition",
+      "disposition": "keep-refactor",
+      "owner": "W3-A APIs; O main/contracts/composition",
+      "direct_source_callers": [
+        "apps/api/main.py"
+      ],
+      "direct_test_importers": []
+    },
+    {
+      "path": "apps/api/experiment_views.py",
+      "sha256": "60c214a1fffeb90255611f0b860af27be971313792dc2e0b5efc7f953cd9bdce",
+      "group": "research-api-composition",
+      "disposition": "keep-refactor",
+      "owner": "W3-A APIs; O main/contracts/composition",
+      "direct_source_callers": [
+        "apps/api/main.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase3_experiment_api.py"
+      ]
+    },
+    {
+      "path": "apps/api/fixture_segment_views.py",
+      "sha256": "109dc8aba1915b76221bab24448e87adda2ada09d28a6e895d555ab7186a2141",
+      "group": "research-api-composition",
+      "disposition": "keep-refactor",
+      "owner": "W3-A APIs; O main/contracts/composition",
+      "direct_source_callers": [
+        "apps/api/main.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase3_fixture_segment_api.py"
+      ]
+    },
+    {
+      "path": "apps/api/main.py",
+      "sha256": "0338da242f213375b6459e0fc6ba0293f76270a224071bcdd589ac3a6b6b81d4",
+      "group": "research-api-composition",
+      "disposition": "keep-refactor",
+      "owner": "W3-A APIs; O main/contracts/composition",
+      "direct_source_callers": [
+        "scripts/generate_api_contracts.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_api.py",
+        "tests/integration/test_market_data_ingestion.py",
+        "tests/integration/test_persistence.py",
+        "tests/integration/test_phase2_backtest_api.py",
+        "tests/integration/test_phase3_experiment_api.py",
+        "tests/integration/test_phase3_fixture_segment_api.py",
+        "tests/integration/test_phase5_local_operations_composition.py"
+      ]
+    },
+    {
+      "path": "apps/worker/main.py",
+      "sha256": "8dc1b586e9c2f4593726bd59825c2ad06bc3f5bedad81e66fc9878c2e004099d",
+      "group": "research-api-composition",
+      "disposition": "keep-refactor",
+      "owner": "W3-A APIs; O main/contracts/composition",
+      "direct_source_callers": [],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/adapters/market_data/__init__.py",
+      "sha256": "fbe810fe07c0a1dafa5d96c660f4b7b806609f17d4d3834bbfa049cfdd9d18de",
+      "group": "historical-adapters",
+      "disposition": "keep-refactor",
+      "owner": "W1-A",
+      "direct_source_callers": [],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/adapters/market_data/provider_probe.py",
+      "sha256": "57a3fecf8cd639e3982dccfebca5097116f23f3a8173294a65b35453b47536fa",
+      "group": "historical-adapters",
+      "disposition": "retain-dormant-no-provider-expansion",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "scripts/probe_market_data_access.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_market_data_provider_probe.py"
+      ]
+    },
+    {
+      "path": "packages/adapters/market_data/recorded.py",
+      "sha256": "c2fb8fc369c0470760d14aa86f308d8b562aaa8085b77ef883e0f30862656ddb",
+      "group": "historical-adapters",
+      "disposition": "keep-refactor",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "packages/adapters/market_data/__init__.py",
+        "packages/application/market_data_ingestion.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_market_data_ingestion.py",
+        "tests/unit/test_historical_market_data_source.py"
+      ]
+    },
+    {
+      "path": "packages/adapters/market_data/reference_admission.py",
+      "sha256": "4bf3d7fc6ea93572d5ab249bed4b5ad893b57b6bf375a124f288dee58f23ee64",
+      "group": "historical-adapters",
+      "disposition": "keep-refactor",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "packages/application/market_data_ingestion.py"
+      ],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/adapters/market_data/reference_fixture.py",
+      "sha256": "cb67fbd0bd40e08fc6635bce7fffa964ada208c85bcf5a61fdc4db4d4511de95",
+      "group": "historical-adapters",
+      "disposition": "keep-refactor",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "packages/application/market_data_ingestion.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_market_data_ingestion.py",
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/unit/test_historical_market_data_source.py"
+      ]
+    },
+    {
+      "path": "packages/adapters/market_data/sharadar_sfp.py",
+      "sha256": "5adaacaacc1d47da326cf9f55d04c4421954a06a1e8acd3e5c7c893bffdae0a6",
+      "group": "historical-adapters",
+      "disposition": "retain-dormant-no-provider-expansion",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "packages/adapters/market_data/__init__.py",
+        "packages/adapters/market_data/sharadar_sfp_capture.py",
+        "scripts/capture_sharadar_sfp.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_sharadar_sfp.py"
+      ]
+    },
+    {
+      "path": "packages/adapters/market_data/sharadar_sfp_capture.py",
+      "sha256": "1f67952643a46d22f97a1797347be57c0c933e6da404e2d3fdbd03fa16fbff55",
+      "group": "historical-adapters",
+      "disposition": "retain-dormant-no-provider-expansion",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "scripts/capture_sharadar_sfp.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_sharadar_sfp.py"
+      ]
+    },
+    {
+      "path": "packages/adapters/market_data/tiingo_eod.py",
+      "sha256": "8ddfaf839969f062e1c62716c0fa10e652ef339ecb125095499fac9d21f6ce61",
+      "group": "historical-adapters",
+      "disposition": "keep-refactor",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "packages/adapters/market_data/__init__.py",
+        "packages/adapters/market_data/tiingo_eod_calendar.py",
+        "packages/adapters/market_data/tiingo_eod_capture.py",
+        "packages/adapters/market_data/tiingo_eod_capture_identity.py",
+        "packages/adapters/market_data/tiingo_eod_identity_lifecycle.py",
+        "packages/adapters/market_data/tiingo_eod_lineage.py",
+        "packages/adapters/market_data/tiingo_eod_market_semantics.py",
+        "packages/adapters/market_data/tiingo_eod_retained_fields.py",
+        "packages/adapters/market_data/tiingo_eod_snapshot.py",
+        "scripts/capture_tiingo_eod.py",
+        "scripts/derive_tiingo_eod_lineage.py",
+        "scripts/inspect_tiingo_eod_profile.py",
+        "scripts/qualify_tiingo_eod_identity_lifecycle.py",
+        "scripts/qualify_tiingo_eod_market_semantics.py",
+        "scripts/qualify_tiingo_eod_retained_fields.py",
+        "scripts/verify_tiingo_eod_capture.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_tiingo_eod.py",
+        "tests/unit/test_tiingo_eod_calendar.py",
+        "tests/unit/test_tiingo_eod_capture.py",
+        "tests/unit/test_tiingo_eod_identity_lifecycle.py",
+        "tests/unit/test_tiingo_eod_market_semantics.py",
+        "tests/unit/test_tiingo_eod_market_semantics_cli.py",
+        "tests/unit/test_tiingo_eod_operational_cli.py",
+        "tests/unit/test_tiingo_eod_snapshot.py"
+      ]
+    },
+    {
+      "path": "packages/adapters/market_data/tiingo_eod_calendar.py",
+      "sha256": "b215588d4c9a8f534f04bc3036085a57e80f846ec4157d547b4fca226aa7891b",
+      "group": "historical-adapters",
+      "disposition": "keep-refactor",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "packages/adapters/market_data/__init__.py",
+        "packages/adapters/market_data/tiingo_eod_capture.py",
+        "packages/adapters/market_data/tiingo_eod_snapshot.py",
+        "scripts/capture_tiingo_eod.py",
+        "scripts/derive_tiingo_eod_lineage.py",
+        "scripts/qualify_tiingo_eod_identity_lifecycle.py",
+        "scripts/qualify_tiingo_eod_market_semantics.py",
+        "scripts/qualify_tiingo_eod_retained_fields.py",
+        "scripts/verify_tiingo_eod_capture.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_tiingo_eod_calendar.py",
+        "tests/unit/test_tiingo_eod_capture.py",
+        "tests/unit/test_tiingo_eod_operational_cli.py",
+        "tests/unit/test_tiingo_eod_snapshot.py"
+      ]
+    },
+    {
+      "path": "packages/adapters/market_data/tiingo_eod_capture.py",
+      "sha256": "8b748dd11e0be5f6bee185f7455d0f11ee5614a7848ed7c3c0734a18397e5a98",
+      "group": "historical-adapters",
+      "disposition": "keep-refactor",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "packages/adapters/market_data/__init__.py",
+        "scripts/capture_tiingo_eod.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_tiingo_eod_capture.py",
+        "tests/unit/test_tiingo_eod_market_semantics_cli.py",
+        "tests/unit/test_tiingo_eod_operational_cli.py",
+        "tests/unit/test_tiingo_eod_snapshot.py"
+      ]
+    },
+    {
+      "path": "packages/adapters/market_data/tiingo_eod_capture_identity.py",
+      "sha256": "8276e5310cd753371b5f1d18cf9f27602fa23276dbe31176e5e2febaafdfa8da",
+      "group": "historical-adapters",
+      "disposition": "keep-refactor",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "packages/adapters/market_data/tiingo_eod_capture.py",
+        "packages/adapters/market_data/tiingo_eod_snapshot.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_tiingo_eod_snapshot.py"
+      ]
+    },
+    {
+      "path": "packages/adapters/market_data/tiingo_eod_identity_lifecycle.py",
+      "sha256": "126b05b273515ddf682d04f132ce4fcbe9c66a085a8329e804e57678419bd54c",
+      "group": "historical-adapters",
+      "disposition": "keep-refactor",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "packages/adapters/market_data/__init__.py",
+        "packages/adapters/market_data/tiingo_eod_market_semantics.py",
+        "scripts/qualify_tiingo_eod_identity_lifecycle.py",
+        "scripts/qualify_tiingo_eod_market_semantics.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_tiingo_eod_identity_lifecycle.py",
+        "tests/unit/test_tiingo_eod_market_semantics.py",
+        "tests/unit/test_tiingo_eod_market_semantics_cli.py",
+        "tests/unit/test_tiingo_eod_operational_cli.py"
+      ]
+    },
+    {
+      "path": "packages/adapters/market_data/tiingo_eod_lineage.py",
+      "sha256": "425af5b59ae6f791487c44683e7cd6a0538d5dea89bb9e34ab5dc99d82a4bd4c",
+      "group": "historical-adapters",
+      "disposition": "keep-refactor",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "packages/adapters/market_data/__init__.py",
+        "scripts/derive_tiingo_eod_lineage.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_tiingo_eod_snapshot.py"
+      ]
+    },
+    {
+      "path": "packages/adapters/market_data/tiingo_eod_market_semantics.py",
+      "sha256": "4774d36fc5df2f9eafc49874579d3741505383103de0cdd367d8e70b4fa2a66d",
+      "group": "historical-adapters",
+      "disposition": "keep-refactor",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "packages/adapters/market_data/__init__.py",
+        "scripts/qualify_tiingo_eod_market_semantics.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_tiingo_eod_market_semantics.py",
+        "tests/unit/test_tiingo_eod_market_semantics_cli.py"
+      ]
+    },
+    {
+      "path": "packages/adapters/market_data/tiingo_eod_retained_fields.py",
+      "sha256": "992aa13735e3b3090c7b08df2a6c9afe665074860965004dee5fa7eada2487d0",
+      "group": "historical-adapters",
+      "disposition": "keep-refactor",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "packages/adapters/market_data/__init__.py",
+        "packages/adapters/market_data/tiingo_eod_identity_lifecycle.py",
+        "packages/adapters/market_data/tiingo_eod_market_semantics.py",
+        "scripts/qualify_tiingo_eod_identity_lifecycle.py",
+        "scripts/qualify_tiingo_eod_market_semantics.py",
+        "scripts/qualify_tiingo_eod_retained_fields.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_tiingo_eod_identity_lifecycle.py",
+        "tests/unit/test_tiingo_eod_market_semantics.py",
+        "tests/unit/test_tiingo_eod_market_semantics_cli.py",
+        "tests/unit/test_tiingo_eod_snapshot.py"
+      ]
+    },
+    {
+      "path": "packages/adapters/market_data/tiingo_eod_snapshot.py",
+      "sha256": "819a00e052b6b851b8813b3a0a59567a4b1b5d466e22572c69bfee1c5662099d",
+      "group": "historical-adapters",
+      "disposition": "keep-refactor",
+      "owner": "W1-A",
+      "direct_source_callers": [
+        "packages/adapters/market_data/__init__.py",
+        "packages/adapters/market_data/tiingo_eod_identity_lifecycle.py",
+        "packages/adapters/market_data/tiingo_eod_lineage.py",
+        "packages/adapters/market_data/tiingo_eod_market_semantics.py",
+        "packages/adapters/market_data/tiingo_eod_retained_fields.py",
+        "scripts/derive_tiingo_eod_lineage.py",
+        "scripts/qualify_tiingo_eod_identity_lifecycle.py",
+        "scripts/qualify_tiingo_eod_market_semantics.py",
+        "scripts/qualify_tiingo_eod_retained_fields.py",
+        "scripts/verify_tiingo_eod_capture.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_tiingo_eod_market_semantics_cli.py",
+        "tests/unit/test_tiingo_eod_snapshot.py"
+      ]
+    },
+    {
+      "path": "packages/application/_fixture_segment_economic_child.py",
+      "sha256": "a04c0945baf4dacb6ce254817c1a0e9a85b463f45d4db0fd804c5550067c228d",
+      "group": "research-application",
+      "disposition": "refactor-retire-fixture-only-product",
+      "owner": "W2-A engine integration then W3-A worker",
+      "direct_source_callers": [],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/application/backtest_worker.py",
+      "sha256": "b9716a3ba8274eff2c1cb5e3ad3cf807c562619632c96e53d341e425dacb9cd0",
+      "group": "research-application",
+      "disposition": "refactor-retire-fixture-only-product",
+      "owner": "W2-A engine integration then W3-A worker",
+      "direct_source_callers": [
+        "apps/api/main.py",
+        "apps/worker/main.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_backtest_api.py",
+        "tests/integration/test_phase2_backtest_worker.py"
+      ]
+    },
+    {
+      "path": "packages/application/captured_tape_research_validity.py",
+      "sha256": "dfc9d44d0a1c15be8aa13ea2074ad6926f76847fac5e62afa7a74455fd82d481",
+      "group": "data-application",
+      "disposition": "retain-old-claims-add-positive-versioned-research-admission",
+      "owner": "W1-A; W3-A consumers",
+      "direct_source_callers": [],
+      "direct_test_importers": [
+        "tests/integration/test_captured_tape_research_validity_gate.py",
+        "tests/unit/test_captured_tape_research_validity.py"
+      ]
+    },
+    {
+      "path": "packages/application/fixture_segment_economics.py",
+      "sha256": "11d1dc9542c60d719f98d433ed7d8c687a0cc8c590999dd33aa25a6a47cfa5f1",
+      "group": "research-application",
+      "disposition": "refactor-retire-fixture-only-product",
+      "owner": "W2-A engine integration then W3-A worker",
+      "direct_source_callers": [],
+      "direct_test_importers": [
+        "tests/unit/test_fixture_segment_economics.py"
+      ]
+    },
+    {
+      "path": "packages/application/fixture_segment_worker.py",
+      "sha256": "78d96ef8963e229886ca9ea1cc25077e1c8f504ccec92f87776aca8c5326c50e",
+      "group": "research-application",
+      "disposition": "refactor-retire-fixture-only-product",
+      "owner": "W2-A engine integration then W3-A worker",
+      "direct_source_callers": [],
+      "direct_test_importers": [
+        "tests/integration/test_fixture_segment_worker_persistence.py"
+      ]
+    },
+    {
+      "path": "packages/application/manifest_replay.py",
+      "sha256": "ea0c1ca3a23a43b0458fb783220a0987a0090ea194ed5c266d73996e67ee8cbe",
+      "group": "data-application",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W1-A; W3-A consumers",
+      "direct_source_callers": [],
+      "direct_test_importers": [
+        "tests/integration/test_manifest_replay_tape.py",
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_postgres_risk_concurrency.py",
+        "tests/integration/test_replay_run_persistence.py"
+      ]
+    },
+    {
+      "path": "packages/application/market_data_admission.py",
+      "sha256": "fd00fd92dfabdfb84928cf761c9aead5c0f8865baeb7bae0c287e96f72e590ed",
+      "group": "data-application",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W1-A; W3-A consumers",
+      "direct_source_callers": [
+        "scripts/evaluate_market_data_admission.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_market_data_admission_io.py"
+      ]
+    },
+    {
+      "path": "packages/application/market_data_ingestion.py",
+      "sha256": "6388c6702c7ed1d0620b98acc52852c0ecd52c4fcf7d554766c298f4a7c0bbe5",
+      "group": "data-application",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W1-A; W3-A consumers",
+      "direct_source_callers": [
+        "apps/worker/main.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_manifest_replay_tape.py",
+        "tests/integration/test_market_data_ingestion.py",
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_postgres_risk_concurrency.py",
+        "tests/integration/test_replay_run_persistence.py"
+      ]
+    },
+    {
+      "path": "packages/application/production_market_data_admission.py",
+      "sha256": "85cf6180d5c23e7770be18a5b64c79df10e501b78545fb1d3fcbb2327b396559",
+      "group": "data-application",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W1-A; W3-A consumers",
+      "direct_source_callers": [
+        "packages/application/captured_tape_research_validity.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_captured_tape_research_validity_gate.py",
+        "tests/integration/test_production_market_data_evidence_gate.py",
+        "tests/unit/test_captured_tape_research_validity.py",
+        "tests/unit/test_production_market_data_admission.py"
+      ]
+    },
+    {
+      "path": "packages/backtest/__init__.py",
+      "sha256": "3ab7df87b11eceb08e62310719df5ec8c5e206fe928df72ab48ca1b2e2533732",
+      "group": "simulation",
+      "disposition": "keep-refactor",
+      "owner": "W2-B then W4-C",
+      "direct_source_callers": [],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/backtest/golden_runner.py",
+      "sha256": "2193e0c86d2c3036362e3137e531cb210bb2796e4c601f304cb37e053c9b3776",
+      "group": "simulation",
+      "disposition": "keep-regression-oracle-retire-fixed-product-path",
+      "owner": "W2-B then W4-C",
+      "direct_source_callers": [
+        "packages/application/backtest_worker.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_backtest_api.py",
+        "tests/integration/test_phase2_backtest_worker.py",
+        "tests/integration/test_phase2_backtest_workflow.py",
+        "tests/integration/test_phase2_postgres_exit.py",
+        "tests/unit/test_golden_runner.py"
+      ]
+    },
+    {
+      "path": "packages/backtest/simulated_broker.py",
+      "sha256": "642e497e48c1a2c2743537f7ca52e9718f159a7f1e919d543438d3b18996e134",
+      "group": "simulation",
+      "disposition": "keep-refactor",
+      "owner": "W2-B then W4-C",
+      "direct_source_callers": [
+        "packages/backtest/__init__.py",
+        "packages/backtest/golden_runner.py",
+        "packages/backtest/simulation_horizon.py",
+        "packages/persistence/reservation_lifecycle.py",
+        "packages/persistence/simulation_horizon.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/unit/test_simulated_broker.py",
+        "tests/unit/test_simulation_horizon.py"
+      ]
+    },
+    {
+      "path": "packages/backtest/simulation_horizon.py",
+      "sha256": "d73262a83bdd46f39bb4c37c9307481cbb7f6269d0f33c8713e8e237913a38f0",
+      "group": "simulation",
+      "disposition": "keep-refactor",
+      "owner": "W2-B then W4-C",
+      "direct_source_callers": [
+        "packages/backtest/__init__.py",
+        "packages/persistence/reservation_lifecycle.py",
+        "packages/persistence/simulation_horizon.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/unit/test_simulation_horizon.py"
+      ]
+    },
+    {
+      "path": "packages/datasets/__init__.py",
+      "sha256": "1af30dcc04df5dd82e3052b7c30b06942a4f50e669f2d3722129fdbc92c8924f",
+      "group": "dataset-store",
+      "disposition": "keep-refactor",
+      "owner": "W1-A then W3-A",
+      "direct_source_callers": [
+        "packages/application/market_data_ingestion.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_manifest_replay_tape.py",
+        "tests/integration/test_market_data_ingestion.py",
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_postgres_risk_concurrency.py",
+        "tests/integration/test_replay_run_persistence.py",
+        "tests/unit/test_parquet_store.py"
+      ]
+    },
+    {
+      "path": "packages/datasets/feature_artifact.py",
+      "sha256": "1c56e6651989b15ad950b06d0d00823637b9a17c92702f419f14d489e3c50052",
+      "group": "dataset-store",
+      "disposition": "keep-refactor",
+      "owner": "W1-A then W3-A",
+      "direct_source_callers": [
+        "packages/datasets/__init__.py"
+      ],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/datasets/parquet.py",
+      "sha256": "308ecf387af4842cf367e0f9e85412acd02f840d57c6f894da4c0ccef8f1f873",
+      "group": "dataset-store",
+      "disposition": "keep-refactor",
+      "owner": "W1-A then W3-A",
+      "direct_source_callers": [
+        "packages/application/market_data_ingestion.py",
+        "packages/datasets/__init__.py",
+        "packages/datasets/reader.py",
+        "packages/datasets/replay_tape.py",
+        "packages/persistence/replay.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_parquet_store.py"
+      ]
+    },
+    {
+      "path": "packages/datasets/reader.py",
+      "sha256": "3fa8b41ed44b348af91e6c0eddc7cb73ec7ec688d3512e9813e04d798fec83d6",
+      "group": "dataset-store",
+      "disposition": "keep-refactor",
+      "owner": "W1-A then W3-A",
+      "direct_source_callers": [
+        "packages/datasets/__init__.py",
+        "packages/datasets/replay_tape.py"
+      ],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/datasets/replay_tape.py",
+      "sha256": "7f07c40be8c6c21df5a9e1f45d118302a6290be5a119669fd4ebb4d9fd2c1a9a",
+      "group": "dataset-store",
+      "disposition": "keep-refactor",
+      "owner": "W1-A then W3-A",
+      "direct_source_callers": [
+        "packages/application/manifest_replay.py",
+        "packages/datasets/__init__.py",
+        "packages/datasets/feature_artifact.py",
+        "packages/persistence/replay.py"
+      ],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/domain/account_projection.py",
+      "sha256": "d996f66df2914dbfa7ba62e26eb38b37f88725dcbfa30ec280c6a7b050c499fc",
+      "group": "accounting",
+      "disposition": "keep",
+      "owner": "W2-B",
+      "direct_source_callers": [
+        "packages/backtest/golden_runner.py",
+        "packages/domain/batch_risk.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_account_projection.py",
+        "tests/unit/test_batch_risk.py",
+        "tests/unit/test_corporate_action_ledger.py"
+      ]
+    },
+    {
+      "path": "packages/domain/accounting.py",
+      "sha256": "615e8bc8b730058334875160f75fdf39ef3c7c939d038749eb17f8b7ae6e3e79",
+      "group": "legacy-fixture-economics",
+      "disposition": "retire-product-path-preserve-oracle",
+      "owner": "W2-O cutover; W3-A consumers",
+      "direct_source_callers": [
+        "packages/domain/walking_thread.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_accounting.py"
+      ]
+    },
+    {
+      "path": "packages/domain/backtest_job.py",
+      "sha256": "380cad109808639982608f468ead52a45b6768cf07893cde3b3b3a8144356c80",
+      "group": "report-job",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W2-C report; W3-A job; O shared",
+      "direct_source_callers": [
+        "apps/api/backtest_views.py",
+        "apps/api/contracts.py",
+        "packages/application/backtest_worker.py",
+        "packages/persistence/backtest_workflow.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_backtest_api.py",
+        "tests/integration/test_phase2_backtest_worker.py",
+        "tests/integration/test_phase2_backtest_workflow.py",
+        "tests/integration/test_phase2_postgres_exit.py",
+        "tests/unit/test_backtest_job.py"
+      ]
+    },
+    {
+      "path": "packages/domain/backtest_report.py",
+      "sha256": "443b49314b567cf096106b08c0a135d3033aba6af976d4340055f2eba00b84d5",
+      "group": "report-job",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W2-C report; W3-A job; O shared",
+      "direct_source_callers": [
+        "apps/api/contracts.py",
+        "packages/application/backtest_worker.py",
+        "packages/backtest/golden_runner.py",
+        "packages/persistence/backtest_workflow.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_backtest_workflow.py",
+        "tests/unit/test_backtest_report.py",
+        "tests/unit/test_golden_runner.py"
+      ]
+    },
+    {
+      "path": "packages/domain/canonical.py",
+      "sha256": "3cdc43a3d703fa73a4f1f24c2911b81713cb0baf150a034348309ad0aee3b0b0",
+      "group": "core-contract",
+      "disposition": "keep-versioned-extension",
+      "owner": "O shared; W2-A consumer",
+      "direct_source_callers": [
+        "apps/api/contracts.py",
+        "apps/api/main.py",
+        "apps/trusted_time_supervisor/head_anchor_config.py",
+        "packages/adapters/alerts/_http.py",
+        "packages/adapters/broker/alpaca_paper.py",
+        "packages/adapters/broker/alpaca_paper_account_activities.py",
+        "packages/adapters/broker/alpaca_paper_account_activity_comparison.py",
+        "packages/adapters/broker/alpaca_paper_account_activity_runtime.py",
+        "packages/adapters/broker/alpaca_paper_account_assets.py",
+        "packages/adapters/broker/alpaca_paper_account_runtime.py",
+        "packages/adapters/broker/alpaca_paper_asset_runtime.py",
+        "packages/adapters/broker/alpaca_paper_lookup_runtime.py",
+        "packages/adapters/broker/alpaca_paper_observations.py",
+        "packages/adapters/broker/alpaca_paper_order_snapshot_comparison.py",
+        "packages/adapters/broker/alpaca_paper_order_snapshot_runtime.py",
+        "packages/adapters/broker/alpaca_paper_order_snapshots.py",
+        "packages/adapters/broker/alpaca_paper_position_snapshot_comparison.py",
+        "packages/adapters/broker/alpaca_paper_position_snapshot_runtime.py",
+        "packages/adapters/broker/alpaca_paper_positions.py",
+        "packages/adapters/broker/alpaca_paper_preflight.py",
+        "packages/adapters/broker/etrade.py",
+        "packages/adapters/broker/etrade_accounts.py",
+        "packages/adapters/broker/etrade_oauth.py",
+        "packages/adapters/trusted_time/chrony_nts.py",
+        "packages/application/alpaca_paper_account_activity_comparison.py",
+        "packages/application/alpaca_paper_account_activity_supervisor.py",
+        "packages/application/alpaca_paper_order_snapshot_comparison.py",
+        "packages/application/alpaca_paper_order_view_runtime.py",
+        "packages/application/alpaca_paper_order_view_supervisor.py",
+        "packages/application/alpaca_paper_order_view_transition.py",
+        "packages/application/alpaca_paper_position_snapshot_comparison.py",
+        "packages/application/alpaca_paper_position_view_runtime.py",
+        "packages/application/alpaca_paper_position_view_supervisor.py",
+        "packages/application/alpaca_paper_position_view_transition.py",
+        "packages/application/backtest_worker.py",
+        "packages/application/captured_tape_research_validity.py",
+        "packages/application/critical_alert_delivery.py",
+        "packages/application/critical_alert_scheduler.py",
+        "packages/application/critical_alert_supervisor.py",
+        "packages/application/critical_alert_supervisor_failure_control.py",
+        "packages/application/etrade_oauth_token_runtime.py",
+        "packages/application/fixture_segment_economics.py",
+        "packages/application/no_exposure_smoke_strategy.py",
+        "packages/application/operational_rearm.py",
+        "packages/application/paper_account_enrollment.py",
+        "packages/application/paper_deployment.py",
+        "packages/application/production_market_data_admission.py",
+        "packages/application/supervised_strategy.py",
+        "packages/application/trusted_time_head_anchor.py",
+        "packages/application/trusted_time_monitor.py",
+        "packages/application/trusted_time_watchdog.py",
+        "packages/backtest/golden_runner.py",
+        "packages/backtest/simulated_broker.py",
+        "packages/backtest/simulation_horizon.py",
+        "packages/datasets/replay_tape.py",
+        "packages/domain/account_coordinator.py",
+        "packages/domain/account_projection.py",
+        "packages/domain/accounting.py",
+        "packages/domain/advanced_risk.py",
+        "packages/domain/advanced_risk_admission.py",
+        "packages/domain/advanced_risk_assignment.py",
+        "packages/domain/advanced_risk_enforcement.py",
+        "packages/domain/advanced_risk_metrics.py",
+        "packages/domain/advanced_risk_policy.py",
+        "packages/domain/advanced_risk_sources.py",
+        "packages/domain/backtest_job.py",
+        "packages/domain/backtest_report.py",
+        "packages/domain/batch_risk.py",
+        "packages/domain/broker_inbox.py",
+        "packages/domain/broker_ingress.py",
+        "packages/domain/broker_reconciliation.py",
+        "packages/domain/broker_request_budget.py",
+        "packages/domain/clock.py",
+        "packages/domain/corporate_action_ledger.py",
+        "packages/domain/critical_alert.py",
+        "packages/domain/decimal_math.py",
+        "packages/domain/decision.py",
+        "packages/domain/experiment_governance.py",
+        "packages/domain/experiment_registry.py",
+        "packages/domain/feature.py",
+        "packages/domain/feature_target.py",
+        "packages/domain/fixture_segment_economics.py",
+        "packages/domain/fixture_segment_worker.py",
+        "packages/domain/identifiers.py",
+        "packages/domain/ledger_reducer.py",
+        "packages/domain/market_batch.py",
+        "packages/domain/models.py",
+        "packages/domain/operational_control.py",
+        "packages/domain/operational_drill.py",
+        "packages/domain/order_reducer.py",
+        "packages/domain/replay_manifest.py",
+        "packages/domain/reservation_lifecycle.py",
+        "packages/domain/risk.py",
+        "packages/domain/settlement_ledger.py",
+        "packages/domain/strategy.py",
+        "packages/domain/strategy_invocation_lifecycle.py",
+        "packages/domain/strategy_replay.py",
+        "packages/domain/strategy_state.py",
+        "packages/domain/strategy_supervision.py",
+        "packages/domain/strategy_supervision_alert.py",
+        "packages/domain/strategy_supervision_control.py",
+        "packages/domain/submission_attempt.py",
+        "packages/domain/trusted_time.py",
+        "packages/domain/unknown_submission_recovery.py",
+        "packages/observability/tracing.py",
+        "packages/persistence/account_coordinator.py",
+        "packages/persistence/advanced_batch_risk.py",
+        "packages/persistence/advanced_risk.py",
+        "packages/persistence/alpaca_paper_account_activity.py",
+        "packages/persistence/alpaca_paper_account_activity_comparison.py",
+        "packages/persistence/alpaca_paper_account_binding.py",
+        "packages/persistence/alpaca_paper_asset_binding.py",
+        "packages/persistence/alpaca_paper_lookup_observation.py",
+        "packages/persistence/alpaca_paper_order_snapshot.py",
+        "packages/persistence/alpaca_paper_order_view_comparison.py",
+        "packages/persistence/alpaca_paper_order_view_transition.py",
+        "packages/persistence/alpaca_paper_position_view_comparison.py",
+        "packages/persistence/alpaca_paper_position_view_transition.py",
+        "packages/persistence/backtest_workflow.py",
+        "packages/persistence/batch_risk.py",
+        "packages/persistence/broker_inbox.py",
+        "packages/persistence/broker_ingress.py",
+        "packages/persistence/broker_reconciliation.py",
+        "packages/persistence/capacity_ordering.py",
+        "packages/persistence/etrade_oauth_coordinator.py",
+        "packages/persistence/experiment_governance.py",
+        "packages/persistence/fixture_segment_worker.py",
+        "packages/persistence/operational_control.py",
+        "packages/persistence/phase2_ledger.py",
+        "packages/persistence/reservation_lifecycle.py",
+        "packages/persistence/risk.py",
+        "packages/persistence/simulation_horizon.py",
+        "packages/persistence/strategy_invocation_lifecycle.py",
+        "packages/persistence/strategy_supervision.py",
+        "packages/persistence/submission_attempt.py",
+        "packages/persistence/trusted_time.py",
+        "packages/persistence/trusted_time_head_anchor.py",
+        "packages/persistence/unknown_submission_recovery.py",
+        "scripts/bind_alpaca_paper_account.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_backtest_workflow.py",
+        "tests/integration/test_schema.py",
+        "tests/unit/test_canonical.py",
+        "tests/unit/test_experiment_governance.py",
+        "tests/unit/test_simulation_horizon.py",
+        "tests/unit/test_trusted_time_head_anchor.py"
+      ]
+    },
+    {
+      "path": "packages/domain/clock.py",
+      "sha256": "2d1f0904d71773acd2a2088c711126bdd0f0a71cb91f2cf6b20a277da8ac812b",
+      "group": "core-contract",
+      "disposition": "keep-versioned-extension",
+      "owner": "O shared; W2-A consumer",
+      "direct_source_callers": [
+        "apps/api/main.py",
+        "apps/api/operations_dashboard_views.py",
+        "packages/adapters/broker/alpaca_paper_account_activity_runtime.py",
+        "packages/adapters/broker/alpaca_paper_account_runtime.py",
+        "packages/adapters/broker/alpaca_paper_asset_runtime.py",
+        "packages/adapters/broker/alpaca_paper_lookup_runtime.py",
+        "packages/adapters/broker/alpaca_paper_order_snapshot_runtime.py",
+        "packages/adapters/broker/alpaca_paper_position_snapshot_runtime.py",
+        "packages/application/alpaca_paper_account_activity_supervisor.py",
+        "packages/application/alpaca_paper_order_view_runtime.py",
+        "packages/application/alpaca_paper_order_view_supervisor.py",
+        "packages/application/alpaca_paper_position_view_runtime.py",
+        "packages/application/alpaca_paper_position_view_supervisor.py",
+        "packages/backtest/golden_runner.py",
+        "packages/domain/__init__.py",
+        "packages/domain/batch_risk.py",
+        "packages/domain/decision.py",
+        "packages/domain/replay.py",
+        "packages/domain/risk.py",
+        "packages/domain/strategy.py",
+        "packages/domain/strategy_replay.py",
+        "packages/domain/walking_thread.py",
+        "packages/execution/account_coordinator.py",
+        "packages/persistence/account_coordinator.py",
+        "packages/persistence/advanced_batch_risk.py",
+        "packages/persistence/advanced_risk.py",
+        "packages/persistence/broker_inbox.py",
+        "packages/persistence/broker_reconciliation.py",
+        "packages/persistence/broker_request_budget.py",
+        "packages/persistence/critical_alert.py",
+        "packages/persistence/critical_alert_failure_control.py",
+        "packages/persistence/operational_control.py",
+        "packages/persistence/strategy_invocation_lifecycle.py",
+        "packages/persistence/strategy_supervision.py",
+        "scripts/bind_alpaca_paper_account.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_persistence.py",
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_phase4_alpaca_paper_account_activity_comparison_persistence.py",
+        "tests/integration/test_phase4_alpaca_paper_lookup_observation_persistence.py",
+        "tests/integration/test_phase4_alpaca_paper_order_snapshot_persistence.py",
+        "tests/integration/test_phase4_alpaca_paper_order_view_transition_persistence.py",
+        "tests/integration/test_phase4_alpaca_paper_position_snapshot_persistence.py",
+        "tests/integration/test_phase4_alpaca_paper_position_view_comparison_persistence.py",
+        "tests/integration/test_phase4_alpaca_paper_position_view_transition_persistence.py",
+        "tests/integration/test_phase4_broker_request_budget_persistence.py",
+        "tests/integration/test_phase5_critical_alert_failure_control_persistence.py",
+        "tests/integration/test_phase5_trading_trace_composition.py",
+        "tests/integration/test_postgres_risk_concurrency.py",
+        "tests/integration/test_schema.py",
+        "tests/unit/test_batch_risk.py",
+        "tests/unit/test_bind_alpaca_paper_account.py",
+        "tests/unit/test_operations_dashboard_views.py",
+        "tests/unit/test_portfolio_intent_batches.py",
+        "tests/unit/test_replay.py",
+        "tests/unit/test_risk_and_execution.py",
+        "tests/unit/test_strategy_replay.py"
+      ]
+    },
+    {
+      "path": "packages/domain/corporate_action_ledger.py",
+      "sha256": "01d22eee3c3515df0dc47dea0c68006f4e576848aa1393ded42f50920c222a34",
+      "group": "accounting",
+      "disposition": "keep",
+      "owner": "W2-B",
+      "direct_source_callers": [
+        "packages/backtest/golden_runner.py",
+        "packages/domain/account_projection.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_corporate_action_ledger.py"
+      ]
+    },
+    {
+      "path": "packages/domain/decimal_math.py",
+      "sha256": "3bf6e229e5a05bc96ff47669b57ce0c16cc565bd07746e036fcc9b55a61c7fb4",
+      "group": "core-contract",
+      "disposition": "keep-versioned-extension",
+      "owner": "O shared; W2-A consumer",
+      "direct_source_callers": [
+        "apps/api/contracts.py",
+        "packages/application/trusted_time_monitor.py",
+        "packages/backtest/golden_runner.py",
+        "packages/backtest/simulated_broker.py",
+        "packages/domain/account_projection.py",
+        "packages/domain/accounting.py",
+        "packages/domain/advanced_risk.py",
+        "packages/domain/advanced_risk_metrics.py",
+        "packages/domain/advanced_risk_policy.py",
+        "packages/domain/advanced_risk_sources.py",
+        "packages/domain/backtest_report.py",
+        "packages/domain/batch_risk.py",
+        "packages/domain/corporate_action_ledger.py",
+        "packages/domain/feature.py",
+        "packages/domain/fixture_segment_economics.py",
+        "packages/domain/ledger_reducer.py",
+        "packages/domain/models.py",
+        "packages/domain/operational_control.py",
+        "packages/domain/order_reducer.py",
+        "packages/domain/portfolio.py",
+        "packages/domain/replay_manifest.py",
+        "packages/domain/reservation_lifecycle.py",
+        "packages/domain/risk.py",
+        "packages/domain/settlement_ledger.py",
+        "packages/domain/trusted_time.py",
+        "packages/persistence/batch_risk.py",
+        "packages/persistence/reservation_lifecycle.py",
+        "packages/persistence/risk.py",
+        "packages/risk/batch_repository.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_batch_risk.py",
+        "tests/unit/test_canonical.py",
+        "tests/unit/test_simulated_broker.py"
+      ]
+    },
+    {
+      "path": "packages/domain/decision.py",
+      "sha256": "1c1a18469a693890e940b33aac2f883a21672f0a7326d0b9d7e61f576f0665f3",
+      "group": "core-contract",
+      "disposition": "keep-versioned-extension",
+      "owner": "O shared; W2-A consumer",
+      "direct_source_callers": [
+        "packages/backtest/golden_runner.py",
+        "packages/domain/__init__.py",
+        "packages/domain/feature_target.py",
+        "packages/domain/models.py",
+        "packages/domain/strategy.py",
+        "packages/domain/strategy_replay.py",
+        "packages/domain/strategy_state.py",
+        "packages/persistence/submission_attempt.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/unit/test_accounting.py",
+        "tests/unit/test_batch_risk.py",
+        "tests/unit/test_portfolio_intent_batches.py",
+        "tests/unit/test_replay.py",
+        "tests/unit/test_strategy_replay.py"
+      ]
+    },
+    {
+      "path": "packages/domain/execution.py",
+      "sha256": "00295b3015949ee071c17d10e8aea8512eb4d393ed2e4956850ff59804d117a9",
+      "group": "legacy-fixture-economics",
+      "disposition": "retire-product-path-preserve-oracle",
+      "owner": "W2-O cutover; W3-A consumers",
+      "direct_source_callers": [
+        "packages/domain/walking_thread.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_risk_and_execution.py"
+      ]
+    },
+    {
+      "path": "packages/domain/experiment_governance.py",
+      "sha256": "cf8a8f1b54d84c6c20046d336136acbef412fad0425e69084fe6bddc6ed3b7e9",
+      "group": "research-evaluation",
+      "disposition": "keep-refactor",
+      "owner": "W3-B",
+      "direct_source_callers": [
+        "apps/api/contracts.py",
+        "apps/api/experiment_views.py",
+        "packages/application/fixture_segment_worker.py",
+        "packages/domain/fixture_segment_worker.py",
+        "packages/persistence/experiment_governance.py",
+        "packages/persistence/fixture_segment_worker.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_experiment_governance_persistence.py",
+        "tests/integration/test_fixture_segment_worker_persistence.py",
+        "tests/integration/test_phase3_experiment_api.py",
+        "tests/unit/test_experiment_governance.py",
+        "tests/unit/test_fixture_segment_economics.py",
+        "tests/unit/test_fixture_segment_worker.py"
+      ]
+    },
+    {
+      "path": "packages/domain/experiment_registry.py",
+      "sha256": "9182efdbb6fe9a54a56bd70de3cd5e95acc65247bc38aa28576934b14e12c4d4",
+      "group": "research-evaluation",
+      "disposition": "keep-refactor",
+      "owner": "W3-B",
+      "direct_source_callers": [
+        "apps/api/contracts.py",
+        "apps/api/experiment_views.py",
+        "apps/api/fixture_segment_views.py",
+        "packages/backtest/golden_runner.py",
+        "packages/domain/experiment_governance.py",
+        "packages/domain/fixture_segment_worker.py",
+        "packages/persistence/backtest_workflow.py",
+        "packages/persistence/experiment_governance.py",
+        "packages/persistence/fixture_segment_worker.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_experiment_governance_persistence.py",
+        "tests/integration/test_fixture_segment_worker_persistence.py",
+        "tests/integration/test_phase2_backtest_workflow.py",
+        "tests/integration/test_phase3_experiment_api.py",
+        "tests/unit/test_experiment_governance.py",
+        "tests/unit/test_experiment_registry.py",
+        "tests/unit/test_fixture_segment_economics.py",
+        "tests/unit/test_fixture_segment_worker.py"
+      ]
+    },
+    {
+      "path": "packages/domain/feature.py",
+      "sha256": "19775fbc4bf3c767a93b9d8c03b97dbc832de5c572157ddfc060326114e42d25",
+      "group": "research-evaluation",
+      "disposition": "keep-refactor",
+      "owner": "W3-B",
+      "direct_source_callers": [
+        "packages/application/fixture_segment_worker.py",
+        "packages/datasets/feature_artifact.py",
+        "packages/domain/experiment_governance.py",
+        "packages/domain/feature_replay.py",
+        "packages/domain/feature_target.py",
+        "packages/domain/feature_target_replay.py",
+        "packages/domain/fixture_segment_worker.py",
+        "packages/persistence/fixture_segment_worker.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_fixture_segment_worker_persistence.py",
+        "tests/unit/test_experiment_governance.py",
+        "tests/unit/test_feature_replay.py",
+        "tests/unit/test_feature_target_replay.py",
+        "tests/unit/test_fixture_segment_worker.py"
+      ]
+    },
+    {
+      "path": "packages/domain/feature_replay.py",
+      "sha256": "569892e2e50a4f1c42a9ec04d898f2932189861678276aebe455adc2e66b6b70",
+      "group": "research-evaluation",
+      "disposition": "keep-refactor",
+      "owner": "W3-B",
+      "direct_source_callers": [
+        "packages/datasets/feature_artifact.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_feature_replay.py",
+        "tests/unit/test_feature_target_replay.py"
+      ]
+    },
+    {
+      "path": "packages/domain/feature_target.py",
+      "sha256": "80f8f4eccfaadda219a5c2390ed919558286c9a0d8972cb9b9522dc616a3ac81",
+      "group": "research-evaluation",
+      "disposition": "keep-refactor",
+      "owner": "W3-B",
+      "direct_source_callers": [
+        "packages/application/fixture_segment_economics.py",
+        "packages/datasets/feature_artifact.py",
+        "packages/domain/experiment_governance.py",
+        "packages/domain/feature_target_replay.py",
+        "packages/domain/fixture_segment_economics.py",
+        "packages/domain/fixture_segment_worker.py",
+        "packages/persistence/experiment_governance.py",
+        "packages/persistence/fixture_segment_worker.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_experiment_governance_persistence.py",
+        "tests/integration/test_manifest_replay_tape.py",
+        "tests/unit/test_experiment_governance.py",
+        "tests/unit/test_feature_target_replay.py",
+        "tests/unit/test_fixture_segment_economics.py"
+      ]
+    },
+    {
+      "path": "packages/domain/feature_target_replay.py",
+      "sha256": "d3cb217a85264880200b9946a5e96d22a74c3e43a198f812d7d32a3884b5c1a3",
+      "group": "research-evaluation",
+      "disposition": "keep-refactor",
+      "owner": "W3-B",
+      "direct_source_callers": [
+        "packages/application/fixture_segment_worker.py",
+        "packages/datasets/feature_artifact.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_experiment_governance.py",
+        "tests/unit/test_feature_target_replay.py"
+      ]
+    },
+    {
+      "path": "packages/domain/fixture_segment_economics.py",
+      "sha256": "31224535f586e3fee0c23fd21fce9fff79035678bdda99fcbc3505db23e35c3f",
+      "group": "legacy-fixture-economics",
+      "disposition": "retire-product-path-preserve-oracle",
+      "owner": "W2-O cutover; W3-A consumers",
+      "direct_source_callers": [
+        "packages/application/fixture_segment_economics.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_fixture_segment_economics.py"
+      ]
+    },
+    {
+      "path": "packages/domain/fixture_segment_worker.py",
+      "sha256": "09183d67fc549e8d32a293e0cb52854e55fee4f2d3be5a9e3c7d9c078d060ede",
+      "group": "research-evaluation",
+      "disposition": "keep-refactor",
+      "owner": "W3-B",
+      "direct_source_callers": [
+        "apps/api/contracts.py",
+        "apps/api/fixture_segment_views.py",
+        "packages/application/fixture_segment_economics.py",
+        "packages/application/fixture_segment_worker.py",
+        "packages/domain/fixture_segment_economics.py",
+        "packages/persistence/fixture_segment_worker.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_fixture_segment_worker_persistence.py",
+        "tests/integration/test_phase3_fixture_segment_api.py",
+        "tests/unit/test_fixture_segment_economics.py",
+        "tests/unit/test_fixture_segment_worker.py"
+      ]
+    },
+    {
+      "path": "packages/domain/identifiers.py",
+      "sha256": "7a2a6cfbfbc04eb5e0368a36860ace86044640ff98609bdf43cdc51c8f486f5e",
+      "group": "core-contract",
+      "disposition": "keep-versioned-extension",
+      "owner": "O shared; W2-A consumer",
+      "direct_source_callers": [
+        "packages/adapters/broker/alpaca_paper_account_activities.py",
+        "packages/adapters/broker/alpaca_paper_account_activity_comparison.py",
+        "packages/adapters/broker/alpaca_paper_account_activity_runtime.py",
+        "packages/adapters/broker/alpaca_paper_account_runtime.py",
+        "packages/adapters/broker/alpaca_paper_asset_runtime.py",
+        "packages/adapters/broker/alpaca_paper_lookup_runtime.py",
+        "packages/adapters/broker/alpaca_paper_order_snapshot_comparison.py",
+        "packages/adapters/broker/alpaca_paper_order_snapshot_runtime.py",
+        "packages/adapters/broker/alpaca_paper_order_snapshots.py",
+        "packages/adapters/broker/alpaca_paper_position_snapshot_comparison.py",
+        "packages/adapters/broker/alpaca_paper_position_snapshot_runtime.py",
+        "packages/adapters/broker/alpaca_paper_positions.py",
+        "packages/adapters/broker/alpaca_paper_preflight.py",
+        "packages/adapters/market_data/reference_fixture.py",
+        "packages/application/alpaca_paper_account_activity_comparison.py",
+        "packages/application/alpaca_paper_account_activity_supervisor.py",
+        "packages/application/alpaca_paper_order_snapshot_comparison.py",
+        "packages/application/alpaca_paper_order_view_runtime.py",
+        "packages/application/alpaca_paper_order_view_supervisor.py",
+        "packages/application/alpaca_paper_order_view_transition.py",
+        "packages/application/alpaca_paper_position_snapshot_comparison.py",
+        "packages/application/alpaca_paper_position_view_runtime.py",
+        "packages/application/alpaca_paper_position_view_supervisor.py",
+        "packages/application/alpaca_paper_position_view_transition.py",
+        "packages/application/critical_alert_delivery.py",
+        "packages/application/critical_alert_scheduler.py",
+        "packages/application/critical_alert_supervisor_failure_control.py",
+        "packages/application/operational_rearm.py",
+        "packages/application/paper_deployment.py",
+        "packages/backtest/golden_runner.py",
+        "packages/backtest/simulated_broker.py",
+        "packages/backtest/simulation_horizon.py",
+        "packages/datasets/replay_tape.py",
+        "packages/domain/account_coordinator.py",
+        "packages/domain/account_projection.py",
+        "packages/domain/accounting.py",
+        "packages/domain/advanced_risk.py",
+        "packages/domain/advanced_risk_admission.py",
+        "packages/domain/advanced_risk_assignment.py",
+        "packages/domain/advanced_risk_policy.py",
+        "packages/domain/batch_risk.py",
+        "packages/domain/broker_inbox.py",
+        "packages/domain/broker_reconciliation.py",
+        "packages/domain/corporate_action_ledger.py",
+        "packages/domain/critical_alert.py",
+        "packages/domain/execution.py",
+        "packages/domain/feature_target.py",
+        "packages/domain/ledger_reducer.py",
+        "packages/domain/operational_control.py",
+        "packages/domain/operational_drill.py",
+        "packages/domain/order_reducer.py",
+        "packages/domain/portfolio.py",
+        "packages/domain/reservation_lifecycle.py",
+        "packages/domain/risk.py",
+        "packages/domain/settlement_ledger.py",
+        "packages/domain/strategy.py",
+        "packages/domain/strategy_invocation_lifecycle.py",
+        "packages/domain/strategy_supervision.py",
+        "packages/domain/submission_attempt.py",
+        "packages/domain/walking_thread.py",
+        "packages/execution/account_coordinator.py",
+        "packages/market_data/normalization.py",
+        "packages/market_data/quality.py",
+        "packages/persistence/account_coordinator.py",
+        "packages/persistence/alpaca_paper_order_view_transition.py",
+        "packages/persistence/alpaca_paper_position_view_transition.py",
+        "packages/persistence/batch_risk.py",
+        "packages/persistence/broker_inbox.py",
+        "packages/persistence/risk.py",
+        "packages/persistence/submission_attempt.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase5_operational_control_persistence.py",
+        "tests/integration/test_schema.py",
+        "tests/integration/test_submission_attempt_migration.py",
+        "tests/unit/test_identifiers.py",
+        "tests/unit/test_simulated_broker.py",
+        "tests/unit/test_simulation_horizon.py",
+        "tests/unit/test_strategy_replay.py",
+        "tests/unit/test_submission_attempt.py",
+        "tests/unit/test_walking_thread.py"
+      ]
+    },
+    {
+      "path": "packages/domain/ledger_reducer.py",
+      "sha256": "4b17f0a7a611eff4dfe9a36466042734ef1e963633f1d469524b2493f7c41cbb",
+      "group": "accounting",
+      "disposition": "keep",
+      "owner": "W2-B",
+      "direct_source_callers": [
+        "packages/application/trading_trace.py",
+        "packages/backtest/golden_runner.py",
+        "packages/domain/account_projection.py",
+        "packages/domain/corporate_action_ledger.py",
+        "packages/domain/settlement_ledger.py",
+        "packages/persistence/database.py",
+        "packages/persistence/phase2_ledger.py",
+        "packages/persistence/reservation_lifecycle.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_reservation_lifecycle_persistence.py",
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_phase5_trading_trace_composition.py",
+        "tests/unit/test_account_projection.py",
+        "tests/unit/test_batch_risk.py",
+        "tests/unit/test_corporate_action_ledger.py",
+        "tests/unit/test_golden_runner.py",
+        "tests/unit/test_ledger_reducer.py",
+        "tests/unit/test_settlement_ledger.py",
+        "tests/unit/test_simulated_broker.py"
+      ]
+    },
+    {
+      "path": "packages/domain/market_batch.py",
+      "sha256": "3d306fc6d23e546d9d5d7482df7e365c48f0a5336ee181f58230cd778f0175f7",
+      "group": "core-contract",
+      "disposition": "keep-versioned-extension",
+      "owner": "O shared; W2-A consumer",
+      "direct_source_callers": [
+        "packages/application/durable_supervised_strategy.py",
+        "packages/application/supervised_strategy.py",
+        "packages/application/trading_trace.py",
+        "packages/backtest/golden_runner.py",
+        "packages/backtest/simulated_broker.py",
+        "packages/datasets/replay_tape.py",
+        "packages/domain/__init__.py",
+        "packages/domain/decision.py",
+        "packages/domain/feature.py",
+        "packages/domain/feature_replay.py",
+        "packages/domain/feature_target.py",
+        "packages/domain/portfolio.py",
+        "packages/domain/replay.py",
+        "packages/domain/replay_manifest.py",
+        "packages/domain/strategy.py",
+        "packages/domain/strategy_replay.py",
+        "packages/domain/strategy_supervision.py",
+        "packages/domain/walking_thread.py",
+        "packages/persistence/reservation_lifecycle.py",
+        "packages/persistence/simulation_horizon.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_manifest_replay_tape.py",
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py",
+        "tests/unit/test_durable_supervised_strategy.py",
+        "tests/unit/test_feature_replay.py",
+        "tests/unit/test_feature_target_replay.py",
+        "tests/unit/test_no_exposure_smoke_strategy.py",
+        "tests/unit/test_replay.py",
+        "tests/unit/test_replay_manifest.py",
+        "tests/unit/test_simulated_broker.py",
+        "tests/unit/test_simulation_horizon.py",
+        "tests/unit/test_strategy_replay.py",
+        "tests/unit/test_strategy_supervision.py",
+        "tests/unit/test_supervised_strategy.py"
+      ]
+    },
+    {
+      "path": "packages/domain/models.py",
+      "sha256": "3e20b0ea1dec7504e5a49dd613cc66ac5db9c34913725458e38769ccda5912c4",
+      "group": "core-contract",
+      "disposition": "keep-versioned-extension",
+      "owner": "O shared; W2-A consumer",
+      "direct_source_callers": [
+        "apps/api/contracts.py",
+        "apps/api/operations_dashboard_views.py",
+        "packages/adapters/broker/alpaca_paper.py",
+        "packages/adapters/broker/alpaca_paper_account_activities.py",
+        "packages/adapters/broker/alpaca_paper_account_activity_runtime.py",
+        "packages/adapters/broker/alpaca_paper_account_assets.py",
+        "packages/adapters/broker/alpaca_paper_account_runtime.py",
+        "packages/adapters/broker/alpaca_paper_asset_runtime.py",
+        "packages/adapters/broker/alpaca_paper_lookup_runtime.py",
+        "packages/adapters/broker/alpaca_paper_observations.py",
+        "packages/adapters/broker/alpaca_paper_order_snapshot_runtime.py",
+        "packages/adapters/broker/alpaca_paper_order_snapshots.py",
+        "packages/adapters/broker/alpaca_paper_position_snapshot_runtime.py",
+        "packages/adapters/broker/alpaca_paper_positions.py",
+        "packages/adapters/broker/alpaca_paper_preflight.py",
+        "packages/application/alpaca_paper_account_activity_supervisor.py",
+        "packages/application/alpaca_paper_order_view_runtime.py",
+        "packages/application/alpaca_paper_order_view_supervisor.py",
+        "packages/application/alpaca_paper_position_view_runtime.py",
+        "packages/application/alpaca_paper_position_view_supervisor.py",
+        "packages/application/paper_account_enrollment.py",
+        "packages/application/trading_trace.py",
+        "packages/backtest/golden_runner.py",
+        "packages/backtest/simulated_broker.py",
+        "packages/backtest/simulation_horizon.py",
+        "packages/datasets/replay_tape.py",
+        "packages/domain/account_coordinator.py",
+        "packages/domain/account_projection.py",
+        "packages/domain/accounting.py",
+        "packages/domain/advanced_risk_metrics.py",
+        "packages/domain/advanced_risk_sources.py",
+        "packages/domain/batch_risk.py",
+        "packages/domain/broker_inbox.py",
+        "packages/domain/broker_ingress.py",
+        "packages/domain/broker_reconciliation.py",
+        "packages/domain/corporate_action_ledger.py",
+        "packages/domain/execution.py",
+        "packages/domain/feature.py",
+        "packages/domain/feature_target.py",
+        "packages/domain/ledger_reducer.py",
+        "packages/domain/market_batch.py",
+        "packages/domain/order_reducer.py",
+        "packages/domain/portfolio.py",
+        "packages/domain/replay.py",
+        "packages/domain/reservation_lifecycle.py",
+        "packages/domain/risk.py",
+        "packages/domain/settlement_ledger.py",
+        "packages/domain/strategy.py",
+        "packages/domain/strategy_replay.py",
+        "packages/domain/strategy_supervision.py",
+        "packages/domain/submission_attempt.py",
+        "packages/domain/walking_thread.py",
+        "packages/execution/account_coordinator.py",
+        "packages/execution/ports.py",
+        "packages/persistence/account_coordinator.py",
+        "packages/persistence/advanced_batch_risk.py",
+        "packages/persistence/alpaca_paper_account_activity.py",
+        "packages/persistence/alpaca_paper_order_snapshot.py",
+        "packages/persistence/alpaca_paper_order_view_transition.py",
+        "packages/persistence/alpaca_paper_position_snapshot.py",
+        "packages/persistence/alpaca_paper_position_view_transition.py",
+        "packages/persistence/batch_risk.py",
+        "packages/persistence/reservation_lifecycle.py",
+        "packages/persistence/risk.py",
+        "packages/persistence/simulation_horizon.py",
+        "packages/persistence/submission_attempt.py",
+        "packages/persistence/walking_thread.py",
+        "packages/risk/batch_repository.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_persistence.py",
+        "tests/integration/test_phase2_batch_risk_persistence.py",
+        "tests/integration/test_phase2_postgres_exit.py",
+        "tests/integration/test_phase2_reservation_lifecycle_persistence.py",
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_phase2_submission_attempt_persistence.py",
+        "tests/integration/test_phase5_advanced_batch_risk.py",
+        "tests/integration/test_postgres_risk_concurrency.py",
+        "tests/unit/test_account_coordinator.py",
+        "tests/unit/test_account_projection.py",
+        "tests/unit/test_accounting.py",
+        "tests/unit/test_advanced_risk_metrics.py",
+        "tests/unit/test_advanced_risk_sources.py",
+        "tests/unit/test_alpaca_paper.py",
+        "tests/unit/test_alpaca_paper_preflight.py",
+        "tests/unit/test_batch_risk.py",
+        "tests/unit/test_canonical.py",
+        "tests/unit/test_corporate_action_ledger.py",
+        "tests/unit/test_feature_replay.py",
+        "tests/unit/test_feature_target_replay.py",
+        "tests/unit/test_golden_runner.py",
+        "tests/unit/test_ledger_reducer.py",
+        "tests/unit/test_no_exposure_smoke_strategy.py",
+        "tests/unit/test_portfolio_intent_batches.py",
+        "tests/unit/test_replay.py",
+        "tests/unit/test_replay_manifest.py",
+        "tests/unit/test_reservation_lifecycle.py",
+        "tests/unit/test_risk_and_execution.py",
+        "tests/unit/test_settlement_ledger.py",
+        "tests/unit/test_simulated_broker.py",
+        "tests/unit/test_simulation_horizon.py",
+        "tests/unit/test_strategy_replay.py",
+        "tests/unit/test_strategy_supervision.py",
+        "tests/unit/test_submission_attempt.py",
+        "tests/unit/test_supervised_strategy.py",
+        "tests/unit/test_walking_thread.py"
+      ]
+    },
+    {
+      "path": "packages/domain/order_reducer.py",
+      "sha256": "e4a2dbf4d57c98358403525dc23aaed556607a51e71e0b3af7249fcb848e777a",
+      "group": "accounting",
+      "disposition": "keep",
+      "owner": "W2-B",
+      "direct_source_callers": [
+        "packages/application/trading_trace.py",
+        "packages/backtest/golden_runner.py",
+        "packages/backtest/simulated_broker.py",
+        "packages/backtest/simulation_horizon.py",
+        "packages/domain/account_projection.py",
+        "packages/domain/ledger_reducer.py",
+        "packages/domain/reservation_lifecycle.py",
+        "packages/domain/settlement_ledger.py",
+        "packages/persistence/batch_risk.py",
+        "packages/persistence/database.py",
+        "packages/persistence/reservation_lifecycle.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_reservation_lifecycle_persistence.py",
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_phase5_trading_trace_composition.py",
+        "tests/unit/test_account_projection.py",
+        "tests/unit/test_alpaca_paper_observations.py",
+        "tests/unit/test_batch_risk.py",
+        "tests/unit/test_corporate_action_ledger.py",
+        "tests/unit/test_ledger_reducer.py",
+        "tests/unit/test_order_reducer.py",
+        "tests/unit/test_reservation_lifecycle.py",
+        "tests/unit/test_settlement_ledger.py",
+        "tests/unit/test_simulated_broker.py"
+      ]
+    },
+    {
+      "path": "packages/domain/portfolio.py",
+      "sha256": "73cdcdfb51d288a7a22f3bb1b9c5893520df4a2278b88a57d1ed13cb2104b637",
+      "group": "core-contract",
+      "disposition": "keep-versioned-extension",
+      "owner": "O shared; W2-A consumer",
+      "direct_source_callers": [
+        "packages/backtest/golden_runner.py",
+        "packages/domain/batch_risk.py",
+        "packages/domain/walking_thread.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_phase5_advanced_batch_risk.py",
+        "tests/integration/test_phase5_trading_trace_composition.py",
+        "tests/unit/test_accounting.py",
+        "tests/unit/test_advanced_risk_sources.py",
+        "tests/unit/test_batch_risk.py",
+        "tests/unit/test_feature_target_replay.py",
+        "tests/unit/test_portfolio_intent_batches.py",
+        "tests/unit/test_replay.py",
+        "tests/unit/test_strategy_replay.py"
+      ]
+    },
+    {
+      "path": "packages/domain/replay.py",
+      "sha256": "fffd78a2540d6e7a79f1c900a73d953a8584be4c89edd0b9390e500547c5fe14",
+      "group": "core-contract",
+      "disposition": "keep-versioned-extension",
+      "owner": "O shared; W2-A consumer",
+      "direct_source_callers": [
+        "packages/application/manifest_replay.py",
+        "packages/backtest/golden_runner.py",
+        "packages/backtest/simulation_horizon.py",
+        "packages/datasets/replay_tape.py",
+        "packages/domain/__init__.py",
+        "packages/domain/feature.py",
+        "packages/domain/feature_replay.py",
+        "packages/domain/replay_manifest.py",
+        "packages/domain/strategy_replay.py",
+        "packages/domain/walking_thread.py",
+        "packages/persistence/reservation_lifecycle.py",
+        "packages/persistence/simulation_horizon.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_manifest_replay_tape.py",
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_replay_run_persistence.py",
+        "tests/unit/test_feature_replay.py",
+        "tests/unit/test_feature_target_replay.py",
+        "tests/unit/test_no_exposure_smoke_strategy.py",
+        "tests/unit/test_replay.py",
+        "tests/unit/test_replay_manifest.py",
+        "tests/unit/test_simulated_broker.py",
+        "tests/unit/test_simulation_horizon.py",
+        "tests/unit/test_strategy_replay.py",
+        "tests/unit/test_strategy_supervision.py",
+        "tests/unit/test_supervised_strategy.py"
+      ]
+    },
+    {
+      "path": "packages/domain/replay_manifest.py",
+      "sha256": "43f583d51158fe03b54cc395c4836286e132d42a874e6715a5f099971e7fa0f2",
+      "group": "core-contract",
+      "disposition": "keep-versioned-extension",
+      "owner": "O shared; W2-A consumer",
+      "direct_source_callers": [
+        "packages/application/manifest_replay.py",
+        "packages/backtest/simulation_horizon.py",
+        "packages/datasets/feature_artifact.py",
+        "packages/domain/feature.py",
+        "packages/persistence/database.py",
+        "packages/persistence/replay.py",
+        "packages/persistence/reservation_lifecycle.py",
+        "packages/persistence/simulation_horizon.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_manifest_replay_tape.py",
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_postgres_risk_concurrency.py",
+        "tests/integration/test_replay_run_persistence.py",
+        "tests/unit/test_feature_replay.py",
+        "tests/unit/test_feature_target_replay.py",
+        "tests/unit/test_replay_manifest.py",
+        "tests/unit/test_simulation_horizon.py"
+      ]
+    },
+    {
+      "path": "packages/domain/settlement_ledger.py",
+      "sha256": "8e5d99094800821e2c77de2431693b3d1823e8b449397dd425fb540bf447fa9e",
+      "group": "accounting",
+      "disposition": "keep",
+      "owner": "W2-B",
+      "direct_source_callers": [
+        "packages/backtest/golden_runner.py",
+        "packages/domain/batch_risk.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_batch_risk.py",
+        "tests/unit/test_golden_runner.py",
+        "tests/unit/test_settlement_ledger.py"
+      ]
+    },
+    {
+      "path": "packages/domain/strategy.py",
+      "sha256": "4c1546040212a7f2d5a7356f47353b1022ebbe987effcb06634575dfebfed008",
+      "group": "core-contract",
+      "disposition": "keep-versioned-extension",
+      "owner": "O shared; W2-A consumer",
+      "direct_source_callers": [
+        "packages/backtest/golden_runner.py",
+        "packages/domain/strategy_replay.py",
+        "packages/domain/walking_thread.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_accounting.py",
+        "tests/unit/test_replay.py",
+        "tests/unit/test_strategy_replay.py"
+      ]
+    },
+    {
+      "path": "packages/domain/strategy_replay.py",
+      "sha256": "ebb155383fa11861dfb407811e74df8a37cca503b109ece2d361045aa3b4ed20",
+      "group": "core-contract",
+      "disposition": "keep-versioned-extension",
+      "owner": "O shared; W2-A consumer",
+      "direct_source_callers": [
+        "packages/domain/__init__.py",
+        "packages/domain/walking_thread.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_strategy_replay.py"
+      ]
+    },
+    {
+      "path": "packages/domain/strategy_state.py",
+      "sha256": "f1425388d470b86ac7455ffaa8752141beae6cedd2dd8efbcd26abb4a251cf5c",
+      "group": "core-contract",
+      "disposition": "keep-versioned-extension",
+      "owner": "O shared; W2-A consumer",
+      "direct_source_callers": [
+        "packages/backtest/golden_runner.py",
+        "packages/domain/__init__.py",
+        "packages/domain/strategy.py",
+        "packages/domain/strategy_replay.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_strategy_replay.py"
+      ]
+    },
+    {
+      "path": "packages/domain/walking_thread.py",
+      "sha256": "d0450b560f9c492ce8feb6ee7e1da88401fb3844ee1455ac9eaf44c33070ac7b",
+      "group": "legacy-fixture-economics",
+      "disposition": "retire-product-path-preserve-oracle",
+      "owner": "W2-O cutover; W3-A consumers",
+      "direct_source_callers": [
+        "apps/api/contracts.py",
+        "apps/api/main.py",
+        "apps/api/operations_dashboard_views.py",
+        "packages/domain/__init__.py",
+        "packages/persistence/walking_thread.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_persistence.py",
+        "tests/integration/test_phase4_broker_ingress_persistence.py",
+        "tests/integration/test_phase5_trading_trace_composition.py",
+        "tests/integration/test_postgres_risk_concurrency.py",
+        "tests/unit/test_account_coordinator.py",
+        "tests/unit/test_account_projection.py",
+        "tests/unit/test_accounting.py",
+        "tests/unit/test_alpaca_paper.py",
+        "tests/unit/test_alpaca_paper_observations.py",
+        "tests/unit/test_batch_risk.py",
+        "tests/unit/test_canonical.py",
+        "tests/unit/test_corporate_action_ledger.py",
+        "tests/unit/test_ledger_reducer.py",
+        "tests/unit/test_operations_dashboard_views.py",
+        "tests/unit/test_order_reducer.py",
+        "tests/unit/test_risk_and_execution.py",
+        "tests/unit/test_settlement_ledger.py",
+        "tests/unit/test_simulated_broker.py",
+        "tests/unit/test_simulation_horizon.py",
+        "tests/unit/test_submission_attempt.py",
+        "tests/unit/test_walking_thread.py"
+      ]
+    },
+    {
+      "path": "packages/market_data/__init__.py",
+      "sha256": "932950bdfe2cc5dc67b8445c194ba48b5b4f303d2e3c348bf50c58bdf7cc8fe3",
+      "group": "data-port",
+      "disposition": "refactor-versioned",
+      "owner": "W1-A; shared contracts O",
+      "direct_source_callers": [
+        "packages/adapters/market_data/recorded.py",
+        "packages/adapters/market_data/reference_admission.py",
+        "packages/adapters/market_data/reference_fixture.py",
+        "packages/adapters/market_data/sharadar_sfp.py",
+        "packages/adapters/market_data/tiingo_eod.py",
+        "packages/adapters/market_data/tiingo_eod_calendar.py",
+        "packages/adapters/market_data/tiingo_eod_identity_lifecycle.py",
+        "packages/adapters/market_data/tiingo_eod_snapshot.py",
+        "packages/application/captured_tape_research_validity.py",
+        "packages/application/market_data_admission.py",
+        "packages/application/market_data_ingestion.py",
+        "packages/datasets/reader.py",
+        "packages/datasets/replay_tape.py",
+        "packages/persistence/replay.py",
+        "scripts/evaluate_market_data_admission.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_captured_tape_research_validity_gate.py",
+        "tests/integration/test_manifest_replay_tape.py",
+        "tests/integration/test_market_data_ingestion.py",
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_postgres_risk_concurrency.py",
+        "tests/integration/test_production_market_data_evidence_gate.py",
+        "tests/integration/test_replay_run_persistence.py",
+        "tests/unit/test_captured_tape_research_validity.py",
+        "tests/unit/test_historical_market_data_source.py",
+        "tests/unit/test_market_data_admission_io.py",
+        "tests/unit/test_market_data_models.py",
+        "tests/unit/test_production_market_data_admission.py",
+        "tests/unit/test_sharadar_sfp.py",
+        "tests/unit/test_tiingo_eod.py",
+        "tests/unit/test_tiingo_eod_calendar.py",
+        "tests/unit/test_tiingo_eod_capture.py",
+        "tests/unit/test_tiingo_eod_identity_lifecycle.py",
+        "tests/unit/test_tiingo_eod_market_semantics.py",
+        "tests/unit/test_tiingo_eod_operational_cli.py",
+        "tests/unit/test_tiingo_eod_snapshot.py"
+      ]
+    },
+    {
+      "path": "packages/market_data/admission.py",
+      "sha256": "e8ffd8c6ca5af515b8b0685c5f89b57e24200439dc1383bd75dbc15ff94c7b6c",
+      "group": "data-port",
+      "disposition": "refactor-versioned",
+      "owner": "W1-A; shared contracts O",
+      "direct_source_callers": [
+        "packages/market_data/__init__.py",
+        "packages/market_data/source.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_market_data_admission.py"
+      ]
+    },
+    {
+      "path": "packages/market_data/calendar.py",
+      "sha256": "6e8b1b1cc8a8f3207a87abf2bed7328f77b109af67ac8e1a868bb51cff869e32",
+      "group": "data-port",
+      "disposition": "refactor-versioned",
+      "owner": "W1-A; shared contracts O",
+      "direct_source_callers": [
+        "packages/backtest/golden_runner.py",
+        "packages/backtest/simulated_broker.py",
+        "packages/market_data/__init__.py",
+        "packages/market_data/normalization.py",
+        "packages/market_data/quality.py",
+        "packages/market_data/source.py",
+        "packages/persistence/simulation_horizon.py"
+      ],
+      "direct_test_importers": [
+        "tests/unit/test_simulated_broker.py",
+        "tests/unit/test_simulation_horizon.py"
+      ]
+    },
+    {
+      "path": "packages/market_data/models.py",
+      "sha256": "2dd183c5d997be95262b9819a310f607cdc33b3c0a23f97aa13a3af7b09852fe",
+      "group": "data-port",
+      "disposition": "refactor-versioned",
+      "owner": "W1-A; shared contracts O",
+      "direct_source_callers": [
+        "packages/adapters/market_data/recorded.py",
+        "packages/adapters/market_data/sharadar_sfp.py",
+        "packages/adapters/market_data/sharadar_sfp_capture.py",
+        "packages/adapters/market_data/tiingo_eod.py",
+        "packages/adapters/market_data/tiingo_eod_calendar.py",
+        "packages/adapters/market_data/tiingo_eod_capture.py",
+        "packages/adapters/market_data/tiingo_eod_identity_lifecycle.py",
+        "packages/adapters/market_data/tiingo_eod_lineage.py",
+        "packages/adapters/market_data/tiingo_eod_market_semantics.py",
+        "packages/adapters/market_data/tiingo_eod_retained_fields.py",
+        "packages/adapters/market_data/tiingo_eod_snapshot.py",
+        "packages/market_data/__init__.py",
+        "packages/market_data/admission.py",
+        "packages/market_data/calendar.py",
+        "packages/market_data/normalization.py",
+        "packages/market_data/quality.py",
+        "packages/market_data/security.py",
+        "packages/market_data/source.py",
+        "packages/market_data/temporal.py"
+      ],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/market_data/normalization.py",
+      "sha256": "6f77e98e8224d3991bd4d1a7ac8acdb889531636667abba40e163864625147ac",
+      "group": "data-port",
+      "disposition": "refactor-versioned",
+      "owner": "W1-A; shared contracts O",
+      "direct_source_callers": [
+        "packages/market_data/__init__.py"
+      ],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/market_data/quality.py",
+      "sha256": "c45e76b44c9a12fcd2a6a370d10c62400f2179a7946e85fe8680e915367359cf",
+      "group": "data-port",
+      "disposition": "refactor-versioned",
+      "owner": "W1-A; shared contracts O",
+      "direct_source_callers": [
+        "packages/market_data/__init__.py",
+        "packages/market_data/normalization.py"
+      ],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/market_data/security.py",
+      "sha256": "4950f5617470d4b5d8e497f82a0d9ad1e3058089c94c5eea7234321bd1eab02a",
+      "group": "data-port",
+      "disposition": "refactor-versioned",
+      "owner": "W1-A; shared contracts O",
+      "direct_source_callers": [
+        "packages/market_data/__init__.py",
+        "packages/market_data/normalization.py",
+        "packages/market_data/source.py"
+      ],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/market_data/source.py",
+      "sha256": "db1c8382f3a10030006c4f99a0297d436fb7bea5326510f9bba6cf034837b68e",
+      "group": "data-port",
+      "disposition": "refactor-versioned",
+      "owner": "W1-A; shared contracts O",
+      "direct_source_callers": [
+        "packages/market_data/__init__.py"
+      ],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/market_data/temporal.py",
+      "sha256": "c34fc92499cb35f55a6a2b86893b70bf038dbf20484997b664a6e48244c97a9d",
+      "group": "data-port",
+      "disposition": "refactor-versioned",
+      "owner": "W1-A; shared contracts O",
+      "direct_source_callers": [
+        "packages/adapters/market_data/tiingo_eod_identity_lifecycle.py",
+        "packages/market_data/__init__.py",
+        "packages/market_data/quality.py",
+        "packages/market_data/security.py"
+      ],
+      "direct_test_importers": []
+    },
+    {
+      "path": "packages/persistence/backtest_workflow.py",
+      "sha256": "1a160f89ab47b41e8a7d18770c2a7826570b33934635790c23e03384188720a0",
+      "group": "data-research-persistence",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W1-A data; W2-B ledger; W3-A jobs; O schema",
+      "direct_source_callers": [
+        "apps/api/backtest_views.py",
+        "apps/api/main.py",
+        "apps/worker/main.py",
+        "packages/application/backtest_worker.py",
+        "packages/persistence/database.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_experiment_governance_persistence.py",
+        "tests/integration/test_phase2_backtest_api.py",
+        "tests/integration/test_phase2_backtest_worker.py",
+        "tests/integration/test_phase2_backtest_workflow.py",
+        "tests/integration/test_phase2_postgres_exit.py",
+        "tests/integration/test_phase3_experiment_api.py"
+      ]
+    },
+    {
+      "path": "packages/persistence/experiment_governance.py",
+      "sha256": "33b8e666770c3106b661b6acfec3d6b65a16e1964d62ec997158c0c8faa74b5f",
+      "group": "data-research-persistence",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W1-A data; W2-B ledger; W3-A jobs; O schema",
+      "direct_source_callers": [
+        "apps/api/experiment_views.py",
+        "apps/api/fixture_segment_views.py",
+        "apps/api/main.py",
+        "packages/persistence/database.py",
+        "packages/persistence/fixture_segment_worker.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_experiment_governance_persistence.py",
+        "tests/integration/test_fixture_segment_worker_persistence.py",
+        "tests/integration/test_phase3_experiment_api.py",
+        "tests/integration/test_phase3_fixture_segment_api.py"
+      ]
+    },
+    {
+      "path": "packages/persistence/fixture_segment_worker.py",
+      "sha256": "4967df0d71ad93bee1259c1b004415a4319d7468c57f488662fd6b9412f4e911",
+      "group": "data-research-persistence",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W1-A data; W2-B ledger; W3-A jobs; O schema",
+      "direct_source_callers": [
+        "apps/api/fixture_segment_views.py",
+        "apps/api/main.py",
+        "packages/application/fixture_segment_worker.py",
+        "packages/persistence/database.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_fixture_segment_worker_persistence.py",
+        "tests/integration/test_phase3_fixture_segment_api.py"
+      ]
+    },
+    {
+      "path": "packages/persistence/immutable.py",
+      "sha256": "44b6259040b299f5d14f9736f67782ab80d4f9f129adfe6fe70bbc4cfba38990",
+      "group": "data-research-persistence",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W1-A data; W2-B ledger; W3-A jobs; O schema",
+      "direct_source_callers": [
+        "apps/api/main.py",
+        "packages/application/market_data_ingestion.py",
+        "packages/persistence/account_coordinator.py",
+        "packages/persistence/advanced_batch_risk.py",
+        "packages/persistence/advanced_risk.py",
+        "packages/persistence/alpaca_paper_account_activity.py",
+        "packages/persistence/alpaca_paper_account_activity_comparison.py",
+        "packages/persistence/alpaca_paper_account_binding.py",
+        "packages/persistence/alpaca_paper_asset_binding.py",
+        "packages/persistence/alpaca_paper_lookup_observation.py",
+        "packages/persistence/alpaca_paper_order_snapshot.py",
+        "packages/persistence/alpaca_paper_order_view_comparison.py",
+        "packages/persistence/alpaca_paper_order_view_transition.py",
+        "packages/persistence/alpaca_paper_position_snapshot.py",
+        "packages/persistence/alpaca_paper_position_view_comparison.py",
+        "packages/persistence/alpaca_paper_position_view_transition.py",
+        "packages/persistence/backtest_workflow.py",
+        "packages/persistence/batch_risk.py",
+        "packages/persistence/broker_inbox.py",
+        "packages/persistence/broker_ingress.py",
+        "packages/persistence/broker_reconciliation.py",
+        "packages/persistence/broker_request_budget.py",
+        "packages/persistence/critical_alert.py",
+        "packages/persistence/critical_alert_failure_control.py",
+        "packages/persistence/database.py",
+        "packages/persistence/etrade_oauth_coordinator.py",
+        "packages/persistence/experiment_governance.py",
+        "packages/persistence/fixture_segment_worker.py",
+        "packages/persistence/local_operations.py",
+        "packages/persistence/market_data.py",
+        "packages/persistence/operational_control.py",
+        "packages/persistence/phase2_ledger.py",
+        "packages/persistence/replay.py",
+        "packages/persistence/reservation_lifecycle.py",
+        "packages/persistence/risk.py",
+        "packages/persistence/simulation_horizon.py",
+        "packages/persistence/strategy_invocation_lifecycle.py",
+        "packages/persistence/strategy_supervision.py",
+        "packages/persistence/submission_attempt.py",
+        "packages/persistence/trusted_time.py",
+        "packages/persistence/trusted_time_head_anchor.py",
+        "packages/persistence/unknown_submission_recovery.py",
+        "packages/persistence/walking_thread.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_manifest_replay_tape.py",
+        "tests/integration/test_market_data_ingestion.py",
+        "tests/integration/test_persistence.py",
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_phase4_alpaca_paper_account_activity_comparison_persistence.py",
+        "tests/integration/test_phase4_alpaca_paper_order_view_comparison_persistence.py",
+        "tests/integration/test_phase4_broker_request_budget_persistence.py",
+        "tests/integration/test_phase5_advanced_batch_risk.py",
+        "tests/integration/test_replay_run_persistence.py"
+      ]
+    },
+    {
+      "path": "packages/persistence/market_data.py",
+      "sha256": "a90b17e737a07e8a18ff72589afda687119e4fc7e1d478c57763feffd432341c",
+      "group": "data-research-persistence",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W1-A data; W2-B ledger; W3-A jobs; O schema",
+      "direct_source_callers": [
+        "apps/api/data_views.py",
+        "apps/api/main.py",
+        "packages/application/market_data_ingestion.py",
+        "packages/datasets/reader.py",
+        "packages/datasets/replay_tape.py",
+        "packages/persistence/replay.py",
+        "packages/persistence/simulation_horizon.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_manifest_replay_tape.py",
+        "tests/integration/test_market_data_ingestion.py",
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_postgres_risk_concurrency.py",
+        "tests/integration/test_replay_run_persistence.py"
+      ]
+    },
+    {
+      "path": "packages/persistence/phase2_ledger.py",
+      "sha256": "bcffc5db91dff12a8aab81915cac168f741217c17dd1e7d17fb710c5652cdd52",
+      "group": "data-research-persistence",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W1-A data; W2-B ledger; W3-A jobs; O schema",
+      "direct_source_callers": [
+        "packages/persistence/database.py",
+        "packages/persistence/reservation_lifecycle.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_reservation_lifecycle_persistence.py"
+      ]
+    },
+    {
+      "path": "packages/persistence/replay.py",
+      "sha256": "2b72cec287343f50b6658d12270dc7f580711ab956255a474cc01ee8c57e703c",
+      "group": "data-research-persistence",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W1-A data; W2-B ledger; W3-A jobs; O schema",
+      "direct_source_callers": [
+        "packages/persistence/database.py",
+        "packages/persistence/simulation_horizon.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_simulation_horizon_persistence.py",
+        "tests/integration/test_postgres_risk_concurrency.py",
+        "tests/integration/test_replay_run_persistence.py"
+      ]
+    },
+    {
+      "path": "packages/persistence/simulation_horizon.py",
+      "sha256": "a83f6c2fa86352275f69007df6a0b742e7dede54b77712f08533f4ea98460ad4",
+      "group": "data-research-persistence",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W1-A data; W2-B ledger; W3-A jobs; O schema",
+      "direct_source_callers": [
+        "packages/persistence/database.py",
+        "packages/persistence/reservation_lifecycle.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_phase2_simulation_horizon_persistence.py"
+      ]
+    },
+    {
+      "path": "packages/persistence/walking_thread.py",
+      "sha256": "529ae2383cdf0c318c4a9051b59794d30393a8c350b9eae028defd2d03466135",
+      "group": "data-research-persistence",
+      "disposition": "keep-refactor-versioned",
+      "owner": "W1-A data; W2-B ledger; W3-A jobs; O schema",
+      "direct_source_callers": [
+        "apps/api/main.py"
+      ],
+      "direct_test_importers": [
+        "tests/integration/test_persistence.py"
+      ]
+    }
+  ]
+}

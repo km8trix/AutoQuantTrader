@@ -1,0 +1,28 @@
+# AutoQuantTrader continuation instructions
+
+Planning baseline reviewed 2026-09-08 against code at `107fa79`.
+
+## Canonical documents and location
+
+- The active repository is `/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader`.
+- Read `docs/IMPLEMENTATION_PLAN.md` for current work and accepted evidence; read `docs/ARCHITECTURE.md` for the target design.
+- Those are the only current plan and architecture. `docs/reviews/2026-09-08-design-review.md` explains the consolidation and static code findings. Historical ADRs/runbooks are scoped implementation records, not competing roadmaps.
+- Do not resume the former Phase 2A/2B checkpoint or infer accepted work from an old phase/wave title. Inspect current revision, worktree status and the plan's status table before acting.
+
+## Planning handoff
+
+The 2026-09-08 consolidation and completed Wave 0 change documents only. Wave 0 contracts, migration ownership, independent arithmetic and offline baseline are recorded in `docs/contracts/personal-v1/README.md` and `docs/reviews/2026-09-08-wave0/baseline.md`. Wave 1 has not started and must not begin automatically; no provider/runtime/trading permission has been granted. Existing code remains simulation/fixture and preflight work with incomplete general research and broker execution paths, as documented in the review. Do not treat document targets as implemented behavior.
+
+For implementation, use one orchestration task and at most three concurrent additional tasks globally, including nested subtasks; two workers is preferred when boundaries overlap. Freeze contracts and exclusive ownership first, serialize shared schemas/migrations/composition roots, and pass the integrated wave gate before dependent work. Preserve sound ledger, risk and recovery invariants during simplification.
+
+## Working constraints
+
+- Preserve unrelated uncommitted changes and historical evidence. Do not merge or delete old worktrees automatically.
+- Keep secrets and private data out of logs, artifacts and Git. Do not read `.env` or private runtime artifacts simply to infer readiness.
+- Use repository-owned fixtures for offline tests. Provider requests, new subscriptions, infrastructure activation and live actions require appropriate owner authorization; planning is not authorization for those effects.
+- Work on an isolated feature branch for changes. Run checks proportionate to the change, including financial/transactional tests when those boundaries change. Documentation-only planning needs document/link/diff checks, not service startup or the entire trading suite.
+- Commit, open a PR, publish or merge only when the owner requests that workflow. Never promote trading from CI, a process restart, an old approval or a test pass.
+
+## Wave 0 continuation
+
+Read the canonical plan section 15 before the next authorized wave. Code remains `107fa791`; preserve all uncommitted consolidated/Wave 0 docs. Baseline: 741 Python + 100 browser/bundle tests passed, 7 PostgreSQL skipped, 6 inherited architecture document-literal violations; other selected lint/type/API/Compose checks passed. Native old Wave 8 remains unfinished/superseded, preserved in its original worktree and documented in the file-backed closeout. Do not resume it or silently promote its ADRs/approvals.

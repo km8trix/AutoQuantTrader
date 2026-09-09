@@ -1,0 +1,57 @@
+from pathlib import Path
+import json,hashlib,subprocess,os,tempfile,concurrent.futures,shutil
+B=Path('/private/tmp/aqt-wave1-rp_bjl5c');S=B/'integration-stage';R=Path('/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader');EP=Path('docs/reviews/2026-09-08-wave1');E=S/EP
+ENV={'PATH':'/usr/bin:/bin','TMPDIR':str(B/'tmp'),'GIT_OPTIONAL_LOCKS':'0'}
+def digest(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+def git(path,*args):return subprocess.check_output(['git','-C',str(path),*args],env=ENV,stderr=subprocess.PIPE)
+def put(path,data):
+ path.parent.mkdir(parents=True,exist_ok=True)
+ fd,temp=tempfile.mkstemp(prefix='.aqt-wave1-',dir=path.parent)
+ try:
+  with os.fdopen(fd,'wb') as f:f.write(data)
+  os.chmod(temp,0o644);os.replace(temp,path)
+ finally:
+  if os.path.exists(temp):os.unlink(temp)
+initial=json.loads((B/'initial-preservation.json').read_text())
+assert git(R,'rev-parse','HEAD').decode().strip()==initial['head']
+assert git(R,'branch','--show-current').decode().strip()==initial['branch']
+assert git(R,'status','--porcelain=v1','-z','--untracked-files=all')==(B/'initial-status.bin').read_bytes(),'active checkout changed since dispatch'
+for name,expected in initial['initial_files'].items():assert digest(R/name)==expected,name
+assert digest(R/'docs/reviews/2026-09-08-wave0/final-artifact-manifest.json')==initial['wave0_manifest_sha256']
+old=json.loads((R/'docs/reviews/2026-09-08-wave0/final-preservation.json').read_text())['worktrees']
+def inspect(row):
+ p=Path(row['path']);head=git(p,'rev-parse','HEAD').decode().strip();status=hashlib.sha256(git(p,'status','--porcelain=v1','-z','--untracked-files=all')).hexdigest()
+ assert head==row['head'],str(p)+' head changed'
+ if p!=R:assert status==row['status_sha256'],str(p)+' status changed'
+ return {'path':str(p),'head':head,'head_unchanged':True,'status_sha256':status,'status_unchanged':p!=R}
+with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:worktrees=list(pool.map(inspect,old))
+assert len(worktrees)==39
+files=json.loads((B/'implementation-files.json').read_text())
+manifest=json.loads((B/'install-manifest.json').read_text())
+for name in files:
+ source=S/name;target=R/name;assert not source.is_symlink();assert not target.is_symlink()
+ expected=manifest['files'][name]['before_sha256']
+ assert (digest(target) if target.exists() else None)==expected,name+' changed'
+ manifest['files'][name]['after_sha256']=digest(source)
+# Retained before-documents must match the actual pre-install text.
+for name in ['AGENTS.md','docs/ARCHITECTURE.md','docs/IMPLEMENTATION_PLAN.md','README.md','docs/runbooks/README.md']:
+ assert digest(E/'prior-documents'/(name+'.txt'))==digest(R/name)
+(B/'install-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+(E/'implementation-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+shutil.copy2(Path(__file__),E/'finalize_wave1.py.txt')
+evidence_files=[p.relative_to(S).as_posix() for p in E.rglob('*') if p.is_file()]
+for name in evidence_files:assert not (R/name).exists(),name+' unexpectedly already exists'
+for name in files+sorted(evidence_files):put(R/name,(S/name).read_bytes())
+for name,record in manifest['files'].items():assert digest(R/name)==record['after_sha256'],name
+changed=[]
+for name,expected in initial['initial_files'].items():
+ if digest(R/name)!=expected:changed.append(name)
+assert set(changed)=={'AGENTS.md','docs/ARCHITECTURE.md','docs/IMPLEMENTATION_PLAN.md'}
+assert digest(R/'docs/reviews/2026-09-08-wave0/final-artifact-manifest.json')==initial['wave0_manifest_sha256']
+listed=git(R,'worktree','list','--porcelain').decode();assert sum(line.startswith('worktree ') for line in listed.splitlines())==42
+record={'status':'PASS','original_worktrees':39,'original_heads_unchanged':39,'original_nonactive_statuses_unchanged':38,'new_isolated_wave1_worktrees':3,'total_worktrees':42,'base_head':initial['head'],'branch':initial['branch'],'implementation_paths':len(files),'frozen_wave0_contract_and_evidence_preserved':True,'intentionally_updated_wave0_bound_documents':changed,'prior_documents_retained':True,'wave0_manifest_sha256':initial['wave0_manifest_sha256'],'worktrees':worktrees,'note':'Active status intentionally changes with uncommitted W1 integration. Worktree status hashes are read with --porcelain=v1 -z --untracked-files=all. No git operations/commits/merges or old worktree writes were performed.'}
+for root in (S,R):put(root/EP/'final-preservation.json',(json.dumps(record,indent=2)+'\n').encode())
+all_paths=sorted(set(files)|{p.relative_to(R).as_posix() for p in (R/EP).rglob('*') if p.is_file()})
+final={'base_head':initial['head'],'branch':initial['branch'],'status':'W1_A_C_passed_B_external_OAuth_blocker','files':{name:digest(R/name) for name in all_paths},'self_excluded':True}
+for root in (S,R):put(root/EP/'final-artifact-manifest.json',(json.dumps(final,indent=2)+'\n').encode())
+print(json.dumps({'implementation_paths':len(files),'bound_artifact_paths':len(all_paths),'final_manifest_sha256':digest(R/EP/'final-artifact-manifest.json'),'worktrees':42,'old_heads_preserved':39,'old_nonactive_statuses_preserved':38},indent=2))

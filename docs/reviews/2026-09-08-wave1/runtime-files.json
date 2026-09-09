@@ -1,0 +1,6 @@
+{
+  "packages/adapters/standard_clock.py": "68d409273ce069e12e94b3f4241a0ce305c35db717bf9b7414e5186ad77d2ab0",
+  "packages/application/personal_runtime.py": "6be9469e3eb7e5fe5b123dcd82e76ee09f17dddc23917b5277de577a83b9b8bb",
+  "tests/unit/test_standard_clock.py": "41e29df5c01b8f79a08ac83898025d94f07b434dc412a44643abc5a3fb7787dc",
+  "tests/unit/test_personal_runtime.py": "9d400c7b502f401834bccc8a817a1ba04718d0dc50bdcfccd8f7755e5bfba27a"
+}

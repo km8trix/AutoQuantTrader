@@ -1,0 +1,60 @@
+{
+  "admission_effect": "none",
+  "endpoint_authority": "https://api.tiingo.com",
+  "provider": "tiingo",
+  "receipts": [
+    {
+      "byte_count": 1305,
+      "observed_available_at": "2026-09-09T02:10:17.224311+00:00",
+      "received_at": "2026-09-09T02:10:17.224107+00:00",
+      "requested_at": "2026-09-09T02:10:17.107375+00:00",
+      "row_count": 5,
+      "schema_sha256": "d1154dece587151bdd71823b92239d111db4e1ec7d25dceb3eb381a9d551402f",
+      "sha256": "8811e3b3d84207c2e91ad21283e68a7325b01ce6f13f1aadbb9327486e79a2ea",
+      "symbol": "DIA"
+    },
+    {
+      "byte_count": 1310,
+      "observed_available_at": "2026-09-09T02:10:17.319508+00:00",
+      "received_at": "2026-09-09T02:10:17.319337+00:00",
+      "requested_at": "2026-09-09T02:10:17.224873+00:00",
+      "row_count": 5,
+      "schema_sha256": "d1154dece587151bdd71823b92239d111db4e1ec7d25dceb3eb381a9d551402f",
+      "sha256": "c86b2dbb0b921595ab262ff5a25408cca4650db1d8e1bfacaf321c09d33c0d9d",
+      "symbol": "IWM"
+    },
+    {
+      "byte_count": 1318,
+      "observed_available_at": "2026-09-09T02:10:17.416641+00:00",
+      "received_at": "2026-09-09T02:10:17.416455+00:00",
+      "requested_at": "2026-09-09T02:10:17.320050+00:00",
+      "row_count": 5,
+      "schema_sha256": "d1154dece587151bdd71823b92239d111db4e1ec7d25dceb3eb381a9d551402f",
+      "sha256": "4f0f9ee28d91d280e5d2f3e89639f3f939002bcd64f882b29a9c97e7f720e817",
+      "symbol": "QQQ"
+    },
+    {
+      "byte_count": 1317,
+      "observed_available_at": "2026-09-09T02:10:17.515454+00:00",
+      "received_at": "2026-09-09T02:10:17.515310+00:00",
+      "requested_at": "2026-09-09T02:10:17.417278+00:00",
+      "row_count": 5,
+      "schema_sha256": "d1154dece587151bdd71823b92239d111db4e1ec7d25dceb3eb381a9d551402f",
+      "sha256": "433f143efd705e8583e141317106294813ef996f34c8bec3c2fd4159a7c70ed5",
+      "symbol": "SPY"
+    }
+  ],
+  "schema_version": "personal-tiingo-capture-v1",
+  "scope": {
+    "end_date": "2025-02-07",
+    "start_date": "2025-02-03",
+    "symbols": [
+      "DIA",
+      "IWM",
+      "QQQ",
+      "SPY"
+    ]
+  },
+  "trading_effect": "none",
+  "vendor_published_at": null
+}

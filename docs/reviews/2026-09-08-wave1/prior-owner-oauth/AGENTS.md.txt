@@ -1,0 +1,32 @@
+# AutoQuantTrader continuation instructions
+
+Planning baseline reviewed 2026-09-08 against code at `107fa79`.
+
+## Canonical documents and location
+
+- The active repository is `/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader`.
+- Read `docs/IMPLEMENTATION_PLAN.md` for current work and accepted evidence; read `docs/ARCHITECTURE.md` for the target design.
+- Those are the only current plan and architecture. `docs/reviews/2026-09-08-design-review.md` explains the consolidation and static code findings. Historical ADRs/runbooks are scoped implementation records, not competing roadmaps.
+- Do not resume the former Phase 2A/2B checkpoint or infer accepted work from an old phase/wave title. Inspect current revision, worktree status and the plan's status table before acting.
+
+## Current handoff
+
+The owner authorized Wave 1 after Wave 0 completion. Wave 1 A (real bounded Tiingo import/reload/replay) and C (standard halted runtime/build) passed. B is implemented against fixtures but externally blocked: both E*TRADE consumer pairs exist, but access tokens and actual lifecycle metadata are absent; interactive owner OAuth consent/acquisition is still required. The CLI does not acquire or renew tokens. Overall Wave 1 is not complete; do not automatically start Wave 2. Read canonical plan section 16, the W1 evidence and runbooks before continuing.
+
+Code base remains 107fa791 on codex/personal-use-planning-20260908 with uncommitted W0/W1 changes; no commit/push/PR/merge. The only active orchestrator is this task; all three W1 workers are completed in isolated worktrees. No stale native task/worktree is to be resumed. Root owns shared schemas/migrations/composition/build/CI; at most three additional workers globally, no nested workers without coordination.
+
+The owner authorized bounded Tiingo reads via TIINGO_TOKEN and E*TRADE sandbox/production read-only qualification through explicitly named .env references. They expressly said not to read/display the keys themselves. Helpers may load the named values internally; never cat/source/log credentials or expose values to the model. Do not infer access/session/account/trading authority from credential presence. Private real data remains outside Git.
+
+## Working constraints
+
+- Preserve unrelated uncommitted changes and historical evidence. Do not merge or delete old worktrees automatically.
+- Keep secrets and private data out of logs, artifacts and Git. Do not read `.env` or private runtime artifacts simply to infer readiness.
+- Use repository-owned fixtures for offline tests. Provider requests, new subscriptions, infrastructure activation and live actions require appropriate owner authorization; planning is not authorization for those effects.
+- Work on an isolated feature branch for changes. Run checks proportionate to the change, including financial/transactional tests when those boundaries change. Documentation-only planning needs document/link/diff checks, not service startup or the entire trading suite.
+- Commit, open a PR, publish or merge only when the owner requests that workflow. Never promote trading from CI, a process restart, an old approval or a test pass.
+
+## Accepted evidence and limits
+
+W1 integrated gate: 1,157 Python tests passed, 7 PostgreSQL skipped; Ruff format/lint, mypy 289 files, API contracts, standard architecture and Compose model passed. Standard wheel builds were byte-identical and installed CLI start/duplicate/SIGTERM/restart behavior passed outside checkout with no runtime dependencies. A real 20-bar Tiingo sample from 2025-02-03 through 2025-02-07 was imported, archived and replayed with explicit current-vintage/20:00 ET assumptions; no PIT or full-study-period claim. Both E*TRADE reference inspections returned missing-access-token blockers; zero E*TRADE provider requests. W0 frozen contracts/old worktree history remain unchanged.
+
+No financial schemas/migrations, deployed resources, native lifecycle, remote CI or trading changed. Browser code unchanged; W0’s 100 browser tests are historical evidence. The previous .venv launcher remains preserved/broken; use the runbook’s separate .local/personal-venv or the exact temporary verification environment in evidence. Parent-provided broker access requires an interactive OAuth step before actual account reads; acquisition helper remains unimplemented.

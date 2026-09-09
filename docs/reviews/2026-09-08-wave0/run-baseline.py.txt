@@ -1,0 +1,53 @@
+from pathlib import Path
+import json, os, subprocess, sys, time
+
+E = Path(__file__).resolve().parent
+R = Path('/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader')
+P = str(E/'venv/bin/python')
+ENV = {'PATH': str(E/'venv/bin')+':/Users/spencer.karrat/.bun/bin:/usr/local/bin:/usr/bin:/bin', 'PYTHONPATH': str(R), 'PYTHONDONTWRITEBYTECODE': '1', 'PYTEST_DISABLE_PLUGIN_AUTOLOAD': '1', 'TMPDIR': str(E/'tmp'), 'XDG_CACHE_HOME': str(E/'cache'), 'RUFF_CACHE_DIR': str(E/'ruff-cache'), 'MYPY_CACHE_DIR': str(E/'mypy-cache'), 'AQT_ENVIRONMENT':'local', 'TZ': 'UTC', 'LANG':'en_US.UTF-8'}
+(E/'tmp').mkdir(exist_ok=True)
+
+def run(name, args, cwd=R, timeout=300):
+    start=time.monotonic()
+    with (E/'logs'/f'{name}.log').open('w') as log:
+        try:
+            result=subprocess.run(args, cwd=cwd, env=ENV, stdout=log, stderr=subprocess.STDOUT, timeout=timeout)
+            status=result.returncode
+        except subprocess.TimeoutExpired:
+            status='timeout'
+    record={'name':name,'command':args,'cwd':str(cwd),'exit_code':status,'seconds':round(time.monotonic()-start,3),'log':f'logs/{name}.log'}
+    (E/f'{name}.json').write_text(json.dumps(record,indent=2)+'\n')
+    lines=(E/'logs'/f'{name}.log').read_text(errors='replace').splitlines()
+    print(json.dumps(record),flush=True)
+    print('\n'.join(lines[-12:]),flush=True)
+
+def pytest(name, names, area='unit'):
+    paths=[f'tests/{area}/test_{n}.py' for n in names]
+    absent=[p for p in paths if not (R/p).exists()]
+    if absent: raise RuntimeError(absent)
+    run(name,[P,'-B','-m','pytest','-q','-p','no:cacheprovider','--basetemp',str(E/f'pytest-{name}'),'--junitxml',str(E/f'{name}.xml'),*paths],timeout=360)
+
+group=sys.argv[1]
+if group=='quality':
+    run('architecture',[P,'-I','-B','scripts/check_architecture.py'])
+    run('ruff-format',[P,'-B','-m','ruff','format','--check','--no-cache','.'])
+    run('ruff-lint',[P,'-B','-m','ruff','check','--no-cache','.'])
+    run('mypy',[P,'-B','-m','mypy','apps','packages'],timeout=360)
+    run('api-contracts',[P,'-B','scripts/generate_api_contracts.py','--check'])
+    run('compose-model',['/usr/local/bin/docker','compose','--env-file','/dev/null','-f','infra/compose/compose.yaml','config','--quiet'])
+    run('compose-native',[P,'-I','-B','-X','pycache_prefix=/dev/null','scripts/verify_trusted_time_compose.py'])
+elif group=='tests':
+    pytest('core-financial-temporal','canonical accounting ledger_reducer account_projection corporate_action_ledger settlement_ledger order_reducer replay strategy_replay portfolio_intent_batches simulated_broker simulation_horizon backtest_report golden_runner feature_replay feature_target_replay'.split())
+    pytest('risk-broker-clock','batch_risk risk_and_execution submission_attempt unknown_submission_recovery account_coordinator trusted_time etrade etrade_accounts etrade_oauth etrade_oauth_token_runtime'.split())
+    pytest('sqlite-api-integration','phase2_submission_attempt_persistence phase2_batch_risk_persistence phase2_backtest_workflow api'.split(),'integration')
+    pytest('postgres-concurrency',['postgres_risk_concurrency'],'integration')
+elif group=='frontend':
+    W=E/'web';N='/Users/spencer.karrat/.bun/bin/node';M=R/'apps/web/node_modules'
+    run('browser-lint',[N,str(M/'eslint/bin/eslint.js'),'.','--max-warnings=0'],W)
+    run('browser-types-app',[N,str(M/'typescript/bin/tsc'),'-p','tsconfig.app.json','--pretty','false','--incremental','--tsBuildInfoFile',str(E/'ts-app.tsbuildinfo')],W)
+    run('browser-types-node',[N,str(M/'typescript/bin/tsc'),'-p','tsconfig.node.json','--pretty','false','--incremental','--tsBuildInfoFile',str(E/'ts-node.tsbuildinfo')],W)
+    run('browser-components',[N,str(M/'vitest/vitest.mjs'),'run','--maxWorkers','2'],W)
+    run('browser-bundle-tests',[N,'--test','scripts/verify-production-bundle.node.mjs'],W)
+    run('browser-build',[N,str(M/'vite/bin/vite.js'),'build'],W)
+    run('browser-bundle-admission',[N,'scripts/verify-production-bundle.mjs'],W)
+else: raise SystemExit('unknown group')

@@ -1,0 +1,22 @@
+from pathlib import Path
+import json,subprocess,time,sys
+BASE=Path('/private/tmp/aqt-wave1-rp_bjl5c');ROOT=BASE/'integration-stage';PY='/private/tmp/aqt-wave0-f152ahl7/venv/bin/python'
+ENV={'PATH':'/private/tmp/aqt-wave0-f152ahl7/venv/bin:/usr/bin:/bin','PYTHONPATH':str(ROOT),'PYTHONDONTWRITEBYTECODE':'1','PYTEST_DISABLE_PLUGIN_AUTOLOAD':'1','TMPDIR':str(BASE/'tmp'),'RUFF_CACHE_DIR':str(BASE/'ruff-cache'),'MYPY_CACHE_DIR':str(BASE/'mypy-cache'),'TZ':'UTC','AQT_ENVIRONMENT':'local'}
+(BASE/'tmp').mkdir(exist_ok=True)
+def run(name,args,timeout=360,cwd=ROOT):
+ start=time.monotonic()
+ output=BASE/'check-output'/f'{name}.txt'
+ with output.open('w') as log:
+  try: status=subprocess.run(args,cwd=cwd,env=ENV,stdout=log,stderr=subprocess.STDOUT,timeout=timeout).returncode
+  except subprocess.TimeoutExpired: status='timeout'
+ result={'name':name,'command':args,'cwd':str(cwd),'exit_code':status,'seconds':round(time.monotonic()-start,3),'output':'check-output/'+output.name}
+ (BASE/f'{name}.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result),flush=True);print('\n'.join(output.read_text().splitlines()[-12:]),flush=True)
+if sys.argv[1]=='quality':
+ run('architecture',[PY,'-I','-B','scripts/check_personal_architecture.py'])
+ run('ruff-format',[PY,'-B','-m','ruff','format','--check','--no-cache','.'])
+ run('ruff-lint',[PY,'-B','-m','ruff','check','--no-cache','.'])
+ run('mypy',[PY,'-B','-m','mypy','apps','packages'])
+ run('api-contracts',[PY,'-B','scripts/generate_api_contracts.py','--check'])
+ run('compose-model',['/usr/local/bin/docker','compose','--env-file','/dev/null','-f','infra/compose/compose.yaml','config','--quiet'])
+elif sys.argv[1]=='tests': run('personal-suite',[PY,'-B','scripts/run_personal_tests.py'],timeout=360)
+else: raise SystemExit('invalid check group')

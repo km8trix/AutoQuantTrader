@@ -1,0 +1,51 @@
+{
+  "status": "alternate_sandbox_account_identity_mismatch",
+  "environment": "sandbox",
+  "selected_account_fingerprint": "5fd727ee9e9bb5af6fd303ccb7f36626fa7cf39e4346df4735d05c3f4284acd7",
+  "selection_explicitly_requested_by_owner": true,
+  "dedicated_scope": "Prior dedicated-account instruction retained for the user-requested replacement sandbox selection.",
+  "started_at": "2026-09-09T12:19:48.570977+00:00",
+  "finished_at": "2026-09-09T12:19:49.627837+00:00",
+  "history_bounds": {
+    "start_date": "2026-09-02",
+    "end_date": "2026-09-09"
+  },
+  "exit_code": 2,
+  "traversal_complete": false,
+  "blockers": [
+    "ACTIVITY_EXECUTION_CORRECTION_IDENTITY_UNQUALIFIED",
+    "CASH_FIELD_SEMANTICS_UNQUALIFIED",
+    "HISTORY_RETENTION_UNQUALIFIED",
+    "PROVIDER_QUOTAS_UNQUALIFIED",
+    "QUOTE_ENTITLEMENT_AND_EXECUTION_FRESHNESS_UNQUALIFIED",
+    "RESPONSE_ACCOUNT_IDENTITY_MISMATCH",
+    "SANDBOX_STORED_EXAMPLES_NOT_ACCOUNT_ECONOMICS",
+    "SINGLE_OBSERVATION_ROUND_NOT_RECONCILIATION"
+  ],
+  "balance_identity_matches_selected_account": false,
+  "balance_body_byte_identical_to_previous_sandbox_capture": true,
+  "new_account_gets": 2,
+  "cumulative_account_gets": 8,
+  "prior_owner_oauth_token_requests": 4,
+  "production_requests_this_attempt": 0,
+  "trading_authorized": false,
+  "pages": [
+    {
+      "operation": "accounts",
+      "status": 200,
+      "received_at": "2026-09-09T12:19:49.322394+00:00",
+      "raw_body_sha256": "180776fadaefb1c9f43b5d443d43486a2edd8d7d390ac0c33af6e9563070a7e9",
+      "private_journal_file_sha256": "97af5d86908578114e546448b1c42d6779181af977e56dd448d6e3f12a2db87f"
+    },
+    {
+      "operation": "balances",
+      "status": 200,
+      "received_at": "2026-09-09T12:19:49.542925+00:00",
+      "raw_body_sha256": "53bfb72f1812d9474919b1406b3ae588db57ceebcb965ebe42d8d488af5cbb68",
+      "private_journal_file_sha256": "5011eb69c908d5572962b4afc3df2c62c0341e513574dcc362901daadeac14b5"
+    }
+  ],
+  "production_followup": "Owner verifying production account privileges with ETRADE; no account settings changed.",
+  "official_contact_url": "https://us.etrade.com/contact-us",
+  "publication_boundary": "Metadata-only public copy; private journal/session paths and masked per-account listings omitted. Original evidence remains private."
+}

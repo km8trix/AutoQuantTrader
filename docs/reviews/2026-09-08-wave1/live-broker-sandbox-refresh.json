@@ -1,0 +1,54 @@
+{
+  "environment": "sandbox",
+  "requested_method": "GET",
+  "requested_url": "https://apisb.etrade.com/v1/accounts/list",
+  "production_requests_this_attempt": 0,
+  "trading_authorized": false,
+  "prior_account_gets": 8,
+  "prior_owner_oauth_token_requests": 4,
+  "production_owner_confirmation": {
+    "margin_privileges_confirmed": true,
+    "cash_only_scope_eligible": false,
+    "basis": "Owner statement in this task on 2026-09-09; previous balance accountMode=MARGIN."
+  },
+  "renewal": {
+    "started_at": "2026-09-09T21:41:25.771556+00:00",
+    "finished_at": "2026-09-09T21:41:26.547201+00:00",
+    "exit_code": 0,
+    "renewal_request_started_at": "2026-09-09T21:41:26.163059+00:00",
+    "renewal_response_received_at": "2026-09-09T21:41:26.465163+00:00",
+    "expires_at": "2026-09-10T04:00:00+00:00",
+    "provider_token_requests": 1,
+    "token_rotated": false,
+    "lifecycle_basis": "original_issuance_and_local_renewal_request_start",
+    "expiry_basis": "min_original_and_original_issue_next_eastern_midnight"
+  },
+  "discovery": {
+    "started_at": "2026-09-09T21:41:26.547638+00:00",
+    "finished_at": "2026-09-09T21:41:27.213877+00:00",
+    "exit_code": 0
+  },
+  "status": "sandbox_renewal_and_fresh_account_list_succeeded",
+  "new_account_gets": 1,
+  "cumulative_account_gets": 9,
+  "new_oauth_renewal_requests": 1,
+  "cumulative_oauth_token_requests": 5,
+  "page": {
+    "operation": "accounts",
+    "status": 200,
+    "received_at": "2026-09-09T21:41:27.181079+00:00",
+    "raw_body_sha256": "180776fadaefb1c9f43b5d443d43486a2edd8d7d390ac0c33af6e9563070a7e9",
+    "private_journal_file_sha256": "fe705722679da9e49d45a1ae3ec0f295163ae56ff81cd96006880769160c5a69"
+  },
+  "full_account_capture_completed": false,
+  "actual_execution_files": {
+    "packages/adapters/broker/etrade_owner_oauth.py": "91984614fc3473cbe8d8f9f6fb1b39197c8ccaba2065ad41ad86a553ea80136d",
+    "packages/adapters/broker/etrade_owner_renewal.py": "f89495857eb2455756cbe0efad080bc7d9689b82c5aa4c81ddc671bacbac67ef",
+    "scripts/renew_etrade_session.py": "cf7ab195e9899a06546eb0621060de110357966989f813c0a535d066d64ea551",
+    "tests/unit/test_etrade_owner_oauth.py": "91ea664627a31ea105edeeb7ff0249345550ffe4981c730f40eb88727c659f7e",
+    "tests/unit/test_etrade_owner_renewal.py": "8ccf6ec03edb5ba3b62b4764a5a1d5102ad2b247d8ac91327cb351103ffec6b7",
+    "scripts/run_personal_tests.py": "8d58d0665e8d10f35bc819e46c61ea63c03aaa0fdfe7ded921eee35935ec78a2"
+  },
+  "post_request_format_only_adjustment": "Root formatted the renewal module using active project settings after the successful call; AST equality with the executed module was verified.",
+  "publication_boundary": "Metadata-only public copy; private journal/session paths and masked per-account listings omitted. Original evidence remains private."
+}

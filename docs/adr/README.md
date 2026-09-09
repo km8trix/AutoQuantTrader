@@ -1,8 +1,11 @@
 # Architecture decision records
 
+> Current target precedence is recorded in [ADR 0127](0127-personal-use-architecture-consolidation.md). [Architecture](../ARCHITECTURE.md) and [implementation plan](../IMPLEMENTATION_PLAN.md) are the only current design/roadmap. Earlier ADRs retain historical contract/evidence semantics; superseded future requirements are migrated through the new waves, not activated by this notice.
+
 Architecture decisions are immutable once accepted. A materially different
 choice is recorded in a new ADR that supersedes the earlier decision.
 
+- [ADR 0127: personal-use architecture and roadmap consolidation](0127-personal-use-architecture-consolidation.md)
 - [ADR 0001: v1 scope and canonical decision path](0001-v1-scope-and-canonical-path.md)
 - [ADR 0002: point-in-time data and storage](0002-point-in-time-data-and-storage.md)
 - [ADR 0003: ledger accounting and mandatory risk](0003-ledger-accounting-and-mandatory-risk.md)

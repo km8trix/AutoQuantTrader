@@ -1,0 +1,689 @@
+{
+  "status": "PASS",
+  "scope": "independent contract arithmetic; no product imports or runtime behavior assertion",
+  "oracle_sha256": "c60d3146d3cfae0c7a0e936043374d63509796418a5d0d56a808fabcacca34ba",
+  "numeric_cases": 7,
+  "numeric_equalities": 113,
+  "causal_rejection_flag_checked": 1,
+  "undefined_rejection_clauses_manually_reviewed": 6,
+  "checks": [
+    {
+      "case": "E1",
+      "field": "cash_trade_date",
+      "actual": "599",
+      "expected": "599"
+    },
+    {
+      "case": "E1",
+      "field": "cash_settled",
+      "actual": "1000",
+      "expected": "1000"
+    },
+    {
+      "case": "E1",
+      "field": "payable",
+      "actual": "401",
+      "expected": "401"
+    },
+    {
+      "case": "E1",
+      "field": "cash_available_before_open_order_reserves",
+      "actual": "599",
+      "expected": "599"
+    },
+    {
+      "case": "E1",
+      "field": "quantity",
+      "actual": "4",
+      "expected": "4"
+    },
+    {
+      "case": "E1",
+      "field": "basis",
+      "actual": "400",
+      "expected": "400"
+    },
+    {
+      "case": "E1",
+      "field": "nav",
+      "actual": "999",
+      "expected": "999"
+    },
+    {
+      "case": "E1",
+      "field": "fees",
+      "actual": "1",
+      "expected": "1"
+    },
+    {
+      "case": "E1",
+      "field": "net_pnl",
+      "actual": "-1",
+      "expected": "-1"
+    },
+    {
+      "case": "E1",
+      "field": "cash_settled",
+      "actual": "599",
+      "expected": "599"
+    },
+    {
+      "case": "E1",
+      "field": "payable",
+      "actual": "0",
+      "expected": "0"
+    },
+    {
+      "case": "E1",
+      "field": "nav_at_100",
+      "actual": "999",
+      "expected": "999"
+    },
+    {
+      "case": "E1",
+      "field": "cash_trade_date",
+      "actual": "818",
+      "expected": "818"
+    },
+    {
+      "case": "E1",
+      "field": "cash_settled",
+      "actual": "599",
+      "expected": "599"
+    },
+    {
+      "case": "E1",
+      "field": "receivable",
+      "actual": "219",
+      "expected": "219"
+    },
+    {
+      "case": "E1",
+      "field": "cash_available_before_open_order_reserves",
+      "actual": "599",
+      "expected": "599"
+    },
+    {
+      "case": "E1",
+      "field": "quantity",
+      "actual": "2",
+      "expected": "2"
+    },
+    {
+      "case": "E1",
+      "field": "basis",
+      "actual": "200",
+      "expected": "200"
+    },
+    {
+      "case": "E1",
+      "field": "nav",
+      "actual": "1038",
+      "expected": "1038"
+    },
+    {
+      "case": "E1",
+      "field": "gross_realized_pnl",
+      "actual": "20",
+      "expected": "20"
+    },
+    {
+      "case": "E1",
+      "field": "fees",
+      "actual": "2",
+      "expected": "2"
+    },
+    {
+      "case": "E1",
+      "field": "net_realized_pnl",
+      "actual": "18",
+      "expected": "18"
+    },
+    {
+      "case": "E1",
+      "field": "unrealized_pnl",
+      "actual": "20",
+      "expected": "20"
+    },
+    {
+      "case": "E1",
+      "field": "net_pnl",
+      "actual": "38",
+      "expected": "38"
+    },
+    {
+      "case": "E1",
+      "field": "cash_settled",
+      "actual": "818",
+      "expected": "818"
+    },
+    {
+      "case": "E1",
+      "field": "receivable",
+      "actual": "0",
+      "expected": "0"
+    },
+    {
+      "case": "E1",
+      "field": "cash_available_before_open_order_reserves",
+      "actual": "818",
+      "expected": "818"
+    },
+    {
+      "case": "E1",
+      "field": "nav_at_110",
+      "actual": "1038",
+      "expected": "1038"
+    },
+    {
+      "case": "E2",
+      "field": "cash",
+      "actual": "600",
+      "expected": "600"
+    },
+    {
+      "case": "E2",
+      "field": "market_value",
+      "actual": "392",
+      "expected": "392"
+    },
+    {
+      "case": "E2",
+      "field": "dividend_receivable",
+      "actual": "8",
+      "expected": "8"
+    },
+    {
+      "case": "E2",
+      "field": "nav",
+      "actual": "1000",
+      "expected": "1000"
+    },
+    {
+      "case": "E2",
+      "field": "dividend_income",
+      "actual": "8",
+      "expected": "8"
+    },
+    {
+      "case": "E2",
+      "field": "unrealized_pnl",
+      "actual": "-8",
+      "expected": "-8"
+    },
+    {
+      "case": "E2",
+      "field": "net_pnl",
+      "actual": "0",
+      "expected": "0"
+    },
+    {
+      "case": "E2",
+      "field": "cash",
+      "actual": "608",
+      "expected": "608"
+    },
+    {
+      "case": "E2",
+      "field": "market_value",
+      "actual": "392",
+      "expected": "392"
+    },
+    {
+      "case": "E2",
+      "field": "dividend_receivable",
+      "actual": "0",
+      "expected": "0"
+    },
+    {
+      "case": "E2",
+      "field": "nav",
+      "actual": "1000",
+      "expected": "1000"
+    },
+    {
+      "case": "E2",
+      "field": "dividend_income",
+      "actual": "8",
+      "expected": "8"
+    },
+    {
+      "case": "E2",
+      "field": "net_pnl",
+      "actual": "0",
+      "expected": "0"
+    },
+    {
+      "case": "E3",
+      "field": "quantity",
+      "actual": "8",
+      "expected": "8"
+    },
+    {
+      "case": "E3",
+      "field": "basis",
+      "actual": "400",
+      "expected": "400"
+    },
+    {
+      "case": "E3",
+      "field": "per_share_basis",
+      "actual": "50",
+      "expected": "50"
+    },
+    {
+      "case": "E3",
+      "field": "nav",
+      "actual": "1000",
+      "expected": "1000"
+    },
+    {
+      "case": "E3",
+      "field": "cash_trade_date",
+      "actual": "764",
+      "expected": "764"
+    },
+    {
+      "case": "E3",
+      "field": "quantity",
+      "actual": "5",
+      "expected": "5"
+    },
+    {
+      "case": "E3",
+      "field": "basis",
+      "actual": "250",
+      "expected": "250"
+    },
+    {
+      "case": "E3",
+      "field": "market_value",
+      "actual": "275",
+      "expected": "275"
+    },
+    {
+      "case": "E3",
+      "field": "nav",
+      "actual": "1039",
+      "expected": "1039"
+    },
+    {
+      "case": "E3",
+      "field": "gross_realized_pnl",
+      "actual": "15",
+      "expected": "15"
+    },
+    {
+      "case": "E3",
+      "field": "fees",
+      "actual": "1",
+      "expected": "1"
+    },
+    {
+      "case": "E3",
+      "field": "net_realized_pnl",
+      "actual": "14",
+      "expected": "14"
+    },
+    {
+      "case": "E3",
+      "field": "unrealized_pnl",
+      "actual": "25",
+      "expected": "25"
+    },
+    {
+      "case": "E3",
+      "field": "net_pnl",
+      "actual": "39",
+      "expected": "39"
+    },
+    {
+      "case": "E4",
+      "field": "cash",
+      "actual": "700",
+      "expected": "700"
+    },
+    {
+      "case": "E4",
+      "field": "pnl",
+      "actual": "260.0",
+      "expected": "260"
+    },
+    {
+      "case": "E4",
+      "field": "first_subperiod_return_fraction",
+      "actual": "1/10",
+      "expected": "1/10"
+    },
+    {
+      "case": "E4",
+      "field": "second_subperiod_return_fraction",
+      "actual": "1/10",
+      "expected": "1/10"
+    },
+    {
+      "case": "E4",
+      "field": "twr_fraction",
+      "actual": "21/100",
+      "expected": "21/100"
+    },
+    {
+      "case": "E4",
+      "field": "market_value",
+      "actual": "1060.0",
+      "expected": "1060"
+    },
+    {
+      "case": "E4",
+      "field": "net_contributions_after_opening",
+      "actual": "500",
+      "expected": "500"
+    },
+    {
+      "case": "E4",
+      "field": "ending_nav",
+      "actual": "1760.0",
+      "expected": "1760"
+    },
+    {
+      "case": "E4",
+      "field": "naive_period_end_flow_adjustment_fraction",
+      "actual": "13/50",
+      "expected": "13/50"
+    },
+    {
+      "case": "E4",
+      "field": "units_purchased_fraction",
+      "actual": "50/11",
+      "expected": "50/11"
+    },
+    {
+      "case": "E4",
+      "field": "total_units_fraction",
+      "actual": "160/11",
+      "expected": "160/11"
+    },
+    {
+      "case": "E4",
+      "field": "terminal_value",
+      "actual": "1760",
+      "expected": "1760"
+    },
+    {
+      "case": "E4",
+      "field": "twr_fraction",
+      "actual": "21/100",
+      "expected": "21/100"
+    },
+    {
+      "case": "E5",
+      "field": "cash",
+      "actual": "0",
+      "expected": "0"
+    },
+    {
+      "case": "E5",
+      "field": "pnl",
+      "actual": "190.00",
+      "expected": "190"
+    },
+    {
+      "case": "E5",
+      "field": "first_subperiod_return_fraction",
+      "actual": "1/10",
+      "expected": "1/10"
+    },
+    {
+      "case": "E5",
+      "field": "second_subperiod_return_fraction",
+      "actual": "1/10",
+      "expected": "1/10"
+    },
+    {
+      "case": "E5",
+      "field": "twr_fraction",
+      "actual": "21/100",
+      "expected": "21/100"
+    },
+    {
+      "case": "E5",
+      "field": "net_flow_after_opening",
+      "actual": "-200",
+      "expected": "-200"
+    },
+    {
+      "case": "E6",
+      "field": "cash",
+      "actual": "599",
+      "expected": "599"
+    },
+    {
+      "case": "E6",
+      "field": "quantity",
+      "actual": "4",
+      "expected": "4"
+    },
+    {
+      "case": "E6",
+      "field": "basis",
+      "actual": "400",
+      "expected": "400"
+    },
+    {
+      "case": "E6",
+      "field": "fees",
+      "actual": "1",
+      "expected": "1"
+    },
+    {
+      "case": "E6",
+      "field": "cash",
+      "actual": "594",
+      "expected": "594"
+    },
+    {
+      "case": "E6",
+      "field": "quantity",
+      "actual": "4",
+      "expected": "4"
+    },
+    {
+      "case": "E6",
+      "field": "basis",
+      "actual": "404",
+      "expected": "404"
+    },
+    {
+      "case": "E6",
+      "field": "fees",
+      "actual": "2",
+      "expected": "2"
+    },
+    {
+      "case": "E6",
+      "field": "nav",
+      "actual": "998",
+      "expected": "998"
+    },
+    {
+      "case": "E6",
+      "field": "correction_cash_delta",
+      "actual": "-5",
+      "expected": "-5"
+    },
+    {
+      "case": "E6",
+      "field": "correction_security_value_delta",
+      "actual": "4",
+      "expected": "4"
+    },
+    {
+      "case": "E6",
+      "field": "correction_fee_delta",
+      "actual": "1",
+      "expected": "1"
+    },
+    {
+      "case": "E6",
+      "field": "cash",
+      "actual": "594",
+      "expected": "594"
+    },
+    {
+      "case": "E6",
+      "field": "quantity",
+      "actual": "4",
+      "expected": "4"
+    },
+    {
+      "case": "E6",
+      "field": "basis",
+      "actual": "404",
+      "expected": "404"
+    },
+    {
+      "case": "E6",
+      "field": "fees",
+      "actual": "2",
+      "expected": "2"
+    },
+    {
+      "case": "E6",
+      "field": "new_economic_postings",
+      "actual": "0",
+      "expected": "0"
+    },
+    {
+      "case": "E6",
+      "field": "cash",
+      "actual": "1000",
+      "expected": "1000"
+    },
+    {
+      "case": "E6",
+      "field": "quantity",
+      "actual": "0",
+      "expected": "0"
+    },
+    {
+      "case": "E6",
+      "field": "basis",
+      "actual": "0",
+      "expected": "0"
+    },
+    {
+      "case": "E6",
+      "field": "fees",
+      "actual": "0",
+      "expected": "0"
+    },
+    {
+      "case": "E6",
+      "field": "nav",
+      "actual": "1000",
+      "expected": "1000"
+    },
+    {
+      "case": "E7",
+      "field": "cash",
+      "actual": "799",
+      "expected": "799"
+    },
+    {
+      "case": "E7",
+      "field": "filled_quantity",
+      "actual": "2",
+      "expected": "2"
+    },
+    {
+      "case": "E7",
+      "field": "pending_quantity",
+      "actual": "3",
+      "expected": "3"
+    },
+    {
+      "case": "E7",
+      "field": "effective_target_quantity",
+      "actual": "5",
+      "expected": "5"
+    },
+    {
+      "case": "E7",
+      "field": "new_intent_quantity",
+      "actual": "0",
+      "expected": "0"
+    },
+    {
+      "case": "E7",
+      "field": "pending_quantity",
+      "actual": "3",
+      "expected": "3"
+    },
+    {
+      "case": "E7",
+      "field": "capacity_released",
+      "actual": "0",
+      "expected": "0"
+    },
+    {
+      "case": "E7",
+      "field": "cash",
+      "actual": "696",
+      "expected": "696"
+    },
+    {
+      "case": "E7",
+      "field": "filled_quantity",
+      "actual": "3",
+      "expected": "3"
+    },
+    {
+      "case": "E7",
+      "field": "pending_quantity",
+      "actual": "2",
+      "expected": "2"
+    },
+    {
+      "case": "E7",
+      "field": "basis",
+      "actual": "302",
+      "expected": "302"
+    },
+    {
+      "case": "E7",
+      "field": "fees",
+      "actual": "2",
+      "expected": "2"
+    },
+    {
+      "case": "E7",
+      "field": "nav",
+      "actual": "1002",
+      "expected": "1002"
+    },
+    {
+      "case": "E7",
+      "field": "filled_quantity",
+      "actual": "3",
+      "expected": "3"
+    },
+    {
+      "case": "E7",
+      "field": "pending_quantity",
+      "actual": "0",
+      "expected": "0"
+    },
+    {
+      "case": "E7",
+      "field": "nav_at_102",
+      "actual": "1002",
+      "expected": "1002"
+    },
+    {
+      "case": "E7",
+      "field": "new_intent_quantity",
+      "actual": "2",
+      "expected": "2"
+    }
+  ]
+}

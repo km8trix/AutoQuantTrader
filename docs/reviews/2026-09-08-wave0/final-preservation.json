@@ -1,0 +1,289 @@
+{
+  "status": "PASS",
+  "worktree_count": 39,
+  "nonactive_worktree_statuses_unchanged": 38,
+  "all_heads_unchanged": true,
+  "initial_document_changes_only": {
+    "docs/ARCHITECTURE.md": "0dfd036f7cf1c5e9c3270d4d28fe00eca9a79116e20347749a0553fd850f0a4e",
+    "docs/IMPLEMENTATION_PLAN.md": "e1b548c7aa650b13b0be6f2e93fc546421320b0ca63fb09d5e216bc1db48f358",
+    "docs/OPERATIONAL_BUDGETS.md": "0578388515dbbbe2feb4f543786876cead850e63c334fb59b6a77df3b74df3e5",
+    "AGENTS.md": "9b3dc758ada812c5e55119db15afcbece929ea40b0669663eaba0ffda0771681"
+  },
+  "code_diff_paths": [],
+  "worktrees": [
+    {
+      "path": "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader",
+      "head": "107fa791bb52e9fa42cbce65992ea1ce9168834e",
+      "status_sha256": "73fbb38181647c044b4b49289395af807883ae5ec0d10f78f4b6e6cebe8c84b0",
+      "head_unchanged": true,
+      "status_unchanged": false
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/repo",
+      "head": "8685b56230ceb3b0a1f41df57121785ced7c368b",
+      "status_sha256": "10b240cfe90c36a1b256f318778e8ee2b75ac54e7ab323f46f3d6b102e716c6c",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/captured-tape-validity",
+      "head": "2c2bcfbcb0d1b655882badd3e01926f658caa2ad",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/ci-repair-wave",
+      "head": "86a34031e79caf049ac80372762f3a1297b2961c",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/etrade-accounts-offline-decoder",
+      "head": "95dd91d71f4ae09af00b3b843a9b39de07adff42",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/etrade-foundation",
+      "head": "090d8f89b6e2ea79ce80b3308836b8e5395112ce",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/etrade-oauth-contract",
+      "head": "5b361ccde90660180cbdf6fc32afcf4dd5aa30cb",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/integration-checkpoint",
+      "head": "6b33cefee3b86ddcb54cea0b63a8a7087f5f2ce5",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/phase3f-fixture-segment-worker",
+      "head": "5ffcb38018db0067e7de856ed5a230a151523ec3",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/production-data-admission",
+      "head": "18efeec12aa13b8af080c9f594a33b53424d2cc6",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/trusted-time-adr0116",
+      "head": "5caa3c182cd1cdc6d9e42670ccfc7b0671df2f95",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/trusted-time-runtime",
+      "head": "8b69fbb1be32dda731c8969d6c94016e97ebc5e2",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave3-integration-checkpoint",
+      "head": "8d716b5f9b1be328cbeb7e5f8e5d6a571ea2bf44",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave4-ci-foundation",
+      "head": "c84a0432da6def78f4dea6448e86712f3800b3bb",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave4-integration-checkpoint",
+      "head": "eec010fe63bb91c98f015f5d5f1654bec64259cd",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave4-phase3g-provenance-views",
+      "head": "f050146ca53c981bdd396baecf22af09aa231c85",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave4-phase4am-oauth-coordinator",
+      "head": "3335d481e6993554ad5695cb66f6a321857b8533",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave4-trusted-time-adr0121",
+      "head": "93dc99315057bd1e0ddfedd3dd0bcc36f5752e45",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave5-integration",
+      "head": "56167801080eceb9ff6de2cf1739641730bb0224",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave5-phase3h-economic-segment",
+      "head": "6fdaab3a5353d81adfca431d66bf1768f2d15279",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave5-phase4an-oauth-runtime",
+      "head": "ad7f6d38077cca80c8e646dbcf61a415cc218971",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave5-trusted-time-v2-m1",
+      "head": "fdb393d24bab733b767713cced9de7d7e7731ab9",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave5-trusted-time-v2-m1-fix",
+      "head": "f16fd7a0570fdc798c10d7edbdcaf24bc3e3f43d",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-docker-evidence",
+      "head": "eb5f1fde1c7d7e292545c65c9673f4083772f5d8",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-ed25519-runtime-seal",
+      "head": "e8b228b7b846c4f137c6365ec45c476a0d8b9f6b",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-integration",
+      "head": "c64cbb2da0e600a3899387d3d58e6a7d8762b00c",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-lifecycle-contracts",
+      "head": "bc19da940078eeacbf6d6678067e337e22020317",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-lifecycle-persistence",
+      "head": "f10930d46be73e16e10c1ab53adac2404934cbeb",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-lifecycle-semantics",
+      "head": "08dcd9099dfe303f3b4b9fada4b80884506b9ec1",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-outcome-recovery",
+      "head": "ed0bfeca1362de32ab706d6ca348eac5439afe8f",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-reauth-bindings",
+      "head": "13c1e422f053320a4aa167ea4537af9ea4550295",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-runtime-seal-preseed",
+      "head": "c43e5d2aa1200f7e1ffc389908a89c1f1c683a18",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-authority",
+      "head": "c24be1d1725a2235425728515f3f11ef92597644",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-candidate-packaging",
+      "head": "dae57c6d573b1dc8cc12fc2e9f91851afeff42b9",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-endpoint-resources",
+      "head": "2aa2f3e7f250f94a598c51aed2d0c8d1dead343d",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-guard-signer",
+      "head": "da84b9cb24db51152cb326e112e95abf38dbd778",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-integration",
+      "head": "7d8c80e6a028a6a77a63892035462f11dbc811d5",
+      "status_sha256": "fe54644686fba64cedd2b227ec7056824d30b6452d40834e3f9b60c5a2c18a23",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-profiles-provisioning",
+      "head": "3b2bbf018e775e46d7b4c7859d9a0870827467b1",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-signer-custody",
+      "head": "02ed3f1efb06e372dd2ffa89144ac3503aeba3ec",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head_unchanged": true,
+      "status_unchanged": true
+    }
+  ],
+  "note": "All 38 non-active worktree fingerprints were rechecked after initial contract installation; active fingerprint includes final receipt/output filenames. Only documentation receipt contents were subsequently finalized."
+}

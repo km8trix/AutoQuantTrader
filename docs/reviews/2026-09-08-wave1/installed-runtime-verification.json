@@ -1,0 +1,13 @@
+{
+  "installed_outside_checkout": true,
+  "environment": "empty except PATH and bytecode setting",
+  "installed_without_distribution_dependencies": true,
+  "started": "HALTED",
+  "duplicate_exit": 2,
+  "stop_exit": 0,
+  "stop_seconds": 0.0242,
+  "stop_exposure": "unknown",
+  "restart": "HALTED then STOPPED",
+  "live_enabled": false,
+  "order_authority": false
+}

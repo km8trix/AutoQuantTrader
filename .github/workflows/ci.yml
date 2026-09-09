@@ -1,10 +1,10 @@
-name: CI
+name: Personal profile CI
 
 on:
   pull_request:
   push:
-    branches:
-      - main
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,64 +14,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  architecture:
-    name: Project-independent architecture bootstrap
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      PYTHONDONTWRITEBYTECODE: "1"
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Install trusted uv and Python
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          python-version: "3.12.13"
-          version: "0.11.28"
-
-      - name: Enforce architecture boundaries before project code
-        run: >-
-          uv run
-          --isolated
-          --no-project
-          --no-config
-          --offline
-          --no-python-downloads
-          --python 3.12
-          python
-          -I
-          -B
-          scripts/check_architecture.py
-
   backend:
-    name: Backend quality and tests (shard ${{ matrix.shard_number }} of 4)
+    name: Standard Python foundations and retained financial regressions
     runs-on: ubuntu-latest
-    timeout-minutes: 150
-    needs:
-      - architecture
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - shard_index: 0
-            shard_number: 1
-          - shard_index: 1
-            shard_number: 2
-          - shard_index: 2
-            shard_number: 3
-          - shard_index: 3
-            shard_number: 4
+    timeout-minutes: 30
     env:
       PYTHONDONTWRITEBYTECODE: "1"
       SOURCE_DATE_EPOCH: "0"
-      UV_BUILD_CONSTRAINT: build_support/native_build_constraints.txt
       AQT_ENVIRONMENT: local
-      AQT_LOG_LEVEL: INFO
-      AQT_DATABASE_URL: postgresql+psycopg://autoquant:autoquant@localhost:5432/autoquant_test
-      AQT_LOCAL_AUTH_ENABLED: "true"
-      AQT_CORS_ORIGINS: http://localhost:5173
-      AQT_SESSION_SECRET: local-ci-only-session-secret-change-me
     services:
       postgres:
         image: postgres:16-alpine
@@ -79,679 +29,68 @@ jobs:
           POSTGRES_USER: autoquant
           POSTGRES_PASSWORD: autoquant
           POSTGRES_DB: autoquant_test
-        ports:
-          - 5432:5432
+        ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U autoquant -d autoquant_test"
-          --health-interval 2s
-          --health-timeout 3s
-          --health-retries 20
+          --health-interval 2s --health-timeout 3s --health-retries 20
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Install uv and Python
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           python-version: "3.12.13"
           version: "0.11.28"
           enable-cache: true
           cache-dependency-glob: uv.lock
-
-      - name: Install locked binary dependencies without project code
+      - name: Check architecture before importing project code
+        run: uv run --isolated --no-project --no-config --offline --python 3.12 python -I -B scripts/check_personal_architecture.py
+      - name: Install locked dependencies without executing project build code
         run: uv sync --all-groups --locked --no-install-project --no-build
-
-      - name: Recheck architecture boundaries after dependency sync
-        run: >-
-          uv run
-          --isolated
-          --no-project
-          --no-config
-          --offline
-          --no-python-downloads
-          --python 3.12
-          python
-          -I
-          -B
-          scripts/check_architecture.py
-
-      - name: Build and install the hash-constrained project wheel
+      - name: Formatting, lint, types, and API contracts
         run: |
-          native_dist_root="${RUNNER_TEMP}/autoquant-backend-native"
-          uv build --sdist --clear --no-sources \
-            --build-constraints build_support/native_build_constraints.txt \
-            --require-hashes \
-            --out-dir "${native_dist_root}/sdist" \
-            .
-          uv build --wheel --clear --no-sources \
-            --build-constraints build_support/native_build_constraints.txt \
-            --require-hashes \
-            --out-dir "${native_dist_root}/wheel" \
-            "${native_dist_root}/sdist/autoquant_trader-0.1.0.tar.gz"
-          wheel_paths=("${native_dist_root}"/wheel/*.whl)
-          test "${#wheel_paths[@]}" -eq 1
-          uv pip install --python .venv/bin/python --no-deps "${wheel_paths[0]}"
-
-      - name: Recheck architecture boundaries after constrained project build
-        run: >-
-          uv run
-          --isolated
-          --no-project
-          --no-config
-          --offline
-          --no-python-downloads
-          --python 3.12
-          python
-          -I
-          -B
-          scripts/check_architecture.py
-
-      - name: Build the exact source-checkout test launcher
-        run: .venv/bin/python -I -B build_support/build_native_test_launcher.py
-
-      - name: Check formatting
-        run: .venv/bin/ruff format --check .
-
-      - name: Lint
-        run: .venv/bin/ruff check .
-
-      - name: Type check
-        run: .venv/bin/mypy apps packages
-
-      - name: Check generated API contracts
-        run: .venv/bin/python -B scripts/generate_api_contracts.py --check
-
-      - name: Apply migrations to an empty database
-        run: .venv/bin/alembic upgrade head
-
-      - name: Check migration metadata drift
-        run: .venv/bin/alembic check
-
-      - name: Exercise Phase 1A ingestion and trader fail-closed diagnostic
-        run: |
-          .venv/bin/autoquant-worker --once
-          set +e
-          .venv/bin/autoquant-trader --once
-          trader_status=$?
-          set -e
-          if [ "${trader_status}" -ne 2 ]; then
-            echo "Expected autoquant-trader to exit 2; got ${trader_status}" >&2
-            exit 1
-          fi
-
-      - name: Test
-        run: >-
-          "${GITHUB_WORKSPACE}/.venv/bin/autoquant-trusted-time-python-test"
-          test-suite
-          --aqt-test-postgres-url
-          postgresql+psycopg://autoquant:autoquant@localhost:5432/autoquant_test
-          --aqt-shard-count 4
-          --aqt-shard-index ${{ matrix.shard_index }}
-
-  native-packaging:
-    name: Native owner (${{ matrix.os }}, Python ${{ matrix.python-version }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    needs:
-      - architecture
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-24.04
-          - macos-14
-        python-version:
-          - "3.12.13"
-          - "3.13.3"
-    env:
-      PYTHONDONTWRITEBYTECODE: "1"
-      SOURCE_DATE_EPOCH: "0"
-      UV_BUILD_CONSTRAINT: build_support/native_build_constraints.txt
-      UV_MANAGED_PYTHON: "1"
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Install uv and Python
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          python-version: ${{ matrix.python-version }}
-          version: "0.11.28"
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - name: Install locked binary dependencies without project code
-        run: uv sync --all-groups --locked --no-install-project --no-build
-
-      - name: Require reviewed managed standalone CPython
-        run: |
-          .venv/bin/python -I -B - <<'PY'
-          import os
-          import stat
-          import sys
-          import sysconfig
-          from pathlib import Path
-
-          install_root = Path(os.environ["UV_PYTHON_INSTALL_DIR"]).resolve(strict=True)
-          runtime_root = Path(sys.base_prefix).resolve(strict=True)
-          if not runtime_root.is_relative_to(install_root):
-              raise SystemExit("native packaging requires a uv-managed CPython runtime")
-          if sysconfig.get_config_var("PYTHONFRAMEWORK") not in (None, ""):
-              raise SystemExit("native packaging requires standalone non-framework CPython")
-          library_directory = sysconfig.get_config_var("LIBDIR")
-          library_name = sysconfig.get_config_var("LDLIBRARY")
-          if (
-              type(library_directory) is not str
-              or type(library_name) is not str
-              or Path(library_name).name != library_name
-          ):
-              raise SystemExit("native packaging requires a standalone Python library")
-          library = (Path(library_directory) / library_name).resolve(strict=True)
-          metadata = library.stat()
-          if (
-              not library.is_relative_to(runtime_root)
-              or not stat.S_ISREG(metadata.st_mode)
-              or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
-          ):
-              raise SystemExit("native packaging Python library is not admitted")
-          PY
-
-      - name: Recheck architecture boundaries after dependency sync
-        run: >-
-          uv run
-          --isolated
-          --no-project
-          --no-config
-          --offline
-          --no-python-downloads
-          --python ${{ matrix.python-version }}
-          python
-          -I
-          -B
-          scripts/check_architecture.py
-
-      - name: Build sdist and two platform wheels
+          .venv/bin/ruff format --check .
+          .venv/bin/ruff check .
+          .venv/bin/mypy apps packages
+          .venv/bin/python -B scripts/generate_api_contracts.py --check
+      - name: Check migrations against the disposable database
         env:
-          NATIVE_DIST_ROOT: ${{ runner.temp }}/autoquant-native-${{ matrix.python-version }}
+          AQT_DATABASE_URL: postgresql+psycopg://autoquant:autoquant@localhost:5432/autoquant_test
         run: |
-          uv build --sdist --clear --no-sources \
-            --build-constraints build_support/native_build_constraints.txt \
-            --require-hashes \
-            --out-dir "${NATIVE_DIST_ROOT}/sdist" \
-            .
-          uv build --wheel --clear --no-sources \
-            --build-constraints build_support/native_build_constraints.txt \
-            --require-hashes \
-            --out-dir "${NATIVE_DIST_ROOT}/wheel-one" \
-            "${NATIVE_DIST_ROOT}/sdist/autoquant_trader-0.1.0.tar.gz"
-          uv build --wheel --clear --no-sources \
-            --build-constraints build_support/native_build_constraints.txt \
-            --require-hashes \
-            --out-dir "${NATIVE_DIST_ROOT}/wheel-two" \
-            "${NATIVE_DIST_ROOT}/sdist/autoquant_trader-0.1.0.tar.gz"
-
-      - name: Recheck architecture boundaries after native package builds
-        run: >-
-          uv run
-          --isolated
-          --no-project
-          --no-config
-          --offline
-          --no-python-downloads
-          --python ${{ matrix.python-version }}
-          python
-          -I
-          -B
-          scripts/check_architecture.py
-
-      - name: Require byte-for-byte reproducible wheels
-        env:
-          NATIVE_DIST_ROOT: ${{ runner.temp }}/autoquant-native-${{ matrix.python-version }}
+          .venv/bin/alembic upgrade head
+          .venv/bin/alembic check
+      - name: Foundation suite with an explicit disposable PostgreSQL database
+        run: .venv/bin/python -B scripts/run_personal_tests.py --postgres-url postgresql+psycopg://autoquant:autoquant@localhost:5432/autoquant_test
+      - name: Build conventional wheel with pinned build dependencies
+        run: uv build --wheel --no-sources --build-constraints build_support/native_build_constraints.txt --require-hashes --out-dir "$RUNNER_TEMP/personal-wheel"
+      - name: Verify and run installed wheel outside source checkout
         run: |
-          .venv/bin/python -I -B - <<'PY'
-          import hashlib
-          import os
-          import zipfile
-          from pathlib import Path
-
-          root = Path(os.environ["NATIVE_DIST_ROOT"])
-          first = tuple(root.joinpath("wheel-one").glob("*.whl"))
-          second = tuple(root.joinpath("wheel-two").glob("*.whl"))
-          assert len(first) == len(second) == 1
-          assert first[0].name == second[0].name
-          assert hashlib.file_digest(first[0].open("rb"), "sha256").digest() == hashlib.file_digest(
-              second[0].open("rb"), "sha256"
-          ).digest()
-          forbidden_fragments = (
-              "build_support/build_trusted_time_v2_",
-              "build_support/exercise_trusted_time_v2_",
-              "build_support/qualify_trusted_time_v2_",
-              "build_support/smoke_trusted_time_v2_",
-              "build_support/trusted_time_v2_candidate_",
-              "build_support/trusted_time_v2_seccomp_",
-              "infra/trusted-time/graceful-stop-v2/seccomp/",
-              "infra/trusted-time/graceful-stop-v2/systemd/",
-              "native/trusted_time_graceful_stop_v2_",
-              "native/trusted_time_v2_",
-              "tests/native/trusted_time_v2_seccomp_manifest_harness.c",
-              "tests/fixtures/native/trusted-time-v2/",
-              "third_party/monocypher/",
-          )
-          for wheel in (first[0], second[0]):
-              with zipfile.ZipFile(wheel) as archive:
-                  forbidden = sorted(
-                      name
-                      for name in archive.namelist()
-                      if any(fragment in name for fragment in forbidden_fragments)
-                  )
-              assert forbidden == [], forbidden
-          PY
-
-      - name: Install the reviewed wheel into the test environment
-        env:
-          NATIVE_DIST_ROOT: ${{ runner.temp }}/autoquant-native-${{ matrix.python-version }}
-        run: |
-          wheel_paths=("${NATIVE_DIST_ROOT}"/wheel-one/*.whl)
-          test "${#wheel_paths[@]}" -eq 1
-          uv pip install --python .venv/bin/python --no-deps "${wheel_paths[0]}"
-
-      - name: Extract and validate Wave 7 sdist evidence outside checkout
-        if: runner.os == 'Linux'
-        env:
-          AQT_WAVE7_SDIST_RECEIPT: ${{ runner.temp }}/wave7-sdist-${{ matrix.python-version }}.json
-          AQT_WAVE7_SDIST_ROOT: ${{ runner.temp }}/wave7-sdist-${{ matrix.python-version }}
-          NATIVE_DIST_ROOT: ${{ runner.temp }}/autoquant-native-${{ matrix.python-version }}
-        run: |
-          set -o pipefail
-          test ! -e "${AQT_WAVE7_SDIST_ROOT}"
-          .venv/bin/python \
-            -I \
-            -B \
-            build_support/smoke_trusted_time_v2_sdist.py \
-            "${NATIVE_DIST_ROOT}/sdist/autoquant_trader-0.1.0.tar.gz" \
-            "${AQT_WAVE7_SDIST_ROOT}" \
-            | tee "${AQT_WAVE7_SDIST_RECEIPT}"
-
-      - name: Build the exact source-checkout test launcher
-        run: .venv/bin/python -I -B build_support/build_native_test_launcher.py
-
-      - name: Exercise native ownership and process fault gates
-        run: >-
-          "${GITHUB_WORKSPACE}/.venv/bin/autoquant-trusted-time-python-test"
-          test-suite
-          -q
-          tests/unit/test_native_owned_file_descriptor.py
-          tests/unit/test_native_bounded_process.py
-
-      - name: Build twice, audit six candidates, and execute linked role gates
-        if: runner.os == 'Linux'
-        run: >-
-          .venv/bin/python
-          -m
-          pytest
-          -q
-          tests/unit/test_trusted_time_v2_candidate_packaging.py
-
-      - name: Build pinned disposable Wave 7 qualification image
-        id: wave7_image_build
-        if: runner.os == 'Linux'
-        env:
-          AQT_WAVE7_IMAGE: autoquant-wave7-qualification:${{ matrix.python-version }}
-          AQT_WAVE7_IMAGE_ID_FILE: ${{ runner.temp }}/wave7-image-${{ matrix.python-version }}.txt
-          AQT_WAVE7_SDIST_ROOT: ${{ runner.temp }}/wave7-sdist-${{ matrix.python-version }}
-        run: |
-          docker build \
-            --pull=false \
-            --platform linux/amd64 \
-            --file \
-            "${AQT_WAVE7_SDIST_ROOT}/build_support/trusted_time_v2_candidate_execution.Dockerfile" \
-            --tag "${AQT_WAVE7_IMAGE}" \
-            "${AQT_WAVE7_SDIST_ROOT}/build_support"
-          qualification_image_id="$(docker image inspect "${AQT_WAVE7_IMAGE}" --format '{{.Id}}')"
-          if [[ ! "${qualification_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "Qualification image ID is invalid" >&2
-            exit 1
-          fi
-          printf '%s\n' "${qualification_image_id}" > "${AQT_WAVE7_IMAGE_ID_FILE}"
-
-      - name: Execute exact six candidates in locked disposable container
-        if: runner.os == 'Linux'
-        env:
-          AQT_WAVE7_CONTAINER: aqt-wave7-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.python-version }}
-          AQT_WAVE7_IMAGE: autoquant-wave7-qualification:${{ matrix.python-version }}
-          AQT_WAVE7_IMAGE_ID_FILE: ${{ runner.temp }}/wave7-image-${{ matrix.python-version }}.txt
-          AQT_WAVE7_RECEIPT: ${{ runner.temp }}/wave7-qualification-${{ matrix.python-version }}.json
-          AQT_WAVE7_SDIST_RECEIPT: ${{ runner.temp }}/wave7-sdist-${{ matrix.python-version }}.json
-          AQT_WAVE7_SDIST_ROOT: ${{ runner.temp }}/wave7-sdist-${{ matrix.python-version }}
-        run: |
-          set -o pipefail
-          cleanup_container() {
-            docker container rm --force "${AQT_WAVE7_CONTAINER}" >/dev/null 2>&1 || true
-          }
-          trap cleanup_container EXIT
-          python_home="$(${GITHUB_WORKSPACE}/.venv/bin/python -I -B -c 'import pathlib, sys; print(pathlib.Path(sys.base_prefix).resolve(strict=True))')"
-          qualification_python="$(${GITHUB_WORKSPACE}/.venv/bin/python -I -B -c 'import sys; print(__import__("pathlib").Path(sys.executable).resolve())')"
-          case "${qualification_python}" in
-            "${python_home}"/*) ;;
-            *) echo "Qualification Python is outside its resolved base prefix" >&2; exit 1 ;;
-          esac
-          read -r sdist_archive_sha256 sdist_root_sha256 < <(
-            "${GITHUB_WORKSPACE}/.venv/bin/python" -I -B - "${AQT_WAVE7_SDIST_RECEIPT}" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          receipt = json.loads(Path(sys.argv[1]).read_text(encoding="ascii"))
-          assert receipt["status"] == "validated_for_locked_container_qualification"
-          print(receipt["archive"]["sha256"], receipt["extracted_root"]["tree_sha256"])
-          PY
-          )
-          read -r qualification_image_id < "${AQT_WAVE7_IMAGE_ID_FILE}"
-          if [ "$(docker image inspect "${AQT_WAVE7_IMAGE}" --format '{{.Id}}')" != "${qualification_image_id}" ]; then
-            echo "Qualification image tag changed after its exact ID was retained" >&2
-            exit 1
-          fi
-          docker run \
-            --rm \
-            --name "${AQT_WAVE7_CONTAINER}" \
-            --platform linux/amd64 \
-            --network none \
-            --ipc private \
-            --cap-drop ALL \
-            --security-opt no-new-privileges \
-            --pids-limit 256 \
-            --memory 3g \
-            --cpus 2 \
-            --read-only \
-            --tmpfs /opt:rw,exec,nosuid,nodev,size=512m,mode=0755 \
-            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
-            --volume "${AQT_WAVE7_SDIST_ROOT}:/workspace:ro" \
-            --volume "${python_home}:${python_home}:ro" \
-            --env "AQT_WAVE7_QUALIFICATION_IMAGE_ID=${qualification_image_id}" \
-            --env "AQT_WAVE7_SDIST_ARCHIVE_SHA256=${sdist_archive_sha256}" \
-            --env "AQT_WAVE7_SDIST_ROOT_SHA256=${sdist_root_sha256}" \
-            "${qualification_image_id}" \
-            "${qualification_python}" \
-            -I \
-            -B \
-            /workspace/build_support/qualify_trusted_time_v2_candidates.py \
-            | tee "${AQT_WAVE7_RECEIPT}"
-          if docker container inspect "${AQT_WAVE7_CONTAINER}" >/dev/null 2>&1; then
-            echo "Disposable qualification container survived --rm" >&2
-            exit 1
-          fi
-          trap - EXIT
-          "${GITHUB_WORKSPACE}/.venv/bin/python" -I -B - \
-            "${AQT_WAVE7_RECEIPT}" "${qualification_image_id}" \
-            "${AQT_WAVE7_SDIST_RECEIPT}" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          receipt = json.loads(Path(sys.argv[1]).read_text(encoding="ascii"))
-          expected_image_id = sys.argv[2]
-          sdist_receipt = json.loads(Path(sys.argv[3]).read_text(encoding="ascii"))
-          assert receipt["status"] == "passed"
-          assert receipt["activation_authorized"] is False
-          assert receipt["candidate_artifacts_copied_back"] is False
-          assert len(receipt["receipts"]) == 3
-          assert len(receipt["candidate_build"]["artifacts"]) == 6
-          assert len(receipt["exact_execution"]["executions"]) == 6
-          assert receipt["exact_execution"]["qualification_image_id"] == expected_image_id
-          assert receipt["exact_execution"]["transient_exact_path_staging_performed"] is True
-          assert receipt["exact_execution"]["candidate_staging_persisted"] is False
-          assert receipt["exact_execution"]["runtime_owner_installed"] is False
-          expected_paths = {
-              "/opt/autoquant/trusted-time-graceful-stop-v2-host/bin/"
-              "autoquant-trusted-time-graceful-stop-v2-host",
-              "/opt/autoquant/trusted-time-graceful-stop-v2-provision/bin/"
-              "autoquant-trusted-time-graceful-stop-v2-host-provision",
-              "/opt/autoquant/trusted-time-graceful-stop-v2-provision/bin/"
-              "autoquant-trusted-time-graceful-stop-v2-recovery-provision",
-              "/opt/autoquant/trusted-time-graceful-stop-v2-provision/bin/"
-              "autoquant-trusted-time-graceful-stop-v2-supervisor-provision",
-              "/opt/autoquant/trusted-time-graceful-stop-v2-recovery/bin/"
-              "autoquant-trusted-time-graceful-stop-v2-recovery",
-              "/opt/autoquant/trusted-time-graceful-stop-v2-supervisor/bin/"
-              "autoquant-trusted-time-graceful-stop-v2-supervisor",
-          }
-          executions = receipt["exact_execution"]["executions"]
-          assert {record["path"] for record in executions} == expected_paths
-          assert all(
-              record["status"] == record["expected_status"] == 191
-              and record["marker_count"] == 1
-              and record["candidate_sha256"] == record["candidate_artifact_sha256"]
-              for record in executions
-          )
-          assert receipt["managed_python_mount"]["unchanged"] is True
-          assert receipt["exact_execution"]["python_mount_provenance"]["unchanged"] is True
-          assert receipt["candidate_build"]["python"]["base_prefix_tree"]["entry_count"] > 0
-          assert receipt["source_sdist"]["archive_sha256"]
-          assert receipt["source_sdist"]["archive_sha256"] == sdist_receipt["archive"][
-              "sha256"
-          ]
-          assert receipt["source_sdist"]["extracted_root_sha256"] == sdist_receipt[
-              "extracted_root"
-          ]["tree_sha256"]
-          assert receipt["source_sdist"]["extracted_root_entry_count"] == (
-              sdist_receipt["extracted_root"]["file_count"]
-              + sdist_receipt["extracted_root"]["directory_count"]
-          )
-          assert (
-              receipt["source_sdist"]["workspace_pre_qualification_sha256"]
-              == receipt["source_sdist"]["workspace_post_qualification_sha256"]
-              == receipt["source_sdist"]["extracted_root_sha256"]
-          )
-          PY
-
-      - name: Remove disposable Wave 7 qualification state
-        if: always() && runner.os == 'Linux'
-        env:
-          AQT_WAVE7_CONTAINER: aqt-wave7-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.python-version }}
-          AQT_WAVE7_IMAGE: autoquant-wave7-qualification:${{ matrix.python-version }}
-          AQT_WAVE7_IMAGE_ID_FILE: ${{ runner.temp }}/wave7-image-${{ matrix.python-version }}.txt
-          AQT_WAVE7_IMAGE_BUILD_OUTCOME: ${{ steps.wave7_image_build.outcome }}
-          AQT_WAVE7_SDIST_ROOT: ${{ runner.temp }}/wave7-sdist-${{ matrix.python-version }}
-          EXPECTED_RUNNER_TEMP: ${{ runner.temp }}
-        run: |
-          docker container rm --force "${AQT_WAVE7_CONTAINER}" >/dev/null 2>&1 || true
-          qualification_image_id=""
-          image_id_cleanup_valid=true
-          if [ -f "${AQT_WAVE7_IMAGE_ID_FILE}" ]; then
-            read -r qualification_image_id < "${AQT_WAVE7_IMAGE_ID_FILE}"
-            if [[ "${qualification_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-              docker image rm --force "${qualification_image_id}" >/dev/null 2>&1 || true
-            else
-              echo "Qualification image-ID file is invalid; skipping unsafe exact-ID removal" >&2
-              qualification_image_id=""
-              image_id_cleanup_valid=false
-            fi
-          else
-            if [ "${AQT_WAVE7_IMAGE_BUILD_OUTCOME}" = "skipped" ]; then
-              echo "Qualification image build was skipped; no image-ID file was expected"
-            else
-              echo "Qualification image-ID file is missing" >&2
-              image_id_cleanup_valid=false
-            fi
-          fi
-          docker image rm --force "${AQT_WAVE7_IMAGE}" >/dev/null 2>&1 || true
-          .venv/bin/python -I -B - \
-            "${AQT_WAVE7_SDIST_ROOT}" "${AQT_WAVE7_IMAGE_ID_FILE}" \
-            "${EXPECTED_RUNNER_TEMP}" <<'PY'
-          import shutil
-          import sys
-          from pathlib import Path
-
-          root = Path(sys.argv[1])
-          image_id_file = Path(sys.argv[2])
-          parent = Path(sys.argv[3]).resolve(strict=True)
-          if root.parent.resolve(strict=True) != parent or not root.name.startswith("wave7-sdist-"):
-              raise SystemExit("refusing to remove an unexpected extracted-sdist root")
-          if (
-              image_id_file.parent.resolve(strict=True) != parent
-              or not image_id_file.name.startswith("wave7-image-")
-          ):
-              raise SystemExit("refusing to remove an unexpected qualification image-ID file")
-          if root.exists():
-              shutil.rmtree(root)
-          if image_id_file.exists():
-              image_id_file.unlink()
-          assert not root.exists()
-          assert not image_id_file.exists()
-          PY
-          if docker container inspect "${AQT_WAVE7_CONTAINER}" >/dev/null 2>&1; then
-            echo "Disposable qualification container survived cleanup" >&2
-            exit 1
-          fi
-          if [ -n "${qualification_image_id}" ]; then
-            if docker image inspect "${qualification_image_id}" >/dev/null 2>&1; then
-              echo "Exact qualification image ID survived cleanup" >&2
-              exit 1
-            fi
-          fi
-          if docker image inspect "${AQT_WAVE7_IMAGE}" >/dev/null 2>&1; then
-            echo "Qualification image tag survived cleanup" >&2
-            exit 1
-          fi
-          if [ "${image_id_cleanup_valid}" != true ]; then
-            exit 1
-          fi
+          .venv/bin/python -B scripts/verify_personal_wheel.py "$RUNNER_TEMP/personal-wheel"
+          uv venv "$RUNNER_TEMP/personal-installed" --python 3.12
+          uv pip install --python "$RUNNER_TEMP/personal-installed/bin/python" --no-deps "$RUNNER_TEMP"/personal-wheel/*.whl
+          cd "$RUNNER_TEMP"
+          env -i PATH=/usr/bin:/bin "$RUNNER_TEMP/personal-installed/bin/autoquant-personal-simulation" --instance-lock "$RUNNER_TEMP/personal-runtime.lock" --once
+      - name: Validate historical Compose definitions without activation
+        run: docker compose --env-file /dev/null -f infra/compose/compose.yaml config --quiet
 
   frontend:
-    name: Browser quality and tests
+    name: Browser regressions
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
         working-directory: apps/web
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: apps/web/package.json
-
-      - name: Install Node.js
-        uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: pnpm
           cache-dependency-path: apps/web/pnpm-lock.yaml
-
-      - name: Install locked dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Type check
-        run: pnpm typecheck
-
-      - name: Test components
-        run: pnpm test --run
-
-      - name: Test production bundle admission
-        run: pnpm bundle:test
-
-      - name: Build production browser bundle
-        run: pnpm build
-
-  containers:
-    name: Container definitions and paper admission
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    needs:
-      - architecture
-      - backend
-      - frontend
-    env:
-      PYTHONDONTWRITEBYTECODE: "1"
-      SOURCE_DATE_EPOCH: "0"
-      UV_BUILD_CONSTRAINT: build_support/native_build_constraints.txt
-      TRUSTED_TIME_PYTHON: .venv/bin/python -I -B
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Install uv and Python
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          python-version: "3.12.13"
-          version: "0.11.28"
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - name: Install locked binary dependencies without project code
-        run: uv sync --all-groups --locked --no-install-project --no-build
-
-      - name: Recheck architecture boundaries after dependency sync
-        run: >-
-          uv run
-          --isolated
-          --no-project
-          --no-config
-          --offline
-          --no-python-downloads
-          --python 3.12
-          python
-          -I
-          -B
-          scripts/check_architecture.py
-
-      - name: Build and install the hash-constrained project wheel
-        run: |
-          native_dist_root="${RUNNER_TEMP}/autoquant-container-native"
-          uv build --sdist --clear --no-sources \
-            --build-constraints build_support/native_build_constraints.txt \
-            --require-hashes \
-            --out-dir "${native_dist_root}/sdist" \
-            .
-          uv build --wheel --clear --no-sources \
-            --build-constraints build_support/native_build_constraints.txt \
-            --require-hashes \
-            --out-dir "${native_dist_root}/wheel" \
-            "${native_dist_root}/sdist/autoquant_trader-0.1.0.tar.gz"
-          wheel_paths=("${native_dist_root}"/wheel/*.whl)
-          test "${#wheel_paths[@]}" -eq 1
-          uv pip install --python .venv/bin/python --no-deps "${wheel_paths[0]}"
-
-      - name: Recheck architecture boundaries after constrained project build
-        run: >-
-          uv run
-          --isolated
-          --no-project
-          --no-config
-          --offline
-          --no-python-downloads
-          --python 3.12
-          python
-          -I
-          -B
-          scripts/check_architecture.py
-
-      - name: Validate Compose model
-        run: docker compose -f infra/compose/compose.yaml config --quiet
-
-      - name: Admit trusted-time Compose isolation
-        run: make trusted-time-compose-check
-
-      - name: Build development images
-        run: docker compose -f infra/compose/compose.yaml build migrate web
-
-      - name: Build production paper-preflight image
-        run: >-
-          docker build
-          --target production
-          --file infra/docker/api.Dockerfile
-          --tag autoquanttrader-runtime:paper-preflight-ci
-          .
-
-      - name: Verify production image fails closed
-        run: >-
-          .venv/bin/python -B scripts/verify_paper_preflight_image.py
-          autoquanttrader-runtime:paper-preflight-ci
-
-      - name: Build and admit trusted-time evidence images
-        run: make trusted-time-images
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test --run
+      - run: pnpm bundle:test
+      - run: pnpm build

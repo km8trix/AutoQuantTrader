@@ -1,0 +1,181 @@
+TAP version 13
+# Subtest: admits the exact fixture when both byte ceilings are met at equality
+ok 1 - admits the exact fixture when both byte ceilings are met at equality
+  ---
+  duration_ms: 19.858875
+  ...
+# Subtest: rejects byte ceilings only after equality is exceeded
+    # Subtest: per-asset overflow
+    ok 1 - per-asset overflow
+      ---
+      duration_ms: 12.72
+      ...
+    # Subtest: initial static graph overflow
+    ok 2 - initial static graph overflow
+      ---
+      duration_ms: 9.884875
+      ...
+    1..2
+ok 2 - rejects byte ceilings only after equality is exceeded
+  ---
+  duration_ms: 23.027083
+  ...
+# Subtest: requires exactly 11 distinct allowlisted route dynamic entries
+    # Subtest: missing dynamic entry
+    ok 1 - missing dynamic entry
+      ---
+      duration_ms: 5.919708
+      ...
+    # Subtest: unallowlisted dynamic entry
+    ok 2 - unallowlisted dynamic entry
+      ---
+      duration_ms: 5.835292
+      ...
+    # Subtest: route output shared with another route
+    ok 3 - route output shared with another route
+      ---
+      duration_ms: 5.998459
+      ...
+    # Subtest: entry dynamic-import allowlist drift
+    ok 4 - entry dynamic-import allowlist drift
+      ---
+      duration_ms: 5.122667
+      ...
+    # Subtest: policy route count drift
+    ok 5 - policy route count drift
+      ---
+      duration_ms: 5.061583
+      ...
+    1..5
+ok 3 - requires exactly 11 distinct allowlisted route dynamic entries
+  ---
+  duration_ms: 28.757291
+  ...
+# Subtest: rejects any route folded into the entry static import graph
+ok 4 - rejects any route folded into the entry static import graph
+  ---
+  duration_ms: 5.686
+  ...
+# Subtest: requires each configured shared runtime as a distinct initial partition
+    # Subtest: missing named partition
+    ok 1 - missing named partition
+      ---
+      duration_ms: 5.766416
+      ...
+    # Subtest: duplicate named partition
+    ok 2 - duplicate named partition
+      ---
+      duration_ms: 4.621875
+      ...
+    # Subtest: partition outside initial graph
+    ok 3 - partition outside initial graph
+      ---
+      duration_ms: 5.2695
+      ...
+    1..3
+ok 5 - requires each configured shared runtime as a distinct initial partition
+  ---
+  duration_ms: 16.191916
+  ...
+# Subtest: rejects traversal, missing files, aliases, and symlinks
+    # Subtest: traversal
+    ok 1 - traversal
+      ---
+      duration_ms: 4.664583
+      ...
+    # Subtest: case-folded Vite metadata path
+    ok 2 - case-folded Vite metadata path
+      ---
+      duration_ms: 5.2405
+      ...
+    # Subtest: missing file
+    ok 3 - missing file
+      ---
+      duration_ms: 8.785958
+      ...
+    # Subtest: direct symbolic link
+    ok 4 - direct symbolic link
+      ---
+      duration_ms: 8.712875
+      ...
+    # Subtest: symbolic parent directory escaping dist
+    ok 5 - symbolic parent directory escaping dist
+      ---
+      duration_ms: 8.959084
+      ...
+    # Subtest: hard-linked file alias
+    ok 6 - hard-linked file alias
+      ---
+      duration_ms: 10.860542
+      ...
+    1..6
+ok 6 - rejects traversal, missing files, aliases, and symlinks
+  ---
+  duration_ms: 48.067291
+  ...
+# Subtest: rejects malformed and dangling manifest structures
+    # Subtest: non-array imports
+    ok 1 - non-array imports
+      ---
+      duration_ms: 7.441875
+      ...
+    # Subtest: duplicate imports
+    ok 2 - duplicate imports
+      ---
+      duration_ms: 4.656625
+      ...
+    # Subtest: dangling import
+    ok 3 - dangling import
+      ---
+      duration_ms: 5.493917
+      ...
+    # Subtest: unallowlisted nested dynamic import
+    ok 4 - unallowlisted nested dynamic import
+      ---
+      duration_ms: 5.110542
+      ...
+    # Subtest: unknown manifest field
+    ok 5 - unknown manifest field
+      ---
+      duration_ms: 4.577541
+      ...
+    # Subtest: duplicate policy route
+    ok 6 - duplicate policy route
+      ---
+      duration_ms: 5.962958
+      ...
+    1..6
+ok 7 - rejects malformed and dangling manifest structures
+  ---
+  duration_ms: 33.931708
+  ...
+# Subtest: rejects invalid JSON without echoing its contents
+ok 8 - rejects invalid JSON without echoing its contents
+  ---
+  duration_ms: 5.017041
+  ...
+# Subtest: rejects duplicate JSON member names before last-wins parsing
+    # Subtest: duplicate manifest module key
+    ok 1 - duplicate manifest module key
+      ---
+      duration_ms: 4.841708
+      ...
+    # Subtest: duplicate policy field
+    ok 2 - duplicate policy field
+      ---
+      duration_ms: 4.538125
+      ...
+    1..2
+ok 9 - rejects duplicate JSON member names before last-wins parsing
+  ---
+  duration_ms: 9.677791
+  ...
+1..9
+# tests 33
+# suites 0
+# pass 33
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 241.016292

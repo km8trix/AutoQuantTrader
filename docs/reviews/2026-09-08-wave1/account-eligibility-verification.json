@@ -1,0 +1,56 @@
+{
+  "status": "account_eligibility_revision_tested_and_production_read_completed",
+  "amendment": "personal-v1/account-eligibility/2",
+  "amendment_sha256": "ef540c8c2cb3a9f5a2a38ac1c88e95c83c95b9249d6562de762c3df95af5045d",
+  "financing_policy": "cash-funded-long-only/1",
+  "integrated_python_passed": 1264,
+  "postgres_skipped": 7,
+  "targeted": {
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/unit/test_etrade_owner_renewal.py",
+      "tests/unit/test_etrade_owner_oauth.py",
+      "tests/unit/test_etrade_session.py"
+    ],
+    "exit_code": 0,
+    "seconds": 0.983
+  },
+  "reviewed_implementation_files": {
+    "AGENTS.md": "58bf8c0cde2e27509d664e1594ea0ca0cc60e4ab2d0ba07b2aa53c473b463973",
+    "README.md": "04b0f177dd7dc61942fe7b129f35c6c680f33d7e8fe3e29ca887ebde10a6c146",
+    "docs/ARCHITECTURE.md": "736ad715971bde15e9b4d17901c0383dd09f854b45df725128740d0a3039ff06",
+    "docs/IMPLEMENTATION_PLAN.md": "0c84520a19911ba260111c5cbe8b7c26919288f340bceb30cbd8ed50a98a6ed9",
+    "docs/contracts/personal-v1/account-eligibility-amendment.md": "ef540c8c2cb3a9f5a2a38ac1c88e95c83c95b9249d6562de762c3df95af5045d",
+    "docs/reviews/2026-09-08-wave1/README.md": "cf6c55288ea860dd0e28a81a66e688b657a6244b4813bb22d610308bd6fd837b",
+    "docs/runbooks/personal-v1-etrade-readonly.md": "7e70cc4ef9667aa989b2ca1020da22126cc4e0c21c5c8f95d672d41207e8bf12",
+    "packages/application/etrade_session.py": "ecc77988eba8ce3f882c2ce7530bcd511ab56b2d537041d0a72ad62969d4300f",
+    "scripts/qualify_etrade_readonly.py": "7b81ded3e16d41027f91d9c561beb259b33696c36dc9a957acd0ef5ea40a4bbe",
+    "tests/unit/test_etrade_session.py": "05e63480d06bf7c798848f52645ebd5f730215a8c81bbdef0e1e27cf7a96ebc8"
+  },
+  "peer_review": "Independent data worker and root reviewed profile binding, fail-closed selection, mode disagreement, cash/margin separation, redaction and all-false authority. Explicit financing-policy version binding finding fixed before integration.",
+  "production_traversal_complete": true,
+  "production_blockers": [
+    "ACCOUNT_CURRENCY_NOT_PROVEN_BY_RESPONSE",
+    "ACCOUNT_MODE_DISAGREEMENT",
+    "ACTIVITY_EXECUTION_CORRECTION_IDENTITY_UNQUALIFIED",
+    "CASH_FIELD_SEMANTICS_UNQUALIFIED",
+    "HISTORY_RETENTION_UNQUALIFIED",
+    "LIST_ORDERS_204_RESPONSE_TABLE_AMBIGUITY",
+    "MARGIN_CALLS_AND_RESTRICTIONS_UNQUALIFIED",
+    "MARGIN_LIABILITY_AND_CASH_FUNDING_UNQUALIFIED",
+    "ORDERS_NO_CONTENT_NOT_RECONCILED_ORDER_ABSENCE",
+    "PORTFOLIO_NO_CONTENT_NOT_RECONCILED_POSITION_ABSENCE",
+    "PROVIDER_QUOTAS_UNQUALIFIED",
+    "QUOTE_ENTITLEMENT_AND_EXECUTION_FRESHNESS_UNQUALIFIED",
+    "SINGLE_OBSERVATION_ROUND_NOT_RECONCILIATION"
+  ],
+  "empty_response_followups": "Documented first-page portfolio204 and shared-OrderAPI initial204 observations retain explicit no-content/reconciliation/response-table-ambiguity limits; continuation contradictions still fail.",
+  "frozen_W0_contract_files_modified": 0,
+  "trading_authorized": false,
+  "borrowing_authorized": false,
+  "financial_schemas_or_accounting_changed": false
+}

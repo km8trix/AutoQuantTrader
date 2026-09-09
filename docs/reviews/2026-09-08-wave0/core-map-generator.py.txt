@@ -1,0 +1,72 @@
+"""Offline static inventory only; never imports project code or writes into it."""
+import ast
+import hashlib
+import json
+import subprocess
+from pathlib import Path
+
+ROOT = Path('/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader')
+OUT = Path('/private/tmp/aqt-wave0-lane-a')
+tracked = subprocess.check_output(['git', 'ls-files', '*.py'], cwd=ROOT, text=True).splitlines()
+imports = {}
+parse_errors = []
+for name in tracked:
+    try:
+        tree = ast.parse((ROOT / name).read_text())
+    except (SyntaxError, UnicodeError) as error:
+        parse_errors.append({'path': name, 'error': str(error)})
+        continue
+    refs = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            refs.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ''
+            if node.level:
+                parts = name.removesuffix('.py').split('/')[:-1]
+                base = '.'.join(parts[:len(parts) - node.level + 1] + ([base] if base else []))
+            refs.add(base)
+            refs.update(base + '.' + alias.name for alias in node.names)
+    imports[name] = refs
+
+groups = [
+    ('data-port', 'refactor-versioned', 'W1-A; shared contracts O', [p for p in tracked if p.startswith('packages/market_data/')]),
+    ('dataset-store', 'keep-refactor', 'W1-A then W3-A', [p for p in tracked if p.startswith('packages/datasets/')]),
+    ('historical-adapters', 'keep-refactor', 'W1-A', [p for p in tracked if p.startswith('packages/adapters/market_data/')]),
+    ('core-contract', 'keep-versioned-extension', 'O shared; W2-A consumer', [f'packages/domain/{n}.py' for n in ['canonical','decimal_math','identifiers','models','clock','decision','market_batch','strategy','strategy_state','portfolio','replay','replay_manifest','strategy_replay']]),
+    ('accounting', 'keep', 'W2-B', [f'packages/domain/{n}.py' for n in ['order_reducer','ledger_reducer','settlement_ledger','corporate_action_ledger','account_projection']]),
+    ('legacy-fixture-economics', 'retire-product-path-preserve-oracle', 'W2-O cutover; W3-A consumers', [f'packages/domain/{n}.py' for n in ['accounting','execution','walking_thread','fixture_segment_economics']]),
+    ('simulation', 'keep-refactor', 'W2-B then W4-C', [p for p in tracked if p.startswith('packages/backtest/')]),
+    ('report-job', 'keep-refactor-versioned', 'W2-C report; W3-A job; O shared', [f'packages/domain/{n}.py' for n in ['backtest_report','backtest_job']]),
+    ('research-evaluation', 'keep-refactor', 'W3-B', [f'packages/domain/{n}.py' for n in ['feature','feature_replay','feature_target','feature_target_replay','experiment_governance','experiment_registry','fixture_segment_worker']]),
+    ('data-application', 'keep-refactor-versioned', 'W1-A; W3-A consumers', [f'packages/application/{n}.py' for n in ['market_data_ingestion','market_data_admission','production_market_data_admission','captured_tape_research_validity','manifest_replay']]),
+    ('research-application', 'refactor-retire-fixture-only-product', 'W2-A engine integration then W3-A worker', [f'packages/application/{n}.py' for n in ['backtest_worker','fixture_segment_worker','fixture_segment_economics','_fixture_segment_economic_child']]),
+    ('data-research-persistence', 'keep-refactor-versioned', 'W1-A data; W2-B ledger; W3-A jobs; O schema', [f'packages/persistence/{n}.py' for n in ['market_data','replay','backtest_workflow','phase2_ledger','simulation_horizon','experiment_governance','fixture_segment_worker','immutable','walking_thread']]),
+    ('research-api-composition', 'keep-refactor', 'W3-A APIs; O main/contracts/composition', [f'apps/api/{n}.py' for n in ['backtest_views','data_views','experiment_views','fixture_segment_views','contracts','main']] + ['apps/worker/main.py']),
+]
+entries = []
+for group, disposition, owner, paths in groups:
+    for path in paths:
+        if path not in tracked:
+            raise ValueError(path)
+        module = path.removesuffix('.py').replace('/', '.')
+        if module.endswith('.__init__'):
+            module = module.removesuffix('.__init__')
+        callers = sorted(p for p, refs in imports.items() if module in refs and p != path)
+        classification = disposition
+        if path.endswith('/golden_runner.py'):
+            classification = 'keep-regression-oracle-retire-fixed-product-path'
+        if '/sharadar_sfp' in path or path.endswith('/provider_probe.py'):
+            classification = 'retain-dormant-no-provider-expansion'
+        if path.endswith('/captured_tape_research_validity.py'):
+            classification = 'retain-old-claims-add-positive-versioned-research-admission'
+        entries.append({'path': path, 'sha256': hashlib.sha256((ROOT/path).read_bytes()).hexdigest(),
+                        'group': group, 'disposition': classification, 'owner': owner,
+                        'direct_source_callers': [p for p in callers if not p.startswith('tests/')],
+                        'direct_test_importers': [p for p in callers if p.startswith('tests/')]})
+data = {'reviewed_code_revision': subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
+        'method': 'AST static imports across all tracked Python files; direct edges including package reexports; no runtime calls/imports, dynamic edges or non-Python callers inferred. Grouped invariant and UI caller coverage is in core-engine.md. This is a migration inventory, not permission to remove sources.',
+        'tracked_python_files_scanned': len(tracked), 'parse_errors': parse_errors,
+        'mapped_files': len(entries), 'entries': sorted(entries,key=lambda e:e['path'])}
+(OUT/'core-source-map.json').write_text(json.dumps(data, indent=2)+'\n')
+print(json.dumps({'tracked_python_files_scanned': len(tracked), 'parse_errors': parse_errors, 'mapped_files':len(entries)}))

@@ -1,0 +1,335 @@
+[
+  {
+    "name": "api-contracts",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "scripts/generate_api_contracts.py",
+      "--check"
+    ],
+    "cwd": "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader",
+    "exit_code": 0,
+    "seconds": 1.86,
+    "log": "check-output/api-contracts.txt",
+    "original_temporary_log": "logs/api-contracts.log"
+  },
+  {
+    "name": "architecture",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-I",
+      "-B",
+      "scripts/check_architecture.py"
+    ],
+    "cwd": "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader",
+    "exit_code": 1,
+    "seconds": 190.959,
+    "log": "check-output/architecture.txt",
+    "original_temporary_log": "logs/architecture.log"
+  },
+  {
+    "name": "browser-build",
+    "command": [
+      "/Users/spencer.karrat/.bun/bin/node",
+      "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader/apps/web/node_modules/vite/bin/vite.js",
+      "build"
+    ],
+    "cwd": "/private/tmp/aqt-wave0-f152ahl7/web",
+    "exit_code": 0,
+    "seconds": 2.175,
+    "log": "check-output/browser-build.txt",
+    "original_temporary_log": "logs/browser-build.log"
+  },
+  {
+    "name": "browser-bundle-admission",
+    "command": [
+      "/Users/spencer.karrat/.bun/bin/node",
+      "scripts/verify-production-bundle.mjs"
+    ],
+    "cwd": "/private/tmp/aqt-wave0-f152ahl7/web",
+    "exit_code": 0,
+    "seconds": 0.09,
+    "log": "check-output/browser-bundle-admission.txt",
+    "original_temporary_log": "logs/browser-bundle-admission.log"
+  },
+  {
+    "name": "browser-bundle-tests",
+    "command": [
+      "/Users/spencer.karrat/.bun/bin/node",
+      "--test",
+      "scripts/verify-production-bundle.node.mjs"
+    ],
+    "cwd": "/private/tmp/aqt-wave0-f152ahl7/web",
+    "exit_code": 0,
+    "seconds": 0.308,
+    "log": "check-output/browser-bundle-tests.txt",
+    "original_temporary_log": "logs/browser-bundle-tests.log"
+  },
+  {
+    "name": "browser-components",
+    "command": [
+      "/Users/spencer.karrat/.bun/bin/node",
+      "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader/apps/web/node_modules/vitest/vitest.mjs",
+      "run",
+      "--maxWorkers",
+      "2"
+    ],
+    "cwd": "/private/tmp/aqt-wave0-f152ahl7/web",
+    "exit_code": 0,
+    "seconds": 18.616,
+    "log": "check-output/browser-components.txt",
+    "original_temporary_log": "logs/browser-components.log"
+  },
+  {
+    "name": "browser-lint",
+    "command": [
+      "/Users/spencer.karrat/.bun/bin/node",
+      "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader/apps/web/node_modules/eslint/bin/eslint.js",
+      ".",
+      "--max-warnings=0"
+    ],
+    "cwd": "/private/tmp/aqt-wave0-f152ahl7/web",
+    "exit_code": 0,
+    "seconds": 6.282,
+    "log": "check-output/browser-lint.txt",
+    "original_temporary_log": "logs/browser-lint.log"
+  },
+  {
+    "name": "browser-types-app",
+    "command": [
+      "/Users/spencer.karrat/.bun/bin/node",
+      "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader/apps/web/node_modules/typescript/bin/tsc",
+      "-p",
+      "tsconfig.app.json",
+      "--pretty",
+      "false",
+      "--incremental",
+      "--tsBuildInfoFile",
+      "/private/tmp/aqt-wave0-f152ahl7/ts-app.tsbuildinfo"
+    ],
+    "cwd": "/private/tmp/aqt-wave0-f152ahl7/web",
+    "exit_code": 0,
+    "seconds": 3.238,
+    "log": "check-output/browser-types-app.txt",
+    "original_temporary_log": "logs/browser-types-app.log"
+  },
+  {
+    "name": "browser-types-node",
+    "command": [
+      "/Users/spencer.karrat/.bun/bin/node",
+      "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader/apps/web/node_modules/typescript/bin/tsc",
+      "-p",
+      "tsconfig.node.json",
+      "--pretty",
+      "false",
+      "--incremental",
+      "--tsBuildInfoFile",
+      "/private/tmp/aqt-wave0-f152ahl7/ts-node.tsbuildinfo"
+    ],
+    "cwd": "/private/tmp/aqt-wave0-f152ahl7/web",
+    "exit_code": 0,
+    "seconds": 0.595,
+    "log": "check-output/browser-types-node.txt",
+    "original_temporary_log": "logs/browser-types-node.log"
+  },
+  {
+    "name": "compose-model",
+    "command": [
+      "/usr/local/bin/docker",
+      "compose",
+      "--env-file",
+      "/dev/null",
+      "-f",
+      "infra/compose/compose.yaml",
+      "config",
+      "--quiet"
+    ],
+    "cwd": "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader",
+    "exit_code": 0,
+    "seconds": 0.46,
+    "log": "check-output/compose-model.txt",
+    "original_temporary_log": "logs/compose-model.log"
+  },
+  {
+    "name": "compose-native",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-I",
+      "-B",
+      "-X",
+      "pycache_prefix=/dev/null",
+      "scripts/verify_trusted_time_compose.py"
+    ],
+    "cwd": "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader",
+    "exit_code": 0,
+    "seconds": 0.721,
+    "log": "check-output/compose-native.txt",
+    "original_temporary_log": "logs/compose-native.log"
+  },
+  {
+    "name": "core-financial-temporal",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "--basetemp",
+      "/private/tmp/aqt-wave0-f152ahl7/pytest-core-financial-temporal",
+      "--junitxml",
+      "/private/tmp/aqt-wave0-f152ahl7/core-financial-temporal.xml",
+      "tests/unit/test_canonical.py",
+      "tests/unit/test_accounting.py",
+      "tests/unit/test_ledger_reducer.py",
+      "tests/unit/test_account_projection.py",
+      "tests/unit/test_corporate_action_ledger.py",
+      "tests/unit/test_settlement_ledger.py",
+      "tests/unit/test_order_reducer.py",
+      "tests/unit/test_replay.py",
+      "tests/unit/test_strategy_replay.py",
+      "tests/unit/test_portfolio_intent_batches.py",
+      "tests/unit/test_simulated_broker.py",
+      "tests/unit/test_simulation_horizon.py",
+      "tests/unit/test_backtest_report.py",
+      "tests/unit/test_golden_runner.py",
+      "tests/unit/test_feature_replay.py",
+      "tests/unit/test_feature_target_replay.py"
+    ],
+    "cwd": "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader",
+    "exit_code": 0,
+    "seconds": 3.243,
+    "log": "check-output/core-financial-temporal.txt",
+    "original_temporary_log": "logs/core-financial-temporal.log"
+  },
+  {
+    "name": "mypy",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "-m",
+      "mypy",
+      "apps",
+      "packages"
+    ],
+    "cwd": "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader",
+    "exit_code": 0,
+    "seconds": 10.274,
+    "log": "check-output/mypy.txt",
+    "original_temporary_log": "logs/mypy.log"
+  },
+  {
+    "name": "postgres-concurrency",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "--basetemp",
+      "/private/tmp/aqt-wave0-f152ahl7/pytest-postgres-concurrency",
+      "--junitxml",
+      "/private/tmp/aqt-wave0-f152ahl7/postgres-concurrency.xml",
+      "tests/integration/test_postgres_risk_concurrency.py"
+    ],
+    "cwd": "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader",
+    "exit_code": 0,
+    "seconds": 1.407,
+    "log": "check-output/postgres-concurrency.txt",
+    "original_temporary_log": "logs/postgres-concurrency.log"
+  },
+  {
+    "name": "risk-broker-clock",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "--basetemp",
+      "/private/tmp/aqt-wave0-f152ahl7/pytest-risk-broker-clock",
+      "--junitxml",
+      "/private/tmp/aqt-wave0-f152ahl7/risk-broker-clock.xml",
+      "tests/unit/test_batch_risk.py",
+      "tests/unit/test_risk_and_execution.py",
+      "tests/unit/test_submission_attempt.py",
+      "tests/unit/test_unknown_submission_recovery.py",
+      "tests/unit/test_account_coordinator.py",
+      "tests/unit/test_trusted_time.py",
+      "tests/unit/test_etrade.py",
+      "tests/unit/test_etrade_accounts.py",
+      "tests/unit/test_etrade_oauth.py",
+      "tests/unit/test_etrade_oauth_token_runtime.py"
+    ],
+    "cwd": "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader",
+    "exit_code": 0,
+    "seconds": 24.409,
+    "log": "check-output/risk-broker-clock.txt",
+    "original_temporary_log": "logs/risk-broker-clock.log"
+  },
+  {
+    "name": "ruff-format",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "-m",
+      "ruff",
+      "format",
+      "--check",
+      "--no-cache",
+      "."
+    ],
+    "cwd": "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader",
+    "exit_code": 0,
+    "seconds": 0.238,
+    "log": "check-output/ruff-format.txt",
+    "original_temporary_log": "logs/ruff-format.log"
+  },
+  {
+    "name": "ruff-lint",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "-m",
+      "ruff",
+      "check",
+      "--no-cache",
+      "."
+    ],
+    "cwd": "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader",
+    "exit_code": 0,
+    "seconds": 0.234,
+    "log": "check-output/ruff-lint.txt",
+    "original_temporary_log": "logs/ruff-lint.log"
+  },
+  {
+    "name": "sqlite-api-integration",
+    "command": [
+      "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "--basetemp",
+      "/private/tmp/aqt-wave0-f152ahl7/pytest-sqlite-api-integration",
+      "--junitxml",
+      "/private/tmp/aqt-wave0-f152ahl7/sqlite-api-integration.xml",
+      "tests/integration/test_phase2_submission_attempt_persistence.py",
+      "tests/integration/test_phase2_batch_risk_persistence.py",
+      "tests/integration/test_phase2_backtest_workflow.py",
+      "tests/integration/test_api.py"
+    ],
+    "cwd": "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader",
+    "exit_code": 0,
+    "seconds": 48.075,
+    "log": "check-output/sqlite-api-integration.txt",
+    "original_temporary_log": "logs/sqlite-api-integration.log"
+  }
+]

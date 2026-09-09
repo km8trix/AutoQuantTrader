@@ -1,0 +1,52 @@
+{
+  "status": "oauth_and_discovery_passed_full_capture_pending_owner_binding",
+  "owner_oauth_token_requests_reported": 4,
+  "orchestrator_account_list_gets": 2,
+  "full_account_capture_performed": false,
+  "selection_or_exclusivity_inferred": false,
+  "credentials_or_full_account_identifiers_in_artifact": false,
+  "trading_authorized": false,
+  "reconciliation_qualified": false,
+  "currency_proven_by_account_list": false,
+  "currency_doc_sources": [
+    "https://apisb.etrade.com/docs/api/account/api-account-v1.html",
+    "https://apisb.etrade.com/docs/api/account/api-balance-v1.html"
+  ],
+  "environments": {
+    "sandbox": {
+      "oauth_access_request_started_at": "2026-09-09T11:38:27.625348+00:00",
+      "oauth_access_response_received_at": "2026-09-09T11:38:27.785675+00:00",
+      "conservative_expires_at": "2026-09-10T04:00:00+00:00",
+      "discovery_started_at": "2026-09-09T11:40:57.050386+00:00",
+      "discovery_finished_at": "2026-09-09T11:40:57.891395+00:00",
+      "http_status": 200,
+      "account_count": 4,
+      "cash_candidate_count": 2,
+      "candidate_fingerprints": [
+        "a70431a4deab7250a13da52a6d7ccecf1e4726a5cefa46c5f65e0c68dc12b48c",
+        "5fd727ee9e9bb5af6fd303ccb7f36626fa7cf39e4346df4735d05c3f4284acd7"
+      ],
+      "raw_account_body_sha256": "180776fadaefb1c9f43b5d443d43486a2edd8d7d390ac0c33af6e9563070a7e9",
+      "private_journal_file_sha256": "8a7b2f52158d5a47bde37eba4578ba3047366dd35323163cb0831f4f4efaefbd",
+      "account_selected": false
+    },
+    "production": {
+      "oauth_access_request_started_at": "2026-09-09T11:38:38.354553+00:00",
+      "oauth_access_response_received_at": "2026-09-09T11:38:38.567322+00:00",
+      "conservative_expires_at": "2026-09-10T04:00:00+00:00",
+      "discovery_started_at": "2026-09-09T11:40:57.892563+00:00",
+      "discovery_finished_at": "2026-09-09T11:40:58.518791+00:00",
+      "http_status": 200,
+      "account_count": 5,
+      "cash_candidate_count": 2,
+      "candidate_fingerprints": [
+        "2cc50bd1dcccc9f1e7bde798893238d651ddeeea88a5f120a64d85be29310871",
+        "224255714da8a7bcd22788828bb60b23a43207982f146e7777200265b4be84be"
+      ],
+      "raw_account_body_sha256": "3c1c56d6b6e2bc4ce371298e41fc449008588132d6a7d50ec6f18820fc309a16",
+      "private_journal_file_sha256": "c69947c47f29a91ec9ef66937fbebd85371d372fae677736795eed283a38ea77",
+      "account_selected": false
+    }
+  },
+  "publication_boundary": "Metadata-only public copy; private journal/session paths and masked per-account listings omitted. Original evidence remains private."
+}

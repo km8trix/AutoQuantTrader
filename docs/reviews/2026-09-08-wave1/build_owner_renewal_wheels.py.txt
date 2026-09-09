@@ -1,0 +1,27 @@
+from pathlib import Path
+import hashlib, json, os, shutil, subprocess, time
+B = Path('/private/tmp/aqt-wave1-rp_bjl5c')
+S = B / 'integration-stage'
+env = {'PATH': '/Users/spencer.karrat/.local/bin:/usr/bin:/bin', 'PYTHONDONTWRITEBYTECODE': '1', 'UV_PYTHON_DOWNLOADS': 'never', 'SOURCE_DATE_EPOCH': '0'}
+records = []
+wheels = []
+for name in ['wheel-owner-renewal', 'wheel-owner-renewal-repeat']:
+    output = B / name
+    assert not output.exists()
+    args = ['/Users/spencer.karrat/.local/bin/uv', 'build', '--offline', '--python', '/Users/spencer.karrat/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12', '--wheel', '--no-sources', '--build-constraints', 'build_support/native_build_constraints.txt', '--require-hashes', '--cache-dir', '/Users/spencer.karrat/.cache/uv', '--out-dir', str(output)]
+    start = time.monotonic()
+    with (B / 'check-output' / (name + '.txt')).open('w') as log:
+        status = subprocess.run(args, cwd=S, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=60).returncode
+    records.append({'command': args, 'exit_code': status, 'seconds': round(time.monotonic() - start, 3)})
+    assert status == 0, name
+    wheels.append(next(output.glob('*.whl')))
+assert wheels[0].read_bytes() == wheels[1].read_bytes()
+retained = Path('/Users/spencer.karrat/Documents/AutoQuantTrader/personal-artifacts/wave1-20260908/owner-renewal')
+retained.mkdir(mode=0o700, exist_ok=True)
+target = retained / wheels[0].name
+assert not target.exists()
+shutil.copyfile(wheels[0], target)
+os.chmod(target, 0o600)
+result = {'builds': records, 'wheel_sha256': hashlib.sha256(target.read_bytes()).hexdigest(), 'byte_reproducible': True, 'build_hooks_override': None, 'retained_wheel_path': str(target), 'core_wheel_preserved': True}
+(B / 'wheel-verification.json').write_text(json.dumps(result, indent=2) + '\n')
+print(json.dumps(result, indent=2))
