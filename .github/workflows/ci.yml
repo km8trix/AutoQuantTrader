@@ -50,7 +50,7 @@ jobs:
           .venv/bin/ruff format --check .
           .venv/bin/ruff check .
           .venv/bin/mypy apps packages
-          .venv/bin/python -B scripts/generate_api_contracts.py --check
+          .venv/bin/python -B -m scripts.generate_api_contracts --check
       - name: Check migrations against the disposable database
         env:
           AQT_DATABASE_URL: postgresql+psycopg://autoquant:autoquant@localhost:5432/autoquant_test

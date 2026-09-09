@@ -6,7 +6,7 @@
   "files": {
     ".github/workflows/ci.yml": {
       "before_sha256": "5af18af8b4eeb7f92a4b507eb196c9b6b30bca2a0c1a01dca09b7c93fafb637f",
-      "after_sha256": "5a7aa49b8b9d4d6e1c6ca68fa3b7497bf8792aeed76b4ce2def348c47beab498"
+      "after_sha256": "be1bd7f1c55357548a9f8bbf80dcd31249bb28a35bb7584d115b2ea5d504937e"
     },
     ".github/workflows/legacy-native.yml": {
       "before_sha256": null,
