@@ -1,0 +1,7 @@
+sssssss                                                                  [100%]
+- generated xml file: /private/tmp/aqt-wave0-f152ahl7/postgres-concurrency.xml -
+=========================== short test summary info ============================
+SKIPPED [5] tests/integration/test_postgres_risk_concurrency.py:136: set AQT_TEST_POSTGRES_URL to run PostgreSQL concurrency tests
+SKIPPED [1] tests/integration/test_postgres_risk_concurrency.py:232: set AQT_TEST_POSTGRES_URL to run PostgreSQL concurrency tests
+SKIPPED [1] tests/integration/test_postgres_risk_concurrency.py:276: set AQT_TEST_POSTGRES_URL to run PostgreSQL concurrency tests
+7 skipped in 0.90s

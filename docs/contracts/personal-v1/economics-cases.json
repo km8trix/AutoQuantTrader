@@ -1,0 +1,126 @@
+{
+  "contract_version": "personal-v1-core-contract-w0-v1",
+  "classification": "independent hand-calculated synthetic specification, not a runtime test pass or live-capital authorization",
+  "arithmetic": "Decimal amounts; execution fees expensed once; FIFO cost basis excludes fees; exact fractions for returns",
+  "policy": "Small accounting oracle cases intentionally use a separately named test-only permissive policy; product reference strategies use the frozen daily-v1 simulation caps.",
+  "cases": [
+    {
+      "id": "E1-buy-sell-fees-settlement",
+      "events": [
+        {"sequence": 1, "kind": "contribution", "amount": "1000"},
+        {"sequence": 2, "kind": "buy_fill", "quantity": "4", "price": "100", "fee": "1"},
+        {"sequence": 3, "kind": "confirm_buy_settlement"},
+        {"sequence": 4, "kind": "sell_fill", "quantity": "2", "price": "110", "fee": "1"},
+        {"sequence": 5, "kind": "confirm_sell_settlement"}
+      ],
+      "checkpoints": [
+        {"after": 2, "cash_trade_date": "599", "cash_settled": "1000", "payable": "401", "cash_available_before_open_order_reserves": "599", "quantity": "4", "basis": "400", "mark": "100", "nav": "999", "fees": "1", "net_pnl": "-1"},
+        {"after": 3, "cash_settled": "599", "payable": "0", "nav_at_100": "999"},
+        {"after": 4, "cash_trade_date": "818", "cash_settled": "599", "receivable": "219", "cash_available_before_open_order_reserves": "599", "quantity": "2", "basis": "200", "mark": "110", "nav": "1038", "gross_realized_pnl": "20", "fees": "2", "net_realized_pnl": "18", "unrealized_pnl": "20", "net_pnl": "38"},
+        {"after": 5, "cash_settled": "818", "receivable": "0", "cash_available_before_open_order_reserves": "818", "nav_at_110": "1038"}
+      ],
+      "proof": "1000 - 401 + 219 + 2*110 = 1038; realized 2*(110-100)-2=18; unrealized 2*(110-100)=20. Sale settlement reclassifies cash and creates no profit."
+    },
+    {
+      "id": "E2-dividend-entitlement-accrual-payment",
+      "opening": {"cash_settled": "600", "quantity": "4", "basis": "400", "mark": "100", "nav": "1000"},
+      "events": [
+        {"sequence": 1, "kind": "dividend_accrual", "eligible_quantity_from_pre_ex_date_holding": "4", "per_share": "2", "mark_after_ex_date": "98"},
+        {"sequence": 2, "kind": "dividend_payment", "amount": "8", "mark": "98"}
+      ],
+      "checkpoints": [
+        {"after": 1, "cash": "600", "market_value": "392", "dividend_receivable": "8", "nav": "1000", "dividend_income": "8", "unrealized_pnl": "-8", "net_pnl": "0"},
+        {"after": 2, "cash": "608", "market_value": "392", "dividend_receivable": "0", "nav": "1000", "dividend_income": "8", "net_pnl": "0"}
+      ],
+      "proof": "Accrual: 600+4*98+8=1000. Payment: 608+4*98=1000. An ex-date purchaser is not newly entitled."
+    },
+    {
+      "id": "E3-split-fifo-sale",
+      "opening": {"cash": "600", "quantity": "4", "basis": "400", "mark": "100", "nav": "1000"},
+      "events": [
+        {"sequence": 1, "kind": "split", "numerator": 2, "denominator": 1, "entitled_quantity": "4"},
+        {"sequence": 2, "kind": "post_split_mark", "price": "50"},
+        {"sequence": 3, "kind": "sell_fill", "quantity": "3", "price": "55", "fee": "1"}
+      ],
+      "checkpoints": [
+        {"after": 2, "quantity": "8", "basis": "400", "per_share_basis": "50", "nav": "1000"},
+        {"after": 3, "cash_trade_date": "764", "quantity": "5", "basis": "250", "mark": "55", "market_value": "275", "nav": "1039", "gross_realized_pnl": "15", "fees": "1", "net_realized_pnl": "14", "unrealized_pnl": "25", "net_pnl": "39"}
+      ],
+      "proof": "4*2=8; basis stays400; sale releases3*50=150; 600+(3*55-1)+5*55=1039. No synthetic split profit."
+    },
+    {
+      "id": "E4-intraperiod-contribution-twr",
+      "opening": {"quantity": "8", "basis": "800", "cash": "200", "mark": "100", "nav": "1000"},
+      "events": [
+        {"sequence": 1, "kind": "pre_flow_mark", "price": "112.5", "nav_before": "1100"},
+        {"sequence": 2, "kind": "contribution", "amount": "500", "nav_after": "1600"},
+        {"sequence": 3, "kind": "terminal_mark", "price": "132.5", "nav": "1760"}
+      ],
+      "expected": {"cash": "700", "market_value": "1060", "net_contributions_after_opening": "500", "pnl": "260", "first_subperiod_return_fraction": "1/10", "second_subperiod_return_fraction": "1/10", "twr_fraction": "21/100", "ending_nav": "1760", "naive_period_end_flow_adjustment_fraction": "13/50"},
+      "benchmark_matching_flow_clock": {"initial_units": "10", "initial_price": "100", "pre_flow_price": "110", "pre_flow_value": "1100", "contribution": "500", "units_purchased_fraction": "50/11", "total_units_fraction": "160/11", "terminal_price": "121", "terminal_value": "1760", "twr_fraction": "21/100"},
+      "proof": "1100/1000=1.1; 1760/(1100+500)=1.1; linked TWR=1.1*1.1-1=.21. (1760-500)/1000-1=.26 is not event-timed TWR. Benchmark fractional units are report-only analytical units."
+    },
+    {
+      "id": "E5-intraperiod-withdrawal-twr",
+      "opening": {"quantity": "8", "cash": "200", "mark": "100", "nav": "1000"},
+      "events": [
+        {"sequence": 1, "kind": "pre_flow_mark", "price": "112.5", "nav_before": "1100"},
+        {"sequence": 2, "kind": "withdrawal", "amount": "200", "nav_after": "900"},
+        {"sequence": 3, "kind": "terminal_mark", "price": "123.75", "nav": "990"}
+      ],
+      "expected": {"cash": "0", "net_flow_after_opening": "-200", "pnl": "190", "first_subperiod_return_fraction": "1/10", "second_subperiod_return_fraction": "1/10", "twr_fraction": "21/100"},
+      "proof": "8*112.5+200=1100; withdrawal200 leaves900; 8*123.75=990; 1.1*1.1-1=.21. 990-1000-(-200)=190 profit."
+    },
+    {
+      "id": "E6-correction-duplicate-bust",
+      "opening_cash": "1000",
+      "events": [
+        {"sequence": 1, "kind": "buy_fill", "execution_id": "fill-1", "quantity": "4", "price": "100", "fee": "1"},
+        {"sequence": 2, "kind": "correction", "execution_id": "fill-1", "revision": 2, "quantity": "4", "price": "101", "fee": "2"},
+        {"sequence": 3, "kind": "exact_duplicate", "duplicates_sequence": 2},
+        {"sequence": 4, "kind": "bust", "execution_id": "fill-1", "supersedes_revision": 2}
+      ],
+      "checkpoints": [
+        {"after": 1, "cash": "599", "quantity": "4", "basis": "400", "fees": "1"},
+        {"after": 2, "cash": "594", "quantity": "4", "basis": "404", "fees": "2", "mark": "101", "nav": "998", "correction_cash_delta": "-5", "correction_security_value_delta": "4", "correction_fee_delta": "1"},
+        {"after": 3, "cash": "594", "quantity": "4", "basis": "404", "fees": "2", "new_economic_postings": 0},
+        {"after": 4, "cash": "1000", "quantity": "0", "basis": "0", "fees": "0", "nav": "1000"}
+      ],
+      "proof": "Correction outflow406 replaces401 using delta5; not another406 debit. Bust reverses406 and the current4 units. Decisions before receipt of correction retain their original knowledge."
+    },
+    {
+      "id": "E7-partial-fill-cancel-pending-target",
+      "opening_cash": "1000",
+      "target_quantity": "5",
+      "events": [
+        {"sequence": 1, "kind": "accept_buy", "quantity": "5"},
+        {"sequence": 2, "kind": "partial_fill", "quantity": "2", "price": "100", "fee": "1"},
+        {"sequence": 3, "kind": "repeat_target", "quantity": "5"},
+        {"sequence": 4, "kind": "cancel_request"},
+        {"sequence": 5, "kind": "late_fill", "quantity": "1", "price": "102", "fee": "1"},
+        {"sequence": 6, "kind": "cancel_confirm_remaining", "quantity": "2"},
+        {"sequence": 7, "kind": "fresh_target", "quantity": "5"}
+      ],
+      "checkpoints": [
+        {"after": 2, "cash": "799", "filled_quantity": "2", "pending_quantity": "3", "effective_target_quantity": "5"},
+        {"after": 3, "new_intent_quantity": "0"},
+        {"after": 4, "pending_quantity": "3", "capacity_released": "0"},
+        {"after": 5, "cash": "696", "filled_quantity": "3", "pending_quantity": "2", "basis": "302", "fees": "2", "mark": "102", "nav": "1002"},
+        {"after": 6, "filled_quantity": "3", "pending_quantity": "0", "nav_at_102": "1002"},
+        {"after": 7, "new_intent_quantity": "2", "can_fill_from_trigger_event": false}
+      ],
+      "proof": "1000-201-103=696; current marked shares3*102=306; NAV1002. Cancel request cannot release three shares before late fill/authoritative cancellation."
+    },
+    {
+      "id": "E8-invalid-or-undefined",
+      "expectations": [
+        {"scenario": "3-for-2 split of an indivisible one-share FIFO lot without cash-in-lieu facts", "result": "reject affected run scope; do not round shares or invent cash"},
+        {"scenario": "dividend and split at same effective timestamp without explicit entitlement basis or proven dependency", "result": "reject; alphabetical or phase ordering does not prove entitlement"},
+        {"scenario": "terminal open position with missing current-session mark", "result": "authoritative NAV and affected return statistics undefined; separate last-known estimate with stale age"},
+        {"scenario": "flow occurs without causal pre-flow valuation", "result": "exact TWR undefined; separately labelled approximation requires versioned opt-in"},
+        {"scenario": "zero return variance", "result": "Sharpe/Sortino undefined rather than infinity; volatility may be exactly zero when sample threshold met"},
+        {"scenario": "insufficient scored sessions", "result": "annualized metrics undefined according to pinned sample policy"}
+      ]
+    }
+  ]
+}

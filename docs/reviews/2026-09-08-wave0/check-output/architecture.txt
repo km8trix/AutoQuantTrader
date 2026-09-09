@@ -1,0 +1,7 @@
+docs/ARCHITECTURE.md:1: architecture checker documented invocation must be exact and singular
+docs/IMPLEMENTATION_PLAN.md:1: architecture checker documented invocation must be exact and singular
+docs/ARCHITECTURE.md:1: trusted-time topology opaque launch-lock lifecycle documentation claim must remain exact and singular
+docs/ARCHITECTURE.md:1: trusted-time topology opaque launch-lock lifecycle activation-blocker claim must remain exact and singular
+docs/IMPLEMENTATION_PLAN.md:1: trusted-time topology opaque launch-lock lifecycle documentation claim must remain exact and singular
+docs/IMPLEMENTATION_PLAN.md:1: trusted-time topology opaque launch-lock lifecycle activation-blocker claim must remain exact and singular
+Architecture boundary check failed with 6 violation(s).

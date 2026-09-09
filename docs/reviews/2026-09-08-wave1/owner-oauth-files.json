@@ -1,0 +1,5 @@
+{
+  "packages/adapters/broker/etrade_owner_oauth.py": "c18bed4134a61938f96dd70d853c8500ce7d8f69698263d64607cc27a735d3b0",
+  "scripts/authorize_etrade_session.py": "e8daee518f3dd62f92aebe373fe7bbf9353ef154e7579f70738e38d11f4d94e0",
+  "tests/unit/test_etrade_owner_oauth.py": "2651d2aaa7e02eb82f8fcce6340c1a377868b05657de528a957c57b18e7d5f4c"
+}

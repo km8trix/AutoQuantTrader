@@ -1,0 +1,31 @@
+import subprocess,pathlib,os,signal,json,time,selectors
+base=pathlib.Path('/private/tmp/aqt-wave1-rp_bjl5c');repo=base/'integration-stage';env={'PATH':'/usr/bin:/bin','PYTHONDONTWRITEBYTECODE':'1'}
+wheel=base/'wheel-final/autoquant_trader-0.1.0-py3-none-any.whl'
+with (base/'check-output/installed-wheel.txt').open('w') as log:
+ for cmd in [['/private/tmp/aqt-wave0-f152ahl7/venv/bin/python','-B',str(repo/'scripts/verify_personal_wheel.py'),str(wheel.parent)],['/Users/spencer.karrat/.local/bin/uv','pip','install','--python',str(base/'installed/bin/python'),'--no-deps','--no-cache','--reinstall',str(wheel)]]:
+  subprocess.run(cmd,cwd=base,env=env,stdout=log,stderr=subprocess.STDOUT,check=True,timeout=30)
+command=[str(base/'installed/bin/autoquant-personal-simulation'),'--instance-lock',str(base/'runtime-final.lock')]
+proc=subprocess.Popen(command,cwd=base,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+assert proc.stdout is not None
+selector=selectors.DefaultSelector();selector.register(proc.stdout,selectors.EVENT_READ)
+try:
+ assert selector.select(5),'startup event timed out'
+ first=json.loads(proc.stdout.readline());assert first['event']=='started' and first['status']=='HALTED' and first['order_authority'] is False
+ duplicate=subprocess.run([*command,'--once'],cwd=base,env=env,capture_output=True,text=True,timeout=5)
+ assert duplicate.returncode==2 and 'already running' in duplicate.stderr
+ started=time.monotonic();proc.send_signal(signal.SIGTERM);remaining,err=proc.communicate(timeout=5);duration=time.monotonic()-started
+ assert proc.returncode==0 and not err
+ events=[first,*[json.loads(line) for line in remaining.splitlines()]]
+ assert events[-1]['event']=='stopped' and events[-1]['broker_exposure']=='unknown'
+ assert all(e['order_authority'] is False and e['live_enabled'] is False for e in events)
+finally:
+ selector.close()
+ if proc.poll() is None: proc.kill();proc.wait()
+restart=subprocess.run([*command,'--once'],cwd=base,env=env,capture_output=True,text=True,timeout=5)
+assert restart.returncode==0
+restart_events=[json.loads(line) for line in restart.stdout.splitlines()]
+assert restart_events[0]['status']=='HALTED' and restart_events[-1]['status']=='STOPPED'
+record={'installed_outside_checkout':True,'environment':'empty except PATH and bytecode setting','installed_runtime_has_no_dependencies':True,'started':'HALTED','duplicate_exit':duplicate.returncode,'stop_exit':proc.returncode,'stop_seconds':round(duration,4),'stop_exposure':'unknown','restart':'HALTED then STOPPED','live_enabled':False,'order_authority':False}
+(base/'installed-runtime-verification.json').write_text(json.dumps(record,indent=2)+'\n')
+(base/'check-output/runtime-events.json').write_text(json.dumps({'first_process':events,'restart':restart_events},indent=2)+'\n')
+print(json.dumps(record,indent=2))

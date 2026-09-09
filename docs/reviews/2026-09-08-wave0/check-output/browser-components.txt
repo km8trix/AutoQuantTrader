@@ -1,0 +1,39 @@
+
+ RUN  v3.2.7 /private/tmp/aqt-wave0-f152ahl7/web
+
+ ✓ src/features/research/BacktestsPage.test.tsx (5 tests) 1034ms
+   ✓ BacktestsPage > shows durable progress, lifecycle history, and the completed report evidence  335ms
+ ✓ src/features/research/ExperimentsPage.test.tsx (9 tests) 1031ms
+ ✓ src/features/operations/OperationalControlPanel.test.tsx (13 tests) 4122ms
+   ✓ Phase 5G safe operational controls > keeps development fixtures mutation-disabled and never renders forbidden controls  348ms
+   ✓ Phase 5G safe operational controls > reuses the exact idempotency key after an ambiguous network failure  418ms
+   ✓ Phase 5G safe operational controls > reuses the exact idempotency key after an ambiguous server failure  429ms
+   ✓ Phase 5G safe operational controls > reuses the exact idempotency key after an ambiguous malformed success  388ms
+   ✓ Phase 5G safe operational controls > reuses the exact idempotency key after an ambiguous mismatched success  416ms
+   ✓ Phase 5G safe operational controls > uses a distinct key for a later HALT intent and requires stronger typed confirmation  633ms
+   ✓ Phase 5G safe operational controls > fails closed when the account changes during confirmation and requires reconfirmation  460ms
+   ✓ Phase 5G safe operational controls > never replays an ambiguous retained key against a different account  414ms
+ ✓ src/features/operations/OperationsPages.test.tsx (6 tests) 529ms
+ ✓ src/api/eventStream.test.ts (6 tests) 7ms
+ ✓ src/features/data/DataCatalogPage.test.tsx (3 tests) 415ms
+ ✓ src/features/operations/OperationsDashboardPage.test.tsx (2 tests) 456ms
+   ✓ OperationsDashboardPage > renders every required operational evidence surface from a GET snapshot  354ms
+ ✓ src/features/research/StrategiesPage.test.tsx (2 tests) 234ms
+ ✓ src/features/overview/OverviewPage.test.tsx (3 tests) 307ms
+ ✓ src/features/data/DataQualityPage.test.tsx (3 tests) 246ms
+ ✓ src/app/AppShell.test.tsx (2 tests) 192ms
+ ✓ src/app/AppRoutes.test.tsx (6 tests) 1296ms
+   ✓ AppRoutes > exposes an accessible loading state while a route chunk resolves  344ms
+   ✓ AppRoutes > renders the Phase 5 page for /operations/reconciliation  309ms
+   ✓ AppRoutes > renders the Phase 5 page for /operations/audit  308ms
+   ✓ AppRoutes > renders the Phase 5 page for /settings  308ms
+ ✓ src/app/AppErrorBoundary.test.tsx (1 test) 105ms
+ ✓ src/components/EnvironmentBanner.test.tsx (2 tests) 52ms
+ ✓ src/api/useUiEventStream.test.tsx (1 test) 11ms
+ ✓ src/api/format.test.ts (3 tests) 14ms
+
+ Test Files  16 passed (16)
+      Tests  67 passed (67)
+   Start at  00:56:57
+   Duration  17.57s (transform 1.50s, setup 3.38s, collect 10.10s, tests 10.05s, environment 9.09s, prepare 731ms)
+

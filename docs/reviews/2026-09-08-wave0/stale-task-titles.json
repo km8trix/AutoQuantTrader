@@ -1,0 +1,47 @@
+[
+  {
+    "id": "01a06593-5780-7233-9104-39a6914b8e7c",
+    "title": "AutoQuantTrader Wave Orchestrator —…",
+    "status": "notLoaded"
+  },
+  {
+    "id": "01a06d8a-fcd3-7831-9378-d7b500e36055",
+    "title": "Correct Docker fault case builder",
+    "status": "notLoaded"
+  },
+  {
+    "id": "01a06dc0-70fe-7ab0-bf2b-efd7227fac7e",
+    "title": "Wave 8 Docker security-oracle hardening",
+    "status": "notLoaded"
+  },
+  {
+    "id": "01a06dc6-8724-7b83-9786-f9fb7a0a5ab2",
+    "title": "Wave 8 authority registry foundation…",
+    "status": "notLoaded"
+  },
+  {
+    "id": "01a06dc8-1e13-7580-93d5-6daa3e9cc065",
+    "title": "Wave 8 lifecycle convergence exact audit",
+    "status": "notLoaded"
+  },
+  {
+    "id": "01a06dcb-9593-7b13-8195-43cfb9383c6b",
+    "title": "Wave 8 repository owner architecture…",
+    "status": "notLoaded"
+  },
+  {
+    "id": "01a06dcf-f644-7e80-a040-c8f54f587306",
+    "title": "Wave 8 supervisor codec hardened-evidence…",
+    "status": "notLoaded"
+  },
+  {
+    "id": "01a06dd7-baf6-79a2-86e9-1e4a9da3dc25",
+    "title": "Wave 8 recovery UBSan correction",
+    "status": "notLoaded"
+  },
+  {
+    "id": "01a06dd9-8ae2-77a2-a1c7-b6acbda47cf3",
+    "title": "Wave 8 ADR 0129 versioning correction",
+    "status": "notLoaded"
+  }
+]

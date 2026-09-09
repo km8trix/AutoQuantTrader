@@ -1,0 +1,156 @@
+worktree /Users/spencer.karrat/Documents/GitHub/AutoQuantTrader
+HEAD 107fa791bb52e9fa42cbce65992ea1ce9168834e
+branch refs/heads/codex/personal-use-planning-20260908
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/repo
+HEAD 8685b56230ceb3b0a1f41df57121785ced7c368b
+branch refs/heads/codex/operator-attestation-verification
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/captured-tape-validity
+HEAD 2c2bcfbcb0d1b655882badd3e01926f658caa2ad
+branch refs/heads/codex/wave2-captured-tape-validity
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/ci-repair-wave
+HEAD 86a34031e79caf049ac80372762f3a1297b2961c
+branch refs/heads/codex/ci-repair-wave
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/etrade-accounts-offline-decoder
+HEAD 95dd91d71f4ae09af00b3b843a9b39de07adff42
+branch refs/heads/codex/wave2-etrade-accounts-offline-decoder
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/etrade-foundation
+HEAD 090d8f89b6e2ea79ce80b3308836b8e5395112ce
+branch refs/heads/codex/wave1-etrade-foundation
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/etrade-oauth-contract
+HEAD 5b361ccde90660180cbdf6fc32afcf4dd5aa30cb
+branch refs/heads/codex/wave3-etrade-oauth-contract
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/integration-checkpoint
+HEAD 6b33cefee3b86ddcb54cea0b63a8a7087f5f2ce5
+branch refs/heads/codex/wave-integration-checkpoint
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/phase3f-fixture-segment-worker
+HEAD 5ffcb38018db0067e7de856ed5a230a151523ec3
+branch refs/heads/codex/wave3-phase3f-fixture-segment-worker
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/production-data-admission
+HEAD 18efeec12aa13b8af080c9f594a33b53424d2cc6
+branch refs/heads/codex/wave1-production-data-admission
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/trusted-time-adr0116
+HEAD 5caa3c182cd1cdc6d9e42670ccfc7b0671df2f95
+branch refs/heads/codex/wave3-trusted-time-adr0116
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/trusted-time-runtime
+HEAD 8b69fbb1be32dda731c8969d6c94016e97ebc5e2
+branch refs/heads/codex/wave1-trusted-time-runtime
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave3-integration-checkpoint
+HEAD 8d716b5f9b1be328cbeb7e5f8e5d6a571ea2bf44
+branch refs/heads/codex/wave3-integration-checkpoint
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave4-ci-foundation
+HEAD c84a0432da6def78f4dea6448e86712f3800b3bb
+branch refs/heads/codex/wave4-ci-foundation
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave4-integration-checkpoint
+HEAD eec010fe63bb91c98f015f5d5f1654bec64259cd
+branch refs/heads/codex/wave4-integration-checkpoint
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave4-phase3g-provenance-views
+HEAD f050146ca53c981bdd396baecf22af09aa231c85
+branch refs/heads/codex/wave4-phase3g-provenance-views
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave4-phase4am-oauth-coordinator
+HEAD 3335d481e6993554ad5695cb66f6a321857b8533
+branch refs/heads/codex/wave4-phase4am-oauth-coordinator
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave4-trusted-time-adr0121
+HEAD 93dc99315057bd1e0ddfedd3dd0bcc36f5752e45
+branch refs/heads/codex/wave4-trusted-time-adr0121
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave5-integration
+HEAD 56167801080eceb9ff6de2cf1739641730bb0224
+branch refs/heads/codex/wave5-integration
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave5-phase3h-economic-segment
+HEAD 6fdaab3a5353d81adfca431d66bf1768f2d15279
+branch refs/heads/codex/wave5-phase3h-economic-segment
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave5-phase4an-oauth-runtime
+HEAD ad7f6d38077cca80c8e646dbcf61a415cc218971
+branch refs/heads/codex/wave5-phase4an-oauth-runtime
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave5-trusted-time-v2-m1
+HEAD fdb393d24bab733b767713cced9de7d7e7731ab9
+branch refs/heads/codex/wave5-trusted-time-v2-m1
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave5-trusted-time-v2-m1-fix
+HEAD f16fd7a0570fdc798c10d7edbdcaf24bc3e3f43d
+branch refs/heads/codex/wave5-trusted-time-v2-m1-fix
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-docker-evidence
+HEAD eb5f1fde1c7d7e292545c65c9673f4083772f5d8
+branch refs/heads/codex/wave6-docker-evidence
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-ed25519-runtime-seal
+HEAD e8b228b7b846c4f137c6365ec45c476a0d8b9f6b
+branch refs/heads/codex/wave6-ed25519-runtime-seal
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-integration
+HEAD c64cbb2da0e600a3899387d3d58e6a7d8762b00c
+branch refs/heads/codex/wave6-integration
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-lifecycle-contracts
+HEAD bc19da940078eeacbf6d6678067e337e22020317
+branch refs/heads/codex/wave6-lifecycle-contracts
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-lifecycle-persistence
+HEAD f10930d46be73e16e10c1ab53adac2404934cbeb
+branch refs/heads/codex/wave6-lifecycle-persistence
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-lifecycle-semantics
+HEAD 08dcd9099dfe303f3b4b9fada4b80884506b9ec1
+branch refs/heads/codex/wave6-lifecycle-semantics
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-outcome-recovery
+HEAD ed0bfeca1362de32ab706d6ca348eac5439afe8f
+branch refs/heads/codex/wave6-outcome-recovery
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-reauth-bindings
+HEAD 13c1e422f053320a4aa167ea4537af9ea4550295
+branch refs/heads/codex/wave6-reauth-bindings
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave6-runtime-seal-preseed
+HEAD c43e5d2aa1200f7e1ffc389908a89c1f1c683a18
+branch refs/heads/codex/wave6-runtime-seal-preseed
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-authority
+HEAD c24be1d1725a2235425728515f3f11ef92597644
+branch refs/heads/codex/wave7-authority
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-candidate-packaging
+HEAD dae57c6d573b1dc8cc12fc2e9f91851afeff42b9
+branch refs/heads/codex/wave7-candidate-packaging
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-endpoint-resources
+HEAD 2aa2f3e7f250f94a598c51aed2d0c8d1dead343d
+branch refs/heads/codex/wave7-endpoint-resources
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-guard-signer
+HEAD da84b9cb24db51152cb326e112e95abf38dbd778
+branch refs/heads/codex/wave7-guard-signer
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-integration
+HEAD 7d8c80e6a028a6a77a63892035462f11dbc811d5
+branch refs/heads/codex/wave8-integration
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-profiles-provisioning
+HEAD 3b2bbf018e775e46d7b4c7859d9a0870827467b1
+branch refs/heads/codex/wave7-profiles-provisioning
+
+worktree /Users/spencer.karrat/Documents/AutoQuantTrader/wave-worktrees/wave7-signer-custody
+HEAD 02ed3f1efb06e372dd2ffa89144ac3503aeba3ec
+branch refs/heads/codex/wave7-signer-custody
+

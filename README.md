@@ -1,5 +1,7 @@
 # AutoQuantTrader
 
+> [Architecture](docs/ARCHITECTURE.md) and [implementation waves](docs/IMPLEMENTATION_PLAN.md) are the current design and roadmap. Wave 1 adds a Tiingo research import and a halted standard runtime; E*TRADE production read traversal passed under the owner-approved margin-privilege amendment. Cash-funded strategy limits remain, while connected financing/reconciliation and sandbox balance identity remain unqualified. See the [account amendment](docs/contracts/personal-v1/account-eligibility-amendment.md). See the [foundation runbook](docs/runbooks/personal-v1-foundations.md).
+
 AutoQuantTrader is a safety-first, event-driven platform for quantitative
 research, backtesting, and eventually automated trading. It is designed to move
 a versioned strategy through the same causal decision path—from point-in-time
@@ -29,7 +31,15 @@ evidence.
 | **Not yet enabled** | Production data, paper order submission, and live trading |
 | **Core stack** | Python 3.12, FastAPI, PostgreSQL, React, TypeScript, and Docker Compose |
 
-## Quickstart
+## Standard personal profile
+
+The new CLI imports and replays explicit Tiingo daily history and runs a local process that starts halted. It does not execute a strategy or submit orders. A real four-symbol, five-session sample has been imported and replayed; [Wave 1 evidence](docs/reviews/2026-09-08-wave1/README.md) records its limits.
+
+Follow the [foundation runbook](docs/runbooks/personal-v1-foundations.md) to create a separate environment, run `make personal-simulation`, or import a dataset. Owner OAuth and account discovery succeeded for sandbox and production. The owner confirmed account selection and exclusive use. Qualification is blocked by sandbox identity mismatch and a production balance response reporting MARGIN despite discovery reporting CASH.
+
+## Historical application quickstart
+
+The existing browser/API fixture stack below is retained separately from the new standard CLI. Its container/native qualification has not been renewed for this personal profile.
 
 ### Prerequisites
 
@@ -224,32 +234,11 @@ Vendor qualification and capture commands are documented separately in
 [Market-data admission](docs/admission/README.md); they are not part of the
 credential-free local demo.
 
-## Future goals
+## Planning and next work
 
-1. **Qualify production market data.** Admit a licensed point-in-time source and
-   validate real revisions, security identity, calendars, and corporate actions.
-2. **Complete research validation.** Add general isolated strategy workers,
-   captured tapes, richer performance evaluation, and replay-versus-shadow
-   parity.
-3. **Complete provider-qualified execution and reconciliation.** Continue the
-   selected E\*TRADE track through secret-safe OAuth, authenticated account and
-   read-only evidence, Preview/Place/Cancel qualification, and authoritative
-   reconciliation. Keep the existing Alpaca work as a provider-specific paper
-   qualification lane. Neither path by itself authorizes paper or live orders.
-4. **Harden operations, then activate supervised paper trading.** Complete
-   external alerting and telemetry, account-bound controls, trusted-time
-   monitoring, browser security, backup/restore, and timed failure drills before
-   enabling paper execution.
-5. **Run a supervised paper soak.** Operate the frozen candidate for at least
-   4–8 weeks with evidence quotas and no unexplained order, fill, cash, position,
-   ledger, or reconciliation differences.
-6. **Consider a minimum-size live canary.** Only after explicit human approval:
-   begin with live shadow mode, then one symbol and minimal capital under direct
-   supervision. Live promotion is never automatic.
+The [consolidated implementation plan](docs/IMPLEMENTATION_PLAN.md) prioritizes usable daily research, one causal financial engine, applied reconciliation and practical operations. It defines the only current backlog, with one orchestrator and at most three concurrent worker tasks.
 
-Longer-term expansion may include broader U.S. equities, quote-aware limit
-orders, and multiple concurrently trade-enabled strategies sharing one account,
-but only after the narrower v1 path is proven.
+The [design review](docs/reviews/2026-09-08-design-review.md) compares the independent baseline with the previous design and implemented code. E*TRADE remains the selected live target; local stateful simulation, sandbox protocol checks, production reads/previews and actual live evidence remain separate. No new implementation or trading activity was performed during planning.
 
 ## Deeper documentation
 

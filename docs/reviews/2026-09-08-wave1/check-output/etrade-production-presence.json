@@ -1,0 +1,10 @@
+{
+  "exit_code": 2,
+  "blocker": "OWNER_OAUTH_CONSENT_AND_ENVIRONMENT_BOUND_ACCESS_TOKEN_REQUIRED",
+  "consumer_pair_present": true,
+  "environment": "production",
+  "provider_requests": 0,
+  "scoped_access_pair_present": false,
+  "scoped_token_times_present": false,
+  "unscoped_access_pair_present": false
+}

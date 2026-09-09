@@ -186,7 +186,7 @@ frontend-check: ## Check browser lint, types, tests, and production build.
 
 architecture-check: ## Enforce dependency direction between packages and apps.
 	$(UV) run --isolated --no-project --no-config --offline --no-python-downloads \
-		--python 3.12 python -I -B scripts/check_architecture.py
+		--python 3.12 python -I -B scripts/check_personal_architecture.py
 
 api-contracts: ## Regenerate the checked-in OpenAPI document and browser wire types.
 	$(UV) run python scripts/generate_api_contracts.py
@@ -194,13 +194,11 @@ api-contracts: ## Regenerate the checked-in OpenAPI document and browser wire ty
 api-contracts-check: ## Fail if the checked-in API contract artifacts are stale.
 	$(UV) run python scripts/generate_api_contracts.py --check
 
-test: ## Run backend tests.
-	$(UV) run pytest
+test: ## Run the standard foundation and retained financial regression suite.
+	$(MAKE) personal-test
 
 compose-check: ## Validate the Docker Compose model without starting services.
-	$(COMPOSE) config --quiet
-	$(TRUSTED_TIME_PYTHON) \
-		scripts/verify_trusted_time_compose.py
+	$(COMPOSE) --env-file /dev/null config --quiet
 
 trusted-time-compose-check: ## Verify the isolated evidence-only Compose contract.
 	$(TRUSTED_TIME_PYTHON) \
@@ -488,3 +486,32 @@ trusted-time-inspect: ## Inspect the running trusted-time qualification window.
 trusted-time-stop: ## Fail closed until an effecting approved shutdown operator is implemented.
 	@echo "trusted-time-stop is approval-blocked: no effecting approved shutdown operator is implemented" >&2
 	@exit 2
+
+.PHONY: personal-simulation personal-check personal-test legacy-architecture-check
+
+personal-simulation: ## Run the halted local simulation profile; INSTANCE_LOCK is required.
+	@test -n "$(INSTANCE_LOCK)" || (echo "INSTANCE_LOCK=/private/path/runtime.lock is required" >&2; exit 2)
+	$(UV) run --no-env-file autoquant-personal-simulation --instance-lock "$(INSTANCE_LOCK)" $(ARGS)
+
+personal-check: ## Validate standard profile boundaries, Python quality, and selected regressions.
+	$(MAKE) architecture-check
+	$(MAKE) backend-check
+	$(MAKE) personal-test
+	$(MAKE) api-contracts-check
+
+personal-test: ## Run the explicit personal profile foundation and financial regression suite.
+	$(UV) run --no-env-file python -B scripts/run_personal_tests.py $(ARGS)
+
+legacy-architecture-check: ## Diagnose historical native seals; not personal-profile readiness.
+	$(UV) run --isolated --no-project --no-config --offline --no-python-downloads \
+		--python 3.12 python -I -B scripts/check_architecture.py
+
+.PHONY: personal-import
+
+personal-import: ## Import explicit local Tiingo files; pass declaration/calendar/source/output in ARGS.
+	$(UV) run --no-env-file python -m scripts.import_personal_dataset $(ARGS)
+
+.PHONY: legacy-test
+
+legacy-test: ## Run the full historical suite; includes native qualification prerequisites.
+	$(UV) run --no-env-file pytest $(ARGS)

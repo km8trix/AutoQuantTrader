@@ -1,5 +1,7 @@
 # Operational runbooks
 
+> These are implementation-era references. The current [architecture](../ARCHITECTURE.md) and [wave plan](../IMPLEMENTATION_PLAN.md) supersede conflicting future requirements. Existing command guards remain unchanged. Each replacement wave must update and exercise its runbooks before operational use; old smoke/Alpaca/native-time procedures are not the new personal-v1 deployment instructions.
+
 These runbooks are conservative defaults. Broker-specific commands, deployed
 alert routes/recipients, telemetry export policy, authoritative re-arm
 composition, and measured provider/deployment fault-drill results must be
@@ -22,3 +24,10 @@ supplied and exercised before paper-soak readiness.
   four-input launcher, applied signed sparse-head schema, bounded full audits,
   pending external provisioning/enrollment, and qualification/shutdown
   procedure
+
+## Personal-v1 foundation
+
+- [Data import and standard local process](personal-v1-foundations.md)
+- [E*TRADE read-only session references and external OAuth blocker](personal-v1-etrade-readonly.md)
+
+Read the [canonical plan](../IMPLEMENTATION_PLAN.md) for current readiness; these runbooks do not authorize later waves or trading.

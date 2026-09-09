@@ -1,0 +1,57 @@
+{
+  "scope": "Public metadata boundary; original private evidence retained outside Git",
+  "files": {
+    "live-broker-discovery.json": {
+      "private_original_sha256": "e8ef912d3fcca362ea79e9aede70a7604e2628de85b1ef9900378acea34f69ac",
+      "removed_fields": [
+        "$.environments.production.private_journal_path",
+        "$.environments.sandbox.private_journal_path"
+      ],
+      "published_sha256": "109cad7bb97925832c506db3c4ee643cb6c58baded8840961d0459bdbd78b9c8"
+    },
+    "live-broker-capture-blockers.json": {
+      "private_original_sha256": "07bfcdc067d0ce76485d743d9c92512a38b0f75776c303c85e7dfeeb69986830",
+      "removed_fields": [
+        "$.environments.production.pages[*].private_journal_path",
+        "$.environments.sandbox.pages[*].private_journal_path"
+      ],
+      "published_sha256": "79bfea05323fd4713f866bd3ec0c3e044cf1b5c7e5122a1a4619723b76f3d03f"
+    },
+    "live-broker-alternate-sandbox.json": {
+      "private_original_sha256": "a50ef805c111f5ef33b0cadee128a9283f6ca43f43763ef9cc7c3dd72494bc0c",
+      "removed_fields": [
+        "$.pages[*].private_journal_path"
+      ],
+      "published_sha256": "ffe53486953fb95577d28c8d1d3ef2f07e9d8cf518ce95d5027838981bc4592d"
+    },
+    "live-broker-sandbox-refresh.json": {
+      "private_original_sha256": "ec13d167fe715024b2b3aed31c840312bdc8ac9fe805567041a7ddc7bae7fba4",
+      "removed_fields": [
+        "$.accounts",
+        "$.page.private_journal_path",
+        "$.production_owner_confirmation.account_last_four",
+        "$.renewal.session_reference"
+      ],
+      "published_sha256": "73d5fc2159e76d300b92713245072e666a467fe1fb40387a91adfb9066a7f64c"
+    },
+    "live-broker-production-cash-funded.json": {
+      "private_original_sha256": "271855d0f63c82d9e327dd07f5abfff8c9066d49cfe2920a15d9c8f31f52b49e",
+      "removed_fields": [
+        "$.account_last_four",
+        "$.attempts[*].account_last_four",
+        "$.attempts[*].pages[*].private_journal_path",
+        "$.attempts[*].renewal.session_reference",
+        "$.attempts[*].session_reference",
+        "$.attempts[*].source_session_reference",
+        "$.renewal.session_reference"
+      ],
+      "published_sha256": "a770f73627731ebc713ce0bcaae486e1b381ea8f05c2536ca74377cf5064ed48"
+    },
+    "run_sandbox_refresh_list.py.txt": {
+      "private_original_sha256": "bec24ed22db9cd903ee1cb92cc6c1e37112de15bbeb44ea8449fb6053610025f",
+      "reason": "owner-specific account/session references",
+      "published_sha256": "a2ef3cef9e58641c9381440016d9e9cca24a21197251427cacc99b3c928d0e1c"
+    }
+  },
+  "one_off_production_runners": "Retained privately; production attempt metadata pins executed implementation hashes."
+}

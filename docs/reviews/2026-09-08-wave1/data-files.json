@@ -1,0 +1,9 @@
+{
+  "packages/domain/research_dataset.py": "a264d297b12470348fa17e7b4468ee059bd68324678cd0e28c6bba9f97e27bf8",
+  "packages/adapters/market_data/tiingo_eod_import.py": "93c424c14c440dadccb8471bd895526704aba23be004292b0d881bab7f9b2bae",
+  "packages/application/research_dataset.py": "bae65c242cf605d17122d262db0079d48fa298c40e714a1c6e342cb622d5964c",
+  "scripts/import_personal_dataset.py": "4fe2ed6e156a08e44dafa8f63afcd02a4104ba06ecb093e20cbbdd6b992b77ef",
+  "scripts/capture_personal_tiingo.py": "90ff40381c2918331f0efe718651ac44e6b472416b75d477258ba9b895bcbf77",
+  "tests/unit/test_personal_research_dataset.py": "1f1c973fb442459418759d07204fd31759f5d6e0cb071a41560d79c8a90a8aaa",
+  "tests/unit/test_personal_tiingo_capture.py": "7d3b4dd6beb61f7d2b72b313a2dcfa16cd9dcdcafe57a86d6d514dd31dc20d29"
+}

@@ -1,0 +1,66 @@
+"""Independent Wave 0 arithmetic review; deliberately imports no product code."""
+from decimal import Decimal as D
+from fractions import Fraction as F
+from pathlib import Path
+import hashlib, json
+
+SOURCE=Path('/private/tmp/aqt-wave0-lane-a/economics-cases.json')
+data=json.loads(SOURCE.read_text())
+C={c['id'].split('-')[0]:c for c in data['cases']}
+checks=[]
+def cp(case,after):return next(c for c in C[case]['checkpoints'] if c['after']==after)
+def eq(case,label,actual,expected):
+    assert F(actual)==F(str(expected)),(case,label,actual,expected)
+    checks.append({'case':case,'field':label,'actual':str(actual),'expected':str(expected)})
+def fields(case,point,values):
+    for k,v in values.items():eq(case,k,v,point[k])
+
+# E1: gross asset basis; fees immediately expensed, settlement reclassifies assets/liabilities.
+buy=D(4)*D(100)+D(1);sale=D(2)*D(110)-D(1)
+fields('E1',cp('E1',2),{'cash_trade_date':D(1000)-buy,'cash_settled':D(1000),'payable':buy,'cash_available_before_open_order_reserves':D(1000)-buy,'quantity':D(4),'basis':D(4)*D(100),'nav':D(1000)-buy+D(4)*D(100),'fees':D(1),'net_pnl':-D(1)})
+fields('E1',cp('E1',3),{'cash_settled':D(1000)-buy,'payable':D(0),'nav_at_100':D(1000)-buy+D(400)})
+fields('E1',cp('E1',4),{'cash_trade_date':D(1000)-buy+sale,'cash_settled':D(1000)-buy,'receivable':sale,'cash_available_before_open_order_reserves':D(1000)-buy,'quantity':D(4)-D(2),'basis':D(400)-D(200),'nav':D(1000)-buy+sale+D(2)*D(110),'gross_realized_pnl':D(2)*D(10),'fees':D(1)+D(1),'net_realized_pnl':D(2)*D(10)-D(2),'unrealized_pnl':D(2)*D(10),'net_pnl':D(40)-D(2)})
+fields('E1',cp('E1',5),{'cash_settled':D(1000)-buy+sale,'receivable':D(0),'cash_available_before_open_order_reserves':D(1000)-buy+sale,'nav_at_110':D(1000)-buy+sale+D(220)})
+
+# E2: entitlement is fixed before the ex-date; payment cannot recognize income again.
+dividend=D(4)*D(2);mv=D(4)*D(98)
+fields('E2',cp('E2',1),{'cash':D(600),'market_value':mv,'dividend_receivable':dividend,'nav':D(600)+mv+dividend,'dividend_income':dividend,'unrealized_pnl':mv-D(400),'net_pnl':dividend+mv-D(400)})
+fields('E2',cp('E2',2),{'cash':D(600)+dividend,'market_value':mv,'dividend_receivable':D(0),'nav':D(600)+dividend+mv,'dividend_income':dividend,'net_pnl':D(600)+dividend+mv-D(1000)})
+
+# E3: a split changes share units, not total basis; then FIFO releases three new units.
+q=D(4)*D(2);unit=D(400)/q;proceeds=D(3)*D(55)-D(1)
+fields('E3',cp('E3',2),{'quantity':q,'basis':D(400),'per_share_basis':unit,'nav':D(600)+q*D(50)})
+fields('E3',cp('E3',3),{'cash_trade_date':D(600)+proceeds,'quantity':q-D(3),'basis':D(400)-D(3)*unit,'market_value':(q-D(3))*D(55),'nav':D(600)+proceeds+(q-D(3))*D(55),'gross_realized_pnl':D(3)*(D(55)-unit),'fees':D(1),'net_realized_pnl':D(3)*(D(55)-unit)-D(1),'unrealized_pnl':(q-D(3))*(D(55)-unit),'net_pnl':D(600)+proceeds+(q-D(3))*D(55)-D(1000)})
+
+# E4/E5: use exact fractional subperiod wealth ratios, not a period-end flow adjustment.
+for case,flow,endprice in [('E4',D(500),D('132.5')),('E5',-D(200),D('123.75'))]:
+    initial=D(8)*D(100)+D(200);pre=D(8)*D('112.5')+D(200)
+    post=pre+flow;cash=D(200)+flow;end=D(8)*endprice+cash
+    p=C[case]['expected'];r1=F(pre)/F(initial)-1;r2=F(end)/F(post)-1
+    fields(case,p,{'cash':cash,'pnl':end-initial-flow,'first_subperiod_return_fraction':r1,'second_subperiod_return_fraction':r2,'twr_fraction':(1+r1)*(1+r2)-1})
+    if case=='E4':
+        fields(case,p,{'market_value':D(8)*endprice,'net_contributions_after_opening':flow,'ending_nav':end,'naive_period_end_flow_adjustment_fraction':F(end-flow)/F(initial)-1})
+        b=C[case]['benchmark_matching_flow_clock'];units=F(500,110);total=F(10)+units
+        fields(case,b,{'units_purchased_fraction':units,'total_units_fraction':total,'terminal_value':total*F(121),'twr_fraction':F(110,100)*F(121,110)-1})
+    else:fields(case,p,{'net_flow_after_opening':flow})
+
+# E6: correction replaces the current fill via delta; explicit synthetic bust also reverses fees.
+old=D(4)*D(100)+D(1);new=D(4)*D(101)+D(2)
+fields('E6',cp('E6',1),{'cash':D(1000)-old,'quantity':D(4),'basis':D(400),'fees':D(1)})
+fields('E6',cp('E6',2),{'cash':D(1000)-new,'quantity':D(4),'basis':D(4)*D(101),'fees':D(2),'nav':D(1000)-new+D(4)*D(101),'correction_cash_delta':-(new-old),'correction_security_value_delta':D(4)*(D(101)-D(100)),'correction_fee_delta':D(2)-D(1)})
+fields('E6',cp('E6',3),{'cash':D(1000)-new,'quantity':D(4),'basis':D(4)*D(101),'fees':D(2),'new_economic_postings':D(0)})
+fields('E6',cp('E6',4),{'cash':D(1000)-new+new,'quantity':D(0),'basis':D(0),'fees':D(0),'nav':D(1000)})
+
+# E7: repeat target sees filled plus open commitment; cancel request cannot release holds.
+first=D(2)*D(100)+D(1);late=D(1)*D(102)+D(1)
+fields('E7',cp('E7',2),{'cash':D(1000)-first,'filled_quantity':D(2),'pending_quantity':D(5)-D(2),'effective_target_quantity':D(2)+D(3)})
+fields('E7',cp('E7',3),{'new_intent_quantity':D(5)-D(2)-D(3)})
+fields('E7',cp('E7',4),{'pending_quantity':D(3),'capacity_released':D(0)})
+fields('E7',cp('E7',5),{'cash':D(1000)-first-late,'filled_quantity':D(2)+D(1),'pending_quantity':D(5)-D(2)-D(1),'basis':D(2)*D(100)+D(102),'fees':D(2),'nav':D(1000)-first-late+D(3)*D(102)})
+fields('E7',cp('E7',6),{'filled_quantity':D(3),'pending_quantity':D(0),'nav_at_102':D(1000)-first-late+D(3)*D(102)})
+fields('E7',cp('E7',7),{'new_intent_quantity':D(5)-D(3)})
+assert cp('E7',7)['can_fill_from_trigger_event'] is False
+assert len(C['E8']['expectations'])==6
+result={'status':'PASS','scope':'independent contract arithmetic; no product imports or runtime behavior assertion','oracle_sha256':hashlib.sha256(SOURCE.read_bytes()).hexdigest(),'numeric_cases':7,'numeric_equalities':len(checks),'causal_rejection_flag_checked':1,'undefined_rejection_clauses_manually_reviewed':6,'checks':checks}
+out=Path(__file__).with_name('economics-verification.json');out.write_text(json.dumps(result,indent=2)+'\n')
+print(json.dumps({k:v for k,v in result.items() if k!='checks'}))

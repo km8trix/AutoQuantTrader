@@ -1,0 +1,1 @@
+{"authority": "evidence_only", "inbound_ports": 0, "new_exposure_authorized": false, "service": "trusted-time-compose-verifier", "status": "admitted"}

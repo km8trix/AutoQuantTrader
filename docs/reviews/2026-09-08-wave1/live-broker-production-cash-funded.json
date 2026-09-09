@@ -1,0 +1,382 @@
+{
+  "environment": "production",
+  "account_eligibility_amendment": "personal-v1/account-eligibility/2",
+  "financing_policy": "cash-funded-long-only/1",
+  "renewal": {
+    "started_at": "2026-09-09T22:09:51.353944+00:00",
+    "finished_at": "2026-09-09T22:09:52.350779+00:00",
+    "exit_code": 0,
+    "renewal_request_started_at": "2026-09-09T22:09:52.107169+00:00",
+    "renewal_response_received_at": "2026-09-09T22:09:52.303735+00:00",
+    "expires_at": "2026-09-10T04:00:00+00:00",
+    "token_rotated": false,
+    "provider_token_requests": 1,
+    "lifecycle_basis": "original_issuance_and_local_renewal_request_start",
+    "expiry_basis": "min_original_and_original_issue_next_eastern_midnight"
+  },
+  "capture": {
+    "started_at": "2026-09-09T22:18:47.087440+00:00",
+    "finished_at": "2026-09-09T22:18:49.478296+00:00",
+    "exit_code": 0,
+    "trading_authorized": false,
+    "borrowing_authorized": false,
+    "shorting_authorized": false,
+    "cash_funding_qualified": false,
+    "reconciliation_qualified": false,
+    "canonical_facts_published": false,
+    "traversal_complete": true,
+    "allow_margin_privileges": true,
+    "blockers": [
+      "ACCOUNT_CURRENCY_NOT_PROVEN_BY_RESPONSE",
+      "ACCOUNT_MODE_DISAGREEMENT",
+      "ACTIVITY_EXECUTION_CORRECTION_IDENTITY_UNQUALIFIED",
+      "CASH_FIELD_SEMANTICS_UNQUALIFIED",
+      "HISTORY_RETENTION_UNQUALIFIED",
+      "LIST_ORDERS_204_RESPONSE_TABLE_AMBIGUITY",
+      "MARGIN_CALLS_AND_RESTRICTIONS_UNQUALIFIED",
+      "MARGIN_LIABILITY_AND_CASH_FUNDING_UNQUALIFIED",
+      "ORDERS_NO_CONTENT_NOT_RECONCILED_ORDER_ABSENCE",
+      "PORTFOLIO_NO_CONTENT_NOT_RECONCILED_POSITION_ABSENCE",
+      "PROVIDER_QUOTAS_UNQUALIFIED",
+      "QUOTE_ENTITLEMENT_AND_EXECUTION_FRESHNESS_UNQUALIFIED",
+      "SINGLE_OBSERVATION_ROUND_NOT_RECONCILIATION"
+    ],
+    "account_modes": {
+      "balance": "MARGIN",
+      "discovery": "CASH"
+    },
+    "terminal_operations": [
+      "activity",
+      "balances",
+      "orders_current",
+      "orders_history",
+      "portfolio"
+    ]
+  },
+  "attempts": [
+    {
+      "environment": "production",
+      "selected_account_fingerprint": "2cc50bd1dcccc9f1e7bde798893238d651ddeeea88a5f120a64d85be29310871",
+      "account_eligibility_amendment": "personal-v1/account-eligibility/2",
+      "financing_policy": "cash-funded-long-only/1",
+      "owner_authorization": "Owner revised cash-only eligibility after selecting this dedicated account and confirming its margin privileges.",
+      "original_session_modified": false,
+      "sandbox_requests_this_attempt": 0,
+      "trading_authorized": false,
+      "borrowing_authorized": false,
+      "prior_successful_account_gets": 9,
+      "prior_oauth_token_requests": 5,
+      "executed_files": {
+        "AGENTS.md": "58bf8c0cde2e27509d664e1594ea0ca0cc60e4ab2d0ba07b2aa53c473b463973",
+        "README.md": "04b0f177dd7dc61942fe7b129f35c6c680f33d7e8fe3e29ca887ebde10a6c146",
+        "docs/ARCHITECTURE.md": "736ad715971bde15e9b4d17901c0383dd09f854b45df725128740d0a3039ff06",
+        "docs/IMPLEMENTATION_PLAN.md": "0c84520a19911ba260111c5cbe8b7c26919288f340bceb30cbd8ed50a98a6ed9",
+        "docs/contracts/personal-v1/account-eligibility-amendment.md": "ef540c8c2cb3a9f5a2a38ac1c88e95c83c95b9249d6562de762c3df95af5045d",
+        "docs/reviews/2026-09-08-wave1/README.md": "cf6c55288ea860dd0e28a81a66e688b657a6244b4813bb22d610308bd6fd837b",
+        "docs/runbooks/personal-v1-etrade-readonly.md": "7e70cc4ef9667aa989b2ca1020da22126cc4e0c21c5c8f95d672d41207e8bf12",
+        "packages/application/etrade_session.py": "c52f27d47abab3b533cca879c99c2dd1caa4a7684ba7498a4e5274ca0829d4bd",
+        "scripts/qualify_etrade_readonly.py": "7b81ded3e16d41027f91d9c561beb259b33696c36dc9a957acd0ef5ea40a4bbe",
+        "tests/unit/test_etrade_session.py": "be4f0b4dc1eec2c92f3dd4b7c709ecb568743da703360e96de80bf4ef92c10d0"
+      },
+      "renewal": {
+        "started_at": "2026-09-09T22:09:51.353944+00:00",
+        "finished_at": "2026-09-09T22:09:52.350779+00:00",
+        "exit_code": 0,
+        "renewal_request_started_at": "2026-09-09T22:09:52.107169+00:00",
+        "renewal_response_received_at": "2026-09-09T22:09:52.303735+00:00",
+        "expires_at": "2026-09-10T04:00:00+00:00",
+        "token_rotated": false,
+        "provider_token_requests": 1,
+        "lifecycle_basis": "original_issuance_and_local_renewal_request_start",
+        "expiry_basis": "min_original_and_original_issue_next_eastern_midnight"
+      },
+      "history_bounds": {
+        "start_date": "2026-09-02",
+        "end_date": "2026-09-09"
+      },
+      "capture": {
+        "started_at": "2026-09-09T22:09:52.351304+00:00",
+        "finished_at": "2026-09-09T22:09:53.939514+00:00",
+        "exit_code": 2,
+        "trading_authorized": false,
+        "borrowing_authorized": false,
+        "shorting_authorized": false,
+        "cash_funding_qualified": false,
+        "reconciliation_qualified": false,
+        "canonical_facts_published": false,
+        "traversal_complete": false,
+        "allow_margin_privileges": true,
+        "blockers": [
+          "ACCOUNT_CURRENCY_NOT_PROVEN_BY_RESPONSE",
+          "ACCOUNT_MODE_DISAGREEMENT",
+          "ACTIVITY_EXECUTION_CORRECTION_IDENTITY_UNQUALIFIED",
+          "CASH_FIELD_SEMANTICS_UNQUALIFIED",
+          "HISTORY_RETENTION_UNQUALIFIED",
+          "MARGIN_BALANCE_FIELD_UNAVAILABLE",
+          "MARGIN_CALLS_AND_RESTRICTIONS_UNQUALIFIED",
+          "MARGIN_LIABILITY_AND_CASH_FUNDING_UNQUALIFIED",
+          "PROVIDER_QUOTAS_UNQUALIFIED",
+          "QUOTE_ENTITLEMENT_AND_EXECUTION_FRESHNESS_UNQUALIFIED",
+          "SINGLE_OBSERVATION_ROUND_NOT_RECONCILIATION",
+          "UNDOCUMENTED_EMPTY_RESPONSE"
+        ],
+        "account_modes": {
+          "balance": "MARGIN",
+          "discovery": "CASH"
+        },
+        "terminal_operations": [
+          "balances"
+        ]
+      },
+      "status": "production_read_traversal_incomplete",
+      "pages": [
+        {
+          "operation": "accounts",
+          "status": 200,
+          "received_at": "2026-09-09T22:09:52.878378+00:00",
+          "raw_body_sha256": "3c1c56d6b6e2bc4ce371298e41fc449008588132d6a7d50ec6f18820fc309a16",
+          "private_journal_file_sha256": "e720584c12b1624e6de021f0b10ef512be268eaf01148d8aad08148221f2ed58"
+        },
+        {
+          "operation": "balances",
+          "status": 200,
+          "received_at": "2026-09-09T22:09:53.361994+00:00",
+          "raw_body_sha256": "dbc9922d5bbc2409b89ff09fe0b9f36a07ec527bd52ed4685c142186fb491fb9",
+          "private_journal_file_sha256": "83b2ee0355199f993dd071cd6526b2a8577b92d3eeda5803162a06e51576af9d"
+        },
+        {
+          "operation": "portfolio",
+          "status": 204,
+          "received_at": "2026-09-09T22:09:53.876032+00:00",
+          "raw_body_sha256": null,
+          "private_journal_file_sha256": "3d8f2649154decd8b0bf95df28f38c3993325e7a5991bd95fabf0a0e2e800c66"
+        }
+      ],
+      "new_recorded_account_get_attempts": 3,
+      "new_successful_account_gets": 3,
+      "cumulative_successful_account_gets": 12,
+      "cumulative_oauth_token_requests": 6
+    },
+    {
+      "environment": "production",
+      "selected_account_fingerprint": "2cc50bd1dcccc9f1e7bde798893238d651ddeeea88a5f120a64d85be29310871",
+      "account_eligibility_amendment": "personal-v1/account-eligibility/2",
+      "financing_policy": "cash-funded-long-only/1",
+      "reason_for_new_supervised_attempt": "Reviewed fix for documented initial portfolio HTTP204; prior attempt preserved.",
+      "renewal_requests_this_attempt": 0,
+      "sandbox_requests_this_attempt": 0,
+      "trading_authorized": false,
+      "borrowing_authorized": false,
+      "prior_successful_account_gets": 12,
+      "prior_oauth_token_requests": 6,
+      "executed_files": {
+        "AGENTS.md": "58bf8c0cde2e27509d664e1594ea0ca0cc60e4ab2d0ba07b2aa53c473b463973",
+        "README.md": "04b0f177dd7dc61942fe7b129f35c6c680f33d7e8fe3e29ca887ebde10a6c146",
+        "docs/ARCHITECTURE.md": "736ad715971bde15e9b4d17901c0383dd09f854b45df725128740d0a3039ff06",
+        "docs/IMPLEMENTATION_PLAN.md": "0c84520a19911ba260111c5cbe8b7c26919288f340bceb30cbd8ed50a98a6ed9",
+        "docs/contracts/personal-v1/account-eligibility-amendment.md": "ef540c8c2cb3a9f5a2a38ac1c88e95c83c95b9249d6562de762c3df95af5045d",
+        "docs/reviews/2026-09-08-wave1/README.md": "cf6c55288ea860dd0e28a81a66e688b657a6244b4813bb22d610308bd6fd837b",
+        "docs/runbooks/personal-v1-etrade-readonly.md": "7e70cc4ef9667aa989b2ca1020da22126cc4e0c21c5c8f95d672d41207e8bf12",
+        "packages/application/etrade_session.py": "487f69d735537ca77610bc972e17d9d12df18d7b4e63405817e0008ae7532c59",
+        "scripts/qualify_etrade_readonly.py": "7b81ded3e16d41027f91d9c561beb259b33696c36dc9a957acd0ef5ea40a4bbe",
+        "tests/unit/test_etrade_session.py": "1ced19ed787c298a83745c41fec4070ffbb2af03fa97f70de9a0a65edbe603a4"
+      },
+      "history_bounds": {
+        "start_date": "2026-09-02",
+        "end_date": "2026-09-09"
+      },
+      "capture": {
+        "started_at": "2026-09-09T22:13:53.485356+00:00",
+        "finished_at": "2026-09-09T22:13:55.696247+00:00",
+        "exit_code": 2,
+        "trading_authorized": false,
+        "borrowing_authorized": false,
+        "shorting_authorized": false,
+        "cash_funding_qualified": false,
+        "reconciliation_qualified": false,
+        "canonical_facts_published": false,
+        "traversal_complete": false,
+        "allow_margin_privileges": true,
+        "blockers": [
+          "ACCOUNT_CURRENCY_NOT_PROVEN_BY_RESPONSE",
+          "ACCOUNT_MODE_DISAGREEMENT",
+          "ACTIVITY_EXECUTION_CORRECTION_IDENTITY_UNQUALIFIED",
+          "CASH_FIELD_SEMANTICS_UNQUALIFIED",
+          "HISTORY_RETENTION_UNQUALIFIED",
+          "MARGIN_CALLS_AND_RESTRICTIONS_UNQUALIFIED",
+          "MARGIN_LIABILITY_AND_CASH_FUNDING_UNQUALIFIED",
+          "PORTFOLIO_NO_CONTENT_NOT_RECONCILED_POSITION_ABSENCE",
+          "PROVIDER_QUOTAS_UNQUALIFIED",
+          "QUOTE_ENTITLEMENT_AND_EXECUTION_FRESHNESS_UNQUALIFIED",
+          "SINGLE_OBSERVATION_ROUND_NOT_RECONCILIATION",
+          "UNDOCUMENTED_EMPTY_RESPONSE"
+        ],
+        "account_modes": {
+          "balance": "MARGIN",
+          "discovery": "CASH"
+        },
+        "terminal_operations": [
+          "balances",
+          "portfolio"
+        ]
+      },
+      "status": "production_read_traversal_incomplete",
+      "pages": [
+        {
+          "operation": "accounts",
+          "status": 200,
+          "received_at": "2026-09-09T22:13:54.103416+00:00",
+          "raw_body_sha256": "3c1c56d6b6e2bc4ce371298e41fc449008588132d6a7d50ec6f18820fc309a16",
+          "private_journal_file_sha256": "03c0b7a1601a2fad2168481dbd79acb97523a970a099c6d8083be7914df2cebc"
+        },
+        {
+          "operation": "balances",
+          "status": 200,
+          "received_at": "2026-09-09T22:13:54.519289+00:00",
+          "raw_body_sha256": "35426c4f4505f95f5ee9d4724d3875123e8588c4f91c0239f2226a94445e6d52",
+          "private_journal_file_sha256": "9df9bd089b3244c408a1afab95383f7bf0f3cbd6f666c293e5cb3275ed4701a1"
+        },
+        {
+          "operation": "portfolio",
+          "status": 204,
+          "received_at": "2026-09-09T22:13:55.366141+00:00",
+          "raw_body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "private_journal_file_sha256": "6624ce195dfa2d7aa2b5f003c2a23f81369a0a717fdd15cfde76c067b218c213"
+        },
+        {
+          "operation": "orders",
+          "status": 204,
+          "received_at": "2026-09-09T22:13:55.645613+00:00",
+          "raw_body_sha256": null,
+          "private_journal_file_sha256": "65b24e01db5f7816184ea5027eccdd9172cd66228d3080cbfaa9f33cdb098978"
+        }
+      ],
+      "new_recorded_account_get_attempts": 4,
+      "new_successful_account_gets": 4,
+      "cumulative_successful_account_gets": 16,
+      "cumulative_oauth_token_requests": 6
+    },
+    {
+      "environment": "production",
+      "selected_account_fingerprint": "2cc50bd1dcccc9f1e7bde798893238d651ddeeea88a5f120a64d85be29310871",
+      "account_eligibility_amendment": "personal-v1/account-eligibility/2",
+      "financing_policy": "cash-funded-long-only/1",
+      "reason_for_new_supervised_attempt": "Reviewed initial orders no-content observation handling with explicit documentation ambiguity and unreconciled-order-absence blockers; prior attempts preserved.",
+      "renewal_requests_this_attempt": 0,
+      "sandbox_requests_this_attempt": 0,
+      "trading_authorized": false,
+      "borrowing_authorized": false,
+      "prior_successful_account_gets": 16,
+      "prior_oauth_token_requests": 6,
+      "executed_files": {
+        "AGENTS.md": "58bf8c0cde2e27509d664e1594ea0ca0cc60e4ab2d0ba07b2aa53c473b463973",
+        "README.md": "04b0f177dd7dc61942fe7b129f35c6c680f33d7e8fe3e29ca887ebde10a6c146",
+        "docs/ARCHITECTURE.md": "736ad715971bde15e9b4d17901c0383dd09f854b45df725128740d0a3039ff06",
+        "docs/IMPLEMENTATION_PLAN.md": "0c84520a19911ba260111c5cbe8b7c26919288f340bceb30cbd8ed50a98a6ed9",
+        "docs/contracts/personal-v1/account-eligibility-amendment.md": "ef540c8c2cb3a9f5a2a38ac1c88e95c83c95b9249d6562de762c3df95af5045d",
+        "docs/reviews/2026-09-08-wave1/README.md": "cf6c55288ea860dd0e28a81a66e688b657a6244b4813bb22d610308bd6fd837b",
+        "docs/runbooks/personal-v1-etrade-readonly.md": "7e70cc4ef9667aa989b2ca1020da22126cc4e0c21c5c8f95d672d41207e8bf12",
+        "packages/application/etrade_session.py": "ecc77988eba8ce3f882c2ce7530bcd511ab56b2d537041d0a72ad62969d4300f",
+        "scripts/qualify_etrade_readonly.py": "7b81ded3e16d41027f91d9c561beb259b33696c36dc9a957acd0ef5ea40a4bbe",
+        "tests/unit/test_etrade_session.py": "05e63480d06bf7c798848f52645ebd5f730215a8c81bbdef0e1e27cf7a96ebc8"
+      },
+      "history_bounds": {
+        "start_date": "2026-09-02",
+        "end_date": "2026-09-09"
+      },
+      "capture": {
+        "started_at": "2026-09-09T22:18:47.087440+00:00",
+        "finished_at": "2026-09-09T22:18:49.478296+00:00",
+        "exit_code": 0,
+        "trading_authorized": false,
+        "borrowing_authorized": false,
+        "shorting_authorized": false,
+        "cash_funding_qualified": false,
+        "reconciliation_qualified": false,
+        "canonical_facts_published": false,
+        "traversal_complete": true,
+        "allow_margin_privileges": true,
+        "blockers": [
+          "ACCOUNT_CURRENCY_NOT_PROVEN_BY_RESPONSE",
+          "ACCOUNT_MODE_DISAGREEMENT",
+          "ACTIVITY_EXECUTION_CORRECTION_IDENTITY_UNQUALIFIED",
+          "CASH_FIELD_SEMANTICS_UNQUALIFIED",
+          "HISTORY_RETENTION_UNQUALIFIED",
+          "LIST_ORDERS_204_RESPONSE_TABLE_AMBIGUITY",
+          "MARGIN_CALLS_AND_RESTRICTIONS_UNQUALIFIED",
+          "MARGIN_LIABILITY_AND_CASH_FUNDING_UNQUALIFIED",
+          "ORDERS_NO_CONTENT_NOT_RECONCILED_ORDER_ABSENCE",
+          "PORTFOLIO_NO_CONTENT_NOT_RECONCILED_POSITION_ABSENCE",
+          "PROVIDER_QUOTAS_UNQUALIFIED",
+          "QUOTE_ENTITLEMENT_AND_EXECUTION_FRESHNESS_UNQUALIFIED",
+          "SINGLE_OBSERVATION_ROUND_NOT_RECONCILIATION"
+        ],
+        "account_modes": {
+          "balance": "MARGIN",
+          "discovery": "CASH"
+        },
+        "terminal_operations": [
+          "activity",
+          "balances",
+          "orders_current",
+          "orders_history",
+          "portfolio"
+        ]
+      },
+      "status": "production_read_traversal_complete_with_qualification_blockers",
+      "pages": [
+        {
+          "operation": "accounts",
+          "status": 200,
+          "received_at": "2026-09-09T22:18:47.654155+00:00",
+          "raw_body_sha256": "3c1c56d6b6e2bc4ce371298e41fc449008588132d6a7d50ec6f18820fc309a16",
+          "private_journal_file_sha256": "2c18f7e8a4176c43071dfc625cbfa7cd2084fc921026d42f94f0858d720a2b5b"
+        },
+        {
+          "operation": "balances",
+          "status": 200,
+          "received_at": "2026-09-09T22:18:48.074818+00:00",
+          "raw_body_sha256": "35426c4f4505f95f5ee9d4724d3875123e8588c4f91c0239f2226a94445e6d52",
+          "private_journal_file_sha256": "31835bf4cf0294d0a4d29778a31ba8f878a698bd764912fed248fe0c4bb32589"
+        },
+        {
+          "operation": "portfolio",
+          "status": 204,
+          "received_at": "2026-09-09T22:18:48.617189+00:00",
+          "raw_body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "private_journal_file_sha256": "2e0e0cab20b7a245256efbee49abc7215b846b8452e3c97692fdd21e19f535c1"
+        },
+        {
+          "operation": "orders",
+          "status": 204,
+          "received_at": "2026-09-09T22:18:48.847636+00:00",
+          "raw_body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "private_journal_file_sha256": "5e91b5f48506c003f503ec7cc1612e9dd13f70ad4d47bd6ef7245c29badea334"
+        },
+        {
+          "operation": "orders",
+          "status": 204,
+          "received_at": "2026-09-09T22:18:49.226773+00:00",
+          "raw_body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "private_journal_file_sha256": "a33d3469b2246273728d9533621766ab4ece15dd1d9dddf49c917a714fc7952a"
+        },
+        {
+          "operation": "activity",
+          "status": 204,
+          "received_at": "2026-09-09T22:18:49.458134+00:00",
+          "raw_body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "private_journal_file_sha256": "f39ecb794c8607d1159488130dc144c2d932e161788a2743426cb3883b90bd61"
+        }
+      ],
+      "new_recorded_account_get_attempts": 6,
+      "new_successful_account_gets": 6,
+      "cumulative_successful_account_gets": 22,
+      "cumulative_oauth_token_requests": 6
+    }
+  ],
+  "cumulative_successful_account_gets": 22,
+  "cumulative_oauth_token_requests": 6,
+  "trading_authorized": false,
+  "borrowing_authorized": false,
+  "publication_boundary": "Metadata-only public copy; private journal/session paths and masked per-account listings omitted. Original evidence remains private."
+}

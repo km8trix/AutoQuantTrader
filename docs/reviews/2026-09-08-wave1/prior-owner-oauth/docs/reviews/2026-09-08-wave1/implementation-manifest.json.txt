@@ -1,0 +1,136 @@
+{
+  "base_head": "107fa791bb52e9fa42cbce65992ea1ce9168834e",
+  "branch": "codex/personal-use-planning-20260908",
+  "root": "/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader",
+  "stage": "/private/tmp/aqt-wave1-rp_bjl5c/integration-stage",
+  "files": {
+    ".github/workflows/ci.yml": {
+      "before_sha256": "5af18af8b4eeb7f92a4b507eb196c9b6b30bca2a0c1a01dca09b7c93fafb637f",
+      "after_sha256": "5a7aa49b8b9d4d6e1c6ca68fa3b7497bf8792aeed76b4ce2def348c47beab498"
+    },
+    ".github/workflows/legacy-native.yml": {
+      "before_sha256": null,
+      "after_sha256": "e0fe9c5d654431b3c450bbe40279b8ba1718ef6a5f42e775c7a72edf20ff9069"
+    },
+    "AGENTS.md": {
+      "before_sha256": "9b3dc758ada812c5e55119db15afcbece929ea40b0669663eaba0ffda0771681",
+      "after_sha256": "8d9c74e755e5712e3a68270e92a71aa3bc3472017efb5780c13518fa4d0aed00"
+    },
+    "Makefile": {
+      "before_sha256": "6802268c7998df71d5543feba63663e1d6d3e07d87b4ff679107b42594770e42",
+      "after_sha256": "8ef9cf1e319529de2d1092532f8fe722c06f074a6d0e49c6dfec98bd9d3e5f90"
+    },
+    "README.md": {
+      "before_sha256": "fe1f45c560962c0943b2462e0991a08ebc7b6bf2011d24859b01c8ad09945dd5",
+      "after_sha256": "dac0e0f9fc3ec8d0282655b63b7dc84f98ee0b8a7b3f5d99971c6de8882c7e12"
+    },
+    "apps/trader/personal_simulation.py": {
+      "before_sha256": null,
+      "after_sha256": "6837bc1550797e198b20d346ea0e6def03cd5f6acdc94518ceb6e68f914565fe"
+    },
+    "docs/ARCHITECTURE.md": {
+      "before_sha256": "0dfd036f7cf1c5e9c3270d4d28fe00eca9a79116e20347749a0553fd850f0a4e",
+      "after_sha256": "54d5a1621da599675f28d22ba411377a317657fb9a1822e6b71094eb221a1ba4"
+    },
+    "docs/IMPLEMENTATION_PLAN.md": {
+      "before_sha256": "e1b548c7aa650b13b0be6f2e93fc546421320b0ca63fb09d5e216bc1db48f358",
+      "after_sha256": "80011cc36094b774accb39c9fb65a313371733e562bb4fbc593bf610bb64b475"
+    },
+    "docs/runbooks/README.md": {
+      "before_sha256": "2ecf16bb90203878d224cd22c458d2a8f153b598105c6a0842579c769a68366c",
+      "after_sha256": "97d81ad08a84f9b79499896ea719eab6a6d274389ff5eab640a8c513e65e4fb3"
+    },
+    "docs/runbooks/personal-v1-etrade-readonly.md": {
+      "before_sha256": null,
+      "after_sha256": "400d5aa9eb7f073edce35462fa05e077b4355a43963db1715e4923ade9169602"
+    },
+    "docs/runbooks/personal-v1-foundations.md": {
+      "before_sha256": null,
+      "after_sha256": "fc7a3264bc65d57eff4b65a61a4e8173120b713bf57d4773ae2f47d5be58d3f3"
+    },
+    "packages/adapters/broker/etrade_readonly.py": {
+      "before_sha256": null,
+      "after_sha256": "ab8830eb2f56ff4c2882e2608abedab69c29d336037d3b62aef9be96ac10e369"
+    },
+    "packages/adapters/market_data/tiingo_eod_import.py": {
+      "before_sha256": null,
+      "after_sha256": "93c424c14c440dadccb8471bd895526704aba23be004292b0d881bab7f9b2bae"
+    },
+    "packages/adapters/standard_clock.py": {
+      "before_sha256": null,
+      "after_sha256": "68d409273ce069e12e94b3f4241a0ce305c35db717bf9b7414e5186ad77d2ab0"
+    },
+    "packages/application/etrade_session.py": {
+      "before_sha256": null,
+      "after_sha256": "69625360b791fe6cee689b024312b84b0ff8cd663fc1ddc477753eafe464721c"
+    },
+    "packages/application/personal_runtime.py": {
+      "before_sha256": null,
+      "after_sha256": "6be9469e3eb7e5fe5b123dcd82e76ee09f17dddc23917b5277de577a83b9b8bb"
+    },
+    "packages/application/research_dataset.py": {
+      "before_sha256": null,
+      "after_sha256": "bae65c242cf605d17122d262db0079d48fa298c40e714a1c6e342cb622d5964c"
+    },
+    "packages/domain/research_dataset.py": {
+      "before_sha256": null,
+      "after_sha256": "a264d297b12470348fa17e7b4468ee059bd68324678cd0e28c6bba9f97e27bf8"
+    },
+    "pyproject.toml": {
+      "before_sha256": "137a911173dd96b42bee4820f837494b7bd84240d279eb04302323ee4d73bfb4",
+      "after_sha256": "fa9d6ef0a3252e78128cbb388eca8c25386dab27436b93f3b458b6d3d96e4d21"
+    },
+    "scripts/capture_personal_tiingo.py": {
+      "before_sha256": null,
+      "after_sha256": "9640623ce56f975a20ba0664bdfbdd7b2f1cc9f08dec1fe3dbe8a6ffbafbde13"
+    },
+    "scripts/check_personal_architecture.py": {
+      "before_sha256": null,
+      "after_sha256": "6e832c29403bd53b0bcc2becc0ca3d6fbaf955976826160d8ad31a3ae15b9b2a"
+    },
+    "scripts/import_personal_dataset.py": {
+      "before_sha256": null,
+      "after_sha256": "4fe2ed6e156a08e44dafa8f63afcd02a4104ba06ecb093e20cbbdd6b992b77ef"
+    },
+    "scripts/qualify_etrade_readonly.py": {
+      "before_sha256": null,
+      "after_sha256": "050cba497a50a31fd73f88f7bd4ada29b82b5d6ecb9c34a875f9935748540ea4"
+    },
+    "scripts/run_personal_tests.py": {
+      "before_sha256": null,
+      "after_sha256": "d2af162d16e6865fd41fa5fb39437e151904f659843377671e9bdf947e75bf06"
+    },
+    "scripts/verify_personal_wheel.py": {
+      "before_sha256": null,
+      "after_sha256": "82aa36437fb168aff4963fb16b4fba5d553b8d34fbb03150dfabacc771637866"
+    },
+    "tests/fixtures/broker/etrade_readonly/account_round.json": {
+      "before_sha256": null,
+      "after_sha256": "8a1d3f64c6ed33ca724024483b5a3ded09c646475f7ad690b9799ad6381e9d3d"
+    },
+    "tests/unit/test_etrade_session.py": {
+      "before_sha256": null,
+      "after_sha256": "8379c09c734d2466df5d6d02ae5468fdb9fa24e0c91fb71a9b9c827290d2543f"
+    },
+    "tests/unit/test_personal_architecture.py": {
+      "before_sha256": null,
+      "after_sha256": "1e2cae3871548356dfb0d350602f3e17b4cf17057681663f3cd63c85fd958c00"
+    },
+    "tests/unit/test_personal_research_dataset.py": {
+      "before_sha256": null,
+      "after_sha256": "1f1c973fb442459418759d07204fd31759f5d6e0cb071a41560d79c8a90a8aaa"
+    },
+    "tests/unit/test_personal_runtime.py": {
+      "before_sha256": null,
+      "after_sha256": "9d400c7b502f401834bccc8a817a1ba04718d0dc50bdcfccd8f7755e5bfba27a"
+    },
+    "tests/unit/test_personal_tiingo_capture.py": {
+      "before_sha256": null,
+      "after_sha256": "e96d378fa1e8c3d62ab97758f5a3bf2fa126216d5e257970decff2096332596a"
+    },
+    "tests/unit/test_standard_clock.py": {
+      "before_sha256": null,
+      "after_sha256": "41e29df5c01b8f79a08ac83898025d94f07b434dc412a44643abc5a3fb7787dc"
+    }
+  }
+}

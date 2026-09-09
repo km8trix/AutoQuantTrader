@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "markdown_relative_links_checked": 58,
+  "json_syntax": "PASS",
+  "markdown_whitespace": "PASS",
+  "git_diff_check": "PASS",
+  "source_diff": "none",
+  "note": "This document check does not replace the full baseline architecture run, which has six recorded failures."
+}

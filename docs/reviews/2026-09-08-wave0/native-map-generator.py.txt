@@ -1,0 +1,101 @@
+"""Read tracked public source; enumerate static retirement dependencies without imports."""
+import argparse
+import ast
+import collections
+import hashlib
+import json
+from pathlib import Path
+import re
+import subprocess
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--repo', type=Path, default=Path('/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader'))
+parser.add_argument('--output-dir', type=Path, default=Path('/private/tmp/aqt-wave0-lane-b'))
+args = parser.parse_args()
+ROOT = args.repo.resolve()
+OUT = args.output_dir.resolve()
+OUT.mkdir(parents=True, exist_ok=True)
+paths = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
+paths = sorted(p for p in paths if p and not Path(p).name.startswith('.env'))
+pattern = re.compile(r'trusted[_-]?time|native[_-]admission|native_owned|native_image|owned_file_descriptor|bounded_process|monocypher|runtime[_-]seal', re.I)
+blobs = {}
+skipped = []
+for p in paths:
+    try:
+        raw = (ROOT / p).read_bytes()
+        if b'\x00' in raw:
+            skipped.append({'path': p, 'reason': 'binary'})
+            continue
+        blobs[p] = raw.decode('utf-8')
+    except (UnicodeDecodeError, OSError):
+        skipped.append({'path': p, 'reason': 'non-text-or-unavailable'})
+modules = {p[:-3].replace('/', '.'): p for p in blobs if p.endswith('.py')}
+for p in blobs:
+    if p.endswith('/__init__.py'):
+        modules[p[:-12].replace('/', '.')] = p
+edges = []
+parse_errors = []
+for p, source in blobs.items():
+    if not p.endswith('.py'):
+        continue
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        parse_errors.append({'path': p, 'line': exc.lineno, 'message': exc.msg})
+        continue
+    base = p[:-3].replace('/', '.')
+    pkg = base if p.endswith('/__init__.py') else base.rpartition('.')[0]
+    for node in ast.walk(tree):
+        names = []
+        if isinstance(node, ast.Import):
+            names = [x.name for x in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            prefix = node.module or ''
+            if node.level:
+                parts = pkg.split('.')
+                prefix = '.'.join(parts[:len(parts)-node.level+1] + ([prefix] if prefix else []))
+            names = [prefix] + [prefix + '.' + x.name for x in node.names]
+        for name in names:
+            if name in modules:
+                edge = {'caller': p, 'callee': modules[name], 'line': node.lineno, 'kind': 'static-import'}
+                if edge not in edges:
+                    edges.append(edge)
+seed_paths = {p for p,s in blobs.items() if pattern.search(p) or pattern.search(s) or p.startswith('native/')}
+seed_paths.add('packages/domain/clock.py')
+closure = set(seed_paths)
+while True:
+    prior = len(closure)
+    closure.update(e['caller'] for e in edges if e['callee'] in closure)
+    if len(closure) == prior:
+        break
+def classify(p):
+    if p.startswith('docs/') or p in {'README.md', 'AGENTS.md'}:
+        return 'history-or-supporting-doc', 'orchestrator', 'G-DOC'
+    if p.startswith('migrations/'):
+        return 'preserve-historical-schema', 'orchestrator', 'G-DB'
+    if p.startswith('tests/'):
+        return 'review-behavior-versus-lifecycle-test', 'owning-lane+orchestrator', 'G-TEST'
+    if p in {'packages/domain/clock.py', 'packages/domain/trusted_time.py', 'packages/application/trusted_time_monitor.py'}:
+        return 'retain-pure-time-contract-refactor-producer', 'W1-runtime', 'G-TIME'
+    if p in {'packages/persistence/schema.py', 'packages/persistence/database.py'}:
+        return 'retain-schema-refactor-active-composition', 'orchestrator', 'G-DB'
+    if p.startswith(('native/', 'third_party/monocypher/', 'build_support/', 'infra/trusted-time/', 'apps/trusted_time_supervisor/')) or ('trusted_time' in p or 'trusted-time' in p):
+        return 'retire-personal-v1-prerequisite-after-replacement', 'W1-runtime+W5-operations', 'G-TIME+G-PROCESS+G-BUILD'
+    if p.startswith(('.github/', 'infra/')) or p in {'pyproject.toml', 'uv.lock', 'Makefile'} or p == 'scripts/check_architecture.py':
+        return 'serialize-build-config-architecture-cutover', 'orchestrator+W1-runtime', 'G-BUILD+G-TEST'
+    return 'retain-consumer-migrate-time-or-schema-binding-if-needed', 'W1-runtime+W4-account+W5-operations', 'G-FIN+G-TIME'
+rows=[]
+for p in sorted(closure):
+    s = blobs[p]
+    disposition, owner, gate=classify(p)
+    matches=[]
+    for no,line in enumerate(s.splitlines(),1):
+        tokens=sorted(set(m.group(0) for m in pattern.finditer(line)))
+        if tokens:
+            matches.append({'line':no, 'tokens':tokens})
+    rows.append({'path':p,'sha256':hashlib.sha256(s.encode()).hexdigest(),'disposition':disposition,'owner':owner,'replacement_gate':gate,'selection':'lexical-or-native-seed' if p in seed_paths else 'reverse-static-import-closure','references':matches,'direct_callers':sorted({e['caller'] for e in edges if e['callee']==p}),'direct_dependencies':sorted({e['callee'] for e in edges if e['caller']==p})})
+output={'schema':'aqt-wave0-native-dependencies-v1','code_head':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT).decode().strip(),'method':'Tracked UTF-8 source lexical seeds plus reverse Python static import closure; no runtime imports, credentials, services or provider calls. Paths and tokens only, no source data values. Dynamic import/resource/config references covered lexically, not proven by runtime tracing. Historical and active classification requires the accompanying manual map.','patterns':pattern.pattern,'tracked_paths_considered':len(paths),'text_files_scanned':len(blobs),'seed_count':len(seed_paths),'closure_count':len(closure),'parse_errors':parse_errors,'skipped':skipped,'files':rows,'static_import_edges':[e for e in edges if e['caller'] in closure and e['callee'] in closure]}
+(OUT/'native-dependency-inventory.json').write_text(json.dumps(output,indent=2)+'\n')
+(OUT/'native-dependency-files.tsv').write_text('path\tdisposition\towner\treplacement_gate\tselection\n'+'\n'.join('\t'.join(str(row[k]) for k in ('path','disposition','owner','replacement_gate','selection')) for row in rows)+'\n')
+print(json.dumps({k:output[k] for k in ('code_head','tracked_paths_considered','text_files_scanned','seed_count','closure_count','parse_errors')}))
+print(json.dumps(dict(collections.Counter(r['disposition'] for r in rows)),indent=2))

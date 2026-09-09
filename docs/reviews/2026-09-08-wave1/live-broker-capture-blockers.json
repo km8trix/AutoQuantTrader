@@ -1,0 +1,108 @@
+{
+  "status": "full_capture_blocked_on_broker_account_evidence",
+  "owner_account_selection_confirmed": true,
+  "owner_exclusivity_confirmed": true,
+  "owner_declaration": "the selected accounts are dedicated to AutoQuantTrader",
+  "owner_declaration_recorded_at": "2026-09-09T11:53:38.501595+00:00",
+  "history_bounds": {
+    "start_date": "2026-09-02",
+    "end_date": "2026-09-09"
+  },
+  "new_account_gets": 4,
+  "cumulative_account_gets": 6,
+  "prior_owner_oauth_token_requests": 4,
+  "portfolio_orders_activity_gets": 0,
+  "client_checks_relaxed": false,
+  "raw_provider_bodies_in_git": false,
+  "trading_authorized": false,
+  "reviewed_primary_sources": [
+    "https://apisb.etrade.com/docs/api/account/api-balance-v1.html",
+    "https://apisb.etrade.com/docs/api/account/api-account-v1.html",
+    "https://developer.etrade.com/getting-started/developer-guides"
+  ],
+  "review_conclusion": "Direct account-identity and accountMode checks are correct. AccountType query or Cash/Computed presence does not override an explicit MARGIN mode. Sandbox samples are not stateful account evidence.",
+  "environments": {
+    "sandbox": {
+      "selected_account_fingerprint": "a70431a4deab7250a13da52a6d7ccecf1e4726a5cefa46c5f65e0c68dc12b48c",
+      "started_at": "2026-09-09T11:53:38.502390+00:00",
+      "finished_at": "2026-09-09T11:53:39.615187+00:00",
+      "exit_code": 2,
+      "traversal_complete": false,
+      "blockers": [
+        "ACTIVITY_EXECUTION_CORRECTION_IDENTITY_UNQUALIFIED",
+        "CASH_FIELD_SEMANTICS_UNQUALIFIED",
+        "HISTORY_RETENTION_UNQUALIFIED",
+        "PROVIDER_QUOTAS_UNQUALIFIED",
+        "QUOTE_ENTITLEMENT_AND_EXECUTION_FRESHNESS_UNQUALIFIED",
+        "RESPONSE_ACCOUNT_IDENTITY_MISMATCH",
+        "SANDBOX_STORED_EXAMPLES_NOT_ACCOUNT_ECONOMICS",
+        "SINGLE_OBSERVATION_ROUND_NOT_RECONCILIATION"
+      ],
+      "discovery_account_mode": "CASH",
+      "balance_account_id_matches": false,
+      "balance_account_mode": null,
+      "balance_account_type": "MARGIN",
+      "balance_currency_present": false,
+      "terminal_operations": [],
+      "pages": [
+        {
+          "operation": "accounts",
+          "status": 200,
+          "received_at": "2026-09-09T11:53:39.286743+00:00",
+          "elapsed_seconds": 0.37843316700309515,
+          "raw_body_sha256": "180776fadaefb1c9f43b5d443d43486a2edd8d7d390ac0c33af6e9563070a7e9",
+          "private_journal_file_sha256": "dc0beb58f8ab800ec8675365230b14bc5e0542d7b03532b3fb409098043e8fbd"
+        },
+        {
+          "operation": "balances",
+          "status": 200,
+          "received_at": "2026-09-09T11:53:39.531109+00:00",
+          "elapsed_seconds": 0.24213004199555144,
+          "raw_body_sha256": "53bfb72f1812d9474919b1406b3ae588db57ceebcb965ebe42d8d488af5cbb68",
+          "private_journal_file_sha256": "bade5e11f1b67c8e940b5f68c3376e4e66b55f5e7ee7d86ea66e70a5ae367150"
+        }
+      ]
+    },
+    "production": {
+      "selected_account_fingerprint": "2cc50bd1dcccc9f1e7bde798893238d651ddeeea88a5f120a64d85be29310871",
+      "started_at": "2026-09-09T11:53:39.615893+00:00",
+      "finished_at": "2026-09-09T11:53:40.728060+00:00",
+      "exit_code": 2,
+      "traversal_complete": false,
+      "blockers": [
+        "ACTIVITY_EXECUTION_CORRECTION_IDENTITY_UNQUALIFIED",
+        "BALANCE_CASH_MODE_UNQUALIFIED",
+        "CASH_FIELD_SEMANTICS_UNQUALIFIED",
+        "HISTORY_RETENTION_UNQUALIFIED",
+        "PROVIDER_QUOTAS_UNQUALIFIED",
+        "QUOTE_ENTITLEMENT_AND_EXECUTION_FRESHNESS_UNQUALIFIED",
+        "SINGLE_OBSERVATION_ROUND_NOT_RECONCILIATION"
+      ],
+      "discovery_account_mode": "CASH",
+      "balance_account_id_matches": true,
+      "balance_account_mode": "MARGIN",
+      "balance_account_type": "MARGIN",
+      "balance_currency_present": false,
+      "terminal_operations": [],
+      "pages": [
+        {
+          "operation": "accounts",
+          "status": 200,
+          "received_at": "2026-09-09T11:53:40.168422+00:00",
+          "elapsed_seconds": 0.2299049590001232,
+          "raw_body_sha256": "3c1c56d6b6e2bc4ce371298e41fc449008588132d6a7d50ec6f18820fc309a16",
+          "private_journal_file_sha256": "6e34a33bf2cd25dfeb639a6cf53b68c4134e20d7598606fe87cfdd287332aa5d"
+        },
+        {
+          "operation": "balances",
+          "status": 200,
+          "received_at": "2026-09-09T11:53:40.637213+00:00",
+          "elapsed_seconds": 0.4655705840050359,
+          "raw_body_sha256": "35426c4f4505f95f5ee9d4724d3875123e8588c4f91c0239f2226a94445e6d52",
+          "private_journal_file_sha256": "a2a64de8fc15afd92aecfe6cfc46c0da1c41623d29ef3d43ce5b7fb8ee476ee3"
+        }
+      ]
+    }
+  },
+  "publication_boundary": "Metadata-only public copy; private journal/session paths and masked per-account listings omitted. Original evidence remains private."
+}

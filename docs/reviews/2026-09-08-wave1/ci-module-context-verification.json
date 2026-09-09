@@ -1,0 +1,16 @@
+{
+  "failed_github_run": "https://github.com/km8trix/AutoQuantTrader/actions/runs/34413227850",
+  "failure": "API contract file invocation could not import checkout apps before project installation",
+  "change": "Invoke scripts.generate_api_contracts as a module from repository root; no PYTHONPATH override or project installation required",
+  "command": [
+    "/private/tmp/aqt-wave0-f152ahl7/venv/bin/python",
+    "-B",
+    "-m",
+    "scripts.generate_api_contracts",
+    "--check"
+  ],
+  "environment": "Minimal environment without PYTHONPATH or provider credentials",
+  "exit_code": 0,
+  "seconds": 2.055,
+  "remaining_commands_review": "Alembic prepends configured repository path; personal test runner sets its child import path; wheel verifier uses standard library only"
+}

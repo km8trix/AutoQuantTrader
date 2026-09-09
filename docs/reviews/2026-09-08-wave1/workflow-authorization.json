@@ -1,0 +1,24 @@
+{
+  "owner_instruction": "at the end of each wave, commit, PR and merge any changes into github then start the next wave through the orchestration task.",
+  "repository": "https://github.com/km8trix/AutoQuantTrader",
+  "orchestration_task": "01a083a3-d4d2-7ee3-a57c-f85b8ff0061c",
+  "sequence": [
+    "pass current wave exit gates",
+    "commit reviewed in-scope changes",
+    "push feature branch",
+    "open GitHub PR",
+    "satisfy required CI/review checks",
+    "merge PR",
+    "verify merged revision and record PR/commit",
+    "start next eligible wave through same orchestration task"
+  ],
+  "current_gate": "W1 owner OAuth consent and actual account-read qualification pending",
+  "commit_pr_merge_performed": false,
+  "trading_authorized": false,
+  "deployment_authorized": false,
+  "prior_current_document_snapshots": {
+    "AGENTS.md": "docs/reviews/2026-09-08-wave1/prior-workflow-authorization/AGENTS.md.txt",
+    "docs/IMPLEMENTATION_PLAN.md": "docs/reviews/2026-09-08-wave1/prior-workflow-authorization/docs/IMPLEMENTATION_PLAN.md.txt",
+    "docs/reviews/2026-09-08-wave1/README.md": "docs/reviews/2026-09-08-wave1/prior-workflow-authorization/docs/reviews/2026-09-08-wave1/README.md.txt"
+  }
+}

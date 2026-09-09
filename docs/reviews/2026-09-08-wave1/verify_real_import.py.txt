@@ -1,0 +1,20 @@
+from pathlib import Path
+from datetime import UTC,datetime,date
+import json,hashlib
+from packages.application.research_dataset import research_dataset_from_json_bytes,research_dataset_to_json_bytes,replay_research_dataset
+root=Path('/Users/spencer.karrat/Documents/AutoQuantTrader/personal-data/tiingo-wave1-20260908');evidence=Path('/private/tmp/aqt-wave1-rp_bjl5c')
+payload=(root/'research-dataset.json').read_bytes();dataset=research_dataset_from_json_bytes(payload)
+assert research_dataset_to_json_bytes(dataset)==payload
+args={'dataset':dataset,'symbols':('DIA','IWM','QQQ','SPY'),'start_date':date(2025,2,3),'end_date':date(2025,2,7)}
+probes=[('first_open','2025-02-03T14:30:00+00:00',0),('first_close','2025-02-03T21:00:00+00:00',0),('before_first_availability','2025-02-04T00:59:59.999999+00:00',0),('at_first_availability','2025-02-04T01:00:00+00:00',1),('third_session','2025-02-06T01:00:00+00:00',3),('all_sessions','2025-02-08T01:00:00+00:00',5)]
+results=[]
+for name,instant,count in probes:
+ batches=replay_research_dataset(**args,as_of=datetime.fromisoformat(instant));assert len(batches)==count;assert all(len(b.rows)==4 for b in batches);assert batches==replay_research_dataset(**args,as_of=datetime.fromisoformat(instant));results.append({'probe':name,'as_of':instant,'batches':count,'rows':sum(len(b.rows) for b in batches)})
+assert all(row.vendor_published_at is None for row in dataset.rows)
+assert all(row.observed_available_at.year==2026 for row in dataset.rows)
+assert all(row.simulated_available_at.year==2025 for row in dataset.rows)
+assert all(row.split_factor==1 and row.div_cash==0 for row in dataset.rows)
+assert all(row.adjusted_close_price != row.close_price for row in dataset.rows)
+record={'dataset_id':dataset.dataset_id,'data_class':dataset.manifest.data_class.value,'admission':dataset.manifest.admission_decision,'symbols':list(dataset.manifest.symbols),'sessions':5,'rows':len(dataset.rows),'archive_bytes':len(payload),'archive_sha256':hashlib.sha256(payload).hexdigest(),'calendar_sha256':dataset.manifest.calendar_sha256,'raw_hashes':dict(dataset.manifest.raw_object_hashes),'raw_adjusted_distinct':True,'split_dividend_events_in_this_sample':0,'vendor_publication_times':'unknown','actual_captures':'2026-09-09T02:10:17Z','modelled_historical_availability':'daily20:00America/New_York;explicitassumption','archive_reload':'byte-identical','probes':results,'exclusions':list(dataset.manifest.exclusions),'source_scope_note':'Fixed five-session engineering sample, not full study-period or PIT qualification; dates are in proposed2025holdout and access is now recorded.'}
+(evidence/'real-data-verification.json').write_text(json.dumps(record,indent=2)+'\n')
+print(json.dumps(record,indent=2))

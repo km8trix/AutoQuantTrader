@@ -1,0 +1,78 @@
+diff --git a/docs/IMPLEMENTATION_PLAN.md b/docs/IMPLEMENTATION_PLAN.md
+index 53d2fe2..82f7000 100644
+--- a/docs/IMPLEMENTATION_PLAN.md
++++ b/docs/IMPLEMENTATION_PLAN.md
+@@ -2,13 +2,17 @@
+ 
+ ## Current implementation status
+ 
+-The substantial local Phase 0 foundation/walking thread and bounded Phase 1A/1B
+-point-in-time ingestion and admission slices are implemented as a local,
+-simulation-only browser application. Production Auth0/OIDC server sessions and
+-an enabled server SSE stream remain Phase 6 hardening work; their contracts and
+-browser client seams exist, but this status does not claim those production
+-controls are complete. In addition to the walking thread and safety controls, a
+-worker-driven recorded JSONL adapter now
++Current gate view: the substantial Phase 0 foundation/walking thread is
++implemented locally, but the plan does not mark its complete exit gate passed;
++Phase 1's local ingestion and admission mechanics exist while licensed vendor
++admission remains open; Phase 2 is the only phase whose exit gate is explicitly
++passed locally; Phases 3-6 have bounded local implementations but remain open;
++and Phases 7-8 have not started operationally. The runnable product remains a
++local, simulation-only browser application. Production Auth0/OIDC server
++sessions and an enabled server SSE stream remain Phase 6 hardening work; their
++contracts and browser client seams exist, but this status does not claim those
++production controls are complete. In addition to the walking thread and safety
++controls, a worker-driven recorded JSONL adapter now
+ publishes deterministic content-addressed raw/normalized Parquet, PostgreSQL
+ catalog metadata, causal revision selection, security lifecycle, corporate
+ actions, data quality, quarantine, and functional browser views.
+@@ -401,14 +405,40 @@ an exact match remains explicitly unqualified with `converged=false`. The slice
+ adds no persistence, runtime, request, permit, transport, readiness,
+ reconciliation, or trading authority.
+ 
+-Massive remains the deferred intraday candidate. No credential,
+-authorization, synthetic fixture, or capture has been
+-treated as admission or evidence that a vendor's real history, entitlement,
+-identifiers, calendars, corrections, or corporate actions have passed
+-qualification. The trader remains `not_ready`; no paper or live broker/data
+-adapter is enabled. The remaining Phase 1 vendor admission, remaining Phase 3
+-work, the rest of Phase 4, and Phases 5-8 below retain their exit gates,
+-including the Phase 4 paper-broker gate.
++Massive remains the deferred intraday data candidate, and Phase 1 vendor
++admission remains open. No licensed production feed, production
++`HistoricalBarSource`, or paper/live trading authority exists; the trader
++remains `not_ready`. Phase 3A-3D provide bounded local feature, target,
++governance, and configuration-bound evaluation evidence, but captured-tape,
++shadow, economic segment-execution, traceability, and reporting gates remain
++open.
++
++Phase 4A-4AI are implemented as bounded local Alpaca contracts, persistence,
++authenticated read runtimes, comparisons, and restart-safe supervision. They
++remain historical and non-authorizing: authoritative broker-fact application,
++reconciliation, coordinator dispatch, paper startup, and the Phase 4 fault
++gates are incomplete. E\*TRADE is the selected live target, but its OAuth,
++account binding, raw-first reads, Preview/Place/Cancel, recovery,
++qualification, and every provider call remain pending.
++
++Phase 5A-5I provide local operational-control, advanced-risk,
++supervised-strategy, critical-alert, authenticated-operations, dashboard,
++drill-evidence, and historical enrollment-attestation slices;
++OpenTelemetry/Sentry composition remains partial. Phase 5 stays open because
++authoritative deployment producers, account assignment, broker control,
++external alert routes, telemetry ingestion, runtime sandboxing, and timed
++deployed drills remain absent.
++
++Phase 6A and 6B provide local trusted-time persistence and browser bundle
++admission. Phase 6C has one qualified point-in-time Cloudflare/System76 window.
++Phase 6D has confirmed the separately approved sequence-1 external-head
++enrollment and implements the post-enrollment start controller/orchestrator in
++code, but no start has been operationally admitted. The graceful-stop chain
++through ADR 0112 remains dormant and `trusted-time-stop` remains hard closed.
++Phase 6E is only a dormant watchdog-state reducer. The Phase 6 paper-MVP gate
++remains unmet, and the Phase 7 supervised paper soak and Phase 8 human-approved
++minimum-size live canary remain entirely ahead. No paper or live order authority
++is enabled.
+ 
+ ## Delivery strategy
+ 

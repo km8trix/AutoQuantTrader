@@ -1,0 +1,78 @@
+{
+  "core_manifest_sha256": "6451f4d9cdf6e578ce0db1b1a858e26240202cc26d5ae70e845f46f01269e1a9",
+  "note": "Historical core paths may now differ; snapshots below preserve prior contents for every changed core artifact.",
+  "snapshots": {
+    "AGENTS.md": {
+      "prior_sha256": "8d9c74e755e5712e3a68270e92a71aa3bc3472017efb5780c13518fa4d0aed00",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/AGENTS.md.txt"
+    },
+    "README.md": {
+      "prior_sha256": "dac0e0f9fc3ec8d0282655b63b7dc84f98ee0b8a7b3f5d99971c6de8882c7e12",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/README.md.txt"
+    },
+    "docs/IMPLEMENTATION_PLAN.md": {
+      "prior_sha256": "80011cc36094b774accb39c9fb65a313371733e562bb4fbc593bf610bb64b475",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/IMPLEMENTATION_PLAN.md.txt"
+    },
+    "docs/reviews/2026-09-08-wave1/README.md": {
+      "prior_sha256": "6a7164a05b10ca0e8dd991afff996040f143e9fd86c0055414f0abcab16751db",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/reviews/2026-09-08-wave1/README.md.txt"
+    },
+    "docs/reviews/2026-09-08-wave1/check-output/installed-wheel.txt": {
+      "prior_sha256": "3dfe760eaf03cea96334556810635231e1894195f8617e618b52f17bb7998a15",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/reviews/2026-09-08-wave1/check-output/installed-wheel.txt.txt"
+    },
+    "docs/reviews/2026-09-08-wave1/check-output/mypy.txt": {
+      "prior_sha256": "8d63c9e3962fcce46c810f29ed3856dd4a087899a0ac549d035f9f3e8c193ce3",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/reviews/2026-09-08-wave1/check-output/mypy.txt.txt"
+    },
+    "docs/reviews/2026-09-08-wave1/check-output/personal-suite.txt": {
+      "prior_sha256": "7fd41714efee44f458a814fc51f662bf6202b8e4d78ad13837f9be6de65bd4ed",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/reviews/2026-09-08-wave1/check-output/personal-suite.txt.txt"
+    },
+    "docs/reviews/2026-09-08-wave1/check-output/ruff-format.txt": {
+      "prior_sha256": "4b010307b5622d6bf13325b1de59d4d8110d04f46554862eb306028e6fb513c1",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/reviews/2026-09-08-wave1/check-output/ruff-format.txt.txt"
+    },
+    "docs/reviews/2026-09-08-wave1/check-output/runtime-events.json": {
+      "prior_sha256": "7036011046ed7bca98a12060c86f1edae5c34f8bef9561dfc3e4d9546b683233",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/reviews/2026-09-08-wave1/check-output/runtime-events.json.txt"
+    },
+    "docs/reviews/2026-09-08-wave1/commands.json": {
+      "prior_sha256": "aa042c5c726fed2ca56c4fe1de8aca9ceb11cbf37d2a3edb00c005e7f12bdb88",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/reviews/2026-09-08-wave1/commands.json.txt"
+    },
+    "docs/reviews/2026-09-08-wave1/final-preservation.json": {
+      "prior_sha256": "cf839aabab6557c837744551c612f546fed27a68b5c97e1d9d85131c020b10a8",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/reviews/2026-09-08-wave1/final-preservation.json.txt"
+    },
+    "docs/reviews/2026-09-08-wave1/implementation-manifest.json": {
+      "prior_sha256": "40e950da7bf2d016c3898a737d464b99343549c8a87f2acbeae1e88c3748a939",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/reviews/2026-09-08-wave1/implementation-manifest.json.txt"
+    },
+    "docs/reviews/2026-09-08-wave1/installed-runtime-verification.json": {
+      "prior_sha256": "a8295c8b6e289f1ea8159dea92ae15d7b93f688a32c0cb5195de0cb57bcf5428",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/reviews/2026-09-08-wave1/installed-runtime-verification.json.txt"
+    },
+    "docs/reviews/2026-09-08-wave1/verify_installed_runtime.py.txt": {
+      "prior_sha256": "e3c9e3f13c4616f15332887960504472e75fe582ebb7c229ed502430a2006830",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/reviews/2026-09-08-wave1/verify_installed_runtime.py.txt.txt"
+    },
+    "docs/reviews/2026-09-08-wave1/wheel-verification.json": {
+      "prior_sha256": "4e579ba4fea6e7b99839005793311073b22702a5e726b691a9c9062a42979ec3",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/reviews/2026-09-08-wave1/wheel-verification.json.txt"
+    },
+    "docs/runbooks/personal-v1-etrade-readonly.md": {
+      "prior_sha256": "400d5aa9eb7f073edce35462fa05e077b4355a43963db1715e4923ade9169602",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/runbooks/personal-v1-etrade-readonly.md.txt"
+    },
+    "docs/runbooks/personal-v1-foundations.md": {
+      "prior_sha256": "fc7a3264bc65d57eff4b65a61a4e8173120b713bf57d4773ae2f47d5be58d3f3",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/docs/runbooks/personal-v1-foundations.md.txt"
+    },
+    "scripts/run_personal_tests.py": {
+      "prior_sha256": "d2af162d16e6865fd41fa5fb39437e151904f659843377671e9bdf947e75bf06",
+      "snapshot_path": "docs/reviews/2026-09-08-wave1/prior-owner-oauth/scripts/run_personal_tests.py.txt"
+    }
+  }
+}

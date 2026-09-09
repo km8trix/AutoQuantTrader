@@ -1,0 +1,5 @@
+# Private one-off runner omitted from public evidence
+
+The original source contains owner-specific account/session references and is retained outside Git. Use the repository CLI and read-only runbook for the supported procedure.
+
+Original source SHA-256: bec24ed22db9cd903ee1cb92cc6c1e37112de15bbeb44ea8449fb6053610025f

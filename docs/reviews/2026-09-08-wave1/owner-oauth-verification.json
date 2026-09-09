@@ -1,0 +1,45 @@
+{
+  "status": "offline_helper_passed_owner_consent_pending",
+  "new_helper_tests": 32,
+  "integrated_python_passed": 1189,
+  "postgres_skipped": 7,
+  "provider_oauth_requests": 0,
+  "account_requests": 0,
+  "secret_values_exposed_to_model": false,
+  "source_env_modified": false,
+  "production_and_sandbox_separate": true,
+  "local_lifecycle_basis": "local_access_request_start_conservative",
+  "inferred_expiry_basis": "documented_default_next_eastern_midnight",
+  "unqualified": [
+    "owner consent",
+    "real token response shapes",
+    "real account reads",
+    "supervised renewal"
+  ],
+  "review_fixes": [
+    "catchable partial-write and fsync failure truncation",
+    "bounded credential-free DNS",
+    "pre-browser request-token expiry",
+    "access-exchange wall and monotonic consistency",
+    "midnight crossing rejection"
+  ],
+  "failure_limits": "Uncatchable process/host failure or failed filesystem cleanup requires private attempt review; no automatic retry. Browser/OS may retain normal local authorization history.",
+  "frozen_files": {
+    "packages/adapters/broker/etrade_owner_oauth.py": "c18bed4134a61938f96dd70d853c8500ce7d8f69698263d64607cc27a735d3b0",
+    "scripts/authorize_etrade_session.py": "e8daee518f3dd62f92aebe373fe7bbf9353ef154e7579f70738e38d11f4d94e0",
+    "tests/unit/test_etrade_owner_oauth.py": "2651d2aaa7e02eb82f8fcce6340c1a377868b05657de528a957c57b18e7d5f4c"
+  },
+  "dependency_probe": {
+    "runtime_only_environment": "OAuth adapter import failed with missing declared httpx dependency from retained broker initializer",
+    "locked_dependency_environment": "Active checkout OAuth CLI help/import passed",
+    "resolution": "Run owner OAuth with the locked project dependencies as documented; no dependency-free OAuth claim."
+  },
+  "post_install": {
+    "artifact_hashes_verified_before_this_record": 96,
+    "prior_snapshot_hashes_verified": 18,
+    "local_links_verified": 70,
+    "active_architecture": "passed",
+    "git_diff_check": "passed",
+    "active_oauth_cli_help": "passed_without_provider_requests"
+  }
+}
