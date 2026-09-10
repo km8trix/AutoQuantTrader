@@ -1,0 +1,11 @@
+{
+  "status": "accounting_adapter_integrated",
+  "files": {
+    "packages/backtest/personal_accounting.py": "868dca73d47e10c3960cde537c5abcdd5533166c826154249309bc3d18a82119",
+    "tests/unit/test_personal_accounting.py": "f7a666665465c02c74092f7ede850afed1da9ca4bf59549e0afa1fa57227ae29"
+  },
+  "worker_tests": 163,
+  "root_combined_contract_accounting_tests": 44,
+  "architecture": "passed",
+  "engine_report_end_to_end_pending": true
+}

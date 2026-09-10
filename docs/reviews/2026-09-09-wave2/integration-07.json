@@ -1,0 +1,14 @@
+{
+  "status": "engine_risk_integrated",
+  "files": {
+    "packages/application/causal_engine.py": "ca8f12fdc5d98d746efdb3fa334c5a6d89363006d33604fd2e37d2dd7ccd5b3f",
+    "packages/domain/daily_risk.py": "5c744221df51df8713d2362123a5437fc2612f0f54507bbc58b69e6f86c2bd07",
+    "packages/domain/portfolio.py": "31620ae5b17ed483b301ec76db6cd94303f4a5ddf7f9cbd73f11a779d84fce48",
+    "tests/unit/test_causal_engine.py": "4b698827e10ecb5af7fd0a9d3ab74e63eb60380c2c3bd32b8c2a43e1c79be766",
+    "tests/unit/test_daily_risk.py": "c90c49f08f973ff6da6b6d5cc1a81fb8bdf1afd023b06db33dba19ae41c1364b",
+    "tests/unit/test_daily_target_conversion.py": "1cfa3c6c3aee8a43d1e31daec5ed99587bc7cad8aa2a0fc8c44c7bb8daeecfc4"
+  },
+  "worker_tests": 194,
+  "root_combined_tests": 118,
+  "report_end_to_end_pending": true
+}

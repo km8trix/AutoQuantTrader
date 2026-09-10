@@ -1,0 +1,50 @@
+{
+  "status": "passed",
+  "python_tests_passed": 1633,
+  "postgres_tests_skipped_locally": 7,
+  "checks": [
+    {
+      "name": "personal-suite",
+      "exit_code": 0,
+      "seconds": 100.128,
+      "output": "check-output/personal-suite.txt"
+    },
+    {
+      "name": "architecture",
+      "exit_code": 0,
+      "seconds": 2.334,
+      "output": "check-output/architecture.txt"
+    },
+    {
+      "name": "ruff-format",
+      "exit_code": 0,
+      "seconds": 0.206,
+      "output": "check-output/ruff-format.txt"
+    },
+    {
+      "name": "ruff-lint",
+      "exit_code": 0,
+      "seconds": 0.258,
+      "output": "check-output/ruff-lint.txt"
+    },
+    {
+      "name": "mypy",
+      "exit_code": 0,
+      "seconds": 0.44,
+      "output": "check-output/mypy.txt"
+    },
+    {
+      "name": "api-contracts",
+      "exit_code": 0,
+      "seconds": 1.849,
+      "output": "check-output/api-contracts.txt"
+    },
+    {
+      "name": "compose-model",
+      "exit_code": 0,
+      "seconds": 0.325,
+      "output": "check-output/compose-model.txt"
+    }
+  ],
+  "browser_and_postgres_ci_pending": true
+}

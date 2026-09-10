@@ -14,6 +14,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 _SIMULATION_ENTRY = "apps.trader.personal_simulation"
+_RESEARCH_ENTRY = "apps.worker.personal_research"
 _SIMULATION_FORBIDDEN = (
     "packages.adapters.broker",
     "packages.adapters.trusted_time",
@@ -126,6 +127,34 @@ def check(repository: Path) -> list[str]:
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and ast.unparse(node.func) in _DYNAMIC_CALLS:
                 errors.add(f"{relative}:{node.lineno}: simulation uses dynamic code/imports")
+
+    # The offline research parent owns a single bounded Python child. Only that
+    # composition root may acquire subprocess authority; its transitive imports
+    # still cannot reach a broker, operational configuration or network client.
+    if _RESEARCH_ENTRY in modules:
+        parts = _RESEARCH_ENTRY.split(".")
+        pending = [".".join(parts[:end]) for end in range(1, len(parts) + 1)]
+        visited = set()
+        while pending:
+            module = pending.pop()
+            if module in visited or module not in modules:
+                continue
+            visited.add(module)
+            relative, tree, imports = modules[module]
+            for line, imported in imports:
+                permitted_subprocess = module == _RESEARCH_ENTRY and imported == "subprocess"
+                if not permitted_subprocess and (
+                    _matches(imported, (*_SIMULATION_FORBIDDEN, "apps.api.config"))
+                    or "trusted_time" in imported
+                ):
+                    errors.add(
+                        f"{relative}:{line}: research reaches provider/native authority: {imported}"
+                    )
+                parts = imported.split(".")
+                pending.extend(".".join(parts[:end]) for end in range(1, len(parts) + 1))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and ast.unparse(node.func) in _DYNAMIC_CALLS:
+                    errors.add(f"{relative}:{node.lineno}: research uses dynamic code/imports")
 
     return sorted(errors)
 

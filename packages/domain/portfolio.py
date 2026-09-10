@@ -6,7 +6,15 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime
 from decimal import Decimal
 
-from packages.domain.decimal_math import exact_decimal_subtract
+from packages.domain.accounting_contracts import AccountSnapshot
+from packages.domain.clock import ClockEvent
+from packages.domain.decimal_math import (
+    exact_decimal_add,
+    exact_decimal_subtract,
+    exact_decimal_sum,
+)
+from packages.domain.decision import DecisionTrigger
+from packages.domain.engine_contracts import DailyIntentBatch, DailyTarget
 from packages.domain.identifiers import canonical_id
 from packages.domain.market_batch import MarketBatch
 from packages.domain.models import (
@@ -19,6 +27,7 @@ from packages.domain.models import (
     Side,
     TargetPortfolio,
 )
+from packages.domain.personal_contracts import VersionPin
 
 
 def portfolio_snapshot(
@@ -166,3 +175,102 @@ def target_to_order_intent(
     if len(batch.intents) > 1:
         raise RuntimeError("single-position compatibility conversion emitted multiple intents")
     return batch.intents[0] if batch.intents else None
+
+
+def daily_target_to_intents(
+    target: DailyTarget, snapshot: AccountSnapshot, *, strategy_pin: VersionPin
+) -> DailyIntentBatch:
+    """Convert a desired daily portfolio against fills and every live commitment.
+
+    A changed target with a live commitment requires an explicit cancellation
+    workflow. This converter never nets two independently executable orders.
+    """
+    if type(target) is not DailyTarget or type(snapshot) is not AccountSnapshot:
+        raise ValueError("daily conversion requires immutable daily contracts")
+    if target.trigger.as_of != snapshot.point.knowledge_at:
+        raise ValueError("daily target and account must share a knowledge frontier")
+    if target.not_before < target.trigger.as_of or target.expires_at <= target.not_before:
+        raise ValueError("daily target has an invalid execution window")
+    desired = {item.instrument_id: item for item in target.targets}
+    if len(desired) != len(target.targets):
+        raise ValueError("daily targets contain duplicate instruments")
+    positions = {item.instrument_id: item for item in snapshot.positions}
+    marks = {item.instrument_id: item for item in snapshot.marks}
+    pending = tuple(item for item in snapshot.commitments if item.state != "terminal")
+    instruments = set(desired)
+    if target.full_snapshot:
+        instruments.update(positions)
+        instruments.update(item.instrument_id for item in pending)
+    batch_id = canonical_id("daily-intent-batch", target.semantic_sha256, snapshot.semantic_sha256)
+    intents: list[OrderIntent] = []
+    reasons: list[str] = []
+    trigger = DecisionTrigger.from_clock_event(
+        ClockEvent(
+            target.trigger.trigger_id,
+            "personal-daily-decision/1",
+            target.trigger.as_of,
+            target.trigger.sequence,
+        )
+    )
+    for instrument_id in sorted(instruments):
+        position = positions.get(instrument_id)
+        wanted = desired.get(instrument_id)
+        live = tuple(item for item in pending if item.instrument_id == instrument_id)
+        filled = Decimal(0) if position is None else position.quantity
+        committed = exact_decimal_sum(
+            item.remaining_quantity
+            if item.side is Side.BUY
+            else item.remaining_quantity.copy_negate()
+            for item in live
+        )
+        effective = exact_decimal_add(filled, committed)
+        quantity = Decimal(0) if wanted is None else wanted.quantity
+        delta = exact_decimal_subtract(quantity, effective)
+        if delta == 0:
+            continue
+        if live:
+            reasons.append("PENDING_COMMITMENT_REQUIRES_EXPLICIT_RESOLUTION")
+            continue
+        mark = marks.get(instrument_id)
+        if mark is None or mark.quality != "current" or mark.knowledge_at > target.trigger.as_of:
+            reasons.append("MISSING_CURRENT_REFERENCE_PRICE")
+            continue
+        symbol = wanted.symbol if wanted is not None else position.symbol if position else None
+        if symbol != mark.symbol or (position is not None and position.symbol != symbol):
+            raise ValueError("daily instrument symbol differs from account mark")
+        if target.reduce_only_scope and delta > 0:
+            reasons.append("REDUCE_ONLY_TARGET_INCREASES_EXPOSURE")
+            continue
+        side = Side.BUY if delta > 0 else Side.SELL
+        intents.append(
+            OrderIntent(
+                intent_id=canonical_id(
+                    "daily-intent", batch_id, instrument_id, side, delta.copy_abs()
+                ),
+                intent_batch_id=batch_id,
+                target_id=target.target_id,
+                target_sha256=target.semantic_sha256,
+                portfolio_snapshot_sha256=snapshot.semantic_sha256,
+                strategy_id=strategy_pin.name,
+                strategy_version=strategy_pin.version,
+                strategy_configuration_sha256=target.configuration_sha256,
+                decision_trigger=trigger,
+                instrument_id=instrument_id,
+                symbol=mark.symbol,
+                side=side,
+                quantity=delta.copy_abs(),
+                reference_price=mark.price,
+                decision_event_id=mark.mark_id,
+                reference_event_sha256=mark.source_sha256,
+                decision_event_time=mark.economic_at,
+                created_at=target.trigger.as_of,
+                expires_at=target.expires_at,
+            )
+        )
+    return DailyIntentBatch(
+        batch_id,
+        target,
+        snapshot.semantic_sha256,
+        () if reasons else tuple(intents),
+        tuple(sorted(set(reasons))),
+    )

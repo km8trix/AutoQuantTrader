@@ -33,8 +33,10 @@ dependencies = [
 [project.scripts]
 autoquant-api = "apps.api.main:run"
 autoquant-worker = "apps.worker.main:main"
+autoquant-golden-oracle = "apps.worker.legacy_golden:main"
 autoquant-trader = "apps.trader.main:main"
 autoquant-personal-simulation = "apps.trader.personal_simulation:main"
+autoquant-research = "apps.worker.personal_research:main"
 autoquant-trusted-time-supervisor = "apps.trusted_time_supervisor.main:main"
 autoquant-trusted-time-first-enrollment = "apps.trusted_time_supervisor.first_enrollment:main"
 autoquant-trusted-time-first-enrollment-release = "apps.trusted_time_supervisor.first_enrollment:release_main"

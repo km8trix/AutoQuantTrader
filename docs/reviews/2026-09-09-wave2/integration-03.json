@@ -1,0 +1,7 @@
+{
+  "status": "consumer_seams_resolved",
+  "files": {
+    "packages/domain/engine_contracts.py": "d12d839d555fdc669bb3ef880e4cbc5f8f371676e06857bb18f1eff8c86280ba"
+  },
+  "contract_tests": 13
+}

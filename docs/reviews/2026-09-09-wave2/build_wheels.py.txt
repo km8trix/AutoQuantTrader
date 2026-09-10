@@ -1,0 +1,12 @@
+from pathlib import Path
+import hashlib,json,subprocess,time
+B=Path('/private/tmp/aqt-wave2-yh_1osee');S=B/'integration-stage';E={'PATH':'/Users/spencer.karrat/.local/bin:/usr/bin:/bin','PYTHONDONTWRITEBYTECODE':'1','UV_PYTHON_DOWNLOADS':'never','SOURCE_DATE_EPOCH':'0'}
+records=[];wheels=[]
+for name in ['wheel-final','wheel-final-repeat']:
+ out=B/name;assert not out.exists();start=time.monotonic()
+ args=['/Users/spencer.karrat/.local/bin/uv','build','--offline','--python','/Users/spencer.karrat/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12','--wheel','--no-sources','--build-constraints','build_support/native_build_constraints.txt','--require-hashes','--cache-dir','/Users/spencer.karrat/.cache/uv','--out-dir',str(out)]
+ with (B/'check-output'/(name+'.txt')).open('w') as log:status=subprocess.run(args,cwd=S,env=E,stdout=log,stderr=subprocess.STDOUT,timeout=60).returncode
+ records.append({'name':name,'exit_code':status,'seconds':round(time.monotonic()-start,3)});assert status==0,name;wheels.append(next(out.glob('*.whl')))
+assert wheels[0].read_bytes()==wheels[1].read_bytes()
+value={'status':'passed','builds':records,'wheel_sha256':hashlib.sha256(wheels[0].read_bytes()).hexdigest(),'wheel_bytes':wheels[0].stat().st_size,'byte_reproducible':True,'native_hook_enabled':False}
+(B/'wheel-verification.json').write_text(json.dumps(value,indent=2)+'\n');print(json.dumps(value),flush=True)

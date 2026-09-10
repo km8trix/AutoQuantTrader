@@ -21,6 +21,13 @@ def verify(directory: Path) -> str:
             "apps/trader/personal_simulation.py",
             "packages/adapters/standard_clock.py",
             "packages/application/personal_runtime.py",
+            "apps/worker/personal_research.py",
+            "apps/worker/main.py",
+            "apps/worker/legacy_golden.py",
+            "packages/application/causal_engine.py",
+            "packages/application/run_report.py",
+            "packages/backtest/personal_accounting.py",
+            "packages/datasets/personal_build.json",
         }
         if not required.issubset(names):
             raise ValueError("personal runtime is missing from the wheel")
@@ -46,6 +53,18 @@ def verify(directory: Path) -> str:
             "apps.trader.personal_simulation:main"
         ):
             raise ValueError("personal runtime console script is not installed")
+        if (
+            scripts["console_scripts"].get("autoquant-research")
+            != "apps.worker.personal_research:main"
+        ):
+            raise ValueError("general historical research console script is not installed")
+        if scripts["console_scripts"].get("autoquant-worker") != "apps.worker.main:main":
+            raise ValueError("general research worker is not the default worker")
+        if (
+            scripts["console_scripts"].get("autoquant-golden-oracle")
+            != "apps.worker.legacy_golden:main"
+        ):
+            raise ValueError("legacy fixture worker lacks its explicit oracle entry point")
     return wheel.name
 
 

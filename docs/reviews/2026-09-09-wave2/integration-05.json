@@ -1,0 +1,22 @@
+{
+  "status": "root_inputs_and_bounded_cli_support_integrated",
+  "files": {
+    "packages/application/reference_strategy.py": "ace5ef1b2a1ac414e6d2f81f201defb86aa3a43ae1a2aa3a40208ce6ae41c2e5",
+    "packages/application/personal_inputs.py": "4a86d04e90197afac932bade07ff5fdffc724ee05626db716d127e0e0f2d1e51",
+    "packages/adapters/personal_build.py": "e89bbce8f3b1d00a24343572736f98fc816206747217f287ff12177eb245999f",
+    "packages/datasets/personal_build.json": "b879ac7a811d8accfd097299ea00c5a8d61350de0d4b9cf34b598972252e8094",
+    "apps/worker/personal_research.py": "e83bc7f72fa4c329084a8c74cc1868c677d92b4fe08d3f828e17dfd309903f40",
+    "packages/adapters/market_data/__init__.py": "0bd3fbaf6dd9f7932755b92aa5f909bbae675fab296371585439809d61107eb1",
+    "tests/unit/test_personal_engine_inputs.py": "e2eb102cc1058fbeacd4c5a008746f1139f8773e992579fed66db1c1efa0bf0c",
+    "tests/unit/test_personal_research_cli.py": "1f54555e4daba8ccc8982f50cfc4bdca2121758096d0f8ab9fa0cac886c971c2",
+    "tests/unit/test_personal_research_dataset.py": "24dd9b676ad77224231d6000d5d70538c19eaff408832fba32a98d044f229452",
+    "tests/unit/test_personal_architecture.py": "01835388b988d870e708626fdf9bdd425930892b4dfea982f16a896debb097aa",
+    "scripts/check_personal_architecture.py": "733454273fe4305aa337fd3fb691ff0835d760222f957049dcb67890981f7069",
+    "scripts/run_personal_tests.py": "e416ac86bdbecda67c0d213a45e385de37cd2924be9d5bd295e2f0385f0f4eb1",
+    "scripts/verify_personal_wheel.py": "b115720ffaff91364d65f7ae5112a1c9313ea91e5ba2efad4743fe12dfa4339d",
+    "pyproject.toml": "611d292234ef1cea565850075b060a41f27e46567be7c38f8e9d9036a02ccd01"
+  },
+  "focused_tests": 156,
+  "architecture": "passed",
+  "complete_engine_cli_not_yet_tested": true
+}

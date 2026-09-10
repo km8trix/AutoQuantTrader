@@ -1,0 +1,19 @@
+from pathlib import Path
+import json,subprocess,time,sys
+B=Path('/private/tmp/aqt-wave2-yh_1osee');R=B/'integration-stage';PY='/private/tmp/aqt-wave0-f152ahl7/venv/bin/python';E={'PATH':str(Path(PY).parent)+':/usr/bin:/bin','PYTHONPATH':str(R),'PYTHONDONTWRITEBYTECODE':'1','PYTEST_DISABLE_PLUGIN_AUTOLOAD':'1','TZ':'UTC'}
+def run(name,args,timeout=360):
+ start=time.monotonic();out=B/'check-output'/(name+'.txt')
+ with out.open('w') as log:
+  try:status=subprocess.run(args,cwd=R,env=E,stdout=log,stderr=subprocess.STDOUT,timeout=timeout).returncode
+  except subprocess.TimeoutExpired:status='timeout'
+ value={'name':name,'exit_code':status,'seconds':round(time.monotonic()-start,3),'output':'check-output/'+out.name}
+ (B/(name+'.json')).write_text(json.dumps(value,indent=2)+'\n');print(json.dumps(value),flush=True);print('\n'.join(out.read_text().splitlines()[-10:]),flush=True)
+ assert status==0,name
+if sys.argv[1]=='tests':run('personal-suite',[PY,'-B','scripts/run_personal_tests.py'])
+elif sys.argv[1]=='quality':
+ run('architecture',[PY,'-I','-B','scripts/check_personal_architecture.py'])
+ run('ruff-format',[PY,'-B','-m','ruff','format','--check','--no-cache','.'])
+ run('ruff-lint',[PY,'-B','-m','ruff','check','--no-cache','.'])
+ run('mypy',[PY,'-B','-m','mypy','apps','packages'])
+ run('api-contracts',[PY,'-B','-m','scripts.generate_api_contracts','--check'])
+ run('compose-model',['/usr/local/bin/docker','compose','--env-file','/dev/null','-f','infra/compose/compose.yaml','config','--quiet'])

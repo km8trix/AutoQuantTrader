@@ -1,0 +1,9 @@
+{
+  "status": "consumer_seams_resolved",
+  "files": {
+    "packages/domain/accounting_contracts.py": "4b53a5cede7455606af338dd0aff371cd8fde394af495b792062f81de4c89206",
+    "packages/domain/engine_contracts.py": "b8aa64e54e3ee381a21929f43a2bfc0b0d1b1ff5118bf9d6eb76f01f80c1c937",
+    "docs/contracts/personal-v1/wave2-interfaces.md": "271f6f2d5f58e012453f4db1ddcc7c1437f0620ee28f1b838e2efe825191b39f"
+  },
+  "contract_tests": 13
+}
