@@ -57,9 +57,9 @@ test('admits the exact fixture when both byte ceilings are met at equality', asy
   assert.deepEqual(result, {
     contract_version: 'phase6b-production-bundle-admission-v1',
     status: 'production_bundle_admitted',
-    route_module_count: 11,
+    route_module_count: 14,
     required_shared_partition_count: 4,
-    asset_count: 16,
+    asset_count: 19,
     measured_max_asset_bytes: 50,
     initial_static_graph_asset_count: 5,
     initial_static_graph_bytes: 150,
@@ -93,7 +93,7 @@ test('rejects byte ceilings only after equality is exceeded', async (t) => {
   })
 })
 
-test('requires exactly 11 distinct allowlisted route dynamic entries', async (t) => {
+test('requires exactly 14 distinct allowlisted route dynamic entries', async (t) => {
   const cases = [
     {
       name: 'missing dynamic entry',
@@ -128,7 +128,7 @@ test('requires exactly 11 distinct allowlisted route dynamic entries', async (t)
       mutate(value) {
         value.policy.route_modules.pop()
       },
-      pattern: /exactly 11 modules/,
+      pattern: /exactly 14 modules/,
     },
   ]
 

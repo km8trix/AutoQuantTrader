@@ -1,0 +1,36 @@
+{
+  "failure": "writer_commit_SQLITE_BUSY",
+  "lease_or_timeout_changes": false,
+  "observed_transactions": [
+    {
+      "lane": "catalog_service_detail",
+      "max_shared_transaction_seconds": 3.561248,
+      "queries_in_maximum_transaction": 64,
+      "transactions": 50
+    },
+    {
+      "lane": "catalog_service_list",
+      "max_shared_transaction_seconds": 2.252246,
+      "queries_in_maximum_transaction": 184,
+      "transactions": 146
+    },
+    {
+      "lane": "schema_readiness",
+      "max_shared_transaction_seconds": 7.913964,
+      "queries_in_maximum_transaction": 294,
+      "transactions": 1
+    },
+    {
+      "lane": "workflow_getters",
+      "max_shared_transaction_seconds": 0.939348,
+      "queries_in_maximum_transaction": 42,
+      "transactions": 6
+    }
+  ],
+  "private_backup_only": true,
+  "profile_sha256": "fa816873b10c800188d2bd789204b7f27b7a2c472b59b05bd8de5baf5f4391cf",
+  "scope": "Private backup integration checks after detached replay and before selected-row/schema-probe batching; preserved diagnostic evidence, not final acceptance.",
+  "source_database_untouched": true,
+  "source_evidence_sha256": "fa26fac1d3f657a5ccef72913e282d63bde2813b1dac1b3f41a65a51d386058c",
+  "status": "failed"
+}

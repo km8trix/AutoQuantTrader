@@ -1,0 +1,27 @@
+{
+  "build_pins_unchanged": true,
+  "counts": {
+    "passed": 1974,
+    "skipped": 8
+  },
+  "elapsed_seconds": 262.165,
+  "log_sanitization": "Verification environment paths replaced; test counts and messages retained.",
+  "postgres_executed_locally": false,
+  "private_original_log_sha256": "6bcf9db315c29076d6075bc1fee5d6c4ec8fe64893f1605d294676ba1dfc35d4",
+  "private_result_sha256": "ad6111d411a5137dd73fb9e6622282bc695be74df6d442e67b2c8b69a930277a",
+  "private_verification_sha256": "9b10f0f08355b4f02f8c5ed3d0462025553331c5053a43fa596cb02911af7915",
+  "process_lock_released": true,
+  "pytest_seconds": 259.78,
+  "recorded_at": "2026-09-10T06:00:08.541549+00:00",
+  "sanitized_log_sha256": "9eb2932a2222e5f861bc595bd1eea052c4e5e1cfd4564f9f5f3746c4b32e1ba9",
+  "schema": "personal-wave3-local-checks/1",
+  "source_files_unchanged": true,
+  "source_freeze_sha256": "a0aba566da96ac51db4e9be110868d2a92f436441db0fe65c3db82c09c869e8a",
+  "status": "passed",
+  "suite": "scripts/run_personal_tests.py",
+  "suite_driver_sha256": "a6bf9163f1558fb00b6a23b17e1f02286ee5c6650c25cf9b939a6c74d0cccad3",
+  "warnings": {
+    "count": 1,
+    "scope": "Existing Starlette/httpx TestClient deprecation; runtime dependency lock unchanged."
+  }
+}

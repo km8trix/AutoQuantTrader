@@ -1,0 +1,39 @@
+{
+  "cancelled_trials": 24,
+  "experiment_count": 2,
+  "lease_timeout_changes": false,
+  "original_database_unchanged": true,
+  "original_publications_preserved": 3,
+  "original_readonly": [
+    {
+      "count": 4,
+      "maximum_seconds": 8.372866,
+      "operation": "list"
+    },
+    {
+      "count": 4,
+      "maximum_seconds": 5.773186,
+      "operation": "detail"
+    }
+  ],
+  "private_backup_readers_and_writer": [
+    {
+      "count": 4,
+      "maximum_seconds": 8.54866,
+      "operation": "list"
+    },
+    {
+      "count": 4,
+      "maximum_seconds": 6.85712,
+      "operation": "detail"
+    },
+    {
+      "count": 4,
+      "maximum_seconds": 3.247041,
+      "operation": "heartbeat"
+    }
+  ],
+  "provider_calls": 0,
+  "status": "passed",
+  "worker_processes": 0
+}

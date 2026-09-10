@@ -1,0 +1,13 @@
+{
+  "attempts": 2,
+  "driver_sha256": "93127c25457bdbc3292b6e6ede71c94b3c73b651b5ad3811609987ab2b3840cc",
+  "job_id": "4530e2b95dd1c035d8c06140020def4b71591ccc341bc58baa7a9d4407642860",
+  "lease_timestamps_edited": false,
+  "orphan_lock_retained_until_child_exit": true,
+  "parent_sigkill": true,
+  "publication_count": 1,
+  "scope": "Actual source worker on private disposable SQLite, 520-session synthetic engineering data; completed before getter-read concurrency correction. Existing report remains a retained earlier-build artifact.",
+  "seconds": 178.514,
+  "status": "passed",
+  "trading_authorized": false
+}

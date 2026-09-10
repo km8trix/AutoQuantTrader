@@ -1,0 +1,33 @@
+{
+  "children_exited": true,
+  "conclusion": "default tool sandbox denies read-only ps RSS measurement; supervisor fails closed before child loading",
+  "default_sandbox": {
+    "child_exit_code": -9,
+    "elapsed_seconds": 0.075,
+    "measurement_exception_class": "PermissionError",
+    "outcome": "failed",
+    "phase": "loading",
+    "publication": false,
+    "reason_code": "bounded-process-failed"
+  },
+  "evidence": {
+    "api-child-diagnosis-001/result.json": "9fc9e3bcc271d78fbe43906d6d387dab0157d566646438116f2f4b65b021f354",
+    "api-child-diagnosis-002/result.json": "4a9441014e1b8a85406503ea777900390a363f1e7577c4f50c2a2caff61678eb",
+    "ci-runtime-recheck/run-001/failed-run.json": "0aec975663da2f289db5c661fe190aa97620884464682d409117fdae88687f7f"
+  },
+  "original_failed_db_and_objects_unchanged": true,
+  "reviewed_escalated": {
+    "child_exit_code": 0,
+    "elapsed_seconds": 0.652,
+    "maximum_sampled_rss_bytes": 41107456,
+    "outcome": "completed",
+    "phase": "publishing",
+    "publication": true,
+    "reason_code": null
+  },
+  "schema": "api-retained-child-sandbox-diagnosis/1",
+  "scope": "one exact copied API-generated synthetic trial under each environment; not an all-12 retry",
+  "source_edits": 0,
+  "source_sha256": "efe9fcc2a30fa66da4a8fc5ef372a7ce859b4792bd0dec9944ac0d2583f1531b",
+  "source_unchanged": true
+}

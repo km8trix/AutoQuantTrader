@@ -62,8 +62,9 @@ api: ## Run the API on the host with reload enabled.
 web: ## Run the browser application on the host.
 	$(PNPM) --dir apps/web dev --host 127.0.0.1
 
-worker: ## Ingest the Phase 1 fixture and process at most one Phase 2 backtest.
-	$(UV) run autoquant-worker --once
+worker: ## Run durable research jobs with explicit RESEARCH_DB_URL and RESEARCH_ARTIFACTS.
+	@test -n "$(RESEARCH_DB_URL)" -a -n "$(RESEARCH_ARTIFACTS)" || (echo "RESEARCH_DB_URL and RESEARCH_ARTIFACTS are required"; exit 2)
+	$(UV) run --no-env-file autoquant-research-jobs --database-url "$(RESEARCH_DB_URL)" --artifacts "$(RESEARCH_ARTIFACTS)" work
 
 no-exposure-smoke-verify: ## Verify the checked-in no-exposure strategy bytes and manifest.
 	$(UV) run --offline --frozen --no-sync --no-env-file python -B \

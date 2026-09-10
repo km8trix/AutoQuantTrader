@@ -1,0 +1,40 @@
+{
+  "active_workers": 0,
+  "attempt_count": 12,
+  "checks": [
+    "actual API session and CSRF bootstrap",
+    "missing-header mutation rejection",
+    "idempotent12-job declaration",
+    "actual supervised CLI worker",
+    "12 independent exact rational report oracles",
+    "exact four model-cost/PnL outcomes",
+    "all five row projections and immutable export-byte bindings",
+    "comparison",
+    "empty restart preserves attempts/publications"
+  ],
+  "elapsed_seconds": 29.115,
+  "execution_mode": "reviewed exec_command require_escalated for read-only macOS /bin/ps RSS sampling",
+  "harness_exit_code": 0,
+  "hashes": {
+    "run-001/failed-run.json": "0aec975663da2f289db5c661fe190aa97620884464682d409117fdae88687f7f",
+    "run-002/empty-restart.stdout": "92183e2f80bcef05153f56a068ab5ce510b40e13ddf7b6fd01ce16229b812818",
+    "run-002/queued.json": "221b832dce41deafed52e28b3a6f3869e88dbea004706a0766276d7d26bd5b0c",
+    "run-002/result.json": "36cb027c140507a93785188f5dfa5a5631a784ab92e30858bdeb3d715808220f",
+    "run-002/worker.stdout": "06ef0ec9527cecde6cb1887c68676b5391901cc5e2920c98c24ae900bcfc42af",
+    "run-recheck.py": "1f8efb665c13d8f1face0c3f57d15bccbe9282d37e7182e78d38bef86143bd67"
+  },
+  "prior_acceptance_database_opened": false,
+  "prior_acceptance_objects_opened": false,
+  "provider_calls": 0,
+  "publication_count": 12,
+  "resource_policy_sha256": "a015aa8c06fb22b6af879890bc542b849deca3a559ae164b35840b9461216765",
+  "resource_policy_version": "posix-cpu-file-wall-sampled-resident/2",
+  "run_001_failed_evidence_preserved": true,
+  "scope_limit": "Synthetic source/ASGI/CLI acceptance on macOS; no listening server, browser, PostgreSQL or Linux-host execution claim.",
+  "source_pin": "efe9fcc2a30fa66da4a8fc5ef372a7ce859b4792bd0dec9944ac0d2583f1531b",
+  "source_pins_unchanged": true,
+  "status": "passed",
+  "trading_authorized": false,
+  "trial_count": 12,
+  "worker_lock_released": true
+}

@@ -1,0 +1,93 @@
+{
+  "credentials_accessed": false,
+  "final_experiment": {
+    "annualized_metrics": "Undefined with insufficient_scored_sessions reason",
+    "benchmark_results_visible": true,
+    "completed_report_and_download_link_visible": true,
+    "completed_trial_count": 12,
+    "costs": [
+      "base_1x",
+      "base_2x",
+      "base_3x",
+      "adverse"
+    ],
+    "data_class": "synthetic_fixture",
+    "declaration": "Actual browser form submit before execution, using retained native keyboard date input",
+    "experiment_id": "61a38aef9e22727e5a39f4869214899b53a9b1b4cbd4b74c032e5d3c669dc7de",
+    "final_api_errors_visible": false,
+    "observed_live_transition": {
+      "completed": 7,
+      "queued": 4,
+      "running": 1
+    },
+    "opened_completed_job": "8b5732e350703318de603a35a34fe73b380750b63e930b575ed9bc9cecd34852",
+    "protocol_sha256": "b4542db5d4ab1171205e218933b5d49371c6f9e61254bcdcc7677c13f96b5a00",
+    "retained_report_comparison": {
+      "comparable": true,
+      "comparison_sha256": "48cc007712c5a27bec080de74191c7588b6a7abacfea15885a72326f301a5a81",
+      "costs": [
+        "base_1x",
+        "adverse"
+      ],
+      "jobs": [
+        "8b5732e350703318de603a35a34fe73b380750b63e930b575ed9bc9cecd34852",
+        "3a13bbffe524a5ddb14981f22b7a19320184466480bcb8f49f43ea155705c17d"
+      ],
+      "visible_source_class": "synthetic_fixture"
+    },
+    "source_content_sha256": "db2afefe418f17a635197972710b1a575a4bd175f42438009daa47780aac7c50",
+    "suitability": "not_assessed",
+    "training_adverse_ending_equity": "10021.1056",
+    "training_base_ending_equity": "10024.9564",
+    "trial_count": 12,
+    "visible_provenance": [
+      "synthetic_fixture",
+      "modeled availability",
+      "known_accessed",
+      "independent reset",
+      "identity-no-fit/1",
+      "source, dependency, runtime and protocol pins"
+    ],
+    "windows": [
+      "train",
+      "validation",
+      "test"
+    ]
+  },
+  "frontend_source_set_sha256": "77265e0604facce4ffe05cda9bac0d157fa685b3290667e4b70fb03550e20ff4",
+  "limits": [
+    "Real sample is five admitted sessions, four scored; no annualized or untouched-holdout claim.",
+    "Longer synthetic histories establish engineering behavior only.",
+    "Browser UI source remained frozen through final execution; earlier raw reports keep their original build pins.",
+    "Independent export-byte and arithmetic checks are in separate evidence."
+  ],
+  "method": "Actual local browser semantic controls and read-only DOM inspection against the running API and actual source worker; no mocked HTTP results or hidden application-state mutation.",
+  "provider_calls": 0,
+  "real_sample_workflow": {
+    "catalog_id": "catalog-e98bfb1d5dd9f4e3265e78a4916c82ce82318c3878481d27b56336fdfc1aa048",
+    "data_class": "validated_current_vintage",
+    "observed": [
+      "clean local start and dataset selection",
+      "base and adverse actual report outputs",
+      "queued owner cancellation with zero attempts",
+      "equity, four executions and journal views",
+      "compatible two-report cost comparison",
+      "visible provenance and immutable report download link"
+    ],
+    "source_build_scope": "Earlier retained report build, preserved after final source corrections"
+  },
+  "recorded_at": "2026-09-10T05:50:11.257499+00:00",
+  "schema": "personal-wave3-browser-acceptance/1",
+  "status": "passed",
+  "trading_authorized": false,
+  "viewport_override_reset": true,
+  "viewports_css_px": [
+    {
+      "height": 827,
+      "width": 319
+    },
+    {
+      "width": 1440
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "boundary": "frozen source before final selected Python suite",
+  "build_pins": [
+    {
+      "name": "actions",
+      "sha256": "2f8c98ebe5b1b2450528da4f19c12b98c2e0813dd5d853f817ded8db2e840205",
+      "version": "explicit-canonical-facts-only/1"
+    },
+    {
+      "name": "availability",
+      "sha256": "3e93fda223c88ecc04e7881ebc5e76f2c60ba75c429b2da3435a9d0817d56838",
+      "version": "modeled-daily-and-retrospective-open/1"
+    },
+    {
+      "name": "benchmark",
+      "sha256": "2b23d1c7248b5a4032461db40a9dc27dd7252951fef5f2d898b13c251fc32eb5",
+      "version": "SPY-matched-flow-fractional-TR/1"
+    },
+    {
+      "name": "dependency_lock",
+      "sha256": "9584eb25ebea09189b4ed92fa89827a445b6a1c76d65262b14b7b5be70cdb941",
+      "version": "uv-lock/1"
+    },
+    {
+      "name": "dirty_patch",
+      "sha256": "db2afefe418f17a635197972710b1a575a4bd175f42438009daa47780aac7c50",
+      "version": "subsumed-by-actual-source-content/1"
+    },
+    {
+      "name": "engine",
+      "sha256": "eab8cbfd88e20dc9589bc329b3249c435fc774a721e8538e9843567843dc0f32",
+      "version": "personal-causal-engine/1"
+    },
+    {
+      "name": "numeric",
+      "sha256": "a1533f09c23d2c76cde5cb10f2237c2a3ad57455aa2c8b9a97953b145fcd758a",
+      "version": "exact-ledger-and-decimal64-derived/1"
+    },
+    {
+      "name": "python_runtime",
+      "sha256": "f76bf89b286ca9f46b9c6c4463167e4f30a63d98e2b40eb1d527bdc31c07fdf3",
+      "version": "CPython"
+    },
+    {
+      "name": "report",
+      "sha256": "2169b55c6f787f8f56edbdaae6a28762d1b8c4b5c6541558e7aa37454fb0c56e",
+      "version": "personal-report/2"
+    },
+    {
+      "name": "report_conventions",
+      "sha256": "4d8f62f2ee053f2cad3f91bf9011ac68b08dab9eabe85d74a6d71b9b979b2150",
+      "version": "personal-report/2"
+    },
+    {
+      "name": "resources",
+      "sha256": "b4db1b29080249cfcfa8dd28902f4331453e9c7d347cb4db183b7f4a1071fcc1",
+      "version": "posix-cpu-file-wall-sampled-resident/1"
+    },
+    {
+      "name": "source",
+      "sha256": "db2afefe418f17a635197972710b1a575a4bd175f42438009daa47780aac7c50",
+      "version": "actual-python-source-content/1"
+    },
+    {
+      "name": "source_base_revision",
+      "sha256": "1240cb2b35d325b0bf91b31f2e9d57f548b00b025cbeaeeed50721b781efdbe5",
+      "version": "6ea218addaa38d1c36c69b6a7ffbe564d701f834"
+    },
+    {
+      "name": "tzdata",
+      "sha256": "e9ed07d7bee0c76a9d442d091ef1f01668fee7c4f26014c0a868b19fe6c18a95",
+      "version": "America-New_York-TZif-content/1"
+    }
+  ],
+  "files": {
+    "apps/api/config.py": "a42a228347698e3fe697be76602a5af0f5d48514e98ba1b362d8a714193d1c9e",
+    "apps/api/main.py": "ceb587dc731b0e474efc51bb6d5572a3a9daeff074a900588800feed2caf1b5a",
+    "apps/api/personal_research_service.py": "7f265058f882a608da544f29b9cda5fb8d62b0196464d66f557e474bb0c8c1ee",
+    "apps/worker/research_jobs.py": "b12779c5f170a4d2d42134ce1c5738a83e5545d6a5eb5ff246c54acf4f328de9",
+    "packages/persistence/database.py": "8e36076bb3098f258e9fe0dad7baaac0c6b952c6bcf5840bc0cf58397419df01",
+    "packages/persistence/research_catalog.py": "46456545e27f41e10afce2169730925c090c6ee9a46aedff613fbf1bd799b167",
+    "packages/persistence/research_workflow_v2.py": "63524a04dc11424071354ec43fac29a033365764d3d57862cba9490c49c906cc",
+    "packages/persistence/sqlite_config.py": "572aa614bd1317f72add3f538478a1881ae3e32248e441e5b12e42f7fdb5e37e",
+    "scripts/run_personal_tests.py": "a6bf9163f1558fb00b6a23b17e1f02286ee5c6650c25cf9b939a6c74d0cccad3",
+    "tests/integration/test_research_sqlite_config.py": "f9cb0294959ba8a8a385be617ded9fe94bd8a2aecab7437aa7595d0d184d4c73",
+    "tests/unit/test_personal_research_projection.py": "241bb74ac616bf5c375d5eae903edb231375f35e77bf65379962b1e7208027aa"
+  }
+}

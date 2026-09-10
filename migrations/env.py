@@ -9,17 +9,27 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from packages.persistence.postgres_tls import pinned_verify_full_connect_args
+from packages.persistence.research_catalog_schema import RESEARCH_CATALOG_TABLES
+from packages.persistence.research_schema_v2 import RESEARCH_TABLES_V2
 from packages.persistence.schema import metadata
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-database_url = os.getenv("AQT_DATABASE_URL")
+explicit_database_url = config.attributes.get("aqt_explicit_database_url")
+database_url = (
+    explicit_database_url
+    if isinstance(explicit_database_url, str)
+    else os.getenv("AQT_DATABASE_URL")
+)
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 target_metadata = metadata
+assert all(
+    table.metadata is target_metadata for table in (*RESEARCH_TABLES_V2, *RESEARCH_CATALOG_TABLES)
+)
 
 
 def run_migrations_offline() -> None:

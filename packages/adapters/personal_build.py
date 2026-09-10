@@ -33,6 +33,8 @@ def current_build_pins() -> tuple[VersionPin, ...]:
         "apps/worker/__init__.py",
         "apps/worker/personal_research.py",
         "apps/worker/main.py",
+        "apps/worker/research_runner.py",
+        "apps/worker/research_jobs.py",
     ):
         source = root / relative
         if source.exists():
@@ -102,9 +104,14 @@ def current_build_pins() -> tuple[VersionPin, ...]:
             content_digest((sys.version, platform.machine(), metadata["build_constraints_sha256"])),
         ),
         "resources": (
-            "posix-cpu-file-wall-sampled-resident/1",
+            "posix-cpu-file-wall-sampled-resident/2",
             content_digest(
-                (sys.platform, "resident-sample-100ms-final-high-water", "linux-extra-RLIMIT_AS")
+                (
+                    sys.platform,
+                    "resident-sample-100ms-final-high-water",
+                    "linux-post-exec-VmHWM-darwin-process-getrusage",
+                    "linux-extra-RLIMIT_AS",
+                )
             ),
         ),
     }

@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 _REGRESSIONS = [
+    "config",
     "canonical",
     "accounting",
     "ledger_reducer",
@@ -50,6 +51,7 @@ _REGRESSIONS = [
     "tiingo_eod_calendar",
 ]
 _INTEGRATIONS = [
+    "schema",
     "phase2_submission_attempt_persistence",
     "phase2_batch_risk_persistence",
     "phase2_backtest_workflow",
@@ -70,6 +72,8 @@ def main() -> int:
     for pattern in (
         "test_personal_*.py",
         "test_research_dataset*.py",
+        "test_research_*.py",
+        "test_retained_research_*.py",
         "test_etrade_readonly*.py",
         "test_etrade_session*.py",
         "test_standard_clock.py",

@@ -4832,6 +4832,2179 @@
         "title": "PersistenceMode",
         "type": "string"
       },
+      "PersonalAttemptView": {
+        "properties": {
+          "attempt_id": {
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "attempt_number": {
+            "title": "Attempt Number",
+            "type": "integer"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "completed",
+              "incomplete",
+              "failed",
+              "cancelled",
+              "abandoned"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "attempt_number",
+          "status",
+          "started_at",
+          "ended_at",
+          "reasons"
+        ],
+        "title": "PersonalAttemptView",
+        "type": "object"
+      },
+      "PersonalCapability": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "enabled",
+          "reasons"
+        ],
+        "title": "PersonalCapability",
+        "type": "object"
+      },
+      "PersonalComparison": {
+        "properties": {
+          "comparable": {
+            "title": "Comparable",
+            "type": "boolean"
+          },
+          "comparison_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "differences": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalNamedValue"
+            },
+            "title": "Differences",
+            "type": "array"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalComparisonItem"
+            },
+            "maxItems": 8,
+            "minItems": 2,
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "comparison_sha256",
+          "comparable",
+          "reasons",
+          "differences",
+          "runs"
+        ],
+        "title": "PersonalComparison",
+        "type": "object"
+      },
+      "PersonalComparisonItem": {
+        "properties": {
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Assumptions",
+            "type": "array"
+          },
+          "benchmark_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalMetric"
+            },
+            "title": "Benchmark Metrics",
+            "type": "array"
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/PersonalConfiguration"
+          },
+          "cost_scenario_id": {
+            "title": "Cost Scenario Id",
+            "type": "string"
+          },
+          "data_class": {
+            "title": "Data Class",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "interval": {
+            "$ref": "#/components/schemas/PersonalReportInterval"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalMetric"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "report_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "strategy_id": {
+            "title": "Strategy Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "run_id",
+          "report_sha256",
+          "dataset_id",
+          "data_class",
+          "strategy_id",
+          "configuration",
+          "cost_scenario_id",
+          "interval",
+          "metrics",
+          "benchmark_metrics",
+          "assumptions",
+          "limitations"
+        ],
+        "title": "PersonalComparisonItem",
+        "type": "object"
+      },
+      "PersonalComparisonRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "job_ids": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalText"
+            },
+            "maxItems": 8,
+            "minItems": 2,
+            "title": "Job Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "job_ids"
+        ],
+        "title": "PersonalComparisonRequest",
+        "type": "object"
+      },
+      "PersonalConfiguration": {
+        "additionalProperties": false,
+        "properties": {
+          "allocation": {
+            "$ref": "#/components/schemas/PersonalDecimalInput"
+          },
+          "kind": {
+            "enum": [
+              "buy_hold",
+              "trend_sma"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "lookback": {
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Lookback",
+            "type": "integer"
+          },
+          "rebalance_sessions": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rebalance Sessions"
+          }
+        },
+        "required": [
+          "kind",
+          "lookback",
+          "allocation",
+          "rebalance_sessions"
+        ],
+        "title": "PersonalConfiguration",
+        "type": "object"
+      },
+      "PersonalCostScenario": {
+        "properties": {
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Assumptions",
+            "type": "array"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "fee_per_share": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Fee Per Share",
+            "type": "string"
+          },
+          "scenario_id": {
+            "title": "Scenario Id",
+            "type": "string"
+          },
+          "slippage_bps": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Slippage Bps",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenario_id",
+          "display_name",
+          "slippage_bps",
+          "fee_per_share",
+          "assumptions"
+        ],
+        "title": "PersonalCostScenario",
+        "type": "object"
+      },
+      "PersonalCoverageExclusion": {
+        "properties": {
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "row_id": {
+            "title": "Row Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "row_id",
+          "reasons"
+        ],
+        "title": "PersonalCoverageExclusion",
+        "type": "object"
+      },
+      "PersonalDatasetView": {
+        "properties": {
+          "availability_policy": {
+            "title": "Availability Policy",
+            "type": "string"
+          },
+          "data_class": {
+            "title": "Data Class",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "end_session": {
+            "format": "date",
+            "title": "End Session",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "manifest_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "prior_access": {
+            "enum": [
+              "known_accessed",
+              "unknown"
+            ],
+            "title": "Prior Access",
+            "type": "string"
+          },
+          "session_count": {
+            "title": "Session Count",
+            "type": "integer"
+          },
+          "start_session": {
+            "format": "date",
+            "title": "Start Session",
+            "type": "string"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbols",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "manifest_sha256",
+          "display_name",
+          "data_class",
+          "symbols",
+          "start_session",
+          "end_session",
+          "session_count",
+          "availability_policy",
+          "prior_access",
+          "limitations"
+        ],
+        "title": "PersonalDatasetView",
+        "type": "object"
+      },
+      "PersonalDecimalInput": {
+        "maxLength": 100,
+        "pattern": "^-?(0|[1-9]\\d*)(\\.\\d+)?$",
+        "type": "string"
+      },
+      "PersonalEquityRow": {
+        "properties": {
+          "benchmark_nav": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Nav"
+          },
+          "benchmark_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Benchmark Reasons",
+            "type": "array"
+          },
+          "benchmark_wealth": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Wealth"
+          },
+          "cash_nav": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cash Nav"
+          },
+          "cash_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cash Reasons",
+            "type": "array"
+          },
+          "cash_wealth": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cash Wealth"
+          },
+          "drawdown": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drawdown"
+          },
+          "economic_at": {
+            "format": "date-time",
+            "title": "Economic At",
+            "type": "string"
+          },
+          "flow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flow Id"
+          },
+          "kind": {
+            "const": "equity",
+            "title": "Kind",
+            "type": "string"
+          },
+          "knowledge_at": {
+            "format": "date-time",
+            "title": "Knowledge At",
+            "type": "string"
+          },
+          "last_known_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Known At"
+          },
+          "last_known_nav": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Known Nav"
+          },
+          "nav": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav"
+          },
+          "paired_row_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paired Row Id"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "row_id": {
+            "title": "Row Id",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "session": {
+            "format": "date",
+            "title": "Session",
+            "type": "string"
+          },
+          "signed_flow": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Signed Flow",
+            "type": "string"
+          },
+          "wealth": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wealth"
+          }
+        },
+        "required": [
+          "kind",
+          "row_id",
+          "sequence",
+          "economic_at",
+          "knowledge_at",
+          "session",
+          "roles",
+          "nav",
+          "wealth",
+          "drawdown",
+          "signed_flow",
+          "flow_id",
+          "paired_row_id",
+          "last_known_nav",
+          "last_known_at",
+          "benchmark_nav",
+          "benchmark_wealth",
+          "cash_nav",
+          "cash_wealth",
+          "reasons",
+          "benchmark_reasons",
+          "cash_reasons"
+        ],
+        "title": "PersonalEquityRow",
+        "type": "object"
+      },
+      "PersonalExecutionRow": {
+        "properties": {
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "string"
+          },
+          "fee": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Fee",
+            "type": "string"
+          },
+          "intent_id": {
+            "title": "Intent Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "executions",
+            "title": "Kind",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "order_id": {
+            "title": "Order Id",
+            "type": "string"
+          },
+          "price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Price",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "side": {
+            "title": "Side",
+            "type": "string"
+          },
+          "source_row_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Row Ids",
+            "type": "array"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "execution_id",
+          "revision",
+          "order_id",
+          "intent_id",
+          "symbol",
+          "side",
+          "quantity",
+          "price",
+          "fee",
+          "occurred_at",
+          "source_row_ids"
+        ],
+        "title": "PersonalExecutionRow",
+        "type": "object"
+      },
+      "PersonalExperimentCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_id": {
+            "$ref": "#/components/schemas/PersonalText"
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/PersonalConfiguration"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "configuration"
+        ],
+        "title": "PersonalExperimentCandidate",
+        "type": "object"
+      },
+      "PersonalExperimentFold": {
+        "additionalProperties": false,
+        "properties": {
+          "fold_id": {
+            "$ref": "#/components/schemas/PersonalText"
+          },
+          "test_end": {
+            "format": "date",
+            "title": "Test End",
+            "type": "string"
+          },
+          "test_start": {
+            "format": "date",
+            "title": "Test Start",
+            "type": "string"
+          },
+          "train_end": {
+            "format": "date",
+            "title": "Train End",
+            "type": "string"
+          },
+          "train_start": {
+            "format": "date",
+            "title": "Train Start",
+            "type": "string"
+          },
+          "validation_end": {
+            "format": "date",
+            "title": "Validation End",
+            "type": "string"
+          },
+          "validation_start": {
+            "format": "date",
+            "title": "Validation Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fold_id",
+          "train_start",
+          "train_end",
+          "validation_start",
+          "validation_end",
+          "test_start",
+          "test_end"
+        ],
+        "title": "PersonalExperimentFold",
+        "type": "object"
+      },
+      "PersonalExperimentList": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "experiments": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalExperimentView"
+            },
+            "maxItems": 100,
+            "title": "Experiments",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "as_of",
+          "experiments",
+          "truncated"
+        ],
+        "title": "PersonalExperimentList",
+        "type": "object"
+      },
+      "PersonalExperimentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalExperimentCandidate"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "dataset_id": {
+            "$ref": "#/components/schemas/PersonalText"
+          },
+          "folds": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalExperimentFold"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Folds",
+            "type": "array"
+          },
+          "hypothesis": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Hypothesis",
+            "type": "string"
+          },
+          "name": {
+            "$ref": "#/components/schemas/PersonalText"
+          },
+          "prior_access": {
+            "$ref": "#/components/schemas/PersonalPriorAccess"
+          },
+          "warmup_sessions": {
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Warmup Sessions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "hypothesis",
+          "dataset_id",
+          "candidates",
+          "folds",
+          "warmup_sessions",
+          "prior_access"
+        ],
+        "title": "PersonalExperimentRequest",
+        "type": "object"
+      },
+      "PersonalExperimentTrial": {
+        "properties": {
+          "benchmark_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalMetric"
+            },
+            "title": "Benchmark Metrics",
+            "type": "array"
+          },
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "cost_scenario_id": {
+            "title": "Cost Scenario Id",
+            "type": "string"
+          },
+          "fold_id": {
+            "title": "Fold Id",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalMetric"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "report_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256Text"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/PersonalRunStatus"
+          },
+          "trial_id": {
+            "title": "Trial Id",
+            "type": "string"
+          },
+          "window": {
+            "enum": [
+              "train",
+              "validation",
+              "test"
+            ],
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trial_id",
+          "candidate_id",
+          "fold_id",
+          "window",
+          "cost_scenario_id",
+          "status",
+          "job_id",
+          "report_sha256",
+          "reasons",
+          "metrics",
+          "benchmark_metrics"
+        ],
+        "title": "PersonalExperimentTrial",
+        "type": "object"
+      },
+      "PersonalExperimentView": {
+        "properties": {
+          "cost_scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalCostScenario"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "title": "Cost Scenarios",
+            "type": "array"
+          },
+          "evaluation_mode": {
+            "const": "descriptive_only",
+            "title": "Evaluation Mode",
+            "type": "string"
+          },
+          "experiment_id": {
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "export_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export Url"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "planned_trial_count": {
+            "title": "Planned Trial Count",
+            "type": "integer"
+          },
+          "protocol_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "provenance": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalNamedValue"
+            },
+            "title": "Provenance",
+            "type": "array"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "request": {
+            "$ref": "#/components/schemas/PersonalExperimentRequest"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PersonalRunStatus"
+          },
+          "suitability": {
+            "const": "not_assessed",
+            "title": "Suitability",
+            "type": "string"
+          },
+          "trials": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalExperimentTrial"
+            },
+            "maxItems": 1000,
+            "title": "Trials",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "experiment_id",
+          "protocol_sha256",
+          "requested_at",
+          "updated_at",
+          "request",
+          "status",
+          "evaluation_mode",
+          "suitability",
+          "planned_trial_count",
+          "cost_scenarios",
+          "trials",
+          "provenance",
+          "limitations",
+          "reasons",
+          "export_url"
+        ],
+        "title": "PersonalExperimentView",
+        "type": "object"
+      },
+      "PersonalFifoRow": {
+        "properties": {
+          "buy_fees": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Buy Fees",
+            "type": "string"
+          },
+          "closing_order_id": {
+            "title": "Closing Order Id",
+            "type": "string"
+          },
+          "completed": {
+            "title": "Completed",
+            "type": "boolean"
+          },
+          "execution_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Execution Ids",
+            "type": "array"
+          },
+          "gross_pnl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Gross Pnl",
+            "type": "string"
+          },
+          "kind": {
+            "const": "fifo",
+            "title": "Kind",
+            "type": "string"
+          },
+          "match_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Match Ids",
+            "type": "array"
+          },
+          "net_pnl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Net Pnl",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "sell_fees": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Sell Fees",
+            "type": "string"
+          },
+          "split_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Split Ids",
+            "type": "array"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "closing_order_id",
+          "symbol",
+          "completed",
+          "quantity",
+          "gross_pnl",
+          "buy_fees",
+          "sell_fees",
+          "net_pnl",
+          "match_ids",
+          "execution_ids",
+          "split_ids"
+        ],
+        "title": "PersonalFifoRow",
+        "type": "object"
+      },
+      "PersonalJournalRow": {
+        "properties": {
+          "amounts": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalNamedValue"
+            },
+            "title": "Amounts",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "entry_id": {
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "kind": {
+            "const": "journal",
+            "title": "Kind",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "source_row_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Row Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "entry_id",
+          "sequence",
+          "occurred_at",
+          "event_type",
+          "description",
+          "amounts",
+          "source_row_ids"
+        ],
+        "title": "PersonalJournalRow",
+        "type": "object"
+      },
+      "PersonalMetric": {
+        "properties": {
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Assumptions",
+            "type": "array"
+          },
+          "conventions_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/PersonalMetricCoverage"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "defined",
+              "undefined",
+              "approximate"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "name",
+          "value",
+          "unit",
+          "status",
+          "coverage",
+          "conventions_sha256",
+          "reasons",
+          "assumptions"
+        ],
+        "title": "PersonalMetric",
+        "type": "object"
+      },
+      "PersonalMetricCoverage": {
+        "properties": {
+          "contributing_row_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Contributing Row Ids",
+            "type": "array"
+          },
+          "excluded": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalCoverageExclusion"
+            },
+            "maxItems": 200,
+            "title": "Excluded",
+            "type": "array"
+          },
+          "expected_sessions": {
+            "title": "Expected Sessions",
+            "type": "integer"
+          },
+          "input_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "interval_id": {
+            "title": "Interval Id",
+            "type": "string"
+          },
+          "lineage_truncated": {
+            "title": "Lineage Truncated",
+            "type": "boolean"
+          },
+          "observed_sessions": {
+            "title": "Observed Sessions",
+            "type": "integer"
+          },
+          "sample_count": {
+            "title": "Sample Count",
+            "type": "integer"
+          },
+          "valid_returns": {
+            "title": "Valid Returns",
+            "type": "integer"
+          },
+          "valid_sessions": {
+            "title": "Valid Sessions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "interval_id",
+          "expected_sessions",
+          "observed_sessions",
+          "valid_sessions",
+          "valid_returns",
+          "sample_count",
+          "input_sha256",
+          "contributing_row_ids",
+          "excluded",
+          "lineage_truncated"
+        ],
+        "title": "PersonalMetricCoverage",
+        "type": "object"
+      },
+      "PersonalNamedValue": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "title": "PersonalNamedValue",
+        "type": "object"
+      },
+      "PersonalPositionRow": {
+        "properties": {
+          "cost_basis": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cost Basis",
+            "type": "string"
+          },
+          "kind": {
+            "const": "positions",
+            "title": "Kind",
+            "type": "string"
+          },
+          "mark": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mark"
+          },
+          "mark_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mark At"
+          },
+          "market_value": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Value"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "unrealized_pnl": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unrealized Pnl"
+          }
+        },
+        "required": [
+          "kind",
+          "symbol",
+          "quantity",
+          "cost_basis",
+          "market_value",
+          "unrealized_pnl",
+          "mark",
+          "mark_at",
+          "reasons"
+        ],
+        "title": "PersonalPositionRow",
+        "type": "object"
+      },
+      "PersonalPriorAccess": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "known_accessed",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "description"
+        ],
+        "title": "PersonalPriorAccess",
+        "type": "object"
+      },
+      "PersonalReportInterval": {
+        "properties": {
+          "baseline_valuation_id": {
+            "title": "Baseline Valuation Id",
+            "type": "string"
+          },
+          "expected_sessions": {
+            "title": "Expected Sessions",
+            "type": "integer"
+          },
+          "fold_id": {
+            "title": "Fold Id",
+            "type": "string"
+          },
+          "interval_id": {
+            "title": "Interval Id",
+            "type": "string"
+          },
+          "reset_mode": {
+            "title": "Reset Mode",
+            "type": "string"
+          },
+          "scored_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored End"
+          },
+          "scored_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored Start"
+          },
+          "terminal_valuation_id": {
+            "title": "Terminal Valuation Id",
+            "type": "string"
+          },
+          "warmup_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warmup End"
+          },
+          "warmup_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warmup Start"
+          }
+        },
+        "required": [
+          "interval_id",
+          "fold_id",
+          "scored_start",
+          "scored_end",
+          "warmup_start",
+          "warmup_end",
+          "expected_sessions",
+          "reset_mode",
+          "baseline_valuation_id",
+          "terminal_valuation_id"
+        ],
+        "title": "PersonalReportInterval",
+        "type": "object"
+      },
+      "PersonalReportRow": {
+        "discriminator": {
+          "mapping": {
+            "equity": "#/components/schemas/PersonalEquityRow",
+            "executions": "#/components/schemas/PersonalExecutionRow",
+            "fifo": "#/components/schemas/PersonalFifoRow",
+            "journal": "#/components/schemas/PersonalJournalRow",
+            "positions": "#/components/schemas/PersonalPositionRow"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PersonalEquityRow"
+          },
+          {
+            "$ref": "#/components/schemas/PersonalExecutionRow"
+          },
+          {
+            "$ref": "#/components/schemas/PersonalFifoRow"
+          },
+          {
+            "$ref": "#/components/schemas/PersonalJournalRow"
+          },
+          {
+            "$ref": "#/components/schemas/PersonalPositionRow"
+          }
+        ]
+      },
+      "PersonalResearchCatalog": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "cancel": {
+            "$ref": "#/components/schemas/PersonalCapability"
+          },
+          "cost_scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalCostScenario"
+            },
+            "maxItems": 20,
+            "title": "Cost Scenarios",
+            "type": "array"
+          },
+          "datasets": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalDatasetView"
+            },
+            "maxItems": 200,
+            "title": "Datasets",
+            "type": "array"
+          },
+          "experiments": {
+            "$ref": "#/components/schemas/PersonalCapability"
+          },
+          "launch": {
+            "$ref": "#/components/schemas/PersonalCapability"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "strategies": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalStrategyView"
+            },
+            "maxItems": 20,
+            "title": "Strategies",
+            "type": "array"
+          }
+        },
+        "required": [
+          "as_of",
+          "datasets",
+          "strategies",
+          "cost_scenarios",
+          "launch",
+          "cancel",
+          "experiments",
+          "limitations"
+        ],
+        "title": "PersonalResearchCatalog",
+        "type": "object"
+      },
+      "PersonalRowsKind": {
+        "enum": [
+          "equity",
+          "executions",
+          "fifo",
+          "journal",
+          "positions"
+        ],
+        "type": "string"
+      },
+      "PersonalRunList": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalRunView"
+            },
+            "maxItems": 200,
+            "title": "Jobs",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "as_of",
+          "jobs",
+          "truncated"
+        ],
+        "title": "PersonalRunList",
+        "type": "object"
+      },
+      "PersonalRunReport": {
+        "properties": {
+          "artifact_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Assumptions",
+            "type": "array"
+          },
+          "attempt_id": {
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "benchmark_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalMetric"
+            },
+            "maxItems": 100,
+            "title": "Benchmark Metrics",
+            "type": "array"
+          },
+          "benchmark_name": {
+            "title": "Benchmark Name",
+            "type": "string"
+          },
+          "cash_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalMetric"
+            },
+            "maxItems": 100,
+            "title": "Cash Metrics",
+            "type": "array"
+          },
+          "conventions": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalNamedValue"
+            },
+            "maxItems": 100,
+            "title": "Conventions",
+            "type": "array"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "data_class": {
+            "title": "Data Class",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "export_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export Url"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "interval": {
+            "$ref": "#/components/schemas/PersonalReportInterval"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalMetric"
+            },
+            "maxItems": 100,
+            "title": "Metrics",
+            "type": "array"
+          },
+          "provenance": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalNamedValue"
+            },
+            "maxItems": 100,
+            "title": "Provenance",
+            "type": "array"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "report_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "result_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "completed",
+              "incomplete"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "run_id",
+          "report_sha256",
+          "result_sha256",
+          "artifact_sha256",
+          "attempt_id",
+          "generated_at",
+          "status",
+          "currency",
+          "dataset_id",
+          "data_class",
+          "interval",
+          "metrics",
+          "benchmark_metrics",
+          "cash_metrics",
+          "benchmark_name",
+          "conventions",
+          "provenance",
+          "assumptions",
+          "limitations",
+          "reasons",
+          "export_url"
+        ],
+        "title": "PersonalRunReport",
+        "type": "object"
+      },
+      "PersonalRunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "configuration": {
+            "$ref": "#/components/schemas/PersonalConfiguration"
+          },
+          "cost_scenario_id": {
+            "$ref": "#/components/schemas/PersonalText"
+          },
+          "dataset_id": {
+            "$ref": "#/components/schemas/PersonalText"
+          },
+          "dataset_manifest_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "initial_cash": {
+            "$ref": "#/components/schemas/PersonalDecimalInput"
+          },
+          "scored_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored End"
+          },
+          "scored_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored Start"
+          },
+          "strategy_id": {
+            "$ref": "#/components/schemas/PersonalText"
+          },
+          "strategy_version": {
+            "$ref": "#/components/schemas/PersonalText"
+          },
+          "warmup_sessions": {
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Warmup Sessions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "dataset_manifest_sha256",
+          "strategy_id",
+          "strategy_version",
+          "configuration",
+          "initial_cash",
+          "warmup_sessions",
+          "scored_start",
+          "scored_end",
+          "cost_scenario_id"
+        ],
+        "title": "PersonalRunRequest",
+        "type": "object"
+      },
+      "PersonalRunRows": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PersonalRowsKind"
+          },
+          "limit": {
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "report_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalReportRow"
+            },
+            "maxItems": 200,
+            "title": "Rows",
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "report_sha256",
+          "kind",
+          "offset",
+          "limit",
+          "total",
+          "rows"
+        ],
+        "title": "PersonalRunRows",
+        "type": "object"
+      },
+      "PersonalRunStatus": {
+        "enum": [
+          "queued",
+          "running",
+          "completed",
+          "incomplete",
+          "failed",
+          "cancelled"
+        ],
+        "type": "string"
+      },
+      "PersonalRunView": {
+        "properties": {
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalAttemptView"
+            },
+            "maxItems": 200,
+            "title": "Attempts",
+            "type": "array"
+          },
+          "cancel_requested": {
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/PersonalConfiguration"
+          },
+          "cost_scenario_id": {
+            "title": "Cost Scenario Id",
+            "type": "string"
+          },
+          "data_class": {
+            "title": "Data Class",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_manifest_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "progress_completed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Completed"
+          },
+          "progress_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Total"
+          },
+          "progress_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Unit"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "report_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256Text"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "result_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256Text"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "spec_sha256": {
+            "$ref": "#/components/schemas/Sha256Text"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PersonalRunStatus"
+          },
+          "strategy_id": {
+            "title": "Strategy Id",
+            "type": "string"
+          },
+          "strategy_version": {
+            "title": "Strategy Version",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "run_id",
+          "spec_sha256",
+          "dataset_id",
+          "dataset_manifest_sha256",
+          "data_class",
+          "strategy_id",
+          "strategy_version",
+          "configuration",
+          "cost_scenario_id",
+          "status",
+          "cancel_requested",
+          "requested_at",
+          "updated_at",
+          "progress_completed",
+          "progress_total",
+          "progress_unit",
+          "attempts",
+          "report_sha256",
+          "result_sha256",
+          "reasons",
+          "limitations"
+        ],
+        "title": "PersonalRunView",
+        "type": "object"
+      },
+      "PersonalStrategyView": {
+        "properties": {
+          "default_configuration": {
+            "$ref": "#/components/schemas/PersonalConfiguration"
+          },
+          "default_warmup_sessions": {
+            "title": "Default Warmup Sessions",
+            "type": "integer"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "maximum_lookback": {
+            "title": "Maximum Lookback",
+            "type": "integer"
+          },
+          "minimum_lookback": {
+            "title": "Minimum Lookback",
+            "type": "integer"
+          },
+          "strategy_id": {
+            "title": "Strategy Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy_id",
+          "version",
+          "display_name",
+          "description",
+          "default_configuration",
+          "minimum_lookback",
+          "maximum_lookback",
+          "default_warmup_sessions",
+          "limitations"
+        ],
+        "title": "PersonalStrategyView",
+        "type": "object"
+      },
+      "PersonalText": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
       "PositionTargetView": {
         "properties": {
           "instrument_id": {
@@ -6623,6 +8796,565 @@
         "summary": "Fixture Segment Job",
         "tags": [
           "research"
+        ]
+      }
+    },
+    "/api/v1/research/personal/catalog": {
+      "get": {
+        "operationId": "catalog_api_v1_research_personal_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalResearchCatalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Catalog",
+        "tags": [
+          "personal research"
+        ]
+      }
+    },
+    "/api/v1/research/personal/comparison": {
+      "post": {
+        "operationId": "comparison_api_v1_research_personal_comparison_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalComparisonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalComparison"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Comparison",
+        "tags": [
+          "personal research"
+        ]
+      }
+    },
+    "/api/v1/research/personal/experiments": {
+      "get": {
+        "operationId": "experiments_api_v1_research_personal_experiments_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalExperimentList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Experiments",
+        "tags": [
+          "personal research"
+        ]
+      },
+      "post": {
+        "operationId": "create_experiment_api_v1_research_personal_experiments_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Csrf-Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalExperimentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalExperimentView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Experiment",
+        "tags": [
+          "personal research"
+        ]
+      }
+    },
+    "/api/v1/research/personal/experiments/{experiment_id}": {
+      "get": {
+        "operationId": "experiment_api_v1_research_personal_experiments__experiment_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "experiment_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Experiment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalExperimentView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Experiment",
+        "tags": [
+          "personal research"
+        ]
+      }
+    },
+    "/api/v1/research/personal/runs": {
+      "get": {
+        "operationId": "runs_api_v1_research_personal_runs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalRunList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Runs",
+        "tags": [
+          "personal research"
+        ]
+      },
+      "post": {
+        "operationId": "launch_api_v1_research_personal_runs_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Csrf-Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalRunView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Launch",
+        "tags": [
+          "personal research"
+        ]
+      }
+    },
+    "/api/v1/research/personal/runs/{job_id}": {
+      "get": {
+        "operationId": "run_api_v1_research_personal_runs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalRunView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run",
+        "tags": [
+          "personal research"
+        ]
+      }
+    },
+    "/api/v1/research/personal/runs/{job_id}/cancel": {
+      "post": {
+        "operationId": "cancel_api_v1_research_personal_runs__job_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Csrf-Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalRunView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel",
+        "tags": [
+          "personal research"
+        ]
+      }
+    },
+    "/api/v1/research/personal/runs/{job_id}/export": {
+      "get": {
+        "operationId": "export_api_v1_research_personal_runs__job_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export",
+        "tags": [
+          "personal research"
+        ]
+      }
+    },
+    "/api/v1/research/personal/runs/{job_id}/report": {
+      "get": {
+        "operationId": "report_api_v1_research_personal_runs__job_id__report_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalRunReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Report",
+        "tags": [
+          "personal research"
+        ]
+      }
+    },
+    "/api/v1/research/personal/runs/{job_id}/rows": {
+      "get": {
+        "operationId": "rows_api_v1_research_personal_runs__job_id__rows_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "equity",
+                "executions",
+                "fifo",
+                "journal",
+                "positions"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "report_sha256",
+            "required": true,
+            "schema": {
+              "title": "Report Sha256",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalRunRows"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rows",
+        "tags": [
+          "personal research"
         ]
       }
     },

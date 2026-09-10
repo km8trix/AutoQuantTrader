@@ -1,0 +1,62 @@
+{
+  "checks": [
+    "all admitted/rejected documented runtime boundaries",
+    "no journal mutation before unsupported runtime rejection",
+    "mode/FULL/FK failures reject without fallback",
+    "all physical connections enforce WAL/FULL/FK",
+    "default DELETE and memory including SQLite URI memory unchanged",
+    "API configured opt-in and injected-engine ownership",
+    "API and CLI unavailable-policy rejection",
+    "nonempty init preserves existing DELETE mode and facts",
+    "actual CLI init and empty worker pass",
+    "separate process write/read restart preserves data and WAL/FULL",
+    "reader-held snapshot remains old while writer COMMIT succeeds",
+    "SQLite backup includes committed WAL rows while old reader remains open"
+  ],
+  "limits": [
+    "No broad suite run in this lane.",
+    "Independent five-lane contention probe is owned by A and is not claimed by this evidence.",
+    "WAL requires a local filesystem and coordinated first conversion; these are operating prerequisites, not mount detection.",
+    "WAL does not rule out every SQLITE_BUSY condition.",
+    "Backup test validates SQLite backup API; copying only the main live database file is not a supported backup procedure."
+  ],
+  "official_reference": "https://sqlite.org/wal.html",
+  "policy": {
+    "busy_timeout_ms": 5000,
+    "foreign_keys": true,
+    "injected_api_engines": "caller-owned, unchanged",
+    "lease_seconds": "unchanged at 60",
+    "postgresql_and_memory": "unchanged",
+    "runtime_admission": ">=3.51.3, or 3.50.x patch>=7, or 3.44.x patch>=6",
+    "synchronous": "FULL (2), verified each physical connection",
+    "wal": true,
+    "wal_autocheckpoint_pages": 1000
+  },
+  "public_api": "create_database_engine(database_url, *, research_sqlite_wal: bool = False)",
+  "pytest": {
+    "command": "python -B -m pytest tests/integration/test_research_sqlite_config.py -q -p no:cacheprovider (clean environment, disposable basetemp)",
+    "elapsed_seconds": 3.3,
+    "failed": 0,
+    "file": "tests/integration/test_research_sqlite_config.py",
+    "passed": 38
+  },
+  "quality": {
+    "mypy": "Success: no issues found in 4 source files",
+    "ruff_check": "passed on all five files",
+    "ruff_format_check": "5 files already formatted"
+  },
+  "runtime": {
+    "python": "3.12.13",
+    "sqlite": "3.53.1"
+  },
+  "schema_version": 1,
+  "scope": "Opt-in local file-backed research SQLite WAL/FULL; disposable fixtures only",
+  "source_evidence_sha256": "2386ee405b5e4fd93487894e270707c23b872d6867c6fc80f37d0b66f47b188e",
+  "source_sha256": {
+    "apps/api/main.py": "ceb587dc731b0e474efc51bb6d5572a3a9daeff074a900588800feed2caf1b5a",
+    "apps/worker/research_jobs.py": "b12779c5f170a4d2d42134ce1c5738a83e5545d6a5eb5ff246c54acf4f328de9",
+    "packages/persistence/database.py": "8e36076bb3098f258e9fe0dad7baaac0c6b952c6bcf5840bc0cf58397419df01",
+    "packages/persistence/sqlite_config.py": "572aa614bd1317f72add3f538478a1881ae3e32248e441e5b12e42f7fdb5e37e",
+    "tests/integration/test_research_sqlite_config.py": "f9cb0294959ba8a8a385be617ded9fe94bd8a2aecab7437aa7595d0d184d4c73"
+  }
+}

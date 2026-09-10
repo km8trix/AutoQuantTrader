@@ -46,6 +46,8 @@ from packages.persistence.database import (
     create_database_engine,
     verify_operational_schema,
 )
+from packages.persistence.research_catalog_schema import RESEARCH_CATALOG_TABLES
+from packages.persistence.research_schema_v2 import RESEARCH_TABLES_V2
 from packages.persistence.reservation_lifecycle import SqlReservationLifecycleRepository
 from packages.persistence.schema import (
     metadata,
@@ -110,6 +112,19 @@ from tests.unit.test_batch_risk import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+PERSONAL_RESEARCH_TABLE_NAMES = frozenset(
+    {
+        "research_objects_v2",
+        "research_jobs_v2",
+        "research_job_events_v2",
+        "research_job_heads_v2",
+        "research_publications_v2",
+        "research_catalog_entries",
+        "research_launch_intents",
+        "research_experiments",
+        "research_trial_jobs",
+    }
+)
 PHASE2_TABLE_NAMES = frozenset(
     {
         "phase2_account_lease_heads",
@@ -313,6 +328,9 @@ def _legacy_lease_pair(
 def test_operational_schema_can_be_created_without_postgresql() -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:")
 
+    assert {
+        table.name for table in (*RESEARCH_TABLES_V2, *RESEARCH_CATALOG_TABLES)
+    } == PERSONAL_RESEARCH_TABLE_NAMES
     metadata.create_all(engine)
 
     assert set(inspect(engine).get_table_names()) == {
@@ -443,6 +461,15 @@ def test_operational_schema_can_be_created_without_postgresql() -> None:
         "phase6_trusted_time_head_anchor_receipts",
         "phase6_trusted_time_host_heads",
         "phase6_trusted_time_probe_evaluations",
+        "research_catalog_entries",
+        "research_experiments",
+        "research_job_events_v2",
+        "research_job_heads_v2",
+        "research_jobs_v2",
+        "research_launch_intents",
+        "research_objects_v2",
+        "research_publications_v2",
+        "research_trial_jobs",
         "risk_account_guards",
         "risk_decisions",
         "risk_reservations",
@@ -2057,6 +2084,7 @@ def test_phase2_durability_migration_is_additive_and_reversible(tmp_path: Path) 
         | PHASE4_TABLE_NAMES
         | PHASE5_TABLE_NAMES
         | PHASE6_TABLE_NAMES
+        | PERSONAL_RESEARCH_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
@@ -2123,6 +2151,7 @@ def test_phase3_governance_migration_is_additive_and_reversible(tmp_path: Path) 
         | PHASE4_TABLE_NAMES
         | PHASE5_TABLE_NAMES
         | PHASE6_TABLE_NAMES
+        | PERSONAL_RESEARCH_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
@@ -2160,6 +2189,7 @@ def test_phase4_broker_ingress_migration_is_additive_and_reversible(
         | PHASE4_TABLE_NAMES
         | PHASE5_TABLE_NAMES
         | PHASE6_TABLE_NAMES
+        | PERSONAL_RESEARCH_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
@@ -3152,6 +3182,7 @@ def test_phase5_operational_control_migration_is_additive_and_reversible(
         | PHASE4_TABLE_NAMES
         | PHASE5_TABLE_NAMES
         | PHASE6_TABLE_NAMES
+        | PERSONAL_RESEARCH_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))

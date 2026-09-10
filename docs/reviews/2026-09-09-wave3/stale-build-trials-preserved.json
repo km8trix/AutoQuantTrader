@@ -1,0 +1,106 @@
+{
+  "all_nonselected_jobs_unchanged": true,
+  "boundary": "explicit owner cancellation through durable workflow",
+  "cancelled_count": 12,
+  "cancelled_jobs": [
+    {
+      "attempt_count": 0,
+      "job_id": "849d946e8508d9cbc96edb7aa7ddbf9e0fab6b3f8b987069cc0fd4c3b0de17b9",
+      "last_event_sha256": "c072527449ae02920dca2e4c2616c760590f7d032a6e16504d982b1611d9926a",
+      "publication_count": 0,
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "021c2b02999e66d28ec585e56fd367703afc6e643265dfe5947c7bdf09fb0164",
+      "last_event_sha256": "e797ed4f9fa3636ed9812a0f5b797c4b640567efede988dfd26f9c7d4296a46a",
+      "publication_count": 0,
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "ea9bb8e23cb945dd6ecb4ccdac99e406ac960143c3e1817e8b3c05ec1b83af37",
+      "last_event_sha256": "641733a3aed60e30b6c941cbed8353e206b21a0b76aa5a6b29eccf7308071477",
+      "publication_count": 0,
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "a1ecffca8ad0ce6e022f3da0ca5079652925309aee85fc26a8ba1ed2abcc0f55",
+      "last_event_sha256": "103101836d00b243fffa216225a64512242625528eff101f5f6665e7108f1753",
+      "publication_count": 0,
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "ad8bf77c4b9036437d7b9dc3314039c25189beba8f48558d0f8d832b45945a9a",
+      "last_event_sha256": "e5e15e884ae6969dc75552b1ba832302e966fc494d1184b7612eca88793cfef9",
+      "publication_count": 0,
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "647c8de0db7df8251e2acf238c4990f2eac15c7e9251b2970fe9856ed1754cd9",
+      "last_event_sha256": "d28dcf6111a8862d993fa08aeee02cf09995dd80262d1ad954806499274f4c3d",
+      "publication_count": 0,
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "ef942651f7e077c7a8de931fd8f053964db03d5eaa45f0e9d94c31c9ed7b4740",
+      "last_event_sha256": "b5b1d427b2089e8964db36a47085b7cfb4956366bd0d4877e3664f2a6d6da662",
+      "publication_count": 0,
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "3be8afa7ededd138021b1a1c09963fe9382a230c929d55ee3d6d2ee9b98f2894",
+      "last_event_sha256": "5fbdbfc6ad9924f0f417f57a621217e69fec585c2ef1e8f35a81321def072dff",
+      "publication_count": 0,
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "26c248e2dc40f54a1d3e27f390c6ff8ded3739d1265a8bed0304a27525eafd99",
+      "last_event_sha256": "691aa2082befea00b3c198de59c39bb12ac53c21149f9f5639abc57bfd15b3e8",
+      "publication_count": 0,
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "496f13c2859aaebfda8b22e8fd3ba453bc669778e4c4fcf8b47433e30c1e0baa",
+      "last_event_sha256": "e3520a298a6b5e04cd58644130b646f52c93271f0afc9018a58c85892acfe501",
+      "publication_count": 0,
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "b5c390ecaeb426881d448cf55d3d7f00cfeaeac8d699af1bcc4589a49ebd941e",
+      "last_event_sha256": "dcd2ea71d9c0bd7a96ce854d020ecff53c99a8098077326c4ac6cc366d4431cd",
+      "publication_count": 0,
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "53af871c8cc4245e243917e71eee4251e22860f380cde72e56e7dadb6a32eab8",
+      "last_event_sha256": "e93b81c813ec5169200eae1e0bd06253347c4c8ed0667c60091c8d9d0d80a6a5",
+      "publication_count": 0,
+      "status": "cancelled"
+    }
+  ],
+  "completed_reports_preserved": 3,
+  "contains_raw_market_data": false,
+  "elapsed_seconds": 10.05,
+  "experiment_id": "2615b56bb0684513074a145619d34f23c7022bb8e4c70a09e885574f07b6f5b2",
+  "journal_mode_unchanged": true,
+  "new_experiment_registered": false,
+  "pre_cancellation": {
+    "attempts": 0,
+    "publications": 0,
+    "queued": 12
+  },
+  "registrations_preserved": 3,
+  "source_evidence_sha256": "d7e5e70009e1d27e475194cef328e6b37ab74e739fa98e83afd28ef95035f23a",
+  "status": "cancelled",
+  "worker_started": false
+}

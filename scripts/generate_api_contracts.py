@@ -56,6 +56,12 @@ def _schema_type(schema: dict[str, Any], level: int = 0) -> str:
             raise ContractGenerationError("JSON Schema $ref must be a string")
         return _schema_ref(reference)
 
+    if "const" in schema:
+        value = schema["const"]
+        if value is not None and type(value) not in (str, int, bool):
+            raise ContractGenerationError("unsupported JSON Schema constant")
+        return json.dumps(value)
+
     if "enum" in schema:
         values = schema["enum"]
         if not isinstance(values, list) or not values:

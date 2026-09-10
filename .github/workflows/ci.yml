@@ -71,6 +71,14 @@ jobs:
           env -i PATH=/usr/bin:/bin "$RUNNER_TEMP/personal-installed/bin/autoquant-worker" --fixture flat --fixture-sessions 12 --warmup 3 --lookback 3 --max-seconds 30 --max-output-mib 16 --output "$RUNNER_TEMP/installed-research.json"
           "$RUNNER_TEMP/personal-installed/bin/python" -c 'import json,sys; from decimal import Decimal; r=json.load(open(sys.argv[1]))["report"]; m={x["name"]:x for x in r["metrics"]}; assert r["status"]=="completed" and Decimal(m["ending_equity"]["value"])==Decimal("9998.56"); assert m["annualized_return"]["value"] is None; assert len(r["source"]["executions"])==1' "$RUNNER_TEMP/installed-research.json"
           "$RUNNER_TEMP/personal-installed/bin/python" -B "$GITHUB_WORKSPACE/scripts/verify_personal_research_process.py" --python "$RUNNER_TEMP/personal-installed/bin/python" --output-dir "$RUNNER_TEMP/installed-research-process-checks"
+      - name: Exercise installed durable research workflow with locked runtime dependencies
+        run: |
+          uv export --quiet --locked --no-dev --no-emit-project --format requirements.txt --output-file "$RUNNER_TEMP/personal-runtime-requirements.txt"
+          uv venv "$RUNNER_TEMP/research-installed" --python 3.12
+          uv pip sync --python "$RUNNER_TEMP/research-installed/bin/python" --require-hashes --only-binary :all: "$RUNNER_TEMP/personal-runtime-requirements.txt"
+          uv pip install --python "$RUNNER_TEMP/research-installed/bin/python" --no-deps "$RUNNER_TEMP"/personal-wheel/*.whl
+          cd "$RUNNER_TEMP"
+          env -i PATH=/usr/bin:/bin "$RUNNER_TEMP/research-installed/bin/python" -I -B "$GITHUB_WORKSPACE/scripts/verify_personal_research_jobs.py" --python "$RUNNER_TEMP/research-installed/bin/python" --output-dir "$RUNNER_TEMP/installed-durable-research-checks"
       - name: Validate historical Compose definitions without activation
         run: docker compose --env-file /dev/null -f infra/compose/compose.yaml config --quiet
 

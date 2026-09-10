@@ -1,0 +1,91 @@
+{
+  "contains_raw_market_data": false,
+  "count": 3,
+  "elapsed_seconds": 4.265,
+  "reports": [
+    {
+      "annualized_derived_metrics": {
+        "annualized_return": "-0.0096741383016192971617367713323226538281121895613491043748168980",
+        "annualized_volatility": "0.001424493045754118300959527635227095962532962033791449729796954038",
+        "sharpe_ratio": "-6.823507086857125265473984550885029989817367736848710103885734068",
+        "sortino_ratio": "-6.618768484179165780152784267379897330393237761392661015850270240"
+      },
+      "artifact_sha256": "b67a3d2fe06119a5b2ca57aa6454b91d5277bf4daf8cd832c730ee6ed3b8539b",
+      "data_class": "synthetic_fixture",
+      "derived_rationals": {
+        "average_gross_exposure": "48407006059152347252341913391830962688604378153359283521230548183915887390117497369573298054598024447019862970975598709426512675403380941291261737064303882226243758198434674163361008664305485883582204775822123565580275477253200150600776288339756235208812966205325626690368143037507682767024382943060814833095653035257556381427370884610102586701880261352466094562421587451666645847714738925502167250/803933192432680855769595389904913041269913058688774036234052916815986131001102122668147329915383844824012684522534604989141323148276279391445292637572411246836710760335156530909461966635924700904436704865021450181239411653184573832332396684522163524402340409727231043119503195956232453188088707349364191585253025763443806220624609846682441630162668621024078798803297828057635911128991635091166315089",
+        "benchmark_total_return": "-250/1251",
+        "fees": "2/5",
+        "final_nav": "2474287/250",
+        "maximum_drawdown": "583363/50069103",
+        "net_pnl": "-25713/250",
+        "total_return": "-25713/2500000",
+        "turnover": "6571427000/13284437803"
+      },
+      "execution_count": 3,
+      "job_id": "4530e2b95dd1c035d8c06140020def4b71591ccc341bc58baa7a9d4407642860",
+      "object_sha256": "fab57ddc59ffdd2f14b733f2246e5b125745f9f5e070a4aa451759e879a82550",
+      "oracle_pass": true,
+      "publication_binding_pass": true,
+      "report_sha256": "2a018fd2e15115f421c3756fd95bbce602f68b3774d8e2bb1231930e4930ef6b",
+      "scored_session_count": 268,
+      "valuation_count": 270
+    },
+    {
+      "annualized_derived_metrics": {
+        "annualized_return": null,
+        "annualized_volatility": null,
+        "sharpe_ratio": null,
+        "sortino_ratio": null
+      },
+      "artifact_sha256": "d023ea700de2fa6951fa6c1486963e18e3cf377c0198864aaccce80f5c81c9f9",
+      "data_class": "validated_current_vintage",
+      "derived_rationals": {
+        "average_gross_exposure": "1260366092308317147552625/2010588548102405514547936",
+        "benchmark_total_return": null,
+        "fees": "11/25",
+        "final_nav": "126480121/12500",
+        "maximum_drawdown": "0",
+        "net_pnl": "1480121/12500",
+        "total_return": "1480121/125000000",
+        "turnover": "417090516/503643613"
+      },
+      "execution_count": 4,
+      "job_id": "b5beadc6c02fe3194385a1c11a16b9c56a5f91c3a9a2769a42d3ad98173987ba",
+      "object_sha256": "8ad31c4d4a9c40240c8a330c7257e6ce7c7ca348094315facee9e9cc0b9f4390",
+      "oracle_pass": true,
+      "publication_binding_pass": true,
+      "report_sha256": "4df8855b4dab4bc26dd68ad5c1d39e4ac479e361e2ebd9cc1d78df58288cf532",
+      "scored_session_count": 4,
+      "valuation_count": 6
+    },
+    {
+      "annualized_derived_metrics": {
+        "annualized_return": null,
+        "annualized_volatility": null,
+        "sharpe_ratio": null,
+        "sortino_ratio": null
+      },
+      "artifact_sha256": "45de4d83bd2b1deeee2417cfdbbaa96fb4af816d9a2fe82936c3a62624d4e57c",
+      "data_class": "validated_current_vintage",
+      "derived_rationals": {
+        "average_gross_exposure": "26955532191643399722591000/43054707536964346273641437",
+        "benchmark_total_return": null,
+        "fees": "11/50",
+        "final_nav": "506555871/50000",
+        "maximum_drawdown": "0",
+        "net_pnl": "6555871/50000",
+        "total_return": "6555871/500000000",
+        "turnover": "1665864516/2016480613"
+      },
+      "execution_count": 4,
+      "job_id": "1c36a35b0a04374baa838c03b89aeeebd36281bcf4ce6ecfdcc631f5bf3f9b50",
+      "object_sha256": "358164167604542feb4ee9e1a3b06c2e498881eff0c91dd6bf11386686121404",
+      "oracle_pass": true,
+      "publication_binding_pass": true,
+      "report_sha256": "a0e705ead12618f2817da6c8b19813beb060980f49d2a661b0378b3353429df1",
+      "scored_session_count": 4,
+      "valuation_count": 6
+    }
+  ]
+}

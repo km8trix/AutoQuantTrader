@@ -31,25 +31,36 @@ export function EnvironmentBanner({ environment, unavailable = false }: Environm
     <Box
       aria-label="Trading environment"
       role="status"
-      sx={{
+      sx={(theme) => ({
         alignItems: 'center',
         bgcolor: backgroundColor,
         color: foregroundColor,
         display: 'flex',
-        height: ENVIRONMENT_BANNER_HEIGHT,
+        height: 'auto',
+        minHeight: ENVIRONMENT_BANNER_HEIGHT,
+        flexWrap: 'wrap',
         inset: '0 0 auto 0',
         justifyContent: 'center',
-        position: 'fixed',
+        position: 'relative',
         px: 2,
-        zIndex: (theme) => theme.zIndex.appBar + 2,
-      }}
+        py: 1,
+        rowGap: 0.5,
+        [theme.breakpoints.up('md')]: {
+          height: ENVIRONMENT_BANNER_HEIGHT,
+          flexWrap: 'nowrap',
+          position: 'fixed',
+          py: 0,
+          rowGap: 0,
+        },
+        zIndex: theme.zIndex.appBar + 2,
+      })}
     >
       <Icon aria-hidden="true" sx={{ fontSize: 17, mr: 1 }} />
-      <Typography sx={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+      <Typography sx={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', textAlign: 'center', overflowWrap: 'anywhere' }}>
         {label}
       </Typography>
       {environment?.account_id ? (
-        <Typography component="span" sx={{ fontFamily: 'monospace', fontSize: 11, ml: 1.5, opacity: 0.82 }}>
+        <Typography component="span" sx={{ fontFamily: 'monospace', fontSize: 11, ml: 1.5, opacity: 0.82, overflowWrap: 'anywhere' }}>
           Account {environment.account_id}
         </Typography>
       ) : null}

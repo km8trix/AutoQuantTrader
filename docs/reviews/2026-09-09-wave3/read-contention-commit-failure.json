@@ -1,0 +1,12 @@
+{
+  "boundary": "SqlResearchWorkflow.claim_next -> _write -> connection.commit",
+  "diagnostic_sha256": "d059973d62bf85dc15f0fc25ebb3abbc2a732f18e8ca8ca6b9f74beabc30fd21",
+  "elapsed_seconds": 13.133,
+  "exception_type": "OperationalError",
+  "experiment_id": "2615b56bb0684513074a145619d34f23c7022bb8e4c70a09e885574f07b6f5b2",
+  "provider_calls": 0,
+  "schema": "personal-wave3-read-contention/1",
+  "scope": "One actual CLI retry under browser list/detail polling with three retained 520-session experiment registrations. The earlier read-only getter change did not release shared read snapshots before expensive validation; no timeout or lease was changed.",
+  "sqlite_errorname": "SQLITE_BUSY",
+  "status": "confirmed_failure_before_snapshot_correction"
+}

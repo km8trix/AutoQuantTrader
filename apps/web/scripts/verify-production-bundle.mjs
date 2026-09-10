@@ -334,8 +334,8 @@ function parsePolicy(value) {
     'policy route_modules',
     requireModuleId,
   )
-  if (routeModules.length !== 11) {
-    fail('policy route_modules must contain exactly 11 modules')
+  if (routeModules.length !== 14) {
+    fail('policy route_modules must contain exactly 14 modules')
   }
   if (routeModules.includes(entryModule)) {
     fail('policy entry_module cannot also be a route module')

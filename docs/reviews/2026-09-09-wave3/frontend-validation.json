@@ -1,0 +1,47 @@
+{
+  "artifacts": {
+    "frontend-build.log": "8e0da879e7d4e7face9da068bf50975530588c97cbc219d388bd4af9de2bf5dc",
+    "frontend-bundle-tests.tap": "5e01d7bbd630b3f87ce3c1e33aeb988e9c0811154709f0756b4594ec4b4fc5ab",
+    "frontend-bundle.json": "25aece41ff5b0206041ec07807ef9aba26516679ecd652cbbd13aec6aa6ad1a8",
+    "frontend-source-hashes.json": "da4c4c78e1c8d8d77bf986ee2bfe7aa7fc9eec854b1238ccd93ea191fe18909f",
+    "frontend-vitest.json": "2204e6d0e3f04b0cb96706656c2fd520b26fc32a88c03c53ecb2afc0d354e382"
+  },
+  "browser_acceptance": "Parent separately verified319px controls/banner identity and keyboard-native date submission; direct CUA date fill was a tooling limitation.",
+  "build": "passed",
+  "bundle": {
+    "asset_count": 32,
+    "contract_version": "phase6b-production-bundle-admission-v1",
+    "deployment_authorized": false,
+    "initial_static_graph_asset_count": 5,
+    "initial_static_graph_bytes": 624724,
+    "max_asset_bytes": 300000,
+    "max_initial_graph_bytes": 625000,
+    "measured_max_asset_bytes": 285283,
+    "operational_control_authorized": false,
+    "required_shared_partition_count": 4,
+    "route_module_count": 14,
+    "status": "production_bundle_admitted",
+    "trading_authorized": false
+  },
+  "bundle_node_tests": {
+    "fail": 0,
+    "pass": 33,
+    "skipped": 0,
+    "tests": 33
+  },
+  "eslint": "passed entire web project with max-warnings0",
+  "source_file_count": 96,
+  "source_files_unchanged_during_checks": true,
+  "source_set_sha256": "77265e0604facce4ffe05cda9bac0d157fa685b3290667e4b70fb03550e20ff4",
+  "status": "passed",
+  "typecheck": {
+    "app": "passed",
+    "node_config": "passed"
+  },
+  "vitest": {
+    "failed": 0,
+    "passed": 139,
+    "success": true,
+    "tests": 139
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "fixture": "fresh empty repository migration 0039; no provider data",
+  "required_tables": 143,
+  "runs": {
+    "batched": {
+      "probe_statements": 3,
+      "probe_widths": [
+        64,
+        64,
+        15
+      ],
+      "seconds": 0.027486,
+      "sql_statements": 143
+    },
+    "previous_loop": {
+      "probe_statements": 143,
+      "probe_widths": [],
+      "seconds": 0.520838,
+      "sql_statements": 283
+    }
+  },
+  "same_remaining_validation_path": true,
+  "sql_statement_reduction": 140,
+  "timing_limitations": "Sequential same-process observations include unequal warmup/cache state; query counts, not contention latency, are the acceptance evidence."
+}

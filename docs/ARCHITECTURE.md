@@ -1,6 +1,6 @@
 # AutoQuantTrader architecture
 
-Status: authoritative target design, consolidated 2026-09-08; Wave 0 supporting contracts frozen 2026-09-08. Wave 1 implements the bounded exploratory data port and standard halted process foundation; E*TRADE production read traversal passed under the owner-authorized margin-privilege amendment, retaining cash-funded strategy limits and separate connected-execution qualification gates. Later engine/account/operational capabilities remain targets; no trading permission is changed by this document.
+Status: authoritative design, consolidated 2026-09-08; Wave 0 supporting contracts remain frozen. Waves 0–2 are accepted, including the exploratory data port, standard halted process foundation and canonical offline economic engine. Wave 3 local research-workspace gates passed; GitHub release verification remains open. E*TRADE production read traversal passed under the owner-authorized margin-privilege amendment, retaining cash-funded strategy limits and separate connected-execution qualification gates. Continuous account coordination and connected execution remain later targets; no trading permission is changed by this document.
 
 This is the sole current architecture. [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) is the sole delivery plan. The [design review](reviews/2026-09-08-design-review.md) records the independent baseline, comparison with the previous GPT-5.6 Sol design, and code evidence. Historical ADRs retain their factual record; the explicit decisions below supersede conflicting future requirements. Implemented behavior remains unchanged until its migration wave passes.
 
@@ -31,7 +31,7 @@ E*TRADE's documented session lifecycle requires user participation: inactive tok
 
 Reviewed integrated code: `107fa79` in the active checkout. The older workspace checkout is `8685b56`, 161 commits behind that main revision. This is a static design/code review, not a fresh claim that tests or deployment qualification passed.
 
-The existing runnable product demonstrates fixture ingestion and a separate fixed golden backtest. Its trader is a one-shot, non-ready preflight. Strong deterministic accounting, risk, persistence and order-state components exist, but general dataset-driven economics, authoritative broker application/reconciliation, and a continuously operating execution path are incomplete. Newer research/OAuth/native lifecycle work does not close those gaps.
+Waves 0–2 supply admitted historical archives, the sole causal economic engine, retained financial reducers and derived reports. Wave 3 integrates a local selectable dataset/run/report/comparison UI, durable research jobs and descriptive trial registration; its exact acceptance status is recorded in the implementation plan. The former golden path remains explicitly labelled history. The trader is still a non-ready preflight: authoritative broker application/reconciliation and a continuously operating execution path remain later work. Research completion cannot close those connected-execution gaps.
 
 Target readiness must be reported separately as service health, research usability, source quality, account reconciliation, execution eligibility and live authorization. A healthy API or a passing fixture cannot set trading readiness.
 
@@ -133,6 +133,10 @@ The first historical adapter is Tiingo if its current terms and actual data sati
 ## 6. Research, simulation and reports
 
 Implement a selectable dataset and configurable owner-authored strategy path, beginning with a buy-and-hold/rebalance baseline and a simple trend rule. These are engineering/research references, not investment recommendations.
+
+The W3 local research implementation pairs an explicit SQLite or PostgreSQL database with a private content-addressed typed JSON object store. Immutable requests bind data, calendars, source build, configuration and report conventions. One resource-bounded child resolves inputs, executes the existing engine and validates reports while the supervisor maintains lease/cancellation control. A final database fence authorizes publication. The two reference rules expose an explicit no-fit artifact and descriptive prior-access declarations; no automatic strategy selection or untouched-holdout status is inferred from this workflow.
+
+File-backed research SQLite explicitly uses WAL with full synchronization on a supported patched runtime. Coherent read snapshots release their transactions before typed replay where possible; writers retain immediate transactions and claim fences. WAL is limited to a local filesystem on one host. The research runbook defines coordinated conversion and backups that retain committed WAL contents together with immutable objects. Other database profiles retain their existing configuration.
 
 Historical signals use only completed, available data. Daily signals cannot trade at the same close used to compute them. Freeze the later-session execution schedule before a run. A next-open proxy is an explicitly named exploratory model; a fixed later intraday execution time requires observations for that time. Daily OHLC cannot establish quote spread, queue position or intraday path. Forward capture and conservative stress bridge model uncertainty; unsupported execution claims block qualification.
 

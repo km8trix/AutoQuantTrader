@@ -27,4 +27,15 @@ describe('EnvironmentBanner', () => {
     )
     expect(getComputedStyle(banner).color).toBe('rgb(255, 255, 255)')
   })
+
+  it('keeps complete identity in a wrapping document-flow banner before desktop overrides', () => {
+    const account = 'synthetic-account-with-a-long-explicit-identity'
+    renderWithProviders(<div style={{ width: 319 }}><EnvironmentBanner environment={{ account_id: account, mode: 'local', name: 'Local retained research environment' }} /></div>)
+    const banner = screen.getByRole('status', { name: 'Trading environment' })
+    expect(banner).toHaveTextContent('Local simulation — Local retained research environment')
+    expect(banner).toHaveTextContent(`Account ${account}`)
+    expect(getComputedStyle(banner).position).toBe('relative')
+    expect(getComputedStyle(banner).height).toBe('auto')
+    expect(getComputedStyle(banner).flexWrap).toBe('wrap')
+  })
 })

@@ -1,0 +1,31 @@
+{
+  "aggregate_event_snapshot_bound": 33554432,
+  "blocked_replay_commit_tests": 6,
+  "files": [
+    {
+      "path": "packages/persistence/research_workflow_v2.py",
+      "sha256": "63524a04dc11424071354ec43fac29a033365764d3d57862cba9490c49c906cc"
+    },
+    {
+      "path": "tests/integration/test_research_workflow_v2.py",
+      "sha256": "5231e72fbe437ee06baeb96d39ee09e68f41a08bc7914c3613e6e4ca059cca62"
+    }
+  ],
+  "focused_tests_passed": 38,
+  "maximum_field_event_bytes": 2520,
+  "maximum_supported_event_history_bytes": 10321920,
+  "mypy_passed": true,
+  "next_probe_phase_zero_required": true,
+  "page_select_counts": {
+    "100_jobs": 8,
+    "129_job_explicit_batch": 12,
+    "1_jobs": 8,
+    "36_jobs": 8
+  },
+  "prior_batched_probe_status": "writer_commit_SQLITE_BUSY",
+  "provider_calls": 0,
+  "ruff_passed": true,
+  "source_handoff_sha256": "05f61adeed2247e692130cb9760644b2372e665dd4a1fe7520db3e5c7b9944ad",
+  "sql_batch_ids": 128,
+  "status": "workflow_frozen_pending_integrated_readiness_probe"
+}

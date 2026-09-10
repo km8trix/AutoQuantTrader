@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from apps.api.backtest_views import LocalOperatorSecurity
@@ -15,6 +17,22 @@ def test_local_operator_identity_is_bounded_and_cors_cannot_be_wildcarded() -> N
         LocalCredentials(operator_id=" untrimmed ")
     with pytest.raises(ValueError, match="wildcard CORS"):
         Settings(cors_origins=("*",))
+
+
+@pytest.mark.parametrize("operator", ("Local Owner", "owner@example.test", "équipe"))
+def test_research_rejects_unsupported_owner_before_startup_but_preserves_legacy(
+    operator: str,
+) -> None:
+    credentials = LocalCredentials(operator_id=operator)
+    assert Settings(credentials=credentials).credentials == credentials
+    with pytest.raises(ValueError, match="personal research operator ID"):
+        Settings(credentials=credentials, research_artifacts_path=Path("private-objects"))
+
+
+def test_research_owner_uses_the_supported_exact_identifier() -> None:
+    credentials = LocalCredentials(operator_id="owner.team:research-1")
+    settings = Settings(credentials=credentials, research_artifacts_path=Path("private-objects"))
+    assert settings.credentials == credentials
 
 
 def test_local_capability_requires_a_loopback_transport_boundary() -> None:

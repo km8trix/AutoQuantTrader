@@ -1,0 +1,38 @@
+{
+  "completed_overlap_rounds": 2,
+  "failure": "writer_commit_SQLITE_BUSY",
+  "failure_round": 3,
+  "lease_or_timeout_changes": false,
+  "observed_transactions": [
+    {
+      "lane": "catalog_service_detail",
+      "maximum_transaction_seconds": 3.951944,
+      "queries_in_maximum_transaction": 9,
+      "transactions": 150
+    },
+    {
+      "lane": "catalog_service_list",
+      "maximum_transaction_seconds": 3.03963,
+      "queries_in_maximum_transaction": 9,
+      "transactions": 438
+    },
+    {
+      "lane": "schema_readiness",
+      "maximum_transaction_seconds": 5.501734,
+      "queries_in_maximum_transaction": 164,
+      "transactions": 3
+    },
+    {
+      "lane": "workflow_getters",
+      "maximum_transaction_seconds": 1.225013,
+      "queries_in_maximum_transaction": 7,
+      "transactions": 18
+    }
+  ],
+  "private_backup_only": true,
+  "profile_sha256": "118862ad489109183c643fd96974ca096bb0688975ff935877c65180972b3780",
+  "require_phase_zero_facts": true,
+  "scope": "Historical failed DELETE-journal probe after import preloading; original retained database unchanged.",
+  "source_summary_sha256": "45f0aa68663f99b7e554a185acb17fcf8a14bb45eb1104ea2dfa5c2512a69069",
+  "status": "failed"
+}

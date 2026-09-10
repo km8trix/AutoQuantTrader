@@ -37,6 +37,7 @@ autoquant-golden-oracle = "apps.worker.legacy_golden:main"
 autoquant-trader = "apps.trader.main:main"
 autoquant-personal-simulation = "apps.trader.personal_simulation:main"
 autoquant-research = "apps.worker.personal_research:main"
+autoquant-research-jobs = "apps.worker.research_jobs:main"
 autoquant-trusted-time-supervisor = "apps.trusted_time_supervisor.main:main"
 autoquant-trusted-time-first-enrollment = "apps.trusted_time_supervisor.first_enrollment:main"
 autoquant-trusted-time-first-enrollment-release = "apps.trusted_time_supervisor.first_enrollment:release_main"
@@ -63,7 +64,18 @@ build-constraint-dependencies = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["apps", "packages"]
-exclude = ["packages/adapters/trusted_time/_bounded_process.py"]
+exclude = [
+  "packages/adapters/trusted_time/_bounded_process.py",
+  "apps/web/node_modules/**",
+  "apps/web/dist/**",
+  "**/__pycache__/**",
+  "**/*.pyc",
+  "**/.env",
+  "**/.env.*",
+]
+
+[tool.hatch.build.targets.wheel.force-include]
+"migrations" = "migrations"
 
 [tool.hatch.build.targets.wheel.hooks.custom]
 # Historical native qualification is opt-in; the personal profile is pure Python.

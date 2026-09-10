@@ -1,0 +1,65 @@
+{
+  "checks": {
+    "architecture": {
+      "exit_code": 0
+    },
+    "final_strengthened_probe_failure_assertions": {
+      "deselected": 26,
+      "exit_code": 0,
+      "passed": 10,
+      "seconds": 9.99
+    },
+    "migration_readiness_module": {
+      "exit_code": 0,
+      "passed": 36,
+      "seconds": 29.99
+    },
+    "mypy": {
+      "exit_code": 0,
+      "source_files": 1
+    },
+    "ruff_check": {
+      "exit_code": 0
+    },
+    "ruff_format_check": {
+      "exit_code": 0
+    }
+  },
+  "files": [
+    {
+      "path": "packages/persistence/database.py",
+      "sha256": "de0d291c6dc8c2201723c5f47cbe6391c68e5d0cd9347ecc91c77c23ccc7266a"
+    },
+    {
+      "path": "tests/integration/test_personal_research_migration.py",
+      "sha256": "08c22042784b2547ac1065c4115bf33e8db675ff749bbbab5a27803c6fc07965"
+    }
+  ],
+  "original_manifest_sha256": "f33cd4a3a16d088341ebb353f6be1c54c242cc20b05e58d7fbe5edaeb85f25c0",
+  "preserved": [
+    "Same coherent outer SQL snapshot",
+    "All historical and phase-zero financial integrity checks",
+    "All nine-table W3 FK/orphan/object and deferred replay validation",
+    "No WAL or timeout/lease changes"
+  ],
+  "query_count_evidence": {
+    "batch_widths": [
+      64,
+      64,
+      15
+    ],
+    "batched_probes": 3,
+    "batched_total_statements": 143,
+    "path": "readiness-query-count.json",
+    "previous_probes": 143,
+    "previous_total_statements": 283,
+    "required_tables": 143,
+    "sha256": "aea619f4d4110b778778522f43e3adc191ca8d262574293fdec3aa56427281e2"
+  },
+  "recorded_at": "2026-09-10T04:52:47.291934+00:00",
+  "scope": "Bounded required-table/column readability batching only; preserves the detached W3 replay fix",
+  "validation_limits": [
+    "SQLite fixture execution; PostgreSQL portability will be exercised by existing CI migration/readiness gates.",
+    "Query-count reduction does not establish an upper bound on contended transaction latency."
+  ]
+}
